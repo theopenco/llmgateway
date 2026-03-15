@@ -68,7 +68,7 @@ function extractClientIP(c: any): string | null {
 	}
 
 	// Last resort: direct connection IP (may be proxy/load balancer)
-	return c.req.header("Remote-Addr") || null;
+	return c.req.header("Remote-Addr") ?? null;
 }
 
 /**

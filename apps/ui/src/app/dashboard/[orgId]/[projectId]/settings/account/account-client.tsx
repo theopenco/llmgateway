@@ -34,13 +34,13 @@ function formatProviderName(providerId: string): string {
 export function AccountClient() {
 	const { user } = useUser();
 
-	const [name, setName] = useState(user?.name || "");
-	const [email, setEmail] = useState(user?.email || "");
+	const [name, setName] = useState(user?.name ?? "");
+	const [email, setEmail] = useState(user?.email ?? "");
 
 	useEffect(() => {
 		if (user) {
-			setName(user.name || "");
-			setEmail(user.email || "");
+			setName(user.name ?? "");
+			setEmail(user.email ?? "");
 		}
 	}, [user]);
 
@@ -59,8 +59,8 @@ export function AccountClient() {
 		try {
 			await updateUserMutation.mutateAsync({
 				body: {
-					name: name || undefined,
-					email: emailEditable ? email || undefined : undefined,
+					name: name ?? undefined,
+					email: emailEditable ? (email ?? undefined) : undefined,
 				},
 			});
 

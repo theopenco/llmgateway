@@ -46,7 +46,7 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 			"http.method": method,
 			"http.url": c.req.url,
 			"http.route": path,
-			"http.user_agent": c.req.header("user-agent") || "",
+			"http.user_agent": c.req.header("user-agent") ?? "",
 			"http.remote_addr": getClientIp(c),
 		};
 
@@ -56,7 +56,7 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 		}
 
 		// Check for error-indicating headers or patterns
-		const ua = (c.req.header("user-agent") || "").toLowerCase();
+		const ua = (c.req.header("user-agent") ?? "").toLowerCase();
 		if (/error|test/.test(ua)) {
 			attributes["sampling.likely_error"] = true;
 		}
@@ -81,7 +81,7 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 					const status = c.res.status;
 					span.setAttributes({
 						"http.status_code": status,
-						"http.response.size": c.res.headers.get("content-length") || "",
+						"http.response.size": c.res.headers.get("content-length") ?? "",
 					});
 
 					// Set span status
@@ -133,9 +133,9 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 function getClientIp(c: Context): string {
 	// Enhanced client IP detection logic (from API version)
 	return (
-		c.req.header("cf-connecting-ip") ||
-		c.req.header("x-forwarded-for")?.split(",")[0] ||
-		c.req.header("remote-addr") ||
+		c.req.header("cf-connecting-ip") ??
+		c.req.header("x-forwarded-for")?.split(",")[0] ??
+		c.req.header("remote-addr") ??
 		""
 	);
 }

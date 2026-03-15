@@ -10,6 +10,7 @@ import {
 	LogOutIcon,
 	MoreVerticalIcon,
 	Loader2,
+	ImagePlus,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -109,7 +110,7 @@ export function ChatSidebar({
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editTitle, setEditTitle] = useState("");
 
-	const chats = chatsData?.chats || [];
+	const chats = chatsData?.chats ?? [];
 
 	const logout = async () => {
 		posthog.reset();
@@ -393,6 +394,16 @@ export function ChatSidebar({
 						)}
 						New Chat
 					</Button>
+					<Button
+						variant="ghost"
+						className="w-full flex items-center gap-2"
+						asChild
+					>
+						<Link href="/image">
+							<ImagePlus className="h-4 w-4" />
+							Image Studio
+						</Link>
+					</Button>
 				</div>
 			</SidebarHeader>
 
@@ -446,7 +457,7 @@ export function ChatSidebar({
 					<div className="flex items-center gap-3 flex-1">
 						<Avatar className="border-border h-9 w-9 border">
 							<AvatarFallback className="bg-muted">
-								{user?.name?.slice(0, 2) || "AU"}
+								{user?.name?.slice(0, 2) ?? "AU"}
 							</AvatarFallback>
 						</Avatar>
 						<div className="text-sm flex-1 min-w-0">

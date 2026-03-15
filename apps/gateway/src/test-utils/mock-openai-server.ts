@@ -162,14 +162,14 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 
 	// Get the user's message to include in the response
 	const userMessage =
-		body.input?.find?.((msg: any) => msg.role === "user")?.content || "";
+		body.input?.find?.((msg: any) => msg.role === "user")?.content ?? "";
 
 	// Create a Responses API format response
 	const response = {
 		id: "resp-123",
 		object: "response",
 		created_at: Math.floor(Date.now() / 1000),
-		model: body.model || "gpt-5-nano",
+		model: body.model ?? "gpt-5-nano",
 		output: [
 			{
 				type: "message",
@@ -209,7 +209,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 
 	// Get the user's message to include in the response
 	const userMessage =
-		body.messages.find((msg: any) => msg.role === "user")?.content || "";
+		body.messages.find((msg: any) => msg.role === "user")?.content ?? "";
 
 	// Check if this request should trigger a specific HTTP status code error
 	const statusTrigger = extractStatusCodeTrigger(userMessage);
@@ -296,7 +296,7 @@ mockOpenAIServer.post(
 
 		const userMessage =
 			body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]
-				?.text || "";
+				?.text ?? "";
 
 		return c.json({
 			candidates: [
@@ -346,7 +346,7 @@ mockOpenAIServer.post("/v1beta/models/:model\\:generateContent", async (c) => {
 
 	// Get the user's message
 	const userMessage =
-		body.contents?.find?.((c: any) => c.role === "user")?.parts?.[0]?.text ||
+		body.contents?.find?.((c: any) => c.role === "user")?.parts?.[0]?.text ??
 		"";
 
 	// Return Google AI Studio format response
@@ -371,6 +371,54 @@ mockOpenAIServer.post("/v1beta/models/:model\\:generateContent", async (c) => {
 			totalTokenCount: 30,
 		},
 	});
+});
+
+mockOpenAIServer.post("/model/:model/converse", async (c) => {
+	const body = await c.req.json();
+	const userMessage = body.messages?.[0]?.content?.[0]?.text ?? "";
+
+	if (userMessage.includes("TRIGGER_BEDROCK_HEADER_ERROR")) {
+		c.header(
+			"x-amzn-errormessage",
+			"The provided model identifier is invalid for this account.",
+		);
+		c.header("x-amzn-errortype", "ValidationException");
+		c.status(400);
+		return c.json({});
+	}
+
+	return c.json({
+		output: {
+			message: {
+				role: "assistant",
+				content: [{ text: `Bedrock mock response: ${userMessage}` }],
+			},
+		},
+		stopReason: "end_turn",
+		usage: {
+			inputTokens: 10,
+			outputTokens: 20,
+			totalTokens: 30,
+		},
+	});
+});
+
+mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
+	const body = await c.req.json();
+	const userMessage = body.messages?.[0]?.content?.[0]?.text ?? "";
+
+	if (userMessage.includes("TRIGGER_BEDROCK_HEADER_ERROR")) {
+		c.header(
+			"x-amzn-errormessage",
+			"The provided model identifier is invalid for this account.",
+		);
+		c.header("x-amzn-errortype", "ValidationException");
+		c.status(400);
+		return c.json({});
+	}
+
+	c.header("content-type", "application/vnd.amazon.eventstream");
+	return c.body("");
 });
 
 let server: any = null;

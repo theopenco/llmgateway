@@ -195,8 +195,8 @@ export function SecurityEventsClient() {
 		if (canViewEvents) {
 			setViolations([]);
 			setNextCursor(null);
-			fetchStats();
-			fetchViolations();
+			void fetchStats();
+			void fetchViolations();
 		} else {
 			setIsLoading(false);
 		}
@@ -256,7 +256,7 @@ export function SecurityEventsClient() {
 						<CardHeader className="pb-2">
 							<CardDescription>Blocked</CardDescription>
 							<CardTitle className="text-3xl text-destructive">
-								{stats.byAction.blocked}
+								{stats.byAction?.blocked ?? 0}
 							</CardTitle>
 						</CardHeader>
 					</Card>
@@ -264,7 +264,7 @@ export function SecurityEventsClient() {
 						<CardHeader className="pb-2">
 							<CardDescription>Redacted</CardDescription>
 							<CardTitle className="text-3xl text-orange-500">
-								{stats.byAction.redacted}
+								{stats.byAction?.redacted ?? 0}
 							</CardTitle>
 						</CardHeader>
 					</Card>
@@ -438,7 +438,7 @@ export function SecurityEventsClient() {
 														</Badge>
 													</td>
 													<td className="p-4 align-middle text-sm text-muted-foreground max-w-xs truncate">
-														{violation.matchedPattern || "—"}
+														{violation.matchedPattern ?? "—"}
 													</td>
 												</tr>
 											))}
@@ -462,7 +462,7 @@ export function SecurityEventsClient() {
 							{hasMore && (
 								<div className="flex justify-center pt-4">
 									<Button
-										onClick={() => fetchViolations(nextCursor || undefined)}
+										onClick={() => fetchViolations(nextCursor ?? undefined)}
 										disabled={isLoadingMore}
 										variant="outline"
 									>

@@ -46,7 +46,7 @@ export function ProjectModeSettings({
 	const form = useForm<ProjectModeFormData>({
 		resolver: zodResolver(projectModeFormSchema),
 		defaultValues: {
-			mode: initialData.project.mode || "api-keys",
+			mode: initialData.project.mode ?? "api-keys",
 		},
 	});
 

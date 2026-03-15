@@ -7,7 +7,7 @@ import {
 	DotIcon,
 	type LucideIcon,
 } from "lucide-react";
-import { createContext, memo, useContext, useMemo } from "react";
+import { createContext, memo, use, useMemo } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -29,7 +29,7 @@ const ChainOfThoughtContext = createContext<ChainOfThoughtContextValue | null>(
 );
 
 const useChainOfThought = () => {
-	const context = useContext(ChainOfThoughtContext);
+	const context = use(ChainOfThoughtContext);
 	if (!context) {
 		throw new Error(
 			"ChainOfThought components must be used within ChainOfThought",
@@ -65,14 +65,14 @@ export const ChainOfThought = memo(
 		);
 
 		return (
-			<ChainOfThoughtContext.Provider value={contextValue}>
+			<ChainOfThoughtContext value={contextValue}>
 				<div
 					className={cn("not-prose max-w-prose space-y-4", className)}
 					{...props}
 				>
 					{children}
 				</div>
-			</ChainOfThoughtContext.Provider>
+			</ChainOfThoughtContext>
 		);
 	},
 );

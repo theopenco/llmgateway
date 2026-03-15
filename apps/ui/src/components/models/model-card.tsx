@@ -2,6 +2,7 @@
 
 import {
 	AlertTriangle,
+	AlertCircle,
 	Copy,
 	Check,
 	Play,
@@ -12,6 +13,7 @@ import {
 import { useState } from "react";
 
 import { ModelCodeExampleDialog } from "@/components/models/model-code-example-dialog";
+import { ModelStatusBadge } from "@/components/models/model-status-badge";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card } from "@/lib/components/card";
@@ -22,7 +24,7 @@ import {
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
-import { formatContextSize } from "@/lib/utils";
+import { formatContextSize, formatDeprecationDate } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -73,10 +75,29 @@ export function ModelCard({
 	const [showAllProviders, setShowAllProviders] = useState(false);
 
 	const copyToClipboard = (text: string) => {
-		navigator.clipboard.writeText(text);
+		void navigator.clipboard.writeText(text);
 		setCopiedModel(text);
 		setTimeout(() => setCopiedModel(null), 2000);
 	};
+
+	const now = new Date();
+	const allHaveDeactivatedAt =
+		model.providerDetails.length > 0 &&
+		model.providerDetails.every(({ provider }) => provider.deactivatedAt);
+	const allHaveDeprecatedAt =
+		!allHaveDeactivatedAt &&
+		model.providerDetails.length > 0 &&
+		model.providerDetails.every(({ provider }) => provider.deprecatedAt);
+	const deactivationAllPast =
+		allHaveDeactivatedAt &&
+		model.providerDetails.every(
+			({ provider }) => new Date(provider.deactivatedAt!) <= now,
+		);
+	const deprecationAllPast =
+		allHaveDeprecatedAt &&
+		model.providerDetails.every(
+			({ provider }) => new Date(provider.deprecatedAt!) <= now,
+		);
 
 	const hasProviderStabilityWarning = (
 		provider: ApiModelProviderMapping,
@@ -98,7 +119,7 @@ export function ModelCard({
 					<div className="space-y-3">
 						<div className="flex items-start justify-between gap-4">
 							<h3 className="text-2xl font-bold text-foreground tracking-tight">
-								{model.name || model.id}
+								{model.name ?? model.id}
 							</h3>
 							<div
 								onClick={(e) => e.stopPropagation()}
@@ -110,12 +131,26 @@ export function ModelCard({
 								<AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
 							)}
 						</div>
-						<Badge
-							variant="secondary"
-							className="text-xs font-medium bg-muted text-muted-foreground border hover:bg-muted/80"
-						>
-							{model.family}
-						</Badge>
+						<div className="flex flex-wrap items-center gap-2">
+							<Badge
+								variant="secondary"
+								className="text-xs font-medium bg-muted text-muted-foreground border hover:bg-muted/80"
+							>
+								{model.family}
+							</Badge>
+							{allHaveDeactivatedAt && (
+								<ModelStatusBadge
+									status="deactivated"
+									isPast={deactivationAllPast}
+								/>
+							)}
+							{allHaveDeprecatedAt && (
+								<ModelStatusBadge
+									status="deprecated"
+									isPast={deprecationAllPast}
+								/>
+							)}
+						</div>
 					</div>
 
 					<div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted border">
@@ -188,14 +223,14 @@ export function ModelCard({
 												<ProviderIcon className="h-5 w-5" />
 											) : (
 												<span className="text-xs font-bold">
-													{(providerInfo?.name || provider.providerId)
+													{(providerInfo?.name ?? provider.providerId)
 														.charAt(0)
 														.toUpperCase()}
 												</span>
 											)}
 										</div>
 										<span className="text-base font-semibold text-foreground">
-											{providerInfo?.name || provider.providerId}
+											{providerInfo?.name ?? provider.providerId}
 										</span>
 										{hasProviderStabilityWarning(provider) && (
 											<AlertTriangle className="h-4 w-4 text-amber-400" />
@@ -249,14 +284,52 @@ export function ModelCard({
 												Stability
 											</div>
 											<Badge className="text-xs px-2 py-0.5 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-												{provider.stability || "STABLE"}
+												{provider.stability ?? "STABLE"}
 											</Badge>
 										</div>
 									</div>
 
+									{(provider.deprecatedAt ?? provider.deactivatedAt) && (
+										<div className="flex flex-wrap gap-2">
+											{provider.deprecatedAt && (
+												<Badge
+													variant="outline"
+													className="text-xs px-2.5 py-1 gap-1.5 bg-amber-50 dark:bg-amber-500/5 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+												>
+													<AlertTriangle className="h-3 w-3" />
+													{formatDeprecationDate(
+														provider.deprecatedAt,
+														"deprecated",
+													)}
+												</Badge>
+											)}
+											{provider.deactivatedAt && (
+												<Badge
+													variant="outline"
+													className="text-xs px-2.5 py-1 gap-1.5 bg-red-50 dark:bg-red-500/5 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20"
+												>
+													<AlertCircle className="h-3 w-3" />
+													{formatDeprecationDate(
+														provider.deactivatedAt,
+														"deactivated",
+													)}
+												</Badge>
+											)}
+										</div>
+									)}
+
 									<div>
-										<div className="text-xs text-muted-foreground mb-2">
-											Pricing
+										<div className="flex items-center gap-2 mb-2">
+											<div className="text-xs text-muted-foreground">
+												Pricing
+											</div>
+											{provider.discount &&
+												parseFloat(provider.discount) > 0 && (
+													<Badge className="text-[10px] px-1.5 py-0 h-4 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
+														{Math.round(parseFloat(provider.discount) * 100)}%
+														off
+													</Badge>
+												)}
 										</div>
 										<div className="grid grid-cols-3 gap-3">
 											<div className="space-y-1">

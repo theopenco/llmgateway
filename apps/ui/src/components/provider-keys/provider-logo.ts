@@ -11,7 +11,6 @@ export const providerLogoUrls: Partial<
 	"google-vertex": ProviderIcons["google-vertex"],
 	"inference.net": ProviderIcons["inference.net"],
 	"together.ai": ProviderIcons["together.ai"],
-	cloudrift: ProviderIcons.cloudrift,
 	mistral: ProviderIcons.mistral,
 	groq: ProviderIcons.groq,
 	xai: ProviderIcons.xai,

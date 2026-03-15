@@ -106,12 +106,12 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
-# Use the CloudRift provider specifically
+# Use DeepSeek provider specifically
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "cloudrift/deepseek-v3",
+    "model": "deepseek/deepseek-v3.2",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```

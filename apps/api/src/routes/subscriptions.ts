@@ -8,7 +8,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import { stripe } from "./payments.js";
+import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -117,7 +117,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 		}
 
 		// Create Stripe Checkout session
-		const session = await stripe.checkout.sessions.create({
+		const session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
 			mode: "subscription",
 			line_items: [
@@ -127,8 +127,8 @@ subscriptions.openapi(createProSubscription, async (c) => {
 				},
 			],
 			allow_promotion_codes: true,
-			success_url: `${process.env.UI_URL || "http://localhost:3002"}/dashboard/${organization.id}/org/billing?success=true`,
-			cancel_url: `${process.env.UI_URL || "http://localhost:3002"}/dashboard/${organization.id}/org/billing?canceled=true`,
+			success_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?success=true`,
+			cancel_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?canceled=true`,
 			metadata: {
 				organizationId: organization.id,
 				plan: "pro",
@@ -234,7 +234,7 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 
 	try {
 		// Cancel the subscription at the end of the current period
-		await stripe.subscriptions.update(organization.stripeSubscriptionId, {
+		await getStripe().subscriptions.update(organization.stripeSubscriptionId, {
 			cancel_at_period_end: true,
 		});
 
@@ -324,7 +324,7 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 
 	try {
 		// Check if subscription is actually cancelled
-		const subscription = await stripe.subscriptions.retrieve(
+		const subscription = await getStripe().subscriptions.retrieve(
 			organization.stripeSubscriptionId,
 		);
 
@@ -335,7 +335,7 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 		}
 
 		// Resume the subscription by setting cancel_at_period_end to false
-		await stripe.subscriptions.update(organization.stripeSubscriptionId, {
+		await getStripe().subscriptions.update(organization.stripeSubscriptionId, {
 			cancel_at_period_end: false,
 		});
 
@@ -425,7 +425,7 @@ subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
 
 	try {
 		// Get current subscription to check if it's already yearly
-		const subscription = await stripe.subscriptions.retrieve(
+		const subscription = await getStripe().subscriptions.retrieve(
 			organization.stripeSubscriptionId,
 		);
 
@@ -445,7 +445,7 @@ subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
 		}
 
 		// Update subscription to yearly plan
-		await stripe.subscriptions.update(organization.stripeSubscriptionId, {
+		await getStripe().subscriptions.update(organization.stripeSubscriptionId, {
 			items: [
 				{
 					id: subscription.items.data[0].id,
@@ -533,7 +533,7 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 	let billingCycle: "monthly" | "yearly" | null = null;
 	if (organization.stripeSubscriptionId) {
 		try {
-			const subscription = await stripe.subscriptions.retrieve(
+			const subscription = await getStripe().subscriptions.retrieve(
 				organization.stripeSubscriptionId,
 			);
 			const currentPriceId = subscription.items.data[0]?.price.id;
@@ -555,7 +555,7 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 	return c.json({
 		plan: organization.plan || "free",
 		subscriptionId: organization.stripeSubscriptionId,
-		planExpiresAt: organization.planExpiresAt?.toISOString() || null,
+		planExpiresAt: organization.planExpiresAt?.toISOString() ?? null,
 		subscriptionCancelled: organization.subscriptionCancelled || false,
 		billingCycle,
 	});

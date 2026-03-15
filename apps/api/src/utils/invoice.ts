@@ -4,7 +4,7 @@ import { logger } from "@llmgateway/logger";
 
 import { sendTransactionalEmail } from "./email.js";
 
-const invoiceFrom = process.env.INVOICE_FROM || "Fake Company\\nUnited States";
+const invoiceFrom = process.env.INVOICE_FROM ?? "Fake Company\\nUnited States";
 
 function escapeHtml(unsafe: string): string {
 	return unsafe
@@ -89,11 +89,13 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 	yPos = fromYPos;
 	doc.setFontSize(12);
 	doc.setFont("helvetica", "bold");
+	// eslint-disable-next-line no-mixed-operators
 	doc.text("BILL TO:", pageWidth / 2 + 10, yPos);
 	yPos += 7;
 	doc.setFontSize(10);
 	doc.setFont("helvetica", "normal");
 
+	// eslint-disable-next-line no-mixed-operators
 	const billToX = pageWidth / 2 + 10;
 
 	if (data.billingCompany) {

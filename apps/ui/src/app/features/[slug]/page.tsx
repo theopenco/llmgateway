@@ -103,12 +103,14 @@ export default async function FeaturePage({ params }: PageProps) {
 		<>
 			<script
 				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
 					__html: JSON.stringify(breadcrumbSchema),
 				}}
 			/>
 			<script
 				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
 					__html: JSON.stringify(featureSchema),
 				}}

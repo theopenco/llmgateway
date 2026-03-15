@@ -69,7 +69,7 @@ export default function Login() {
 
 	useEffect(() => {
 		if (window.PublicKeyCredential) {
-			signIn.passkey({ autoFill: true }).then((res) => {
+			void signIn.passkey({ autoFill: true }).then((res) => {
 				if (res?.data) {
 					queryClient.clear();
 					posthog.capture("user_logged_in", { method: "passkey" });
@@ -79,7 +79,7 @@ export default function Login() {
 					if (res.error.message?.toLowerCase().includes("cancelled")) {
 						return;
 					}
-					toast.error(res.error.message || "Failed to sign in with passkey", {
+					toast.error(res.error.message ?? "Failed to sign in with passkey", {
 						style: {
 							backgroundColor: "var(--destructive)",
 							color: "var(--destructive-foreground)",
@@ -88,7 +88,6 @@ export default function Login() {
 				}
 			});
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []); // Only run once on mount for autofill
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -113,7 +112,7 @@ export default function Login() {
 					router.push(returnUrl);
 				},
 				onError: (ctx) => {
-					toast.error(ctx.error.message || "An unknown error occurred", {
+					toast.error(ctx.error.message ?? "An unknown error occurred", {
 						style: {
 							backgroundColor: "var(--destructive)",
 							color: "var(--destructive-foreground)",
@@ -124,7 +123,7 @@ export default function Login() {
 		);
 
 		if (error) {
-			toast.error(error.message || "An unknown error occurred", {
+			toast.error(error.message ?? "An unknown error occurred", {
 				style: {
 					backgroundColor: "var(--destructive)",
 					color: "var(--destructive-foreground)",
@@ -140,7 +139,7 @@ export default function Login() {
 		try {
 			const res = await signIn.passkey();
 			if (res?.error) {
-				toast.error(res.error.message || "Failed to sign in with passkey", {
+				toast.error(res.error.message ?? "Failed to sign in with passkey", {
 					style: {
 						backgroundColor: "var(--destructive)",
 						color: "var(--destructive-foreground)",

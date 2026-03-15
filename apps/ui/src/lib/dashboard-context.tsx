@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, use, type ReactNode } from "react";
 
 import type { Organization, Project } from "@/lib/types";
 
@@ -26,15 +26,11 @@ export function DashboardProvider({
 	children: ReactNode;
 	value: DashboardContextType;
 }) {
-	return (
-		<DashboardContext.Provider value={value}>
-			{children}
-		</DashboardContext.Provider>
-	);
+	return <DashboardContext value={value}>{children}</DashboardContext>;
 }
 
 export const useDashboardContext = () => {
-	const context = useContext(DashboardContext);
+	const context = use(DashboardContext);
 	if (!context) {
 		throw new Error(
 			"useDashboardContext must be used within DashboardProvider",

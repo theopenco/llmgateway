@@ -21,6 +21,7 @@ import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
+import { publicDiscounts } from "./routes/public-discounts.js";
 import { referral } from "./routes/referral.js";
 import { stripeRoutes } from "./stripe.js";
 
@@ -55,7 +56,7 @@ app.use("*", honoRequestLogger);
 app.use(
 	"*",
 	cors({
-		origin: process.env.ORIGIN_URLS?.split(",") || [
+		origin: process.env.ORIGIN_URLS?.split(",") ?? [
 			"http://localhost:3002",
 			"http://localhost:3003",
 			"http://localhost:3004",
@@ -219,6 +220,8 @@ app.route("/", beacon);
 app.route("/", referral);
 
 app.route("/internal", internalModels);
+
+app.route("/public/discounts", publicDiscounts);
 
 app.doc("/json", config);
 

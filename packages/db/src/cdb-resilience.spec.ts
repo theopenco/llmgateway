@@ -137,7 +137,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 		// Step 1: Create a working pool and prime the cache
 		const workingPool = new Pool({
 			connectionString:
-				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+				process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 			max: 2,
 			min: 1,
 			idleTimeoutMillis: 1000,
@@ -213,7 +213,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		const workingPool = new Pool({
 			connectionString:
-				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+				process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 			max: 2,
 			min: 1,
 			idleTimeoutMillis: 1000,
@@ -272,7 +272,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 	it("should serve cached organization data when Postgres is unavailable (using select builder)", async () => {
 		const workingPool = new Pool({
 			connectionString:
-				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+				process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 			max: 2,
 			min: 1,
 			idleTimeoutMillis: 1000,
@@ -336,7 +336,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 	it("should serve cached project data when Postgres is unavailable (using select builder)", async () => {
 		const workingPool = new Pool({
 			connectionString:
-				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+				process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 			max: 2,
 			min: 1,
 			idleTimeoutMillis: 1000,
@@ -429,7 +429,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 		// This test verifies that when there's a cache hit, Postgres is not contacted at all
 		const workingPool = new Pool({
 			connectionString:
-				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+				process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 			max: 2,
 			min: 1,
 			idleTimeoutMillis: 1000,
@@ -504,7 +504,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 	it("should cache provider key queries with compound AND conditions", async () => {
 		const workingPool = new Pool({
 			connectionString:
-				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+				process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 			max: 2,
 			connectionTimeoutMillis: 5000,
 		});
@@ -570,7 +570,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 	it("should cache queries using inArray operator", async () => {
 		const workingPool = new Pool({
 			connectionString:
-				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+				process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 			max: 2,
 			connectionTimeoutMillis: 5000,
 		});
@@ -634,7 +634,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 	it("should cache IAM rules queries", async () => {
 		const workingPool = new Pool({
 			connectionString:
-				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+				process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 			max: 2,
 			connectionTimeoutMillis: 5000,
 		});
@@ -696,7 +696,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 	it("should cache join queries (user from organization)", async () => {
 		const workingPool = new Pool({
 			connectionString:
-				process.env.DATABASE_URL || "postgres://postgres:pw@localhost:5432/db",
+				process.env.DATABASE_URL ?? "postgres://postgres:pw@localhost:5432/db",
 			max: 2,
 			connectionTimeoutMillis: 5000,
 		});

@@ -32,7 +32,7 @@ export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 	const filtered = allBlogs
 		.filter((entry: any) => !entry?.draft)
 		.filter((entry: any) =>
-			(entry.categories || []).some((c: string) => slugify(c) === slug),
+			(entry.categories ?? []).some((c: string) => slugify(c) === slug),
 		)
 		.sort(
 			(a: any, b: any) =>
@@ -56,7 +56,7 @@ export async function generateStaticParams() {
 	const { allBlogs } = await import("content-collections");
 	const slugs = new Set<string>();
 	for (const post of allBlogs) {
-		(post.categories || []).forEach((c: string) => slugs.add(slugify(c)));
+		(post.categories ?? []).forEach((c: string) => slugs.add(slugify(c)));
 	}
 	return Array.from(slugs).map((category) => ({ category }));
 }

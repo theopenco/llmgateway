@@ -4,7 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import type { ServerTypes } from "@/vars.js";
 
 export function isAdminEmail(email: string | null | undefined): boolean {
-	const adminEmailsEnv = process.env.ADMIN_EMAILS || "";
+	const adminEmailsEnv = process.env.ADMIN_EMAILS ?? "";
 	const adminEmails = adminEmailsEnv
 		.split(",")
 		.map((value) => value.trim().toLowerCase())

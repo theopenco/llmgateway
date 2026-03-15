@@ -56,7 +56,7 @@ export function UsageClient({
 		{
 			params: {
 				query: {
-					projectId: projectId || "",
+					projectId: projectId ?? "",
 				},
 			},
 		},
@@ -66,10 +66,10 @@ export function UsageClient({
 	);
 
 	const apiKeys =
-		apiKeysData?.apiKeys.filter((key) => key.status !== "deleted") || [];
+		apiKeysData?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 
 	// Get apiKeyId from URL
-	const apiKeyId = searchParams.get("apiKeyId") || undefined;
+	const apiKeyId = searchParams.get("apiKeyId") ?? undefined;
 
 	// If no from/to params, redirect to add them
 	useEffect(() => {
@@ -101,7 +101,7 @@ export function UsageClient({
 					<h2 className="text-3xl font-bold tracking-tight">Usage & Metrics</h2>
 					<div className="flex items-center space-x-2">
 						<Select
-							value={apiKeyId || "all"}
+							value={apiKeyId ?? "all"}
 							onValueChange={(value) =>
 								updateApiKeyIdInUrl(value === "all" ? undefined : value)
 							}

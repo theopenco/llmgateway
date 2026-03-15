@@ -179,8 +179,10 @@ export const logs: Log[] = [
 	{
 		id: "log-gpt35-turbo-1",
 		requestId: "log-gpt35-turbo-1",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -235,8 +237,10 @@ export const logs: Log[] = [
 	{
 		id: "log-llama3-70b-1",
 		requestId: "log-llama3-70b-1",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -286,8 +290,10 @@ export const logs: Log[] = [
 	{
 		id: "log-claude-sonnet-1",
 		requestId: "log-claude-sonnet-1",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -322,8 +328,10 @@ export const logs: Log[] = [
 	{
 		id: "log-gpt4o-1",
 		requestId: "log-gpt4o-1",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -526,8 +534,10 @@ export const logs: Log[] = [
 	{
 		id: "log-5",
 		requestId: "log-5",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -550,8 +560,10 @@ export const logs: Log[] = [
 	{
 		id: "log-6",
 		requestId: "log-6",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 14 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 14 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -574,8 +586,10 @@ export const logs: Log[] = [
 	{
 		id: "log-7",
 		requestId: "log-7",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 21 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 21 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -598,8 +612,10 @@ export const logs: Log[] = [
 	{
 		id: "log-8",
 		requestId: "log-8",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 28 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 28 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -622,8 +638,10 @@ export const logs: Log[] = [
 	{
 		id: "log-9",
 		requestId: "log-9",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 10 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 10 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -646,8 +664,10 @@ export const logs: Log[] = [
 	{
 		id: "log-10",
 		requestId: "log-10",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 17 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 17 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -670,8 +690,10 @@ export const logs: Log[] = [
 	{
 		id: "log-11",
 		requestId: "log-11",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 25 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 25 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -694,8 +716,10 @@ export const logs: Log[] = [
 	{
 		id: "log-12",
 		requestId: "log-12",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -718,8 +742,10 @@ export const logs: Log[] = [
 	{
 		id: "log-13",
 		requestId: "log-13",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 5 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 5 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -742,8 +768,10 @@ export const logs: Log[] = [
 	{
 		id: "log-14",
 		requestId: "log-14",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 12 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 12 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -766,8 +794,10 @@ export const logs: Log[] = [
 	{
 		id: "log-15",
 		requestId: "log-15",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 20 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 20 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -790,8 +820,10 @@ export const logs: Log[] = [
 	{
 		id: "log-16",
 		requestId: "log-16",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 27 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 27 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -816,8 +848,10 @@ export const logs: Log[] = [
 	{
 		id: "log-17",
 		requestId: "log-17",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 3 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 3 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -840,8 +874,10 @@ export const logs: Log[] = [
 	{
 		id: "log-18",
 		requestId: "log-18",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 9 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 9 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -864,8 +900,10 @@ export const logs: Log[] = [
 	{
 		id: "log-19",
 		requestId: "log-19",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 15 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 15 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",
@@ -888,8 +926,10 @@ export const logs: Log[] = [
 	{
 		id: "log-20",
 		requestId: "log-20",
+		/* eslint-disable no-mixed-operators */
 		createdAt: new Date(new Date().getTime() - 22 * 24 * 60 * 60 * 1000),
 		updatedAt: new Date(new Date().getTime() - 22 * 24 * 60 * 60 * 1000),
+		/* eslint-enable no-mixed-operators */
 		organizationId: "test-org-id",
 		projectId: "test-project-id",
 		apiKeyId: "test-api-key-id",

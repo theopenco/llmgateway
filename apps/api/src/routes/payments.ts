@@ -11,12 +11,21 @@ import { calculateFees } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const stripe = new Stripe(
-	process.env.STRIPE_SECRET_KEY || "sk_test_123",
-	{
-		apiVersion: "2025-04-30.basil",
-	},
-);
+let _stripe: Stripe | null = null;
+
+export function getStripe(): Stripe {
+	if (!_stripe) {
+		if (!process.env.STRIPE_SECRET_KEY) {
+			throw new Error(
+				"STRIPE_SECRET_KEY environment variable is required for Stripe operations",
+			);
+		}
+		_stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+			apiVersion: "2025-04-30.basil",
+		});
+	}
+	return _stripe;
+}
 
 export const payments = new OpenAPIHono<ServerTypes>();
 
@@ -90,7 +99,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 		amount,
 	});
 
-	const paymentIntent = await stripe.paymentIntents.create({
+	const paymentIntent = await getStripe().paymentIntents.create({
 		amount: Math.round(feeBreakdown.totalAmount * 100),
 		currency: "usd",
 		description: `Credit purchase for ${amount} USD (including fees)`,
@@ -105,7 +114,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 	});
 
 	return c.json({
-		clientSecret: paymentIntent.client_secret || "",
+		clientSecret: paymentIntent.client_secret ?? "",
 	});
 });
 
@@ -161,7 +170,7 @@ payments.openapi(createSetupIntent, async (c) => {
 
 	const organizationId = userOrganization.organization.id;
 
-	const setupIntent = await stripe.setupIntents.create({
+	const setupIntent = await getStripe().setupIntents.create({
 		usage: "off_session",
 		metadata: {
 			organizationId,
@@ -169,7 +178,7 @@ payments.openapi(createSetupIntent, async (c) => {
 	});
 
 	return c.json({
-		clientSecret: setupIntent.client_secret || "",
+		clientSecret: setupIntent.client_secret ?? "",
 	});
 });
 
@@ -236,7 +245,7 @@ payments.openapi(getPaymentMethods, async (c) => {
 
 	const enhancedPaymentMethods = await Promise.all(
 		paymentMethods.map(async (pm) => {
-			const stripePaymentMethod = await stripe.paymentMethods.retrieve(
+			const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
 				pm.stripePaymentMethodId,
 			);
 
@@ -421,16 +430,28 @@ payments.openapi(deletePaymentMethod, async (c) => {
 		});
 	}
 
+	if (paymentMethod.isDefault) {
+		const otherMethods = await db.query.paymentMethod.findMany({
+			where: { organizationId },
+		});
+		if (otherMethods.length > 1) {
+			throw new HTTPException(400, {
+				message:
+					"Cannot delete the default payment method. Please set another payment method as default first.",
+			});
+		}
+	}
+
 	// Get card details before deleting for audit log
 	let cardLast4: string | undefined;
 	try {
-		const stripePaymentMethod = await stripe.paymentMethods.retrieve(
+		const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
 			paymentMethod.stripePaymentMethodId,
 		);
 		cardLast4 = stripePaymentMethod.card?.last4;
 	} catch {}
 
-	await stripe.paymentMethods.detach(paymentMethod.stripePaymentMethodId);
+	await getStripe().paymentMethods.detach(paymentMethod.stripePaymentMethodId);
 
 	await db.delete(tables.paymentMethod).where(eq(tables.paymentMethod.id, id));
 
@@ -544,22 +565,55 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		amount,
 	});
 
-	const paymentIntent = await stripe.paymentIntents.create({
-		amount: Math.round(feeBreakdown.totalAmount * 100),
-		currency: "usd",
-		description: `Credit purchase for ${amount} USD (including fees)`,
-		payment_method: paymentMethod.stripePaymentMethodId,
-		customer: stripeCustomerId,
-		confirm: true,
-		off_session: true,
-		metadata: {
-			organizationId: userOrganization.organization.id,
-			baseAmount: amount.toString(),
-			platformFee: feeBreakdown.platformFee.toString(),
-			userEmail: user.email,
-			userId: user.id,
-		},
-	});
+	let paymentIntent: Stripe.PaymentIntent;
+
+	try {
+		paymentIntent = await getStripe().paymentIntents.create({
+			amount: Math.round(feeBreakdown.totalAmount * 100),
+			currency: "usd",
+			description: `Credit purchase for ${amount} USD (including fees)`,
+			payment_method: paymentMethod.stripePaymentMethodId,
+			customer: stripeCustomerId,
+			confirm: true,
+			off_session: true,
+			metadata: {
+				organizationId: userOrganization.organization.id,
+				baseAmount: amount.toString(),
+				platformFee: feeBreakdown.platformFee.toString(),
+				userEmail: user.email,
+				userId: user.id,
+			},
+		});
+	} catch (err) {
+		if (err instanceof Stripe.errors.StripeCardError) {
+			const declineCode = err.decline_code;
+			const stripeMessage = err.message;
+			let userMessage = stripeMessage;
+
+			if (declineCode === "do_not_honor" || declineCode === "generic_decline") {
+				userMessage =
+					"Your bank declined the payment. Please contact your card issuer or try a different payment method.";
+			} else if (declineCode === "insufficient_funds") {
+				userMessage =
+					"Your card has insufficient funds. Please try a different payment method.";
+			} else if (declineCode === "expired_card") {
+				userMessage =
+					"Your card has expired. Please update your payment method.";
+			} else if (declineCode === "lost_card" || declineCode === "stolen_card") {
+				userMessage =
+					"This card cannot be used. Please use a different payment method.";
+			} else if (declineCode === "incorrect_cvc") {
+				userMessage =
+					"The security code is incorrect. Please check your card details and try again.";
+			}
+
+			throw new HTTPException(402, {
+				message: userMessage,
+			});
+		}
+
+		throw err;
+	}
 
 	if (paymentIntent.status !== "succeeded") {
 		throw new HTTPException(400, {
@@ -583,6 +637,151 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		success: true,
 	});
 });
+const createCheckoutSession = createRoute({
+	method: "post",
+	path: "/create-checkout-session",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						amount: z.number().int().min(5),
+						returnUrl: z.string().url().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						checkoutUrl: z.string(),
+					}),
+				},
+			},
+			description: "Stripe Checkout session created successfully",
+		},
+	},
+});
+
+payments.openapi(createCheckoutSession, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message:
+				"Email verification required. Please check your inbox or tap 'Resend Email' in the dashboard.",
+		});
+	}
+
+	const { amount, returnUrl } = c.req.valid("json");
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: user.id,
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (!userOrganization || !userOrganization.organization) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const organizationId = userOrganization.organization.id;
+	const stripeCustomerId = await ensureStripeCustomer(organizationId);
+
+	const feeBreakdown = calculateFees({ amount });
+
+	const allowedOrigins = [
+		process.env.UI_URL,
+		process.env.PLAYGROUND_URL,
+		process.env.CODE_URL,
+	].filter(Boolean);
+
+	const defaultBillingUrl = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organizationId}/org/billing`;
+
+	let successUrl: string;
+	let cancelUrl: string;
+
+	const isAllowedReturn = (() => {
+		if (!returnUrl) {
+			return false;
+		}
+		try {
+			const parsed = new URL(returnUrl);
+			return allowedOrigins.some(
+				(origin) => origin && parsed.origin === new URL(origin).origin,
+			);
+		} catch {
+			return false;
+		}
+	})();
+
+	if (isAllowedReturn && returnUrl) {
+		const separator = returnUrl.includes("?") ? "&" : "?";
+		successUrl = `${returnUrl}${separator}success=true`;
+		cancelUrl = `${returnUrl}${separator}canceled=true`;
+	} else {
+		successUrl = `${defaultBillingUrl}?success=true`;
+		cancelUrl = `${defaultBillingUrl}?canceled=true`;
+	}
+
+	// IMPORTANT: Metadata is intentionally set on the session only, NOT via
+	// payment_intent_data.metadata. This prevents handlePaymentIntentSucceeded
+	// from also processing this payment (it returns early when baseAmount is
+	// missing from the PaymentIntent metadata). Adding payment_intent_data.metadata
+	// here would cause double-crediting. See handleCreditTopUpCheckout in stripe.ts.
+	const session = await getStripe().checkout.sessions.create({
+		customer: stripeCustomerId,
+		mode: "payment",
+		line_items: [
+			{
+				price_data: {
+					currency: "usd",
+					product_data: {
+						name: `Credit Top-Up ($${amount})`,
+						description: `$${amount} in credits for your LLMGateway account`,
+					},
+					unit_amount: Math.round(feeBreakdown.totalAmount * 100),
+				},
+				quantity: 1,
+			},
+		],
+		success_url: successUrl,
+		cancel_url: cancelUrl,
+		metadata: {
+			organizationId,
+			type: "credit_topup",
+			baseAmount: amount.toString(),
+			platformFee: feeBreakdown.platformFee.toString(),
+			userEmail: user.email,
+			userId: user.id,
+		},
+	});
+
+	if (!session.url) {
+		throw new HTTPException(500, {
+			message: "Failed to generate checkout URL",
+		});
+	}
+
+	return c.json({
+		checkoutUrl: session.url,
+	});
+});
+
 const calculateFeesRoute = createRoute({
 	method: "post",
 	path: "/calculate-fees",

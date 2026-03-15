@@ -35,7 +35,7 @@ export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
 		"/orgs/{id}/projects",
 		{
 			params: {
-				path: { id: orgId || "" },
+				path: { id: orgId ?? "" },
 			},
 		},
 		{
@@ -54,7 +54,7 @@ export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
 		const actualProject = projectsData.projects.find(
 			(p: Project) => p.id === projectId,
 		);
-		return actualProject || null;
+		return actualProject ?? null;
 	}, [projectId, projectsData]);
 
 	// Get API keys data to check plan limits
@@ -63,7 +63,7 @@ export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
 		"/keys/api",
 		{
 			params: {
-				query: { projectId: selectedProject?.id || "" },
+				query: { projectId: selectedProject?.id ?? "" },
 			},
 		},
 		{

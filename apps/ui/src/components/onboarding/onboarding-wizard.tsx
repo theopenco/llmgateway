@@ -100,7 +100,7 @@ export function OnboardingWizard() {
 		if (!apiKey) {
 			return;
 		}
-		navigator.clipboard.writeText(apiKey);
+		void navigator.clipboard.writeText(apiKey);
 		setCopied(true);
 		posthog.capture("onboarding_api_key_copied");
 		setTimeout(() => setCopied(false), 2000);
@@ -139,7 +139,7 @@ export function OnboardingWizard() {
 
 			if (!res.ok) {
 				const data = await res.json();
-				const errorMsg = data.error?.message || "Request failed";
+				const errorMsg = data.error?.message ?? "Request failed";
 				setTryError(errorMsg);
 				posthog.capture("onboarding_try_error", { error: errorMsg });
 				return;

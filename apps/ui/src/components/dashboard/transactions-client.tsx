@@ -234,7 +234,7 @@ export function TransactionsClient({
 												<TableCell>
 													{new Date(transaction.createdAt).toLocaleDateString()}
 												</TableCell>
-												<TableCell>{transaction.description || "—"}</TableCell>
+												<TableCell>{transaction.description ?? "—"}</TableCell>
 											</TableRow>
 										))}
 

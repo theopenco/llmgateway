@@ -4,10 +4,12 @@ import {
 	Copy,
 	Check,
 	AlertTriangle,
+	AlertCircle,
 	Zap,
 	Eye,
 	Wrench,
 	MessageSquare,
+	ImagePlus,
 	Braces,
 	Play,
 	Share2,
@@ -34,7 +36,7 @@ import {
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
 import { XIcon } from "@/lib/icons/XIcon";
-import { formatContextSize } from "@/lib/utils";
+import { formatContextSize, formatDeprecationDate } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -52,22 +54,24 @@ interface ModelProviderCardProps {
 	provider: ProviderWithInfo;
 	modelName: string;
 	modelStability?: StabilityLevel;
+	modelOutput?: string[];
 }
 
 export function ModelProviderCard({
 	provider,
 	modelName,
 	modelStability,
+	modelOutput,
 }: ModelProviderCardProps) {
 	const config = useAppConfig();
 	const [copied, setCopied] = useState(false);
 	const [urlCopied, setUrlCopied] = useState(false);
 	const providerModelName = `${provider.providerId}/${modelName}`;
 	const ProviderIcon = getProviderIcon(provider.providerId);
-	const providerStability = provider.stability || modelStability;
+	const providerStability = provider.stability ?? modelStability;
 
 	const shareUrl = `${config.appUrl}/models/${encodeURIComponent(modelName)}/${encodeURIComponent(provider.providerId)}`;
-	const shareTitle = `${provider.providerInfo?.name || provider.providerId} - ${modelName} on LLM Gateway`;
+	const shareTitle = `${provider.providerInfo?.name ?? provider.providerId} - ${modelName} on LLM Gateway`;
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -124,13 +128,13 @@ export function ModelProviderCard({
 							{ProviderIcon ? (
 								<ProviderIcon className="h-10 w-10" />
 							) : (
-								provider.providerInfo?.name?.charAt(0) || "?"
+								(provider.providerInfo?.name?.charAt(0) ?? "?")
 							)}
 						</div>
 						<div>
 							<div className="flex items-center gap-2 mb-1">
 								<h3 className="font-semibold">
-									{provider.providerInfo?.name || provider.providerId}
+									{provider.providerInfo?.name ?? provider.providerId}
 								</h3>
 								{shouldShowStabilityWarning(providerStability) && (
 									<AlertTriangle className="h-4 w-4 text-orange-500" />
@@ -232,13 +236,43 @@ export function ModelProviderCard({
 					<div>
 						<div className="text-muted-foreground mb-1">Stability</div>
 						<Badge className="text-xs px-2 py-0.5 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-							{provider.stability || "STABLE"}
+							{provider.stability ?? "STABLE"}
 						</Badge>
 					</div>
 				</div>
 
+				{(provider.deprecatedAt ?? provider.deactivatedAt) && (
+					<div className="flex flex-wrap gap-2 mb-4">
+						{provider.deprecatedAt && (
+							<Badge
+								variant="outline"
+								className="text-xs px-2.5 py-1 gap-1.5 bg-amber-50 dark:bg-amber-500/5 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+							>
+								<AlertTriangle className="h-3 w-3" />
+								{formatDeprecationDate(provider.deprecatedAt, "deprecated")}
+							</Badge>
+						)}
+						{provider.deactivatedAt && (
+							<Badge
+								variant="outline"
+								className="text-xs px-2.5 py-1 gap-1.5 bg-red-50 dark:bg-red-500/5 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20"
+							>
+								<AlertCircle className="h-3 w-3" />
+								{formatDeprecationDate(provider.deactivatedAt, "deactivated")}
+							</Badge>
+						)}
+					</div>
+				)}
+
 				<div className="mb-4">
-					<div className="text-muted-foreground text-sm mb-2">Pricing</div>
+					<div className="flex items-center gap-2 mb-2">
+						<div className="text-muted-foreground text-sm">Pricing</div>
+						{provider.discount && provider.discount > 0 && (
+							<Badge className="text-[10px] px-1.5 py-0 h-4 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
+								{Math.round(provider.discount * 100)}% off
+							</Badge>
+						)}
+					</div>
 					<div className="grid grid-cols-3 gap-3">
 						<div>
 							<div className="text-muted-foreground text-xs mb-1">Input</div>
@@ -326,35 +360,108 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					</div>
-					{provider.imageOutputPrice !== undefined && (
-						<div className="grid grid-cols-3 gap-3 mt-3">
-							<div className="col-span-3">
-								<div className="text-muted-foreground text-xs mb-1">
-									Image Output
-								</div>
-								<div className="font-mono">
-									<div className="space-y-1">
-										<div className="flex items-center gap-2">
-											{provider.discount ? (
-												<>
-													<span className="line-through text-muted-foreground text-xs">
-														{formatPrice(provider.imageOutputPrice)}
-													</span>
-													<span className="text-green-600 font-semibold">
-														{formatPrice(
-															provider.imageOutputPrice *
-																(1 - provider.discount),
-														)}
-													</span>
-												</>
-											) : (
-												formatPrice(provider.imageOutputPrice)
-											)}
-										</div>
-										<span className="text-muted-foreground text-xs">/M</span>
-									</div>
-								</div>
+					{(provider.imageInputTokensByResolution ??
+						provider.imageOutputTokensByResolution) && (
+						<div className="mt-3 pt-3 border-t">
+							<div className="text-muted-foreground text-xs mb-2">
+								Image Pricing (est. per image)
 							</div>
+							{provider.imageInputPrice &&
+								provider.imageInputTokensByResolution &&
+								(() => {
+									const named = Object.entries(
+										provider.imageInputTokensByResolution,
+									).filter(([k]) => k !== "default");
+									const defaultTokens =
+										provider.imageInputTokensByResolution["default"];
+									const entries: Array<[string, number]> =
+										named.length > 0
+											? named
+											: defaultTokens !== undefined
+												? [["any size", defaultTokens]]
+												: [];
+									if (entries.length === 0) {
+										return null;
+									}
+									const effectiveDiscount = provider.discount ?? 0;
+									return (
+										<div className="mb-2">
+											<div className="text-xs text-muted-foreground mb-1">
+												Input
+											</div>
+											{entries.map(([res, tokensPerImage]) => {
+												const raw = tokensPerImage * provider.imageInputPrice!;
+												const discounted = raw * (1 - effectiveDiscount);
+												return (
+													<div
+														key={res}
+														className="flex justify-between items-center text-xs py-0.5"
+													>
+														<span className="text-muted-foreground">{res}</span>
+														<span className="font-mono">
+															{effectiveDiscount > 0 ? (
+																<>
+																	<span className="line-through text-muted-foreground mr-1">
+																		~${raw.toFixed(4)}
+																	</span>
+																	<span className="text-green-600 font-semibold">
+																		~${discounted.toFixed(4)}
+																	</span>
+																</>
+															) : (
+																`~$${raw.toFixed(4)}`
+															)}
+														</span>
+													</div>
+												);
+											})}
+										</div>
+									);
+								})()}
+							{provider.imageOutputPrice &&
+								provider.imageOutputTokensByResolution &&
+								(() => {
+									const entries = Object.entries(
+										provider.imageOutputTokensByResolution,
+									).filter(([k]) => k !== "default");
+									if (entries.length === 0) {
+										return null;
+									}
+									const effectiveDiscount = provider.discount ?? 0;
+									return (
+										<div>
+											<div className="text-xs text-muted-foreground mb-1">
+												Output
+											</div>
+											{entries.map(([res, tokensPerImage]) => {
+												const raw = tokensPerImage * provider.imageOutputPrice!;
+												const discounted = raw * (1 - effectiveDiscount);
+												return (
+													<div
+														key={res}
+														className="flex justify-between items-center text-xs py-0.5"
+													>
+														<span className="text-muted-foreground">{res}</span>
+														<span className="font-mono">
+															{effectiveDiscount > 0 ? (
+																<>
+																	<span className="line-through text-muted-foreground mr-1">
+																		~${raw.toFixed(4)}
+																	</span>
+																	<span className="text-green-600 font-semibold">
+																		~${discounted.toFixed(4)}
+																	</span>
+																</>
+															) : (
+																`~$${raw.toFixed(4)}`
+															)}
+														</span>
+													</div>
+												);
+											})}
+										</div>
+									);
+								})()}
 						</div>
 					)}
 					{provider.requestPrice !== undefined && provider.requestPrice > 0 && (
@@ -387,16 +494,6 @@ export function ModelProviderCard({
 									</div>
 								</div>
 							</div>
-						</div>
-					)}
-					{provider.discount && (
-						<div className="mt-2">
-							<Badge
-								variant="secondary"
-								className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 border-green-200"
-							>
-								-{(provider.discount * 100).toFixed(0)}% off
-							</Badge>
 						</div>
 					)}
 					{provider.pricingTiers && provider.pricingTiers.length > 1 && (
@@ -532,6 +629,19 @@ export function ModelProviderCard({
 									</TooltipTrigger>
 									<TooltipContent>
 										<p>Supports structured JSON output</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{modelOutput?.includes("image") && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-pink-50 dark:bg-pink-950/30 text-pink-700 dark:text-pink-300 text-xs">
+											<ImagePlus className="h-3.5 w-3.5" />
+											<span>Image Generation</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>Supports native image generation</p>
 									</TooltipContent>
 								</Tooltip>
 							)}

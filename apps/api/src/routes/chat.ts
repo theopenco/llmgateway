@@ -114,7 +114,7 @@ chat.openapi(completionRoute, async (c) => {
 
 						buffer += decoder.decode(value, { stream: true });
 						const lines = buffer.split("\n");
-						buffer = lines.pop() || "";
+						buffer = lines.pop() ?? "";
 
 						for (const line of lines) {
 							if (line.startsWith("data: ")) {
@@ -146,15 +146,16 @@ chat.openapi(completionRoute, async (c) => {
 			if (responseData.error) {
 				logger.error("Gateway returned error", {
 					requestedModel: model,
-					usedModel: responseData.model || "unknown",
-					usedProvider: responseData.provider || "unknown",
+					usedModel: responseData.model ?? "unknown",
+					usedProvider: responseData.provider ?? "unknown",
 					error: responseData.error,
 					responseData,
 				});
 				const errorMessage =
 					typeof responseData.error === "string"
 						? responseData.error
-						: responseData.error?.message || JSON.stringify(responseData.error);
+						: (responseData.error?.message ??
+							JSON.stringify(responseData.error));
 				throw new Error(errorMessage);
 			}
 
@@ -166,8 +167,8 @@ chat.openapi(completionRoute, async (c) => {
 			) {
 				logger.error("Invalid response structure from gateway", {
 					requestedModel: model,
-					usedModel: responseData.model || "unknown",
-					usedProvider: responseData.provider || "unknown",
+					usedModel: responseData.model ?? "unknown",
+					usedProvider: responseData.provider ?? "unknown",
 					responseData,
 				});
 				throw new Error("Invalid response from gateway - no choices array");
@@ -177,8 +178,8 @@ chat.openapi(completionRoute, async (c) => {
 			if (!firstChoice.message) {
 				logger.error("No message in first choice", {
 					requestedModel: model,
-					usedModel: responseData.model || "unknown",
-					usedProvider: responseData.provider || "unknown",
+					usedModel: responseData.model ?? "unknown",
+					usedProvider: responseData.provider ?? "unknown",
 					firstChoice,
 				});
 				throw new Error("Invalid response structure from gateway - no message");

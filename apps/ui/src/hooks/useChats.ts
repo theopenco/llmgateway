@@ -52,7 +52,7 @@ export function useCreateChat() {
 	return api.useMutation("post", "/chats", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 			toast({ title: "Chat created successfully" });
 		},
 	});
@@ -65,7 +65,7 @@ export function useUpdateChat() {
 	return api.useMutation("patch", "/chats/{id}", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 			toast({ title: "Chat updated successfully" });
 		},
 	});
@@ -78,7 +78,7 @@ export function useDeleteChat() {
 	return api.useMutation("delete", "/chats/{id}", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 			toast({ title: "Chat deleted successfully" });
 		},
 	});
@@ -91,7 +91,7 @@ export function useAddMessage() {
 	return api.useMutation("post", "/chats/{id}/messages", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 		},
 	});
 }

@@ -136,6 +136,7 @@ export function ErrorsMonitoringDemo() {
 						<div className="flex flex-col items-center justify-center p-4 rounded-lg border">
 							<CheckCircle2 className="h-8 w-8 text-green-500 mb-2" />
 							<p className="text-2xl font-bold">
+								{/* eslint-disable-next-line no-mixed-operators */}
 								{((1 - totalErrors / totalRequests) * 100).toFixed(2)}%
 							</p>
 							<p className="text-sm text-muted-foreground text-center">

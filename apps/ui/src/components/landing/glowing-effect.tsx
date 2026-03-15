@@ -72,6 +72,7 @@ const GlowingEffect = memo(
 						lastPosition.current = { x: mouseX, y: mouseY };
 					}
 
+					// eslint-disable-next-line no-mixed-operators
 					const center = [left + width * 0.5, top + height * 0.5];
 					const distanceFromCenter = Math.hypot(
 						mouseX - center[0],
@@ -98,8 +99,10 @@ const GlowingEffect = memo(
 
 					const currentAngle =
 						parseFloat(element.style.getPropertyValue("--start")) || 0;
-					let targetAngle =
+					const targetAngle =
+						// eslint-disable-next-line no-mixed-operators
 						(180 * Math.atan2(mouseY - center[1], mouseX - center[0])) /
+							// eslint-disable-next-line no-mixed-operators
 							Math.PI +
 						90;
 

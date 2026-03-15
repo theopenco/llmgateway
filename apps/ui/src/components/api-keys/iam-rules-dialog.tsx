@@ -146,7 +146,7 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 			},
 			{
 				onSuccess: () => {
-					queryClient.invalidateQueries({
+					void queryClient.invalidateQueries({
 						queryKey: api.queryOptions("get", "/keys/api/{id}/iam", {
 							params: { path: { id: apiKey.id } },
 						}).queryKey,
@@ -175,7 +175,7 @@ export function IamRulesDialog({ apiKey, children }: IamRulesDialogProps) {
 			},
 			{
 				onSuccess: () => {
-					queryClient.invalidateQueries({
+					void queryClient.invalidateQueries({
 						queryKey: api.queryOptions("get", "/keys/api/{id}/iam", {
 							params: { path: { id: apiKey.id } },
 						}).queryKey,

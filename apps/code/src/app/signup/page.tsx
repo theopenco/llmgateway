@@ -105,7 +105,7 @@ function SignupForm() {
 					router.push(returnUrl);
 				},
 				onError: (ctx) => {
-					toast.error(ctx.error.message || "Failed to sign up", {
+					toast.error(ctx.error.message ?? "Failed to sign up", {
 						style: {
 							backgroundColor: "var(--destructive)",
 							color: "var(--destructive-foreground)",
@@ -116,7 +116,7 @@ function SignupForm() {
 		);
 
 		if (error) {
-			toast.error(error.message || "Failed to sign up", {
+			toast.error(error.message ?? "Failed to sign up", {
 				style: {
 					backgroundColor: "var(--destructive)",
 					color: "var(--destructive-foreground)",

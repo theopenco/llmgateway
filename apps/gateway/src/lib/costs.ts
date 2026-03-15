@@ -221,9 +221,7 @@ export async function calculateCosts(
 	}
 
 	// Set completion tokens to 0 if not available (but still calculate input costs)
-	if (!calculatedCompletionTokens) {
-		calculatedCompletionTokens = 0;
-	}
+	calculatedCompletionTokens ??= 0;
 
 	// Find the provider-specific pricing
 	const providerInfo = modelInfo.providers.find(
@@ -254,8 +252,8 @@ export async function calculateCosts(
 	// Get pricing based on token count (supports tiered pricing)
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
-		providerInfo.inputPrice || 0,
-		providerInfo.outputPrice || 0,
+		providerInfo.inputPrice ?? 0,
+		providerInfo.outputPrice ?? 0,
 		providerInfo.cachedInputPrice,
 		calculatedPromptTokens,
 	);
@@ -265,11 +263,11 @@ export async function calculateCosts(
 	const cachedInputPrice = new Decimal(
 		pricing.cachedInputPrice ?? pricing.inputPrice,
 	);
-	const requestPrice = new Decimal(providerInfo.requestPrice || 0);
+	const requestPrice = new Decimal(providerInfo.requestPrice ?? 0);
 
 	// Get effective discount (checks org-specific, global, then hardcoded)
 	// Pass both the root model ID and the provider-specific model name for matching
-	const hardcodedDiscount = providerInfo.discount || 0;
+	const hardcodedDiscount = providerInfo.discount ?? 0;
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
@@ -280,17 +278,35 @@ export async function calculateCosts(
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
 
-	// Track image input tokens separately (for Google image generation models)
-	// Google reports text tokens but doesn't include image input tokens in usage
-	// Each input image is 560 tokens ($0.0011 per image at $2/1M)
-	const TOKENS_PER_INPUT_IMAGE = 560;
-	const imageInputPrice = (providerInfo as any).imageInputPrice;
+	// Resolve the tokens-per-image for the given imageSize from a resolution map.
+	function resolveTokensPerImage(
+		byResolution: Record<string, number> | undefined,
+		size: string | undefined,
+	): number | undefined {
+		if (!byResolution) {
+			return undefined;
+		}
+		return byResolution[size ?? "default"] ?? byResolution["default"];
+	}
+
+	// Track image input tokens separately (for Google image generation models).
+	// Uses imageInputTokensByResolution for per-resolution token counts and
+	// imageInputPrice for the per-token price. Falls back to 560 tokens/image
+	// with imageInputPrice if no resolution map is present.
+	const imageInputTokensPerImage = resolveTokensPerImage(
+		providerInfo.imageInputTokensByResolution,
+		imageSize,
+	);
+	const imageInputPricePerToken = providerInfo.imageInputPrice;
 	let imageInputTokens: number | null = null;
 	let imageInputCost: Decimal | null = null;
-	if (imageInputPrice && inputImageCount > 0) {
-		imageInputTokens = inputImageCount * TOKENS_PER_INPUT_IMAGE;
+	if (imageInputPricePerToken && inputImageCount > 0) {
+		const LEGACY_TOKENS_PER_INPUT_IMAGE = 560;
+		const tokensPerImage =
+			imageInputTokensPerImage ?? LEGACY_TOKENS_PER_INPUT_IMAGE;
+		imageInputTokens = inputImageCount * tokensPerImage;
 		imageInputCost = new Decimal(imageInputTokens)
-			.times(imageInputPrice)
+			.times(imageInputPricePerToken)
 			.times(discountMultiplier);
 	}
 
@@ -305,7 +321,7 @@ export async function calculateCosts(
 	const inputCost = new Decimal(uncachedPromptTokens)
 		.times(inputPrice)
 		.times(discountMultiplier)
-		.plus(imageInputCost || 0);
+		.plus(imageInputCost ?? 0);
 
 	// For Google models, completionTokens already includes reasoning tokens
 	// (merged during extraction). For other providers, add reasoning separately.
@@ -315,26 +331,29 @@ export async function calculateCosts(
 		provider === "obsidian";
 	const totalOutputTokens = isGoogleProvider
 		? calculatedCompletionTokens
-		: calculatedCompletionTokens + (reasoningTokens || 0);
+		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 
-	// Calculate output cost, handling separate image output pricing if applicable
+	// Calculate output cost, handling separate image output pricing if applicable.
+	// Uses imageOutputTokensByResolution for per-resolution token counts and
+	// imageOutputPrice for the per-token price.
 	let outputCost: Decimal;
 	let imageOutputTokens: number | null = null;
 	let imageOutputCost: Decimal | null = null;
-	const imageOutputPrice = (providerInfo as any).imageOutputPrice;
-	if (imageOutputPrice && outputImageCount > 0) {
-		// Token count per image depends on size:
-		// - 1K/2K images: 1120 tokens ($0.134 per image at $120/1M)
-		// - 4K images: 2000 tokens ($0.24 per image at $120/1M)
-		const TOKENS_PER_IMAGE = imageSize === "4K" ? 2000 : 1120;
-		imageOutputTokens = outputImageCount * TOKENS_PER_IMAGE;
+	const imageOutputTokensPerImage = resolveTokensPerImage(
+		providerInfo.imageOutputTokensByResolution,
+		imageSize,
+	);
+	const imageOutputPricePerToken = providerInfo.imageOutputPrice;
+	if (imageOutputPricePerToken && outputImageCount > 0) {
+		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
+		const tokensPerImage =
+			imageOutputTokensPerImage ?? LEGACY_DEFAULT_TOKENS_PER_IMAGE;
+		imageOutputTokens = outputImageCount * tokensPerImage;
 		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
 
-		// Separate image output cost (breakdown field)
 		imageOutputCost = new Decimal(imageOutputTokens)
-			.times(imageOutputPrice)
+			.times(imageOutputPricePerToken)
 			.times(discountMultiplier);
-		// outputCost includes both text and image output costs
 		outputCost = new Decimal(textTokens)
 			.times(outputPrice)
 			.times(discountMultiplier)
@@ -352,7 +371,7 @@ export async function calculateCosts(
 	const requestCost = requestPrice.times(discountMultiplier);
 
 	// Calculate web search cost
-	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice || 0);
+	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice ?? 0);
 	const webSearchCost =
 		webSearchCount && webSearchCount > 0
 			? webSearchPrice.times(webSearchCount).times(discountMultiplier)

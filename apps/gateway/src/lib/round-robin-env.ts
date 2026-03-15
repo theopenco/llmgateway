@@ -61,7 +61,7 @@ export function getRoundRobinValue(
 	}
 
 	// Get current counter for this env var (default to 0)
-	const startIndex = roundRobinCounters.get(envVarName) || 0;
+	const startIndex = roundRobinCounters.get(envVarName) ?? 0;
 
 	// Collect metrics and scores for all keys
 	const keyScores: KeyScore[] = [];
@@ -145,9 +145,7 @@ export function getRoundRobinValue(
 		}
 	}
 	// Wrap around if needed
-	if (!selectedKey) {
-		selectedKey = bestKeys[0];
-	}
+	selectedKey ??= bestKeys[0];
 
 	const nextIndex = (selectedKey.index + 1) % values.length;
 	roundRobinCounters.set(envVarName, nextIndex);

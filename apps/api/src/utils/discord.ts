@@ -59,8 +59,8 @@ export async function notifyUserSignup(
 	name: string | null | undefined,
 	authMethod?: string,
 ): Promise<void> {
-	const displayName = name || "Unknown";
-	const method = authMethod || "Unknown";
+	const displayName = name ?? "Unknown";
+	const method = authMethod ?? "Unknown";
 
 	await sendDiscordNotification({
 		embeds: [
@@ -95,7 +95,7 @@ export async function notifyCreditsPurchased(
 	name: string | null | undefined,
 	creditAmount: number,
 ): Promise<void> {
-	const displayName = name || "Unknown";
+	const displayName = name ?? "Unknown";
 
 	await sendDiscordNotification({
 		embeds: [

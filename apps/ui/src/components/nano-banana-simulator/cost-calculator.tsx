@@ -21,6 +21,7 @@ function formatCurrency(value: number): string {
 export function CostCalculator({ discount }: { discount: number }) {
 	const [monthlySpend, setMonthlySpend] = useState(72000);
 
+	// eslint-disable-next-line no-mixed-operators
 	const multiplier = 1 - discount / 100;
 	const gatewayTotal = monthlySpend * multiplier;
 	const savings = monthlySpend - gatewayTotal;

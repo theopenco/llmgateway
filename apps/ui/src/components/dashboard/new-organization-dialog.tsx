@@ -53,16 +53,16 @@ export function NewOrganizationDialog({
 			);
 
 			// Invalidate the organizations query to ensure all components get the updated data
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 
 			// Invalidate projects cache for the new organization since a default project is created
 			const projectsQueryKey = api.queryOptions("get", "/orgs/{id}/projects", {
 				params: { path: { id: data.organization.id } },
 			}).queryKey;
-			queryClient.invalidateQueries({ queryKey: projectsQueryKey });
+			void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
 
 			// Also invalidate all activity queries to ensure they refresh with the new organization/project
-			queryClient.invalidateQueries({
+			void queryClient.invalidateQueries({
 				queryKey: ["GET", "/activity"],
 				exact: false,
 			});
@@ -130,7 +130,7 @@ export function NewOrganizationDialog({
 						</Button>
 						<Button
 							type="submit"
-							disabled={createOrgMutation.isPending || !orgName.trim()}
+							disabled={createOrgMutation.isPending ?? !orgName.trim()}
 						>
 							{createOrgMutation.isPending
 								? "Creating..."

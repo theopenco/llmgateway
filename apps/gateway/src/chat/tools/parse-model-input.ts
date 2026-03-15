@@ -58,14 +58,12 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 			// First try to find by base model name
 			let modelDef = models.find((m) => m.id === modelName);
 
-			if (!modelDef) {
-				modelDef = models.find((m) =>
-					m.providers.some(
-						(p) =>
-							p.modelName === modelName && p.providerId === requestedProvider,
-					),
-				);
-			}
+			modelDef ??= models.find((m) =>
+				m.providers.some(
+					(p) =>
+						p.modelName === modelName && p.providerId === requestedProvider,
+				),
+			);
 
 			if (!modelDef) {
 				throw new HTTPException(400, {
@@ -80,11 +78,15 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 			}
 
 			// Use the provider-specific model name if available
-			const providerMapping = modelDef.providers.find(
+			// For models with multiple mappings for the same provider (routing models),
+			// keep the base model ID so routing can select the right variant later
+			const providerMappings = modelDef.providers.filter(
 				(p) => p.providerId === requestedProvider,
 			);
-			if (providerMapping) {
-				requestedModel = providerMapping.modelName as Model;
+			if (providerMappings.length > 1) {
+				requestedModel = modelDef.id as Model;
+			} else if (providerMappings.length === 1) {
+				requestedModel = providerMappings[0].modelName;
 			} else {
 				requestedModel = modelName as Model;
 			}

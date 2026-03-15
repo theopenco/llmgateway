@@ -49,7 +49,9 @@ function randomInt(min: number, max: number) {
 }
 
 function randomFloat(min: number, max: number, decimals = 2) {
+	/* eslint-disable no-mixed-operators */
 	return Number((Math.random() * (max - min) + min).toFixed(decimals));
+	/* eslint-enable no-mixed-operators */
 }
 
 function randomChoice<T>(arr: T[]): T {
@@ -57,11 +59,15 @@ function randomChoice<T>(arr: T[]): T {
 }
 
 function daysAgo(days: number) {
+	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
 }
 
 function hoursAgo(hours: number) {
+	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - hours * 60 * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
 }
 
 const PASSWORD_HASH =
@@ -571,7 +577,6 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 			const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
 			const cost = inputCost + outputCost;
 			const discount = Math.random() < 0.1 ? randomFloat(0.05, 0.3) : 0;
-			const serviceFee = cost * 0.2;
 			const usedMode =
 				proj.mode === "hybrid"
 					? randomChoice(["api-keys", "credits"] as const)
@@ -619,7 +624,6 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 				streamed: isStreamed,
 				cached: isCached,
 				discount,
-				serviceFee: Number(serviceFee.toFixed(6)),
 			});
 		}
 	}
@@ -865,7 +869,6 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 				outputCost: Number((totalCost * 0.5).toFixed(4)),
 				requestCost: Number((totalCost * 0.1).toFixed(4)),
 				dataStorageCost: 0,
-				serviceFee: Number((totalCost * 0.2).toFixed(4)),
 				discountSavings: Number((totalCost * randomFloat(0, 0.05)).toFixed(4)),
 				imageInputCost: 0,
 				imageOutputCost: 0,
@@ -874,8 +877,6 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 				apiKeysRequestCount: apiKeysReqCount,
 				creditsCost: Number((totalCost * 0.6).toFixed(4)),
 				apiKeysCost: Number((totalCost * 0.4).toFixed(4)),
-				creditsServiceFee: Number((totalCost * 0.12).toFixed(4)),
-				apiKeysServiceFee: Number((totalCost * 0.08).toFixed(4)),
 				creditsDataStorageCost: 0,
 				apiKeysDataStorageCost: 0,
 			});
@@ -910,9 +911,11 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 				const errCount = Math.random() < 0.1 ? randomInt(1, 3) : 0;
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
+				/* eslint-disable no-mixed-operators */
 				const costVal =
 					(inputTok / 1000) * modelDef.inputPrice +
 					(outputTok / 1000) * modelDef.outputPrice;
+				/* eslint-enable no-mixed-operators */
 
 				stats.push({
 					id: `phms-${statIdx}`,
@@ -948,7 +951,6 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					),
 					requestCost: 0,
 					dataStorageCost: 0,
-					serviceFee: Number((costVal * 0.2).toFixed(6)),
 					discountSavings: 0,
 					imageInputCost: 0,
 					imageOutputCost: 0,
@@ -957,8 +959,6 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					apiKeysRequestCount: Math.floor(reqCount * 0.4),
 					creditsCost: Number((costVal * 0.6).toFixed(6)),
 					apiKeysCost: Number((costVal * 0.4).toFixed(6)),
-					creditsServiceFee: 0,
-					apiKeysServiceFee: 0,
 					creditsDataStorageCost: 0,
 					apiKeysDataStorageCost: 0,
 				});
@@ -970,7 +970,9 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 }
 
 function minutesAgo(minutes: number) {
+	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - minutes * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
 }
 
 function generateSeedProviders() {
@@ -1005,6 +1007,7 @@ function generateSeedModels() {
 		family: m.family,
 		free: m.free ?? false,
 		output: m.output ?? ["text"],
+		imageInputRequired: m.imageInputRequired ?? false,
 		stability: m.stability ?? ("stable" as const),
 		releasedAt: m.releasedAt ?? new Date(),
 		status: "active" as const,
@@ -1093,7 +1096,18 @@ function generateSeedModelProviderMappingHistory(
 	mappings: Array<Record<string, any>>,
 ) {
 	const history: Array<Record<string, any>> = [];
-	const topMappings = mappings.slice(0, 20);
+	// Pick one mapping per provider to ensure all providers have history data
+	const seenProviders = new Set<string>();
+	const topMappings: Array<Record<string, any>> = [];
+	for (const m of mappings) {
+		if (!seenProviders.has(m.providerId)) {
+			seenProviders.add(m.providerId);
+			topMappings.push(m);
+		}
+		if (topMappings.length >= 50) {
+			break;
+		}
+	}
 	for (const mapping of topMappings) {
 		for (let i = 0; i < 144; i++) {
 			const ts = minutesAgo(i * 10);
@@ -1128,7 +1142,7 @@ function generateSeedModelProviderMappingHistory(
 
 function generateSeedModelHistory() {
 	const history: Array<Record<string, any>> = [];
-	const topModels = (allModels as readonly ModelDefinition[]).slice(0, 15);
+	const topModels = (allModels as readonly ModelDefinition[]).slice(0, 50);
 	for (const m of topModels) {
 		for (let i = 0; i < 144; i++) {
 			const ts = minutesAgo(i * 10);

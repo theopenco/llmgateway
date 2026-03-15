@@ -15,11 +15,17 @@ import { notFound } from "next/navigation";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
+import {
+	GlobalDiscountBanner,
+	type DiscountData,
+} from "@/components/models/global-discount-banner";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
+import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
+import { fetchServerData } from "@/lib/server-api";
 
 import {
 	models as modelDefinitions,
@@ -48,17 +54,85 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		notFound();
 	}
 
-	const providerMapping = modelDef.providers.find(
+	const staticProviderMapping = modelDef.providers.find(
 		(p) => p.providerId === decodedProvider,
 	);
 
-	if (!providerMapping) {
+	if (!staticProviderMapping) {
 		notFound();
 	}
 
 	const providerInfo = providerDefinitions.find(
 		(p) => p.id === decodedProvider,
 	);
+
+	// Fetch global discounts and apply to provider
+	const discountData = await fetchServerData<{ discounts: DiscountData[] }>(
+		"GET",
+		"/public/discounts/model/{modelId}",
+		{ params: { path: { modelId: decodedName } } },
+	);
+	const discounts = discountData?.discounts ?? [];
+	const globalDiscount = (() => {
+		const providerModel = discounts.find(
+			(d) => d.provider === decodedProvider && d.model === decodedName,
+		);
+		if (providerModel) {
+			return parseFloat(providerModel.discountPercent);
+		}
+		const providerOnly = discounts.find(
+			(d) => d.provider === decodedProvider && d.model === null,
+		);
+		if (providerOnly) {
+			return parseFloat(providerOnly.discountPercent);
+		}
+		const modelOnly = discounts.find(
+			(d) => d.provider === null && d.model === decodedName,
+		);
+		if (modelOnly) {
+			return parseFloat(modelOnly.discountPercent);
+		}
+		const fullyGlobal = discounts.find(
+			(d) => d.provider === null && d.model === null,
+		);
+		if (fullyGlobal) {
+			return parseFloat(fullyGlobal.discountPercent);
+		}
+		return undefined;
+	})();
+
+	const providerMapping = {
+		...staticProviderMapping,
+		discount: globalDiscount ?? staticProviderMapping.discount,
+	};
+
+	const bannerDiscount: DiscountData | null = (() => {
+		const providerModel = discounts.find(
+			(d) => d.provider === decodedProvider && d.model === decodedName,
+		);
+		if (providerModel) {
+			return providerModel;
+		}
+		const providerOnly = discounts.find(
+			(d) => d.provider === decodedProvider && d.model === null,
+		);
+		if (providerOnly) {
+			return providerOnly;
+		}
+		const modelOnly = discounts.find(
+			(d) => d.provider === null && d.model === decodedName,
+		);
+		if (modelOnly) {
+			return modelOnly;
+		}
+		const fullyGlobal = discounts.find(
+			(d) => d.provider === null && d.model === null,
+		);
+		if (fullyGlobal) {
+			return fullyGlobal;
+		}
+		return null;
+	})();
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -110,13 +184,13 @@ export default async function ModelProviderPage({ params }: PageProps) {
 			{
 				"@type": "ListItem",
 				position: 3,
-				name: modelDef.name || modelDef.id,
+				name: modelDef.name ?? modelDef.id,
 				item: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 			},
 			{
 				"@type": "ListItem",
 				position: 4,
-				name: providerInfo?.name || decodedProvider,
+				name: providerInfo?.name ?? decodedProvider,
 				item: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}`,
 			},
 		],
@@ -125,21 +199,21 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	const productSchema = {
 		"@context": "https://schema.org",
 		"@type": "Product",
-		name: `${modelDef.name || modelDef.id} on ${providerInfo?.name || decodedProvider}`,
+		name: `${modelDef.name ?? modelDef.id} on ${providerInfo?.name ?? decodedProvider}`,
 		description:
-			modelDef.description ||
-			`Access ${modelDef.name || modelDef.id} via ${providerInfo?.name || decodedProvider} through LLM Gateway's unified API.`,
+			modelDef.description ??
+			`Access ${modelDef.name ?? modelDef.id} via ${providerInfo?.name ?? decodedProvider} through LLM Gateway's unified API.`,
 		brand: {
 			"@type": "Brand",
-			name: providerInfo?.name || decodedProvider,
+			name: providerInfo?.name ?? decodedProvider,
 		},
 		offers: {
 			"@type": "Offer",
 			priceCurrency: "USD",
-			price: providerMapping.inputPrice || 0,
+			price: providerMapping.inputPrice ?? 0,
 			priceSpecification: {
 				"@type": "UnitPriceSpecification",
-				price: providerMapping.inputPrice || 0,
+				price: providerMapping.inputPrice ?? 0,
 				priceCurrency: "USD",
 				unitText: "per 1M input tokens",
 			},
@@ -156,12 +230,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		<>
 			<script
 				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
 					__html: JSON.stringify(breadcrumbSchema),
 				}}
 			/>
 			<script
 				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
 					__html: JSON.stringify(productSchema),
 				}}
@@ -214,6 +290,18 @@ export default async function ModelProviderPage({ params }: PageProps) {
 									</Badge>
 								);
 							})()}
+							<ModelStatusBadgeAuto
+								providers={[
+									{
+										deprecatedAt: providerMapping.deprecatedAt
+											? providerMapping.deprecatedAt.toISOString()
+											: null,
+										deactivatedAt: providerMapping.deactivatedAt
+											? providerMapping.deactivatedAt.toISOString()
+											: null,
+									},
+								]}
+							/>
 
 							<a
 								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${decodedProvider}/${modelDef.id}`)}`}
@@ -302,6 +390,12 @@ export default async function ModelProviderPage({ params }: PageProps) {
 						</div>
 					</div>
 
+					{bannerDiscount && (
+						<div className="mb-6">
+							<GlobalDiscountBanner discount={bannerDiscount} />
+						</div>
+					)}
+
 					<div className="mb-8">
 						<h2 className="text-xl md:text-2xl font-semibold mb-4">
 							Select Provider
@@ -317,7 +411,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 						<div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-2">
 							<div>
 								<h2 className="text-xl md:text-2xl font-semibold mb-2">
-									{providerInfo?.name || decodedProvider} Pricing for{" "}
+									{providerInfo?.name ?? decodedProvider} Pricing for{" "}
 									{modelDef.name}
 								</h2>
 								<p className="text-muted-foreground">
@@ -334,6 +428,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								}}
 								modelName={decodedName}
 								modelStability={modelDef.stability}
+								modelOutput={modelDef.output}
 							/>
 						</div>
 					</div>
@@ -380,10 +475,10 @@ export async function generateMetadata({
 	const providerInfo = providerDefinitions.find(
 		(p) => p.id === decodedProvider,
 	);
-	const providerName = providerInfo?.name || decodedProvider;
+	const providerName = providerInfo?.name ?? decodedProvider;
 
-	const title = `${model.name || model.id} on ${providerName} – LLM Gateway`;
-	const description = `Pricing and capabilities for ${model.name || model.id} via ${providerName} on LLM Gateway.`;
+	const title = `${model.name ?? model.id} on ${providerName} – LLM Gateway`;
+	const description = `Pricing and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
 
 	return {
 		title,

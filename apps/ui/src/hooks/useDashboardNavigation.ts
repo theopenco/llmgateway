@@ -25,8 +25,8 @@ export function useDashboardNavigation() {
 
 	// Use path params if available, otherwise use context values
 	// This ensures navigation works on both project pages and org-only pages
-	const currentOrgId = orgId || selectedOrganization?.id;
-	const currentProjectId = projectId || selectedProject?.id;
+	const currentOrgId = orgId ?? selectedOrganization?.id;
+	const currentProjectId = projectId ?? selectedProject?.id;
 
 	// Helper function to build dashboard URLs
 	const buildUrl = (subPath?: string): Route => {

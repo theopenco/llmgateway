@@ -99,7 +99,7 @@ export function recordChatCompletionMetrics(metrics: ChatCompletionMetrics) {
 		errorType,
 	} = metrics;
 
-	const normalizedFinishReason = finishReason || "unknown";
+	const normalizedFinishReason = finishReason ?? "unknown";
 	const streamingLabel = streaming ? "true" : "false";
 
 	// Increment total request counter

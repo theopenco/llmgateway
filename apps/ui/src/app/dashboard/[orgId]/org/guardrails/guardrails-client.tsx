@@ -190,7 +190,7 @@ export function GuardrailsClient() {
 
 	useEffect(() => {
 		if (canManageGuardrails) {
-			fetchConfig();
+			void fetchConfig();
 		} else {
 			setIsLoading(false);
 		}

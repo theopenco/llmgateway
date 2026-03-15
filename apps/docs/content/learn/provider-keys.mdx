@@ -1,0 +1,47 @@
+---
+title: Provider Keys
+description: Bring your own provider API keys to use without additional fees
+icon: KeyRound
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+The Provider Keys page lets you add your own API keys from LLM providers (OpenAI, Anthropic, Google, etc.) to route requests directly through your accounts without additional gateway fees.
+
+<ThemedImage alt="Provider Keys" basePath="/learn/provider-keys" />
+
+## Adding a Provider Key
+
+Click **Add Provider Key** to configure a new key:
+
+- **Provider** — Select which provider this key belongs to
+- **Custom name** — An optional label to identify the key
+- **API key** — Your provider's API key
+- **Base URL** — Optional custom endpoint (useful for Azure OpenAI or custom deployments)
+
+## Provider Keys List
+
+Each configured key shows:
+
+| Field           | Description                                        |
+| --------------- | -------------------------------------------------- |
+| **Provider**    | The LLM provider (e.g., OpenAI, Anthropic)         |
+| **Custom name** | Your label for the key                             |
+| **Status**      | Active, inactive, or deleted                       |
+| **Base URL**    | Custom endpoint if configured                      |
+| **Token**       | Masked key with only the last 4 characters visible |
+
+## Actions
+
+For each provider key:
+
+- **Edit** — Update the key name, value, or base URL
+- **Deactivate** — Temporarily disable the key without deleting it
+- **Delete** — Permanently remove the key
+
+<Callout type="info">
+	When you use your own provider keys, requests are routed directly to the
+	provider. You are only charged the provider's standard rates with no
+	additional gateway markup.
+</Callout>

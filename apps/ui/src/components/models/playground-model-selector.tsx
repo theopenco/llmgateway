@@ -169,7 +169,7 @@ export function ModelSelector({
 		}
 		if (filters.priceRange !== "all") {
 			list = list.filter((e) => {
-				const price = e.mapping.inputPrice || 0;
+				const price = e.mapping.inputPrice ?? 0;
 				switch (filters.priceRange) {
 					case "free":
 						return price === 0;

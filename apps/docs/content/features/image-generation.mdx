@@ -1,6 +1,6 @@
 ---
 title: Image Generation
-description: Generate images using AI models through the chat completions API
+description: Generate images using AI models through the OpenAI-compatible images API or chat completions API
 icon: Image
 ---
 
@@ -8,36 +8,166 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Image Generation
 
-LLMGateway supports image generation models through the standard chat completions API. These models can create images based on text prompts and return them as base64-encoded data URLs.
+LLMGateway supports image generation through two APIs:
+
+1. **`/v1/images/generations`** — OpenAI-compatible images endpoint (recommended for simple image generation)
+2. **`/v1/images/edits`** — OpenAI-compatible image editing endpoint
+3. **`/v1/chat/completions`** — Chat completions with image generation models (for conversational image generation and editing)
 
 ## Available Models
 
 You can find all available image generation models on our [models page](https://llmgateway.io/models?filters=1&imageGeneration=true).
 
-## Making Requests
+## OpenAI Images API
 
-Image generation works through the same `/v1/chat/completions` endpoint as text models. Simply use an image generation model and provide a text prompt describing the image you want to create.
+The `/v1/images/generations` endpoint provides a drop-in replacement for OpenAI's image generation API. It works with any OpenAI-compatible client library.
+
+### Parameters
+
+| Parameter         | Type    | Default      | Description                                                                                                      |
+| ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `prompt`          | string  | required     | A text description of the desired image(s)                                                                       |
+| `model`           | string  | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image-preview`                                                |
+| `n`               | integer | `1`          | Number of images to generate (1-10)                                                                              |
+| `size`            | string  | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration) |
+| `quality`         | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)   |
+| `response_format` | string  | `"b64_json"` | Only `b64_json` is supported                                                                                     |
+| `style`           | string  | —            | Image style: `vivid` or `natural`                                                                                |
+
+### curl
 
 ```bash
-curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+curl -X POST "https://api.llmgateway.io/v1/images/generations" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-2.5-flash-image-preview",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Generate an image of a cute golden retriever puppy playing in a sunny meadow"
-      }
-    ]
+    "model": "gemini-3-pro-image-preview",
+    "prompt": "A cute cat wearing a tiny top hat",
+    "n": 1,
+    "size": "1024x1024"
   }'
 ```
 
-## Image Configuration
+### OpenAI SDK
 
-You can customize the generated image using the optional `image_config` parameter. The supported parameters vary by provider.
+Works with the standard OpenAI client library — just point the base URL to LLMGateway.
 
-### Google Models
+```ts
+import OpenAI from "openai";
+import { writeFileSync } from "fs";
+
+const client = new OpenAI({
+	baseURL: "https://api.llmgateway.io/v1",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const response = await client.images.generate({
+	model: "gemini-3-pro-image-preview",
+	prompt: "A futuristic city skyline at sunset with flying cars",
+	n: 1,
+	size: "1024x1024",
+});
+
+response.data.forEach((image, i) => {
+	if (image.b64_json) {
+		const buf = Buffer.from(image.b64_json, "base64");
+		writeFileSync(`image-${i}.png`, buf);
+	}
+});
+```
+
+### Vercel AI SDK
+
+Use the `@llmgateway/ai-sdk-provider` with `generateImage`.
+
+```ts
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { generateImage } from "ai";
+import { writeFileSync } from "fs";
+
+const llmgateway = createLLMGateway({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const result = await generateImage({
+	model: llmgateway.image("gemini-3-pro-image-preview"),
+	prompt:
+		"A cozy cabin in a snowy mountain landscape at night with aurora borealis",
+	size: "1024x1024",
+	n: 1,
+});
+
+result.images.forEach((image, i) => {
+	const buf = Buffer.from(image.base64, "base64");
+	writeFileSync(`image-${i}.png`, buf);
+});
+```
+
+## OpenAI Images Edit API
+
+The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subset of `images.edit` parameters.
+
+### Parameters
+
+| Parameter            | Type                     | Required | Description                                                        |
+| -------------------- | ------------------------ | -------- | ------------------------------------------------------------------ |
+| `images`             | array of `{ image_url }` | yes      | Input images. `image_url` supports HTTPS URLs and base64 data URLs |
+| `prompt`             | string                   | yes      | A text description of the desired image edit                       |
+| `model`              | string                   | no       | Image editing model                                                |
+| `background`         | enum                     | no       | `transparent`, `opaque`, or `auto`                                 |
+| `input_fidelity`     | enum                     | no       | `high` or `low`                                                    |
+| `n`                  | integer                  | no       | Number of edited images to generate                                |
+| `output_format`      | enum                     | no       | `png`, `jpeg`, or `webp`                                           |
+| `output_compression` | integer                  | no       | Compression level for `jpeg`/`webp`                                |
+| `quality`            | enum                     | no       | `low`, `medium`, `high`, or `auto`                                 |
+| `size`               | enum                     | no       | `auto`, `1024x1024`, `1536x1024`, `1024x1536`                      |
+
+<Callout type="warning">
+	`mask` is not supported yet on `/v1/images/edits`.
+</Callout>
+
+### curl (HTTPS image URL)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/edits" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "images": [
+      {
+        "image_url": "https://example.com/source-image.png"
+      }
+    ],
+    "prompt": "Add a watercolor effect to this image",
+    "model": "gemini-3-pro-image-preview",
+    "quality": "high",
+    "size": "1024x1024"
+  }'
+```
+
+### curl (base64 data URL)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/edits" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "images": [
+      {
+        "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+      }
+    ],
+    "prompt": "Turn this into a pixel-art style image"
+  }'
+```
+
+## Chat Completions API
+
+Image generation also works through the `/v1/chat/completions` endpoint, which is useful for conversational image generation, image editing with vision, and multi-turn interactions.
+
+### Making Requests
+
+Simply use an image generation model and provide a text prompt describing the image you want to create.
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -48,138 +178,13 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
     "messages": [
       {
         "role": "user",
-        "content": "Generate an image of a mountain landscape at sunset"
+        "content": "Generate an image of a cute golden retriever puppy playing in a sunny meadow"
       }
-    ],
-    "image_config": {
-      "aspect_ratio": "16:9",
-      "image_size": "4K"
-    }
+    ]
   }'
 ```
 
-| Parameter      | Type   | Description                                                                                                |
-| -------------- | ------ | ---------------------------------------------------------------------------------------------------------- |
-| `aspect_ratio` | string | The aspect ratio of the generated image. Examples: `"1:1"`, `"16:9"`, `"4:3"`, `"5:4"`                     |
-| `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096) |
-
-### Alibaba Models
-
-```bash
-curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
-  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "alibaba/qwen-image-plus",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Generate an image of a mountain landscape at sunset"
-      }
-    ],
-    "image_config": {
-      "image_size": "1024x1536",
-      "n": 1,
-      "seed": 42
-    }
-  }'
-```
-
-| Parameter    | Type    | Description                                                                                      |
-| ------------ | ------- | ------------------------------------------------------------------------------------------------ |
-| `image_size` | string  | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"1024x1536"`, `"1536x1024"` |
-| `n`          | integer | Number of images to generate (1-4)                                                               |
-| `seed`       | integer | Random seed for reproducible generation                                                          |
-
-Available Alibaba models:
-
-| Model                     | Price        | Description                       |
-| ------------------------- | ------------ | --------------------------------- |
-| `alibaba/qwen-image`      | $0.035/image | Standard quality image generation |
-| `alibaba/qwen-image-plus` | $0.03/image  | Good balance of quality and cost  |
-| `alibaba/qwen-image-max`  | $0.075/image | Highest quality image generation  |
-
-<Callout type="info">
-	Alibaba models use explicit pixel dimensions (e.g., `"1024x1536"`) instead of
-	aspect ratios. For portrait orientation use `"1024x1536"`, for landscape use
-	`"1536x1024"`.
-</Callout>
-
-### Z.AI Models
-
-```bash
-curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
-  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "zai/cogview-4",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Generate an image of a futuristic city skyline"
-      }
-    ],
-    "image_config": {
-      "image_size": "1024x1024"
-    }
-  }'
-```
-
-| Parameter    | Type    | Description                                                                                      |
-| ------------ | ------- | ------------------------------------------------------------------------------------------------ |
-| `image_size` | string  | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"2048x1024"`, `"1024x2048"` |
-| `n`          | integer | Number of images to generate                                                                     |
-
-Available Z.AI models:
-
-| Model           | Price        | Description                                                                                                         |
-| --------------- | ------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `zai/cogview-4` | $0.01/image  | CogView-4 with bilingual support and excellent text rendering                                                       |
-| `zai/glm-image` | $0.015/image | GLM-Image with hybrid auto-regressive architecture, excellent for text-rendering and knowledge-intensive generation |
-
-<Callout type="info">
-	CogView-4 supports both Chinese and English prompts and excels at generating
-	images with embedded text.
-</Callout>
-
-### ByteDance Models
-
-```bash
-curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
-  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "bytedance/seedream-4-5",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Generate an image of a futuristic cyberpunk city at night"
-      }
-    ],
-    "image_config": {
-      "image_size": "2048x2048"
-    }
-  }'
-```
-
-| Parameter    | Type   | Description                                                                                      |
-| ------------ | ------ | ------------------------------------------------------------------------------------------------ |
-| `image_size` | string | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"2048x2048"`, `"4096x4096"` |
-
-Available ByteDance models:
-
-| Model                    | Price        | Description                                                     |
-| ------------------------ | ------------ | --------------------------------------------------------------- |
-| `bytedance/seedream-4-0` | $0.035/image | High-quality text-to-image generation with 2K default output    |
-| `bytedance/seedream-4-5` | $0.045/image | Enhanced quality and consistency with improved prompt adherence |
-
-<Callout type="info">
-	Seedream models support up to 2-10 reference images for multi-image fusion and
-	generation. The default output resolution is 2048×2048 (2K), with support up
-	to 4096×4096 (4K).
-</Callout>
-
-## Response Format
+### Response Format
 
 Image generation models return responses in the standard chat completions format, with generated images included in the `images` array within the assistant message:
 
@@ -188,7 +193,7 @@ Image generation models return responses in the standard chat completions format
 	"id": "chatcmpl-1756234109285",
 	"object": "chat.completion",
 	"created": 1756234109,
-	"model": "gemini-2.5-flash-image-preview",
+	"model": "gemini-3-pro-image-preview",
 	"choices": [
 		{
 			"index": 0,
@@ -215,28 +220,28 @@ Image generation models return responses in the standard chat completions format
 }
 ```
 
-## Vision support
+### Vision support
 
 You can edit or modify images by combining image generation with [vision models](/features/vision) by including the image in the `messages` array.
 
-## Response Structure
+### Response Structure
 
-### Images Array
+#### Images Array
 
 The `images` array contains one or more generated images with the following structure:
 
 - `type`: Always `"image_url"` for generated images
 - `image_url.url`: A data URL containing the base64-encoded image data (format: `data:image/png;base64,<data>`)
 
-### Content Field
+#### Content Field
 
 The `content` field may contain descriptive text about the generated image, depending on the model's behavior.
 
-## AI SDK
+### AI SDK (Chat Completions)
 
-You can use the AI SDK to generate images with your existing generateText or streamText calls.
+You can use the AI SDK to generate images with your existing generateText or streamText calls using the LLMGateway provider.
 
-### Example
+#### Example
 
 ```ts title="/api/chat/route.ts"
 import { streamText, type UIMessage, convertToModelMessages } from "ai";
@@ -258,7 +263,7 @@ export async function POST(req: Request) {
 
 	try {
 		const result = streamText({
-			model: llmgateway.chat("gemini-2.5-flash-image-preview"),
+			model: llmgateway.chat("gemini-3-pro-image-preview"),
 			messages: convertToModelMessages(messages),
 		});
 
@@ -550,6 +555,191 @@ export function parseImagePartToDataUrl(part: any): {
 	}
 }
 ```
+
+## Image Configuration
+
+You can customize the generated image using the optional `image_config` parameter (for chat completions) or `size`/`quality`/`style` parameters (for the images API). The supported parameters vary by provider.
+
+### Google Models
+
+Available Google models:
+
+| Model                            | Description                                                                         |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `gemini-3-pro-image-preview`     | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.  |
+| `gemini-3.1-flash-image-preview` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K). |
+
+#### gemini-3-pro-image-preview
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3-pro-image-preview",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a mountain landscape at sunset"
+      }
+    ],
+    "image_config": {
+      "aspect_ratio": "16:9",
+      "image_size": "4K"
+    }
+  }'
+```
+
+| Parameter      | Type   | Description                                                                                                                                   |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aspect_ratio` | string | The aspect ratio of the generated image. Options: `"1:1"`, `"2:3"`, `"3:2"`, `"3:4"`, `"4:3"`, `"4:5"`, `"5:4"`, `"9:16"`, `"16:9"`, `"21:9"` |
+| `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096)                                    |
+
+#### gemini-3.1-flash-image-preview
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3.1-flash-image-preview",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a mountain landscape at sunset"
+      }
+    ],
+    "image_config": {
+      "image_size": "1K"
+    }
+  }'
+```
+
+| Parameter      | Type   | Description                                                                                                                                                                       |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aspect_ratio` | string | The aspect ratio of the generated image. Options: `"1:1"`, `"1:4"`, `"1:8"`, `"2:3"`, `"3:2"`, `"3:4"`, `"4:1"`, `"4:3"`, `"4:5"`, `"5:4"`, `"8:1"`, `"9:16"`, `"16:9"`, `"21:9"` |
+| `image_size`   | string | The resolution of the generated image. Options: `"0.5K"` (512x512), `"1K"` (1024x1024, default), `"2K"` (2048x2048), `"4K"` (4096x4096)                                           |
+
+<Callout type="info">
+	`gemini-3.1-flash-image-preview` uniquely supports `"0.5K"` resolution, which
+	is not available on other Google image models.
+</Callout>
+
+### Alibaba Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "alibaba/qwen-image-plus",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a mountain landscape at sunset"
+      }
+    ],
+    "image_config": {
+      "image_size": "1024x1536",
+      "n": 1,
+      "seed": 42
+    }
+  }'
+```
+
+| Parameter    | Type    | Description                                                                                      |
+| ------------ | ------- | ------------------------------------------------------------------------------------------------ |
+| `image_size` | string  | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"1024x1536"`, `"1536x1024"` |
+| `n`          | integer | Number of images to generate (1-4)                                                               |
+| `seed`       | integer | Random seed for reproducible generation                                                          |
+
+Available Alibaba models:
+
+| Model                     | Price        | Description                       |
+| ------------------------- | ------------ | --------------------------------- |
+| `alibaba/qwen-image`      | $0.035/image | Standard quality image generation |
+| `alibaba/qwen-image-plus` | $0.03/image  | Good balance of quality and cost  |
+| `alibaba/qwen-image-max`  | $0.075/image | Highest quality image generation  |
+
+<Callout type="info">
+	Alibaba models use explicit pixel dimensions (e.g., `"1024x1536"`) instead of
+	aspect ratios. For portrait orientation use `"1024x1536"`, for landscape use
+	`"1536x1024"`.
+</Callout>
+
+### Z.AI Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "zai/cogview-4",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a futuristic city skyline"
+      }
+    ],
+    "image_config": {
+      "image_size": "1024x1024"
+    }
+  }'
+```
+
+| Parameter    | Type    | Description                                                                                      |
+| ------------ | ------- | ------------------------------------------------------------------------------------------------ |
+| `image_size` | string  | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"2048x1024"`, `"1024x2048"` |
+| `n`          | integer | Number of images to generate                                                                     |
+
+Available Z.AI models:
+
+| Model           | Price        | Description                                                                                                         |
+| --------------- | ------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `zai/cogview-4` | $0.01/image  | CogView-4 with bilingual support and excellent text rendering                                                       |
+| `zai/glm-image` | $0.015/image | GLM-Image with hybrid auto-regressive architecture, excellent for text-rendering and knowledge-intensive generation |
+
+<Callout type="info">
+	CogView-4 supports both Chinese and English prompts and excels at generating
+	images with embedded text.
+</Callout>
+
+### ByteDance Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "bytedance/seedream-4-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a futuristic cyberpunk city at night"
+      }
+    ],
+    "image_config": {
+      "image_size": "2048x2048"
+    }
+  }'
+```
+
+| Parameter    | Type   | Description                                                                                      |
+| ------------ | ------ | ------------------------------------------------------------------------------------------------ |
+| `image_size` | string | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"2048x2048"`, `"4096x4096"` |
+
+Available ByteDance models:
+
+| Model                    | Price        | Description                                                     |
+| ------------------------ | ------------ | --------------------------------------------------------------- |
+| `bytedance/seedream-4-0` | $0.035/image | High-quality text-to-image generation with 2K default output    |
+| `bytedance/seedream-4-5` | $0.045/image | Enhanced quality and consistency with improved prompt adherence |
+
+<Callout type="info">
+	Seedream models support up to 2-10 reference images for multi-image fusion and
+	generation. The default output resolution is 2048×2048 (2K), with support up
+	to 4096×4096 (4K).
+</Callout>
 
 ## Usage Notes
 

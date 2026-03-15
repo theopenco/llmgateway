@@ -56,7 +56,7 @@ export async function transformGoogleMessages(
 			const lastMsg = result[result.length - 1];
 			const functionResponsePart: GooglePart = {
 				functionResponse: {
-					name: m.name || "unknown_function",
+					name: m.name ?? "unknown_function",
 					response: {
 						result: m.content,
 					},

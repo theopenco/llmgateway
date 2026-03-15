@@ -49,7 +49,7 @@ export function ProviderCard({
 	const [copied, setCopied] = useState(false);
 	const providerModelName = `${provider.providerId}/${modelName}`;
 	const ProviderIcon = getProviderIcon(provider.providerId);
-	const providerStability = provider.stability || modelStability;
+	const providerStability = provider.stability ?? modelStability;
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -99,13 +99,13 @@ export function ProviderCard({
 							{ProviderIcon ? (
 								<ProviderIcon className="h-10 w-10" />
 							) : (
-								provider.providerInfo?.name?.charAt(0) || "?"
+								(provider.providerInfo?.name?.charAt(0) ?? "?")
 							)}
 						</div>
 						<div>
 							<div className="flex items-center gap-2 mb-1">
 								<h3 className="font-semibold">
-									{provider.providerInfo?.name || provider.providerId}
+									{provider.providerInfo?.name ?? provider.providerId}
 								</h3>
 								{shouldShowStabilityWarning(providerStability) && (
 									<AlertTriangle className="h-4 w-4 text-orange-500" />

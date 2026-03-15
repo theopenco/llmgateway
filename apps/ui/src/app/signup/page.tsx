@@ -102,7 +102,7 @@ export default function Signup() {
 				},
 				onError: (ctx) => {
 					toast({
-						title: ctx?.error?.message || "Failed to sign up",
+						title: ctx?.error?.message ?? "Failed to sign up",
 						variant: "destructive",
 					});
 				},
@@ -111,7 +111,7 @@ export default function Signup() {
 
 		if (error) {
 			toast({
-				title: error.message || "Failed to sign up",
+				title: error.message ?? "Failed to sign up",
 				variant: "destructive",
 			});
 		}
@@ -142,7 +142,7 @@ export default function Signup() {
 								});
 								if (res?.error) {
 									toast({
-										title: res.error.message || "Failed to sign up with GitHub",
+										title: res.error.message ?? "Failed to sign up with GitHub",
 										variant: "destructive",
 									});
 								}
@@ -174,7 +174,7 @@ export default function Signup() {
 								});
 								if (res?.error) {
 									toast({
-										title: res.error.message || "Failed to sign up with Google",
+										title: res.error.message ?? "Failed to sign up with Google",
 										variant: "destructive",
 									});
 								}

@@ -47,7 +47,7 @@ function AutoTopUpSettings() {
 
 	useEffect(() => {
 		if (selectedOrganization) {
-			setEnabled(selectedOrganization.autoTopUpEnabled || false);
+			setEnabled(selectedOrganization.autoTopUpEnabled ?? false);
 			setThreshold(Number(selectedOrganization.autoTopUpThreshold) || 10);
 			setAmount(Number(selectedOrganization.autoTopUpAmount) || 10);
 		}
@@ -228,7 +228,7 @@ function AutoTopUpSettings() {
 					<Button
 						onClick={handleSave}
 						disabled={
-							updateOrganization.isPending ||
+							Boolean(updateOrganization.isPending) ||
 							threshold < 5 ||
 							amount < 10 ||
 							(enabled && feeDataLoading)

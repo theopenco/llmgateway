@@ -191,7 +191,7 @@ export async function resolveProviderContext(
 	// --- URL resolution ---
 	const url = getProviderEndpoint(
 		usedProvider as Provider,
-		providerKey?.baseUrl || undefined,
+		providerKey?.baseUrl ?? undefined,
 		usedModel,
 		usedProvider === "google-ai-studio" || usedProvider === "google-vertex"
 			? usedToken
@@ -199,7 +199,7 @@ export async function resolveProviderContext(
 		options.stream,
 		supportsReasoning,
 		options.hasExistingToolCalls,
-		providerKey?.options || undefined,
+		providerKey?.options ?? undefined,
 		configIndex,
 		isImageGeneration,
 	);

@@ -51,7 +51,7 @@ Fine-grained control over model selection:
 
 ```javascript
 // Use specific provider
-model: "openai/gpt-4o";
+model: "gpt-4o";
 model: "anthropic/claude-3-5-sonnet";
 model: "google-ai-studio/gemini-2.0-flash";
 

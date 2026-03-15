@@ -75,9 +75,6 @@ export function getProviderEndpoint(
 			case "together.ai":
 				url = "https://api.together.ai";
 				break;
-			case "cloudrift":
-				url = "https://inference.cloudrift.ai";
-				break;
 			case "mistral":
 				url = "https://api.mistral.ai";
 				break;
@@ -132,17 +129,17 @@ export function getProviderEndpoint(
 						"baseUrl",
 						configIndex,
 						"https://bedrock-runtime.us-east-1.amazonaws.com",
-					) || "https://bedrock-runtime.us-east-1.amazonaws.com";
+					) ?? "https://bedrock-runtime.us-east-1.amazonaws.com";
 				break;
 			case "azure": {
 				const resource =
-					providerKeyOptions?.azure_resource ||
+					providerKeyOptions?.azure_resource ??
 					getProviderEnvValue("azure", "resource", configIndex);
 
 				if (!resource) {
 					const azureEnv = getProviderEnvConfig("azure");
 					throw new Error(
-						`Azure resource is required - set via provider options or ${azureEnv?.required.resource || "LLM_AZURE_RESOURCE"} env var`,
+						`Azure resource is required - set via provider options or ${azureEnv?.required.resource ?? "LLM_AZURE_RESOURCE"} env var`,
 					);
 				}
 				url = `https://${resource}.openai.azure.com`;
@@ -200,7 +197,7 @@ export function getProviderEndpoint(
 		}
 		case "google-vertex": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const model = modelName || "gemini-2.5-flash-lite";
+			const model = modelName ?? "gemini-2.5-flash-lite";
 
 			// Special handling for some models which require a non-global location
 			let baseEndpoint: string;
@@ -222,12 +219,12 @@ export function getProviderEndpoint(
 						"region",
 						configIndex,
 						"global",
-					) || "global";
+					) ?? "global";
 
 				if (!projectId) {
 					const vertexEnv = getProviderEnvConfig("google-vertex");
 					throw new Error(
-						`${vertexEnv?.required.project || "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex model "${model}"`,
+						`${vertexEnv?.required.project ?? "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex model "${model}"`,
 					);
 				}
 
@@ -256,8 +253,8 @@ export function getProviderEndpoint(
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
 			const prefix =
-				providerKeyOptions?.aws_bedrock_region_prefix ||
-				getProviderEnvValue("aws-bedrock", "region", configIndex, "global.") ||
+				providerKeyOptions?.aws_bedrock_region_prefix ??
+				getProviderEnvValue("aws-bedrock", "region", configIndex, "global.") ??
 				"global.";
 
 			const endpoint = stream ? "converse-stream" : "converse";
@@ -265,25 +262,25 @@ export function getProviderEndpoint(
 		}
 		case "azure": {
 			const deploymentType =
-				providerKeyOptions?.azure_deployment_type ||
+				providerKeyOptions?.azure_deployment_type ??
 				getProviderEnvValue(
 					"azure",
 					"deploymentType",
 					configIndex,
 					"ai-foundry",
-				) ||
+				) ??
 				"ai-foundry";
 
 			if (deploymentType === "openai") {
 				// Traditional Azure (deployment-based)
 				const apiVersion =
-					providerKeyOptions?.azure_api_version ||
+					providerKeyOptions?.azure_api_version ??
 					getProviderEnvValue(
 						"azure",
 						"apiVersion",
 						configIndex,
 						"2024-10-21",
-					) ||
+					) ??
 					"2024-10-21";
 
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
@@ -352,10 +349,13 @@ export function getProviderEndpoint(
 				return `${url}/images/generations`;
 			}
 			return `${url}/chat/completions`;
+		case "xai":
+			if (imageGenerations) {
+				return `${url}/v1/images/generations`;
+			}
+			return `${url}/v1/chat/completions`;
 		case "inference.net":
 		case "llmgateway":
-		case "cloudrift":
-		case "xai":
 		case "groq":
 		case "cerebras":
 		case "deepseek":

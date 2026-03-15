@@ -210,7 +210,7 @@ function stripUnsupportedSchemaProperties(
 
 	for (const [key, value] of Object.entries(schema)) {
 		// Skip unsupported properties
-		// Google doesn't support: additionalProperties, $schema, $defs, definitions, $ref, ref (non-standard), maxLength, minLength, minimum, maximum, pattern
+		// Google doesn't support many JSON Schema validation keywords
 		if (
 			key === "additionalProperties" ||
 			key === "$schema" ||
@@ -222,7 +222,30 @@ function stripUnsupportedSchemaProperties(
 			key === "minLength" ||
 			key === "minimum" ||
 			key === "maximum" ||
-			key === "pattern"
+			key === "exclusiveMinimum" ||
+			key === "exclusiveMaximum" ||
+			key === "pattern" ||
+			key === "propertyNames" ||
+			key === "const" ||
+			key === "not" ||
+			key === "if" ||
+			key === "then" ||
+			key === "else" ||
+			key === "multipleOf" ||
+			key === "minItems" ||
+			key === "maxItems" ||
+			key === "uniqueItems" ||
+			key === "minProperties" ||
+			key === "maxProperties" ||
+			key === "patternProperties" ||
+			key === "dependentRequired" ||
+			key === "dependentSchemas" ||
+			key === "unevaluatedProperties" ||
+			key === "unevaluatedItems" ||
+			key === "contentMediaType" ||
+			key === "contentEncoding" ||
+			key === "prefixItems" ||
+			key === "contains"
 		) {
 			continue;
 		}
@@ -297,7 +320,7 @@ function transformContentForResponsesApi(content: any, role: string): any {
 			if (part.type === "image_url") {
 				// Transform "image_url" to "input_image"
 				// The Responses API expects the image URL directly or base64 data
-				const imageUrl = part.image_url?.url || part.image_url;
+				const imageUrl = part.image_url?.url ?? part.image_url;
 
 				// Check if it's a base64 data URL
 				if (typeof imageUrl === "string" && imageUrl.startsWith("data:")) {
@@ -444,6 +467,38 @@ export async function prepareRequestBody(
 	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
 ): Promise<ProviderRequestBody> {
+	// Handle xAI image generation models
+	if (imageGenerations && usedProvider === "xai") {
+		// Extract prompt from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				prompt = lastUserMessage.content
+					.filter((p): p is { type: "text"; text: string } => p.type === "text")
+					.map((p) => p.text)
+					.join("\n");
+			}
+		}
+
+		// xAI Grok Imagine uses OpenAI-compatible image generation format
+		const xaiImageRequest: any = {
+			model: usedModel,
+			prompt,
+			response_format: "url",
+			...(image_config?.aspect_ratio && {
+				aspect_ratio: image_config.aspect_ratio,
+			}),
+			...(image_config?.n && { n: image_config.n }),
+		};
+
+		return xaiImageRequest;
+	}
+
 	// Handle Z.AI image generation models
 	if (imageGenerations && usedProvider === "zai") {
 		// Extract prompt from last user message
@@ -475,21 +530,38 @@ export async function prepareRequestBody(
 
 	// Handle Alibaba image generation models
 	if (imageGenerations && usedProvider === "alibaba") {
-		// Extract prompt from last user message
+		// Extract prompt and images from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
 			.find((m) => m.role === "user");
 		let prompt = "";
+		const imageUrls: string[] = [];
 		if (lastUserMessage) {
 			if (typeof lastUserMessage.content === "string") {
 				prompt = lastUserMessage.content;
 			} else if (Array.isArray(lastUserMessage.content)) {
-				prompt = lastUserMessage.content
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n");
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
 			}
 		}
+
+		// Build Alibaba DashScope content array: images first, then text
+		const alibabaContent: any[] = [];
+		for (const url of imageUrls) {
+			alibabaContent.push({ image: url });
+		}
+		alibabaContent.push({ text: prompt });
 
 		// Alibaba DashScope multimodal generation format
 		const alibabaImageRequest: any = {
@@ -498,7 +570,7 @@ export async function prepareRequestBody(
 				messages: [
 					{
 						role: "user",
-						content: [{ text: prompt }],
+						content: alibabaContent,
 					},
 				],
 			},
@@ -587,7 +659,6 @@ export async function prepareRequestBody(
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
 	if (usedModel.startsWith("gpt-5")) {
-		// eslint-disable-next-line no-param-reassign
 		temperature = 1;
 	}
 
@@ -597,7 +668,6 @@ export async function prepareRequestBody(
 		max_tokens !== undefined &&
 		max_tokens < 16
 	) {
-		// eslint-disable-next-line no-param-reassign
 		max_tokens = 16;
 	}
 
@@ -635,7 +705,7 @@ export async function prepareRequestBody(
 					model: usedModel,
 					input: transformedMessages,
 					reasoning: {
-						effort: reasoning_effort || defaultEffort,
+						effort: reasoning_effort ?? defaultEffort,
 						summary: "detailed",
 					},
 				};
@@ -662,9 +732,7 @@ export async function prepareRequestBody(
 
 				// Add web search tool for Responses API
 				if (webSearchTool) {
-					if (!responsesBody.tools) {
-						responsesBody.tools = [];
-					}
+					responsesBody.tools ??= [];
 					const webSearch: any = { type: "web_search" };
 					if (webSearchTool.user_location) {
 						webSearch.user_location = webSearchTool.user_location;
@@ -747,9 +815,7 @@ export async function prepareRequestBody(
 							Object.keys(webSearchOptions).length > 0 ? webSearchOptions : {};
 					} else {
 						// Regular models with web search support use web_search tool
-						if (!requestBody.tools) {
-							requestBody.tools = [];
-						}
+						requestBody.tools ??= [];
 						const webSearch: any = { type: "web_search" };
 						if (webSearchTool.user_location) {
 							webSearch.user_location = webSearchTool.user_location;
@@ -801,9 +867,7 @@ export async function prepareRequestBody(
 			// Add web search tool for ZAI
 			// ZAI uses a web_search tool with enable flag and search_engine config
 			if (webSearchTool) {
-				if (!requestBody.tools) {
-					requestBody.tools = [];
-				}
+				requestBody.tools ??= [];
 				requestBody.tools.push({
 					type: "web_search",
 					web_search: {
@@ -982,9 +1046,7 @@ export async function prepareRequestBody(
 			// Add web search tool for Anthropic
 			// Anthropic uses the web_search_20250305 tool type
 			if (webSearchTool) {
-				if (!requestBody.tools) {
-					requestBody.tools = [];
-				}
+				requestBody.tools ??= [];
 				const webSearch: any = {
 					type: "web_search_20250305",
 					name: "web_search",
@@ -1024,6 +1086,8 @@ export async function prepareRequestBody(
 					type: "enabled",
 					budget_tokens: thinkingBudget,
 				};
+				// Anthropic requires temperature to be exactly 1 when thinking is enabled
+				temperature = 1;
 			}
 
 			// Add optional parameters if they are provided
@@ -1035,9 +1099,7 @@ export async function prepareRequestBody(
 			}
 			// Note: frequency_penalty and presence_penalty are NOT supported by Anthropic's Messages API
 			if (effort !== undefined) {
-				if (!requestBody.output_config) {
-					requestBody.output_config = {};
-				}
+				requestBody.output_config ??= {};
 				requestBody.output_config.effort = effort;
 			}
 
@@ -1138,31 +1200,57 @@ export async function prepareRequestBody(
 				}
 			}
 
-			// Transform non-system messages to Bedrock format
-			requestBody.messages = bedrockNonSystemMessages.map((msg: any) => {
-				// Map OpenAI roles to Bedrock roles
-				const role =
-					msg.role === "user" || msg.role === "tool" ? "user" : "assistant";
+			// Transform non-system messages to Bedrock format.
+			// Bedrock expects all tool results for an assistant tool_use turn to be grouped
+			// into the next user message instead of split across multiple user messages.
+			const bedrockMessages: any[] = [];
+			let pendingToolResultMessage: any | null = null;
 
-				const bedrockMessage: any = {
-					role: role,
-					content: [],
-				};
+			const flushPendingToolResults = () => {
+				if (pendingToolResultMessage?.content?.length) {
+					bedrockMessages.push(pendingToolResultMessage);
+				}
+				pendingToolResultMessage = null;
+			};
 
-				// Handle tool results (from role: "tool")
-				if (msg.role === "tool") {
-					bedrockMessage.content.push({
+			for (const msg of bedrockNonSystemMessages) {
+				const originalRole =
+					msg.role === "user" && msg.tool_call_id ? "tool" : msg.role;
+
+				if (originalRole === "tool" && msg.tool_call_id) {
+					pendingToolResultMessage ??= {
+						role: "user",
+						content: [],
+					};
+
+					const textContent =
+						typeof msg.content === "string"
+							? msg.content
+							: JSON.stringify(msg.content ?? "");
+
+					pendingToolResultMessage.content.push({
 						toolResult: {
 							toolUseId: msg.tool_call_id,
 							content: [
 								{
-									text: msg.content || "",
+									text:
+										textContent && textContent.trim()
+											? textContent
+											: "No output",
 								},
 							],
 						},
 					});
-					return bedrockMessage;
+					continue;
 				}
+
+				flushPendingToolResults();
+
+				const role = msg.role === "user" ? "user" : "assistant";
+				const bedrockMessage: any = {
+					role,
+					content: [],
+				};
 
 				// Handle assistant messages with tool calls
 				if (msg.role === "assistant" && msg.tool_calls) {
@@ -1184,7 +1272,8 @@ export async function prepareRequestBody(
 						});
 					});
 
-					return bedrockMessage;
+					bedrockMessages.push(bedrockMessage);
+					continue;
 				}
 
 				// Handle regular content (user/assistant messages)
@@ -1238,8 +1327,11 @@ export async function prepareRequestBody(
 					});
 				}
 
-				return bedrockMessage;
-			});
+				bedrockMessages.push(bedrockMessage);
+			}
+
+			flushPendingToolResults();
+			requestBody.messages = bedrockMessages;
 
 			// Transform tools from OpenAI format to Bedrock format
 			if (tools && tools.length > 0) {
@@ -1297,12 +1389,13 @@ export async function prepareRequestBody(
 					}
 				};
 				const thinkingBudget = getThinkingBudget(reasoning_effort);
-				requestBody.additionalModelRequestFields =
-					requestBody.additionalModelRequestFields || {};
+				requestBody.additionalModelRequestFields ??= {};
 				requestBody.additionalModelRequestFields.thinking = {
 					type: "enabled",
 					budget_tokens: thinkingBudget,
 				};
+				// Anthropic requires temperature to be exactly 1 when thinking is enabled
+				inferenceConfig.temperature = 1;
 				// Ensure max_tokens is sufficient for thinking + response
 				const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
 				if (
@@ -1363,7 +1456,7 @@ export async function prepareRequestBody(
 							functionDeclarations: functionTools.map((tool) => {
 								// Recursively strip additionalProperties and $schema from parameters as Google doesn't accept them
 								const cleanParameters = stripUnsupportedSchemaProperties(
-									tool.function.parameters || {},
+									tool.function.parameters ?? {},
 								);
 								return {
 									name: tool.function.name,
@@ -1378,9 +1471,7 @@ export async function prepareRequestBody(
 
 			// Add web search tool for Google (google_search grounding)
 			if (webSearchTool) {
-				if (!requestBody.tools) {
-					requestBody.tools = [];
-				}
+				requestBody.tools ??= [];
 				requestBody.tools.push({ google_search: {} });
 			}
 
@@ -1480,6 +1571,10 @@ export async function prepareRequestBody(
 		case "together.ai": {
 			if (usedModel.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedModel.substring(usedProvider.length + 1);
+			}
+
+			if (response_format) {
+				requestBody.response_format = response_format;
 			}
 
 			// Add optional parameters if they are provided
@@ -1633,7 +1728,23 @@ export async function prepareRequestBody(
 				requestBody.presence_penalty = presence_penalty;
 			}
 			if (reasoning_effort !== undefined) {
-				requestBody.reasoning_effort = reasoning_effort;
+				// Check if the model supports reasoning_effort parameter
+				const modelDef = models.find((m) =>
+					m.providers.some(
+						(p) => p.providerId === usedProvider && p.modelName === usedModel,
+					),
+				);
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === usedProvider && p.modelName === usedModel,
+				) as ProviderModelMapping | undefined;
+				const supported = providerMapping?.supportedParameters;
+				if (
+					!supported ||
+					supported.length === 0 ||
+					supported.includes("reasoning_effort")
+				) {
+					requestBody.reasoning_effort = reasoning_effort;
+				}
 			}
 			break;
 		}

@@ -34,7 +34,7 @@ process.on("SIGINT", gracefulShutdown);
 // Handle uncaught exceptions
 process.on("uncaughtException", (error) => {
 	logger.error("Uncaught exception", error);
-	gracefulShutdown();
+	void gracefulShutdown();
 });
 
 process.on("unhandledRejection", (reason) => {
@@ -42,7 +42,7 @@ process.on("unhandledRejection", (reason) => {
 		"Unhandled promise rejection",
 		reason instanceof Error ? reason : new Error(String(reason)),
 	);
-	gracefulShutdown();
+	void gracefulShutdown();
 });
 
 // Start the worker

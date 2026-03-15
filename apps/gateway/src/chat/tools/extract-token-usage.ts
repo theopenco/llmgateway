@@ -76,11 +76,11 @@ export function extractTokenUsage(
 					const estimation = estimateTokens(
 						provider,
 						[],
-						fullContent || "",
+						fullContent ?? "",
 						null,
 						null,
 					);
-					let textTokens = estimation.calculatedCompletionTokens || 0;
+					const textTokens = estimation.calculatedCompletionTokens ?? 0;
 					// For images, estimate ~258 tokens per image + 1 token per 750 bytes
 					let imageTokens = 0;
 					if (imageByteSize && imageByteSize > 0) {

@@ -18,7 +18,7 @@ OpenAI's **GPT-5 model family** is now available on LLM Gateway! Access all four
 ### **GPT-5** - The Flagship Model
 
 ```bash
-openai/gpt-5
+gpt-5
 ```
 
 - **Context Window**: 400,000 tokens
@@ -28,7 +28,7 @@ openai/gpt-5
 ### **GPT-5 Mini** - Optimized Performance
 
 ```bash
-openai/gpt-5-mini
+gpt-5-mini
 ```
 
 - **Context Window**: 400,000 tokens
@@ -38,7 +38,7 @@ openai/gpt-5-mini
 ### **GPT-5 Nano** - Ultra-Fast & Affordable
 
 ```bash
-openai/gpt-5-nano
+gpt-5-nano
 ```
 
 - **Context Window**: 400,000 tokens
@@ -48,7 +48,7 @@ openai/gpt-5-nano
 ### **GPT-5 Chat Latest** - Conversational Excellence
 
 ```bash
-openai/gpt-5-chat-latest
+gpt-5-chat-latest
 ```
 
 - **Context Window**: 400,000 tokens
@@ -64,7 +64,7 @@ import { llmgateway } from "@llmgateway/ai-sdk-provider";
 import { generateText } from "ai";
 
 const { text } = await generateText({
-  model: llmgateway("openai/gpt-5"),
+  model: llmgateway("gpt-5"),
   prompt: `Analyze this complex document with your 400k context window...`,
 });
 ```
@@ -74,15 +74,15 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "openai/gpt-5-mini",
+    "model": "gpt-5-mini",
     "messages": [{"role": "user", "content": "Hello GPT-5!"}]
   }'
 ```
 
-✅ **No Organization Verification** - Start using GPT-5 immediately  
-✅ **Instant Access** - No waitlists or approval process  
-✅ **Transparent Pricing** - Per-million-token pricing  
-✅ **Unified API** - Same interface as all other models  
+✅ **No Organization Verification** - Start using GPT-5 immediately
+✅ **Instant Access** - No waitlists or approval process
+✅ **Transparent Pricing** - Per-million-token pricing
+✅ **Unified API** - Same interface as all other models
 ✅ **Advanced Monitoring** - Track usage and costs
 
 ---

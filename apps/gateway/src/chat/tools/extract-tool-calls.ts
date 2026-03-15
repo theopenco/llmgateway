@@ -45,7 +45,7 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 			// Include thoughtSignature if present (required for Gemini 3 multi-turn conversations)
 			// Note: Redis caching of thought_signature happens in transform-streaming-to-openai.ts
 			// where the actual tool_call ID sent to clients is generated
-			const parts = data.candidates?.[0]?.content?.parts || [];
+			const parts = data.candidates?.[0]?.content?.parts ?? [];
 			return (
 				parts
 					.filter((part: any) => part.functionCall)
@@ -55,7 +55,7 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 							type: "function",
 							function: {
 								name: part.functionCall.name,
-								arguments: JSON.stringify(part.functionCall.args || {}),
+								arguments: JSON.stringify(part.functionCall.args ?? {}),
 							},
 						};
 						// Include thoughtSignature in extra_content for client to pass back
@@ -67,7 +67,7 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 							};
 						}
 						return toolCall;
-					}) || null
+					}) ?? null
 			);
 		}
 		case "aws-bedrock": {
@@ -91,7 +91,7 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 				const args =
 					typeof data.delta.toolUse.input === "string"
 						? data.delta.toolUse.input
-						: JSON.stringify(data.delta.toolUse.input || {});
+						: JSON.stringify(data.delta.toolUse.input ?? {});
 				return [
 					{
 						_contentBlockIndex: data.contentBlockIndex ?? 0,
@@ -104,6 +104,6 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 			return null;
 		}
 		default: // OpenAI format
-			return data.choices?.[0]?.delta?.tool_calls || null;
+			return data.choices?.[0]?.delta?.tool_calls ?? null;
 	}
 }

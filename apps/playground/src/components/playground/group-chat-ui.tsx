@@ -63,7 +63,7 @@ export const GroupChatUI = ({
 			return "Unknown";
 		}
 		const model = availableModels.find((m) => m.id === modelId);
-		return model?.id || modelId;
+		return model?.id ?? modelId;
 	};
 
 	const getModelColor = (modelId?: string) => {

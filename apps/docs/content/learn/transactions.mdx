@@ -1,0 +1,40 @@
+---
+title: Transactions
+description: View your complete payment and credit history
+icon: Receipt
+---
+
+import { ThemedImage } from "@/components/themed-image";
+
+The Transactions page shows a complete history of all financial transactions in your organization.
+
+<ThemedImage alt="Transactions" basePath="/learn/transactions" />
+
+## Transaction History
+
+Each transaction entry includes:
+
+| Field           | Description                              |
+| --------------- | ---------------------------------------- |
+| **Date**        | When the transaction occurred            |
+| **Type**        | The transaction type (see below)         |
+| **Credits**     | Number of credits added or deducted      |
+| **Total Paid**  | The dollar amount charged                |
+| **Status**      | Current state of the transaction         |
+| **Description** | Additional details about the transaction |
+
+## Transaction Types
+
+| Type                    | Description                         |
+| ----------------------- | ----------------------------------- |
+| **Credit Top-up**       | Manual or automatic credit purchase |
+| **Credit Refund**       | Credits refunded to your account    |
+| **Subscription Start**  | New plan subscription started       |
+| **Subscription Cancel** | Plan subscription canceled          |
+| **Subscription End**    | Plan subscription period ended      |
+
+## Status Badges
+
+- **Completed** — Transaction processed successfully
+- **Pending** — Transaction is being processed
+- **Failed** — Transaction could not be completed

@@ -20,24 +20,24 @@ export function OrganizationBillingEmailSettings() {
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/orgs").queryKey;
-			queryClient.invalidateQueries({ queryKey });
+			void queryClient.invalidateQueries({ queryKey });
 		},
 	});
 
 	const [billingEmail, setBillingEmail] = useState<string>(
-		selectedOrganization?.billingEmail || "",
+		selectedOrganization?.billingEmail ?? "",
 	);
 	const [billingCompany, setBillingCompany] = useState<string>(
-		selectedOrganization?.billingCompany || "",
+		selectedOrganization?.billingCompany ?? "",
 	);
 	const [billingAddress, setBillingAddress] = useState<string>(
-		selectedOrganization?.billingAddress || "",
+		selectedOrganization?.billingAddress ?? "",
 	);
 	const [billingTaxId, setBillingTaxId] = useState<string>(
-		selectedOrganization?.billingTaxId || "",
+		selectedOrganization?.billingTaxId ?? "",
 	);
 	const [billingNotes, setBillingNotes] = useState<string>(
-		selectedOrganization?.billingNotes || "",
+		selectedOrganization?.billingNotes ?? "",
 	);
 
 	const [emailError, setEmailError] = useState<string>("");
@@ -47,13 +47,12 @@ export function OrganizationBillingEmailSettings() {
 		if (!selectedOrganization) {
 			return;
 		}
-		setBillingEmail(selectedOrganization.billingEmail || "");
-		setBillingCompany(selectedOrganization.billingCompany || "");
-		setBillingAddress(selectedOrganization.billingAddress || "");
-		setBillingTaxId(selectedOrganization.billingTaxId || "");
-		setBillingNotes(selectedOrganization.billingNotes || "");
+		setBillingEmail(selectedOrganization.billingEmail ?? "");
+		setBillingCompany(selectedOrganization.billingCompany ?? "");
+		setBillingAddress(selectedOrganization.billingAddress ?? "");
+		setBillingTaxId(selectedOrganization.billingTaxId ?? "");
+		setBillingNotes(selectedOrganization.billingNotes ?? "");
 		setEmailError("");
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedOrganization?.id]);
 
 	const validateEmail = (email: string): boolean => {

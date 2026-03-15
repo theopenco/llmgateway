@@ -244,7 +244,7 @@ anthropic.openapi(messages, async (c) => {
 			openaiMessages.push({
 				role: "tool",
 				content: message.content,
-				tool_call_id: message.tool_call_id || message.name,
+				tool_call_id: message.tool_call_id ?? message.name,
 			});
 			continue;
 		}
@@ -264,7 +264,7 @@ anthropic.openapi(messages, async (c) => {
 			const toolCalls = [
 				{
 					id:
-						message.function_call.id ||
+						message.function_call.id ??
 						`call_${Math.random().toString(36).substring(2, 10)}`,
 					type: "function" as const,
 					function: {
@@ -442,43 +442,37 @@ anthropic.openapi(messages, async (c) => {
 	}
 
 	// Get user-agent for forwarding
-	const userAgent = c.req.header("User-Agent") || "";
+	const userAgent = c.req.header("User-Agent") ?? "";
 
 	// Make internal request to the existing chat completions endpoint using app.request()
 	const response = await app.request("/v1/chat/completions", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			Authorization: c.req.header("Authorization") || "",
-			"x-api-key": c.req.header("x-api-key") || "",
+			Authorization: c.req.header("Authorization") ?? "",
+			"x-api-key": c.req.header("x-api-key") ?? "",
 			"User-Agent": userAgent,
-			"x-request-id": c.req.header("x-request-id") || "",
-			"x-source": c.req.header("x-source") || "",
-			"x-debug": c.req.header("x-debug") || "",
-			"HTTP-Referer": c.req.header("HTTP-Referer") || "",
+			"x-request-id": c.req.header("x-request-id") ?? "",
+			"x-source": c.req.header("x-source") ?? "",
+			"x-debug": c.req.header("x-debug") ?? "",
+			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		},
 		body: JSON.stringify(openaiRequest),
 	});
 
 	if (!response.ok) {
-		// Don't log 402/429 - they're expected business logic responses (insufficient credits, rate limiting)
-		if (response.status !== 402 && response.status !== 429) {
-			const logPayload = {
-				status: response.status,
-				statusText: response.statusText,
-			};
-			if (response.status >= 500) {
-				logger.error("Anthropic -> OpenAI request failed", logPayload);
-			} else {
-				logger.warn("Anthropic -> OpenAI request failed", logPayload);
-			}
-		}
+		logger.warn("Anthropic -> OpenAI request failed", {
+			status: response.status,
+			statusText: response.statusText,
+		});
 		const errorData = await response.text();
-		throw new HTTPException(
-			response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,
+		return c.json(
 			{
+				error: true,
+				status: response.status,
 				message: `Request failed: ${errorData}`,
 			},
+			response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,
 		);
 	}
 
@@ -497,7 +491,7 @@ anthropic.openapi(messages, async (c) => {
 				let buffer = "";
 				let messageId = "";
 				let model = "";
-				let contentBlocks: Array<{
+				const contentBlocks: Array<{
 					type: string;
 					text?: string;
 					id?: string;
@@ -517,7 +511,7 @@ anthropic.openapi(messages, async (c) => {
 
 						buffer += decoder.decode(value, { stream: true });
 						const lines = buffer.split("\n");
-						buffer = lines.pop() || "";
+						buffer = lines.pop() ?? "";
 
 						for (const line of lines) {
 							if (line.startsWith("data: ")) {
@@ -548,7 +542,7 @@ anthropic.openapi(messages, async (c) => {
 
 								if (!messageId && chunk.id) {
 									messageId = chunk.id;
-									model = chunk.model || anthropicRequest.model;
+									model = chunk.model ?? anthropicRequest.model;
 
 									// Send message_start event
 									await stream.writeSSE({
@@ -637,8 +631,8 @@ anthropic.openapi(messages, async (c) => {
 										if (blockIndex === undefined) {
 											blockIndex = contentBlocks.length;
 											toolCallBlockIndex.set(toolCall.index, blockIndex);
-											const id = toolCall.id || `tool_${toolCall.index}`;
-											const name = toolCall.function?.name || "";
+											const id = toolCall.id ?? `tool_${toolCall.index}`;
+											const name = toolCall.function?.name ?? "";
 											contentBlocks.push({
 												type: "tool_use",
 												id,
@@ -701,8 +695,8 @@ anthropic.openapi(messages, async (c) => {
 									// Update usage if available
 									if (chunk.usage) {
 										usage = {
-											input_tokens: chunk.usage.prompt_tokens || 0,
-											output_tokens: chunk.usage.completion_tokens || 0,
+											input_tokens: chunk.usage.prompt_tokens ?? 0,
+											output_tokens: chunk.usage.completion_tokens ?? 0,
 										};
 									}
 
@@ -774,7 +768,7 @@ anthropic.openapi(messages, async (c) => {
 		for (const toolCall of openaiResponse.choices[0].message.tool_calls) {
 			let input: any;
 			try {
-				input = JSON.parse(toolCall.function.arguments || "{}");
+				input = JSON.parse(toolCall.function.arguments ?? "{}");
 			} catch (err) {
 				logger.error("Failed to parse anthropic tool call arguments", {
 					err: err instanceof Error ? err : new Error(String(err)),
@@ -804,8 +798,8 @@ anthropic.openapi(messages, async (c) => {
 		),
 		stop_sequence: null,
 		usage: {
-			input_tokens: openaiResponse.usage?.prompt_tokens || 0,
-			output_tokens: openaiResponse.usage?.completion_tokens || 0,
+			input_tokens: openaiResponse.usage?.prompt_tokens ?? 0,
+			output_tokens: openaiResponse.usage?.completion_tokens ?? 0,
 		},
 	};
 

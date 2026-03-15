@@ -237,7 +237,7 @@ export function TeamClient() {
 									<TableBody>
 										{data?.members.map((member) => (
 											<TableRow key={member.id}>
-												<TableCell>{member.user.name || "—"}</TableCell>
+												<TableCell>{member.user.name ?? "—"}</TableCell>
 												<TableCell>{member.user.email}</TableCell>
 												<TableCell>
 													<Select
@@ -269,7 +269,7 @@ export function TeamClient() {
 														onClick={() =>
 															handleRemoveMember(
 																member.id,
-																member.user.name || member.user.email,
+																member.user.name ?? member.user.email,
 															)
 														}
 														disabled={removeMemberMutation.isPending}

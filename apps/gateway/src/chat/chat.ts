@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { encode, encodeChat } from "gpt-tokenizer";
+import { encode } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
@@ -72,8 +72,13 @@ import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
+import {
+	extractAwsBedrockHttpError,
+	extractAwsBedrockStreamError,
+} from "./tools/extract-aws-bedrock-error.js";
 import { extractContent } from "./tools/extract-content.js";
 import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
+import { extractErrorCause } from "./tools/extract-error-cause.js";
 import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
@@ -95,9 +100,12 @@ import {
 	selectNextProvider,
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
+import {
+	encodeChatMessages,
+	messageContentToString,
+} from "./tools/tokenizer.js";
 import { transformResponseToOpenai } from "./tools/transform-response-to-openai.js";
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
-import { type ChatMessage, DEFAULT_TOKENIZER_MODEL } from "./tools/types.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
@@ -239,7 +247,7 @@ const completions = createRoute({
 
 chat.openapi(completions, async (c) => {
 	// Extract or generate request ID
-	const requestId = c.req.header("x-request-id") || shortid(40);
+	const requestId = c.req.header("x-request-id") ?? shortid(40);
 
 	// Parse JSON manually even if it's malformed
 	let rawBody: unknown;
@@ -275,17 +283,10 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	let {
+	const {
 		model: modelInput,
-		messages,
-		temperature,
-		max_tokens,
-		top_p,
-		frequency_penalty,
-		presence_penalty,
 		response_format,
 		stream,
-		tools,
 		tool_choice,
 		free_models_only,
 		onboarding,
@@ -295,6 +296,15 @@ chat.openapi(completions, async (c) => {
 		effort,
 		web_search,
 		plugins,
+	} = validationResult.data;
+	let {
+		messages,
+		temperature,
+		max_tokens,
+		top_p,
+		frequency_penalty,
+		presence_penalty,
+		tools,
 	} = validationResult.data;
 
 	// Debug: Log tools received from the AI SDK (development only)
@@ -316,7 +326,7 @@ chat.openapi(completions, async (c) => {
 
 	// If web_search parameter is true, automatically add the web_search tool
 	if (web_search && (!tools || !tools.some((t) => t.type === "web_search"))) {
-		tools = tools || [];
+		tools = tools ?? [];
 		tools.push({
 			type: "web_search" as const,
 		});
@@ -387,7 +397,7 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Extract User-Agent header for logging
-	const userAgent = c.req.header("User-Agent") || undefined;
+	const userAgent = c.req.header("User-Agent") ?? undefined;
 
 	// Match specific user agents and set source if x-source header is not specified
 	if (!source) {
@@ -428,7 +438,8 @@ chat.openapi(completions, async (c) => {
 
 	// Count input images from messages for cost calculation
 	const inputImageCount =
-		requestedModel === "gemini-3-pro-image-preview"
+		requestedModel === "gemini-3-pro-image-preview" ||
+		requestedModel === "gemini-3.1-flash-image-preview"
 			? countInputImages(messages)
 			: 0;
 
@@ -440,6 +451,17 @@ chat.openapi(completions, async (c) => {
 	let modelInfo = modelInfoResult.modelInfo;
 	const allModelProviders = modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
+
+	// Validate that models requiring image input have at least one image in the request
+	if (
+		modelInfo.imageInputRequired &&
+		!hasImages &&
+		countInputImages(messages) === 0
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${requestedModel} requires at least one image input. Please include an image in your request.`,
+		});
+	}
 
 	// === Early API key and organization validation for coding model restriction ===
 	// We need to fetch these early to check coding model restrictions before capability checks
@@ -595,24 +617,37 @@ chat.openapi(completions, async (c) => {
 	const retentionLevel = organization?.retentionLevel ?? "none";
 
 	// Get image size limits from environment variables or use defaults
-	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 10;
+	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
 	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
 
 	// Determine max image size based on plan
-	const userPlan = organization?.plan || "free";
+	const userPlan = organization?.plan ?? "free";
 	const maxImageSizeMB = userPlan === "pro" ? proLimitMB : freeLimitMB;
 
 	// Validate IAM rules for model access
+	// Pass modelInfo (with deactivated providers already filtered) so IAM validation
+	// only considers active providers. This prevents a deny rule from being bypassed
+	// when the only remaining active provider is a denied one but deactivated providers
+	// are still "allowed" by the IAM rules.
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
 		modelInfo.id,
 		requestedProvider,
+		modelInfo,
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason!);
 	}
 	// IAM allowed providers - used to filter available providers during routing
 	const iamAllowedProviders = iamValidation.allowedProviders;
+
+	// IAM-filtered model providers for routing and retry fallback paths.
+	// Recomputed after auto-routing because that block replaces modelInfo.
+	let iamFilteredModelProviders = iamAllowedProviders
+		? modelInfo.providers.filter((p) =>
+				iamAllowedProviders.includes(p.providerId),
+			)
+		: modelInfo.providers;
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
@@ -638,22 +673,11 @@ chat.openapi(completions, async (c) => {
 		// Estimate prompt tokens from messages
 		if (messages && messages.length > 0) {
 			try {
-				const chatMessages: ChatMessage[] = messages.map((m) => ({
-					role: m.role as "user" | "assistant" | "system" | undefined,
-					content:
-						typeof m.content === "string"
-							? m.content
-							: JSON.stringify(m.content),
-					name: m.name,
-				}));
-				requiredContextSize = encodeChat(
-					chatMessages,
-					DEFAULT_TOKENIZER_MODEL,
-				).length;
+				requiredContextSize = encodeChatMessages(messages);
 			} catch {
 				// Fallback to simple estimation if encoding fails
 				const messageTokens = messages.reduce(
-					(acc, m) => acc + (m.content?.length || 0),
+					(acc, m) => acc + (m.content?.length ?? 0),
 					0,
 				);
 				requiredContextSize = Math.max(1, Math.round(messageTokens / 4));
@@ -734,16 +758,26 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Validate IAM rules for this candidate model and filter providers.
+			// We must re-evaluate per model because iamAllowedProviders was computed
+			// for the "auto" model which only has the "llmgateway" provider.
+			const candidateIam = await validateModelAccess(
+				apiKey.id,
+				modelDef.id,
+				undefined,
+				modelDef,
+			);
+			if (!candidateIam.allowed) {
+				continue;
+			}
+			const candidateAllowedProviders = candidateIam.allowedProviders;
+
 			// Check if any of the model's providers are available
-			// Note: We don't filter by iamAllowedProviders here because it was computed
-			// for the "auto" model, not the actual models being considered for selection
 			const availableModelProviders = modelDef.providers.filter(
 				(provider) =>
 					availableProviders.includes(provider.providerId) &&
-					// Filter by IAM allowed providers only for non-auto models
-					(requestedModel === "auto" ||
-						!iamAllowedProviders ||
-						iamAllowedProviders.includes(provider.providerId)),
+					(!candidateAllowedProviders ||
+						candidateAllowedProviders.includes(provider.providerId)),
 			);
 
 			// Filter by context size requirement, reasoning capability, and deprecation status
@@ -847,10 +881,8 @@ chat.openapi(completions, async (c) => {
 				modelId: selectedModel.id,
 				providerId: p.providerId,
 			}));
-			const metricsMap = await getProviderMetricsForCombinations(
-				metricsCombinations,
-				5,
-			);
+			const metricsMap =
+				await getProviderMetricsForCombinations(metricsCombinations);
 
 			const cheapestResult = getCheapestFromAvailableProviders(
 				selectedProviders,
@@ -888,8 +920,43 @@ chat.openapi(completions, async (c) => {
 			usedModel = "gpt-5-nano";
 			usedProvider = "openai";
 		}
+		// Update modelInfo to the selected model so retry/fallback logic can find
+		// alternative providers. Without this, modelInfo still points to the "auto"
+		// model definition which only has "llmgateway" as a provider, preventing retries.
+		if (selectedModel) {
+			modelInfo = {
+				...selectedModel,
+				providers: selectedProviders,
+			};
+		} else {
+			// Fallback case: look up the default model definition
+			const fallbackModelDef = models.find((m) => m.id === "gpt-5-nano");
+			if (fallbackModelDef) {
+				modelInfo = fallbackModelDef;
+			}
+		}
 		// Clear requestedProvider so retry/fallback logic knows this was auto-routed
 		requestedProvider = undefined;
+
+		// Re-validate IAM against the resolved model so deny_providers /
+		// allow_providers rules are enforced for retries and the single-provider
+		// shortcut.  The original iamAllowedProviders was computed for the "auto"
+		// model (which only has the "llmgateway" provider) and is not meaningful
+		// for the resolved model.
+		const resolvedIamValidation = await validateModelAccess(
+			apiKey.id,
+			modelInfo.id,
+			undefined,
+			modelInfo,
+		);
+		if (!resolvedIamValidation.allowed) {
+			throwIamException(resolvedIamValidation.reason!);
+		}
+		iamFilteredModelProviders = resolvedIamValidation.allowedProviders
+			? modelInfo.providers.filter((p) =>
+					resolvedIamValidation.allowedProviders!.includes(p.providerId),
+				)
+			: modelInfo.providers;
 	} else if (
 		(usedProvider === "llmgateway" && usedModel === "custom") ||
 		usedModel === "custom"
@@ -913,15 +980,15 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 
 		// Fetch uptime metrics for the requested provider
-		const metricsMap = await getProviderMetricsForCombinations(
-			[{ modelId: baseModelId, providerId: usedProvider }],
-			5,
-		);
+		const metricsMap = await getProviderMetricsForCombinations([
+			{ modelId: baseModelId, providerId: usedProvider },
+		]);
 
 		const metrics = metricsMap.get(`${baseModelId}:${usedProvider}`);
 
 		// If we have metrics and uptime is below 90%, route to an alternative
-		if (metrics && metrics.uptime < 90) {
+		if (metrics && metrics.uptime !== undefined && metrics.uptime < 90) {
+			const currentUptime = metrics.uptime;
 			// Get available providers for routing
 			const providerIds = modelInfo.providers
 				.filter((p) => p.providerId !== usedProvider) // Exclude the low-uptime provider
@@ -944,19 +1011,12 @@ chat.openapi(completions, async (c) => {
 				// Filter model providers to only those available (excluding the low-uptime one)
 				// If web search is requested, also filter to providers that support it
 				// If JSON output is requested, also filter to providers that support it
-				const availableModelProviders = modelInfo.providers.filter(
+				const availableModelProviders = iamFilteredModelProviders.filter(
 					(provider) => {
 						if (!availableProviders.includes(provider.providerId)) {
 							return false;
 						}
 						if (provider.providerId === usedProvider) {
-							return false;
-						}
-						// Filter by IAM allowed providers
-						if (
-							iamAllowedProviders &&
-							!iamAllowedProviders.includes(provider.providerId)
-						) {
 							return false;
 						}
 						// If web search tool is requested, only include providers that support it
@@ -1002,10 +1062,8 @@ chat.openapi(completions, async (c) => {
 							modelId: modelWithPricing.id,
 							providerId: p.providerId,
 						}));
-						const allMetricsMap = await getProviderMetricsForCombinations(
-							metricsCombinations,
-							5,
-						);
+						const allMetricsMap =
+							await getProviderMetricsForCombinations(metricsCombinations);
 
 						// Filter to only providers with better uptime than the original
 						// to avoid falling back to worse providers
@@ -1017,7 +1075,8 @@ chat.openapi(completions, async (c) => {
 								// If no metrics, assume the provider is healthy (100% uptime)
 								// If has metrics, only include if uptime is better than original
 								return (
-									!providerMetrics || providerMetrics.uptime > metrics.uptime
+									!providerMetrics ||
+									(providerMetrics.uptime ?? 100) > currentUptime
 								);
 							},
 						);
@@ -1045,7 +1104,7 @@ chat.openapi(completions, async (c) => {
 								providerId: requestedProvider,
 								score: -1, // Negative score indicates this provider was skipped due to low uptime
 								price: originalProviderPrice,
-								uptime: metrics.uptime,
+								uptime: currentUptime,
 								latency: metrics.averageLatency,
 								throughput: metrics.throughput,
 							};
@@ -1057,7 +1116,7 @@ chat.openapi(completions, async (c) => {
 									...cheapestResult.metadata,
 									selectionReason: "low-uptime-fallback",
 									originalProvider: requestedProvider,
-									originalProviderUptime: metrics.uptime,
+									originalProviderUptime: currentUptime,
 									// Add the original provider's score to the scores array
 									providerScores: [
 										originalProviderScore,
@@ -1073,12 +1132,46 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// For models with multiple provider mappings for the same provider (e.g., routing models
+	// like grok-4-fast with reasoning and non-reasoning variants), select the correct variant
+	// based on request capabilities when a specific provider is already set
+	if (
+		usedProvider &&
+		usedProvider !== "llmgateway" &&
+		usedProvider !== "custom"
+	) {
+		const sameProviderMappings = modelInfo.providers.filter(
+			(p) => p.providerId === usedProvider,
+		);
+		if (sameProviderMappings.length > 1) {
+			let selectedMapping;
+			if (reasoning_effort !== undefined) {
+				selectedMapping = sameProviderMappings.find(
+					(p) => (p as ProviderModelMapping).reasoning === true,
+				);
+			} else {
+				selectedMapping = sameProviderMappings.find(
+					(p) => (p as ProviderModelMapping).reasoning !== true,
+				);
+			}
+			if (selectedMapping) {
+				usedModel = selectedMapping.modelName;
+			}
+		}
+	}
+
 	if (!usedProvider) {
-		if (modelInfo.providers.length === 1) {
-			usedProvider = modelInfo.providers[0].providerId;
-			usedModel = modelInfo.providers[0].modelName;
+		if (iamFilteredModelProviders.length === 0) {
+			throw new HTTPException(403, {
+				message: `Access denied: No providers are allowed for model ${modelInfo.id} after applying IAM rules. All active providers for this model are denied by your API key's IAM configuration.`,
+			});
+		}
+
+		if (iamFilteredModelProviders.length === 1) {
+			usedProvider = iamFilteredModelProviders[0].providerId;
+			usedModel = iamFilteredModelProviders[0].modelName;
 		} else {
-			const providerIds = modelInfo.providers.map((p) => p.providerId);
+			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
 				project.organizationId,
 				providerIds,
@@ -1095,44 +1188,60 @@ chat.openapi(completions, async (c) => {
 			// Filter model providers to only those available
 			// If web search is requested, also filter to providers that support it
 			// If JSON output is requested, also filter to providers that support it
-			const availableModelProviders = modelInfo.providers.filter((provider) => {
-				if (!availableProviders.includes(provider.providerId)) {
-					return false;
-				}
-				// Filter by IAM allowed providers
-				if (
-					iamAllowedProviders &&
-					!iamAllowedProviders.includes(provider.providerId)
-				) {
-					return false;
-				}
-				// If web search tool is requested, only include providers that support it
-				if (webSearchTool) {
-					if ((provider as ProviderModelMapping).webSearch !== true) {
+			const availableModelProviders = iamFilteredModelProviders.filter(
+				(provider) => {
+					if (!availableProviders.includes(provider.providerId)) {
 						return false;
 					}
-				}
-				// If JSON output is requested, only include providers that support it
-				if (
-					response_format?.type === "json_object" ||
-					response_format?.type === "json_schema"
-				) {
-					if ((provider as ProviderModelMapping).jsonOutput !== true) {
+					// If web search tool is requested, only include providers that support it
+					if (webSearchTool) {
+						if ((provider as ProviderModelMapping).webSearch !== true) {
+							return false;
+						}
+					}
+					// If JSON output is requested, only include providers that support it
+					if (
+						response_format?.type === "json_object" ||
+						response_format?.type === "json_schema"
+					) {
+						if ((provider as ProviderModelMapping).jsonOutput !== true) {
+							return false;
+						}
+					}
+					// If JSON schema output is requested, also include providers that support it
+					if (response_format?.type === "json_schema") {
+						if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
+							return false;
+						}
+					}
+					// If images are present in messages, only include providers that support vision
+					if (hasImages && (provider as ProviderModelMapping).vision !== true) {
 						return false;
 					}
-				}
-				// If JSON schema output is requested, also include providers that support it
-				if (response_format?.type === "json_schema") {
-					if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
-						return false;
+					// If reasoning_effort is specified, only include providers with reasoning support
+					if (reasoning_effort !== undefined) {
+						if ((provider as ProviderModelMapping).reasoning !== true) {
+							return false;
+						}
 					}
-				}
-				// If images are present in messages, only include providers that support vision
-				if (hasImages && (provider as ProviderModelMapping).vision !== true) {
-					return false;
-				}
-				return true;
-			});
+					// If reasoning_effort is NOT specified, prefer non-reasoning providers
+					// by excluding reasoning providers when a non-reasoning alternative exists for same provider
+					if (reasoning_effort === undefined) {
+						const hasNonReasoningAlternative = modelInfo.providers.some(
+							(p) =>
+								p.providerId === provider.providerId &&
+								(p as ProviderModelMapping).reasoning !== true,
+						);
+						if (
+							hasNonReasoningAlternative &&
+							(provider as ProviderModelMapping).reasoning === true
+						) {
+							return false;
+						}
+					}
+					return true;
+				},
+			);
 
 			if (availableModelProviders.length === 0) {
 				throw new HTTPException(400, {
@@ -1155,10 +1264,8 @@ chat.openapi(completions, async (c) => {
 					modelId: modelWithPricing.id,
 					providerId: p.providerId,
 				}));
-				const metricsMap = await getProviderMetricsForCombinations(
-					metricsCombinations,
-					5,
-				);
+				const metricsMap =
+					await getProviderMetricsForCombinations(metricsCombinations);
 
 				const cheapestResult = getCheapestFromAvailableProviders(
 					availableModelProviders,
@@ -1207,7 +1314,7 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 		let metricsMap: Map<
 			string,
-			{ uptime: number; averageLatency: number; throughput: number }
+			{ uptime?: number; averageLatency?: number; throughput?: number }
 		> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
@@ -1215,10 +1322,7 @@ chat.openapi(completions, async (c) => {
 				modelId: baseModelId,
 				providerId: p.providerId,
 			}));
-			metricsMap = await getProviderMetricsForCombinations(
-				metricsCombinations,
-				5,
-			);
+			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
 
 		// Build provider scores for all providers (including deactivated) with default values for missing metrics
@@ -1276,7 +1380,7 @@ chat.openapi(completions, async (c) => {
 
 	// Use the canonical model ID from finalModelInfo (looked up after routing)
 	// Fall back to usedModel (raw provider model name) for custom providers
-	let baseModelName = finalModelInfo?.id || usedModel;
+	let baseModelName = finalModelInfo?.id ?? usedModel;
 
 	// Check if this is an image generation model
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
@@ -1356,11 +1460,11 @@ chat.openapi(completions, async (c) => {
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
 		// Check both regular credits AND dev plan credits
-		const regularCredits = parseFloat(organization.credits || "0");
+		const regularCredits = parseFloat(organization.credits ?? "0");
 		const devPlanCreditsRemaining =
 			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit || "0") -
-					parseFloat(organization.devPlanCreditsUsed || "0")
+				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1402,11 +1506,11 @@ chat.openapi(completions, async (c) => {
 		} else {
 			// No API key available, fall back to credits
 			// Check both regular credits AND dev plan credits
-			const regularCredits = parseFloat(organization.credits || "0");
+			const regularCredits = parseFloat(organization.credits ?? "0");
 			const devPlanCreditsRemaining =
 				organization.devPlan !== "none"
-					? parseFloat(organization.devPlanCreditsLimit || "0") -
-						parseFloat(organization.devPlanCreditsUsed || "0")
+					? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+						parseFloat(organization.devPlanCreditsUsed ?? "0")
 					: 0;
 			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1457,11 +1561,11 @@ chat.openapi(completions, async (c) => {
 	// Check if organization has credits for data retention costs
 	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled
 	if (organization && organization.retentionLevel === "retain") {
-		const regularCredits = parseFloat(organization.credits || "0");
+		const regularCredits = parseFloat(organization.credits ?? "0");
 		const devPlanCreditsRemaining =
 			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit || "0") -
-					parseFloat(organization.devPlanCreditsUsed || "0")
+				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
@@ -1489,7 +1593,7 @@ chat.openapi(completions, async (c) => {
 	// Check if messages contain existing tool calls or tool results
 	// If so, use Chat Completions API instead of Responses API
 	const hasExistingToolCalls = messages.some(
-		(msg: any) => msg.tool_calls || msg.role === "tool",
+		(msg: any) => msg.tool_calls ?? msg.role === "tool",
 	);
 
 	try {
@@ -1501,7 +1605,7 @@ chat.openapi(completions, async (c) => {
 
 		url = getProviderEndpoint(
 			usedProvider,
-			providerKey?.baseUrl || undefined,
+			providerKey?.baseUrl ?? undefined,
 			usedModel,
 			usedProvider === "google-ai-studio" || usedProvider === "google-vertex"
 				? usedToken
@@ -1509,7 +1613,7 @@ chat.openapi(completions, async (c) => {
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
-			providerKey?.options || undefined,
+			providerKey?.options ?? undefined,
 			configIndex,
 			isImageGeneration,
 		);
@@ -1627,7 +1731,7 @@ chat.openapi(completions, async (c) => {
 
 				// Log the cached streaming request with reconstructed content
 				// Extract plugin IDs for logging (cached streaming)
-				const cachedStreamingPluginIds = plugins?.map((p) => p.id) || [];
+				const cachedStreamingPluginIds = plugins?.map((p) => p.id) ?? [];
 
 				const baseLogEntry = createLogEntry(
 					requestId,
@@ -1669,11 +1773,11 @@ chat.openapi(completions, async (c) => {
 				const costs = await calculateCosts(
 					usedModel,
 					usedProvider,
-					promptTokens || null,
-					completionTokens || null,
-					cachedTokens || null,
+					promptTokens ?? null,
+					completionTokens ?? null,
+					cachedTokens ?? null,
 					undefined,
-					reasoningTokens || null,
+					reasoningTokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
@@ -1691,17 +1795,17 @@ chat.openapi(completions, async (c) => {
 					reasoningContent: fullReasoningContent || null,
 					finishReason: cachedStreamingResponse.metadata.finishReason,
 					promptTokens:
-						(costs.promptTokens ?? promptTokens)?.toString() || null,
-					completionTokens: completionTokens?.toString() || null,
+						(costs.promptTokens ?? promptTokens)?.toString() ?? null,
+					completionTokens: completionTokens?.toString() ?? null,
 					totalTokens: costs.imageInputTokens
 						? (
-								(costs.promptTokens || promptTokens || 0) +
-								(completionTokens || 0) +
-								(reasoningTokens || 0)
+								(costs.promptTokens ?? promptTokens ?? 0) +
+								(completionTokens ?? 0) +
+								(reasoningTokens ?? 0)
 							).toString()
-						: totalTokens?.toString() || null,
-					reasoningTokens: reasoningTokens?.toString() || null,
-					cachedTokens: cachedTokens?.toString() || null,
+						: (totalTokens?.toString() ?? null),
+					reasoningTokens: reasoningTokens?.toString() ?? null,
+					cachedTokens: cachedTokens?.toString() ?? null,
 					hasError: false,
 					streamed: true,
 					canceled: false,
@@ -1729,7 +1833,7 @@ chat.openapi(completions, async (c) => {
 					cached: true,
 					toolResults:
 						(cachedStreamingResponse.metadata as { toolResults?: any })
-							?.toolResults || null,
+							?.toolResults ?? null,
 				});
 
 				// Return cached streaming response by replaying chunks with original timing
@@ -1777,7 +1881,7 @@ chat.openapi(completions, async (c) => {
 				// Log the cached request
 				const duration = 0; // No processing time needed
 				// Extract plugin IDs for logging (cached non-streaming)
-				const cachedPluginIds = plugins?.map((p) => p.id) || [];
+				const cachedPluginIds = plugins?.map((p) => p.id) ?? [];
 
 				const baseLogEntry = createLogEntry(
 					requestId,
@@ -1819,11 +1923,11 @@ chat.openapi(completions, async (c) => {
 				const cachedCosts = await calculateCosts(
 					usedModel,
 					usedProvider,
-					cachedResponse.usage?.prompt_tokens || null,
-					cachedResponse.usage?.completion_tokens || null,
-					cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
+					cachedResponse.usage?.prompt_tokens ?? null,
+					cachedResponse.usage?.completion_tokens ?? null,
+					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
 					undefined,
-					cachedResponse.usage?.reasoning_tokens || null,
+					cachedResponse.usage?.reasoning_tokens ?? null,
 					0, // outputImageCount
 					undefined, // imageSize
 					inputImageCount,
@@ -1836,8 +1940,8 @@ chat.openapi(completions, async (c) => {
 				const cachedReasoningContent =
 					cachedResponse.choices?.[0]?.message?.reasoning;
 				const estimatedCachedSize =
-					(cachedContent?.length || 0) +
-					(cachedReasoningContent?.length || 0) +
+					(cachedContent?.length ?? 0) +
+					(cachedReasoningContent?.length ?? 0) +
 					500; // overhead for metadata
 
 				await insertLog({
@@ -1846,26 +1950,26 @@ chat.openapi(completions, async (c) => {
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
 					responseSize: estimatedCachedSize,
-					content: cachedContent || null,
-					reasoningContent: cachedReasoningContent || null,
-					finishReason: cachedResponse.choices?.[0]?.finish_reason || null,
+					content: cachedContent ?? null,
+					reasoningContent: cachedReasoningContent ?? null,
+					finishReason: cachedResponse.choices?.[0]?.finish_reason ?? null,
 					promptTokens:
 						(
 							cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens
-						)?.toString() || null,
-					completionTokens: cachedResponse.usage?.completion_tokens || null,
+						)?.toString() ?? null,
+					completionTokens: cachedResponse.usage?.completion_tokens ?? null,
 					totalTokens: cachedCosts.imageInputTokens
 						? (
-								(cachedCosts.promptTokens ||
-									cachedResponse.usage?.prompt_tokens ||
+								(cachedCosts.promptTokens ??
+									cachedResponse.usage?.prompt_tokens ??
 									0) +
-								(cachedResponse.usage?.completion_tokens || 0) +
-								(cachedResponse.usage?.reasoning_tokens || 0)
+								(cachedResponse.usage?.completion_tokens ?? 0) +
+								(cachedResponse.usage?.reasoning_tokens ?? 0)
 							).toString()
-						: cachedResponse.usage?.total_tokens || null,
-					reasoningTokens: cachedResponse.usage?.reasoning_tokens || null,
+						: (cachedResponse.usage?.total_tokens ?? null),
+					reasoningTokens: cachedResponse.usage?.reasoning_tokens ?? null,
 					cachedTokens:
-						cachedResponse.usage?.prompt_tokens_details?.cached_tokens || null,
+						cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
 					hasError: false,
 					streamed: false,
 					canceled: false,
@@ -1891,7 +1995,7 @@ chat.openapi(completions, async (c) => {
 						retentionLevel,
 					),
 					cached: true,
-					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls || null,
+					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls ?? null,
 				});
 
 				return c.json(cachedResponse);
@@ -2239,7 +2343,7 @@ chat.openapi(completions, async (c) => {
 						const nextProvider = selectNextProvider(
 							routingMetadata?.providerScores ?? [],
 							failedProviderIds,
-							modelInfo.providers,
+							iamFilteredModelProviders,
 						);
 						if (!nextProvider) {
 							break;
@@ -2355,8 +2459,10 @@ chat.openapi(completions, async (c) => {
 							// Handle timeout error
 							const errorMessage =
 								error instanceof Error ? error.message : "Request timeout";
+							const timeoutCause = extractErrorCause(error);
 							logger.warn("Upstream request timeout", {
 								error: errorMessage,
+								cause: timeoutCause,
 								usedProvider,
 								requestedProvider,
 								usedModel,
@@ -2364,7 +2470,7 @@ chat.openapi(completions, async (c) => {
 							});
 
 							// Log the timeout error in the database
-							const timeoutPluginIds = plugins?.map((p) => p.id) || [];
+							const timeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 
 							// Check if we should retry before logging so we can mark the log as retried
 							const willRetryTimeout = shouldRetryRequest({
@@ -2436,6 +2542,7 @@ chat.openapi(completions, async (c) => {
 									statusCode: 0,
 									statusText: "TimeoutError",
 									responseText: errorMessage,
+									cause: timeoutCause,
 								},
 								cachedInputCost: null,
 								requestCost: null,
@@ -2479,7 +2586,7 @@ chat.openapi(completions, async (c) => {
 						} else if (error instanceof Error && error.name === "AbortError") {
 							// Log the canceled request
 							// Extract plugin IDs for logging (canceled request)
-							const canceledPluginIds = plugins?.map((p) => p.id) || [];
+							const canceledPluginIds = plugins?.map((p) => p.id) ?? [];
 
 							// Calculate costs for cancelled request if billing is enabled
 							const billCancelled = shouldBillCancelledRequests();
@@ -2508,7 +2615,9 @@ chat.openapi(completions, async (c) => {
 									0, // No completion tokens yet
 									null, // No cached tokens
 									{
-										prompt: messages.map((m) => m.content).join("\n"),
+										prompt: messages
+											.map((m) => messageContentToString(m.content))
+											.join("\n"),
 										completion: "",
 									},
 									null, // No reasoning tokens
@@ -2627,8 +2736,10 @@ chat.openapi(completions, async (c) => {
 						} else if (error instanceof Error) {
 							// Handle fetch errors (timeout, connection failures, etc.)
 							const errorMessage = error.message;
+							const fetchCause = extractErrorCause(error);
 							logger.warn("Fetch error", {
 								error: errorMessage,
+								cause: fetchCause,
 								usedProvider,
 								requestedProvider,
 								usedModel,
@@ -2637,7 +2748,7 @@ chat.openapi(completions, async (c) => {
 
 							// Log the error in the database
 							// Extract plugin IDs for logging (fetch error)
-							const fetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+							const fetchErrorPluginIds = plugins?.map((p) => p.id) ?? [];
 
 							// Check if we should retry before logging so we can mark the log as retried
 							const willRetryFetch = shouldRetryRequest({
@@ -2709,6 +2820,7 @@ chat.openapi(completions, async (c) => {
 									statusCode: 0,
 									statusText: error.name,
 									responseText: errorMessage,
+									cause: fetchCause,
 								},
 								cachedInputCost: null,
 								requestCost: null,
@@ -2767,7 +2879,11 @@ chat.openapi(completions, async (c) => {
 					}
 
 					if (!res.ok) {
-						const errorResponseText = await res.text();
+						const rawErrorResponseText = await res.text();
+						const errorResponseText =
+							usedProvider === "aws-bedrock"
+								? extractAwsBedrockHttpError(res, rawErrorResponseText)
+								: rawErrorResponseText;
 
 						// Determine the finish reason for error handling
 						const finishReason = getFinishReasonFromError(
@@ -2786,12 +2902,15 @@ chat.openapi(completions, async (c) => {
 								requestedProvider,
 								usedModel,
 								initialRequestedModel,
+								organizationId: project.organizationId,
+								projectId: apiKey.projectId,
+								apiKeyId: apiKey.id,
 							});
 						}
 
 						// Log the request in the database
 						// Extract plugin IDs for logging
-						const streamingErrorPluginIds = plugins?.map((p) => p.id) || [];
+						const streamingErrorPluginIds = plugins?.map((p) => p.id) ?? [];
 
 						// Check if we should retry before logging so we can mark the log as retried
 						const willRetryHttpError = shouldRetryRequest({
@@ -3118,11 +3237,13 @@ chat.openapi(completions, async (c) => {
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
 				let webSearchCount = 0; // Track web search calls for cost calculation
+				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
 				let doneSent = false; // Track if [DONE] has been sent
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 				let rawUpstreamData = ""; // Raw data received from upstream provider
 				const isAwsBedrock = usedProvider === "aws-bedrock";
+				let shouldTerminateStream = false;
 
 				// Response healing for streaming mode
 				const streamingResponseHealingEnabled = plugins?.some(
@@ -3136,11 +3257,11 @@ chat.openapi(completions, async (c) => {
 
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end
-				let bufferedContentChunks: string[] = [];
+				const bufferedContentChunks: string[] = [];
 				let lastChunkId: string | null = null;
 				let lastChunkModel: string | null = null;
 				let lastChunkCreated: number | null = null;
-				let streamingPluginResults: {
+				const streamingPluginResults: {
 					responseHealing?: {
 						healed: boolean;
 						healingMethod?: string;
@@ -3323,7 +3444,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic SSE format, we need to be more careful about event boundaries
 								// Try to find the end of the JSON data by looking for the closing brace
-								let newlinePos = bufferCopy.indexOf("\n", eventStartPos);
+								const newlinePos = bufferCopy.indexOf("\n", eventStartPos);
 								if (newlinePos !== -1) {
 									// We found a newline - check if the JSON before it is valid
 									const jsonCandidate = bufferCopy
@@ -3472,7 +3593,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								if (finalCompletionTokens === null) {
-									let textTokens = estimateTokensFromContent(fullContent);
+									const textTokens = estimateTokensFromContent(fullContent);
 									// For images, estimate ~258 tokens per image + 1 token per 750 bytes
 									// This is based on Google's image token calculation
 									let imageTokens = 0;
@@ -3485,9 +3606,9 @@ chat.openapi(completions, async (c) => {
 
 								if (finalTotalTokens === null) {
 									finalTotalTokens =
-										(finalPromptTokens || 0) +
-										(finalCompletionTokens || 0) +
-										(reasoningTokens || 0);
+										(finalPromptTokens ?? 0) +
+										(finalCompletionTokens ?? 0) +
+										(reasoningTokens ?? 0);
 								}
 
 								// Send final usage chunk before [DONE] if we have any usage data
@@ -3504,9 +3625,11 @@ chat.openapi(completions, async (c) => {
 										finalCompletionTokens,
 										cachedTokens,
 										{
-											prompt: messages.map((m) => m.content).join("\n"),
+											prompt: messages
+												.map((m) => messageContentToString(m.content))
+												.join("\n"),
 											completion: fullContent,
-											toolResults: streamingToolCalls || undefined,
+											toolResults: streamingToolCalls ?? undefined,
 										},
 										reasoningTokens,
 										outputImageCount,
@@ -3534,21 +3657,21 @@ chat.openapi(completions, async (c) => {
 										usage: {
 											prompt_tokens: Math.max(
 												1,
-												streamingCosts.promptTokens || finalPromptTokens || 1,
+												streamingCosts.promptTokens ?? finalPromptTokens ?? 1,
 											),
 											completion_tokens:
-												streamingCosts.completionTokens ||
-												finalCompletionTokens ||
+												streamingCosts.completionTokens ??
+												finalCompletionTokens ??
 												0,
 											total_tokens: Math.max(
 												1,
-												(streamingCosts.promptTokens ||
-													finalPromptTokens ||
+												(streamingCosts.promptTokens ??
+													finalPromptTokens ??
 													0) +
-													(streamingCosts.completionTokens ||
-														finalCompletionTokens ||
+													(streamingCosts.completionTokens ??
+														finalCompletionTokens ??
 														0) +
-													(reasoningTokens || 0),
+													(reasoningTokens ?? 0),
 											),
 											...(shouldIncludeCosts && {
 												cost_usd_total: streamingCosts.totalCost,
@@ -3616,12 +3739,60 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
+								const awsBedrockStreamError =
+									usedProvider === "aws-bedrock"
+										? extractAwsBedrockStreamError(data)
+										: null;
+								if (awsBedrockStreamError) {
+									const errorType = getFinishReasonFromError(
+										awsBedrockStreamError.statusCode,
+										awsBedrockStreamError.responseText,
+									);
+
+									streamingError = {
+										message: awsBedrockStreamError.message,
+										type: errorType,
+										code: awsBedrockStreamError.eventType,
+										details: {
+											statusCode: awsBedrockStreamError.statusCode,
+											statusText: awsBedrockStreamError.eventType,
+											responseText: awsBedrockStreamError.responseText,
+										},
+									};
+									finishReason = errorType;
+
+									await writeSSEAndCache({
+										event: "error",
+										data: JSON.stringify({
+											error: {
+												message: awsBedrockStreamError.message,
+												type: errorType,
+												code: awsBedrockStreamError.eventType,
+												param: null,
+												responseText: awsBedrockStreamError.responseText,
+											},
+										}),
+										id: String(eventId++),
+									});
+									await writeSSEAndCache({
+										event: "done",
+										data: "[DONE]",
+										id: String(eventId++),
+									});
+									doneSent = true;
+									shouldTerminateStream = true;
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									break;
+								}
+
 								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingToOpenai(
 									usedProvider,
 									usedModel,
 									data,
 									messages,
+									serverToolUseIndices,
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -3659,7 +3830,8 @@ chat.openapi(completions, async (c) => {
 								// For Google providers, add usage information when available
 								if (
 									usedProvider === "google-ai-studio" ||
-									usedProvider === "google-vertex"
+									usedProvider === "google-vertex" ||
+									usedProvider === "obsidian"
 								) {
 									const usage = extractTokenUsage(
 										data,
@@ -3712,9 +3884,7 @@ chat.openapi(completions, async (c) => {
 										// First, extract tool calls to update our tracking
 										const rawToolCalls = extractToolCalls(data, usedProvider);
 										if (rawToolCalls && rawToolCalls.length > 0) {
-											if (!streamingToolCalls) {
-												streamingToolCalls = [];
-											}
+											streamingToolCalls ??= [];
 											for (const newCall of rawToolCalls) {
 												// For content_block_start events (have id), add to tracking
 												if (newCall.id) {
@@ -3738,9 +3908,7 @@ chat.openapi(completions, async (c) => {
 															if (tc.index === newCall._contentBlockIndex) {
 																tc.id = existingCall.id;
 																tc.type = "function";
-																if (!tc.function) {
-																	tc.function = {};
-																}
+																tc.function ??= {};
 																tc.function.name = existingCall.function.name;
 															}
 														}
@@ -3759,10 +3927,10 @@ chat.openapi(completions, async (c) => {
 									if (deltaContent) {
 										bufferedContentChunks.push(deltaContent);
 										// Store chunk metadata for later use when sending healed content
-										lastChunkId = transformedData.id || lastChunkId;
-										lastChunkModel = transformedData.model || lastChunkModel;
+										lastChunkId = transformedData.id ?? lastChunkId;
+										lastChunkModel = transformedData.model ?? lastChunkModel;
 										lastChunkCreated =
-											transformedData.created || lastChunkCreated;
+											transformedData.created ?? lastChunkCreated;
 									}
 
 									// Create a copy without content in delta for streaming
@@ -3832,6 +4000,7 @@ chat.openapi(completions, async (c) => {
 								const contentChunk = extractContent(
 									usedProvider === "google-ai-studio" ||
 										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian" ||
 										usedProvider === "anthropic"
 										? data
 										: transformedData,
@@ -3853,7 +4022,7 @@ chat.openapi(completions, async (c) => {
 									usedProvider === "google-vertex" ||
 									usedProvider === "obsidian"
 								) {
-									const parts = data.candidates?.[0]?.content?.parts || [];
+									const parts = data.candidates?.[0]?.content?.parts ?? [];
 									for (const part of parts) {
 										if (part.inlineData?.data) {
 											// Base64 string length * 0.75 ≈ actual byte size
@@ -3913,6 +4082,7 @@ chat.openapi(completions, async (c) => {
 								const reasoningContentChunk = extractReasoning(
 									usedProvider === "google-ai-studio" ||
 										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian" ||
 										usedProvider === "anthropic"
 										? data
 										: transformedData,
@@ -3931,9 +4101,7 @@ chat.openapi(completions, async (c) => {
 								// Extract and accumulate tool calls
 								const toolCallsChunk = extractToolCalls(data, usedProvider);
 								if (toolCallsChunk && toolCallsChunk.length > 0) {
-									if (!streamingToolCalls) {
-										streamingToolCalls = [];
-									}
+									streamingToolCalls ??= [];
 									// Merge tool calls (accumulating function arguments)
 									for (const newCall of toolCallsChunk) {
 										let existingCall = null;
@@ -3957,7 +4125,7 @@ chat.openapi(completions, async (c) => {
 											// Accumulate function arguments
 											if (newCall.function?.arguments) {
 												existingCall.function.arguments =
-													(existingCall.function.arguments || "") +
+													(existingCall.function.arguments ?? "") +
 													newCall.function.arguments;
 											}
 										} else {
@@ -3991,7 +4159,7 @@ chat.openapi(completions, async (c) => {
 											data.type === "message_stop" ||
 											data.stop_reason
 										) {
-											finishReason = data.stop_reason || "end_turn";
+											finishReason = data.stop_reason ?? "end_turn";
 										} else if (data.delta?.stop_reason) {
 											finishReason = data.delta.stop_reason;
 										}
@@ -4040,7 +4208,7 @@ chat.openapi(completions, async (c) => {
 									}
 
 									if (!completionTokens) {
-										let textTokens = estimateTokensFromContent(fullContent);
+										const textTokens = estimateTokensFromContent(fullContent);
 										// For images, estimate ~258 tokens per image + 1 token per 750 bytes
 										let imageTokens = 0;
 										if (imageByteSize > 0) {
@@ -4049,7 +4217,7 @@ chat.openapi(completions, async (c) => {
 										completionTokens = textTokens + imageTokens;
 									}
 
-									totalTokens = (promptTokens || 0) + (completionTokens || 0);
+									totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
 								}
 
 								processedLength = eventEnd;
@@ -4061,6 +4229,10 @@ chat.openapi(completions, async (c) => {
 						// Remove processed data from buffer
 						if (processedLength > 0) {
 							buffer = bufferCopy.slice(processedLength);
+						}
+
+						if (shouldTerminateStream) {
+							break;
 						}
 					}
 				} catch (error) {
@@ -4189,29 +4361,7 @@ chat.openapi(completions, async (c) => {
 					// Estimate tokens for providers that don't provide them during streaming
 					if (!promptTokens || !completionTokens) {
 						if (!promptTokens && messages && messages.length > 0) {
-							try {
-								// Convert messages to the format expected by gpt-tokenizer
-								const chatMessages: any[] = messages.map((m) => ({
-									role: m.role as "user" | "assistant" | "system" | undefined,
-									content: m.content || "",
-									name: m.name,
-								}));
-								calculatedPromptTokens = encodeChat(
-									chatMessages,
-									DEFAULT_TOKENIZER_MODEL,
-								).length;
-							} catch (error) {
-								// Fallback to simple estimation if encoding fails
-								logger.error(
-									"Failed to encode chat messages in streaming",
-									error instanceof Error ? error : new Error(String(error)),
-								);
-								calculatedPromptTokens =
-									messages.reduce(
-										(acc, m) => acc + (m.content?.length || 0),
-										0,
-									) / 4;
-							}
+							calculatedPromptTokens = encodeChatMessages(messages);
 						}
 
 						if (!completionTokens && (fullContent || imageByteSize > 0)) {
@@ -4245,7 +4395,7 @@ chat.openapi(completions, async (c) => {
 						}
 
 						calculatedTotalTokens =
-							(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0);
+							(calculatedPromptTokens ?? 0) + (calculatedCompletionTokens ?? 0);
 					}
 
 					// Estimate reasoning tokens if not provided but reasoning content exists
@@ -4271,7 +4421,8 @@ chat.openapi(completions, async (c) => {
 					// These include both finishReason values and promptFeedback.blockReason values
 					const isGoogleContentFilterStreaming =
 						(usedProvider === "google-ai-studio" ||
-							usedProvider === "google-vertex") &&
+							usedProvider === "google-vertex" ||
+							usedProvider === "obsidian") &&
 						(finishReason === "SAFETY" ||
 							finishReason === "PROHIBITED_CONTENT" ||
 							finishReason === "RECITATION" ||
@@ -4381,11 +4532,11 @@ chat.openapi(completions, async (c) => {
 											Math.round(
 												promptTokens && promptTokens > 0
 													? promptTokens + imageInputAdj
-													: (calculatedPromptTokens || 1) + imageInputAdj,
+													: (calculatedPromptTokens ?? 1) + imageInputAdj,
 											),
 										);
 										const adjCompletion = Math.round(
-											completionTokens || calculatedCompletionTokens || 0,
+											completionTokens ?? calculatedCompletionTokens ?? 0,
 										);
 										return {
 											prompt_tokens: adjPrompt,
@@ -4444,10 +4595,10 @@ chat.openapi(completions, async (c) => {
 
 								// Send the healed (or original if no healing needed) content as a single chunk
 								const healedContentChunk = {
-									id: lastChunkId || `chatcmpl-${Date.now()}`,
+									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
-									created: lastChunkCreated || Math.floor(Date.now() / 1000),
-									model: lastChunkModel || usedModel,
+									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
+									model: lastChunkModel ?? usedModel,
 									choices: [
 										{
 											index: 0,
@@ -4466,15 +4617,15 @@ chat.openapi(completions, async (c) => {
 
 								// Send finish_reason chunk
 								const finishChunk = {
-									id: lastChunkId || `chatcmpl-${Date.now()}`,
+									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
-									created: lastChunkCreated || Math.floor(Date.now() / 1000),
-									model: lastChunkModel || usedModel,
+									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
+									model: lastChunkModel ?? usedModel,
 									choices: [
 										{
 											index: 0,
 											delta: {},
-											finish_reason: finishReason || "stop",
+											finish_reason: finishReason ?? "stop",
 										},
 									],
 								};
@@ -4508,7 +4659,7 @@ chat.openapi(completions, async (c) => {
 									],
 									metadata: {
 										requested_model: initialRequestedModel,
-										requested_provider: requestedProvider || null,
+										requested_provider: requestedProvider ?? null,
 										used_model: baseModelName,
 										used_provider: usedProvider,
 										underlying_used_model: usedModel,
@@ -4579,9 +4730,11 @@ chat.openapi(completions, async (c) => {
 									calculatedCompletionTokens,
 									cachedTokens,
 									{
-										prompt: messages.map((m) => m.content).join("\n"),
+										prompt: messages
+											.map((m) => messageContentToString(m.content))
+											.join("\n"),
 										completion: fullContent,
-										toolResults: streamingToolCalls || undefined,
+										toolResults: streamingToolCalls ?? undefined,
 									},
 									reasoningTokens,
 									outputImageCount,
@@ -4595,16 +4748,16 @@ chat.openapi(completions, async (c) => {
 					// tokens for providers that exclude them from upstream usage)
 					if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
 						const promptDelta =
-							(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+							(costs.promptTokens ?? 0) - (calculatedPromptTokens ?? 0);
 						if (promptDelta > 0) {
 							calculatedPromptTokens = costs.promptTokens;
 							calculatedTotalTokens =
-								(calculatedTotalTokens || 0) + promptDelta;
+								(calculatedTotalTokens ?? 0) + promptDelta;
 						}
 					}
 
 					// Extract plugin IDs for logging
-					const streamingPluginIds = plugins?.map((p) => p.id) || [];
+					const streamingPluginIds = plugins?.map((p) => p.id) ?? [];
 
 					// Determine plugin results for logging (includes healing results if applicable)
 					const finalPluginResults =
@@ -4641,13 +4794,9 @@ chat.openapi(completions, async (c) => {
 						image_config,
 						routingMetadata,
 						rawBody,
-						streamingError
-							? streamingError // Pass structured error when there's an error
-							: streamingRawResponseData, // Raw SSE data sent back to the client
+						streamingError ?? streamingRawResponseData, // Raw SSE data sent back to the client
 						requestBody, // The request sent to the provider
-						streamingError
-							? streamingError // Pass structured error as upstream response too
-							: rawUpstreamData, // Raw streaming data received from upstream provider
+						streamingError ?? rawUpstreamData, // Raw streaming data received from upstream provider
 						streamingPluginIds,
 						finalPluginResults, // Plugin results including healing (if enabled)
 					);
@@ -4655,7 +4804,8 @@ chat.openapi(completions, async (c) => {
 					// Enhanced logging for Google models streaming to debug missing responses
 					if (
 						usedProvider === "google-ai-studio" ||
-						usedProvider === "google-vertex"
+						usedProvider === "google-vertex" ||
+						usedProvider === "obsidian"
 					) {
 						logger.debug("Google model streaming response completed", {
 							usedProvider,
@@ -4689,32 +4839,59 @@ chat.openapi(completions, async (c) => {
 						reasoningContent: fullReasoningContent || null,
 						finishReason: canceled ? "canceled" : finishReason,
 						promptTokens: shouldIncludeTokensForBilling
-							? calculatedPromptTokens?.toString() || null
+							? (calculatedPromptTokens?.toString() ?? null)
 							: null,
 						completionTokens: shouldIncludeTokensForBilling
-							? calculatedCompletionTokens?.toString() || null
+							? (calculatedCompletionTokens?.toString() ?? null)
 							: null,
 						totalTokens: shouldIncludeTokensForBilling
-							? calculatedTotalTokens?.toString() || null
+							? (calculatedTotalTokens?.toString() ?? null)
 							: null,
 						reasoningTokens: shouldIncludeTokensForBilling
-							? calculatedReasoningTokens?.toString() || null
+							? (calculatedReasoningTokens?.toString() ?? null)
 							: null,
 						cachedTokens: shouldIncludeTokensForBilling
-							? cachedTokens?.toString() || null
+							? (cachedTokens?.toString() ?? null)
 							: null,
 						hasError: streamingError !== null,
 						errorDetails: streamingError
 							? {
-									statusCode: 500,
-									statusText: "Streaming Error",
+									statusCode:
+										typeof streamingError === "object" &&
+										streamingError !== null &&
+										"details" in streamingError &&
+										typeof streamingError.details === "object" &&
+										streamingError.details !== null &&
+										"statusCode" in streamingError.details &&
+										typeof streamingError.details.statusCode === "number"
+											? streamingError.details.statusCode
+											: 500,
+									statusText:
+										typeof streamingError === "object" &&
+										streamingError !== null &&
+										"details" in streamingError &&
+										typeof streamingError.details === "object" &&
+										streamingError.details !== null &&
+										"statusText" in streamingError.details &&
+										typeof streamingError.details.statusText === "string"
+											? streamingError.details.statusText
+											: "Streaming Error",
 									responseText:
 										typeof streamingError === "object" &&
-										"details" in streamingError
-											? JSON.stringify(streamingError) // Store structured error as JSON string
-											: streamingError instanceof Error
-												? streamingError.message
-												: String(streamingError),
+										streamingError !== null &&
+										"details" in streamingError &&
+										typeof streamingError.details === "object" &&
+										streamingError.details !== null &&
+										"responseText" in streamingError.details &&
+										typeof streamingError.details.responseText === "string"
+											? streamingError.details.responseText
+											: typeof streamingError === "object" &&
+												  streamingError !== null &&
+												  "details" in streamingError
+												? JSON.stringify(streamingError)
+												: streamingError instanceof Error
+													? streamingError.message
+													: String(streamingError),
 								}
 							: null,
 						streamed: true,
@@ -4851,7 +5028,7 @@ chat.openapi(completions, async (c) => {
 			const nextProvider = selectNextProvider(
 				routingMetadata?.providerScores ?? [],
 				failedProviderIds,
-				modelInfo.providers,
+				iamFilteredModelProviders,
 			);
 			if (!nextProvider) {
 				break;
@@ -4991,8 +5168,10 @@ chat.openapi(completions, async (c) => {
 		// Handle fetch errors (timeout, connection failures, etc.)
 		if (fetchError) {
 			const errorMessage = fetchError.message;
+			const nonStreamingFetchCause = extractErrorCause(fetchError);
 			logger.warn("Fetch error", {
 				error: errorMessage,
+				cause: nonStreamingFetchCause,
 				usedProvider,
 				requestedProvider,
 				usedModel,
@@ -5001,7 +5180,7 @@ chat.openapi(completions, async (c) => {
 
 			// Log the error in the database
 			// Extract plugin IDs for logging (non-streaming fetch error)
-			const nonStreamingFetchErrorPluginIds = plugins?.map((p) => p.id) || [];
+			const nonStreamingFetchErrorPluginIds = plugins?.map((p) => p.id) ?? [];
 
 			// Check if we should retry before logging so we can mark the log as retried
 			const willRetryFetchNonStreaming = shouldRetryRequest({
@@ -5073,6 +5252,7 @@ chat.openapi(completions, async (c) => {
 					statusCode: 0,
 					statusText: fetchError.name,
 					responseText: errorMessage,
+					cause: nonStreamingFetchCause,
 				},
 				cachedInputCost: null,
 				requestCost: null,
@@ -5131,7 +5311,7 @@ chat.openapi(completions, async (c) => {
 		if (canceled) {
 			// Log the canceled request
 			// Extract plugin IDs for logging (canceled non-streaming)
-			const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) || [];
+			const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) ?? [];
 
 			// Calculate costs for cancelled request if billing is enabled
 			const billCancelled = shouldBillCancelledRequests();
@@ -5159,7 +5339,9 @@ chat.openapi(completions, async (c) => {
 					0, // No completion tokens
 					null, // No cached tokens
 					{
-						prompt: messages.map((m) => m.content).join("\n"),
+						prompt: messages
+							.map((m) => messageContentToString(m.content))
+							.join("\n"),
 						completion: "",
 					},
 					null, // No reasoning tokens
@@ -5273,20 +5455,26 @@ chat.openapi(completions, async (c) => {
 			// Body read can throw TimeoutError if the abort signal fires during consumption
 			let errorResponseText: string;
 			try {
-				errorResponseText = await res.text();
+				const rawErrorResponseText = await res.text();
+				errorResponseText =
+					usedProvider === "aws-bedrock"
+						? extractAwsBedrockHttpError(res, rawErrorResponseText)
+						: rawErrorResponseText;
 			} catch (bodyError) {
 				if (isTimeoutError(bodyError)) {
 					const errorMessage =
 						bodyError instanceof Error
 							? bodyError.message
 							: "Timeout reading error response body";
+					const bodyErrorCause = extractErrorCause(bodyError);
 					logger.warn("Timeout reading error response body", {
 						usedProvider,
 						usedModel,
 						status: res.status,
+						cause: bodyErrorCause,
 					});
 
-					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) || [];
+					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 					const baseLogEntry = createLogEntry(
 						requestId,
 						project,
@@ -5344,6 +5532,7 @@ chat.openapi(completions, async (c) => {
 							statusCode: res.status,
 							statusText: "TimeoutError",
 							responseText: errorMessage,
+							cause: bodyErrorCause,
 						},
 						cachedInputCost: null,
 						requestCost: null,
@@ -5391,12 +5580,15 @@ chat.openapi(completions, async (c) => {
 					requestedProvider,
 					usedModel,
 					initialRequestedModel,
+					organizationId: project.organizationId,
+					projectId: apiKey.projectId,
+					apiKeyId: apiKey.id,
 				});
 			}
 
 			// Log the request in the database
 			// Extract plugin IDs for logging
-			const providerErrorPluginIds = plugins?.map((p) => p.id) || [];
+			const providerErrorPluginIds = plugins?.map((p) => p.id) ?? [];
 
 			// Check if we should retry before logging so we can mark the log as retried
 			const willRetryHttpNonStreaming = shouldRetryRequest({
@@ -5477,7 +5669,7 @@ chat.openapi(completions, async (c) => {
 								statusCode: res.status,
 								statusText: res.statusText,
 								responseText: errorResponseText,
-								message: originalError.error?.message || errorResponseText,
+								message: originalError.error?.message ?? errorResponseText,
 							};
 						} catch {
 							// If parsing fails, use default format
@@ -5652,13 +5844,15 @@ chat.openapi(completions, async (c) => {
 				bodyError instanceof Error
 					? bodyError.message
 					: "Timeout reading response body";
+			const bodyReadCause = extractErrorCause(bodyError);
 			logger.warn("Timeout reading response body", {
 				usedProvider,
 				usedModel,
 				initialRequestedModel,
+				cause: bodyReadCause,
 			});
 
-			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) || [];
+			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 			const baseLogEntry = createLogEntry(
 				requestId,
 				project,
@@ -5716,6 +5910,7 @@ chat.openapi(completions, async (c) => {
 					statusCode: res.status,
 					statusText: "TimeoutError",
 					responseText: errorMessage,
+					cause: bodyReadCause,
 				},
 				cachedInputCost: null,
 				requestCost: null,
@@ -5755,20 +5950,25 @@ chat.openapi(completions, async (c) => {
 		: 0;
 
 	// Extract content and token usage based on provider
-	let {
-		content,
+	const parsedResponse = parseProviderResponse(
+		usedProvider,
+		usedModel,
+		json,
+		messages,
+	);
+	let { content, totalTokens } = parsedResponse;
+	const {
 		reasoningContent,
 		finishReason,
 		promptTokens,
 		completionTokens,
-		totalTokens,
 		reasoningTokens,
 		cachedTokens,
 		toolResults,
 		images,
 		annotations,
 		webSearchCount,
-	} = parseProviderResponse(usedProvider, usedModel, json, messages);
+	} = parsedResponse;
 
 	// Apply response healing if enabled and response_format is json_object or json_schema
 	const responseHealingEnabled = plugins?.some(
@@ -5779,7 +5979,7 @@ chat.openapi(completions, async (c) => {
 		response_format?.type === "json_schema";
 
 	// Track plugin results for logging
-	let pluginResults: {
+	const pluginResults: {
 		responseHealing?: {
 			healed: boolean;
 			healingMethod?: string;
@@ -5812,13 +6012,13 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			usedModel,
 			hasContent: !!content,
-			contentLength: content?.length || 0,
+			contentLength: content?.length ?? 0,
 			finishReason,
 			promptTokens,
 			completionTokens,
 			reasoningTokens,
 			hasToolResults: !!toolResults,
-			toolResultsCount: toolResults?.length || 0,
+			toolResultsCount: toolResults?.length ?? 0,
 			rawCandidates: json.candidates,
 			rawUsageMetadata: json.usageMetadata,
 		});
@@ -5843,13 +6043,15 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Estimate tokens if not provided by the API
-	let { calculatedPromptTokens, calculatedCompletionTokens } = estimateTokens(
+	const estimatedTokens = estimateTokens(
 		usedProvider,
 		messages,
 		content,
 		promptTokens,
 		completionTokens,
 	);
+	let calculatedPromptTokens = estimatedTokens.calculatedPromptTokens;
+	const calculatedCompletionTokens = estimatedTokens.calculatedCompletionTokens;
 
 	// Estimate reasoning tokens if not provided but reasoning content exists
 	let calculatedReasoningTokens = reasoningTokens;
@@ -5872,7 +6074,7 @@ chat.openapi(completions, async (c) => {
 		calculatedCompletionTokens,
 		cachedTokens,
 		{
-			prompt: messages.map((m) => m.content).join("\n"),
+			prompt: messages.map((m) => messageContentToString(m.content)).join("\n"),
 			completion: content,
 			toolResults: toolResults,
 		},
@@ -5888,13 +6090,13 @@ chat.openapi(completions, async (c) => {
 	// tokens for providers that exclude them from upstream usage)
 	if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
 		const promptDelta =
-			(costs.promptTokens || 0) - (calculatedPromptTokens || 0);
+			(costs.promptTokens ?? 0) - (calculatedPromptTokens ?? 0);
 		if (promptDelta > 0) {
 			calculatedPromptTokens = costs.promptTokens;
 			totalTokens = (
-				(calculatedPromptTokens || 0) +
-				(calculatedCompletionTokens || 0) +
-				(calculatedReasoningTokens || 0)
+				(calculatedPromptTokens ?? 0) +
+				(calculatedCompletionTokens ?? 0) +
+				(calculatedReasoningTokens ?? 0)
 			).toString();
 		}
 	}
@@ -5909,17 +6111,17 @@ chat.openapi(completions, async (c) => {
 		content,
 		reasoningContent,
 		finishReason,
-		costs.promptTokens || calculatedPromptTokens,
-		costs.completionTokens || calculatedCompletionTokens,
-		(costs.promptTokens || calculatedPromptTokens || 0) +
-			(costs.completionTokens || calculatedCompletionTokens || 0) +
-			(reasoningTokens || 0),
+		costs.promptTokens ?? calculatedPromptTokens,
+		costs.completionTokens ?? calculatedCompletionTokens,
+		(costs.promptTokens ?? calculatedPromptTokens ?? 0) +
+			(costs.completionTokens ?? calculatedCompletionTokens ?? 0) +
+			(reasoningTokens ?? 0),
 		reasoningTokens,
 		cachedTokens,
 		toolResults,
 		convertedImages,
 		modelInput,
-		requestedProvider || null,
+		requestedProvider ?? null,
 		baseModelName,
 		shouldIncludeCosts
 			? {
@@ -5939,7 +6141,7 @@ chat.openapi(completions, async (c) => {
 	);
 
 	// Extract plugin IDs for logging
-	const pluginIds = plugins?.map((p) => p.id) || [];
+	const pluginIds = plugins?.map((p) => p.id) ?? [];
 
 	const baseLogEntry = createLogEntry(
 		requestId,
@@ -6015,7 +6217,7 @@ chat.openapi(completions, async (c) => {
 	// Calculate response size if Content-Length was not available
 	// For large responses, use content length estimation to avoid CPU spikes from stringify
 	if (!responseSize) {
-		const contentLength = content?.length || 0;
+		const contentLength = content?.length ?? 0;
 		// If content is very large (likely contains base64 images), use estimation
 		// Otherwise stringify is acceptable for smaller responses
 		if (contentLength > 1_000_000) {
@@ -6038,15 +6240,15 @@ chat.openapi(completions, async (c) => {
 		finishReason: hasEmptyNonStreamingResponse
 			? "upstream_error"
 			: finishReason,
-		promptTokens: calculatedPromptTokens?.toString() || null,
-		completionTokens: calculatedCompletionTokens?.toString() || null,
+		promptTokens: calculatedPromptTokens?.toString() ?? null,
+		completionTokens: calculatedCompletionTokens?.toString() ?? null,
 		totalTokens:
-			totalTokens ||
+			totalTokens ??
 			(
-				(calculatedPromptTokens || 0) + (calculatedCompletionTokens || 0)
+				(calculatedPromptTokens ?? 0) + (calculatedCompletionTokens ?? 0)
 			).toString(),
-		reasoningTokens: calculatedReasoningTokens?.toString() || null,
-		cachedTokens: cachedTokens?.toString() || null,
+		reasoningTokens: calculatedReasoningTokens?.toString() ?? null,
+		cachedTokens: cachedTokens?.toString() ?? null,
 		hasError: hasEmptyNonStreamingResponse,
 		streamed: false,
 		canceled: false,
@@ -6100,16 +6302,16 @@ chat.openapi(completions, async (c) => {
 
 		// Create a streaming chunk that mimics OpenAI SSE format
 		const deltaChunk = {
-			id: transformedResponse.id || `chatcmpl-${Date.now()}`,
+			id: transformedResponse.id ?? `chatcmpl-${Date.now()}`,
 			object: "chat.completion.chunk",
-			created: transformedResponse.created || Math.floor(Date.now() / 1000),
+			created: transformedResponse.created ?? Math.floor(Date.now() / 1000),
 			model: transformedResponse.model,
 			choices: [
 				{
 					index: 0,
 					delta: {
 						role: "assistant",
-						content: transformedResponse.choices?.[0]?.message?.content || "",
+						content: transformedResponse.choices?.[0]?.message?.content ?? "",
 						...(transformedResponse.choices?.[0]?.message?.images && {
 							images: transformedResponse.choices[0].message.images,
 						}),
@@ -6122,16 +6324,16 @@ chat.openapi(completions, async (c) => {
 
 		// Send finish chunk
 		const finishChunk = {
-			id: transformedResponse.id || `chatcmpl-${Date.now()}`,
+			id: transformedResponse.id ?? `chatcmpl-${Date.now()}`,
 			object: "chat.completion.chunk",
-			created: transformedResponse.created || Math.floor(Date.now() / 1000),
+			created: transformedResponse.created ?? Math.floor(Date.now() / 1000),
 			model: transformedResponse.model,
 			choices: [
 				{
 					index: 0,
 					delta: {},
 					finish_reason:
-						transformedResponse.choices?.[0]?.finish_reason || "stop",
+						transformedResponse.choices?.[0]?.finish_reason ?? "stop",
 				},
 			],
 			...(transformedResponse.usage && { usage: transformedResponse.usage }),

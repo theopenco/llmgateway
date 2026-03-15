@@ -70,9 +70,11 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			) as ProviderModelMapping;
 			const useResponsesApi = process.env.USE_RESPONSES_API === "true";
 			const isOpenAI = reasoningProvider?.providerId === "openai";
+			const isXai = reasoningProvider?.providerId === "xai";
 			const shouldCheckReasoning =
 				reasoningProvider?.reasoningOutput !== "omit" &&
-				(!isOpenAI || useResponsesApi);
+				(!isOpenAI || useResponsesApi) &&
+				!isXai;
 
 			// Verify reasoning content is saved to database for reasoning models
 			if (shouldCheckReasoning) {

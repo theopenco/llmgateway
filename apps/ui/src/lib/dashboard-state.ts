@@ -41,16 +41,16 @@ export function useDashboardState({
 		},
 	);
 	const organizations = useMemo(
-		() => organizationsData?.organizations || [],
+		() => organizationsData?.organizations ?? [],
 		[organizationsData?.organizations],
 	);
 
 	// Derive selected organization from props or default to first
 	const selectedOrganization = useMemo(() => {
 		if (selectedOrgId) {
-			return organizations.find((org) => org.id === selectedOrgId) || null;
+			return organizations.find((org) => org.id === selectedOrgId) ?? null;
 		}
-		return organizations[0] || null;
+		return organizations[0] ?? null;
 	}, [selectedOrgId, organizations]);
 
 	// Fetch projects for selected organization
@@ -60,7 +60,7 @@ export function useDashboardState({
 		{
 			params: {
 				path: {
-					id: selectedOrganization?.id || "",
+					id: selectedOrganization?.id ?? "",
 				},
 			},
 		},
@@ -74,7 +74,7 @@ export function useDashboardState({
 
 	// Get current projects from query data
 	const projects = useMemo(
-		() => projectsData?.projects || [],
+		() => projectsData?.projects ?? [],
 		[projectsData?.projects],
 	);
 
@@ -82,10 +82,10 @@ export function useDashboardState({
 	const selectedProject = useMemo(() => {
 		if (selectedProjectId && projects.length > 0) {
 			return (
-				projects.find((project) => project.id === selectedProjectId) || null
+				projects.find((project) => project.id === selectedProjectId) ?? null
 			);
 		}
-		return projects[0] || null;
+		return projects[0] ?? null;
 	}, [selectedProjectId, projects]);
 
 	// Navigation functions for the new route structure

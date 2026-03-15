@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, use, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ interface BranchContextType {
 const BranchContext = createContext<BranchContextType | null>(null);
 
 const useBranch = () => {
-	const context = useContext(BranchContext);
+	const context = use(BranchContext);
 
 	if (!context) {
 		throw new Error("Branch components must be used within Branch");
@@ -61,7 +61,6 @@ export const Branch = ({
 		handleBranchChange(newBranch);
 	};
 
-	// eslint-disable-next-line react/jsx-no-constructed-context-values
 	const contextValue: BranchContextType = {
 		currentBranch,
 		totalBranches: branches.length,
@@ -72,12 +71,12 @@ export const Branch = ({
 	};
 
 	return (
-		<BranchContext.Provider value={contextValue}>
+		<BranchContext value={contextValue}>
 			<div
 				className={cn("grid w-full gap-2 [&>div]:pb-0", className)}
 				{...props}
 			/>
-		</BranchContext.Provider>
+		</BranchContext>
 	);
 };
 
@@ -85,7 +84,6 @@ export type BranchMessagesProps = HTMLAttributes<HTMLDivElement>;
 
 export const BranchMessages = ({ children, ...props }: BranchMessagesProps) => {
 	const { currentBranch, setBranches, branches } = useBranch();
-	// eslint-disable-next-line react-hooks/exhaustive-deps
 	const childrenArray = Array.isArray(children) ? children : [children];
 
 	// Use useEffect to update branches when they change

@@ -52,13 +52,14 @@ export interface ApiModel {
 	family: string;
 	free: boolean | null;
 	output: string[] | null;
+	imageInputRequired: boolean | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	status: "active" | "inactive";
 	mappings: ApiModelProviderMapping[];
 }
 
 const API_URL =
-	process.env.API_BACKEND_URL || process.env.API_URL || "http://localhost:4002";
+	process.env.API_BACKEND_URL ?? process.env.API_URL ?? "http://localhost:4002";
 
 export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 	try {
@@ -70,7 +71,7 @@ export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 			return [];
 		}
 		const data = await response.json();
-		return data.models || [];
+		return data.models ?? [];
 	} catch (error) {
 		console.error("Error fetching models:", error);
 		return [];
@@ -87,7 +88,7 @@ export const fetchProviders = cache(async (): Promise<ApiProvider[]> => {
 			return [];
 		}
 		const data = await response.json();
-		return data.providers || [];
+		return data.providers ?? [];
 	} catch (error) {
 		console.error("Error fetching providers:", error);
 		return [];

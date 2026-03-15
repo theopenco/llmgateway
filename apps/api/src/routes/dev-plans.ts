@@ -13,7 +13,7 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
-import { stripe } from "./payments.js";
+import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -166,9 +166,9 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 		devPlanCreditsUsed: org.devPlanCreditsUsed,
 		devPlanCreditsLimit: org.devPlanCreditsLimit,
 		devPlanBillingCycleStart:
-			org.devPlanBillingCycleStart?.toISOString() || null,
+			org.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: org.devPlanCancelled,
-		devPlanExpiresAt: org.devPlanExpiresAt?.toISOString() || null,
+		devPlanExpiresAt: org.devPlanExpiresAt?.toISOString() ?? null,
 		credits: org.credits,
 	});
 });
@@ -243,7 +243,7 @@ devPlans.openapi(subscribe, async (c) => {
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
-		const session = await stripe.checkout.sessions.create({
+		const session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
 			mode: "subscription",
 			line_items: [
@@ -253,8 +253,8 @@ devPlans.openapi(subscribe, async (c) => {
 				},
 			],
 			allow_promotion_codes: true,
-			success_url: `${process.env.CODE_URL || "http://localhost:3004"}/dashboard?success=true`,
-			cancel_url: `${process.env.CODE_URL || "http://localhost:3004"}/dashboard/plans?canceled=true`,
+			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?success=true`,
+			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard/plans?canceled=true`,
 			metadata: {
 				organizationId: personalOrg.id,
 				subscriptionType: "dev_plan",
@@ -356,9 +356,12 @@ devPlans.openapi(cancel, async (c) => {
 	}
 
 	try {
-		await stripe.subscriptions.update(personalOrg.devPlanStripeSubscriptionId, {
-			cancel_at_period_end: true,
-		});
+		await getStripe().subscriptions.update(
+			personalOrg.devPlanStripeSubscriptionId,
+			{
+				cancel_at_period_end: true,
+			},
+		);
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -444,7 +447,7 @@ devPlans.openapi(resume, async (c) => {
 	}
 
 	try {
-		const subscription = await stripe.subscriptions.retrieve(
+		const subscription = await getStripe().subscriptions.retrieve(
 			personalOrg.devPlanStripeSubscriptionId,
 		);
 
@@ -454,9 +457,12 @@ devPlans.openapi(resume, async (c) => {
 			});
 		}
 
-		await stripe.subscriptions.update(personalOrg.devPlanStripeSubscriptionId, {
-			cancel_at_period_end: false,
-		});
+		await getStripe().subscriptions.update(
+			personalOrg.devPlanStripeSubscriptionId,
+			{
+				cancel_at_period_end: false,
+			},
+		);
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -566,24 +572,27 @@ devPlans.openapi(changeTier, async (c) => {
 	}
 
 	try {
-		const subscription = await stripe.subscriptions.retrieve(
+		const subscription = await getStripe().subscriptions.retrieve(
 			personalOrg.devPlanStripeSubscriptionId,
 		);
 
 		// Update subscription with new tier
-		await stripe.subscriptions.update(personalOrg.devPlanStripeSubscriptionId, {
-			items: [
-				{
-					id: subscription.items.data[0].id,
-					price: newPriceId,
+		await getStripe().subscriptions.update(
+			personalOrg.devPlanStripeSubscriptionId,
+			{
+				items: [
+					{
+						id: subscription.items.data[0].id,
+						price: newPriceId,
+					},
+				],
+				proration_behavior: "create_prorations",
+				metadata: {
+					...subscription.metadata,
+					devPlan: newTier,
 				},
-			],
-			proration_behavior: "create_prorations",
-			metadata: {
-				...subscription.metadata,
-				devPlan: newTier,
 			},
-		});
+		);
 
 		// Update local database immediately
 		const newCreditsLimit = getDevPlanCreditsLimit(newTier);
@@ -735,9 +744,9 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
 		devPlanBillingCycleStart:
-			personalOrg.devPlanBillingCycleStart?.toISOString() || null,
+			personalOrg.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: personalOrg.devPlanCancelled,
-		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() || null,
+		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
 		regularCredits: personalOrg.credits,
 		organizationId: personalOrg.id,
 		apiKey,

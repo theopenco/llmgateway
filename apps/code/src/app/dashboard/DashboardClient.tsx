@@ -189,8 +189,8 @@ export default function DashboardClient() {
 
 	const hasActivePlan =
 		devPlanStatus?.devPlan && devPlanStatus.devPlan !== "none";
-	const creditsUsed = parseFloat(devPlanStatus?.devPlanCreditsUsed || "0");
-	const creditsLimit = parseFloat(devPlanStatus?.devPlanCreditsLimit || "0");
+	const creditsUsed = parseFloat(devPlanStatus?.devPlanCreditsUsed ?? "0");
+	const creditsLimit = parseFloat(devPlanStatus?.devPlanCreditsLimit ?? "0");
 	const usagePercentage =
 		creditsLimit > 0 ? (creditsUsed / creditsLimit) * 100 : 0;
 

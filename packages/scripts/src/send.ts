@@ -13,6 +13,7 @@
 // Usage: RESEND_API_KEY=re_xxx npx tsx send.ts emails.json
 
 import { readFileSync } from "fs";
+
 import { Resend } from "resend";
 import { z } from "zod";
 
@@ -31,7 +32,7 @@ const EmailsSchema = z.array(EmailRowSchema);
 type EmailRow = z.infer<typeof EmailRowSchema>;
 
 async function sleep(ms: number) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+	return await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function sendWithRetry(
@@ -97,4 +98,4 @@ async function sendEmails(jsonPath: string) {
 	}
 }
 
-sendEmails(process.argv[2] || "emails.json");
+void sendEmails(process.argv[2] || "emails.json");

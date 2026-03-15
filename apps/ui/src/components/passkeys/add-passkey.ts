@@ -12,7 +12,7 @@ export function createAddPasskeyFunction(authClient: any) {
 			if (result?.error) {
 				toast({
 					title: "Error adding passkey",
-					description: result.error.message || "Please try again",
+					description: result.error.message ?? "Please try again",
 				});
 				return;
 			}

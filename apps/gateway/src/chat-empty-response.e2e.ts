@@ -57,7 +57,7 @@ describe("Empty Response Error Handling", getConcurrentTestOptions(), () => {
 			expect(streamResult.errorEvents.length).toBe(0);
 
 			// Parse all SSE events from the raw content to count DONE events
-			const rawContent = streamResult.fullContent || "";
+			const rawContent = streamResult.fullContent ?? "";
 			const doneEventMatches = rawContent.match(/data: \[DONE\]/g);
 			const doneEventCount = doneEventMatches ? doneEventMatches.length : 0;
 

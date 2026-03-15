@@ -85,7 +85,7 @@ export function extractOrgAndProjectFromPath(pathname: string): {
 	projectId: string | null;
 } {
 	// Org-only pages (all under /org/ path)
-	const orgOnlyMatch = pathname.match(/^\/dashboard\/([^\/]+)\/org\//);
+	const orgOnlyMatch = pathname.match(/^\/dashboard\/([^/]+)\/org\//);
 	if (orgOnlyMatch) {
 		return {
 			orgId: orgOnlyMatch[1],
@@ -94,7 +94,7 @@ export function extractOrgAndProjectFromPath(pathname: string): {
 	}
 
 	// Project pages
-	const projectMatch = pathname.match(/^\/dashboard\/([^\/]+)\/([^\/]+)/);
+	const projectMatch = pathname.match(/^\/dashboard\/([^/]+)\/([^/]+)/);
 	if (projectMatch) {
 		return {
 			orgId: projectMatch[1],
@@ -103,7 +103,7 @@ export function extractOrgAndProjectFromPath(pathname: string): {
 	}
 
 	// Just org ID (e.g., /dashboard/org-123)
-	const orgMatch = pathname.match(/^\/dashboard\/([^\/]+)$/);
+	const orgMatch = pathname.match(/^\/dashboard\/([^/]+)$/);
 	if (orgMatch) {
 		return {
 			orgId: orgMatch[1],

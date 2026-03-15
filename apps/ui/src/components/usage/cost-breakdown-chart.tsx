@@ -66,6 +66,7 @@ function isLowContrastColor(hex: string): boolean {
 	const r = parseInt(hex.slice(1, 3), 16);
 	const g = parseInt(hex.slice(3, 5), 16);
 	const b = parseInt(hex.slice(5, 7), 16);
+	// eslint-disable-next-line no-mixed-operators
 	const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
 	return luminance < 0.15 || luminance > 0.85;
 }
@@ -93,7 +94,7 @@ export function CostBreakdownChart({
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 
-	const effectiveProjectId = projectId || selectedProject?.id;
+	const effectiveProjectId = projectId ?? selectedProject?.id;
 
 	const api = useApi();
 	const { data, isLoading, error } = api.useQuery(
@@ -202,7 +203,7 @@ export function CostBreakdownChart({
 						</tspan>
 						<tspan
 							x={viewBox.cx}
-							y={(viewBox.cy || 0) + 20}
+							y={(viewBox.cy ?? 0) + 20}
 							className="fill-muted-foreground text-xs"
 						>
 							Total Cost
@@ -295,7 +296,7 @@ export function CostBreakdownChart({
 						className="h-2.5 w-2.5 shrink-0 rounded-sm"
 						style={{
 							backgroundColor:
-								(config && "color" in config ? config.color : undefined) ||
+								(config && "color" in config ? config.color : undefined) ??
 								"#94a3b8",
 						}}
 					/>

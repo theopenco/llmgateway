@@ -15,11 +15,17 @@ import { notFound } from "next/navigation";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { CopyModelName } from "@/components/models/copy-model-name";
+import {
+	GlobalDiscountBanner,
+	type DiscountData,
+} from "@/components/models/global-discount-banner";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
+import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
+import { fetchServerData } from "@/lib/server-api";
 
 import {
 	models as modelDefinitions,
@@ -32,6 +38,77 @@ import type { Metadata } from "next";
 
 interface PageProps {
 	params: Promise<{ name: string }>;
+}
+
+async function getModelDiscounts(modelId: string): Promise<DiscountData[]> {
+	const data = await fetchServerData<{ discounts: DiscountData[] }>(
+		"GET",
+		"/public/discounts/model/{modelId}",
+		{
+			params: {
+				path: { modelId },
+			},
+		},
+	);
+
+	return data?.discounts ?? [];
+}
+
+function getBestDiscount(
+	discounts: DiscountData[],
+	modelId: string,
+): DiscountData | null {
+	// Precedence: model-specific > fully global
+	const modelSpecific = discounts.find((d) => d.model === modelId);
+	if (modelSpecific) {
+		return modelSpecific;
+	}
+
+	const fullyGlobal = discounts.find(
+		(d) => d.provider === null && d.model === null,
+	);
+	if (fullyGlobal) {
+		return fullyGlobal;
+	}
+
+	return null;
+}
+
+function getEffectiveProviderDiscount(
+	discounts: DiscountData[],
+	providerId: string,
+	modelId: string,
+): number | undefined {
+	// Precedence: provider+model > provider > model > fully global
+	const providerModel = discounts.find(
+		(d) => d.provider === providerId && d.model === modelId,
+	);
+	if (providerModel) {
+		return parseFloat(providerModel.discountPercent);
+	}
+
+	const providerOnly = discounts.find(
+		(d) => d.provider === providerId && d.model === null,
+	);
+	if (providerOnly) {
+		return parseFloat(providerOnly.discountPercent);
+	}
+
+	const modelOnly = discounts.find(
+		(d) => d.provider === null && d.model === modelId,
+	);
+	if (modelOnly) {
+		return parseFloat(modelOnly.discountPercent);
+	}
+
+	const fullyGlobal = discounts.find(
+		(d) => d.provider === null && d.model === null,
+	);
+	if (fullyGlobal) {
+		return parseFloat(fullyGlobal.discountPercent);
+	}
+
+	return undefined;
 }
 
 export default async function ModelPage({ params }: PageProps) {
@@ -76,15 +153,24 @@ export default async function ModelPage({ params }: PageProps) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
+	const allDiscounts = await getModelDiscounts(decodedName);
 	const modelProviders = modelDef.providers.map((provider) => {
 		const providerInfo = providerDefinitions.find(
 			(p) => p.id === provider.providerId,
 		);
+		const globalDiscount = getEffectiveProviderDiscount(
+			allDiscounts,
+			provider.providerId,
+			decodedName,
+		);
 		return {
 			...provider,
 			providerInfo,
+			// Global discount takes precedence over hardcoded
+			discount: globalDiscount ?? provider.discount,
 		};
 	});
+	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
@@ -105,7 +191,7 @@ export default async function ModelPage({ params }: PageProps) {
 			{
 				"@type": "ListItem",
 				position: 3,
-				name: modelDef.name || modelDef.id,
+				name: modelDef.name ?? modelDef.id,
 				item: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 			},
 		],
@@ -120,10 +206,10 @@ export default async function ModelPage({ params }: PageProps) {
 	const productSchema = {
 		"@context": "https://schema.org",
 		"@type": "Product",
-		name: modelDef.name || modelDef.id,
+		name: modelDef.name ?? modelDef.id,
 		description:
-			modelDef.description ||
-			`Access ${modelDef.name || modelDef.id} through LLM Gateway's unified API.`,
+			modelDef.description ??
+			`Access ${modelDef.name ?? modelDef.id} through LLM Gateway's unified API.`,
 		brand: {
 			"@type": "Brand",
 			name: modelDef.family || "LLM Gateway",
@@ -142,12 +228,14 @@ export default async function ModelPage({ params }: PageProps) {
 		<>
 			<script
 				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
 					__html: JSON.stringify(breadcrumbSchema),
 				}}
 			/>
 			<script
 				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
 					__html: JSON.stringify(productSchema),
 				}}
@@ -200,9 +288,19 @@ export default async function ModelPage({ params }: PageProps) {
 									</Badge>
 								);
 							})()}
+							<ModelStatusBadgeAuto
+								providers={modelProviders.map((p) => ({
+									deprecatedAt: p.deprecatedAt
+										? p.deprecatedAt.toISOString()
+										: null,
+									deactivatedAt: p.deactivatedAt
+										? p.deactivatedAt.toISOString()
+										: null,
+								}))}
+							/>
 
 							<a
-								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${modelDef.providers[0]?.providerId}/${modelDef.id}`)}`}
+								href={`${config.playgroundUrl}?model=${encodeURIComponent(modelDef.id)}`}
 								target="_blank"
 								rel="noopener noreferrer"
 							>
@@ -216,7 +314,7 @@ export default async function ModelPage({ params }: PageProps) {
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
 							<div>
 								{Math.max(
-									...modelProviders.map((p) => p.contextSize || 0),
+									...modelProviders.map((p) => p.contextSize ?? 0),
 								).toLocaleString()}{" "}
 								context
 							</div>
@@ -272,19 +370,18 @@ export default async function ModelPage({ params }: PageProps) {
 								})()}{" "}
 								output tokens
 							</div>
-							{modelProviders.some((p) => p.imageOutputPrice) && (
+							{modelProviders.some((p) => p.imageOutputPrice !== undefined) && (
 								<div>
 									Starting at{" "}
 									{(() => {
 										const imageOutputPrices = modelProviders
-											.filter((p) => p.imageOutputPrice)
+											.filter((p) => p.imageOutputPrice !== undefined)
 											.map((p) => ({
 												price:
 													p.imageOutputPrice! *
 													1e6 *
 													(p.discount ? 1 - p.discount : 1),
-												originalPrice: p.imageOutputPrice! * 1e6,
-												discount: p.discount,
+												discount: p.discount !== 0 ? p.discount : undefined,
 											}));
 										if (imageOutputPrices.length === 0) {
 											return "Free";
@@ -384,6 +481,12 @@ export default async function ModelPage({ params }: PageProps) {
 						</div>
 					</div>
 
+					{currentModelDiscount && (
+						<div className="mb-6">
+							<GlobalDiscountBanner discount={currentModelDiscount} />
+						</div>
+					)}
+
 					<div className="mb-8">
 						<h2 className="text-xl md:text-2xl font-semibold mb-4">
 							Select Provider
@@ -415,6 +518,7 @@ export default async function ModelPage({ params }: PageProps) {
 									provider={provider}
 									modelName={decodedName}
 									modelStability={modelDef.stability}
+									modelOutput={modelDef.output}
 								/>
 							))}
 						</div>
@@ -445,10 +549,10 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${model.name || model.id} – AI Model on LLM Gateway`;
+	const title = `${model.name ?? model.id} – AI Model on LLM Gateway`;
 	const description =
-		model.description ||
-		`Details, pricing, and capabilities for ${model.name || model.id} on LLM Gateway.`;
+		model.description ??
+		`Details, pricing, and capabilities for ${model.name ?? model.id} on LLM Gateway.`;
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
@@ -465,7 +569,7 @@ export async function generateMetadata({
 					url: ogImageUrl,
 					width: 1200,
 					height: 630,
-					alt: `${model.name || model.id} model card`,
+					alt: `${model.name ?? model.id} model card`,
 				},
 			],
 		},

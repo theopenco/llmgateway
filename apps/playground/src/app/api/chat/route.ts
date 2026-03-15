@@ -2,9 +2,12 @@ import { createMCPClient } from "@ai-sdk/mcp";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
 	streamText,
+	generateImage,
 	tool,
 	type UIMessage,
 	convertToModelMessages,
+	createUIMessageStream,
+	createUIMessageStreamResponse,
 	JsonToSseTransformStream,
 } from "ai";
 import { cookies } from "next/headers";
@@ -274,12 +277,18 @@ interface ChatRequestBody {
 			| "2:3"
 			| "5:4"
 			| "4:5"
-			| "21:9";
-		image_size?: "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
+			| "21:9"
+			| "1:4"
+			| "4:1"
+			| "1:8"
+			| "8:1";
+		image_size?: "0.5K" | "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
+		n?: number;
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
 	web_search?: boolean;
 	mcp_servers?: McpServerConfig[];
+	is_image_gen?: boolean;
 }
 
 interface McpClientWrapper {
@@ -306,6 +315,7 @@ export async function POST(req: Request) {
 		reasoning_effort,
 		web_search,
 		mcp_servers,
+		is_image_gen,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
@@ -314,13 +324,13 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const headerApiKey = req.headers.get("x-llmgateway-key") || undefined;
-	const headerModel = req.headers.get("x-llmgateway-model") || undefined;
-	const noFallbackHeader = req.headers.get("x-no-fallback") || undefined;
+	const headerApiKey = req.headers.get("x-llmgateway-key") ?? undefined;
+	const headerModel = req.headers.get("x-llmgateway-model") ?? undefined;
+	const noFallbackHeader = req.headers.get("x-no-fallback") ?? undefined;
 
 	const cookieStore = await cookies();
 	const cookieApiKey =
-		cookieStore.get("llmgateway_playground_key")?.value ||
+		cookieStore.get("llmgateway_playground_key")?.value ??
 		cookieStore.get("__Host-llmgateway_playground_key")?.value;
 	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
 	if (!finalApiKey) {
@@ -330,7 +340,7 @@ export async function POST(req: Request) {
 	}
 
 	const gatewayUrl =
-		process.env.GATEWAY_URL ||
+		process.env.GATEWAY_URL ??
 		(process.env.NODE_ENV === "development"
 			? "http://localhost:4001/v1"
 			: "https://api.llmgateway.io/v1");
@@ -360,10 +370,134 @@ export async function POST(req: Request) {
 		}
 	}
 
+	// Use generateImage for dedicated image generation models
+	if (is_image_gen) {
+		try {
+			// Extract prompt and file parts from the last user message
+			const lastUserMessage = [...messages]
+				.reverse()
+				.find((m) => m.role === "user");
+			let prompt = "";
+			const fileParts: { url: string; mediaType: string }[] = [];
+			if (lastUserMessage) {
+				if (Array.isArray(lastUserMessage.parts)) {
+					prompt = lastUserMessage.parts
+						.filter(
+							(p): p is { type: "text"; text: string } => p.type === "text",
+						)
+						.map((p) => p.text)
+						.join("\n");
+					for (const p of lastUserMessage.parts) {
+						if (
+							p.type === "file" &&
+							"url" in p &&
+							typeof p.url === "string" &&
+							"mediaType" in p &&
+							typeof p.mediaType === "string"
+						) {
+							fileParts.push({
+								url: p.url,
+								mediaType: p.mediaType,
+							});
+						}
+					}
+				}
+			}
+
+			if (!prompt.trim()) {
+				return new Response(
+					JSON.stringify({ error: "Missing prompt for image generation" }),
+					{ status: 400 },
+				);
+			}
+
+			const result = await generateImage({
+				model: llmgateway.image(selectedModel),
+				prompt:
+					fileParts.length > 0
+						? { images: fileParts.map((fp) => fp.url), text: prompt }
+						: prompt,
+				n: image_config?.n ?? 1,
+				...(image_config?.image_size
+					? { size: image_config.image_size as `${number}x${number}` }
+					: {}),
+				...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
+					? { aspectRatio: image_config.aspect_ratio }
+					: {}),
+			});
+
+			const uiStream = createUIMessageStream({
+				execute: async ({ writer }) => {
+					const messageId = crypto.randomUUID();
+					writer.write({
+						type: "start",
+						messageId,
+					});
+					writer.write({ type: "start-step" });
+					for (const image of result.images) {
+						const mt = image.mediaType || "image/png";
+						writer.write({
+							type: "file",
+							url: `data:${mt};base64,${image.base64}`,
+							mediaType: mt,
+						});
+					}
+					writer.write({ type: "finish-step" });
+					writer.write({
+						type: "finish",
+						finishReason: "stop",
+					});
+				},
+			});
+
+			return createUIMessageStreamResponse({
+				stream: uiStream,
+				headers: {
+					"cache-control": "no-cache",
+					connection: "keep-alive",
+					"x-accel-buffering": "no",
+				},
+			});
+		} catch (error: unknown) {
+			const status =
+				typeof error === "object" &&
+				error !== null &&
+				"status" in error &&
+				typeof (error as { status: unknown }).status === "number"
+					? (error as { status: number }).status
+					: 500;
+
+			const message =
+				error instanceof Error ? error.message : "Image generation failed";
+
+			// Try to extract a more detailed message from the provider response.
+			// AI SDK errors may embed the original gateway response in responseBody.
+			let detailedMessage: string | undefined;
+			if (typeof error === "object" && error !== null) {
+				const err = error as Record<string, unknown>;
+				if (typeof err.responseBody === "string") {
+					try {
+						const body = JSON.parse(err.responseBody);
+						if (typeof body.message === "string") {
+							detailedMessage = body.message;
+						}
+					} catch {
+						// ignore parse errors
+					}
+				}
+			}
+
+			return new Response(
+				JSON.stringify({ error: detailedMessage ?? message }),
+				{ status },
+			);
+		}
+	}
+
 	// Initialize MCP clients if servers are provided
 	const mcpClients: McpClientWrapper[] = [];
 	const enabledMcpServers =
-		mcp_servers?.filter((server) => server.enabled) || [];
+		mcp_servers?.filter((server) => server.enabled) ?? [];
 
 	try {
 		// Create MCP clients for each enabled server (with timeout)
@@ -606,7 +740,7 @@ export async function POST(req: Request) {
 						// For unknown tools, use a permissive schema
 						allTools[prefixedName] = tool({
 							description:
-								originalTool.description || `MCP tool: ${prefixedName}`,
+								originalTool.description ?? `MCP tool: ${prefixedName}`,
 							inputSchema: z.object({}).passthrough(),
 							execute: async (args) => {
 								const result = await originalTool.execute(args);
@@ -657,10 +791,8 @@ export async function POST(req: Request) {
 
 		const streamWithKeepalive = new ReadableStream<Uint8Array>({
 			start(controller) {
-				let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
-
 				// Send a keepalive ping every KEEPALIVE_INTERVAL_MS.
-				keepaliveTimer = setInterval(() => {
+				const keepaliveTimer = setInterval(() => {
 					try {
 						controller.enqueue(encoder.encode(": ping\n\n"));
 					} catch {
@@ -670,7 +802,7 @@ export async function POST(req: Request) {
 				}, KEEPALIVE_INTERVAL_MS);
 
 				// Read upstream chunks in a loop and forward them.
-				(async () => {
+				void (async () => {
 					try {
 						while (true) {
 							const { done, value } = await reader.read();
@@ -688,7 +820,7 @@ export async function POST(req: Request) {
 				})();
 			},
 			cancel() {
-				reader.cancel();
+				void reader.cancel();
 			},
 		});
 

@@ -23,6 +23,7 @@
 import { mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+
 import { models, type ModelDefinition } from "@llmgateway/models";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -154,10 +155,10 @@ function isOpenWeights(modelId: string, family: string): boolean {
 	const openWeightsFamilies = ["meta", "mistral", "deepseek", "alibaba"];
 	const openWeightsPatterns = [/llama/i, /gemma/i, /qwen/i, /mixtral/i, /deepseek/i, /nous/i];
 
-	if (openWeightsFamilies.includes(family)) return true;
+	if (openWeightsFamilies.includes(family)) {return true;}
 
 	for (const pattern of openWeightsPatterns) {
-		if (pattern.test(modelId)) return true;
+		if (pattern.test(modelId)) {return true;}
 	}
 
 	return false;
@@ -204,7 +205,7 @@ function generateModelToml(model: ModelDefinition): string | null {
 	const now = new Date();
 	const activeProvider = model.providers.find((p) => !p.deactivatedAt || p.deactivatedAt > now);
 
-	if (!activeProvider) return null;
+	if (!activeProvider) {return null;}
 
 	const inputModalities: string[] = ["text"];
 	if (activeProvider.vision) {
@@ -229,20 +230,20 @@ function generateModelToml(model: ModelDefinition): string | null {
 	}
 
 	// Calculate costs (convert from per-token to per-million-token)
-	const inputCost = (activeProvider.inputPrice || 0) * 1e6;
-	const outputCost = (activeProvider.outputPrice || 0) * 1e6;
+	const inputCost = (activeProvider.inputPrice ?? 0) * 1e6;
+	const outputCost = (activeProvider.outputPrice ?? 0) * 1e6;
 	const cacheReadCost = activeProvider.cachedInputPrice ? activeProvider.cachedInputPrice * 1e6 : undefined;
 
 	const modelData: ModelsDevModel = {
-		name: model.name || model.id,
+		name: model.name ?? model.id,
 		family: getModelFamily(model),
 		release_date: model.releasedAt ? formatDate(model.releasedAt) : "2024-01-01",
 		last_updated: model.releasedAt ? formatDate(model.releasedAt) : "2024-01-01",
-		attachment: activeProvider.vision || false,
-		reasoning: activeProvider.reasoning || false,
+		attachment: activeProvider.vision ?? false,
+		reasoning: activeProvider.reasoning ?? false,
 		temperature: true,
-		tool_call: activeProvider.tools || false,
-		structured_output: activeProvider.jsonOutputSchema || activeProvider.jsonOutput || false,
+		tool_call: activeProvider.tools ?? false,
+		structured_output: activeProvider.jsonOutputSchema ?? activeProvider.jsonOutput ?? false,
 		open_weights: isOpenWeights(model.id, model.family),
 		status,
 		cost: {
@@ -251,8 +252,8 @@ function generateModelToml(model: ModelDefinition): string | null {
 			cache_read: cacheReadCost ? Math.round(cacheReadCost * 100) / 100 : undefined,
 		},
 		limit: {
-			context: activeProvider.contextSize || 128000,
-			output: activeProvider.maxOutput || undefined,
+			context: activeProvider.contextSize ?? 128000,
+			output: activeProvider.maxOutput ?? undefined,
 		},
 		modalities: {
 			input: inputModalities,
@@ -296,7 +297,7 @@ function generateModelToml(model: ModelDefinition): string | null {
 	const contextFormatted = modelData.limit.context.toLocaleString("en-US").replace(/,/g, "_");
 	lines.push(`context = ${contextFormatted}`);
 	// output is required by models.dev schema, default to 16384 if not specified
-	const outputLimit = modelData.limit.output || 16384;
+	const outputLimit = modelData.limit.output ?? 16384;
 	const outputFormatted = outputLimit.toLocaleString("en-US").replace(/,/g, "_");
 	lines.push(`output = ${outputFormatted}`);
 	lines.push("");

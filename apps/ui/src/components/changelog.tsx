@@ -10,7 +10,7 @@ interface ChangelogProps {
 }
 
 export function Changelog({ entries }: ChangelogProps = {}) {
-	const changelogEntries = entries || [];
+	const changelogEntries = entries ?? [];
 
 	return (
 		<div className="bg-background text-foreground min-h-screen font-sans pt-30">

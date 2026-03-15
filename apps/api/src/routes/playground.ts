@@ -65,11 +65,11 @@ playground.openapi(ensureKey, async (c) => {
 		});
 	}
 
-	// Find an existing API key with description marker
+	// Find any active API key for this project
 	let key = await db.query.apiKey.findFirst({
 		where: {
 			projectId: { eq: projectId },
-			description: { eq: "Auto-generated playground key" },
+			status: { eq: "active" },
 		},
 	});
 

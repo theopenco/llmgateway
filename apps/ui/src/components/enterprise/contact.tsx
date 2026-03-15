@@ -77,7 +77,7 @@ export function ContactFormEnterprise() {
 				});
 			} else {
 				toast.error("Failed to send message", {
-					description: result.message || "Please try again later.",
+					description: result.message ?? "Please try again later.",
 				});
 			}
 		} catch {

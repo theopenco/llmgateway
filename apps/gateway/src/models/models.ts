@@ -155,7 +155,7 @@ modelsApi.openapi(listModels, async (c) => {
 			}
 
 			// Determine output modalities from model definition or default to text only
-			const outputModalities: ("text" | "image")[] = model.output || ["text"];
+			const outputModalities: ("text" | "image")[] = model.output ?? ["text"];
 
 			const firstProviderWithPricing = model.providers.find(
 				(p: ProviderModelMapping) =>
@@ -165,15 +165,15 @@ modelsApi.openapi(listModels, async (c) => {
 			);
 
 			const inputPrice =
-				firstProviderWithPricing?.inputPrice?.toString() || "0";
+				firstProviderWithPricing?.inputPrice?.toString() ?? "0";
 			const outputPrice =
-				firstProviderWithPricing?.outputPrice?.toString() || "0";
+				firstProviderWithPricing?.outputPrice?.toString() ?? "0";
 			const imagePrice =
-				firstProviderWithPricing?.imageInputPrice?.toString() || "0";
+				firstProviderWithPricing?.imageInputPrice?.toString() ?? "0";
 
 			return {
 				id: model.id,
-				name: model.name || model.id,
+				name: model.name ?? model.id,
 				aliases: model.aliases,
 				created: Math.floor(Date.now() / 1000), // Current timestamp in seconds
 				description: `${model.id} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
@@ -200,34 +200,34 @@ modelsApi.openapi(listModels, async (c) => {
 							provider.outputPrice !== undefined ||
 							provider.imageInputPrice !== undefined
 								? {
-										prompt: provider.inputPrice?.toString() || "0",
-										completion: provider.outputPrice?.toString() || "0",
-										image: provider.imageInputPrice?.toString() || "0",
+										prompt: provider.inputPrice?.toString() ?? "0",
+										completion: provider.outputPrice?.toString() ?? "0",
+										image: provider.imageInputPrice?.toString() ?? "0",
 									}
 								: undefined,
 						streaming: provider.streaming,
-						vision: provider.vision || false,
-						cancellation: providerDef?.cancellation || false,
-						tools: provider.tools || false,
-						parallelToolCalls: provider.parallelToolCalls || false,
-						reasoning: provider.reasoning || false,
-						stability: provider.stability || model.stability,
+						vision: provider.vision ?? false,
+						cancellation: providerDef?.cancellation ?? false,
+						tools: provider.tools ?? false,
+						parallelToolCalls: provider.parallelToolCalls ?? false,
+						reasoning: provider.reasoning ?? false,
+						stability: provider.stability ?? model.stability,
 					};
 				}),
 				pricing: {
 					prompt: inputPrice,
 					completion: outputPrice,
 					image: imagePrice,
-					request: firstProviderWithPricing?.requestPrice?.toString() || "0",
+					request: firstProviderWithPricing?.requestPrice?.toString() ?? "0",
 					input_cache_read:
-						firstProviderWithPricing?.cachedInputPrice?.toString() || "0",
+						firstProviderWithPricing?.cachedInputPrice?.toString() ?? "0",
 					input_cache_write: "0", // Not defined in model definitions yet
 					web_search: "0", // Not defined in model definitions yet
 					internal_reasoning: "0", // Not defined in model definitions yet
 				},
 				// Use context length from model definition (take the largest from all providers)
 				context_length:
-					Math.max(...model.providers.map((p) => p.contextSize || 0)) ||
+					Math.max(...model.providers.map((p) => p.contextSize ?? 0)) ??
 					undefined,
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
@@ -240,7 +240,7 @@ modelsApi.openapi(listModels, async (c) => {
 					model.providers.some(
 						(p) => (p as ProviderModelMapping).jsonOutputSchema === true,
 					) || false,
-				free: model.free || false,
+				free: model.free ?? false,
 				// Calculate earliest deprecatedAt from all provider mappings
 				deprecated_at: model.providers
 					.map((p) => (p as ProviderModelMapping).deprecatedAt)

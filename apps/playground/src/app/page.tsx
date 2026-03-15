@@ -7,6 +7,20 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
+import type { Metadata } from "next";
+
+export async function generateMetadata({
+	searchParams,
+}: {
+	searchParams: Promise<{ model?: string }>;
+}): Promise<Metadata> {
+	const { model } = await searchParams;
+	return {
+		alternates: {
+			canonical: model ? `/?model=${model}` : "/",
+		},
+	};
+}
 
 export interface GatewayModel {
 	id: string;
@@ -26,7 +40,8 @@ export default async function ChatPage({
 	}>;
 }) {
 	const params = await searchParams;
-	let { orgId, projectId, q, hints, model } = params;
+	const { orgId, projectId, q, hints } = params;
+	let { model } = params;
 
 	// Auto-select a web search capable model when hints=search
 	if (hints === "search" && !model) {
@@ -123,7 +138,7 @@ export default async function ChatPage({
 		}
 	}
 
-	const projects = (initialProjectsData?.projects || []) as Project[];
+	const projects = (initialProjectsData?.projects ?? []) as Project[];
 
 	// Fetch models and providers from API
 	const [models, providers] = await Promise.all([
@@ -134,7 +149,7 @@ export default async function ChatPage({
 	// Determine selected project: URL > cookie > first
 	let selectedProject: Project | null = null;
 	if (projectId) {
-		selectedProject = projects.find((p) => p.id === projectId) || null;
+		selectedProject = projects.find((p) => p.id === projectId) ?? null;
 		if (projectId && !selectedProject && projectId.length > 0) {
 			notFound();
 		}
@@ -143,12 +158,10 @@ export default async function ChatPage({
 		const cookieName = `llmgateway-last-used-project-${selectedOrganization.id}`;
 		const lastUsed = cookieStore.get(cookieName)?.value;
 		if (lastUsed) {
-			selectedProject = projects.find((p) => p.id === lastUsed) || null;
+			selectedProject = projects.find((p) => p.id === lastUsed) ?? null;
 		}
 	}
-	if (!selectedProject) {
-		selectedProject = projects[0] || null;
-	}
+	selectedProject ??= projects[0] ?? null;
 
 	return (
 		<>

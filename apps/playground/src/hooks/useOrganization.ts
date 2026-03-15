@@ -16,7 +16,7 @@ export function useOrganization() {
 
 	// Get the first (default) organization
 	const organization: Organization | null =
-		orgsData?.organizations?.[0] || null;
+		orgsData?.organizations?.[0] ?? null;
 
 	return {
 		organization,

@@ -47,7 +47,7 @@ export function PaymentMethodsManagement() {
 	const { mutate: deleteMutation, isPending: isDeletePending } =
 		api.useMutation("delete", "/payments/payment-methods/{id}");
 
-	const paymentMethods = data?.paymentMethods || [];
+	const paymentMethods = data?.paymentMethods ?? [];
 
 	// Handle loading state
 	if (isLoading) {
@@ -76,7 +76,9 @@ export function PaymentMethodsManagement() {
 			{ body: { paymentMethodId } },
 			{
 				onSuccess: () => {
-					queryClient.invalidateQueries({ queryKey: paymentMethodsQueryKey });
+					void queryClient.invalidateQueries({
+						queryKey: paymentMethodsQueryKey,
+					});
 
 					toast({
 						title: "Success",
@@ -102,7 +104,9 @@ export function PaymentMethodsManagement() {
 			},
 			{
 				onSuccess: () => {
-					queryClient.invalidateQueries({ queryKey: paymentMethodsQueryKey });
+					void queryClient.invalidateQueries({
+						queryKey: paymentMethodsQueryKey,
+					});
 
 					toast({
 						title: "Success",
@@ -154,15 +158,17 @@ export function PaymentMethodsManagement() {
 										Set Default
 									</Button>
 								)}
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => handleDelete(method.id)}
-									disabled={isDeletePending}
-									type="button"
-								>
-									<Trash2 className="h-4 w-4" />
-								</Button>
+								{(!method.isDefault || paymentMethods.length <= 1) && (
+									<Button
+										variant="outline"
+										size="sm"
+										onClick={() => handleDelete(method.id)}
+										disabled={isDeletePending}
+										type="button"
+									>
+										<Trash2 className="h-4 w-4" />
+									</Button>
+								)}
 							</div>
 						</div>
 					))}
@@ -205,11 +211,10 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 	const [loading, setLoading] = useState(false);
 	const api = useApi();
 
-	// Generate query key once and reuse it
-	const paymentMethodsQueryKey = api.queryOptions(
+	const paymentMethodsQueryOptions = api.queryOptions(
 		"get",
 		"/payments/payment-methods",
-	).queryKey;
+	);
 
 	const { mutateAsync: setupIntentMutation } = api.useMutation(
 		"post",
@@ -237,18 +242,51 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 			if (result.error) {
 				toast({
 					title: "Error",
-					description: result.error.message || "An error occurred",
+					description: result.error.message ?? "An error occurred",
 					variant: "destructive",
 				});
 			} else {
+				const newPmId =
+					typeof result.setupIntent?.payment_method === "string"
+						? result.setupIntent.payment_method
+						: result.setupIntent?.payment_method?.id;
+
+				// Wait for webhook to process and verify card was added
+				let wasAdded = false;
+				for (let attempt = 0; attempt < 3; attempt++) {
+					await new Promise((resolve) => setTimeout(resolve, 1500));
+					const freshData = await queryClient.fetchQuery({
+						...paymentMethodsQueryOptions,
+						staleTime: 0,
+					});
+					if (
+						freshData?.paymentMethods?.some(
+							(pm) => pm.stripePaymentMethodId === newPmId,
+						)
+					) {
+						wasAdded = true;
+						break;
+					}
+				}
+
 				await queryClient.invalidateQueries({
-					queryKey: paymentMethodsQueryKey,
+					queryKey: paymentMethodsQueryOptions.queryKey,
 				});
-				toast({
-					title: "Success",
-					description: "Payment method added successfully",
-				});
-				onSuccess();
+
+				if (wasAdded) {
+					toast({
+						title: "Success",
+						description: "Payment method added successfully",
+					});
+					onSuccess();
+				} else {
+					toast({
+						title: "Card already added",
+						description:
+							"This card is already linked to your account. Please use a different card.",
+						variant: "destructive",
+					});
+				}
 			}
 		} catch (error) {
 			toast({

@@ -64,7 +64,7 @@ export function CodingModelsShowcase({
 	};
 
 	return (
-		<div className={`rounded-lg border p-6 ${className || ""}`}>
+		<div className={`rounded-lg border p-6 ${className ?? ""}`}>
 			<div className="flex items-center gap-2 mb-4">
 				<Code className="h-5 w-5" />
 				<h3 className="font-semibold">Recommended Coding Models</h3>
@@ -94,7 +94,7 @@ export function CodingModelsShowcase({
 											</div>
 										)}
 										<span className="font-medium text-sm truncate">
-											{model.name || model.id}
+											{model.name ?? model.id}
 										</span>
 									</div>
 								</div>

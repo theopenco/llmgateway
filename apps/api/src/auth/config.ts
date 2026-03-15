@@ -4,7 +4,6 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
-import { Resend } from "resend";
 
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
@@ -12,17 +11,18 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getResendClient } from "@llmgateway/shared/email";
 
-const apiUrl = process.env.API_URL || "http://localhost:4002";
-const cookieDomain = process.env.COOKIE_DOMAIN || "localhost";
-const uiUrl = process.env.UI_URL || "http://localhost:3002";
+const apiUrl = process.env.API_URL ?? "http://localhost:4002";
+const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
+const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
 const originUrls =
-	process.env.ORIGIN_URLS ||
+	process.env.ORIGIN_URLS ??
 	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
 const isHosted = process.env.HOSTED === "true";
 
 export const redisClient = new Redis({
-	host: process.env.REDIS_HOST || "localhost",
+	host: process.env.REDIS_HOST ?? "localhost",
 	port: Number(process.env.REDIS_PORT) || 6379,
 	password: process.env.REDIS_PASSWORD,
 });
@@ -332,19 +332,6 @@ export async function checkRateLimit(
 	}
 }
 
-let resendClient: Resend | null = null;
-
-function getResendClient(): Resend | null {
-	const resendApiKey = process.env.RESEND_API_KEY;
-	if (!resendApiKey) {
-		return null;
-	}
-	if (!resendClient) {
-		resendClient = new Resend(resendApiKey);
-	}
-	return resendClient;
-}
-
 async function createResendContact(
 	email: string,
 	name?: string,
@@ -378,8 +365,8 @@ async function createResendContact(
 
 		const { data, error } = await client.contacts.create({
 			email,
-			firstName: firstName || undefined,
-			lastName: lastName || undefined,
+			firstName: firstName ?? undefined,
+			lastName: lastName ?? undefined,
 			unsubscribed: false,
 			...(Object.keys(properties).length > 0 && { properties }),
 		});
@@ -491,8 +478,8 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 		trustedOrigins: originUrls.split(","),
 		plugins: [
 			passkey({
-				rpID: process.env.PASSKEY_RP_ID || "localhost",
-				rpName: process.env.PASSKEY_RP_NAME || "LLMGateway",
+				rpID: process.env.PASSKEY_RP_ID ?? "localhost",
+				rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
 				origin: uiUrl,
 			}),
 		],
@@ -500,7 +487,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 			enabled: true,
 		},
 		baseURL: apiUrl || "http://localhost:4002",
-		secret: process.env.AUTH_SECRET || "your-secret-key",
+		secret: process.env.AUTH_SECRET ?? "your-secret-key",
 		database: drizzleAdapter(db, {
 			provider: "pg",
 			schema: {
@@ -548,7 +535,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 						});
 
 						// Add verified email to Resend contacts with onboarding status
-						await createResendContact(user.email, user.name || undefined, {
+						await createResendContact(user.email, user.name ?? undefined, {
 							onboarding_completed: dbUser?.onboardingCompleted ?? false,
 						});
 
@@ -612,8 +599,8 @@ The LLM Gateway Team`.trim();
 							ipAddress = ipAddress.split(",")[0]?.trim();
 						} else {
 							ipAddress =
-								ctx.headers?.get("x-real-ip") ||
-								ctx.headers?.get("x-client-ip") ||
+								ctx.headers?.get("x-real-ip") ??
+								ctx.headers?.get("x-client-ip") ??
 								"unknown";
 						}
 					}
@@ -685,6 +672,7 @@ The LLM Gateway Team`.trim();
 						}
 					}
 				}
+				// eslint-disable-next-line no-useless-return
 				return;
 			}),
 			after: createAuthMiddleware(async (ctx) => {
@@ -769,7 +757,7 @@ The LLM Gateway Team`.trim();
 					});
 
 					// Handle referral if cookie is present
-					const cookieHeader = ctx.request?.headers.get("cookie") || "";
+					const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
 					const referralMatch = cookieHeader.match(
 						/llmgateway_referral=([^;]+)/,
 					);

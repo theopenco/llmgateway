@@ -20,7 +20,7 @@ export function useAddTeamMember(organizationId: string) {
 
 	return api.useMutation("post", "/team/{organizationId}/members", {
 		onSuccess: () => {
-			queryClient.invalidateQueries({
+			void queryClient.invalidateQueries({
 				queryKey: [
 					"get",
 					"/team/{organizationId}/members",
@@ -37,7 +37,7 @@ export function useUpdateTeamMember(organizationId: string) {
 
 	return api.useMutation("patch", "/team/{organizationId}/members/{memberId}", {
 		onSuccess: () => {
-			queryClient.invalidateQueries({
+			void queryClient.invalidateQueries({
 				queryKey: [
 					"get",
 					"/team/{organizationId}/members",
@@ -57,7 +57,7 @@ export function useRemoveTeamMember(organizationId: string) {
 		"/team/{organizationId}/members/{memberId}",
 		{
 			onSuccess: () => {
-				queryClient.invalidateQueries({
+				void queryClient.invalidateQueries({
 					queryKey: [
 						"get",
 						"/team/{organizationId}/members",

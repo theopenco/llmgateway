@@ -49,7 +49,7 @@ export function ReferralsClient({
 			(t) =>
 				t.type === "credit_topup" && t.status === "completed" && t.creditAmount,
 		)
-		.reduce((sum, t) => sum + Number(t.creditAmount || 0), 0);
+		.reduce((sum, t) => sum + Number(t.creditAmount ?? 0), 0);
 
 	const isEligible = totalTopUps >= 100;
 

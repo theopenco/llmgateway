@@ -7,7 +7,7 @@ import { logger } from "@llmgateway/logger";
 import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
-import { stripe } from "./routes/payments.js";
+import { getStripe } from "./routes/payments.js";
 import { notifyCreditsPurchased } from "./utils/discord.js";
 import {
 	generatePaymentFailureEmailHtml,
@@ -34,7 +34,7 @@ export async function ensureStripeCustomer(
 
 	let stripeCustomerId = organization.stripeCustomerId;
 	if (!stripeCustomerId) {
-		const customer = await stripe.customers.create({
+		const customer = await getStripe().customers.create({
 			email: organization.billingEmail,
 			metadata: {
 				organizationId,
@@ -50,7 +50,7 @@ export async function ensureStripeCustomer(
 			.where(eq(tables.organization.id, organizationId));
 	} else {
 		// Update existing customer email if billingEmail has changed
-		await stripe.customers.update(stripeCustomerId, {
+		await getStripe().customers.update(stripeCustomerId, {
 			email: organization.billingEmail,
 		});
 	}
@@ -95,7 +95,7 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 	// 3. Try to get from subscription metadata if subscription ID is available
 	if (!organizationId && eventData.subscription) {
 		try {
-			const stripeSubscription = await stripe.subscriptions.retrieve(
+			const stripeSubscription = await getStripe().subscriptions.retrieve(
 				eventData.subscription,
 			);
 			if (stripeSubscription.metadata?.organizationId) {
@@ -130,7 +130,7 @@ async function resolveOrganizationFromStripeEvent(eventData: {
 			hasMetadata: !!eventData.metadata,
 			customer: eventData.customer,
 			subscription: eventData.subscription,
-			lineItemsCount: eventData.lines?.data?.length || 0,
+			lineItemsCount: eventData.lines?.data?.length ?? 0,
 		});
 		return null;
 	}
@@ -186,9 +186,9 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 
 	try {
 		const body = await c.req.raw.text();
-		const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+		const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 
-		const event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+		const event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
 
 		logger.info(JSON.stringify({ kind: "stripe-event", payload: event }));
 
@@ -242,6 +242,11 @@ async function handleCheckoutSessionCompleted(
 	logger.info(
 		`Processing checkout session completed for customer: ${customer}, subscription: ${subscription}`,
 	);
+
+	if (!subscription && metadata?.type === "credit_topup") {
+		await handleCreditTopUpCheckout(session);
+		return;
+	}
 
 	if (!subscription) {
 		logger.info("Not a subscription checkout session, skipping");
@@ -313,9 +318,9 @@ async function handleCheckoutSessionCompleted(
 					.values({
 						organizationId,
 						type: "dev_plan_start",
-						amount: ((session.amount_total || 0) / 100).toString(),
+						amount: ((session.amount_total ?? 0) / 100).toString(),
 						creditAmount: creditsLimit.toString(),
-						currency: (session.currency || "USD").toUpperCase(),
+						currency: (session.currency ?? "USD").toUpperCase(),
 						status: "completed",
 						stripeInvoiceId: stripeInvoiceId,
 						description: `Dev Plan ${devPlanTier.toUpperCase()} started via Stripe Checkout`,
@@ -336,10 +341,10 @@ async function handleCheckoutSessionCompleted(
 						lineItems: [
 							{
 								description: `Dev Plan ${devPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
-								amount: (session.amount_total || 0) / 100,
+								amount: (session.amount_total ?? 0) / 100,
 							},
 						],
-						currency: (session.currency || "USD").toUpperCase(),
+						currency: (session.currency ?? "USD").toUpperCase(),
 					});
 				} catch (e) {
 					logger.error(
@@ -414,8 +419,8 @@ async function handleCheckoutSessionCompleted(
 					.values({
 						organizationId,
 						type: "subscription_start",
-						amount: ((session.amount_total || 0) / 100).toString(),
-						currency: (session.currency || "USD").toUpperCase(),
+						amount: ((session.amount_total ?? 0) / 100).toString(),
+						currency: (session.currency ?? "USD").toUpperCase(),
 						status: "completed",
 						stripeInvoiceId: stripeInvoiceId,
 						description: "Pro subscription started via Stripe Checkout",
@@ -436,10 +441,10 @@ async function handleCheckoutSessionCompleted(
 						lineItems: [
 							{
 								description: "Pro Subscription",
-								amount: (session.amount_total || 0) / 100,
+								amount: (session.amount_total ?? 0) / 100,
 							},
 						],
-						currency: (session.currency || "USD").toUpperCase(),
+						currency: (session.currency ?? "USD").toUpperCase(),
 					});
 				} catch (e) {
 					logger.error(
@@ -485,6 +490,253 @@ async function handleCheckoutSessionCompleted(
 	}
 }
 
+async function applyFirstTimeBonus({
+	organizationId,
+	creditAmount,
+	isEmailVerified,
+}: {
+	organizationId: string;
+	creditAmount: number;
+	isEmailVerified: boolean;
+}): Promise<{ finalCreditAmount: number; bonusAmount: number }> {
+	let bonusAmount = 0;
+	let finalCreditAmount = creditAmount;
+	const bonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
+		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
+		: 0;
+
+	if (bonusMultiplier && bonusMultiplier > 1 && isEmailVerified) {
+		const previousPurchases = await db.query.transaction.findFirst({
+			where: {
+				organizationId: { eq: organizationId },
+				type: { eq: "credit_topup" },
+				status: { eq: "completed" },
+			},
+		});
+
+		if (!previousPurchases) {
+			const potentialBonus = creditAmount * (bonusMultiplier - 1);
+			const maxBonus = 50;
+			bonusAmount = Math.min(potentialBonus, maxBonus);
+			finalCreditAmount = creditAmount + bonusAmount;
+
+			logger.info(
+				`Applied first-time bonus of $${bonusAmount} to organization ${organizationId} (${bonusMultiplier}x multiplier, max $${maxBonus})`,
+			);
+		}
+	}
+
+	return { finalCreditAmount, bonusAmount };
+}
+
+async function recordCreditTopUp({
+	organizationId,
+	finalCreditAmount,
+	bonusAmount,
+	creditAmount,
+	totalAmountInDollars,
+	currency,
+	stripePaymentIntentId,
+	description,
+	organization,
+	source,
+}: {
+	organizationId: string;
+	finalCreditAmount: number;
+	bonusAmount: number;
+	creditAmount: number;
+	totalAmountInDollars: number;
+	currency: string;
+	stripePaymentIntentId: string | null;
+	description: string;
+	organization: {
+		name: string;
+		billingEmail: string | null;
+		billingCompany: string | null;
+		billingAddress: string | null;
+		billingTaxId: string | null;
+		billingNotes: string | null;
+	};
+	source: string;
+}) {
+	await db
+		.update(tables.organization)
+		.set({
+			credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+			paymentFailureCount: 0,
+			lastPaymentFailureAt: null,
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	const [completedTransaction] = await db
+		.insert(tables.transaction)
+		.values({
+			organizationId,
+			type: "credit_topup",
+			creditAmount: finalCreditAmount.toString(),
+			amount: totalAmountInDollars.toString(),
+			currency,
+			status: "completed",
+			stripePaymentIntentId,
+			description,
+		})
+		.returning();
+
+	const lineItems = [
+		{
+			description: `Credit Top-up ($${creditAmount})`,
+			amount: totalAmountInDollars,
+		},
+	];
+
+	if (bonusAmount > 0) {
+		lineItems.push({
+			description: `First-time bonus (+$${bonusAmount.toFixed(2)})`,
+			amount: 0,
+		});
+	}
+
+	try {
+		await generateAndEmailInvoice({
+			invoiceNumber: completedTransaction.id,
+			invoiceDate: new Date(),
+			organizationName: organization.name,
+			billingEmail: organization.billingEmail ?? "",
+			billingCompany: organization.billingCompany,
+			billingAddress: organization.billingAddress,
+			billingTaxId: organization.billingTaxId,
+			billingNotes: organization.billingNotes,
+			lineItems,
+			currency,
+		});
+	} catch (e) {
+		logger.error(
+			"Invoice email failed (credit top-up); suppressing webhook failure",
+			e as Error,
+		);
+	}
+
+	posthog.groupIdentify({
+		groupType: "organization",
+		groupKey: organizationId,
+		properties: {
+			name: organization.name,
+		},
+	});
+	posthog.capture({
+		distinctId: "organization",
+		event: "credits_purchased",
+		groups: {
+			organization: organizationId,
+		},
+		properties: {
+			amount: creditAmount,
+			totalPaid: totalAmountInDollars,
+			source,
+			organization: organizationId,
+		},
+	});
+}
+
+async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
+	const { customer, metadata } = session;
+
+	if (session.payment_status !== "paid") {
+		logger.info(
+			`Credit top-up checkout session payment not yet settled (status: ${session.payment_status}), skipping`,
+		);
+		return;
+	}
+
+	const creditAmount = parseFloat(metadata?.baseAmount ?? "0");
+	if (!creditAmount) {
+		logger.error("Missing baseAmount in credit top-up checkout metadata");
+		return;
+	}
+
+	const result = await resolveOrganizationFromStripeEvent({
+		metadata: metadata as { organizationId?: string } | undefined,
+		customer: typeof customer === "string" ? customer : customer?.id,
+	});
+
+	if (!result) {
+		logger.error(
+			"Could not resolve organization from credit top-up checkout session",
+		);
+		return;
+	}
+
+	const { organizationId, organization } = result;
+	const totalAmountInDollars = (session.amount_total ?? 0) / 100;
+
+	const stripePaymentIntentId =
+		typeof session.payment_intent === "string"
+			? session.payment_intent
+			: (session.payment_intent?.id ?? null);
+
+	if (!stripePaymentIntentId) {
+		logger.error(
+			"Credit top-up checkout session has no payment intent, skipping",
+		);
+		return;
+	}
+
+	const existingTransaction = await db.query.transaction.findFirst({
+		where: {
+			organizationId: { eq: organizationId },
+			stripePaymentIntentId: { eq: stripePaymentIntentId },
+			type: { eq: "credit_topup" },
+			status: { eq: "completed" },
+		},
+	});
+
+	if (existingTransaction) {
+		logger.info(
+			`Skipping duplicate credit top-up checkout for organization ${organizationId} (transaction ${existingTransaction.id} already exists)`,
+		);
+		return;
+	}
+
+	const userEmail = metadata?.userEmail;
+	const resolvedUser = userEmail
+		? await db.query.user.findFirst({
+				where: {
+					email: { eq: userEmail },
+				},
+			})
+		: null;
+
+	const { finalCreditAmount, bonusAmount } = await applyFirstTimeBonus({
+		organizationId,
+		creditAmount,
+		isEmailVerified: resolvedUser?.emailVerified ?? false,
+	});
+
+	await recordCreditTopUp({
+		organizationId,
+		finalCreditAmount,
+		bonusAmount,
+		creditAmount,
+		totalAmountInDollars,
+		currency: (session.currency ?? "USD").toUpperCase(),
+		stripePaymentIntentId,
+		description:
+			bonusAmount > 0
+				? `Credit top-up via Stripe Checkout (+$${bonusAmount.toFixed(2)} first-time bonus)`
+				: "Credit top-up via Stripe Checkout",
+		organization,
+		source: "stripe_checkout",
+	});
+
+	if (userEmail) {
+		await notifyCreditsPurchased(userEmail, resolvedUser?.name, creditAmount);
+	}
+
+	logger.info(
+		`Added ${finalCreditAmount} credits to organization ${organizationId} via Stripe Checkout (paid $${totalAmountInDollars} including fees)`,
+	);
+}
+
 async function handlePaymentIntentSucceeded(
 	event: Stripe.PaymentIntentSucceededEvent,
 ) {
@@ -508,73 +760,40 @@ async function handlePaymentIntentSucceeded(
 	}
 	const { organizationId, organization } = result;
 
-	// Convert amount from cents to dollars
+	const existingTransaction = await db.query.transaction.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: paymentIntent.id },
+			type: { eq: "credit_topup" },
+			status: { eq: "completed" },
+		},
+	});
+
+	if (existingTransaction) {
+		logger.info(
+			`Skipping duplicate payment_intent.succeeded for organization ${organizationId} (transaction ${existingTransaction.id} already processed)`,
+		);
+		return;
+	}
+
 	const totalAmountInDollars = amount / 100;
 
-	// Calculate bonus for first-time credit purchases
-	let bonusAmount = 0;
-	let finalCreditAmount = creditAmount;
-	const bonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
-		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
-		: 0;
-
-	if (bonusMultiplier && bonusMultiplier > 1) {
-		// Check user email verification
-		const userEmail = metadata?.userEmail;
-		let isEmailVerified = false;
-
-		if (userEmail) {
-			const user = await db.query.user.findFirst({
+	const userEmail = metadata?.userEmail;
+	const resolvedUser = userEmail
+		? await db.query.user.findFirst({
 				where: {
 					email: { eq: userEmail },
 				},
-			});
-			isEmailVerified = user?.emailVerified ?? false;
-		}
+			})
+		: null;
 
-		if (isEmailVerified) {
-			// Check if this is the first credit purchase
-			const previousPurchases = await db.query.transaction.findFirst({
-				where: {
-					organizationId: { eq: organizationId },
-					type: { eq: "credit_topup" },
-					status: { eq: "completed" },
-				},
-			});
-
-			if (!previousPurchases) {
-				// This is the first credit purchase, apply bonus
-				const potentialBonus = creditAmount * (bonusMultiplier - 1);
-				const maxBonus = 50; // Max $50 bonus
-
-				bonusAmount = Math.min(potentialBonus, maxBonus);
-				finalCreditAmount = creditAmount + bonusAmount;
-
-				logger.info(
-					`Applied first-time bonus of $${bonusAmount} to organization ${organizationId} (${bonusMultiplier}x multiplier, max $${maxBonus})`,
-				);
-			}
-		} else {
-			logger.info(
-				`Skipping first-time bonus for organization ${organizationId}: email not verified`,
-			);
-		}
-	}
-
-	// Update organization credits with credit amount (plus bonus if applicable)
-	// Also reset payment failure tracking since payment succeeded
-	await db
-		.update(tables.organization)
-		.set({
-			credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
-			paymentFailureCount: 0,
-			lastPaymentFailureAt: null,
-		})
-		.where(eq(tables.organization.id, organizationId));
+	const { finalCreditAmount, bonusAmount } = await applyFirstTimeBonus({
+		organizationId,
+		creditAmount,
+		isEmailVerified: resolvedUser?.emailVerified ?? false,
+	});
 
 	// Check if this is an auto top-up with an existing pending transaction
 	const transactionId = metadata?.transactionId;
-	let completedTransaction;
 
 	const transactionDescription =
 		bonusAmount > 0
@@ -582,11 +801,20 @@ async function handlePaymentIntentSucceeded(
 			: "Credit top-up via Stripe";
 
 	if (transactionId) {
-		// Update existing pending transaction
+		await db
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
+				paymentFailureCount: 0,
+				lastPaymentFailureAt: null,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
 		const updatedTransaction = await db
 			.update(tables.transaction)
 			.set({
 				status: "completed",
+				stripePaymentIntentId: paymentIntent.id,
 				description:
 					bonusAmount > 0
 						? `Auto top-up completed via Stripe webhook (+$${bonusAmount.toFixed(2)} first-time bonus)`
@@ -598,17 +826,13 @@ async function handlePaymentIntentSucceeded(
 			.returning()
 			.then((rows) => rows[0]);
 
-		if (updatedTransaction) {
-			logger.info(
-				`Updated pending transaction ${transactionId} to completed for organization ${organizationId}`,
-			);
-			completedTransaction = updatedTransaction;
-		} else {
+		let completedTransactionId: string;
+
+		if (!updatedTransaction) {
 			logger.warn(
-				`Could not find pending transaction ${transactionId} for organization ${organizationId}`,
+				`Could not find pending transaction ${transactionId} for organization ${organizationId}, creating new record`,
 			);
-			// Fallback: create new transaction record
-			const [newTransaction] = await db
+			const [fallbackTransaction] = await db
 				.insert(tables.transaction)
 				.values({
 					organizationId,
@@ -621,88 +845,86 @@ async function handlePaymentIntentSucceeded(
 					description: transactionDescription,
 				})
 				.returning();
-			completedTransaction = newTransaction;
+			completedTransactionId = fallbackTransaction.id;
+		} else {
+			completedTransactionId = updatedTransaction.id;
 		}
-	} else {
-		// Create new transaction record (for manual top-ups or old auto top-ups)
-		const [newTransaction] = await db
-			.insert(tables.transaction)
-			.values({
-				organizationId,
-				type: "credit_topup",
-				creditAmount: finalCreditAmount.toString(),
-				amount: totalAmountInDollars.toString(),
+
+		const lineItems = [
+			{
+				description: `Credit Top-up ($${creditAmount})`,
+				amount: totalAmountInDollars,
+			},
+		];
+
+		if (bonusAmount > 0) {
+			lineItems.push({
+				description: `First-time bonus (+$${bonusAmount.toFixed(2)})`,
+				amount: 0,
+			});
+		}
+
+		try {
+			await generateAndEmailInvoice({
+				invoiceNumber: completedTransactionId,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				billingEmail: organization.billingEmail ?? "",
+				billingCompany: organization.billingCompany,
+				billingAddress: organization.billingAddress,
+				billingTaxId: organization.billingTaxId,
+				billingNotes: organization.billingNotes,
+				lineItems,
 				currency: paymentIntent.currency.toUpperCase(),
-				status: "completed",
-				stripePaymentIntentId: paymentIntent.id,
-				description: transactionDescription,
-			})
-			.returning();
-		completedTransaction = newTransaction;
-	}
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (auto top-up); suppressing webhook failure",
+				e as Error,
+			);
+		}
 
-	// Generate and email invoice for credit purchase
-	const lineItems = [
-		{
-			description: `Credit Top-up ($${creditAmount})`,
-			amount: totalAmountInDollars,
-		},
-	];
-
-	if (bonusAmount > 0) {
-		lineItems.push({
-			description: `First-time bonus (+$${bonusAmount.toFixed(2)})`,
-			amount: 0,
-		});
-	}
-
-	await generateAndEmailInvoice({
-		invoiceNumber: completedTransaction.id,
-		invoiceDate: new Date(),
-		organizationName: organization.name,
-		billingEmail: organization.billingEmail,
-		billingCompany: organization.billingCompany,
-		billingAddress: organization.billingAddress,
-		billingTaxId: organization.billingTaxId,
-		billingNotes: organization.billingNotes,
-		lineItems,
-		currency: paymentIntent.currency.toUpperCase(),
-	});
-
-	posthog.groupIdentify({
-		groupType: "organization",
-		groupKey: organizationId,
-		properties: {
-			name: organization.name,
-		},
-	});
-	posthog.capture({
-		distinctId: "organization",
-		event: "credits_purchased",
-		groups: {
-			organization: organizationId,
-		},
-		properties: {
-			amount: creditAmount,
-			totalPaid: totalAmountInDollars,
-			source: "payment_intent",
-			organization: organizationId,
-		},
-	});
-
-	// Send Discord notification for credit purchase
-	const userEmail = metadata?.userEmail;
-	if (userEmail) {
-		const user = await db.query.user.findFirst({
-			where: {
-				email: { eq: userEmail },
+		posthog.groupIdentify({
+			groupType: "organization",
+			groupKey: organizationId,
+			properties: {
+				name: organization.name,
 			},
 		});
-		await notifyCreditsPurchased(userEmail, user?.name, creditAmount);
+		posthog.capture({
+			distinctId: "organization",
+			event: "credits_purchased",
+			groups: {
+				organization: organizationId,
+			},
+			properties: {
+				amount: creditAmount,
+				totalPaid: totalAmountInDollars,
+				source: "payment_intent",
+				organization: organizationId,
+			},
+		});
+	} else {
+		await recordCreditTopUp({
+			organizationId,
+			finalCreditAmount,
+			bonusAmount,
+			creditAmount,
+			totalAmountInDollars,
+			currency: paymentIntent.currency.toUpperCase(),
+			stripePaymentIntentId: paymentIntent.id,
+			description: transactionDescription,
+			organization,
+			source: "payment_intent",
+		});
+	}
+
+	if (userEmail) {
+		await notifyCreditsPurchased(userEmail, resolvedUser?.name, creditAmount);
 	}
 
 	logger.info(
-		`Added ${creditAmount} credits to organization ${organizationId} (paid ${totalAmountInDollars} including fees)`,
+		`Added credits to organization ${organizationId} (paid ${totalAmountInDollars} including fees)`,
 	);
 }
 
@@ -734,7 +956,7 @@ async function handlePaymentIntentFailed(
 
 	// Extract error details from Stripe
 	const lastPaymentError = paymentIntent.last_payment_error;
-	const errorMessage = lastPaymentError?.message || "Unknown error";
+	const errorMessage = lastPaymentError?.message ?? "Unknown error";
 	const errorCode = lastPaymentError?.code;
 	const declineCode = lastPaymentError?.decline_code;
 
@@ -904,7 +1126,7 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 	}
 
 	// Fetch refunds for this charge since they're not expanded in webhook events
-	const refundsResponse = await stripe.refunds.list({
+	const refundsResponse = await getStripe().refunds.list({
 		charge: charge.id,
 		limit: 1,
 	});
@@ -919,9 +1141,9 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 
 	// Calculate refund amounts
 	const refundAmountInDollars = amount_refunded / 100;
-	const originalAmount = Number.parseFloat(originalTransaction.amount || "0");
+	const originalAmount = Number.parseFloat(originalTransaction.amount ?? "0");
 	const originalCreditAmount = Number.parseFloat(
-		originalTransaction.creditAmount || "0",
+		originalTransaction.creditAmount ?? "0",
 	);
 
 	// Calculate proportional credit refund
@@ -955,7 +1177,7 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		status: "completed",
 		stripePaymentIntentId: payment_intent as string,
 		relatedTransactionId: originalTransaction.id,
-		refundReason: latestRefund.reason || null,
+		refundReason: latestRefund.reason ?? null,
 		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
 	});
 
@@ -1030,11 +1252,40 @@ async function handleSetupIntentSucceeded(
 	const paymentMethodId =
 		typeof payment_method === "string" ? payment_method : payment_method.id;
 
-	await stripe.paymentMethods.attach(paymentMethodId, {
+	// Idempotent: skip if already saved (e.g. by confirm-setup endpoint)
+	const alreadySaved = await db.query.paymentMethod.findFirst({
+		where: { stripePaymentMethodId: paymentMethodId, organizationId },
+	});
+	if (alreadySaved) {
+		return;
+	}
+
+	await getStripe().paymentMethods.attach(paymentMethodId, {
 		customer: stripeCustomerId,
 	});
 
-	const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+	const paymentMethod =
+		await getStripe().paymentMethods.retrieve(paymentMethodId);
+
+	// Check for duplicate card by fingerprint
+	if (paymentMethod.type === "card" && paymentMethod.card?.fingerprint) {
+		const existingMethods = await db.query.paymentMethod.findMany({
+			where: { organizationId },
+		});
+
+		for (const existing of existingMethods) {
+			const stripeMethod = await getStripe().paymentMethods.retrieve(
+				existing.stripePaymentMethodId,
+			);
+			if (stripeMethod.card?.fingerprint === paymentMethod.card.fingerprint) {
+				logger.warn(
+					`Duplicate card detected for organization ${organizationId}, detaching`,
+				);
+				await getStripe().paymentMethods.detach(paymentMethodId);
+				return;
+			}
+		}
+	}
 
 	const existingPaymentMethods = await db.query.paymentMethod.findMany({
 		where: {

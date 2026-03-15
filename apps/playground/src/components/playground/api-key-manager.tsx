@@ -67,7 +67,7 @@ function CreateNewKeyForm({
 	};
 
 	const copyToClipboard = () => {
-		navigator.clipboard.writeText(newApiKey);
+		void navigator.clipboard.writeText(newApiKey);
 		toast.success("API Key Copied", {
 			description: "The API key has been copied to your clipboard.",
 		});

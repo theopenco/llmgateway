@@ -56,18 +56,18 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 	const [dateRange, setDateRange] = useState<DateRange | undefined>();
 	const [unifiedFinishReason, setUnifiedFinishReason] = useState<
 		string | undefined
-	>(searchParams.get("unifiedFinishReason") || undefined);
+	>(searchParams.get("unifiedFinishReason") ?? undefined);
 	const [provider, setProvider] = useState<string | undefined>(
-		searchParams.get("provider") || undefined,
+		searchParams.get("provider") ?? undefined,
 	);
 	const [model, setModel] = useState<string | undefined>(
-		searchParams.get("model") || undefined,
+		searchParams.get("model") ?? undefined,
 	);
 	const [customHeaderKey, setCustomHeaderKey] = useState<string>(
-		searchParams.get("customHeaderKey") || "",
+		searchParams.get("customHeaderKey") ?? "",
 	);
 	const [customHeaderValue, setCustomHeaderValue] = useState<string>(
-		searchParams.get("customHeaderValue") || "",
+		searchParams.get("customHeaderValue") ?? "",
 	);
 
 	const api = useApi();
@@ -177,11 +177,11 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 	const shouldUseInitialData =
 		!dateRange && // No date range selected (date range is not in URL initially)
 		unifiedFinishReason ===
-			(searchParams.get("unifiedFinishReason") || undefined) &&
-		provider === (searchParams.get("provider") || undefined) &&
-		model === (searchParams.get("model") || undefined) &&
-		customHeaderKey === (searchParams.get("customHeaderKey") || "") &&
-		customHeaderValue === (searchParams.get("customHeaderValue") || "");
+			(searchParams.get("unifiedFinishReason") ?? undefined) &&
+		provider === (searchParams.get("provider") ?? undefined) &&
+		model === (searchParams.get("model") ?? undefined) &&
+		customHeaderKey === (searchParams.get("customHeaderKey") ?? "") &&
+		customHeaderValue === (searchParams.get("customHeaderValue") ?? "");
 
 	const {
 		data,
@@ -234,7 +234,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 	);
 
 	// Flatten all pages into a single array of logs
-	const allLogs = data?.pages.flatMap((page) => page?.logs || []) || [];
+	const allLogs = data?.pages.flatMap((page) => page?.logs ?? []) ?? [];
 
 	const handleDateRangeChange = (_value: string, range: DateRange) => {
 		setDateRange(range);
@@ -266,7 +266,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 						"unifiedFinishReason",
 						setUnifiedFinishReason,
 					)}
-					value={unifiedFinishReason || "all"}
+					value={unifiedFinishReason ?? "all"}
 				>
 					<SelectTrigger className="w-[200px]">
 						<SelectValue placeholder="Filter by unified reason" />
@@ -286,14 +286,14 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 
 				<Select
 					onValueChange={handleFilterChange("provider", setProvider)}
-					value={provider || "all"}
+					value={provider ?? "all"}
 				>
 					<SelectTrigger className="w-[160px]">
 						<SelectValue placeholder="Filter by provider" />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All providers</SelectItem>
-						{(uniqueModels?.providers || []).map((p) => (
+						{(uniqueModels?.providers ?? []).map((p) => (
 							<SelectItem key={p} value={p}>
 								{p}
 							</SelectItem>
@@ -303,14 +303,14 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 
 				<Select
 					onValueChange={handleFilterChange("model", setModel)}
-					value={model || "all"}
+					value={model ?? "all"}
 				>
 					<SelectTrigger className="w-[180px]">
 						<SelectValue placeholder="Filter by model" />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All models</SelectItem>
-						{(uniqueModels?.models || []).map((modelName) => (
+						{(uniqueModels?.models ?? []).map((modelName) => (
 							<SelectItem key={modelName} value={modelName}>
 								{modelName}
 							</SelectItem>
@@ -327,7 +327,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 						setCustomHeaderKey(e.target.value);
 						// Update URL immediately
 						updateUrlWithFilters({
-							customHeaderKey: e.target.value || undefined,
+							customHeaderKey: e.target.value ?? undefined,
 						});
 					}}
 					className="w-[200px]"
@@ -342,7 +342,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 						setCustomHeaderValue(e.target.value);
 						// Update URL immediately
 						updateUrlWithFilters({
-							customHeaderValue: e.target.value || undefined,
+							customHeaderValue: e.target.value ?? undefined,
 						});
 					}}
 					className="w-[200px]"
@@ -367,7 +367,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 										toolChoice: log.toolChoice as any,
 										customHeaders: log.customHeaders as any,
 									}}
-									orgId={orgId || undefined}
+									orgId={orgId ?? undefined}
 									projectId={projectId || undefined}
 								/>
 							))}

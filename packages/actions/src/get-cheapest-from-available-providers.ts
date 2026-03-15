@@ -178,10 +178,10 @@ export function getCheapestFromAvailableProviders<
 		const providerInfo = modelWithPricing.providers.find(
 			(p) => p.providerId === provider.providerId,
 		);
-		const discount = (providerInfo as ProviderModelMapping)?.discount || 0;
+		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
 		const discountMultiplier = 1 - discount;
 		const price =
-			(((providerInfo?.inputPrice || 0) + (providerInfo?.outputPrice || 0)) /
+			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
 				2) *
 			discountMultiplier;
 
@@ -220,11 +220,15 @@ export function getCheapestFromAvailableProviders<
 	for (const providerScore of providerScores) {
 		// Price ratio: 0 = cheapest, 0.5 = 50% more expensive, 1.0 = 2x more expensive
 		// This preserves the actual magnitude of price differences
+		/* eslint-disable no-mixed-operators */
 		const priceScore = minPrice > 0 ? providerScore.price / minPrice - 1 : 0;
+		/* eslint-enable no-mixed-operators */
 
 		// Uptime ratio: 0 = best uptime, proportional penalty for worse uptime
 		const uptime = providerScore.uptime ?? DEFAULT_UPTIME;
+		/* eslint-disable no-mixed-operators */
 		const uptimeScore = uptime > 0 ? maxUptime / uptime - 1 : 1;
+		/* eslint-enable no-mixed-operators */
 
 		// Calculate exponential penalty for truly unstable providers
 		const uptimePenalty = calculateUptimePenalty(uptime);
@@ -232,14 +236,18 @@ export function getCheapestFromAvailableProviders<
 		// Throughput ratio: 0 = fastest, 0.5 = 50% slower, 1.0 = 2x slower
 		// This preserves the actual magnitude of throughput differences
 		const throughput = providerScore.throughput ?? DEFAULT_THROUGHPUT;
+		/* eslint-disable no-mixed-operators */
 		const throughputScore = throughput > 0 ? maxThroughput / throughput - 1 : 1;
+		/* eslint-enable no-mixed-operators */
 
 		// Latency ratio: 0 = fastest, proportional penalty for slower
 		// Only consider latency for streaming requests since it's only measured there
 		let latencyScore = 0;
 		if (isStreaming) {
 			const latency = providerScore.latency ?? DEFAULT_LATENCY;
+			/* eslint-disable no-mixed-operators */
 			latencyScore = minLatency > 0 ? latency / minLatency - 1 : 0;
+			/* eslint-enable no-mixed-operators */
 		}
 
 		// Calculate base weighted score (lower is better)
@@ -251,11 +259,13 @@ export function getCheapestFromAvailableProviders<
 			UPTIME_WEIGHT +
 			THROUGHPUT_WEIGHT +
 			effectiveLatencyWeight;
+		/* eslint-disable no-mixed-operators */
 		const baseScore =
 			(effectivePriceWeight / weightSum) * priceScore +
 			(UPTIME_WEIGHT / weightSum) * uptimeScore +
 			(THROUGHPUT_WEIGHT / weightSum) * throughputScore +
 			(effectiveLatencyWeight / weightSum) * latencyScore;
+		/* eslint-enable no-mixed-operators */
 
 		// Apply provider priority: lower priority = higher score (less preferred)
 		// Priority defaults to 1. We add (1 - priority) as a penalty.
@@ -326,10 +336,10 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		const providerInfo = modelWithPricing.providers.find(
 			(p) => p.providerId === provider.providerId,
 		);
-		const discount = (providerInfo as ProviderModelMapping)?.discount || 0;
+		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
 		const discountMultiplier = 1 - discount;
 		const totalPrice =
-			(((providerInfo?.inputPrice || 0) + (providerInfo?.outputPrice || 0)) /
+			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
 				2) *
 			discountMultiplier;
 

@@ -226,12 +226,12 @@ export async function transformAnthropicMessages(
 			}
 
 			// Use the mapped IDs if they exist, otherwise use the original ID
-			const mappedToolUseIds = idMapping.get(m.tool_call_id) || [
+			const mappedToolUseIds = idMapping.get(m.tool_call_id) ?? [
 				m.tool_call_id,
 			];
 
 			// Get the current count for this original ID and increment it
-			const currentCount = toolResultCount.get(m.tool_call_id) || 0;
+			const currentCount = toolResultCount.get(m.tool_call_id) ?? 0;
 			toolResultCount.set(m.tool_call_id, currentCount + 1);
 
 			// If there are multiple mapped IDs, create tool_result blocks for each one

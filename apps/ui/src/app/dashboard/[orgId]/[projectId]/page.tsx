@@ -21,8 +21,8 @@ export default async function Dashboard({
 
 	const today = new Date();
 	const fromParam =
-		searchParamsData?.from || format(subDays(today, 6), "yyyy-MM-dd");
-	const toParam = searchParamsData?.to || format(today, "yyyy-MM-dd");
+		searchParamsData?.from ?? format(subDays(today, 6), "yyyy-MM-dd");
+	const toParam = searchParamsData?.to ?? format(today, "yyyy-MM-dd");
 
 	const initialActivityData = await fetchServerData<ActivitT>(
 		"GET",
@@ -39,6 +39,6 @@ export default async function Dashboard({
 	);
 
 	return (
-		<DashboardClient initialActivityData={initialActivityData || undefined} />
+		<DashboardClient initialActivityData={initialActivityData ?? undefined} />
 	);
 }

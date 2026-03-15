@@ -107,6 +107,7 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 				// Generate a long system prompt that exceeds the model's minimum cacheable token threshold
 				// We need significantly more than the minimum to ensure caching is triggered
 				// Using 2x the minimum + buffer to be safe (Anthropic's tokenizer is ~4 chars per token)
+				// eslint-disable-next-line no-mixed-operators
 				const targetTokens = minCacheableTokens * 2 + 1000;
 				const charsPerRepeat = 95; // approximate chars in each repeat string
 				const repeatCount = Math.ceil((targetTokens * 4) / charsPerRepeat);

@@ -38,7 +38,7 @@ export function PasskeyList() {
 				description: "Your passkey has been removed.",
 			});
 
-			void refetch();
+			refetch();
 		},
 	});
 
@@ -83,7 +83,7 @@ export function PasskeyList() {
 				{passkeys.map((passkey) => (
 					<TableRow key={passkey.id}>
 						<TableCell className="font-medium">
-							{passkey.name || passkey.deviceType || "Unknown device"}
+							{passkey.name ?? passkey.deviceType ?? "Unknown device"}
 						</TableCell>
 						<TableCell>
 							{formatDistanceToNow(new Date(passkey.createdAt), {

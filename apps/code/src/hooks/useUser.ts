@@ -61,7 +61,7 @@ export function useUser(options?: UseUserOptions) {
 	}, [data?.user, isLoading, error, router, redirectTo, redirectWhen]);
 
 	return {
-		user: data?.user || null,
+		user: data?.user ?? null,
 		isLoading,
 		error,
 		data,

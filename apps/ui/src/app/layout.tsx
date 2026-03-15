@@ -1,4 +1,4 @@
-import { Inter, Geist_Mono } from "next/font/google";
+import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
@@ -20,6 +20,13 @@ const geistMono = Geist_Mono({
 	display: "swap",
 });
 
+const plusJakarta = Plus_Jakarta_Sans({
+	variable: "--font-display",
+	subsets: ["latin"],
+	weight: ["500", "600", "700", "800"],
+	display: "swap",
+});
+
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
@@ -30,18 +37,6 @@ export const metadata: Metadata = {
 	},
 	description:
 		"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface. Access OpenAI, Anthropic, Google, and 19+ providers through one API.",
-	keywords: [
-		"LLM",
-		"API Gateway",
-		"OpenAI",
-		"Anthropic",
-		"Claude",
-		"GPT-4",
-		"AI API",
-		"LLM Routing",
-		"Multi-provider LLM",
-		"AI Gateway",
-	],
 	authors: [{ name: "LLM Gateway" }],
 	creator: "LLM Gateway",
 	publisher: "LLM Gateway",
@@ -129,21 +124,24 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 		<html lang="en" suppressHydrationWarning>
 			<head>
 				<link rel="preconnect" href="https://internal.llmgateway.io" />
+				<link rel="preconnect" href="https://docs.llmgateway.io" />
 				<script
 					type="application/ld+json"
+					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 					dangerouslySetInnerHTML={{
 						__html: JSON.stringify(organizationSchema),
 					}}
 				/>
 				<script
 					type="application/ld+json"
+					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 					dangerouslySetInnerHTML={{
 						__html: JSON.stringify(websiteSchema),
 					}}
 				/>
 			</head>
 			<body
-				className={`${inter.variable} ${geistMono.variable} min-h-screen antialiased`}
+				className={`${inter.variable} ${geistMono.variable} ${plusJakarta.variable} min-h-screen antialiased`}
 			>
 				<Providers config={config}>{children}</Providers>
 			</body>

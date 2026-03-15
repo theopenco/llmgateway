@@ -530,7 +530,6 @@ function SidebarMenuButton({
 	}
 
 	if (typeof tooltip === "string") {
-		// eslint-disable-next-line no-param-reassign
 		tooltip = {
 			children: tooltip,
 		};

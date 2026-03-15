@@ -16,6 +16,7 @@ function formatPrice(value: number, prefix = ""): string {
 }
 
 export function PricingBreakdown({ discount }: { discount: number }) {
+	// eslint-disable-next-line no-mixed-operators
 	const multiplier = 1 - discount / 100;
 
 	return (

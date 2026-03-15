@@ -87,7 +87,7 @@ export function ModelCard({ modelName, providers }: ModelCardProps) {
 						className="h-6 w-6 p-0 shrink-0"
 						onClick={(e) => {
 							e.preventDefault();
-							copyToClipboard(providerModelName);
+							void copyToClipboard(providerModelName);
 						}}
 						title="Copy provider/model name"
 					>

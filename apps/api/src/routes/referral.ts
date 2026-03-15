@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import type { ServerTypes } from "@/vars.js";
 
-const cookieDomain = process.env.COOKIE_DOMAIN || "localhost";
+const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const isProduction = process.env.NODE_ENV === "production";
 
 export const referral = new OpenAPIHono<ServerTypes>();

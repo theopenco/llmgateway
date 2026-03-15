@@ -24,7 +24,7 @@ export interface InstrumentationConfig {
 export function initializeInstrumentation(
 	config: InstrumentationConfig,
 ): NodeSDK {
-	const projectId = config.projectId || process.env.GOOGLE_CLOUD_PROJECT;
+	const projectId = config.projectId ?? process.env.GOOGLE_CLOUD_PROJECT;
 
 	// Use Google Cloud Trace exporter for direct integration
 	const traceExporter = new TraceExporter({
@@ -63,7 +63,7 @@ export function initializeInstrumentation(
 		sdk.start();
 
 		logger.info(
-			`OpenTelemetry started successfully for project: ${projectId || "(not set)"}, service: ${config.serviceName}`,
+			`OpenTelemetry started successfully for project: ${projectId ?? "(not set)"}, service: ${config.serviceName}`,
 		);
 		logger.info(`Tracing configuration`, {
 			projectId,

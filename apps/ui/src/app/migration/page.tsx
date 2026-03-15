@@ -64,7 +64,7 @@ export default async function MigrationPage() {
 								className="group relative flex flex-col rounded-xl border border-border bg-card p-6 transition-all hover:border-primary/50 hover:shadow-lg"
 							>
 								<div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-									{providerIcons[migration.fromProvider] || (
+									{providerIcons[migration.fromProvider] ?? (
 										<svg
 											viewBox="0 0 24 24"
 											fill="none"

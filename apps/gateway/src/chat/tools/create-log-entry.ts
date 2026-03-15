@@ -55,7 +55,7 @@ export function createLogEntry(
 	pluginResults?: PluginResults,
 ) {
 	const activeSpan = trace.getActiveSpan();
-	const traceId = activeSpan?.spanContext().traceId || null;
+	const traceId = activeSpan?.spanContext().traceId ?? null;
 
 	return {
 		requestId,
@@ -69,33 +69,33 @@ export function createLogEntry(
 		requestedModel,
 		requestedProvider,
 		messages,
-		temperature: temperature || null,
-		maxTokens: max_tokens || null,
-		topP: top_p || null,
-		frequencyPenalty: frequency_penalty || null,
-		presencePenalty: presence_penalty || null,
-		reasoningEffort: reasoningEffort || null,
+		temperature: temperature ?? null,
+		maxTokens: max_tokens ?? null,
+		topP: top_p ?? null,
+		frequencyPenalty: frequency_penalty ?? null,
+		presencePenalty: presence_penalty ?? null,
+		reasoningEffort: reasoningEffort ?? null,
 		reasoningMaxTokens: reasoningMaxTokens ?? null,
-		effort: effort || null,
-		responseFormat: responseFormat || null,
-		tools: tools || null,
-		toolChoice: toolChoice || null,
+		effort: effort ?? null,
+		responseFormat: responseFormat ?? null,
+		tools: tools ?? null,
+		toolChoice: toolChoice ?? null,
 		mode: project.mode,
-		source: source || null,
+		source: source ?? null,
 		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
 		params:
 			imageConfig?.aspect_ratio || imageConfig?.image_size
 				? { image_config: imageConfig }
 				: null,
-		routingMetadata: routingMetadata || null,
+		routingMetadata: routingMetadata ?? null,
 		traceId,
-		userAgent: userAgent || null,
+		userAgent: userAgent ?? null,
 		// Only include raw payloads if x-debug header is set to true
-		rawRequest: debugMode ? rawRequest || null : null,
-		rawResponse: debugMode ? rawResponse || null : null,
-		upstreamRequest: debugMode ? upstreamRequest || null : null,
-		upstreamResponse: debugMode ? upstreamResponse || null : null,
+		rawRequest: debugMode ? (rawRequest ?? null) : null,
+		rawResponse: debugMode ? (rawResponse ?? null) : null,
+		upstreamRequest: debugMode ? (upstreamRequest ?? null) : null,
+		upstreamResponse: debugMode ? (upstreamResponse ?? null) : null,
 		plugins: plugins && plugins.length > 0 ? plugins : null,
-		pluginResults: pluginResults || null,
+		pluginResults: pluginResults ?? null,
 	} as const;
 }

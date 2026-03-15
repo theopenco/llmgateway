@@ -58,7 +58,7 @@ export function ReferralDialog({
 
 	const referralLink = `${origin}/?ref=${selectedOrganization.id}`;
 	const referralEarnings =
-		Number(selectedOrganization.referralEarnings || 0) || 0;
+		Number(selectedOrganization.referralEarnings ?? 0) || 0;
 
 	const monthlyGoal = 100;
 	const progressPercent =
