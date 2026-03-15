@@ -112,6 +112,8 @@ export const responsesRequestSchema = z.object({
 					search_context_size: z.enum(["low", "medium", "high"]).optional(),
 					max_uses: z.number().optional(),
 				}),
+				// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
+				z.record(z.any()),
 			]),
 		)
 		.optional(),
@@ -133,21 +135,10 @@ export const responsesRequestSchema = z.object({
 			effort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
 			summary: z.enum(["detailed", "auto"]).optional(),
 		})
-		.optional(),
-	text: z
-		.object({
-			format: z.union([
-				z.object({ type: z.literal("text") }),
-				z.object({ type: z.literal("json_object") }),
-				z.object({
-					type: z.literal("json_schema"),
-					name: z.string(),
-					schema: z.record(z.any()),
-					strict: z.boolean().optional(),
-				}),
-			]),
-		})
-		.optional(),
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	text: z.record(z.any()).optional(),
 	store: z.boolean().optional(),
 	metadata: z.record(z.string()).optional(),
 	top_p: z

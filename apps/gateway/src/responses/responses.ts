@@ -1,3 +1,6 @@
+import { promisify } from "node:util";
+import { zstdDecompress } from "node:zlib";
+
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
@@ -29,6 +32,8 @@ import { storeResponse, getStoredResponse } from "./tools/response-state.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+
+const zstdDecompressAsync = promisify(zstdDecompress);
 
 export const responses = new Hono<ServerTypes>();
 
@@ -87,7 +92,14 @@ async function authenticateRequest(c: {
 responses.post("/", async (c) => {
 	let rawBody: unknown;
 	try {
-		rawBody = await c.req.json();
+		const contentEncoding = c.req.header("content-encoding");
+		if (contentEncoding === "zstd") {
+			const compressed = await c.req.arrayBuffer();
+			const decompressed = await zstdDecompressAsync(Buffer.from(compressed));
+			rawBody = JSON.parse(decompressed.toString("utf8"));
+		} else {
+			rawBody = await c.req.json();
+		}
 	} catch {
 		return c.json(
 			{
@@ -199,36 +211,42 @@ responses.post("/", async (c) => {
 	);
 
 	// Convert tools format: Responses API has name/description/parameters at top level,
-	// chat completions nests under function
-	const tools = req.tools?.map((tool) => {
-		if (tool.type === "function") {
-			return {
-				type: "function" as const,
-				function: {
-					name: tool.name,
-					description: tool.description,
-					parameters: tool.parameters,
-				},
-			};
-		}
-		// web_search passes through as-is
-		return tool;
-	});
+	// chat completions nests under function.
+	// Only forward user-defined function tools to chat completions.
+	// Built-in tool types (web_search, computer_use, code_interpreter, shell, etc.)
+	// are OpenAI-native capabilities that cannot be proxied through the gateway's
+	// provider routing, so they are dropped here.
+	const tools = req.tools
+		?.map((tool: Record<string, unknown>) => {
+			if (tool.type === "function") {
+				return {
+					type: "function" as const,
+					function: {
+						name: tool.name,
+						description: tool.description,
+						parameters: tool.parameters,
+					},
+				};
+			}
+			return null;
+		})
+		.filter((t): t is NonNullable<typeof t> => t !== null);
 
 	// Convert text.format to response_format
 	let response_format: Record<string, unknown> | undefined;
 	if (req.text?.format) {
-		if (req.text.format.type === "json_schema") {
+		const fmt = req.text.format as Record<string, unknown>;
+		if (fmt.type === "json_schema") {
 			response_format = {
 				type: "json_schema",
 				json_schema: {
-					name: req.text.format.name,
-					schema: req.text.format.schema,
-					strict: req.text.format.strict,
+					name: fmt.name,
+					schema: fmt.schema,
+					strict: fmt.strict,
 				},
 			};
 		} else {
-			response_format = req.text.format;
+			response_format = fmt;
 		}
 	}
 
@@ -248,7 +266,7 @@ responses.post("/", async (c) => {
 	if (req.top_p !== undefined) {
 		chatRequest.top_p = req.top_p;
 	}
-	if (tools) {
+	if (tools && tools.length > 0) {
 		chatRequest.tools = tools;
 	}
 	if (req.tool_choice) {
