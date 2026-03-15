@@ -764,6 +764,9 @@ chat.openapi(completions, async (c) => {
 
 	// Read Responses API context from in-memory Map (set by /v1/responses proxy).
 	// Uses a lookup key passed via header; actual data is never in headers.
+	// External callers cannot exploit this: the key is a resp_ + shortid(24) that
+	// only exists in the Map for the duration of a single app.request() call, and
+	// getResponsesContext() deletes on read (one-time use).
 	const responsesContextKey = c.req.header("x-responses-context-key");
 	const responsesContext = responsesContextKey
 		? getResponsesContext(responsesContextKey)

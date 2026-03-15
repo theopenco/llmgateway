@@ -474,6 +474,8 @@ responses.post("/", async (c) => {
 					event: failedEvent.event,
 					data: failedEvent.data,
 				});
+			} finally {
+				reader.releaseLock();
 			}
 		});
 	}
