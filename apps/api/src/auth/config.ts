@@ -1,8 +1,8 @@
+import { passkey } from "@better-auth/passkey";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
-import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
 
 import { notifyUserSignup } from "@/utils/discord.js";
