@@ -6,7 +6,7 @@ import { Card } from "@/lib/components/card";
 
 import {
 	AnthropicIcon,
-	ClawdbotIcon,
+	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
 	N8nIcon,
@@ -70,11 +70,11 @@ const integrations: Integration[] = [
 		comingSoon: false,
 	},
 	{
-		name: "Clawdbot",
+		name: "OpenClaw",
 		description:
-			"Use LLM Gateway with Clawdbot for AI-powered Discord bot interactions.",
-		href: "/guides/clawdbot",
-		icon: ClawdbotIcon,
+			"Use LLM Gateway with OpenClaw for AI-powered chat across Discord, WhatsApp, Telegram, and more.",
+		href: "/guides/openclaw",
+		icon: OpenClawIcon,
 		comingSoon: false,
 	},
 	{

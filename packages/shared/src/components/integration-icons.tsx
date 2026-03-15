@@ -65,49 +65,31 @@ export const VSCodeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
-// Clawdbot Icon
-export const ClawdbotIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+// OpenClaw Icon
+export const OpenClawIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
 	<svg
-		viewBox="0 0 120 120"
-		fill="none"
 		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 16 16"
+		aria-label="Pixel lobster"
 		{...props}
 	>
-		<defs>
-			<linearGradient
-				id="clawdbot-gradient"
-				x1="0%"
-				y1="0%"
-				x2="100%"
-				y2="100%"
-			>
-				<stop offset="0%" stopColor="#FF7F6B" />
-				<stop offset="100%" stopColor="#CC5F4D" />
-			</linearGradient>
-		</defs>
-		<path
-			d="M60 10c-30 0-45 25-45 45s15 40 30 45v10h10v-10s5 2 10 0v10h10v-10c15-5 30-25 30-45S90 10 60 10"
-			fill="url(#clawdbot-gradient)"
-		/>
-		<path
-			d="M20 45C5 40 0 50 5 60s15 5 20-5c3-7 0-10-5-10"
-			fill="url(#clawdbot-gradient)"
-		/>
-		<path
-			d="M100 45c15-5 20 5 15 15s-15 5-20-5c-3-7 0-10 5-10"
-			fill="url(#clawdbot-gradient)"
-		/>
-		<path
-			d="M45 15Q35 5 30 8M75 15Q85 5 90 8"
-			stroke="#FF7F6B"
-			strokeWidth="2"
-			strokeLinecap="round"
-		/>
-		<circle cx="45" cy="35" r="6" fill="#1a1a1a" />
-		<circle cx="75" cy="35" r="6" fill="#1a1a1a" />
-		<circle cx="46" cy="34" r="2" fill="#00D9FF" />
-		<circle cx="76" cy="34" r="2" fill="#00D9FF" />
+		<path fill="none" d="M0 0h16v16H0z" />
+		<g fill="#3a0a0d">
+			<path d="M1 5h1v3H1zM2 4h1v1H2zM2 8h1v1H2zM3 3h1v1H3zM3 9h1v1H3zM4 2h1v1H4zM4 10h1v1H4zM5 2h6v1H5zM11 2h1v1h-1zM12 3h1v1h-1zM12 9h1v1h-1zM13 4h1v1h-1zM13 8h1v1h-1zM14 5h1v3h-1zM5 11h6v1H5zM4 12h1v1H4zM11 12h1v1h-1zM3 13h1v1H3zM12 13h1v1h-1zM5 14h6v1H5z" />
+		</g>
+		<g fill="#ff4f40">
+			<path d="M5 3h6v1H5zM4 4h8v1H4zM3 5h10v1H3zM3 6h10v1H3zM3 7h10v1H3zM4 8h8v1H4zM5 9h6v1H5zM5 12h6v1H5zM6 13h4v1H6z" />
+		</g>
+		<g fill="#ff775f">
+			<path d="M1 6h2v1H1zM2 5h1v1H2zM2 7h1v1H2zM13 6h2v1h-2zM13 5h1v1h-1zM13 7h1v1h-1z" />
+		</g>
+		<g fill="#081016">
+			<path d="M6 5h1v1H6zM9 5h1v1H9z" />
+		</g>
+		<g fill="#f5fbff">
+			<path d="M6 4h1v1H6zM9 4h1v1H9z" />
+		</g>
 	</svg>
 );
