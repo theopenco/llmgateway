@@ -585,6 +585,92 @@ describe("prepareRequestBody - Google AI Studio", () => {
 });
 
 describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-6",
+			[{ role: "user", content: "Run a tool" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function" as const,
+					function: {
+						name: "exec",
+						description: "Execute shell commands",
+						parameters: {
+							type: "object",
+							required: ["command"],
+							properties: {
+								command: {
+									type: "string",
+									minLength: 1,
+								},
+								env: {
+									type: "object",
+									patternProperties: {
+										"^(.*)$": {
+											type: "string",
+											minLength: 1,
+										},
+									},
+								},
+								yieldMs: {
+									type: "number",
+									minimum: 0,
+								},
+								fields: {
+									type: "array",
+									items: {
+										type: "object",
+										additionalProperties: true,
+										properties: {},
+									},
+								},
+							},
+							additionalProperties: false,
+						},
+					},
+				},
+			],
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const schema = requestBody.toolConfig.tools[0].toolSpec.inputSchema.json;
+
+		expect(schema).toEqual({
+			type: "object",
+			required: ["command"],
+			properties: {
+				command: {
+					type: "string",
+				},
+				env: {
+					type: "object",
+					properties: {},
+				},
+				yieldMs: {
+					type: "number",
+				},
+				fields: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: {},
+					},
+				},
+			},
+		});
+	});
+
 	test("should group consecutive tool results into a single user message", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",

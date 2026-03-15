@@ -278,6 +278,109 @@ function stripUnsupportedSchemaProperties(
 }
 
 /**
+ * Recursively sanitizes tool input schemas for AWS Bedrock Converse.
+ * Bedrock is stricter than Anthropic's direct API and rejects several JSON Schema
+ * keywords that appear in OpenAI-style tool definitions from external agents.
+ *
+ * We intentionally keep a conservative subset that Bedrock accepts reliably:
+ * type, description, properties, items, required, enum, default, anyOf, oneOf, allOf.
+ */
+function sanitizeBedrockSchema(
+	schema: any,
+	rootDefs?: Record<string, any>,
+): any {
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+
+	if (Array.isArray(schema)) {
+		return schema.map((item) => sanitizeBedrockSchema(item, rootDefs));
+	}
+
+	const defs = rootDefs ?? schema.$defs ?? schema.definitions ?? {};
+
+	if (typeof schema.$ref === "string") {
+		const resolved = resolveRef(schema.$ref, defs);
+		if (resolved) {
+			const expanded = sanitizeBedrockSchema({ ...resolved }, defs);
+			if (schema.description && !expanded.description) {
+				expanded.description = schema.description;
+			}
+			if (schema.default !== undefined && expanded.default === undefined) {
+				expanded.default = schema.default;
+			}
+			return expanded;
+		}
+	}
+
+	const cleaned: any = {};
+	const allowedKeys = new Set([
+		"type",
+		"description",
+		"properties",
+		"items",
+		"required",
+		"enum",
+		"default",
+		"anyOf",
+		"oneOf",
+		"allOf",
+	]);
+
+	for (const [key, value] of Object.entries(schema)) {
+		if (!allowedKeys.has(key)) {
+			continue;
+		}
+
+		if (key === "description" && typeof value === "string" && !value.trim()) {
+			continue;
+		}
+
+		if (
+			key === "properties" &&
+			value &&
+			typeof value === "object" &&
+			!Array.isArray(value)
+		) {
+			cleaned.properties = Object.fromEntries(
+				Object.entries(value).map(([propertyName, propertyValue]) => [
+					propertyName,
+					sanitizeBedrockSchema(propertyValue, defs),
+				]),
+			);
+			continue;
+		}
+
+		if (value && typeof value === "object") {
+			cleaned[key] = sanitizeBedrockSchema(value, defs);
+		} else {
+			cleaned[key] = value;
+		}
+	}
+
+	if (
+		cleaned.required &&
+		Array.isArray(cleaned.required) &&
+		cleaned.properties &&
+		typeof cleaned.properties === "object"
+	) {
+		const existingProps = Object.keys(cleaned.properties);
+		cleaned.required = cleaned.required.filter((prop: string) =>
+			existingProps.includes(prop),
+		);
+		if (cleaned.required.length === 0) {
+			delete cleaned.required;
+		}
+	}
+
+	if (cleaned.type === "object" && !cleaned.properties) {
+		cleaned.properties = {};
+	}
+
+	return cleaned;
+}
+
+/**
  * Transforms messages for models that don't support system roles by converting system messages to user messages
  */
 function transformMessagesForNoSystemRole(messages: any[]): any[] {
@@ -1344,7 +1447,12 @@ export async function prepareRequestBody(
 								name: tool.function.name,
 								description: tool.function.description,
 								inputSchema: {
-									json: tool.function.parameters,
+									json: sanitizeBedrockSchema(
+										tool.function.parameters ?? {
+											type: "object",
+											properties: {},
+										},
+									),
 								},
 							},
 						})),
