@@ -97,8 +97,8 @@ user.openapi(get, async (c) => {
 		});
 	}
 
-	// Ensure the user has a default org/project (fallback for cases where
-	// the auth after-hook didn't fire, e.g. better-auth 1.4.x OAuth regression)
+	// Ensure the user has a default org/project — after hooks don't fire on
+	// OAuth callbacks in better-auth (by design, not a bug — redirects skip hooks)
 	await ensureDefaultOrganization(authUser.id, user.email);
 
 	const authInfo = await getUserAuthInfo(authUser.id);
@@ -501,10 +501,6 @@ user.openapi(completeOnboarding, async (c) => {
 			message: "User not found",
 		});
 	}
-
-	// Ensure the user has a default org/project (fallback for cases where
-	// the auth after-hook didn't fire, e.g. better-auth 1.4.x OAuth regression)
-	await ensureDefaultOrganization(authUser.id, userRecord.email);
 
 	const [updatedUser] = await db
 		.update(tables.user)
