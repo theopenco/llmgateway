@@ -39,6 +39,7 @@ interface ModelSelectorProps {
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
+	rootOnly?: boolean;
 }
 
 interface FilterState {
@@ -74,6 +75,7 @@ export function ModelSelector({
 	value,
 	onValueChange,
 	placeholder = "Select model...",
+	rootOnly,
 }: ModelSelectorProps) {
 	const [open, setOpen] = React.useState(false);
 	const [filterOpen, setFilterOpen] = React.useState(false);
@@ -113,20 +115,44 @@ export function ModelSelector({
 			if (m.id === "custom") {
 				continue;
 			}
-			for (const mp of m.providers) {
-				const isDeactivated =
-					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
-				if (!isDeactivated) {
+			if (rootOnly) {
+				const activeProviders = m.providers.filter(
+					(mp) => !mp.deactivatedAt || new Date(mp.deactivatedAt) > now,
+				);
+				const stableProviders = activeProviders.filter(
+					(mp) =>
+						!mp.stability ||
+						mp.stability === "stable" ||
+						mp.stability === "beta",
+				);
+				const candidates =
+					stableProviders.length > 0 ? stableProviders : activeProviders;
+				const cheapest = candidates.sort(
+					(a, b) => (a.inputPrice ?? 0) - (b.inputPrice ?? 0),
+				)[0];
+				if (cheapest) {
 					out.push({
 						model: m,
-						mapping: mp,
-						provider: providers.find((p) => p.id === mp.providerId),
+						mapping: cheapest,
+						provider: providers.find((p) => p.id === cheapest.providerId),
 					});
+				}
+			} else {
+				for (const mp of m.providers) {
+					const isDeactivated =
+						mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
+					if (!isDeactivated) {
+						out.push({
+							model: m,
+							mapping: mp,
+							provider: providers.find((p) => p.id === mp.providerId),
+						});
+					}
 				}
 			}
 		}
 		return out;
-	}, [models, providers]);
+	}, [models, providers, rootOnly]);
 
 	const availableProviders = React.useMemo(() => {
 		const ids = new Set(allEntries.map((e) => e.mapping.providerId));
@@ -234,16 +260,25 @@ export function ModelSelector({
 					{selectedModel ? (
 						<div className="flex items-center gap-3">
 							{(() => {
-								const provider =
-									selectedProviderDef ??
-									getProviderForModel(selectedModel, providers);
-								const ProviderIcon = provider
-									? getProviderIcon(provider.id as string)
+								const iconId = rootOnly
+									? selectedModel.family
+									: (
+											selectedProviderDef ??
+											getProviderForModel(selectedModel, providers)
+										)?.id;
+								const IconComp = iconId
+									? getProviderIcon(iconId as string)
 									: null;
-								return ProviderIcon ? (
-									<ProviderIcon
+								const iconColor = rootOnly
+									? undefined
+									: (
+											(selectedProviderDef ??
+												getProviderForModel(selectedModel, providers)) as any
+										)?.color;
+								return IconComp ? (
+									<IconComp
 										className="h-5 w-5"
-										style={{ color: (provider as any)?.color }}
+										style={iconColor ? { color: iconColor } : undefined}
 									/>
 								) : null;
 							})()}
@@ -264,14 +299,16 @@ export function ModelSelector({
 										) : null;
 									})()}
 								</div>
-								<span className="text-xs text-muted-foreground">
-									{
-										(
-											selectedProviderDef ??
-											getProviderForModel(selectedModel, providers)
-										)?.name
-									}
-								</span>
+								{!rootOnly && (
+									<span className="text-xs text-muted-foreground">
+										{
+											(
+												selectedProviderDef ??
+												getProviderForModel(selectedModel, providers)
+											)?.name
+										}
+									</span>
+								)}
 							</div>
 						</div>
 					) : (
@@ -463,9 +500,11 @@ export function ModelSelector({
 										{filteredEntries.length !== 1 ? "s" : ""} found
 									</div>
 									{filteredEntries.map(({ model, mapping, provider }) => {
-										const ProviderIcon = provider
-											? getProviderIcon(provider.id)
-											: null;
+										const IconComp = rootOnly
+											? getProviderIcon(model.family)
+											: provider
+												? getProviderIcon(provider.id)
+												: null;
 										const entryKey = `${mapping.providerId}-${model.id}-${mapping.modelName}`;
 										const isDeprecated =
 											mapping.deprecatedAt &&
@@ -490,8 +529,8 @@ export function ModelSelector({
 												/>
 												<div className="flex items-center justify-between w-full">
 													<div className="flex items-center gap-2">
-														{ProviderIcon ? (
-															<ProviderIcon className="h-6 w-6 flex-shrink-0" />
+														{IconComp ? (
+															<IconComp className="h-6 w-6 flex-shrink-0" />
 														) : null}
 														<div className="flex flex-col">
 															<div className="flex items-center gap-1">
@@ -502,9 +541,11 @@ export function ModelSelector({
 																	<AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-500" />
 																)}
 															</div>
-															<span className="text-xs text-muted-foreground">
-																{provider?.name}
-															</span>
+															{!rootOnly && (
+																<span className="text-xs text-muted-foreground">
+																	{provider?.name}
+																</span>
+															)}
 														</div>
 													</div>
 												</div>

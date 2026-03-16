@@ -100,8 +100,6 @@ export function CostCalculator() {
 	const cachedInputPricePerToken =
 		mapping?.cachedInputPrice ?? inputPricePerToken * 0.1;
 	const discount = mapping?.discount ?? 0;
-	const providerName =
-		providers.find((p) => p.id === mapping?.providerId)?.name ?? "";
 
 	const dailyRequests = dailyVolumeSteps[volumeIndex];
 	const monthlyRequests = dailyRequests * 30;
@@ -116,8 +114,8 @@ export function CostCalculator() {
 		const outputCost = avgOutputTokens * outputPricePerToken;
 		const basePerRequest = cachedInputCost + uncachedInputCost + outputCost;
 
-		const directCost = basePerRequest * monthlyRequests;
-		const competitorCost = directCost * (1 + COMPETITOR_FEE);
+		const baseMonthly = basePerRequest * monthlyRequests;
+		const competitorCost = baseMonthly * (1 + COMPETITOR_FEE);
 
 		const gatewayPerRequest =
 			discount > 0 ? basePerRequest * (1 - discount) : basePerRequest;
@@ -130,7 +128,6 @@ export function CostCalculator() {
 				: "0";
 
 		return {
-			directCost,
 			competitorCost,
 			gatewayCost,
 			competitorSavings,
@@ -162,8 +159,8 @@ export function CostCalculator() {
 					</h2>
 					<p className="text-lg text-muted-foreground text-balance leading-relaxed">
 						Companies switching to LLM Gateway save up to 35% on LLM costs
-						through smart provider routing, zero platform fees, and volume
-						discounts with BYO keys.
+						through smart provider routing, volume discounts, and zero platform
+						fees.
 					</p>
 				</div>
 
@@ -182,10 +179,11 @@ export function CostCalculator() {
 										value={selectorValue}
 										onValueChange={setSelectorValue}
 										placeholder="Select a model..."
+										rootOnly
 									/>
 									{mapping && (
 										<p className="text-xs text-muted-foreground mt-2">
-											{providerName} &middot; {formatPrice(inputPricePerToken)}
+											{formatPrice(inputPricePerToken)}
 											/M input &middot; {formatPrice(outputPricePerToken)}/M
 											output
 											{discount > 0 ? ` · ${discount * 100}% discount` : ""}
@@ -285,14 +283,16 @@ export function CostCalculator() {
 
 									<div className="rounded-xl border border-border bg-muted/50 p-4">
 										<p className="text-xs font-medium text-muted-foreground mb-1">
-											Direct API
+											Model Pricing
 										</p>
-										<p className="text-xl font-bold">
-											{formatCurrency(costs.directCost)}
-										</p>
-										<p className="text-xs text-muted-foreground mt-1">
-											Provider pricing
-										</p>
+										<div className="space-y-1 mt-1">
+											<p className="text-sm font-mono">
+												{formatPrice(inputPricePerToken)}/M input
+											</p>
+											<p className="text-sm font-mono">
+												{formatPrice(outputPricePerToken)}/M output
+											</p>
+										</div>
 									</div>
 
 									<div className="rounded-xl border-2 border-green-500/50 bg-green-500/5 p-4 shadow-sm shadow-green-500/10">
@@ -303,7 +303,7 @@ export function CostCalculator() {
 											{formatCurrency(costs.gatewayCost)}
 										</p>
 										<p className="text-xs text-muted-foreground mt-1">
-											BYO keys, $0 fee
+											No markup
 											{discount > 0 ? `, ${discount * 100}% off` : ""}
 										</p>
 									</div>
@@ -326,7 +326,7 @@ export function CostCalculator() {
 										</span>
 										<span className="flex items-center gap-1">
 											<DollarSign className="h-3.5 w-3.5 text-blue-500" />
-											$0 platform fee
+											No hidden fees
 										</span>
 									</div>
 								</div>

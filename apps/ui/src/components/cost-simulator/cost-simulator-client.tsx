@@ -88,10 +88,6 @@ function getModelAndMapping(selectorValue: string): {
 	return { model, mapping };
 }
 
-function getProviderName(providerId: string): string {
-	return providers.find((p) => p.id === providerId)?.name ?? providerId;
-}
-
 function getImagePrice(mapping: ProviderModelMapping): {
 	pricePerImage: number;
 	resolutions: string[];
@@ -322,19 +318,15 @@ function TextSimulator() {
 		const outputCost = avgOutputTokens * outputPricePerToken;
 		const basePerRequest = cachedInput + uncachedInput + outputCost;
 
-		// Direct API = base cost (caching available directly from provider)
-		const directPerRequest = basePerRequest;
-		const directMonthly = directPerRequest * monthlyRequests;
-
 		// Competitors add 5.5% platform fee on top
-		const competitorMonthly = directMonthly * 1.055;
+		const baseMonthly = basePerRequest * monthlyRequests;
+		const competitorMonthly = baseMonthly * 1.055;
 
 		// LLM Gateway: same base cost, but with provider discount if available
 		const gatewayPerRequest =
 			discount > 0 ? basePerRequest * (1 - discount) : basePerRequest;
 		const gatewayMonthly = gatewayPerRequest * monthlyRequests;
 
-		const savingsVsDirect = directMonthly - gatewayMonthly;
 		const savingsVsCompetitor = competitorMonthly - gatewayMonthly;
 		const savingsPercent =
 			competitorMonthly > 0
@@ -342,15 +334,12 @@ function TextSimulator() {
 				: "0";
 
 		return {
-			directPerRequest,
-			directMonthly,
+			basePerRequest,
 			competitorMonthly,
 			gatewayPerRequest,
 			gatewayMonthly,
-			savingsVsDirect,
 			savingsVsCompetitor,
 			savingsPercent,
-			yearlyVsDirect: savingsVsDirect * 12,
 			yearlyVsCompetitor: savingsVsCompetitor * 12,
 		};
 	}, [
@@ -422,15 +411,13 @@ function TextSimulator() {
 								value={selectorValue}
 								onValueChange={setSelectorValue}
 								placeholder="Select a model..."
+								rootOnly
 							/>
 							{mapping && (
 								<p className="text-xs text-muted-foreground mt-2">
-									{getProviderName(mapping.providerId)} &middot;{" "}
 									{formatPrice(inputPricePerToken)}/M input &middot;{" "}
 									{formatPrice(outputPricePerToken)}/M output
-									{discount > 0
-										? ` · ${discount * 100}% discount on this provider`
-										: ""}
+									{discount > 0 ? ` · ${discount * 100}% discount` : ""}
 								</p>
 							)}
 						</div>
@@ -526,16 +513,18 @@ function TextSimulator() {
 							</p>
 						</Card>
 
-						<Card className="p-5 border-border">
+						<Card className="p-5 border-border bg-card/50">
 							<p className="text-xs font-medium text-muted-foreground mb-1">
-								Direct API
+								Model Pricing
 							</p>
-							<p className="text-2xl font-bold">
-								{formatCurrency(costs.directMonthly)}
-							</p>
-							<p className="text-xs text-muted-foreground mt-1">
-								/month, no caching
-							</p>
+							<div className="space-y-1 mt-2">
+								<p className="text-sm font-mono">
+									{formatPrice(inputPricePerToken)}/M input
+								</p>
+								<p className="text-sm font-mono">
+									{formatPrice(outputPricePerToken)}/M output
+								</p>
+							</div>
 						</Card>
 
 						<Card className="p-5 border-2 border-green-500/50 bg-green-500/5 shadow-sm shadow-green-500/10">
@@ -546,7 +535,7 @@ function TextSimulator() {
 								{formatCurrency(costs.gatewayMonthly)}
 							</p>
 							<p className="text-xs text-muted-foreground mt-1">
-								/month, BYO keys
+								/month, no markup
 							</p>
 						</Card>
 					</div>
@@ -564,23 +553,11 @@ function TextSimulator() {
 								? ` (includes ${discount * 100}% provider discount)`
 								: ""}
 						</p>
-						<div className="mt-6 grid grid-cols-2 gap-4 max-w-sm mx-auto">
-							<div className="text-center">
-								<p className="text-xs text-muted-foreground">
-									Annual savings vs direct
-								</p>
-								<p className="text-xl font-bold text-green-600 dark:text-green-400">
-									{formatCurrency(costs.yearlyVsDirect)}
-								</p>
-							</div>
-							<div className="text-center">
-								<p className="text-xs text-muted-foreground">
-									Annual savings vs competitors
-								</p>
-								<p className="text-xl font-bold text-green-600 dark:text-green-400">
-									{formatCurrency(costs.yearlyVsCompetitor)}
-								</p>
-							</div>
+						<div className="mt-4">
+							<p className="text-xs text-muted-foreground">Annual savings</p>
+							<p className="text-xl font-bold text-green-600 dark:text-green-400">
+								{formatCurrency(costs.yearlyVsCompetitor)}
+							</p>
 						</div>
 					</Card>
 
@@ -609,10 +586,10 @@ function TextSimulator() {
 							</div>
 							<div className="border-t border-border pt-3 flex items-center justify-between text-sm">
 								<span className="text-muted-foreground">
-									Direct cost per request
+									Base cost per request
 								</span>
 								<span className="font-mono font-medium">
-									{formatCurrency(costs.directPerRequest)}
+									{formatCurrency(costs.basePerRequest)}
 								</span>
 							</div>
 							<div className="flex items-center justify-between text-sm">
@@ -651,9 +628,9 @@ function TextSimulator() {
 						<div className="flex items-start gap-3 p-4 rounded-xl border border-border bg-card/50">
 							<DollarSign className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
 							<div>
-								<p className="text-sm font-medium">$0 Platform Fee</p>
+								<p className="text-sm font-medium">No Hidden Fees</p>
 								<p className="text-xs text-muted-foreground mt-0.5">
-									BYO keys means zero markup on every request you make
+									Zero platform fees or markup on any request you make
 								</p>
 							</div>
 						</div>
@@ -744,10 +721,10 @@ function ImageSimulator() {
 								value={selectorValue}
 								onValueChange={setSelectorValue}
 								placeholder="Select an image model..."
+								rootOnly
 							/>
 							{mapping && (
 								<p className="text-xs text-muted-foreground mt-2">
-									{getProviderName(mapping.providerId)}
 									{imagePrice?.discount
 										? ` · ${imagePrice.discount * 100}% discount`
 										: ""}
@@ -821,7 +798,7 @@ function ImageSimulator() {
 
 						<Card className="p-5 border-2 border-green-500/50 bg-green-500/5 shadow-sm shadow-green-500/10">
 							<p className="text-xs font-medium text-green-600 dark:text-green-400 mb-1">
-								LLM Gateway (BYO Keys)
+								LLM Gateway
 							</p>
 							<p className="text-2xl font-bold text-green-600 dark:text-green-400">
 								{formatCurrency(costs.monthlyCost)}
@@ -932,19 +909,41 @@ export function CostSimulatorClient() {
 					</Tabs>
 				</div>
 
-				<div className="mx-auto max-w-2xl text-center mt-20">
-					<Card className="p-8 sm:p-10 border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-blue-600/5">
+				<div className="mx-auto max-w-3xl mt-20 space-y-6">
+					<Card className="p-6 sm:p-8 border-border bg-gradient-to-br from-muted/50 to-muted/30">
+						<div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+							<div className="flex-1 text-center sm:text-left">
+								<p className="text-lg font-semibold">Processing high volume?</p>
+								<p className="text-sm text-muted-foreground mt-1">
+									Enterprise plans include volume discounts, dedicated support,
+									custom SLAs, and extended data retention.
+								</p>
+							</div>
+							<Button
+								size="lg"
+								variant="outline"
+								className="shrink-0 bg-transparent"
+								asChild
+							>
+								<Link href="/enterprise#contact">
+									Talk to Sales
+									<ArrowRight className="ml-2 h-4 w-4" />
+								</Link>
+							</Button>
+						</div>
+					</Card>
+
+					<Card className="p-8 sm:p-10 border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-blue-600/5 text-center">
 						<h2 className="text-2xl sm:text-3xl font-bold mb-3 text-balance">
 							Ready to cut your LLM costs?
 						</h2>
 						<p className="text-muted-foreground mb-6 text-balance leading-relaxed">
-							Get a personalized cost analysis for your exact workload. Our team
-							will show you exactly how much you&apos;ll save.
+							Start for free with no platform fees. No credit card required.
 						</p>
 						<div className="flex flex-col sm:flex-row gap-3 justify-center">
 							<Button size="lg" asChild>
-								<Link href="/enterprise#contact">
-									Book a Demo
+								<Link href="/signup">
+									Get Started Free
 									<ArrowRight className="ml-2 h-4 w-4" />
 								</Link>
 							</Button>
@@ -954,12 +953,9 @@ export function CostSimulatorClient() {
 								className="bg-transparent"
 								asChild
 							>
-								<Link href="/signup">Start Free</Link>
+								<Link href="/enterprise#contact">Book a Demo</Link>
 							</Button>
 						</div>
-						<p className="text-xs text-muted-foreground mt-4">
-							No credit card required. BYO keys with $0 platform fee.
-						</p>
 					</Card>
 				</div>
 			</div>
