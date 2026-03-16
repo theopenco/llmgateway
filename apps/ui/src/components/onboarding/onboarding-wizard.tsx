@@ -13,7 +13,6 @@ import {
 	Send,
 	KeyRound,
 } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState } from "react";
@@ -349,12 +348,15 @@ export function OnboardingWizard() {
 						<CardTitle>What&apos;s next?</CardTitle>
 					</CardHeader>
 					<CardContent className="space-y-2">
-						<Button asChild variant="outline" className="w-full justify-start">
-							<Link href="/dashboard">
-								<LayoutDashboard className="mr-2 h-4 w-4" />
-								Dashboard
-								<ArrowRight className="ml-auto h-4 w-4" />
-							</Link>
+						<Button
+							variant="outline"
+							className="w-full justify-start"
+							onClick={handleGoToDashboard}
+							disabled={isCompleting}
+						>
+							<LayoutDashboard className="mr-2 h-4 w-4" />
+							Dashboard
+							<ArrowRight className="ml-auto h-4 w-4" />
 						</Button>
 						<Button asChild variant="outline" className="w-full justify-start">
 							<a

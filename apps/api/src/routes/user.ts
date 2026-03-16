@@ -2,7 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { apiAuth as auth, updateResendContact } from "@/auth/config.js";
+import {
+	apiAuth as auth,
+	ensureDefaultOrganization,
+	updateResendContact,
+} from "@/auth/config.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 
@@ -92,6 +96,10 @@ user.openapi(get, async (c) => {
 			message: "User not found",
 		});
 	}
+
+	// Ensure the user has a default org/project (fallback for cases where
+	// the auth after-hook didn't fire, e.g. better-auth 1.4.x OAuth regression)
+	await ensureDefaultOrganization(authUser.id, user.email);
 
 	const authInfo = await getUserAuthInfo(authUser.id);
 	const isAdmin = isAdminEmail(user.email);
@@ -493,6 +501,10 @@ user.openapi(completeOnboarding, async (c) => {
 			message: "User not found",
 		});
 	}
+
+	// Ensure the user has a default org/project (fallback for cases where
+	// the auth after-hook didn't fire, e.g. better-auth 1.4.x OAuth regression)
+	await ensureDefaultOrganization(authUser.id, userRecord.email);
 
 	const [updatedUser] = await db
 		.update(tables.user)
