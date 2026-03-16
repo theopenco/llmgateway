@@ -487,7 +487,7 @@ export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
 			enabled: true,
 		},
 		baseURL: apiUrl || "http://localhost:4002",
-		secret: process.env.AUTH_SECRET ?? "your-secret-key",
+		secret: process.env.AUTH_SECRET ?? "dev-secret-key-must-be-32-chars!",
 		database: drizzleAdapter(db, {
 			provider: "pg",
 			schema: {
