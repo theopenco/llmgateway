@@ -2,11 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import {
-	apiAuth as auth,
-	ensureDefaultOrganization,
-	updateResendContact,
-} from "@/auth/config.js";
+import { apiAuth as auth, updateResendContact } from "@/auth/config.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 
@@ -96,10 +92,6 @@ user.openapi(get, async (c) => {
 			message: "User not found",
 		});
 	}
-
-	// Ensure the user has a default org/project — after hooks don't fire on
-	// OAuth callbacks in better-auth (by design, not a bug — redirects skip hooks)
-	await ensureDefaultOrganization(authUser.id, user.email);
 
 	const authInfo = await getUserAuthInfo(authUser.id);
 	const isAdmin = isAdminEmail(user.email);

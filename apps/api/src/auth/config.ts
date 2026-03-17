@@ -691,41 +691,107 @@ The LLM Gateway Team`.trim();
 
 					const userId = newSession.user.id;
 
-					await ensureDefaultOrganization(userId, newSession.user.email);
+					// Check if the user already has any active organizations
+					const userOrganizations = await db.query.userOrganization.findMany({
+						where: {
+							userId,
+						},
+						with: {
+							organization: true,
+						},
+					});
 
-					// Handle referral if cookie is present
-					const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
-					const referralMatch = cookieHeader.match(
-						/llmgateway_referral=([^;]+)/,
+					const activeOrganizations = userOrganizations.filter(
+						(uo) => uo.organization?.status !== "deleted",
 					);
-					if (referralMatch) {
-						const referrerOrgId = decodeURIComponent(referralMatch[1]);
-						const userOrgs = await db.query.userOrganization.findMany({
-							where: { userId },
-							with: { organization: true },
+
+					if (activeOrganizations.length > 0) {
+						// User already has an organization, nothing to do
+						return;
+					}
+
+					// Perform all DB operations in a single transaction for atomicity
+					await db.transaction(async (tx) => {
+						// For self-hosted installations, automatically verify the user's email
+						if (!isHosted) {
+							await tx
+								.update(tables.user)
+								.set({ emailVerified: true })
+								.where(eq(tables.user.id, userId));
+
+							logger.info("Automatically verified email for self-hosted user", {
+								userId,
+							});
+						}
+
+						// Create a default organization
+						const [organization] = await tx
+							.insert(tables.organization)
+							.values({
+								name: "Default Organization",
+								billingEmail: newSession.user.email,
+							})
+							.returning();
+
+						// Link user to organization
+						await tx.insert(tables.userOrganization).values({
+							userId,
+							organizationId: organization.id,
 						});
-						const userOrg = userOrgs.find(
-							(uo) => uo.organization?.status !== "deleted",
+
+						// Create a default project with hybrid mode
+						const [project] = await tx
+							.insert(tables.project)
+							.values({
+								name: "Default Project",
+								organizationId: organization.id,
+								mode: "hybrid",
+							})
+							.returning();
+
+						// Auto-create an API key for the playground to use
+						// Generate a token with a prefix for better identification
+						const prefix =
+							process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
+						const token = prefix + shortid(40);
+
+						await tx.insert(tables.apiKey).values({
+							projectId: project.id,
+							token: token,
+							description: "Auto-generated playground key",
+							usageLimit: null, // No limit for playground key
+							createdBy: userId,
+						});
+
+						// Handle referral if cookie is present
+						const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
+						const referralMatch = cookieHeader.match(
+							/llmgateway_referral=([^;]+)/,
 						);
-						if (userOrg) {
-							const referrerOrg = await db.query.organization.findFirst({
+						if (referralMatch) {
+							const referrerOrgId = decodeURIComponent(referralMatch[1]);
+							// Verify the referrer organization exists and is active
+							const referrerOrg = await tx.query.organization.findFirst({
 								where: {
 									id: { eq: referrerOrgId },
 									status: { eq: "active" },
 								},
 							});
+
 							if (referrerOrg) {
-								await db.insert(tables.referral).values({
+								// Create the referral record
+								await tx.insert(tables.referral).values({
 									referrerOrganizationId: referrerOrgId,
-									referredOrganizationId: userOrg.organizationId,
+									referredOrganizationId: organization.id,
 								});
+
 								logger.info("Created referral record", {
 									referrerOrgId,
-									referredOrgId: userOrg.organizationId,
+									referredOrgId: organization.id,
 								});
 							}
 						}
-					}
+					});
 
 					// Check if this is a social login by querying the account table
 					// For OAuth signups, we need to send notifications and create Resend contacts
@@ -760,81 +826,6 @@ The LLM Gateway Team`.trim();
 			},
 		}),
 	);
-
-/**
- * Ensures a user has a default organization, project, and API key.
- * This is called from the auth after-hook for new sessions, and also
- * as a fallback from complete-onboarding to handle cases where the
- * after-hook doesn't fire (e.g. better-auth 1.4.x OAuth callback regression).
- */
-export async function ensureDefaultOrganization(
-	userId: string,
-	email: string,
-): Promise<void> {
-	const userOrganizations = await db.query.userOrganization.findMany({
-		where: { userId },
-		with: { organization: true },
-	});
-
-	const activeOrganizations = userOrganizations.filter(
-		(uo) => uo.organization?.status !== "deleted",
-	);
-
-	if (activeOrganizations.length > 0) {
-		return;
-	}
-
-	const isHostedEnv = process.env.HOSTED === "true";
-
-	await db.transaction(async (tx) => {
-		if (!isHostedEnv) {
-			await tx
-				.update(tables.user)
-				.set({ emailVerified: true })
-				.where(eq(tables.user.id, userId));
-
-			logger.info("Automatically verified email for self-hosted user", {
-				userId,
-			});
-		}
-
-		const [organization] = await tx
-			.insert(tables.organization)
-			.values({
-				name: "Default Organization",
-				billingEmail: email,
-			})
-			.returning();
-
-		await tx.insert(tables.userOrganization).values({
-			userId,
-			organizationId: organization.id,
-		});
-
-		const [project] = await tx
-			.insert(tables.project)
-			.values({
-				name: "Default Project",
-				organizationId: organization.id,
-				mode: "hybrid",
-			})
-			.returning();
-
-		const prefix =
-			process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-		const token = prefix + shortid(40);
-
-		await tx.insert(tables.apiKey).values({
-			projectId: project.id,
-			token: token,
-			description: "Auto-generated playground key",
-			usageLimit: null,
-			createdBy: userId,
-		});
-	});
-
-	logger.info("Created default organization and project for user", { userId });
-}
 
 export interface Variables {
 	user: typeof apiAuth.$Infer.Session.user | null;
