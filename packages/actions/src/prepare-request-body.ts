@@ -572,23 +572,34 @@ export async function prepareRequestBody(
 ): Promise<ProviderRequestBody> {
 	// Handle xAI image generation models
 	if (imageGenerations && usedProvider === "xai") {
-		// Extract prompt from last user message
+		// Extract prompt and image URLs from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
 			.find((m) => m.role === "user");
 		let prompt = "";
+		const imageUrls: string[] = [];
 		if (lastUserMessage) {
 			if (typeof lastUserMessage.content === "string") {
 				prompt = lastUserMessage.content;
 			} else if (Array.isArray(lastUserMessage.content)) {
-				prompt = lastUserMessage.content
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n");
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
 			}
 		}
 
 		// xAI Grok Imagine uses OpenAI-compatible image generation format
+		// When images are present, use the edits format
 		const xaiImageRequest: any = {
 			model: usedModel,
 			prompt,
@@ -598,6 +609,18 @@ export async function prepareRequestBody(
 			}),
 			...(image_config?.n && { n: image_config.n }),
 		};
+
+		if (imageUrls.length === 1) {
+			xaiImageRequest.image = {
+				url: imageUrls[0],
+				type: "image_url",
+			};
+		} else if (imageUrls.length > 1) {
+			xaiImageRequest.images = imageUrls.map((url) => ({
+				url,
+				type: "image_url",
+			}));
+		}
 
 		return xaiImageRequest;
 	}

@@ -75,6 +75,13 @@
 			"shiki": "3.22.0",
 			"flatted": ">=3.4.0",
 			"rollup": ">=4.59.0"
+		},
+		"packageExtensions": {
+			"@hookform/resolvers": {
+				"peerDependencies": {
+					"zod": "*"
+				}
+			}
 		}
 	}
 }

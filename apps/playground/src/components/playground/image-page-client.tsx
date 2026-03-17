@@ -73,7 +73,29 @@ export default function ImagePageClient({
 	const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
-	const [recentPrompts, setRecentPrompts] = useState<string[]>([]);
+	const [recentPrompts, setRecentPrompts] = useState<string[]>(() => {
+		if (typeof window === "undefined") {
+			return [];
+		}
+		try {
+			const stored = localStorage.getItem("llmgateway_image_prompts");
+			return stored ? JSON.parse(stored) : [];
+		} catch {
+			return [];
+		}
+	});
+
+	// Persist recent prompts to localStorage
+	useEffect(() => {
+		try {
+			localStorage.setItem(
+				"llmgateway_image_prompts",
+				JSON.stringify(recentPrompts),
+			);
+		} catch {
+			// ignore storage errors
+		}
+	}, [recentPrompts]);
 
 	// Image config state
 	const [imageAspectRatio, setImageAspectRatio] = useState<AspectRatio>("auto");

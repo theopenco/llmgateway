@@ -2245,6 +2245,16 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Switch xAI image generation endpoint to /edits when input images are present
+	if (
+		isImageGeneration &&
+		usedProvider === "xai" &&
+		url &&
+		("image" in requestBody || "images" in requestBody)
+	) {
+		url = url.replace("/v1/images/generations", "/v1/images/edits");
+	}
+
 	const startTime = Date.now();
 
 	// Handle streaming response if requested
