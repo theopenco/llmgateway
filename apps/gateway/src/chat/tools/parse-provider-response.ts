@@ -29,6 +29,14 @@ export function parseProviderResponse(
 	const annotations: Annotation[] = [];
 	let webSearchCount = 0;
 
+	const hasInputImages = messages.some((m: any) => {
+		if (Array.isArray(m.content)) {
+			return m.content.some((p: any) => p.type === "image_url");
+		}
+		return false;
+	});
+	const imageLabel = hasInputImages ? "Image edited" : "Image generated";
+
 	switch (usedProvider) {
 		case "aws-bedrock": {
 			// AWS Bedrock Converse API format
@@ -429,7 +437,7 @@ export function parseProviderResponse(
 								},
 							}),
 						);
-						content = "Generated image";
+						content = imageLabel;
 						finishReason = alibabaChoices[0]?.finish_reason ?? "stop";
 						// DashScope image generation uses different usage format
 						promptTokens = 0;
@@ -483,7 +491,7 @@ export function parseProviderResponse(
 							},
 						}),
 					);
-					content = "Generated image";
+					content = imageLabel;
 					finishReason = "stop";
 					// Grok Imagine image generation doesn't return token usage
 					promptTokens = 0;
@@ -505,7 +513,7 @@ export function parseProviderResponse(
 							},
 						}),
 					);
-					content = "Generated image";
+					content = imageLabel;
 					finishReason = "stop";
 					// CogView image generation doesn't return token usage
 					promptTokens = 0;
@@ -531,7 +539,7 @@ export function parseProviderResponse(
 							},
 						}),
 					);
-					content = "Generated image";
+					content = imageLabel;
 					finishReason = "stop";
 					// Seedream image generation doesn't return token usage
 					promptTokens = 0;
