@@ -2703,45 +2703,68 @@ admin.openapi(getModelStats, async (c) => {
 			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
 		}
 
-		const [statsRows, modelRows, providerCountRows] = await Promise.all([
-			db
-				.select({
-					modelId: modelHistory.modelId,
-					logsCount: sql<number>`SUM(${modelHistory.logsCount})`,
-					errorsCount: sql<number>`SUM(${modelHistory.errorsCount})`,
-					cachedCount: sql<number>`SUM(${modelHistory.cachedCount})`,
-					totalTokens: sql<number>`SUM(CAST(${modelHistory.totalTokens} AS NUMERIC))`,
-					totalCost: sql<number>`SUM(${modelHistory.totalCost})`,
-				})
-				.from(modelHistory)
-				.where(
-					and(
-						gte(modelHistory.minuteTimestamp, startDate),
-						lt(modelHistory.minuteTimestamp, endDateExclusive),
-					),
-				)
-				.groupBy(modelHistory.modelId),
-			db
-				.select({
-					id: tables.model.id,
-					name: tables.model.name,
-					family: tables.model.family,
-					free: tables.model.free,
-					stability: tables.model.stability,
-					status: tables.model.status,
-					avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
-					updatedAt: tables.model.updatedAt,
-				})
-				.from(tables.model)
-				.where(whereClause),
-			db
-				.select({
-					modelId: tables.modelProviderMapping.modelId,
-					count: sql<number>`COUNT(*)`,
-				})
-				.from(tables.modelProviderMapping)
-				.groupBy(tables.modelProviderMapping.modelId),
-		]);
+		const hourStartDate = new Date(startDate);
+		hourStartDate.setMinutes(0, 0, 0);
+
+		const [statsRows, costRows, modelRows, providerCountRows] =
+			await Promise.all([
+				db
+					.select({
+						modelId: modelHistory.modelId,
+						logsCount: sql<number>`SUM(${modelHistory.logsCount})`,
+						errorsCount: sql<number>`SUM(${modelHistory.errorsCount})`,
+						cachedCount: sql<number>`SUM(${modelHistory.cachedCount})`,
+						totalTokens: sql<number>`SUM(CAST(${modelHistory.totalTokens} AS NUMERIC))`,
+					})
+					.from(modelHistory)
+					.where(
+						and(
+							gte(modelHistory.minuteTimestamp, startDate),
+							lt(modelHistory.minuteTimestamp, endDateExclusive),
+						),
+					)
+					.groupBy(modelHistory.modelId),
+				db
+					.select({
+						usedModel: projectHourlyModelStats.usedModel,
+						totalCost:
+							sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+								"total_cost",
+							),
+					})
+					.from(projectHourlyModelStats)
+					.where(
+						and(
+							gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+							lt(projectHourlyModelStats.hourTimestamp, endDateExclusive),
+						),
+					)
+					.groupBy(projectHourlyModelStats.usedModel),
+				db
+					.select({
+						id: tables.model.id,
+						name: tables.model.name,
+						family: tables.model.family,
+						free: tables.model.free,
+						stability: tables.model.stability,
+						status: tables.model.status,
+						avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+						updatedAt: tables.model.updatedAt,
+					})
+					.from(tables.model)
+					.where(whereClause),
+				db
+					.select({
+						modelId: tables.modelProviderMapping.modelId,
+						count: sql<number>`COUNT(*)`,
+					})
+					.from(tables.modelProviderMapping)
+					.groupBy(tables.modelProviderMapping.modelId),
+			]);
+
+		const costMap = new Map(
+			costRows.map((r) => [r.usedModel, Number(r.totalCost ?? 0)]),
+		);
 
 		const statsMap = new Map(
 			statsRows.map((r) => [
@@ -2751,7 +2774,6 @@ admin.openapi(getModelStats, async (c) => {
 					errorsCount: Number(r.errorsCount ?? 0),
 					cachedCount: Number(r.cachedCount ?? 0),
 					totalTokens: Number(r.totalTokens ?? 0),
-					totalCost: Number(r.totalCost ?? 0),
 				},
 			]),
 		);
@@ -2772,7 +2794,7 @@ admin.openapi(getModelStats, async (c) => {
 			avgTimeToFirstToken: m.avgTimeToFirstToken,
 			providerCount: providerCountMap.get(m.id) ?? 0,
 			totalTokens: statsMap.get(m.id)?.totalTokens ?? 0,
-			totalCost: statsMap.get(m.id)?.totalCost ?? 0,
+			totalCost: costMap.get(m.id) ?? 0,
 			updatedAt: m.updatedAt.toISOString(),
 		}));
 
@@ -2887,6 +2909,41 @@ admin.openapi(getModelStats, async (c) => {
 	});
 });
 
+// --- Shared history helpers (used by model detail + history endpoints) ---
+
+const historyWindowSchema = z.enum([
+	"2m",
+	"5m",
+	"15m",
+	"1h",
+	"2h",
+	"4h",
+	"12h",
+	"24h",
+	"1d",
+	"2d",
+	"7d",
+]);
+
+function getHistoryStartDate(window: string): Date {
+	const windowMinutes: Record<string, number> = {
+		"2m": 2,
+		"5m": 5,
+		"15m": 15,
+		"1h": 60,
+		"2h": 120,
+		"4h": 240,
+		"12h": 720,
+		"24h": 1440,
+		"1d": 1440,
+		"2d": 2880,
+		"7d": 10080,
+	};
+	const minutes = windowMinutes[window] ?? 240;
+	const ms = minutes * 60 * 1000;
+	return new Date(Date.now() - ms);
+}
+
 // Model detail – lists providers that serve a given model (with stats)
 const modelProviderStatsSchema = z.object({
 	providerId: z.string(),
@@ -2921,6 +2978,9 @@ const getModelDetail = createRoute({
 	path: "/models/{modelId}",
 	request: {
 		params: z.object({ modelId: z.string() }),
+		query: z.object({
+			window: historyWindowSchema.default("24h").optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -2934,6 +2994,9 @@ const getModelDetail = createRoute({
 
 admin.openapi(getModelDetail, async (c) => {
 	const { modelId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "24h";
+	const startDate = getHistoryStartDate(window);
 
 	const model = await db.query.model.findFirst({
 		where: { id: { eq: modelId } },
@@ -2967,9 +3030,18 @@ admin.openapi(getModelDetail, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
 						"cached_count",
 					),
+				avgTtft:
+					sql<number>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+						"avg_ttft",
+					),
 			})
 			.from(modelProviderMappingHistory)
-			.where(eq(modelProviderMappingHistory.modelId, modelId))
+			.where(
+				and(
+					eq(modelProviderMappingHistory.modelId, modelId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			)
 			.groupBy(modelProviderMappingHistory.providerId),
 	]);
 
@@ -2989,6 +3061,7 @@ admin.openapi(getModelDetail, async (c) => {
 				logsCount: Number(r.logsCount ?? 0),
 				errorsCount: Number(r.errorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
+				avgTtft: r.avgTtft !== null ? Number(r.avgTtft) : null,
 			},
 		]),
 	);
@@ -3001,7 +3074,7 @@ admin.openapi(getModelDetail, async (c) => {
 			logsCount: stats?.logsCount ?? 0,
 			errorsCount: stats?.errorsCount ?? 0,
 			cachedCount: stats?.cachedCount ?? 0,
-			avgTimeToFirstToken: m.avgTimeToFirstToken,
+			avgTimeToFirstToken: stats?.avgTtft ?? m.avgTimeToFirstToken,
 			updatedAt: m.updatedAt.toISOString(),
 		};
 	});
@@ -3181,20 +3254,6 @@ admin.openapi(deleteUserRoute, async (c) => {
 
 // --- History endpoints ---
 
-const historyWindowSchema = z.enum([
-	"2m",
-	"5m",
-	"15m",
-	"1h",
-	"2h",
-	"4h",
-	"12h",
-	"24h",
-	"1d",
-	"2d",
-	"7d",
-]);
-
 const historyDataPointSchema = z.object({
 	timestamp: z.string(),
 	logsCount: z.number(),
@@ -3209,25 +3268,6 @@ const historyDataPointSchema = z.object({
 const historyResponseSchema = z.object({
 	data: z.array(historyDataPointSchema),
 });
-
-function getHistoryStartDate(window: string): Date {
-	const windowMinutes: Record<string, number> = {
-		"2m": 2,
-		"5m": 5,
-		"15m": 15,
-		"1h": 60,
-		"2h": 120,
-		"4h": 240,
-		"12h": 720,
-		"24h": 1440,
-		"1d": 1440,
-		"2d": 2880,
-		"7d": 10080,
-	};
-	const minutes = windowMinutes[window] ?? 240;
-	const ms = minutes * 60 * 1000;
-	return new Date(Date.now() - ms);
-}
 
 function getHourFloor(date: Date): string {
 	const d = new Date(date);
@@ -3559,28 +3599,112 @@ admin.openapi(getMappingHistory, async (c) => {
 	]);
 
 	const hasMinuteData = minuteRows.some((r) => Number(r.logsCount) > 0);
-	if (hasMinuteData) {
-		const costByHour = new Map<string, number>(
-			hourlyRows.map((r) => {
-				const d = new Date(r.hourTimestamp);
-				d.setMinutes(0, 0, 0);
-				return [d.toISOString(), Number(r.cost)];
-			}),
-		);
+	const costByHour = new Map<string, number>(
+		hourlyRows.map((r) => {
+			const d = new Date(r.hourTimestamp);
+			d.setMinutes(0, 0, 0);
+			return [d.toISOString(), Number(r.cost)];
+		}),
+	);
+
+	// For short windows with minute data, return minute-level granularity
+	const dayWindows = new Set(["1d", "2d", "7d"]);
+	if (hasMinuteData && !dayWindows.has(window)) {
 		return c.json({ data: mapHistoryRows(minuteRows, costByHour) });
+	}
+
+	// For day windows or when minute data is missing, use hourly data as
+	// the timeline base and overlay latency from minute data where available.
+	// This ensures consistent chart granularity across all providers.
+	// When per-provider minute data is empty, fall back to model-level latency
+	// from model_history as an approximation.
+	const latencyByHour = new Map<
+		string,
+		{
+			totalDuration: number;
+			totalTtft: number;
+			logsCount: number;
+			nonCached: number;
+		}
+	>();
+
+	if (hasMinuteData) {
+		for (const r of minuteRows) {
+			const hk = getHourFloor(r.minuteTimestamp);
+			const existing = latencyByHour.get(hk);
+			const logs = Number(r.logsCount);
+			const cached = Number(r.cachedCount);
+			if (existing) {
+				existing.totalDuration += Number(r.totalDuration);
+				existing.totalTtft += Number(r.totalTimeToFirstToken);
+				existing.logsCount += logs;
+				existing.nonCached += logs - cached;
+			} else {
+				latencyByHour.set(hk, {
+					totalDuration: Number(r.totalDuration),
+					totalTtft: Number(r.totalTimeToFirstToken),
+					logsCount: logs,
+					nonCached: logs - cached,
+				});
+			}
+		}
+	} else if (hourlyRows.length > 0) {
+		// No per-provider minute data — use model_history for aggregate latency
+		const modelLatencyRows = await db
+			.select({
+				minuteTimestamp: modelHistory.minuteTimestamp,
+				logsCount: modelHistory.logsCount,
+				cachedCount: modelHistory.cachedCount,
+				totalDuration: modelHistory.totalDuration,
+				totalTimeToFirstToken: modelHistory.totalTimeToFirstToken,
+			})
+			.from(modelHistory)
+			.where(
+				and(
+					eq(modelHistory.modelId, modelId),
+					gte(modelHistory.minuteTimestamp, startDate),
+				),
+			);
+		for (const r of modelLatencyRows) {
+			const hk = getHourFloor(r.minuteTimestamp);
+			const existing = latencyByHour.get(hk);
+			const logs = Number(r.logsCount);
+			const cached = Number(r.cachedCount);
+			if (existing) {
+				existing.totalDuration += Number(r.totalDuration);
+				existing.totalTtft += Number(r.totalTimeToFirstToken);
+				existing.logsCount += logs;
+				existing.nonCached += logs - cached;
+			} else {
+				latencyByHour.set(hk, {
+					totalDuration: Number(r.totalDuration),
+					totalTtft: Number(r.totalTimeToFirstToken),
+					logsCount: logs,
+					nonCached: logs - cached,
+				});
+			}
+		}
 	}
 
 	const data = hourlyRows.map((r) => {
 		const logsCount = Number(r.logsCount);
 		const errorsCount = Number(r.errorsCount);
 		const cachedCount = Number(r.cachedCount);
+		const hk = new Date(r.hourTimestamp).toISOString();
+		const latency = latencyByHour.get(hk);
 		return {
-			timestamp: new Date(r.hourTimestamp).toISOString(),
+			timestamp: hk,
 			logsCount,
 			errorsCount,
 			cachedCount,
-			avgTtft: null,
-			avgDuration: null,
+			avgTtft:
+				latency && latency.nonCached > 0
+					? Math.round(latency.totalTtft / latency.nonCached)
+					: null,
+			avgDuration:
+				latency && latency.logsCount > 0
+					? Math.round(latency.totalDuration / latency.logsCount)
+					: null,
 			totalTokens: Number(r.totalTokens),
 			totalCost: Number(r.cost),
 		};

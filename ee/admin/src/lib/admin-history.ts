@@ -48,10 +48,13 @@ export async function getMappingHistory(
 	return data?.data ?? null;
 }
 
-export async function getModelDetail(modelId: string) {
+export async function getModelDetail(modelId: string, window?: HistoryWindow) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/models/{modelId}", {
-		params: { path: { modelId: encodeURIComponent(modelId) } },
+		params: {
+			path: { modelId: encodeURIComponent(modelId) },
+			query: window ? { window } : undefined,
+		},
 	});
 	return data ?? null;
 }
