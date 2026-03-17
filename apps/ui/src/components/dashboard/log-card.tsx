@@ -52,35 +52,6 @@ export function LogCard({
 		Number(log.dataStorageCost) > 0;
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	// Extract the last user prompt from messages for display when content is empty
-	const promptPreview = (() => {
-		if (log.content) {
-			return null;
-		}
-		if (!log.messages || !Array.isArray(log.messages)) {
-			return null;
-		}
-		const lastUserMsg = [...log.messages]
-			.reverse()
-			.find((m: Record<string, unknown>) => m.role === "user");
-		if (!lastUserMsg) {
-			return null;
-		}
-		if (typeof lastUserMsg.content === "string") {
-			return lastUserMsg.content;
-		}
-		if (Array.isArray(lastUserMsg.content)) {
-			const textPart = lastUserMsg.content.find(
-				(p: Record<string, unknown>) =>
-					p.type === "text" && typeof p.text === "string",
-			);
-			if (textPart) {
-				return (textPart as { text: string }).text;
-			}
-		}
-		return null;
-	})();
-
 	const formattedTime = formatDistanceToNow(new Date(log?.createdAt ?? ""), {
 		addSuffix: true,
 	});
@@ -165,10 +136,9 @@ export function LogCard({
 										? Array.isArray(log.toolResults)
 											? `Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
 											: "Tool calls executed"
-										: (promptPreview ?? "---"))}
+										: "---")}
 							</p>
 							{!log.content &&
-								!promptPreview &&
 								log.unifiedFinishReason !== "tool_calls" &&
 								!log.hasError &&
 								!log.canceled &&
