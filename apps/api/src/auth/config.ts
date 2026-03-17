@@ -1,8 +1,8 @@
+import { passkey } from "@better-auth/passkey";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
-import { passkey } from "better-auth/plugins/passkey";
 import { Redis } from "ioredis";
 
 import { notifyUserSignup } from "@/utils/discord.js";
@@ -455,97 +455,103 @@ export async function updateResendContact(
 	}
 }
 
-export const apiAuth: ReturnType<typeof betterAuth> = instrumentBetterAuth(
-	betterAuth({
-		advanced: {
-			crossSubDomainCookies: {
+export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
+	instrumentBetterAuth(
+		betterAuth({
+			advanced: {
+				crossSubDomainCookies: {
+					enabled: true,
+					domain: cookieDomain,
+				},
+				defaultCookieAttributes: {
+					domain: cookieDomain,
+				},
+			},
+			session: {
+				cookieCache: {
+					enabled: true,
+					maxAge: 5 * 60,
+				},
+				expiresIn: 60 * 60 * 24 * 30, // 30 days
+				updateAge: 60 * 60 * 24, // 1 day (every 1 day the session expiration is updated)
+			},
+			basePath: "/auth",
+			trustedOrigins: originUrls.split(","),
+			plugins: [
+				passkey({
+					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
+					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
+					origin: uiUrl,
+				}),
+			],
+			emailAndPassword: {
 				enabled: true,
-				domain: cookieDomain,
 			},
-			defaultCookieAttributes: {
-				domain: cookieDomain,
-			},
-		},
-		session: {
-			cookieCache: {
-				enabled: true,
-				maxAge: 5 * 60,
-			},
-			expiresIn: 60 * 60 * 24 * 30, // 30 days
-			updateAge: 60 * 60 * 24, // 1 day (every 1 day the session expiration is updated)
-		},
-		basePath: "/auth",
-		trustedOrigins: originUrls.split(","),
-		plugins: [
-			passkey({
-				rpID: process.env.PASSKEY_RP_ID ?? "localhost",
-				rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
-				origin: uiUrl,
-			}),
-		],
-		emailAndPassword: {
-			enabled: true,
-		},
-		baseURL: apiUrl || "http://localhost:4002",
-		secret: process.env.AUTH_SECRET ?? "your-secret-key",
-		database: drizzleAdapter(db, {
-			provider: "pg",
-			schema: {
-				user: tables.user,
-				session: tables.session,
-				account: tables.account,
-				verification: tables.verification,
-				passkey: tables.passkey,
-			},
-		}),
-		socialProviders: {
-			...(process.env.GITHUB_CLIENT_ID && {
-				github: {
-					clientId: process.env.GITHUB_CLIENT_ID,
-					clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+			baseURL: apiUrl || "http://localhost:4002",
+			secret: process.env.AUTH_SECRET ?? "dev-secret-key-must-be-32-chars!",
+			database: drizzleAdapter(db, {
+				provider: "pg",
+				schema: {
+					user: tables.user,
+					session: tables.session,
+					account: tables.account,
+					verification: tables.verification,
+					passkey: tables.passkey,
 				},
 			}),
-			...(process.env.GOOGLE_CLIENT_ID && {
-				google: {
-					clientId: process.env.GOOGLE_CLIENT_ID,
-					clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-				},
-			}),
-		},
-		emailVerification: isHosted
-			? {
-					sendOnSignUp: true,
-					autoSignInAfterVerification: true,
-					// TODO this should be afterEmailVerification in better-auth v1.3
-					onEmailVerification: async (user: {
-						id: string;
-						email: string;
-						name?: string | null;
-					}) => {
-						// Fetch the user's onboarding status to include in Resend
-						const dbUser = await db.query.user.findFirst({
-							where: {
-								id: {
-									eq: user.id,
-								},
-							},
-							columns: {
-								onboardingCompleted: true,
-							},
-						});
-
-						// Add verified email to Resend contacts with onboarding status
-						await createResendContact(user.email, user.name ?? undefined, {
-							onboarding_completed: dbUser?.onboardingCompleted ?? false,
-						});
-
-						// Send Discord notification for new verified signup
-						await notifyUserSignup(user.email, user.name, "Email");
+			socialProviders: {
+				...(process.env.GITHUB_CLIENT_ID && {
+					github: {
+						clientId: process.env.GITHUB_CLIENT_ID,
+						clientSecret: process.env.GITHUB_CLIENT_SECRET!,
 					},
-					sendVerificationEmail: async ({ user, token }) => {
-						const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
+				}),
+				...(process.env.GOOGLE_CLIENT_ID && {
+					google: {
+						clientId: process.env.GOOGLE_CLIENT_ID,
+						clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+					},
+				}),
+			},
+			emailVerification: isHosted
+				? {
+						sendOnSignUp: true,
+						autoSignInAfterVerification: true,
+						afterEmailVerification: async (user: {
+							id: string;
+							email: string;
+							name?: string | null;
+						}) => {
+							// Fetch the user's onboarding status to include in Resend
+							const dbUser = await db.query.user.findFirst({
+								where: {
+									id: {
+										eq: user.id,
+									},
+								},
+								columns: {
+									onboardingCompleted: true,
+								},
+							});
 
-						const text = `Hey${user.name ? ` ${user.name}` : ""}!
+							// Add verified email to Resend contacts with onboarding status
+							await createResendContact(user.email, user.name ?? undefined, {
+								onboarding_completed: dbUser?.onboardingCompleted ?? false,
+							});
+
+							// Send Discord notification for new verified signup
+							await notifyUserSignup(user.email, user.name, "Email");
+						},
+						sendVerificationEmail: async ({
+							user,
+							token,
+						}: {
+							user: { email: string; name?: string | null };
+							token: string;
+						}) => {
+							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
+
+							const text = `Hey${user.name ? ` ${user.name}` : ""}!
 
 Welcome to LLM Gateway — glad to have you here.
 
@@ -562,263 +568,264 @@ If you didn't create this account, feel free to ignore this.
 Cheers,
 The LLM Gateway Team`.trim();
 
-						try {
-							await sendTransactionalEmail({
-								to: user.email,
-								subject: "Welcome to LLM Gateway — verify your email",
-								text,
-							});
-						} catch (error) {
-							logger.error(
-								"Failed to send verification email",
-								error instanceof Error ? error : new Error(String(error)),
-							);
-							throw new Error(
-								"Failed to send verification email. Please try again.",
-							);
-						}
-					},
-				}
-			: {
-					sendOnSignUp: false,
-					autoSignInAfterVerification: false,
-				},
-		hooks: {
-			before: createAuthMiddleware(async (ctx) => {
-				// Check and record rate limit for ALL signup attempts (skip in development)
-				if (
-					ctx.path.startsWith("/sign-up") &&
-					process.env.NODE_ENV !== "development"
-				) {
-					// Get IP address from various possible headers, prioritizing CF-Connecting-IP
-					let ipAddress = ctx.headers?.get("cf-connecting-ip");
-					if (!ipAddress) {
-						ipAddress = ctx.headers?.get("x-forwarded-for");
-						if (ipAddress) {
-							// x-forwarded-for can be a comma-separated list, take the first IP
-							ipAddress = ipAddress.split(",")[0]?.trim();
-						} else {
-							ipAddress =
-								ctx.headers?.get("x-real-ip") ??
-								ctx.headers?.get("x-client-ip") ??
-								"unknown";
-						}
-					}
-
-					// Check and record signup attempt with exponential backoff
-					const rateLimitResult = await checkAndRecordSignupAttempt(ipAddress);
-
-					if (!rateLimitResult.allowed) {
-						logger.warn("Signup rate limit exceeded", {
-							ip: ipAddress,
-							resetTime: new Date(rateLimitResult.resetTime),
-						});
-
-						const retryAfterSeconds = Math.ceil(
-							(rateLimitResult.resetTime - Date.now()) / 1000,
-						);
-
-						const minutes = Math.ceil(retryAfterSeconds / 60);
-						const hours = Math.floor(minutes / 60);
-						const displayMinutes = minutes % 60;
-
-						let timeMessage = "";
-						if (hours > 0) {
-							timeMessage = `${hours}h ${displayMinutes}m`;
-						} else {
-							timeMessage = `${minutes}m`;
-						}
-
-						return new Response(
-							JSON.stringify({
-								error: "too_many_requests",
-								message: `Too many signup attempts. Please try again in ${timeMessage}.`,
-								retryAfter: retryAfterSeconds,
-							}),
-							{
-								status: 429,
-								headers: {
-									"Content-Type": "application/json",
-									"Retry-After": retryAfterSeconds.toString(),
-								},
-							},
-						);
-					}
-
-					// Validate email for blocked domains and + sign (only in HOSTED mode)
-					if (isHosted) {
-						const body = ctx.body as { email?: string } | undefined;
-						if (body?.email) {
-							const emailValidation = validateEmail(body.email);
-							if (!emailValidation.valid) {
-								logger.warn("Signup blocked due to invalid email", {
-									ip: ipAddress,
-									reason: emailValidation.reason,
+							try {
+								await sendTransactionalEmail({
+									to: user.email,
+									subject: "Welcome to LLM Gateway — verify your email",
+									text,
 								});
-
-								return new Response(
-									JSON.stringify({
-										error: "invalid_email",
-										message: emailValidation.message,
-									}),
-									{
-										status: 400,
-										headers: {
-											"Content-Type": "application/json",
-										},
-									},
+							} catch (error) {
+								logger.error(
+									"Failed to send verification email",
+									error instanceof Error ? error : new Error(String(error)),
 								);
+								throw new Error(
+									"Failed to send verification email. Please try again.",
+								);
+							}
+						},
+					}
+				: {
+						sendOnSignUp: false,
+						autoSignInAfterVerification: false,
+					},
+			hooks: {
+				before: createAuthMiddleware(async (ctx) => {
+					// Check and record rate limit for ALL signup attempts (skip in development)
+					if (
+						ctx.path.startsWith("/sign-up") &&
+						process.env.NODE_ENV !== "development"
+					) {
+						// Get IP address from various possible headers, prioritizing CF-Connecting-IP
+						let ipAddress = ctx.headers?.get("cf-connecting-ip");
+						if (!ipAddress) {
+							ipAddress = ctx.headers?.get("x-forwarded-for");
+							if (ipAddress) {
+								// x-forwarded-for can be a comma-separated list, take the first IP
+								ipAddress = ipAddress.split(",")[0]?.trim();
+							} else {
+								ipAddress =
+									ctx.headers?.get("x-real-ip") ??
+									ctx.headers?.get("x-client-ip") ??
+									"unknown";
+							}
+						}
+
+						// Check and record signup attempt with exponential backoff
+						const rateLimitResult =
+							await checkAndRecordSignupAttempt(ipAddress);
+
+						if (!rateLimitResult.allowed) {
+							logger.warn("Signup rate limit exceeded", {
+								ip: ipAddress,
+								resetTime: new Date(rateLimitResult.resetTime),
+							});
+
+							const retryAfterSeconds = Math.ceil(
+								(rateLimitResult.resetTime - Date.now()) / 1000,
+							);
+
+							const minutes = Math.ceil(retryAfterSeconds / 60);
+							const hours = Math.floor(minutes / 60);
+							const displayMinutes = minutes % 60;
+
+							let timeMessage = "";
+							if (hours > 0) {
+								timeMessage = `${hours}h ${displayMinutes}m`;
+							} else {
+								timeMessage = `${minutes}m`;
+							}
+
+							return new Response(
+								JSON.stringify({
+									error: "too_many_requests",
+									message: `Too many signup attempts. Please try again in ${timeMessage}.`,
+									retryAfter: retryAfterSeconds,
+								}),
+								{
+									status: 429,
+									headers: {
+										"Content-Type": "application/json",
+										"Retry-After": retryAfterSeconds.toString(),
+									},
+								},
+							);
+						}
+
+						// Validate email for blocked domains and + sign (only in HOSTED mode)
+						if (isHosted) {
+							const body = ctx.body as { email?: string } | undefined;
+							if (body?.email) {
+								const emailValidation = validateEmail(body.email);
+								if (!emailValidation.valid) {
+									logger.warn("Signup blocked due to invalid email", {
+										ip: ipAddress,
+										reason: emailValidation.reason,
+									});
+
+									return new Response(
+										JSON.stringify({
+											error: "invalid_email",
+											message: emailValidation.message,
+										}),
+										{
+											status: 400,
+											headers: {
+												"Content-Type": "application/json",
+											},
+										},
+									);
+								}
 							}
 						}
 					}
-				}
-				// eslint-disable-next-line no-useless-return
-				return;
-			}),
-			after: createAuthMiddleware(async (ctx) => {
-				// Create default org/project for first-time sessions (email signup or first social sign-in)
-				const newSession = ctx.context.newSession;
-				if (!newSession?.user) {
+					// eslint-disable-next-line no-useless-return
 					return;
-				}
-
-				const userId = newSession.user.id;
-
-				// Check if the user already has any active organizations
-				const userOrganizations = await db.query.userOrganization.findMany({
-					where: {
-						userId,
-					},
-					with: {
-						organization: true,
-					},
-				});
-
-				const activeOrganizations = userOrganizations.filter(
-					(uo) => uo.organization?.status !== "deleted",
-				);
-
-				if (activeOrganizations.length > 0) {
-					// User already has an organization, nothing to do
-					return;
-				}
-
-				// Perform all DB operations in a single transaction for atomicity
-				await db.transaction(async (tx) => {
-					// For self-hosted installations, automatically verify the user's email
-					if (!isHosted) {
-						await tx
-							.update(tables.user)
-							.set({ emailVerified: true })
-							.where(eq(tables.user.id, userId));
-
-						logger.info("Automatically verified email for self-hosted user", {
-							userId,
-						});
+				}),
+				after: createAuthMiddleware(async (ctx) => {
+					// Create default org/project for first-time sessions (email signup or first social sign-in)
+					const newSession = ctx.context.newSession;
+					if (!newSession?.user) {
+						return;
 					}
 
-					// Create a default organization
-					const [organization] = await tx
-						.insert(tables.organization)
-						.values({
-							name: "Default Organization",
-							billingEmail: newSession.user.email,
-						})
-						.returning();
+					const userId = newSession.user.id;
 
-					// Link user to organization
-					await tx.insert(tables.userOrganization).values({
-						userId,
-						organizationId: organization.id,
-					});
-
-					// Create a default project with hybrid mode
-					const [project] = await tx
-						.insert(tables.project)
-						.values({
-							name: "Default Project",
-							organizationId: organization.id,
-							mode: "hybrid",
-						})
-						.returning();
-
-					// Auto-create an API key for the playground to use
-					// Generate a token with a prefix for better identification
-					const prefix =
-						process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-					const token = prefix + shortid(40);
-
-					await tx.insert(tables.apiKey).values({
-						projectId: project.id,
-						token: token,
-						description: "Auto-generated playground key",
-						usageLimit: null, // No limit for playground key
-						createdBy: userId,
-					});
-
-					// Handle referral if cookie is present
-					const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
-					const referralMatch = cookieHeader.match(
-						/llmgateway_referral=([^;]+)/,
-					);
-					if (referralMatch) {
-						const referrerOrgId = decodeURIComponent(referralMatch[1]);
-						// Verify the referrer organization exists and is active
-						const referrerOrg = await tx.query.organization.findFirst({
-							where: {
-								id: { eq: referrerOrgId },
-								status: { eq: "active" },
-							},
-						});
-
-						if (referrerOrg) {
-							// Create the referral record
-							await tx.insert(tables.referral).values({
-								referrerOrganizationId: referrerOrgId,
-								referredOrganizationId: organization.id,
-							});
-
-							logger.info("Created referral record", {
-								referrerOrgId,
-								referredOrgId: organization.id,
-							});
-						}
-					}
-				});
-
-				// Check if this is a social login by querying the account table
-				// For OAuth signups, we need to send notifications and create Resend contacts
-				if (isHosted) {
-					const account = await db.query.account.findFirst({
+					// Check if the user already has any active organizations
+					const userOrganizations = await db.query.userOrganization.findMany({
 						where: {
-							userId: {
-								eq: userId,
-							},
+							userId,
+						},
+						with: {
+							organization: true,
 						},
 					});
 
-					// If provider is not "credential", it's an OAuth signup
-					if (account && account.providerId !== "credential") {
-						const providerName =
-							account.providerId.charAt(0).toUpperCase() +
-							account.providerId.slice(1);
+					const activeOrganizations = userOrganizations.filter(
+						(uo) => uo.organization?.status !== "deleted",
+					);
 
-						await notifyUserSignup(
-							newSession.user.email,
-							newSession.user.name,
-							providerName,
-						);
-
-						await createResendContact(
-							newSession.user.email,
-							newSession.user.name || undefined,
-						);
+					if (activeOrganizations.length > 0) {
+						// User already has an organization, nothing to do
+						return;
 					}
-				}
-			}),
-		},
-	}),
-);
+
+					// Perform all DB operations in a single transaction for atomicity
+					await db.transaction(async (tx) => {
+						// For self-hosted installations, automatically verify the user's email
+						if (!isHosted) {
+							await tx
+								.update(tables.user)
+								.set({ emailVerified: true })
+								.where(eq(tables.user.id, userId));
+
+							logger.info("Automatically verified email for self-hosted user", {
+								userId,
+							});
+						}
+
+						// Create a default organization
+						const [organization] = await tx
+							.insert(tables.organization)
+							.values({
+								name: "Default Organization",
+								billingEmail: newSession.user.email,
+							})
+							.returning();
+
+						// Link user to organization
+						await tx.insert(tables.userOrganization).values({
+							userId,
+							organizationId: organization.id,
+						});
+
+						// Create a default project with hybrid mode
+						const [project] = await tx
+							.insert(tables.project)
+							.values({
+								name: "Default Project",
+								organizationId: organization.id,
+								mode: "hybrid",
+							})
+							.returning();
+
+						// Auto-create an API key for the playground to use
+						// Generate a token with a prefix for better identification
+						const prefix =
+							process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
+						const token = prefix + shortid(40);
+
+						await tx.insert(tables.apiKey).values({
+							projectId: project.id,
+							token: token,
+							description: "Auto-generated playground key",
+							usageLimit: null, // No limit for playground key
+							createdBy: userId,
+						});
+
+						// Handle referral if cookie is present
+						const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
+						const referralMatch = cookieHeader.match(
+							/llmgateway_referral=([^;]+)/,
+						);
+						if (referralMatch) {
+							const referrerOrgId = decodeURIComponent(referralMatch[1]);
+							// Verify the referrer organization exists and is active
+							const referrerOrg = await tx.query.organization.findFirst({
+								where: {
+									id: { eq: referrerOrgId },
+									status: { eq: "active" },
+								},
+							});
+
+							if (referrerOrg) {
+								// Create the referral record
+								await tx.insert(tables.referral).values({
+									referrerOrganizationId: referrerOrgId,
+									referredOrganizationId: organization.id,
+								});
+
+								logger.info("Created referral record", {
+									referrerOrgId,
+									referredOrgId: organization.id,
+								});
+							}
+						}
+					});
+
+					// Check if this is a social login by querying the account table
+					// For OAuth signups, we need to send notifications and create Resend contacts
+					if (isHosted) {
+						const account = await db.query.account.findFirst({
+							where: {
+								userId: {
+									eq: userId,
+								},
+							},
+						});
+
+						// If provider is not "credential", it's an OAuth signup
+						if (account && account.providerId !== "credential") {
+							const providerName =
+								account.providerId.charAt(0).toUpperCase() +
+								account.providerId.slice(1);
+
+							await notifyUserSignup(
+								newSession.user.email,
+								newSession.user.name,
+								providerName,
+							);
+
+							await createResendContact(
+								newSession.user.email,
+								newSession.user.name || undefined,
+							);
+						}
+					}
+				}),
+			},
+		}),
+	);
 
 export interface Variables {
 	user: typeof apiAuth.$Infer.Session.user | null;

@@ -583,6 +583,7 @@ export const passkey = pgTable(
 		deviceType: text(),
 		backedUp: boolean(),
 		transports: text(),
+		aaguid: text(),
 	},
 	(table) => [index("passkey_user_id_idx").on(table.userId)],
 );
