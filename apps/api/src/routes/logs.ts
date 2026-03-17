@@ -28,40 +28,6 @@ import type { ServerTypes } from "@/vars.js";
 
 export const logs = new OpenAPIHono<ServerTypes>();
 
-/**
- * Enrich log content for image generation/edit requests.
- * When content is empty but image output costs exist, set a descriptive label.
- */
-function enrichLogContent<
-	T extends {
-		content?: string | null;
-		imageOutputCost?: number | null;
-		imageInputCost?: number | null;
-		imageOutputTokens?: string | null;
-		imageInputTokens?: string | null;
-	},
->(log: T): T {
-	if (log.content) {
-		return log;
-	}
-
-	const hasImageOutput =
-		(log.imageOutputTokens && Number(log.imageOutputTokens) > 0) ??
-		(log.imageOutputCost && Number(log.imageOutputCost) > 0);
-	const hasImageInput =
-		(log.imageInputTokens && Number(log.imageInputTokens) > 0) ??
-		(log.imageInputCost && Number(log.imageInputCost) > 0);
-
-	if (hasImageOutput && hasImageInput) {
-		return { ...log, content: "Image edited" };
-	}
-	if (hasImageOutput) {
-		return { ...log, content: "Image generated" };
-	}
-
-	return log;
-}
-
 // Use the log schema directly from the database
 // Using z.object directly instead of createSelectSchema due to compatibility issues
 const logSchema = z.object({
@@ -200,7 +166,7 @@ logs.openapi(getById, async (c) => {
 		});
 	}
 
-	return c.json({ log: enrichLogContent(log) });
+	return c.json({ log });
 });
 
 const querySchema = z.object({
@@ -610,7 +576,7 @@ logs.openapi(get, async (c) => {
 	}
 
 	return c.json({
-		logs: paginatedLogs.map(enrichLogContent),
+		logs: paginatedLogs,
 		pagination: {
 			nextCursor,
 			hasMore,
