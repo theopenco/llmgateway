@@ -1,0 +1,5 @@
+CREATE INDEX "model_history_model_id_minute_timestamp_idx" ON "model_history" ("model_id","minute_timestamp");--> statement-breakpoint
+CREATE INDEX "model_provider_mapping_history_model_id_minute_timestamp_idx" ON "model_provider_mapping_history" ("model_id","minute_timestamp");--> statement-breakpoint
+CREATE INDEX "model_provider_mapping_history_provider_id_model_id_minute_timestamp_idx" ON "model_provider_mapping_history" ("provider_id","model_id","minute_timestamp");--> statement-breakpoint
+CREATE INDEX "project_hourly_model_stats_used_model_hour_timestamp_idx" ON "project_hourly_model_stats" ("used_model","hour_timestamp");--> statement-breakpoint
+CREATE INDEX "project_hourly_model_stats_used_provider_used_model_hour_timestamp_idx" ON "project_hourly_model_stats" ("used_provider","used_model","hour_timestamp");
