@@ -310,9 +310,9 @@ export const Navbar = ({
 							"bg-background/50 max-w-[1400px] rounded-2xl border backdrop-blur-lg lg:px-5",
 					)}
 				>
-					<div className="relative flex flex-wrap items-center justify-between gap-6 py-3 lg:gap-0 lg:py-4">
+					<div className="relative flex flex-wrap items-center justify-between gap-6 py-3 nav:flex-nowrap nav:gap-0 nav:py-4">
 						{/* Logo */}
-						<div className="flex w-full justify-between lg:w-auto">
+						<div className="flex w-full justify-between nav:w-auto">
 							<Link
 								href="/"
 								aria-label="home"
@@ -328,7 +328,7 @@ export const Navbar = ({
 							<button
 								onClick={() => setMenuState(!menuState)}
 								aria-label={menuState ? "Close Menu" : "Open Menu"}
-								className="relative z-20 -m-2.5 -mr-4 block cursor-pointer p-2.5 lg:hidden"
+								className="relative z-20 -m-2.5 -mr-4 block cursor-pointer p-2.5 nav:hidden"
 							>
 								<Menu className="group-data-[state=active]:scale-0 group-data-[state=active]:opacity-0 size-6 duration-200" />
 								<X className="absolute inset-0 m-auto size-6 -rotate-180 scale-0 opacity-0 group-data-[state=active]:rotate-0 group-data-[state=active]:scale-100 group-data-[state=active]:opacity-100 duration-200" />
@@ -336,7 +336,7 @@ export const Navbar = ({
 						</div>
 
 						{/* Desktop center nav */}
-						<div className="m-auto hidden items-center gap-2 lg:flex">
+						<div className="m-auto hidden items-center gap-2 nav:flex min-w-0">
 							<div className="w-[140px] lg:w-[160px]">
 								<ModelSearch />
 							</div>
@@ -571,9 +571,9 @@ export const Navbar = ({
 						</div>
 
 						{/* Right side */}
-						<div className="bg-background group-data-[state=active]:block lg:group-data-[state=active]:flex mb-6 hidden w-full flex-wrap items-center justify-end space-y-8 rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap lg:m-0 lg:flex lg:w-fit lg:gap-3 lg:space-y-0 lg:border-transparent lg:bg-transparent lg:p-0 lg:shadow-none dark:shadow-none dark:lg:bg-transparent">
+						<div className="bg-background group-data-[state=active]:block nav:group-data-[state=active]:flex mb-6 hidden w-full flex-wrap items-center justify-end space-y-8 rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap nav:m-0 nav:flex nav:w-fit nav:shrink-0 nav:gap-3 nav:space-y-0 nav:border-transparent nav:bg-transparent nav:p-0 nav:shadow-none dark:shadow-none dark:nav:bg-transparent">
 							{/* Mobile nav */}
-							<div className="lg:hidden">
+							<div className="nav:hidden">
 								<div className="mb-6">
 									<ModelSearch />
 								</div>
@@ -691,7 +691,7 @@ export const Navbar = ({
 
 							<div className="flex w-full flex-col space-y-3 sm:flex-row sm:gap-3 sm:space-y-0 md:w-fit items-center">
 								{/* GitHub stars (compact) + Discord */}
-								<div className="hidden lg:flex items-center gap-1">
+								<div className="hidden nav:flex items-center gap-1">
 									{children}
 									<a
 										href={config.discordUrl}
@@ -715,7 +715,7 @@ export const Navbar = ({
 								<Link
 									href="/login"
 									prefetch={true}
-									className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden lg:block"
+									className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden nav:block whitespace-nowrap"
 								>
 									Log In
 								</Link>
