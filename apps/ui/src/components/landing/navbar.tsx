@@ -185,6 +185,11 @@ export const Navbar = ({
 			description: "Compare models side by side.",
 		},
 		{
+			title: "Cost Simulator",
+			href: "/cost-simulator",
+			description: "Calculate your LLM cost savings instantly.",
+		},
+		{
 			title: "Referral Program",
 			href: "/referrals",
 			description: "Earn 1% of LLM spending.",

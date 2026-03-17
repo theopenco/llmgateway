@@ -1,0 +1,175 @@
+---
+title: OpenCode Integration
+description: Connect OpenCode to 180+ models through LLM Gateway. One config file, any model, full cost tracking.
+icon: OpenCode
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+[OpenCode](https://opencode.ai) is an open-source AI coding agent for your terminal, IDE, or desktop. This guide shows you how to connect it to LLM Gateway—giving you access to 180+ models from 60+ providers, all tracked in one dashboard.
+
+## Prerequisites
+
+- OpenCode installed — visit the [OpenCode download page](https://opencode.ai/download) for your platform
+- An LLM Gateway API key
+
+## Setup
+
+<Steps>
+<Step>
+### Create Configuration File
+
+Create `config.json` in your OpenCode configuration directory:
+
+**macOS/Linux:** `~/.config/opencode/config.json`
+
+**Windows:** `C:\Users\YourUsername\.config\opencode\config.json`
+
+```json
+{
+	"provider": {
+		"llmgateway": {
+			"npm": "@ai-sdk/openai-compatible",
+			"name": "LLM Gateway",
+			"options": {
+				"baseURL": "https://api.llmgateway.io/v1"
+			},
+			"models": {
+				"gpt-5": {
+					"name": "GPT-5"
+				},
+				"gpt-5-mini": {
+					"name": "GPT-5 Mini"
+				},
+				"gemini-2.5-pro": {
+					"name": "Gemini 2.5 Pro"
+				},
+				"claude-3-5-sonnet-20241022": {
+					"name": "Claude 3.5 Sonnet"
+				}
+			}
+		}
+	},
+	"model": "llmgateway/gpt-5"
+}
+```
+
+</Step>
+
+<Step>
+### Launch OpenCode and Connect Provider
+
+Start OpenCode from your terminal:
+
+```bash
+opencode
+```
+
+**In VS Code/Cursor:**
+
+1. Install the OpenCode extension from the marketplace
+2. Open Command Palette (Ctrl+Shift+P or Cmd+Shift+P)
+3. Type "OpenCode" and select "Open opencode"
+
+Once OpenCode launches, run the `/connect` command to connect to LLM Gateway.
+
+</Step>
+
+<Step>
+### Select LLM Gateway Provider
+
+In the provider list, scroll down to find "LLM Gateway" under the "Other" section and select it.
+
+</Step>
+
+<Step>
+### Enter Your API Key
+
+OpenCode will prompt you for your API key. Enter your LLM Gateway API key and press Enter. OpenCode will automatically save your credentials securely.
+
+[Sign up for LLM Gateway](https://llmgateway.io/signup) and create an API key from your dashboard.
+
+</Step>
+
+<Step>
+### Start Using OpenCode
+
+You're all set! OpenCode is now connected to LLM Gateway. You can start asking questions and building with AI.
+
+</Step>
+</Steps>
+
+## Why Use LLM Gateway with OpenCode
+
+- **180+ models** — GPT-5, Claude, Gemini, Llama, and more from 60+ providers
+- **One API key** — Stop juggling credentials for every provider
+- **Cost tracking** — See what each coding session costs in your dashboard
+- **Response caching** — Repeated requests hit cache automatically
+- **Volume discounts** — The more you use, the more you save
+
+## Adding More Models
+
+You can add any model from the [models page](https://llmgateway.io/models) to your configuration. Simply add more entries to the `models` object in your `config.json`:
+
+```json
+{
+	"provider": {
+		"llmgateway": {
+			"models": {
+				"gpt-5": { "name": "GPT-5" },
+				"gpt-5-mini": { "name": "GPT-5 Mini" },
+				"deepseek/deepseek-chat": { "name": "DeepSeek Chat" },
+				"meta/llama-3.3-70b": { "name": "Llama 3.3 70B" }
+			}
+		}
+	}
+}
+```
+
+After updating `config.json`, restart OpenCode to see the new models.
+
+## Switching Models
+
+To change your default model, update the `model` field in your configuration:
+
+```json
+{
+	"model": "llmgateway/gpt-5-mini"
+}
+```
+
+Or select a different model directly in the OpenCode interface.
+
+<Callout type="info">
+	View all available models on the [models page](https://llmgateway.io/models).
+</Callout>
+
+## Troubleshooting
+
+### OpenCode asks for API key every time
+
+Make sure the provider ID in your `config.json` matches exactly: `"llmgateway"` (all lowercase, no spaces).
+
+### 404 Not Found errors
+
+Verify your `baseURL` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end).
+
+### Models not showing up
+
+After editing `config.json`, restart OpenCode completely for changes to take effect.
+
+### Connection timeout
+
+Check that you have an active internet connection and that your API key is valid from the [dashboard](https://llmgateway.io/dashboard).
+
+## Configuration Tips
+
+- **Global configuration**: Use `~/.config/opencode/config.json` to apply settings across all projects
+- **Project-specific**: Place `opencode.json` in your project root to override global settings for that project
+- **Model selection**: You can specify different models for different types of tasks using OpenCode's agent configuration
+
+<Callout type="info">
+	Need help? Join our [Discord community](https://llmgateway.io/discord) for
+	support and troubleshooting assistance.
+</Callout>
