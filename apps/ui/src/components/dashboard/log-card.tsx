@@ -52,27 +52,32 @@ export function LogCard({
 		Number(log.dataStorageCost) > 0;
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	// Determine a display label when response content is empty
+	// Extract the last user prompt from messages for display when content is empty
 	const promptPreview = (() => {
 		if (log.content) {
 			return null;
 		}
-
-		// Check if this is an image generation/edit request
-		const hasImageOutput =
-			(log.imageOutputTokens && Number(log.imageOutputTokens) > 0) ??
-			(log.imageOutputCost && Number(log.imageOutputCost) > 0);
-		const hasImageInput =
-			(log.imageInputTokens && Number(log.imageInputTokens) > 0) ??
-			(log.imageInputCost && Number(log.imageInputCost) > 0);
-
-		if (hasImageOutput && hasImageInput) {
-			return "Image edited";
+		if (!log.messages || !Array.isArray(log.messages)) {
+			return null;
 		}
-		if (hasImageOutput) {
-			return "Image generated";
+		const lastUserMsg = [...log.messages]
+			.reverse()
+			.find((m: Record<string, unknown>) => m.role === "user");
+		if (!lastUserMsg) {
+			return null;
 		}
-
+		if (typeof lastUserMsg.content === "string") {
+			return lastUserMsg.content;
+		}
+		if (Array.isArray(lastUserMsg.content)) {
+			const textPart = lastUserMsg.content.find(
+				(p: Record<string, unknown>) =>
+					p.type === "text" && typeof p.text === "string",
+			);
+			if (textPart) {
+				return (textPart as { text: string }).text;
+			}
+		}
 		return null;
 	})();
 
