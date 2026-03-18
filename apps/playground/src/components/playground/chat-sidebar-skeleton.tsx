@@ -60,6 +60,18 @@ export const ChatSidebarSkeleton = ({
 			</SidebarContent>
 			<SidebarFooter className="border-t">
 				<CreditsDisplay organization={organization} isLoading={isOrgLoading} />
+				<a
+					href="https://status.llmgateway.io/"
+					target="_blank"
+					rel="noopener noreferrer"
+					className="flex items-center justify-center gap-2 px-4 pb-4 text-xs text-muted-foreground hover:text-foreground transition-colors"
+				>
+					<span className="relative flex h-2 w-2">
+						<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+						<span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+					</span>
+					All systems operational
+				</a>
 			</SidebarFooter>
 		</Sidebar>
 	);

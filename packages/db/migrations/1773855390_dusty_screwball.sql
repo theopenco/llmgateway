@@ -1,1 +1,0 @@
-ALTER TABLE "enterprise_contact_submission" ALTER COLUMN "client_timestamp_ms" SET DATA TYPE text;

@@ -8,7 +8,7 @@ CREATE TABLE "enterprise_contact_submission" (
 	"size" text NOT NULL,
 	"message" text NOT NULL,
 	"honeypot" text,
-	"client_timestamp_ms" integer,
+	"client_timestamp_ms" text,
 	"ip_address" text,
 	"user_agent" text,
 	"spam_filter_status" text DEFAULT 'pending' NOT NULL,
