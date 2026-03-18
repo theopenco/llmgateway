@@ -2372,7 +2372,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
+                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2539,7 +2539,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
+                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2589,7 +2589,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
+                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2639,7 +2639,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
+                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {

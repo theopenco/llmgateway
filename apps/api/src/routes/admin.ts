@@ -3000,6 +3000,7 @@ admin.openapi(getModelStats, async (c) => {
 // --- Shared history helpers (used by model detail + history endpoints) ---
 
 const historyWindowSchema = z.enum([
+	"1m",
 	"2m",
 	"5m",
 	"15m",
@@ -3008,13 +3009,13 @@ const historyWindowSchema = z.enum([
 	"4h",
 	"12h",
 	"24h",
-	"1d",
 	"2d",
 	"7d",
 ]);
 
 function getHistoryStartDate(window: string): Date {
 	const windowMinutes: Record<string, number> = {
+		"1m": 1,
 		"2m": 2,
 		"5m": 5,
 		"15m": 15,
@@ -3023,7 +3024,6 @@ function getHistoryStartDate(window: string): Date {
 		"4h": 240,
 		"12h": 720,
 		"24h": 1440,
-		"1d": 1440,
 		"2d": 2880,
 		"7d": 10080,
 	};
@@ -3067,7 +3067,7 @@ const getModelDetail = createRoute({
 	request: {
 		params: z.object({ modelId: z.string() }),
 		query: z.object({
-			window: historyWindowSchema.default("24h").optional(),
+			window: historyWindowSchema.default("4h").optional(),
 		}),
 	},
 	responses: {
