@@ -202,6 +202,8 @@ export default async function ModelProviderMappingsPage({
 				sortOrder,
 				limit: 500,
 				offset: 0,
+				from,
+				to,
 			},
 		},
 	});
@@ -224,15 +226,9 @@ export default async function ModelProviderMappingsPage({
 		);
 	}
 
-	// Compute aggregate stats from the mapping data using projectHourlyModelStats via from/to
-	// Since the mappings API doesn't yet return totalTokens/totalCost aggregates,
-	// we derive totals from the models endpoint with the same window
-	const { data: modelsData } = await $api.GET("/admin/models", {
-		params: { query: { limit: 1, offset: 0, from, to } },
-	});
-	const totalTokens = modelsData?.totalTokens ?? 0;
-	const totalCost = modelsData?.totalCost ?? 0;
-	const totalRequests = data.mappings.reduce((s, m) => s + m.logsCount, 0);
+	const totalTokens = data.totalTokens;
+	const totalCost = data.totalCost;
+	const totalRequests = data.totalRequests;
 
 	async function handleSearch(formData: FormData) {
 		"use server";
