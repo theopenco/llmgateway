@@ -1,0 +1,31 @@
+---
+title: Preferences
+description: Configure project-level settings including caching and project mode
+icon: Settings
+---
+
+import { ThemedImage } from "@/components/themed-image";
+
+The Preferences page contains project-level settings that control how your project behaves.
+
+<ThemedImage alt="Preferences" basePath="/learn/preferences" />
+
+## Project Name
+
+Update the display name for your project. This name appears in the sidebar and throughout the dashboard.
+
+## Project Mode
+
+Configure how your organization handles projects. This setting determines the routing and isolation behavior for API requests within the project.
+
+## Caching
+
+Enable or configure response caching for API requests. When enabled, identical requests will return cached responses instead of making new calls to the provider, saving both time and cost.
+
+Learn more about caching in the [Caching feature docs](/features/caching).
+
+## Danger Zone
+
+The Danger Zone section contains irreversible actions:
+
+- **Archive Project** — Permanently archive the project. This action cannot be undone. Archived projects stop processing requests and their API keys become inactive.

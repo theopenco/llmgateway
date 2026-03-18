@@ -1,0 +1,45 @@
+---
+title: API Keys
+description: Create and manage API keys for authenticating with LLM Gateway
+icon: Key
+---
+
+import { ThemedImage } from "@/components/themed-image";
+
+The API Keys page lets you create, view, and manage the API keys used to authenticate requests to LLM Gateway.
+
+<ThemedImage alt="API Keys" basePath="/learn/api-keys" />
+
+## Creating an API Key
+
+Click the **Create API Key** button to generate a new key. The number of keys you can create depends on your plan:
+
+- **Free** — Limited number of keys
+- **Pro** — Higher key limit
+- **Enterprise** — Custom limits
+
+When creating a key, you can assign it a name to help identify its purpose (e.g., "Production", "Development", "CI/CD").
+
+## API Keys List
+
+Each key in the list shows:
+
+| Field         | Description                                                    |
+| ------------- | -------------------------------------------------------------- |
+| **Name**      | The label you assigned to the key                              |
+| **Key**       | A masked preview of the key (only last few characters visible) |
+| **Created**   | When the key was created                                       |
+| **Last used** | When the key was last used in a request                        |
+
+## Actions
+
+For each API key you can:
+
+- **View** — See the full key (only available once after creation)
+- **Edit** — Update the key name
+- **Rotate** — Generate a new key value while keeping the same configuration
+- **Delete** — Permanently remove the key
+
+## Plan Limits
+
+The page shows your current key count vs. the maximum allowed by your plan. If you've reached your limit, the Create button will be disabled and you'll need to upgrade your plan or delete unused keys.

@@ -7,7 +7,7 @@ import { windowOptions } from "@/components/history-chart";
 import { ModelProviderCharts } from "@/components/model-provider-charts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getModelHistory } from "@/lib/admin-history";
+import { getModelDetail, getModelHistory } from "@/lib/admin-history";
 
 import type {
 	HistoryWindow,
@@ -38,7 +38,7 @@ function aggregateStats(data: HistoryDataPoint[]) {
 	return { totalRequests, totalErrors, totalCached, avgTtft, errorRate };
 }
 
-interface AllTimeStats {
+interface ModelInfo {
 	logsCount: number;
 	errorsCount: number;
 	cachedCount: number;
@@ -62,10 +62,10 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 export function ModelDetailClient({
 	modelId,
 	allTimeStats,
-	providers,
+	providers: initialProviders,
 }: {
 	modelId: string;
-	allTimeStats: AllTimeStats;
+	allTimeStats: ModelInfo;
 	providers: ModelProviderStats[];
 }) {
 	const searchParams = useSearchParams();
@@ -73,6 +73,8 @@ export function ModelDetailClient({
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
 	const [loading, setLoading] = useState(true);
+	const [providers, setProviders] =
+		useState<ModelProviderStats[]>(initialProviders);
 	const [stats, setStats] = useState({
 		totalRequests: allTimeStats.logsCount,
 		totalErrors: allTimeStats.errorsCount,
@@ -90,9 +92,15 @@ export function ModelDetailClient({
 		async (w: HistoryWindow) => {
 			setLoading(true);
 			try {
-				const data = await getModelHistory(modelId, w);
-				if (data) {
-					setStats(aggregateStats(data));
+				const [historyData, detailData] = await Promise.all([
+					getModelHistory(modelId, w),
+					getModelDetail(modelId, w),
+				]);
+				if (historyData) {
+					setStats(aggregateStats(historyData));
+				}
+				if (detailData) {
+					setProviders(detailData.providers);
 				}
 			} finally {
 				setLoading(false);
