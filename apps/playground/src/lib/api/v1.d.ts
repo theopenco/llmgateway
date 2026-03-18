@@ -2846,6 +2846,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/contact-submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                    search?: string;
+                    status?: "pending" | "rejected" | "delivered" | "delivery_failed";
+                    sortBy?: "createdAt" | "name" | "email" | "spamFilterStatus";
+                    sortOrder?: "asc" | "desc";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of enterprise contact submissions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            submissions: {
+                                id: string;
+                                createdAt: string;
+                                name: string;
+                                email: string;
+                                country: string;
+                                size: string;
+                                message: string;
+                                ipAddress: string | null;
+                                userAgent: string | null;
+                                spamFilterStatus: string;
+                                rejectionReason: string | null;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/keys/api": {
         parameters: {
             query?: never;
