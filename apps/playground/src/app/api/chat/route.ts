@@ -373,11 +373,12 @@ export async function POST(req: Request) {
 	// Use generateImage for dedicated image generation models
 	if (is_image_gen) {
 		try {
-			// Extract prompt from the last user message
+			// Extract prompt and file parts from the last user message
 			const lastUserMessage = [...messages]
 				.reverse()
 				.find((m) => m.role === "user");
 			let prompt = "";
+			const fileParts: { url: string; mediaType: string }[] = [];
 			if (lastUserMessage) {
 				if (Array.isArray(lastUserMessage.parts)) {
 					prompt = lastUserMessage.parts
@@ -386,6 +387,20 @@ export async function POST(req: Request) {
 						)
 						.map((p) => p.text)
 						.join("\n");
+					for (const p of lastUserMessage.parts) {
+						if (
+							p.type === "file" &&
+							"url" in p &&
+							typeof p.url === "string" &&
+							"mediaType" in p &&
+							typeof p.mediaType === "string"
+						) {
+							fileParts.push({
+								url: p.url,
+								mediaType: p.mediaType,
+							});
+						}
+					}
 				}
 			}
 
@@ -398,7 +413,10 @@ export async function POST(req: Request) {
 
 			const result = await generateImage({
 				model: llmgateway.image(selectedModel),
-				prompt,
+				prompt:
+					fileParts.length > 0
+						? { images: fileParts.map((fp) => fp.url), text: prompt }
+						: prompt,
 				n: image_config?.n ?? 1,
 				...(image_config?.image_size
 					? { size: image_config.image_size as `${number}x${number}` }
@@ -441,8 +459,6 @@ export async function POST(req: Request) {
 				},
 			});
 		} catch (error: unknown) {
-			const message =
-				error instanceof Error ? error.message : "Image generation failed";
 			const status =
 				typeof error === "object" &&
 				error !== null &&
@@ -450,9 +466,31 @@ export async function POST(req: Request) {
 				typeof (error as { status: unknown }).status === "number"
 					? (error as { status: number }).status
 					: 500;
-			return new Response(JSON.stringify({ error: message }), {
-				status,
-			});
+
+			const message =
+				error instanceof Error ? error.message : "Image generation failed";
+
+			// Try to extract a more detailed message from the provider response.
+			// AI SDK errors may embed the original gateway response in responseBody.
+			let detailedMessage: string | undefined;
+			if (typeof error === "object" && error !== null) {
+				const err = error as Record<string, unknown>;
+				if (typeof err.responseBody === "string") {
+					try {
+						const body = JSON.parse(err.responseBody);
+						if (typeof body.message === "string") {
+							detailedMessage = body.message;
+						}
+					} catch {
+						// ignore parse errors
+					}
+				}
+			}
+
+			return new Response(
+				JSON.stringify({ error: detailedMessage ?? message }),
+				{ status },
+			);
 		}
 	}
 

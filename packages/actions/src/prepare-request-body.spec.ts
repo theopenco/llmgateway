@@ -385,6 +385,96 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.additionalProperties).toBeUndefined();
 	});
 
+	test("should strip advanced JSON Schema properties from Google tool parameters", async () => {
+		const toolsWithAdvancedSchema = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							count: {
+								type: "number",
+								exclusiveMinimum: 0,
+								exclusiveMaximum: 100,
+								multipleOf: 5,
+							},
+							name: {
+								type: "string",
+								const: "fixed_value",
+							},
+							metadata: {
+								type: "object",
+								properties: {
+									key: { type: "string" },
+								},
+								propertyNames: { type: "string" },
+								minProperties: 1,
+								maxProperties: 10,
+							},
+							items: {
+								type: "array",
+								items: { type: "string" },
+								minItems: 1,
+								maxItems: 50,
+								uniqueItems: true,
+								contains: { type: "string" },
+								prefixItems: [{ type: "string" }],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithAdvancedSchema,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		// Number properties: should strip exclusiveMinimum, exclusiveMaximum, multipleOf
+		expect(params.properties.count.exclusiveMinimum).toBeUndefined();
+		expect(params.properties.count.exclusiveMaximum).toBeUndefined();
+		expect(params.properties.count.multipleOf).toBeUndefined();
+		expect(params.properties.count.type).toBe("number");
+
+		// String const: should strip const
+		expect(params.properties.name.const).toBeUndefined();
+		expect(params.properties.name.type).toBe("string");
+
+		// Object properties: should strip propertyNames, minProperties, maxProperties
+		expect(params.properties.metadata.propertyNames).toBeUndefined();
+		expect(params.properties.metadata.minProperties).toBeUndefined();
+		expect(params.properties.metadata.maxProperties).toBeUndefined();
+		expect(params.properties.metadata.properties.key.type).toBe("string");
+
+		// Array properties: should strip minItems, maxItems, uniqueItems, contains, prefixItems
+		expect(params.properties.items.minItems).toBeUndefined();
+		expect(params.properties.items.maxItems).toBeUndefined();
+		expect(params.properties.items.uniqueItems).toBeUndefined();
+		expect(params.properties.items.contains).toBeUndefined();
+		expect(params.properties.items.prefixItems).toBeUndefined();
+		expect(params.properties.items.type).toBe("array");
+		expect(params.properties.items.items.type).toBe("string");
+	});
+
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
 		const toolsWithoutAdditionalProps = [
 			{
@@ -491,5 +581,188 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.name.type).toBe("string");
 		expect(params.properties.code.type).toBe("string");
 		expect(params.properties.plainString.type).toBe("string");
+	});
+});
+
+describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-6",
+			[{ role: "user", content: "Run a tool" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function" as const,
+					function: {
+						name: "exec",
+						description: "Execute shell commands",
+						parameters: {
+							type: "object",
+							required: ["command"],
+							properties: {
+								command: {
+									type: "string",
+									minLength: 1,
+								},
+								env: {
+									type: "object",
+									patternProperties: {
+										"^(.*)$": {
+											type: "string",
+											minLength: 1,
+										},
+									},
+								},
+								yieldMs: {
+									type: "number",
+									minimum: 0,
+								},
+								fields: {
+									type: "array",
+									items: {
+										type: "object",
+										additionalProperties: true,
+										properties: {},
+									},
+								},
+							},
+							additionalProperties: false,
+						},
+					},
+				},
+			],
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const schema = requestBody.toolConfig.tools[0].toolSpec.inputSchema.json;
+
+		expect(schema).toEqual({
+			type: "object",
+			required: ["command"],
+			properties: {
+				command: {
+					type: "string",
+				},
+				env: {
+					type: "object",
+					properties: {},
+				},
+				yieldMs: {
+					type: "number",
+				},
+				fields: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: {},
+					},
+				},
+			},
+		});
+	});
+
+	test("should group consecutive tool results into a single user message", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-6",
+			[
+				{ role: "user", content: "What is the weather and time in Berlin?" },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+						{
+							id: "tool_2",
+							type: "function",
+							function: {
+								name: "get_time",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17, unit: "celsius" }),
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_2",
+					content: JSON.stringify({ time: "20:52" }),
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(3);
+		expect(requestBody.messages[0]).toEqual({
+			role: "user",
+			content: [{ text: "What is the weather and time in Berlin?" }],
+		});
+		expect(requestBody.messages[1].role).toBe("assistant");
+		expect(requestBody.messages[1].content).toHaveLength(2);
+		expect(requestBody.messages[1].content[0]).toEqual({
+			toolUse: {
+				toolUseId: "tool_1",
+				name: "get_weather",
+				input: { city: "Berlin" },
+			},
+		});
+		expect(requestBody.messages[1].content[1]).toEqual({
+			toolUse: {
+				toolUseId: "tool_2",
+				name: "get_time",
+				input: { city: "Berlin" },
+			},
+		});
+		expect(requestBody.messages[2]).toEqual({
+			role: "user",
+			content: [
+				{
+					toolResult: {
+						toolUseId: "tool_1",
+						content: [
+							{ text: JSON.stringify({ temperature: 17, unit: "celsius" }) },
+						],
+					},
+				},
+				{
+					toolResult: {
+						toolUseId: "tool_2",
+						content: [{ text: JSON.stringify({ time: "20:52" }) }],
+					},
+				},
+			],
+		});
 	});
 });

@@ -634,17 +634,20 @@ export const PromptInput = ({
 		};
 	}, [add, globalDrop]);
 
+	const filesRef = useRef(files);
+	filesRef.current = files;
+
 	useEffect(() => {
 		return () => {
 			if (!usingProvider) {
-				for (const f of files) {
+				for (const f of filesRef.current) {
 					if (f.url) {
 						URL.revokeObjectURL(f.url);
 					}
 				}
 			}
 		};
-	}, [usingProvider, files]);
+	}, [usingProvider]);
 
 	const handleChange: ChangeEventHandler<HTMLInputElement> = (event) => {
 		if (event.currentTarget.files) {

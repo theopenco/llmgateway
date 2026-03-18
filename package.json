@@ -40,8 +40,8 @@
 		"@steebchen/eslint-config": "^1.11.1",
 		"@steebchen/lint-base": "1.1.0",
 		"@steebchen/prettier-config": "^1.5.0",
-		"@types/node": "24.3.3",
-		"commitlint": "19.8.1",
+		"@types/node": "25.3.0",
+		"commitlint": "20.4.3",
 		"concurrently": "^9.2.1",
 		"cross-env-shell": "7.0.3",
 		"dotenv": "16.5.0",
@@ -72,7 +72,16 @@
 	],
 	"pnpm": {
 		"overrides": {
-			"shiki": "3.22.0"
+			"shiki": "3.22.0",
+			"flatted": ">=3.4.0",
+			"rollup": ">=4.59.0"
+		},
+		"packageExtensions": {
+			"@hookform/resolvers": {
+				"peerDependencies": {
+					"zod": "*"
+				}
+			}
 		}
 	}
 }

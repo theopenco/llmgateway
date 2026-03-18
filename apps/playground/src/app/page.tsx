@@ -7,6 +7,20 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
+import type { Metadata } from "next";
+
+export async function generateMetadata({
+	searchParams,
+}: {
+	searchParams: Promise<{ model?: string }>;
+}): Promise<Metadata> {
+	const { model } = await searchParams;
+	return {
+		alternates: {
+			canonical: model ? `/?model=${model}` : "/",
+		},
+	};
+}
 
 export interface GatewayModel {
 	id: string;

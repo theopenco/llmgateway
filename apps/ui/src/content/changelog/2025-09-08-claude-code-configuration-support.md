@@ -39,7 +39,7 @@ claude
 
 **OpenAI Models**
 
-- `openai/gpt-5` - OpenAI's Flagship GPT-5 model
+- `gpt-5` - OpenAI's Flagship GPT-5 model
 
 **Anthropic Models**
 

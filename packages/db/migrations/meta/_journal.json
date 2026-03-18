@@ -687,6 +687,41 @@
       "when": 1771949782690,
       "tag": "1771949782_skinny_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "8",
+      "when": 1772645024809,
+      "tag": "1772645024_talented_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "8",
+      "when": 1773263792063,
+      "tag": "1773263792_boring_luminals",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "8",
+      "when": 1773672670069,
+      "tag": "1773672670_early_black_widow",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "8",
+      "when": 1773774022508,
+      "tag": "1773774022_lively_bishop",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "8",
+      "when": 1773841690315,
+      "tag": "1773841690_keen_toad_men",
+      "breakpoints": true
     }
   ]
 }

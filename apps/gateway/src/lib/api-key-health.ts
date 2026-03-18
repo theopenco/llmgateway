@@ -33,7 +33,7 @@ export interface KeyHealth {
 
 export interface KeyMetrics {
 	uptime: number; // Percentage (0-100)
-	totalRequests: number;
+	totalRequests: number; // Tracked uptime-relevant outcomes within the rolling window
 	consecutiveErrors: number;
 	permanentlyBlacklisted: boolean;
 }
@@ -69,6 +69,13 @@ const MAX_HISTORY_SIZE = 1000;
  * HTTP status codes that indicate permanent key issues (auth errors)
  */
 const PERMANENT_ERROR_CODES = [401, 403];
+
+/**
+ * 4xx responses that should still count against provider/key health.
+ * These usually indicate gateway/provider configuration issues rather than
+ * end-user request problems.
+ */
+const UPTIME_RELEVANT_4XX_CODES = new Set([...PERMANENT_ERROR_CODES, 404, 429]);
 
 /**
  * Error messages that indicate permanent key issues
@@ -173,7 +180,8 @@ export function isKeyHealthy(envVarName: string, keyIndex: number): boolean {
 
 /**
  * Get metrics for a specific API key
- * @returns KeyMetrics with uptime, request count, and health status
+ * @returns KeyMetrics with uptime, tracked request count, and health status.
+ * totalRequests counts only outcomes recorded in history for uptime routing.
  */
 export function getKeyMetrics(
 	envVarName: string,
@@ -275,6 +283,22 @@ export function reportKeyError(
 		keyHealthMap.set(healthKey, health);
 	}
 
+	const isPermanentErrorMessage =
+		errorText !== undefined &&
+		PERMANENT_ERROR_MESSAGES.some((msg) => errorText.includes(msg));
+
+	// Most upstream 4xx responses are client-side request issues and should not
+	// degrade provider uptime or influence routing decisions.
+	if (
+		statusCode !== undefined &&
+		statusCode >= 400 &&
+		statusCode < 500 &&
+		!UPTIME_RELEVANT_4XX_CODES.has(statusCode) &&
+		!isPermanentErrorMessage
+	) {
+		return;
+	}
+
 	// Check for permanent auth errors by status code
 	if (statusCode && PERMANENT_ERROR_CODES.includes(statusCode)) {
 		health.permanentlyBlacklisted = true;
@@ -285,10 +309,7 @@ export function reportKeyError(
 	}
 
 	// Check for permanent auth errors by error message
-	if (
-		errorText &&
-		PERMANENT_ERROR_MESSAGES.some((msg) => errorText.includes(msg))
-	) {
+	if (isPermanentErrorMessage) {
 		health.permanentlyBlacklisted = true;
 		// Still add to history for metrics visibility
 		health.history.push({ timestamp: now, success: false });

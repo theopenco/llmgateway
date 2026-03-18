@@ -278,17 +278,35 @@ export async function calculateCosts(
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
 
-	// Track image input tokens separately (for Google image generation models)
-	// Google reports text tokens but doesn't include image input tokens in usage
-	// Each input image is 560 tokens ($0.0011 per image at $2/1M)
-	const TOKENS_PER_INPUT_IMAGE = 560;
-	const imageInputPrice = (providerInfo as any).imageInputPrice;
+	// Resolve the tokens-per-image for the given imageSize from a resolution map.
+	function resolveTokensPerImage(
+		byResolution: Record<string, number> | undefined,
+		size: string | undefined,
+	): number | undefined {
+		if (!byResolution) {
+			return undefined;
+		}
+		return byResolution[size ?? "default"] ?? byResolution["default"];
+	}
+
+	// Track image input tokens separately (for Google image generation models).
+	// Uses imageInputTokensByResolution for per-resolution token counts and
+	// imageInputPrice for the per-token price. Falls back to 560 tokens/image
+	// with imageInputPrice if no resolution map is present.
+	const imageInputTokensPerImage = resolveTokensPerImage(
+		providerInfo.imageInputTokensByResolution,
+		imageSize,
+	);
+	const imageInputPricePerToken = providerInfo.imageInputPrice;
 	let imageInputTokens: number | null = null;
 	let imageInputCost: Decimal | null = null;
-	if (imageInputPrice && inputImageCount > 0) {
-		imageInputTokens = inputImageCount * TOKENS_PER_INPUT_IMAGE;
+	if (imageInputPricePerToken && inputImageCount > 0) {
+		const LEGACY_TOKENS_PER_INPUT_IMAGE = 560;
+		const tokensPerImage =
+			imageInputTokensPerImage ?? LEGACY_TOKENS_PER_INPUT_IMAGE;
+		imageInputTokens = inputImageCount * tokensPerImage;
 		imageInputCost = new Decimal(imageInputTokens)
-			.times(imageInputPrice)
+			.times(imageInputPricePerToken)
 			.times(discountMultiplier);
 	}
 
@@ -315,35 +333,27 @@ export async function calculateCosts(
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 
-	// Calculate output cost, handling separate image output pricing if applicable
+	// Calculate output cost, handling separate image output pricing if applicable.
+	// Uses imageOutputTokensByResolution for per-resolution token counts and
+	// imageOutputPrice for the per-token price.
 	let outputCost: Decimal;
 	let imageOutputTokens: number | null = null;
 	let imageOutputCost: Decimal | null = null;
-	const imageOutputPrice = (providerInfo as any).imageOutputPrice;
-	if (imageOutputPrice && outputImageCount > 0) {
-		// Token count per image depends on model and size.
-		// Gemini 3.1 Flash Image: 0.5K=747, 1K=1120, 2K=1680, 4K=2520
-		// Gemini 3 Pro Image / others: 1K/2K=1120, 4K=2000
-		const isFlashImage = model.includes("gemini-3.1-flash-image");
-		const TOKENS_PER_IMAGE = isFlashImage
-			? imageSize === "4K"
-				? 2520
-				: imageSize === "2K"
-					? 1680
-					: imageSize === "0.5K"
-						? 747
-						: 1120
-			: imageSize === "4K"
-				? 2000
-				: 1120;
-		imageOutputTokens = outputImageCount * TOKENS_PER_IMAGE;
+	const imageOutputTokensPerImage = resolveTokensPerImage(
+		providerInfo.imageOutputTokensByResolution,
+		imageSize,
+	);
+	const imageOutputPricePerToken = providerInfo.imageOutputPrice;
+	if (imageOutputPricePerToken && outputImageCount > 0) {
+		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
+		const tokensPerImage =
+			imageOutputTokensPerImage ?? LEGACY_DEFAULT_TOKENS_PER_IMAGE;
+		imageOutputTokens = outputImageCount * tokensPerImage;
 		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
 
-		// Separate image output cost (breakdown field)
 		imageOutputCost = new Decimal(imageOutputTokens)
-			.times(imageOutputPrice)
+			.times(imageOutputPricePerToken)
 			.times(discountMultiplier);
-		// outputCost includes both text and image output costs
 		outputCost = new Decimal(textTokens)
 			.times(outputPrice)
 			.times(discountMultiplier)

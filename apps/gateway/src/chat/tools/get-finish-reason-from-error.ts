@@ -4,7 +4,7 @@
  * 429 status codes indicate upstream rate limiting (treated as upstream error)
  * 404 status codes indicate model/endpoint not found at provider (treated as upstream error)
  * 401/403 status codes indicate authentication/authorization issues (gateway configuration errors)
- * Other 4xx status codes indicate client/gateway errors
+ * Other 4xx status codes indicate client errors
  * Special client errors (like JSON format validation) are classified as client_error
  *
  * Note: Error classification is separate from health tracking. The health tracking system
@@ -34,6 +34,19 @@ export function getFinishReasonFromError(
 		return "content_filter";
 	}
 
+	// xAI (Grok) content safety violations (e.g. SAFETY_CHECK_TYPE_CSAM, usage guidelines)
+	if (
+		statusCode === 403 &&
+		errorText?.includes("Content violates usage guidelines")
+	) {
+		return "content_filter";
+	}
+
+	// 401/403 usually indicate invalid or unauthorized provider credentials
+	if (statusCode === 401 || statusCode === 403) {
+		return "gateway_error";
+	}
+
 	// zai content filter
 	if (
 		errorText?.includes(
@@ -52,6 +65,10 @@ export function getFinishReasonFromError(
 		) {
 			return "client_error";
 		}
+	}
+
+	if (statusCode >= 400 && statusCode < 500) {
+		return "client_error";
 	}
 
 	return "gateway_error";

@@ -161,11 +161,11 @@ function buildImagePrompt(request: ImageGenerationsRequest): string {
  * 1. choices[0].message.images[] - as ImageObject with image_url.url containing data:mime;base64,data
  * 2. choices[0].message.content - may contain base64 image data in some cases
  */
-function extractImagesFromChatResponse(
+async function extractImagesFromChatResponse(
 	chatResponse: any,
 	prompt: string,
 	model: string,
-): Array<{ b64_json: string; revised_prompt?: string }> {
+): Promise<Array<{ b64_json: string; revised_prompt?: string }>> {
 	const imageObjects: Array<{
 		b64_json: string;
 		revised_prompt?: string;
@@ -178,14 +178,33 @@ function extractImagesFromChatResponse(
 		messageImages.length > 0
 	) {
 		for (const img of messageImages) {
-			const dataUrl = img.image_url?.url;
-			if (dataUrl && typeof dataUrl === "string") {
-				const base64Match = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
+			const imageUrl = img.image_url?.url;
+			if (imageUrl && typeof imageUrl === "string") {
+				// Handle data URIs (e.g. Google/Gemini returns data:image/png;base64,...)
+				const base64Match = imageUrl.match(/^data:[^;]+;base64,(.+)$/);
 				if (base64Match && base64Match[1]) {
 					imageObjects.push({
 						b64_json: base64Match[1],
 						revised_prompt: prompt,
 					});
+				} else if (
+					imageUrl.startsWith("https://") ||
+					imageUrl.startsWith("http://")
+				) {
+					// Handle URL-based images (e.g. Z.AI, Alibaba, ByteDance)
+					try {
+						const result = await processImageUrl(imageUrl);
+						imageObjects.push({
+							b64_json: result.data,
+							revised_prompt: prompt,
+						});
+					} catch (error) {
+						logger.warn("Images API - failed to fetch image from URL", {
+							model,
+							url: imageUrl.substring(0, 100),
+							err: error instanceof Error ? error : new Error(String(error)),
+						});
+					}
 				}
 			}
 		}
@@ -369,7 +388,7 @@ images.openapi(generations, async (c) => {
 
 	const chatResponse = await forwardToChatCompletions(c, chatRequest);
 
-	const imageObjects = extractImagesFromChatResponse(
+	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		request.model,
@@ -520,6 +539,20 @@ function isSupportedInputImageUrl(value: string): boolean {
 	return isValidHttpsUrl(value) || isValidBase64ImageDataUrl(value);
 }
 
+/**
+ * Convert a File object (from multipart form data) to a base64 data URI.
+ */
+async function fileToDataUri(file: File): Promise<string> {
+	const arrayBuffer = await file.arrayBuffer();
+	const uint8Array = new Uint8Array(arrayBuffer);
+	const binaryString = Array.from(uint8Array, (byte) =>
+		String.fromCharCode(byte),
+	).join("");
+	const base64 = btoa(binaryString);
+	const mimeType = file.type || "image/png";
+	return `data:${mimeType};base64,${base64}`;
+}
+
 function buildEditPrompt(request: ImageEditsRequest): string {
 	let prompt = `Edit the provided image(s) based on the following description: ${request.prompt}`;
 
@@ -554,26 +587,85 @@ function buildEditPrompt(request: ImageEditsRequest): string {
 	return prompt;
 }
 
-images.openapi(edits, async (c) => {
-	let rawBody: unknown;
-	try {
-		rawBody = await c.req.json();
-	} catch {
+/**
+ * Parse a multipart/form-data request into the internal ImageEditsRequest format.
+ */
+async function parseMultipartEditsRequest(
+	c: Context,
+): Promise<ImageEditsRequest> {
+	const body = await c.req.parseBody({ all: true });
+
+	const prompt = body["prompt"];
+	const promptValue = Array.isArray(prompt) ? prompt[0] : prompt;
+	if (!promptValue || typeof promptValue !== "string") {
 		throw new HTTPException(400, {
-			message: "Invalid JSON in request body",
+			message: "prompt is required",
 		});
 	}
 
-	const validationResult = imageEditsRequestSchema.safeParse(rawBody);
+	// Support "image", "image[]" (ChatWise sends this), and "file" field names
+	const imageField = body["image"] ?? body["image[]"] ?? body["file"];
+	const imageFile = Array.isArray(imageField) ? imageField[0] : imageField;
+	if (!imageFile || !(imageFile instanceof File)) {
+		throw new HTTPException(400, {
+			message: "image file is required for multipart/form-data requests",
+		});
+	}
+
+	const images: Array<{ image_url: string }> = [];
+	images.push({ image_url: await fileToDataUri(imageFile) });
+
+	const maskField = body["mask"];
+	const maskFile = Array.isArray(maskField) ? maskField[0] : maskField;
+	if (maskFile instanceof File) {
+		images.push({ image_url: await fileToDataUri(maskFile) });
+	}
+
+	const rawRequest: Record<string, unknown> = {
+		images,
+		prompt: promptValue,
+	};
+
+	const modelField = body["model"];
+	const modelValue = Array.isArray(modelField) ? modelField[0] : modelField;
+	if (typeof modelValue === "string" && modelValue) {
+		rawRequest.model = modelValue;
+	}
+	const nField = body["n"];
+	const nValue = Array.isArray(nField) ? nField[0] : nField;
+	if (typeof nValue === "string" && nValue) {
+		const n = parseInt(nValue, 10);
+		if (!isNaN(n)) {
+			rawRequest.n = n;
+		}
+	}
+	const sizeField = body["size"];
+	const sizeValue = Array.isArray(sizeField) ? sizeField[0] : sizeField;
+	if (typeof sizeValue === "string" && sizeValue) {
+		rawRequest.size = sizeValue;
+	}
+	const qualityField = body["quality"];
+	const qualityValue = Array.isArray(qualityField)
+		? qualityField[0]
+		: qualityField;
+	if (typeof qualityValue === "string" && qualityValue) {
+		rawRequest.quality = qualityValue;
+	}
+
+	const validationResult = imageEditsRequestSchema.safeParse(rawRequest);
 	if (!validationResult.success) {
 		throw new HTTPException(400, {
 			message: `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
 		});
 	}
 
-	const request = validationResult.data;
+	return validationResult.data;
+}
 
-	// Collect and validate all input image URLs
+/**
+ * Shared processing logic for image edits (used by both JSON and multipart handlers).
+ */
+async function processImageEdit(c: Context, request: ImageEditsRequest) {
 	const imageUrls: string[] = [];
 	for (const [index, image] of request.images.entries()) {
 		if (!isSupportedInputImageUrl(image.image_url)) {
@@ -581,13 +673,11 @@ images.openapi(edits, async (c) => {
 				message: `images[${index}].image_url must be an https URL or a base64 data URL`,
 			});
 		}
-
 		imageUrls.push(image.image_url);
 	}
 
 	const isProd = process.env.NODE_ENV === "production";
 
-	// Fetch and convert all images to base64 in parallel
 	const imageResults = await Promise.all(
 		imageUrls.map(async (url, index) => {
 			try {
@@ -604,7 +694,6 @@ images.openapi(edits, async (c) => {
 		}),
 	);
 
-	// Build message content parts: images first, then text
 	const contentParts: Array<Record<string, unknown>> = [];
 
 	for (const img of imageResults) {
@@ -672,7 +761,7 @@ images.openapi(edits, async (c) => {
 
 	const chatResponse = await forwardToChatCompletions(c, chatRequest);
 
-	const imageObjects = extractImagesFromChatResponse(
+	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		model,
@@ -701,5 +790,36 @@ images.openapi(edits, async (c) => {
 		model,
 	});
 
-	return c.json(imagesResponse);
+	return c.json(imagesResponse, 200);
+}
+
+// Multipart/form-data handler for OpenAI-compatible clients (must be before openapi route)
+images.post("/edits", async (c, next) => {
+	const contentType = c.req.header("Content-Type") ?? "";
+	if (!contentType.includes("multipart/form-data")) {
+		return await next();
+	}
+
+	const request = await parseMultipartEditsRequest(c);
+	return await processImageEdit(c, request);
+});
+
+images.openapi(edits, async (c) => {
+	let rawBody: unknown;
+	try {
+		rawBody = await c.req.json();
+	} catch {
+		throw new HTTPException(400, {
+			message: "Invalid JSON in request body",
+		});
+	}
+
+	const validationResult = imageEditsRequestSchema.safeParse(rawBody);
+	if (!validationResult.success) {
+		throw new HTTPException(400, {
+			message: `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
+		});
+	}
+
+	return await processImageEdit(c, validationResult.data);
 });

@@ -40,7 +40,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "openai/gpt-4o",
+    "model": "gpt-4o",
     "messages": [{"role": "user", "content": "What are the latest AI announcements this week?"}],
     "web_search": true
   }'
