@@ -270,7 +270,7 @@ export const enterpriseContactSubmission = pgTable(
 		size: text().notNull(),
 		message: text().notNull(),
 		honeypot: text(),
-		clientTimestampMs: integer(),
+		clientTimestampMs: text(),
 		ipAddress: text(),
 		userAgent: text(),
 		spamFilterStatus: text({

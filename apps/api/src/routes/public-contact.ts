@@ -1,6 +1,8 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import { redisClient } from "@/auth/config.js";
+
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -28,24 +30,8 @@ const contactResponseSchema = z.object({
 	message: z.string(),
 });
 
-const submissionTracker = new Map<
-	string,
-	{ count: number; firstSubmission: number }
->();
-
-const submissionTrackerCleanup = setInterval(
-	() => {
-		const now = Date.now();
-		const oneHour = 60 * 60 * 1000;
-		for (const [key, value] of Array.from(submissionTracker.entries())) {
-			if (now - value.firstSubmission > oneHour) {
-				submissionTracker.delete(key);
-			}
-		}
-	},
-	60 * 60 * 1000,
-);
-submissionTrackerCleanup.unref?.();
+const RATE_LIMIT_MAX = 3;
+const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
 
 const disposableEmailDomains = [
 	"tempmail.com",
@@ -122,18 +108,22 @@ const submitEnterpriseContact = createRoute({
 
 function extractClientIP(c: {
 	req: { header: (name: string) => string | undefined };
-}) {
+}): string | null {
+	// CF-Connecting-IP is set by Cloudflare and cannot be spoofed by clients.
+	// This is the only fully trusted header when deployed behind Cloudflare.
 	const cfConnectingIP = c.req.header("CF-Connecting-IP");
 	if (cfConnectingIP) {
 		return cfConnectingIP;
 	}
 
+	// X-Forwarded-For is spoofable unless stripped by a trusted reverse proxy.
+	// Only use as a fallback (e.g. non-Cloudflare environments like local dev).
 	const xForwardedFor = c.req.header("X-Forwarded-For");
 	if (xForwardedFor) {
 		return xForwardedFor.split(",")[0]?.trim() ?? null;
 	}
 
-	return c.req.header("X-Real-IP") ?? c.req.header("Remote-Addr") ?? null;
+	return c.req.header("X-Real-IP") ?? null;
 }
 
 function checkForSpam(text: string): boolean {
@@ -147,28 +137,21 @@ function isDisposableEmail(email: string): boolean {
 }
 
 async function checkRateLimit(identifier: string): Promise<boolean> {
-	const now = Date.now();
-	const limit = 3;
-	const window = 60 * 60 * 1000;
-
-	const tracker = submissionTracker.get(identifier);
-
-	if (!tracker) {
-		submissionTracker.set(identifier, { count: 1, firstSubmission: now });
+	const key = `contact_rate_limit:${identifier}`;
+	try {
+		const count = await redisClient.incr(key);
+		if (count === 1) {
+			await redisClient.expire(key, RATE_LIMIT_WINDOW_SECONDS);
+		}
+		return count <= RATE_LIMIT_MAX;
+	} catch (error) {
+		logger.error("Rate limit check failed", {
+			error,
+			identifier,
+		});
+		// Fail open — allow the request if Redis is down
 		return true;
 	}
-
-	if (now - tracker.firstSubmission > window) {
-		submissionTracker.set(identifier, { count: 1, firstSubmission: now });
-		return true;
-	}
-
-	if (tracker.count >= limit) {
-		return false;
-	}
-
-	tracker.count++;
-	return true;
 }
 
 function escapeHtml(value: string): string {
@@ -199,23 +182,31 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 	const ipAddress = extractClientIP(c);
 	const userAgent = c.req.header("User-Agent") ?? null;
 
-	const [submission] = await db
-		.insert(tables.enterpriseContactSubmission)
-		.values({
-			name: validatedData.name,
-			email: validatedData.email,
-			country: validatedData.country,
-			size: validatedData.size,
-			message: validatedData.message,
-			honeypot: validatedData.honeypot ?? null,
-			clientTimestampMs: validatedData.timestamp ?? null,
-			ipAddress,
-			userAgent,
-		})
-		.returning({ id: tables.enterpriseContactSubmission.id });
+	let submission: { id: string };
+	try {
+		const [inserted] = await db
+			.insert(tables.enterpriseContactSubmission)
+			.values({
+				name: validatedData.name,
+				email: validatedData.email,
+				country: validatedData.country,
+				size: validatedData.size,
+				message: validatedData.message,
+				honeypot: validatedData.honeypot ?? null,
+				clientTimestampMs: validatedData.timestamp?.toString() ?? null,
+				ipAddress,
+				userAgent,
+			})
+			.returning({ id: tables.enterpriseContactSubmission.id });
 
-	if (!submission) {
-		logger.error("Failed to persist enterprise contact submission");
+		if (!inserted) {
+			throw new Error("No row returned from insert");
+		}
+		submission = inserted;
+	} catch (error) {
+		logger.error("Failed to persist enterprise contact submission", {
+			error,
+		});
 		return c.json(
 			{
 				success: false,
@@ -248,7 +239,9 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 		}
 	}
 
-	const rateLimitKey = ipAddress ?? "unknown";
+	// Use IP when available; fall back to email so unknown-IP requests don't
+	// share a single rate-limit bucket that any client can exhaust.
+	const rateLimitKey = ipAddress ?? `email:${validatedData.email}`;
 	const canSubmit = await checkRateLimit(rateLimitKey);
 	if (!canSubmit) {
 		await updateSubmissionStatus(submission.id, "rejected", "rate_limited");
@@ -375,6 +368,13 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 		);
 	}
 
-	await updateSubmissionStatus(submission.id, "delivered");
+	try {
+		await updateSubmissionStatus(submission.id, "delivered");
+	} catch (err) {
+		logger.error("Failed to update submission status after delivery", {
+			submissionId: submission.id,
+			error: err,
+		});
+	}
 	return c.json({ success: true, message: "Email sent successfully" }, 200);
 });

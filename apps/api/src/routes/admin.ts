@@ -4083,4 +4083,131 @@ admin.openapi(getModelProviderMappings, async (c) => {
 	});
 });
 
+// ── Enterprise Contact Submissions ──────────────────────────────────────────
+
+const contactSubmissionSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	name: z.string(),
+	email: z.string(),
+	country: z.string(),
+	size: z.string(),
+	message: z.string(),
+	ipAddress: z.string().nullable(),
+	userAgent: z.string().nullable(),
+	spamFilterStatus: z.string(),
+	rejectionReason: z.string().nullable(),
+});
+
+const contactSubmissionsListSchema = z.object({
+	submissions: z.array(contactSubmissionSchema),
+	total: z.number(),
+});
+
+const contactSubmissionsSortBySchema = z.enum([
+	"createdAt",
+	"name",
+	"email",
+	"spamFilterStatus",
+]);
+
+const getContactSubmissions = createRoute({
+	method: "get",
+	path: "/contact-submissions",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+			search: z.string().optional(),
+			status: z
+				.enum(["pending", "rejected", "delivered", "delivery_failed"])
+				.optional(),
+			sortBy: contactSubmissionsSortBySchema.default("createdAt").optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: contactSubmissionsListSchema.openapi({}),
+				},
+			},
+			description: "List of enterprise contact submissions.",
+		},
+	},
+});
+
+admin.openapi(getContactSubmissions, async (c) => {
+	const {
+		limit = 50,
+		offset = 0,
+		search,
+		status,
+		sortBy = "createdAt",
+		sortOrder = "desc",
+	} = c.req.valid("query");
+
+	const t = tables.enterpriseContactSubmission;
+
+	const conditions = [];
+	if (search) {
+		conditions.push(
+			or(
+				sql`${t.name} ILIKE ${"%" + search + "%"}`,
+				sql`${t.email} ILIKE ${"%" + search + "%"}`,
+				sql`${t.message} ILIKE ${"%" + search + "%"}`,
+			),
+		);
+	}
+	if (status) {
+		conditions.push(eq(t.spamFilterStatus, status));
+	}
+
+	const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+	const sortColumn = {
+		createdAt: t.createdAt,
+		name: t.name,
+		email: t.email,
+		spamFilterStatus: t.spamFilterStatus,
+	}[sortBy];
+
+	const orderFn = sortOrder === "asc" ? asc : desc;
+
+	const [submissions, countResult] = await Promise.all([
+		db
+			.select({
+				id: t.id,
+				createdAt: t.createdAt,
+				name: t.name,
+				email: t.email,
+				country: t.country,
+				size: t.size,
+				message: t.message,
+				ipAddress: t.ipAddress,
+				userAgent: t.userAgent,
+				spamFilterStatus: t.spamFilterStatus,
+				rejectionReason: t.rejectionReason,
+			})
+			.from(t)
+			.where(where)
+			.orderBy(orderFn(sortColumn))
+			.limit(limit)
+			.offset(offset),
+		db
+			.select({ count: sql<number>`COUNT(*)`.as("count") })
+			.from(t)
+			.where(where),
+	]);
+
+	return c.json({
+		submissions: submissions.map((s) => ({
+			...s,
+			createdAt: s.createdAt.toISOString(),
+		})),
+		total: Number(countResult[0]?.count ?? 0),
+	});
+});
+
 export default admin;
