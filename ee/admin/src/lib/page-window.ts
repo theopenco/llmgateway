@@ -31,7 +31,7 @@ export function parsePageWindow(value: string | undefined): PageWindow {
 	if (value && validWindows.has(value as PageWindow)) {
 		return value as PageWindow;
 	}
-	return "24h";
+	return "4h";
 }
 
 export function windowToFromTo(window: PageWindow): {
