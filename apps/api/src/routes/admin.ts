@@ -15,6 +15,7 @@ import {
 	inArray,
 	isNull,
 	lt,
+	lte,
 	ne,
 	or,
 	sql,
@@ -1572,16 +1573,24 @@ const logEntrySchema = z.object({
 	usedProvider: z.string(),
 	usedModelMapping: z.string().nullable(),
 	requestId: z.string().nullable(),
+	projectId: z.string(),
+	organizationId: z.string(),
+	apiKeyId: z.string(),
 	promptTokens: z.string().nullable(),
 	completionTokens: z.string().nullable(),
 	totalTokens: z.string().nullable(),
 	reasoningTokens: z.string().nullable(),
 	cachedTokens: z.string().nullable(),
+	imageInputTokens: z.string().nullable(),
+	imageOutputTokens: z.string().nullable(),
 	cost: z.number().nullable(),
 	inputCost: z.number().nullable(),
 	outputCost: z.number().nullable(),
 	cachedInputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
+	webSearchCost: z.number().nullable(),
+	imageInputCost: z.number().nullable(),
+	imageOutputCost: z.number().nullable(),
 	dataStorageCost: z.number().nullable(),
 	hasError: z.boolean().nullable(),
 	errorDetails: z.any().nullable(),
@@ -1589,12 +1598,35 @@ const logEntrySchema = z.object({
 	unifiedFinishReason: z.string().nullable(),
 	cached: z.boolean().nullable(),
 	streamed: z.boolean().nullable(),
+	canceled: z.boolean().nullable(),
+	retried: z.boolean().nullable(),
+	retriedByLogId: z.string().nullable(),
 	source: z.string().nullable(),
 	content: z.string().nullable(),
+	reasoningContent: z.string().nullable(),
+	mode: z.string(),
 	usedMode: z.string(),
 	discount: z.number().nullable(),
+	pricingTier: z.string().nullable(),
 	timeToFirstToken: z.number().nullable(),
+	timeToFirstReasoningToken: z.number().nullable(),
 	responseSize: z.number().nullable(),
+	temperature: z.number().nullable(),
+	maxTokens: z.number().nullable(),
+	topP: z.number().nullable(),
+	frequencyPenalty: z.number().nullable(),
+	reasoningEffort: z.string().nullable(),
+	reasoningMaxTokens: z.number().nullable(),
+	effort: z.string().nullable(),
+	responseFormat: z.any().nullable(),
+	tools: z.any().nullable(),
+	toolChoice: z.any().nullable(),
+	toolResults: z.any().nullable(),
+	messages: z.any().nullable(),
+	params: z.any().nullable(),
+	plugins: z.array(z.string()).nullable(),
+	pluginResults: z.any().nullable(),
+	customHeaders: z.any().nullable(),
 	routingMetadata: z.any().nullable(),
 });
 
@@ -1692,16 +1724,24 @@ admin.openapi(getProjectLogs, async (c) => {
 			usedProvider: tables.log.usedProvider,
 			usedModelMapping: tables.log.usedModelMapping,
 			requestId: tables.log.requestId,
+			projectId: tables.log.projectId,
+			organizationId: tables.log.organizationId,
+			apiKeyId: tables.log.apiKeyId,
 			promptTokens: tables.log.promptTokens,
 			completionTokens: tables.log.completionTokens,
 			totalTokens: tables.log.totalTokens,
 			reasoningTokens: tables.log.reasoningTokens,
 			cachedTokens: tables.log.cachedTokens,
+			imageInputTokens: tables.log.imageInputTokens,
+			imageOutputTokens: tables.log.imageOutputTokens,
 			cost: tables.log.cost,
 			inputCost: tables.log.inputCost,
 			outputCost: tables.log.outputCost,
 			cachedInputCost: tables.log.cachedInputCost,
 			requestCost: tables.log.requestCost,
+			webSearchCost: tables.log.webSearchCost,
+			imageInputCost: tables.log.imageInputCost,
+			imageOutputCost: tables.log.imageOutputCost,
 			dataStorageCost: tables.log.dataStorageCost,
 			hasError: tables.log.hasError,
 			errorDetails: tables.log.errorDetails,
@@ -1709,12 +1749,35 @@ admin.openapi(getProjectLogs, async (c) => {
 			unifiedFinishReason: tables.log.unifiedFinishReason,
 			cached: tables.log.cached,
 			streamed: tables.log.streamed,
+			canceled: tables.log.canceled,
+			retried: tables.log.retried,
+			retriedByLogId: tables.log.retriedByLogId,
 			source: tables.log.source,
 			content: tables.log.content,
+			reasoningContent: tables.log.reasoningContent,
+			mode: tables.log.mode,
 			usedMode: tables.log.usedMode,
 			discount: tables.log.discount,
+			pricingTier: tables.log.pricingTier,
 			timeToFirstToken: tables.log.timeToFirstToken,
+			timeToFirstReasoningToken: tables.log.timeToFirstReasoningToken,
 			responseSize: tables.log.responseSize,
+			temperature: tables.log.temperature,
+			maxTokens: tables.log.maxTokens,
+			topP: tables.log.topP,
+			frequencyPenalty: tables.log.frequencyPenalty,
+			reasoningEffort: tables.log.reasoningEffort,
+			reasoningMaxTokens: tables.log.reasoningMaxTokens,
+			effort: tables.log.effort,
+			responseFormat: tables.log.responseFormat,
+			tools: tables.log.tools,
+			toolChoice: tables.log.toolChoice,
+			toolResults: tables.log.toolResults,
+			messages: tables.log.messages,
+			params: tables.log.params,
+			plugins: tables.log.plugins,
+			pluginResults: tables.log.pluginResults,
+			customHeaders: tables.log.customHeaders,
 			routingMetadata: tables.log.routingMetadata,
 		})
 		.from(tables.log)
@@ -1737,6 +1800,11 @@ admin.openapi(getProjectLogs, async (c) => {
 			totalTokens: l.totalTokens ? String(l.totalTokens) : null,
 			reasoningTokens: l.reasoningTokens ? String(l.reasoningTokens) : null,
 			cachedTokens: l.cachedTokens ? String(l.cachedTokens) : null,
+			imageInputTokens: l.imageInputTokens ? String(l.imageInputTokens) : null,
+			imageOutputTokens: l.imageOutputTokens
+				? String(l.imageOutputTokens)
+				: null,
+			dataStorageCost: l.dataStorageCost ? Number(l.dataStorageCost) : null,
 			createdAt: l.createdAt.toISOString(),
 		})),
 		pagination: {
@@ -2862,6 +2930,41 @@ admin.openapi(getModelStats, async (c) => {
 	});
 });
 
+// --- Shared history helpers (used by model detail + history endpoints) ---
+
+const historyWindowSchema = z.enum([
+	"2m",
+	"5m",
+	"15m",
+	"1h",
+	"2h",
+	"4h",
+	"12h",
+	"24h",
+	"1d",
+	"2d",
+	"7d",
+]);
+
+function getHistoryStartDate(window: string): Date {
+	const windowMinutes: Record<string, number> = {
+		"2m": 2,
+		"5m": 5,
+		"15m": 15,
+		"1h": 60,
+		"2h": 120,
+		"4h": 240,
+		"12h": 720,
+		"24h": 1440,
+		"1d": 1440,
+		"2d": 2880,
+		"7d": 10080,
+	};
+	const minutes = windowMinutes[window] ?? 240;
+	const ms = minutes * 60 * 1000;
+	return new Date(Date.now() - ms);
+}
+
 // Model detail – lists providers that serve a given model (with stats)
 const modelProviderStatsSchema = z.object({
 	providerId: z.string(),
@@ -2896,6 +2999,9 @@ const getModelDetail = createRoute({
 	path: "/models/{modelId}",
 	request: {
 		params: z.object({ modelId: z.string() }),
+		query: z.object({
+			window: historyWindowSchema.default("24h").optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -2909,6 +3015,9 @@ const getModelDetail = createRoute({
 
 admin.openapi(getModelDetail, async (c) => {
 	const { modelId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "24h";
+	const startDate = getHistoryStartDate(window);
 
 	const model = await db.query.model.findFirst({
 		where: { id: { eq: modelId } },
@@ -2942,9 +3051,18 @@ admin.openapi(getModelDetail, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
 						"cached_count",
 					),
+				avgTtft:
+					sql<number>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+						"avg_ttft",
+					),
 			})
 			.from(modelProviderMappingHistory)
-			.where(eq(modelProviderMappingHistory.modelId, modelId))
+			.where(
+				and(
+					eq(modelProviderMappingHistory.modelId, modelId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			)
 			.groupBy(modelProviderMappingHistory.providerId),
 	]);
 
@@ -2964,6 +3082,7 @@ admin.openapi(getModelDetail, async (c) => {
 				logsCount: Number(r.logsCount ?? 0),
 				errorsCount: Number(r.errorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
+				avgTtft: r.avgTtft !== null ? Number(r.avgTtft) : null,
 			},
 		]),
 	);
@@ -2976,7 +3095,7 @@ admin.openapi(getModelDetail, async (c) => {
 			logsCount: stats?.logsCount ?? 0,
 			errorsCount: stats?.errorsCount ?? 0,
 			cachedCount: stats?.cachedCount ?? 0,
-			avgTimeToFirstToken: m.avgTimeToFirstToken,
+			avgTimeToFirstToken: stats?.avgTtft ?? m.avgTimeToFirstToken,
 			updatedAt: m.updatedAt.toISOString(),
 		};
 	});
@@ -3156,20 +3275,6 @@ admin.openapi(deleteUserRoute, async (c) => {
 
 // --- History endpoints ---
 
-const historyWindowSchema = z.enum([
-	"2m",
-	"5m",
-	"15m",
-	"1h",
-	"2h",
-	"4h",
-	"12h",
-	"24h",
-	"1d",
-	"2d",
-	"7d",
-]);
-
 const historyDataPointSchema = z.object({
 	timestamp: z.string(),
 	logsCount: z.number(),
@@ -3184,25 +3289,6 @@ const historyDataPointSchema = z.object({
 const historyResponseSchema = z.object({
 	data: z.array(historyDataPointSchema),
 });
-
-function getHistoryStartDate(window: string): Date {
-	const windowMinutes: Record<string, number> = {
-		"2m": 2,
-		"5m": 5,
-		"15m": 15,
-		"1h": 60,
-		"2h": 120,
-		"4h": 240,
-		"12h": 720,
-		"24h": 1440,
-		"1d": 1440,
-		"2d": 2880,
-		"7d": 10080,
-	};
-	const minutes = windowMinutes[window] ?? 240;
-	const ms = minutes * 60 * 1000;
-	return new Date(Date.now() - ms);
-}
 
 function mapHistoryRows(
 	rows: {
@@ -3478,6 +3564,8 @@ const getGlobalCostByModel = createRoute({
 	request: {
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -3495,7 +3583,17 @@ const getGlobalCostByModel = createRoute({
 admin.openapi(getGlobalCostByModel, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
-	const startDate = getTokenWindowStartDate(window);
+
+	let startDate: Date;
+	let endDate: Date | undefined;
+	if (query.from && query.to) {
+		startDate = new Date(query.from + "T00:00:00");
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(query.to + "T00:00:00");
+		endDate.setUTCHours(23, 59, 59, 999);
+	} else {
+		startDate = getTokenWindowStartDate(window);
+	}
 
 	const rows = await db
 		.select({
@@ -3511,7 +3609,14 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 				),
 		})
 		.from(projectHourlyModelStats)
-		.where(gte(projectHourlyModelStats.hourTimestamp, startDate))
+		.where(
+			endDate
+				? and(
+						gte(projectHourlyModelStats.hourTimestamp, startDate),
+						lte(projectHourlyModelStats.hourTimestamp, endDate),
+					)
+				: gte(projectHourlyModelStats.hourTimestamp, startDate),
+		)
 		.groupBy(projectHourlyModelStats.usedModel)
 		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
 		.limit(20);

@@ -575,8 +575,6 @@ logs.openapi(get, async (c) => {
 		});
 	}
 
-	// Return the logs directly without any modifications
-
 	return c.json({
 		logs: paginatedLogs,
 		pagination: {

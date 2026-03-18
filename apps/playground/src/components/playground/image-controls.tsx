@@ -1,7 +1,14 @@
 "use client";
 
 import { ImagePlus, Loader2, Sparkles, X } from "lucide-react";
-import { type Dispatch, type SetStateAction, useRef } from "react";
+import {
+	type Dispatch,
+	type SetStateAction,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 
 import { AspectRatioIcon } from "@/components/playground/aspect-ratio-icon";
 import { Button } from "@/components/ui/button";
@@ -81,28 +88,20 @@ export function ImageControls({
 }: ImageControlsProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const dropZoneRef = useRef<HTMLDivElement>(null);
+	const [isDragging, setIsDragging] = useState(false);
 
 	// Derive config from first selected model (settings apply globally)
 	const primaryModel = selectedModels[0] ?? "";
 	const config = getModelImageConfig(primaryModel);
 
-	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-		if (e.key === "Enter" && !e.shiftKey) {
-			e.preventDefault();
-			if (prompt.trim() && !isGenerating && canGenerate) {
-				onGenerate();
-			}
-		}
-	};
-
-	const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-		const files = Array.from(e.target.files ?? []);
-		for (const file of files) {
+	const addImageFile = useCallback(
+		(file: File) => {
 			if (!file.type.startsWith("image/")) {
-				continue;
+				return;
 			}
-			if (inputImages.length >= 1) {
-				break;
+			if (!isEditModel) {
+				return;
 			}
 			const reader = new FileReader();
 			reader.onload = () => {
@@ -117,10 +116,101 @@ export function ImageControls({
 				});
 			};
 			reader.readAsDataURL(file);
+		},
+		[isEditModel, setInputImages],
+	);
+
+	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			if (prompt.trim() && !isGenerating && canGenerate) {
+				onGenerate();
+			}
+		}
+	};
+
+	const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+		const files = Array.from(e.target.files ?? []);
+		for (const file of files) {
+			if (inputImages.length >= 1) {
+				break;
+			}
+			addImageFile(file);
 		}
 		// Reset input so same file can be re-selected
 		e.target.value = "";
 	};
+
+	// Paste handler for images
+	const handlePaste = useCallback(
+		(e: React.ClipboardEvent) => {
+			if (!isEditModel || inputImages.length >= 1) {
+				return;
+			}
+			const items = Array.from(e.clipboardData.items);
+			for (const item of items) {
+				if (item.type.startsWith("image/")) {
+					e.preventDefault();
+					const file = item.getAsFile();
+					if (file) {
+						addImageFile(file);
+					}
+					break;
+				}
+			}
+		},
+		[isEditModel, inputImages.length, addImageFile],
+	);
+
+	// Drag-and-drop handlers
+	const handleDragOver = useCallback(
+		(e: React.DragEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			if (isEditModel && inputImages.length < 1) {
+				setIsDragging(true);
+			}
+		},
+		[isEditModel, inputImages.length],
+	);
+
+	const handleDragLeave = useCallback((e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		// Only set dragging to false if we're leaving the drop zone entirely
+		if (
+			dropZoneRef.current &&
+			!dropZoneRef.current.contains(e.relatedTarget as Node)
+		) {
+			setIsDragging(false);
+		}
+	}, []);
+
+	const handleDrop = useCallback(
+		(e: React.DragEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			setIsDragging(false);
+			if (!isEditModel || inputImages.length >= 1) {
+				return;
+			}
+			const files = Array.from(e.dataTransfer.files);
+			for (const file of files) {
+				if (file.type.startsWith("image/")) {
+					addImageFile(file);
+					break;
+				}
+			}
+		},
+		[isEditModel, inputImages.length, addImageFile],
+	);
+
+	// Reset drag state when mouse leaves the window
+	useEffect(() => {
+		const handleWindowDragEnd = () => setIsDragging(false);
+		window.addEventListener("dragend", handleWindowDragEnd);
+		return () => window.removeEventListener("dragend", handleWindowDragEnd);
+	}, []);
 
 	const removeImage = (index: number) => {
 		setInputImages((prev) => prev.filter((_, i) => i !== index));
@@ -131,7 +221,22 @@ export function ImageControls({
 	return (
 		<div className="border-b bg-background p-4">
 			<div className="max-w-4xl mx-auto space-y-3">
-				<div className="rounded-md border-input border dark:bg-input/30 shadow-xs focus-within:ring-1 focus-within:ring-ring">
+				<div
+					ref={dropZoneRef}
+					onDragOver={handleDragOver}
+					onDragLeave={handleDragLeave}
+					onDrop={handleDrop}
+					onPaste={handlePaste}
+					className={`rounded-md border-input border dark:bg-input/30 shadow-xs focus-within:ring-1 focus-within:ring-ring transition-colors ${
+						isDragging ? "border-primary bg-primary/5 ring-1 ring-primary" : ""
+					}`}
+				>
+					{isDragging && isEditModel && inputImages.length < 1 && (
+						<div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
+							<ImagePlus className="h-4 w-4 mr-2" />
+							Drop image here
+						</div>
+					)}
 					{isEditModel && inputImages.length > 0 && (
 						<div className="flex flex-wrap gap-2 px-3 pt-3">
 							{inputImages.map((img, i) => (
@@ -161,10 +266,13 @@ export function ImageControls({
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
 						onKeyDown={handleKeyDown}
+						onPaste={handlePaste}
 						placeholder={
-							isEditModel
-								? "Describe how to edit the image..."
-								: "Describe the image you want to generate..."
+							requiresImageInput
+								? "Describe how to edit the image... (paste or drop an image)"
+								: isEditModel
+									? "Describe the image you want to generate... (optionally paste or drop an image)"
+									: "Describe the image you want to generate..."
 						}
 						className="min-h-[80px] max-h-[200px] resize-none border-0 bg-transparent dark:bg-transparent focus-visible:ring-0 shadow-none"
 						disabled={isGenerating}

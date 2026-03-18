@@ -278,6 +278,109 @@ function stripUnsupportedSchemaProperties(
 }
 
 /**
+ * Recursively sanitizes tool input schemas for AWS Bedrock Converse.
+ * Bedrock is stricter than Anthropic's direct API and rejects several JSON Schema
+ * keywords that appear in OpenAI-style tool definitions from external agents.
+ *
+ * We intentionally keep a conservative subset that Bedrock accepts reliably:
+ * type, description, properties, items, required, enum, default, anyOf, oneOf, allOf.
+ */
+function sanitizeBedrockSchema(
+	schema: any,
+	rootDefs?: Record<string, any>,
+): any {
+	if (!schema || typeof schema !== "object") {
+		return schema;
+	}
+
+	if (Array.isArray(schema)) {
+		return schema.map((item) => sanitizeBedrockSchema(item, rootDefs));
+	}
+
+	const defs = rootDefs ?? schema.$defs ?? schema.definitions ?? {};
+
+	if (typeof schema.$ref === "string") {
+		const resolved = resolveRef(schema.$ref, defs);
+		if (resolved) {
+			const expanded = sanitizeBedrockSchema({ ...resolved }, defs);
+			if (schema.description && !expanded.description) {
+				expanded.description = schema.description;
+			}
+			if (schema.default !== undefined && expanded.default === undefined) {
+				expanded.default = schema.default;
+			}
+			return expanded;
+		}
+	}
+
+	const cleaned: any = {};
+	const allowedKeys = new Set([
+		"type",
+		"description",
+		"properties",
+		"items",
+		"required",
+		"enum",
+		"default",
+		"anyOf",
+		"oneOf",
+		"allOf",
+	]);
+
+	for (const [key, value] of Object.entries(schema)) {
+		if (!allowedKeys.has(key)) {
+			continue;
+		}
+
+		if (key === "description" && typeof value === "string" && !value.trim()) {
+			continue;
+		}
+
+		if (
+			key === "properties" &&
+			value &&
+			typeof value === "object" &&
+			!Array.isArray(value)
+		) {
+			cleaned.properties = Object.fromEntries(
+				Object.entries(value).map(([propertyName, propertyValue]) => [
+					propertyName,
+					sanitizeBedrockSchema(propertyValue, defs),
+				]),
+			);
+			continue;
+		}
+
+		if (value && typeof value === "object") {
+			cleaned[key] = sanitizeBedrockSchema(value, defs);
+		} else {
+			cleaned[key] = value;
+		}
+	}
+
+	if (
+		cleaned.required &&
+		Array.isArray(cleaned.required) &&
+		cleaned.properties &&
+		typeof cleaned.properties === "object"
+	) {
+		const existingProps = Object.keys(cleaned.properties);
+		cleaned.required = cleaned.required.filter((prop: string) =>
+			existingProps.includes(prop),
+		);
+		if (cleaned.required.length === 0) {
+			delete cleaned.required;
+		}
+	}
+
+	if (cleaned.type === "object" && !cleaned.properties) {
+		cleaned.properties = {};
+	}
+
+	return cleaned;
+}
+
+/**
  * Transforms messages for models that don't support system roles by converting system messages to user messages
  */
 function transformMessagesForNoSystemRole(messages: any[]): any[] {
@@ -469,23 +572,34 @@ export async function prepareRequestBody(
 ): Promise<ProviderRequestBody> {
 	// Handle xAI image generation models
 	if (imageGenerations && usedProvider === "xai") {
-		// Extract prompt from last user message
+		// Extract prompt and image URLs from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
 			.find((m) => m.role === "user");
 		let prompt = "";
+		const imageUrls: string[] = [];
 		if (lastUserMessage) {
 			if (typeof lastUserMessage.content === "string") {
 				prompt = lastUserMessage.content;
 			} else if (Array.isArray(lastUserMessage.content)) {
-				prompt = lastUserMessage.content
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n");
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
 			}
 		}
 
 		// xAI Grok Imagine uses OpenAI-compatible image generation format
+		// When images are present, use the edits format
 		const xaiImageRequest: any = {
 			model: usedModel,
 			prompt,
@@ -495,6 +609,18 @@ export async function prepareRequestBody(
 			}),
 			...(image_config?.n && { n: image_config.n }),
 		};
+
+		if (imageUrls.length === 1) {
+			xaiImageRequest.image = {
+				url: imageUrls[0],
+				type: "image_url",
+			};
+		} else if (imageUrls.length > 1) {
+			xaiImageRequest.images = imageUrls.map((url) => ({
+				url,
+				type: "image_url",
+			}));
+		}
 
 		return xaiImageRequest;
 	}
@@ -1200,31 +1326,57 @@ export async function prepareRequestBody(
 				}
 			}
 
-			// Transform non-system messages to Bedrock format
-			requestBody.messages = bedrockNonSystemMessages.map((msg: any) => {
-				// Map OpenAI roles to Bedrock roles
-				const role =
-					msg.role === "user" || msg.role === "tool" ? "user" : "assistant";
+			// Transform non-system messages to Bedrock format.
+			// Bedrock expects all tool results for an assistant tool_use turn to be grouped
+			// into the next user message instead of split across multiple user messages.
+			const bedrockMessages: any[] = [];
+			let pendingToolResultMessage: any | null = null;
 
-				const bedrockMessage: any = {
-					role: role,
-					content: [],
-				};
+			const flushPendingToolResults = () => {
+				if (pendingToolResultMessage?.content?.length) {
+					bedrockMessages.push(pendingToolResultMessage);
+				}
+				pendingToolResultMessage = null;
+			};
 
-				// Handle tool results (from role: "tool")
-				if (msg.role === "tool") {
-					bedrockMessage.content.push({
+			for (const msg of bedrockNonSystemMessages) {
+				const originalRole =
+					msg.role === "user" && msg.tool_call_id ? "tool" : msg.role;
+
+				if (originalRole === "tool" && msg.tool_call_id) {
+					pendingToolResultMessage ??= {
+						role: "user",
+						content: [],
+					};
+
+					const textContent =
+						typeof msg.content === "string"
+							? msg.content
+							: JSON.stringify(msg.content ?? "");
+
+					pendingToolResultMessage.content.push({
 						toolResult: {
 							toolUseId: msg.tool_call_id,
 							content: [
 								{
-									text: msg.content ?? "",
+									text:
+										textContent && textContent.trim()
+											? textContent
+											: "No output",
 								},
 							],
 						},
 					});
-					return bedrockMessage;
+					continue;
 				}
+
+				flushPendingToolResults();
+
+				const role = msg.role === "user" ? "user" : "assistant";
+				const bedrockMessage: any = {
+					role,
+					content: [],
+				};
 
 				// Handle assistant messages with tool calls
 				if (msg.role === "assistant" && msg.tool_calls) {
@@ -1246,7 +1398,8 @@ export async function prepareRequestBody(
 						});
 					});
 
-					return bedrockMessage;
+					bedrockMessages.push(bedrockMessage);
+					continue;
 				}
 
 				// Handle regular content (user/assistant messages)
@@ -1300,8 +1453,11 @@ export async function prepareRequestBody(
 					});
 				}
 
-				return bedrockMessage;
-			});
+				bedrockMessages.push(bedrockMessage);
+			}
+
+			flushPendingToolResults();
+			requestBody.messages = bedrockMessages;
 
 			// Transform tools from OpenAI format to Bedrock format
 			if (tools && tools.length > 0) {
@@ -1314,7 +1470,12 @@ export async function prepareRequestBody(
 								name: tool.function.name,
 								description: tool.function.description,
 								inputSchema: {
-									json: tool.function.parameters,
+									json: sanitizeBedrockSchema(
+										tool.function.parameters ?? {
+											type: "object",
+											properties: {},
+										},
+									),
 								},
 							},
 						})),

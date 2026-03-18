@@ -1708,16 +1708,24 @@ export interface paths {
                                 usedProvider: string;
                                 usedModelMapping: string | null;
                                 requestId: string | null;
+                                projectId: string;
+                                organizationId: string;
+                                apiKeyId: string;
                                 promptTokens: string | null;
                                 completionTokens: string | null;
                                 totalTokens: string | null;
                                 reasoningTokens: string | null;
                                 cachedTokens: string | null;
+                                imageInputTokens: string | null;
+                                imageOutputTokens: string | null;
                                 cost: number | null;
                                 inputCost: number | null;
                                 outputCost: number | null;
                                 cachedInputCost: number | null;
                                 requestCost: number | null;
+                                webSearchCost: number | null;
+                                imageInputCost: number | null;
+                                imageOutputCost: number | null;
                                 dataStorageCost: number | null;
                                 hasError: boolean | null;
                                 errorDetails?: unknown;
@@ -1725,12 +1733,35 @@ export interface paths {
                                 unifiedFinishReason: string | null;
                                 cached: boolean | null;
                                 streamed: boolean | null;
+                                canceled: boolean | null;
+                                retried: boolean | null;
+                                retriedByLogId: string | null;
                                 source: string | null;
                                 content: string | null;
+                                reasoningContent: string | null;
+                                mode: string;
                                 usedMode: string;
                                 discount: number | null;
+                                pricingTier: string | null;
                                 timeToFirstToken: number | null;
+                                timeToFirstReasoningToken: number | null;
                                 responseSize: number | null;
+                                temperature: number | null;
+                                maxTokens: number | null;
+                                topP: number | null;
+                                frequencyPenalty: number | null;
+                                reasoningEffort: string | null;
+                                reasoningMaxTokens: number | null;
+                                effort: string | null;
+                                responseFormat?: unknown;
+                                tools?: unknown;
+                                toolChoice?: unknown;
+                                toolResults?: unknown;
+                                messages?: unknown;
+                                params?: unknown;
+                                plugins: string[] | null;
+                                pluginResults?: unknown;
+                                customHeaders?: unknown;
                                 routingMetadata?: unknown;
                             }[];
                             pagination: {
@@ -2253,7 +2284,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
+                };
                 header?: never;
                 path: {
                     modelId: string;
@@ -2571,6 +2604,8 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                    from?: string;
+                    to?: string;
                 };
                 header?: never;
                 path?: never;

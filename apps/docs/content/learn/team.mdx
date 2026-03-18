@@ -1,0 +1,45 @@
+---
+title: Team
+description: Manage team members and their roles within your organization
+icon: UsersRound
+---
+
+import { ThemedImage } from "@/components/themed-image";
+
+The Team page lets you invite team members, assign roles, and control access to your organization.
+
+<ThemedImage alt="Team" basePath="/learn/team" />
+
+## Adding Members
+
+Click **Add Member** to invite someone by email. You'll need to:
+
+1. Enter their email address
+2. Select a role (Developer, Admin, or Owner)
+
+Your plan includes up to **5 team seats**. The current count is displayed, and the Add button is disabled when all seats are used. Contact sales for additional seats.
+
+## Team Members List
+
+Each member shows:
+
+| Field     | Description                                      |
+| --------- | ------------------------------------------------ |
+| **Name**  | The member's display name                        |
+| **Email** | Their email address                              |
+| **Role**  | Their current role (can be changed via dropdown) |
+
+## Actions
+
+- **Update role** — Change a member's role using the dropdown
+- **Remove** — Remove a member from the organization (requires confirmation)
+
+## Role Permissions
+
+| Role          | Permissions                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------- |
+| **Owner**     | Full access to all settings, billing, team management, and all projects                               |
+| **Admin**     | Can manage team members, projects, and API keys, but cannot access billing or delete the organization |
+| **Developer** | View and use resources only. Cannot modify settings or manage team                                    |
+
+Developers can also be given **restricted access** at the API key level, limiting which keys they can view and use.

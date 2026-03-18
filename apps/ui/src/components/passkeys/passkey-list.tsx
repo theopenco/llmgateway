@@ -38,7 +38,7 @@ export function PasskeyList() {
 				description: "Your passkey has been removed.",
 			});
 
-			refetch();
+			void refetch();
 		},
 	});
 
