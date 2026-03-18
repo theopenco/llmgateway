@@ -1433,7 +1433,7 @@ export const openaiModels = [
 		description:
 			"Strong mini model for coding, computer use, and subagents in high-volume workloads.",
 		family: "openai",
-		releasedAt: new Date("2026-03-06"),
+		releasedAt: new Date("2026-03-17"),
 		providers: [
 			{
 				providerId: "openai",
