@@ -790,7 +790,16 @@ export async function prepareRequestBody(
 			(typeof tool_choice === "object" && tool_choice.type === "function"));
 
 	if (forcesToolUse && usedProvider === "alibaba") {
-		requestBody.enable_thinking = false;
+		const providerMapping = modelDef?.providers.find(
+			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+		);
+		const isExplicitThinkingModel =
+			providerMapping &&
+			"reasoning" in providerMapping &&
+			providerMapping.reasoning === true;
+		if (!isExplicitThinkingModel) {
+			requestBody.enable_thinking = false;
+		}
 	}
 
 	if (forcesToolUse && usedProvider === "moonshot") {
