@@ -1,0 +1,1 @@
+ALTER TABLE "model" ADD COLUMN "image_input_required" boolean DEFAULT false NOT NULL;

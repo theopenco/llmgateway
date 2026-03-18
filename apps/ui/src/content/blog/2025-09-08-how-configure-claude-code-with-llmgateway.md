@@ -60,10 +60,10 @@ You can easily switch models by updating the environment variable:
 
 ```bash
 # Switch to GPT-4o Mini for cost savings
-export ANTHROPIC_MODEL=openai/gpt-4o-mini
+export ANTHROPIC_MODEL=gpt-4o-mini
 
 # Switch to Claude Sonnet for complex reasoning
-export ANTHROPIC_MODEL=anthropic/claude-3-5-sonnet-20241022
+export ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 ```
 
 To see the full list of models available to you, check out [models with tool calls](https://llmgateway.io/models?filters=1&tools=true)

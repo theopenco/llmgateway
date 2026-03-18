@@ -1,0 +1,49 @@
+---
+title: Security Events
+description: Monitor guardrail violations and content policy events
+icon: ShieldAlert
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+The Security Events page shows all guardrail violations detected across your organization, helping you monitor content safety and policy enforcement.
+
+<ThemedImage alt="Security Events" basePath="/learn/security-events" />
+
+<Callout type="info">
+	Security Events are available on the [**Enterprise
+	plan**](https://llmgateway.io/enterprise). Owner or Admin role is required.
+</Callout>
+
+## Stats Cards
+
+Four summary cards at the top:
+
+| Card                 | Description                                   |
+| -------------------- | --------------------------------------------- |
+| **Total Violations** | All-time violation count                      |
+| **Last 24 Hours**    | Violations in the past day                    |
+| **Blocked**          | Number of requests that were blocked          |
+| **Redacted**         | Number of requests where content was redacted |
+
+## Filters
+
+Narrow down the events list:
+
+- **Action** — Filter by Blocked, Redacted, Warned, or All actions
+- **Category** — Filter by Prompt Injection, Jailbreak, PII Detection, Secrets, Blocked Terms, Custom Regex, or Topic Restriction
+
+## Violations List
+
+Each violation entry shows:
+
+| Field               | Description                                          |
+| ------------------- | ---------------------------------------------------- |
+| **Timestamp**       | When the violation occurred                          |
+| **Rule name**       | Which guardrail rule was triggered                   |
+| **Category**        | The type of violation (shown as a badge)             |
+| **Action**          | What action was taken (Blocked, Redacted, or Warned) |
+| **Matched pattern** | The content that triggered the rule                  |
+
+The list supports pagination with a **Load More** button for viewing older events.

@@ -3,9 +3,11 @@ import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
 
+import { processImageUrl } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
+import type { Context } from "hono";
 
 const imageGenerationsRequestSchema = z.object({
 	prompt: z.string().min(1).openapi({
@@ -153,6 +155,202 @@ function buildImagePrompt(request: ImageGenerationsRequest): string {
 	return prompt;
 }
 
+/**
+ * Extract images from a chat completions response.
+ * Images can be in:
+ * 1. choices[0].message.images[] - as ImageObject with image_url.url containing data:mime;base64,data
+ * 2. choices[0].message.content - may contain base64 image data in some cases
+ */
+async function extractImagesFromChatResponse(
+	chatResponse: any,
+	prompt: string,
+	model: string,
+	logContext?: {
+		resolvedModel?: string;
+		traceId?: string;
+		spanId?: string;
+	},
+): Promise<Array<{ b64_json: string; revised_prompt?: string }>> {
+	const imageObjects: Array<{
+		b64_json: string;
+		revised_prompt?: string;
+	}> = [];
+
+	const messageImages = chatResponse.choices?.[0]?.message?.images;
+	if (
+		messageImages &&
+		Array.isArray(messageImages) &&
+		messageImages.length > 0
+	) {
+		for (const img of messageImages) {
+			const imageUrl = img.image_url?.url;
+			if (imageUrl && typeof imageUrl === "string") {
+				// Handle data URIs (e.g. Google/Gemini returns data:image/png;base64,...)
+				const base64Match = imageUrl.match(/^data:[^;]+;base64,(.+)$/);
+				if (base64Match && base64Match[1]) {
+					imageObjects.push({
+						b64_json: base64Match[1],
+						revised_prompt: prompt,
+					});
+				} else if (
+					imageUrl.startsWith("https://") ||
+					imageUrl.startsWith("http://")
+				) {
+					// Handle URL-based images (e.g. Z.AI, Alibaba, ByteDance)
+					try {
+						const result = await processImageUrl(imageUrl);
+						imageObjects.push({
+							b64_json: result.data,
+							revised_prompt: prompt,
+						});
+					} catch (error) {
+						logger.warn("Images API - failed to fetch image from URL", {
+							model,
+							url: imageUrl.substring(0, 100),
+							err: error instanceof Error ? error : new Error(String(error)),
+						});
+					}
+				}
+			}
+		}
+	}
+
+	if (imageObjects.length === 0) {
+		const content = chatResponse.choices?.[0]?.message?.content;
+		if (content && typeof content === "string") {
+			const parts = content.split("data:image/");
+			for (let i = 1; i < parts.length; i++) {
+				const part = parts[i];
+				const base64Marker = ";base64,";
+				const markerIndex = part.indexOf(base64Marker);
+				if (markerIndex === -1) {
+					continue;
+				}
+
+				const base64Start = markerIndex + base64Marker.length;
+				let end = base64Start;
+				while (end < part.length) {
+					const ch = part.charCodeAt(end);
+					if (
+						(ch >= 65 && ch <= 90) ||
+						(ch >= 97 && ch <= 122) ||
+						(ch >= 48 && ch <= 57) ||
+						ch === 43 ||
+						ch === 47 ||
+						ch === 61
+					) {
+						end++;
+					} else {
+						break;
+					}
+				}
+
+				const b64 = part.slice(base64Start, end);
+				if (b64.length > 0) {
+					imageObjects.push({
+						b64_json: b64,
+						revised_prompt: prompt,
+					});
+				}
+			}
+		}
+	}
+
+	if (imageObjects.length === 0) {
+		logger.warn("Images API - no images found in chat completions response", {
+			model,
+			resolvedModel: logContext?.resolvedModel,
+			hasContent: !!chatResponse.choices?.[0]?.message?.content,
+			hasImages: !!chatResponse.choices?.[0]?.message?.images,
+			contentPreview: chatResponse.choices?.[0]?.message?.content?.slice(
+				0,
+				200,
+			),
+			finishReason: chatResponse.choices?.[0]?.finish_reason,
+			chatResponseId: chatResponse.id,
+			traceId: logContext?.traceId,
+			spanId: logContext?.spanId,
+		});
+		throw new HTTPException(500, {
+			message:
+				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-2.5-flash-image, gemini-3-pro-image-preview).",
+		});
+	}
+
+	return imageObjects;
+}
+
+function forwardHeaders(c: Context): Record<string, string> {
+	return {
+		"Content-Type": "application/json",
+		Authorization: c.req.header("Authorization") ?? "",
+		"x-api-key": c.req.header("x-api-key") ?? "",
+		"User-Agent": c.req.header("User-Agent") ?? "",
+		"x-request-id": c.req.header("x-request-id") ?? "",
+		"x-source": c.req.header("x-source") ?? "",
+		"x-debug": c.req.header("x-debug") ?? "",
+		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+	};
+}
+
+async function forwardToChatCompletions(
+	c: Context,
+	chatRequest: Record<string, unknown>,
+	logContext?: {
+		model?: string;
+		resolvedModel?: string;
+	},
+): Promise<any> {
+	const response = await app.request("/v1/chat/completions", {
+		method: "POST",
+		headers: forwardHeaders(c),
+		body: JSON.stringify(chatRequest),
+	});
+
+	if (!response.ok) {
+		const errorData = await response.text();
+		let errorMessage = `Image generation failed with status ${response.status}`;
+		let parsedError: unknown = null;
+		try {
+			parsedError = JSON.parse(errorData);
+			const parsed = parsedError as Record<string, any>;
+			errorMessage = parsed?.error?.message ?? parsed?.message ?? errorMessage;
+		} catch {
+			// use default message
+		}
+
+		logger.warn("Images API - chat completions request failed", {
+			status: response.status,
+			statusText: response.statusText,
+			model: logContext?.model,
+			resolvedModel: logContext?.resolvedModel,
+			traceId: c.get("traceId"),
+			spanId: c.get("spanId"),
+			errorResponse: parsedError ?? errorData,
+		});
+
+		throw new HTTPException(response.status as any, {
+			message: errorMessage,
+		});
+	}
+
+	try {
+		const responseText = await response.text();
+		return JSON.parse(responseText);
+	} catch (error) {
+		logger.error("Images API - failed to parse chat completions response", {
+			err: error instanceof Error ? error : new Error(String(error)),
+			model: logContext?.model,
+			resolvedModel: logContext?.resolvedModel,
+			traceId: c.get("traceId"),
+			spanId: c.get("spanId"),
+		});
+		throw new HTTPException(500, {
+			message: "Failed to parse image generation response",
+		});
+	}
+}
+
 export const images = new OpenAPIHono<ServerTypes>();
 
 images.openapi(generations, async (c) => {
@@ -198,8 +396,8 @@ images.openapi(generations, async (c) => {
 		stream: false,
 	};
 
-	// Pass image configuration if we have an aspect ratio or size
-	if (aspectRatio || request.size) {
+	// Pass image configuration if we have an aspect ratio, size, or n > 1
+	if (aspectRatio || request.size || request.n > 1) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(request.size && { image_size: request.size }),
@@ -214,163 +412,21 @@ images.openapi(generations, async (c) => {
 		n: request.n,
 	});
 
-	// Forward auth and tracing headers
-	const response = await app.request("/v1/chat/completions", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: c.req.header("Authorization") ?? "",
-			"x-api-key": c.req.header("x-api-key") ?? "",
-			"User-Agent": c.req.header("User-Agent") ?? "",
-			"x-request-id": c.req.header("x-request-id") ?? "",
-			"x-source": c.req.header("x-source") ?? "",
-			"x-debug": c.req.header("x-debug") ?? "",
-			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
-		},
-		body: JSON.stringify(chatRequest),
+	const chatResponse = await forwardToChatCompletions(c, chatRequest, {
+		model: request.model,
+		resolvedModel: model,
 	});
 
-	if (!response.ok) {
-		const errorData = await response.text();
-		let errorMessage = `Image generation failed with status ${response.status}`;
-		let parsedError: unknown = null;
-		try {
-			parsedError = JSON.parse(errorData);
-			const parsed = parsedError as Record<string, any>;
-			errorMessage = parsed?.error?.message ?? parsed?.message ?? errorMessage;
-		} catch {
-			// use default message
-		}
-
-		logger.warn("Images API - chat completions request failed", {
-			status: response.status,
-			statusText: response.statusText,
-			model: request.model,
+	const imageObjects = await extractImagesFromChatResponse(
+		chatResponse,
+		request.prompt,
+		request.model,
+		{
 			resolvedModel: model,
 			traceId: c.get("traceId"),
 			spanId: c.get("spanId"),
-			errorResponse: parsedError ?? errorData,
-		});
-
-		throw new HTTPException(response.status as any, {
-			message: errorMessage,
-		});
-	}
-
-	// Parse the chat completions response
-	let chatResponse: any;
-	try {
-		const responseText = await response.text();
-		chatResponse = JSON.parse(responseText);
-	} catch (error) {
-		logger.error("Images API - failed to parse chat completions response", {
-			err: error instanceof Error ? error : new Error(String(error)),
-			model: request.model,
-			resolvedModel: model,
-			traceId: c.get("traceId"),
-			spanId: c.get("spanId"),
-		});
-		throw new HTTPException(500, {
-			message: "Failed to parse image generation response",
-		});
-	}
-
-	// Extract images from the chat completions response
-	// Images can be in:
-	// 1. choices[0].message.images[] - as ImageObject with image_url.url containing data:mime;base64,data
-	// 2. choices[0].message.content - may contain base64 image data in some cases
-	const imageObjects: Array<{
-		b64_json: string;
-		revised_prompt?: string;
-	}> = [];
-
-	const messageImages = chatResponse.choices?.[0]?.message?.images;
-	if (
-		messageImages &&
-		Array.isArray(messageImages) &&
-		messageImages.length > 0
-	) {
-		for (const img of messageImages) {
-			const dataUrl = img.image_url?.url;
-			if (dataUrl && typeof dataUrl === "string") {
-				// Extract base64 data from data URL: "data:image/png;base64,<data>"
-				const base64Match = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
-				if (base64Match && base64Match[1]) {
-					imageObjects.push({
-						b64_json: base64Match[1],
-						revised_prompt: request.prompt,
-					});
-				}
-			}
-		}
-	}
-
-	// If no images were extracted from the images field, check if content has data URLs
-	if (imageObjects.length === 0) {
-		const content = chatResponse.choices?.[0]?.message?.content;
-		if (content && typeof content === "string") {
-			// Split on the data URL prefix and extract base64 data without regex on large strings
-			const parts = content.split("data:image/");
-			for (let i = 1; i < parts.length; i++) {
-				const part = parts[i];
-				const base64Marker = ";base64,";
-				const markerIndex = part.indexOf(base64Marker);
-				if (markerIndex === -1) {
-					continue;
-				}
-
-				const base64Start = markerIndex + base64Marker.length;
-				// Find the end of base64 data: first character not in the base64 alphabet
-				let end = base64Start;
-				while (end < part.length) {
-					const ch = part.charCodeAt(end);
-					// A-Z, a-z, 0-9, +, /, =
-					if (
-						(ch >= 65 && ch <= 90) ||
-						(ch >= 97 && ch <= 122) ||
-						(ch >= 48 && ch <= 57) ||
-						ch === 43 ||
-						ch === 47 ||
-						ch === 61
-					) {
-						end++;
-					} else {
-						break;
-					}
-				}
-
-				const b64 = part.slice(base64Start, end);
-				if (b64.length > 0) {
-					imageObjects.push({
-						b64_json: b64,
-						revised_prompt: request.prompt,
-					});
-				}
-			}
-		}
-	}
-
-	// If still no images, return error
-	if (imageObjects.length === 0) {
-		logger.warn("Images API - no images found in chat completions response", {
-			model: request.model,
-			resolvedModel: model,
-			hasContent: !!chatResponse.choices?.[0]?.message?.content,
-			hasImages: !!chatResponse.choices?.[0]?.message?.images,
-			contentPreview: chatResponse.choices?.[0]?.message?.content?.slice(
-				0,
-				200,
-			),
-			finishReason: chatResponse.choices?.[0]?.finish_reason,
-			chatResponseId: chatResponse.id,
-			traceId: c.get("traceId"),
-			spanId: c.get("spanId"),
-		});
-		throw new HTTPException(500, {
-			message:
-				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-2.5-flash-image, gemini-3-pro-image-preview).",
-		});
-	}
+		},
+	);
 
 	// Build the OpenAI-compatible images response
 	const imagesResponse = {
@@ -384,4 +440,428 @@ images.openapi(generations, async (c) => {
 	});
 
 	return c.json(imagesResponse);
+});
+
+// --- Image Edits Endpoint ---
+
+const imageEditImageInputSchema = z.object({
+	image_url: z.string().openapi({
+		description: "A fully qualified HTTPS URL or base64-encoded data URL.",
+		example: "https://example.com/source-image.png",
+	}),
+});
+
+const imageEditsRequestSchema = z.object({
+	images: z.array(imageEditImageInputSchema).min(1).max(16).openapi({
+		description:
+			"Input image references to edit. Provide image_url as HTTPS URL or data URL.",
+	}),
+	prompt: z.string().min(1).openapi({
+		description: "A text description of the desired image edit.",
+		example: "Add a watercolor effect to this image",
+	}),
+	background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
+		description: "Background behavior for generated image output.",
+		example: "transparent",
+	}),
+	input_fidelity: z.enum(["high", "low"]).optional().openapi({
+		description: "Controls fidelity to the original input image(s).",
+		example: "high",
+	}),
+	model: z.string().optional().openapi({
+		description: "The model to use for image editing.",
+		example: "gemini-3-pro-image-preview",
+	}),
+	n: z.number().int().min(1).max(10).optional().openapi({
+		description: "The number of edited images to generate.",
+		example: 1,
+	}),
+	output_compression: z.number().int().min(0).max(100).optional().openapi({
+		description: "Compression level for jpeg or webp output.",
+		example: 100,
+	}),
+	output_format: z.enum(["png", "jpeg", "webp"]).optional().openapi({
+		description: "Output image format.",
+		example: "png",
+	}),
+	quality: z.enum(["low", "medium", "high", "auto"]).optional().openapi({
+		description: "Output quality for image models.",
+		example: "high",
+	}),
+	size: z
+		.enum(["auto", "1024x1024", "1536x1024", "1024x1536"])
+		.optional()
+		.openapi({
+			description: "Requested output image size.",
+			example: "1024x1024",
+		}),
+});
+
+type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
+
+const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
+	background: z.enum(["transparent", "opaque"]).optional(),
+	output_format: z.enum(["png", "webp", "jpeg"]).optional(),
+	quality: z.enum(["low", "medium", "high"]).optional(),
+	size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).optional(),
+	usage: z
+		.object({
+			input_tokens: z.number(),
+			input_tokens_details: z.object({
+				image_tokens: z.number(),
+				text_tokens: z.number(),
+			}),
+			output_tokens: z.number(),
+			total_tokens: z.number(),
+			output_tokens_details: z
+				.object({
+					image_tokens: z.number(),
+					text_tokens: z.number(),
+				})
+				.optional(),
+		})
+		.optional(),
+});
+
+const edits = createRoute({
+	operationId: "v1_images_edits",
+	summary: "Edit image",
+	description:
+		"Creates an edited image from one or more source images and a prompt.",
+	method: "post",
+	path: "/edits",
+	security: [
+		{
+			bearerAuth: [],
+		},
+	],
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: imageEditsRequestSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: imageEditsResponseSchema,
+				},
+			},
+			description: "Image edit response.",
+		},
+	},
+});
+
+function isValidHttpsUrl(value: string): boolean {
+	try {
+		const parsed = new URL(value);
+		return parsed.protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
+function isValidBase64ImageDataUrl(value: string): boolean {
+	return /^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(value);
+}
+
+function isSupportedInputImageUrl(value: string): boolean {
+	return isValidHttpsUrl(value) || isValidBase64ImageDataUrl(value);
+}
+
+/**
+ * Convert a File object (from multipart form data) to a base64 data URI.
+ */
+async function fileToDataUri(file: File): Promise<string> {
+	const arrayBuffer = await file.arrayBuffer();
+	const uint8Array = new Uint8Array(arrayBuffer);
+	const binaryString = Array.from(uint8Array, (byte) =>
+		String.fromCharCode(byte),
+	).join("");
+	const base64 = btoa(binaryString);
+	const mimeType = file.type || "image/png";
+	return `data:${mimeType};base64,${base64}`;
+}
+
+function buildEditPrompt(request: ImageEditsRequest): string {
+	let prompt = `Edit the provided image(s) based on the following description: ${request.prompt}`;
+
+	if (request.background === "transparent") {
+		prompt += "\n\nBackground: transparent.";
+	} else if (request.background === "opaque") {
+		prompt += "\n\nBackground: opaque.";
+	}
+
+	if (request.input_fidelity === "high") {
+		prompt += "\n\nFidelity: preserve details from the source image(s).";
+	}
+
+	if (request.quality === "high") {
+		prompt += "\n\nQuality: high quality, detailed.";
+	} else if (request.quality === "low") {
+		prompt += "\n\nQuality: prioritize speed over detail.";
+	}
+
+	if (request.output_format) {
+		prompt += `\n\nOutput format: ${request.output_format}.`;
+	}
+
+	if (request.output_compression !== undefined) {
+		prompt += `\n\nOutput compression: ${request.output_compression}.`;
+	}
+
+	if (request.n && request.n > 1) {
+		prompt += `\n\nGenerate ${request.n} different variations of this edit.`;
+	}
+
+	return prompt;
+}
+
+/**
+ * Parse a multipart/form-data request into the internal ImageEditsRequest format.
+ */
+async function parseMultipartEditsRequest(
+	c: Context,
+): Promise<ImageEditsRequest> {
+	const body = await c.req.parseBody({ all: true });
+
+	const prompt = body["prompt"];
+	const promptValue = Array.isArray(prompt) ? prompt[0] : prompt;
+	if (!promptValue || typeof promptValue !== "string") {
+		throw new HTTPException(400, {
+			message: "prompt is required",
+		});
+	}
+
+	// Support "image", "image[]" (ChatWise sends this), and "file" field names
+	const imageField = body["image"] ?? body["image[]"] ?? body["file"];
+	const imageFile = Array.isArray(imageField) ? imageField[0] : imageField;
+	if (!imageFile || !(imageFile instanceof File)) {
+		throw new HTTPException(400, {
+			message: "image file is required for multipart/form-data requests",
+		});
+	}
+
+	const images: Array<{ image_url: string }> = [];
+	images.push({ image_url: await fileToDataUri(imageFile) });
+
+	const maskField = body["mask"];
+	const maskFile = Array.isArray(maskField) ? maskField[0] : maskField;
+	if (maskFile instanceof File) {
+		images.push({ image_url: await fileToDataUri(maskFile) });
+	}
+
+	const rawRequest: Record<string, unknown> = {
+		images,
+		prompt: promptValue,
+	};
+
+	const modelField = body["model"];
+	const modelValue = Array.isArray(modelField) ? modelField[0] : modelField;
+	if (typeof modelValue === "string" && modelValue) {
+		rawRequest.model = modelValue;
+	}
+	const nField = body["n"];
+	const nValue = Array.isArray(nField) ? nField[0] : nField;
+	if (typeof nValue === "string" && nValue) {
+		const n = parseInt(nValue, 10);
+		if (!isNaN(n)) {
+			rawRequest.n = n;
+		}
+	}
+	const sizeField = body["size"];
+	const sizeValue = Array.isArray(sizeField) ? sizeField[0] : sizeField;
+	if (typeof sizeValue === "string" && sizeValue) {
+		rawRequest.size = sizeValue;
+	}
+	const qualityField = body["quality"];
+	const qualityValue = Array.isArray(qualityField)
+		? qualityField[0]
+		: qualityField;
+	if (typeof qualityValue === "string" && qualityValue) {
+		rawRequest.quality = qualityValue;
+	}
+
+	const validationResult = imageEditsRequestSchema.safeParse(rawRequest);
+	if (!validationResult.success) {
+		throw new HTTPException(400, {
+			message: `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
+		});
+	}
+
+	return validationResult.data;
+}
+
+/**
+ * Shared processing logic for image edits (used by both JSON and multipart handlers).
+ */
+async function processImageEdit(c: Context, request: ImageEditsRequest) {
+	const imageUrls: string[] = [];
+	for (const [index, image] of request.images.entries()) {
+		if (!isSupportedInputImageUrl(image.image_url)) {
+			throw new HTTPException(400, {
+				message: `images[${index}].image_url must be an https URL or a base64 data URL`,
+			});
+		}
+		imageUrls.push(image.image_url);
+	}
+
+	const isProd = process.env.NODE_ENV === "production";
+
+	const imageResults = await Promise.all(
+		imageUrls.map(async (url, index) => {
+			try {
+				return await processImageUrl(url, isProd);
+			} catch (error) {
+				const errorMessage =
+					error instanceof Error
+						? error.message
+						: "Failed to process image input";
+				throw new HTTPException(400, {
+					message: `images[${index}].image_url is invalid: ${errorMessage}`,
+				});
+			}
+		}),
+	);
+
+	const contentParts: Array<Record<string, unknown>> = [];
+
+	for (const img of imageResults) {
+		contentParts.push({
+			type: "image_url",
+			image_url: {
+				url: `data:${img.mimeType};base64,${img.data}`,
+			},
+		});
+	}
+
+	const chatPrompt = buildEditPrompt(request);
+	contentParts.push({
+		type: "text",
+		text: chatPrompt,
+	});
+
+	const requestedSize = request.size === "auto" ? undefined : request.size;
+	const aspectRatio = requestedSize
+		? sizeToAspectRatio(requestedSize)
+		: undefined;
+
+	const model =
+		request.model === "auto" || !request.model
+			? "gemini-3-pro-image-preview"
+			: request.model;
+
+	const chatRequest: Record<string, unknown> = {
+		model,
+		messages: [
+			{
+				role: "user",
+				content: contentParts,
+			},
+		],
+		stream: false,
+	};
+
+	if (
+		aspectRatio ||
+		requestedSize ||
+		(request.n !== undefined && request.n > 1) ||
+		request.output_format
+	) {
+		chatRequest.image_config = {
+			...(aspectRatio && { aspect_ratio: aspectRatio }),
+			...(requestedSize && { image_size: requestedSize }),
+			...(request.n !== undefined && { n: request.n }),
+			...(request.output_format && { output_format: request.output_format }),
+			...(request.output_compression !== undefined && {
+				output_compression: request.output_compression,
+			}),
+		};
+	}
+
+	logger.debug("Images Edit API - forwarding to chat completions", {
+		model,
+		prompt: request.prompt.slice(0, 200),
+		imageCount: imageUrls.length,
+		n: request.n,
+		size: request.size,
+		quality: request.quality,
+		outputFormat: request.output_format,
+	});
+
+	const chatResponse = await forwardToChatCompletions(c, chatRequest, {
+		model: request.model ?? model,
+		resolvedModel: model,
+	});
+
+	const imageObjects = await extractImagesFromChatResponse(
+		chatResponse,
+		request.prompt,
+		model,
+		{
+			resolvedModel: model,
+			traceId: c.get("traceId"),
+			spanId: c.get("spanId"),
+		},
+	);
+
+	const imagesResponse: z.infer<typeof imageEditsResponseSchema> = {
+		created: Math.floor(Date.now() / 1000),
+		data: imageObjects,
+	};
+
+	if (request.background && request.background !== "auto") {
+		imagesResponse.background = request.background;
+	}
+	if (request.output_format) {
+		imagesResponse.output_format = request.output_format;
+	}
+	if (request.quality && request.quality !== "auto") {
+		imagesResponse.quality = request.quality;
+	}
+	if (requestedSize) {
+		imagesResponse.size = requestedSize;
+	}
+
+	logger.debug("Images Edit API - returning response", {
+		imageCount: imageObjects.length,
+		model,
+	});
+
+	return c.json(imagesResponse, 200);
+}
+
+// Multipart/form-data handler for OpenAI-compatible clients (must be before openapi route)
+images.post("/edits", async (c, next) => {
+	const contentType = c.req.header("Content-Type") ?? "";
+	if (!contentType.includes("multipart/form-data")) {
+		return await next();
+	}
+
+	const request = await parseMultipartEditsRequest(c);
+	return await processImageEdit(c, request);
+});
+
+images.openapi(edits, async (c) => {
+	let rawBody: unknown;
+	try {
+		rawBody = await c.req.json();
+	} catch {
+		throw new HTTPException(400, {
+			message: "Invalid JSON in request body",
+		});
+	}
+
+	const validationResult = imageEditsRequestSchema.safeParse(rawBody);
+	if (!validationResult.success) {
+		throw new HTTPException(400, {
+			message: `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
+		});
+	}
+
+	return await processImageEdit(c, validationResult.data);
 });

@@ -90,11 +90,13 @@ app.use(
 // Middleware to check for application/json content type on POST requests
 // Excludes /mcp endpoint which handles its own content type validation
 // Excludes /oauth endpoints which accept form-urlencoded or JSON
+// Excludes /v1/images endpoints which accept multipart/form-data for file uploads
 app.use("*", async (c, next) => {
 	if (
 		c.req.method === "POST" &&
 		!c.req.path.startsWith("/mcp") &&
-		!c.req.path.startsWith("/oauth")
+		!c.req.path.startsWith("/oauth") &&
+		!c.req.path.startsWith("/v1/images")
 	) {
 		const contentType = c.req.header("Content-Type");
 		if (!contentType || !contentType.includes("application/json")) {

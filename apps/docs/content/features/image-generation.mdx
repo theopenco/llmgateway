@@ -11,7 +11,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 LLMGateway supports image generation through two APIs:
 
 1. **`/v1/images/generations`** — OpenAI-compatible images endpoint (recommended for simple image generation)
-2. **`/v1/chat/completions`** — Chat completions with image generation models (for conversational image generation and editing)
+2. **`/v1/images/edits`** — OpenAI-compatible image editing endpoint
+3. **`/v1/chat/completions`** — Chat completions with image generation models (for conversational image generation and editing)
 
 ## Available Models
 
@@ -100,6 +101,64 @@ result.images.forEach((image, i) => {
 	const buf = Buffer.from(image.base64, "base64");
 	writeFileSync(`image-${i}.png`, buf);
 });
+```
+
+## OpenAI Images Edit API
+
+The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subset of `images.edit` parameters.
+
+### Parameters
+
+| Parameter            | Type                     | Required | Description                                                        |
+| -------------------- | ------------------------ | -------- | ------------------------------------------------------------------ |
+| `images`             | array of `{ image_url }` | yes      | Input images. `image_url` supports HTTPS URLs and base64 data URLs |
+| `prompt`             | string                   | yes      | A text description of the desired image edit                       |
+| `model`              | string                   | no       | Image editing model                                                |
+| `background`         | enum                     | no       | `transparent`, `opaque`, or `auto`                                 |
+| `input_fidelity`     | enum                     | no       | `high` or `low`                                                    |
+| `n`                  | integer                  | no       | Number of edited images to generate                                |
+| `output_format`      | enum                     | no       | `png`, `jpeg`, or `webp`                                           |
+| `output_compression` | integer                  | no       | Compression level for `jpeg`/`webp`                                |
+| `quality`            | enum                     | no       | `low`, `medium`, `high`, or `auto`                                 |
+| `size`               | enum                     | no       | `auto`, `1024x1024`, `1536x1024`, `1024x1536`                      |
+
+<Callout type="warning">
+	`mask` is not supported yet on `/v1/images/edits`.
+</Callout>
+
+### curl (HTTPS image URL)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/edits" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "images": [
+      {
+        "image_url": "https://example.com/source-image.png"
+      }
+    ],
+    "prompt": "Add a watercolor effect to this image",
+    "model": "gemini-3-pro-image-preview",
+    "quality": "high",
+    "size": "1024x1024"
+  }'
+```
+
+### curl (base64 data URL)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/edits" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "images": [
+      {
+        "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+      }
+    ],
+    "prompt": "Turn this into a pixel-art style image"
+  }'
 ```
 
 ## Chat Completions API
@@ -503,6 +562,15 @@ You can customize the generated image using the optional `image_config` paramete
 
 ### Google Models
 
+Available Google models:
+
+| Model                            | Description                                                                         |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `gemini-3-pro-image-preview`     | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.  |
+| `gemini-3.1-flash-image-preview` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K). |
+
+#### gemini-3-pro-image-preview
+
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
@@ -522,10 +590,40 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-| Parameter      | Type   | Description                                                                                                |
-| -------------- | ------ | ---------------------------------------------------------------------------------------------------------- |
-| `aspect_ratio` | string | The aspect ratio of the generated image. Examples: `"1:1"`, `"16:9"`, `"4:3"`, `"5:4"`                     |
-| `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096) |
+| Parameter      | Type   | Description                                                                                                                                   |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aspect_ratio` | string | The aspect ratio of the generated image. Options: `"1:1"`, `"2:3"`, `"3:2"`, `"3:4"`, `"4:3"`, `"4:5"`, `"5:4"`, `"9:16"`, `"16:9"`, `"21:9"` |
+| `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096)                                    |
+
+#### gemini-3.1-flash-image-preview
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3.1-flash-image-preview",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate an image of a mountain landscape at sunset"
+      }
+    ],
+    "image_config": {
+      "image_size": "1K"
+    }
+  }'
+```
+
+| Parameter      | Type   | Description                                                                                                                                                                       |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aspect_ratio` | string | The aspect ratio of the generated image. Options: `"1:1"`, `"1:4"`, `"1:8"`, `"2:3"`, `"3:2"`, `"3:4"`, `"4:1"`, `"4:3"`, `"4:5"`, `"5:4"`, `"8:1"`, `"9:16"`, `"16:9"`, `"21:9"` |
+| `image_size`   | string | The resolution of the generated image. Options: `"0.5K"` (512x512), `"1K"` (1024x1024, default), `"2K"` (2048x2048), `"4K"` (4096x4096)                                           |
+
+<Callout type="info">
+	`gemini-3.1-flash-image-preview` uniquely supports `"0.5K"` resolution, which
+	is not available on other Google image models.
+</Callout>
 
 ### Alibaba Models
 

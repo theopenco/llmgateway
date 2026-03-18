@@ -373,6 +373,54 @@ mockOpenAIServer.post("/v1beta/models/:model\\:generateContent", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/model/:model/converse", async (c) => {
+	const body = await c.req.json();
+	const userMessage = body.messages?.[0]?.content?.[0]?.text ?? "";
+
+	if (userMessage.includes("TRIGGER_BEDROCK_HEADER_ERROR")) {
+		c.header(
+			"x-amzn-errormessage",
+			"The provided model identifier is invalid for this account.",
+		);
+		c.header("x-amzn-errortype", "ValidationException");
+		c.status(400);
+		return c.json({});
+	}
+
+	return c.json({
+		output: {
+			message: {
+				role: "assistant",
+				content: [{ text: `Bedrock mock response: ${userMessage}` }],
+			},
+		},
+		stopReason: "end_turn",
+		usage: {
+			inputTokens: 10,
+			outputTokens: 20,
+			totalTokens: 30,
+		},
+	});
+});
+
+mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
+	const body = await c.req.json();
+	const userMessage = body.messages?.[0]?.content?.[0]?.text ?? "";
+
+	if (userMessage.includes("TRIGGER_BEDROCK_HEADER_ERROR")) {
+		c.header(
+			"x-amzn-errormessage",
+			"The provided model identifier is invalid for this account.",
+		);
+		c.header("x-amzn-errortype", "ValidationException");
+		c.status(400);
+		return c.json({});
+	}
+
+	c.header("content-type", "application/vnd.amazon.eventstream");
+	return c.body("");
+});
+
 let server: any = null;
 
 export function startMockServer(port = 3001): string {

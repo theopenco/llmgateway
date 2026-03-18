@@ -113,9 +113,14 @@ export default function ChatPageClient({
 		| "5:4"
 		| "4:5"
 		| "21:9"
+		| "1:4"
+		| "4:1"
+		| "1:8"
+		| "8:1"
 	>("auto");
-	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+	const [imageSize, setImageSize] = useState<string>("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -372,6 +377,15 @@ export default function ChatPageClient({
 
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
+			// Check if the user message contains image attachments (vision request)
+			const hasImageAttachments = message.parts?.some(
+				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+			);
+
+			// Only use image gen when the model supports it AND user didn't attach images for vision
+			const useImageGen =
+				supportsImageGen && !(supportsImages && hasImageAttachments);
+
 			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
 			const usesPixelDimensions =
 				selectedModel.toLowerCase().includes("alibaba") ||
@@ -379,23 +393,22 @@ export default function ChatPageClient({
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
-			// Only send image_config if user has explicitly selected non-default values
-			const imageConfig = supportsImageGen
+			// Always send n explicitly to prevent providers from defaulting to >1
+			const imageConfig = useImageGen
 				? usesPixelDimensions
-					? // For Alibaba/ZAI, don't send image_config with default size
-						alibabaImageSize !== "1024x1024"
-						? {
+					? {
+							...(alibabaImageSize !== "1024x1024" && {
 								image_size: alibabaImageSize,
-							}
-						: undefined
-					: imageAspectRatio !== "auto" || imageSize !== "1K"
-						? {
-								...(imageAspectRatio !== "auto" && {
-									aspect_ratio: imageAspectRatio,
-								}),
-								...(imageSize !== "1K" && { image_size: imageSize }),
-							}
-						: undefined
+							}),
+							n: imageCount,
+						}
+					: {
+							...(imageAspectRatio !== "auto" && {
+								aspect_ratio: imageAspectRatio,
+							}),
+							...(imageSize !== "1K" && { image_size: imageSize }),
+							n: imageCount,
+						}
 				: undefined;
 
 			// Automatically disable provider fallback for provider-specific model selections
@@ -418,6 +431,7 @@ export default function ChatPageClient({
 					...(options?.body ?? {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
+					...(useImageGen ? { is_image_gen: true } : {}),
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
@@ -433,9 +447,11 @@ export default function ChatPageClient({
 			sendMessage,
 			reasoningEffort,
 			supportsImageGen,
+			supportsImages,
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,
+			imageCount,
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
@@ -809,6 +825,22 @@ export default function ChatPageClient({
 		}
 	}, [supportsReasoning, reasoningEffort]);
 
+	// Reset image size when switching models with different supported sizes
+	useEffect(() => {
+		const isSeedream =
+			selectedModel.toLowerCase().includes("seedream") ||
+			selectedModel.toLowerCase().includes("bytedance/seedream");
+		const isGemini31FlashImage = selectedModel
+			.toLowerCase()
+			.includes("gemini-3.1-flash-image");
+		if (isSeedream && (imageSize === "1K" || imageSize === "0.5K")) {
+			setImageSize("2K");
+		}
+		if (!isGemini31FlashImage && imageSize === "0.5K") {
+			setImageSize("1K");
+		}
+	}, [selectedModel, imageSize]);
+
 	const handleSelectOrganization = (org: Organization | null) => {
 		const params = new URLSearchParams(Array.from(searchParams.entries()));
 		if (org?.id) {
@@ -1009,6 +1041,8 @@ export default function ChatPageClient({
 											setImageSize={setImageSize}
 											alibabaImageSize={alibabaImageSize}
 											setAlibabaImageSize={setAlibabaImageSize}
+											imageCount={imageCount}
+											setImageCount={setImageCount}
 											onUserMessage={handleUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
@@ -1040,6 +1074,8 @@ export default function ChatPageClient({
 										setImageSize={setImageSize}
 										alibabaImageSize={alibabaImageSize}
 										setAlibabaImageSize={setAlibabaImageSize}
+										imageCount={imageCount}
+										setImageCount={setImageCount}
 										supportsWebSearch={supportsWebSearch}
 										webSearchEnabled={webSearchEnabled}
 										setWebSearchEnabled={setWebSearchEnabled}
@@ -1126,9 +1162,14 @@ function ExtraChatPanel({
 		| "5:4"
 		| "4:5"
 		| "21:9"
+		| "1:4"
+		| "4:1"
+		| "1:8"
+		| "8:1"
 	>("auto");
-	const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+	const [imageSize, setImageSize] = useState<string>("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 	const [text, setText] = useState("");
 
@@ -1197,6 +1238,15 @@ function ExtraChatPanel({
 
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
+			// Check if the user message contains image attachments (vision request)
+			const hasImageAttachments = message.parts?.some(
+				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+			);
+
+			// Only use image gen when the model supports it AND user didn't attach images for vision
+			const useImageGen =
+				supportsImageGen && !(supportsImages && hasImageAttachments);
+
 			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
 			const usesPixelDimensions =
 				selectedModel.toLowerCase().includes("alibaba") ||
@@ -1204,23 +1254,22 @@ function ExtraChatPanel({
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
-			// Only send image_config if user has explicitly selected non-default values
-			const imageConfig = supportsImageGen
+			// Always send n explicitly to prevent providers from defaulting to >1
+			const imageConfig = useImageGen
 				? usesPixelDimensions
-					? // For Alibaba/ZAI, don't send image_config with default size
-						alibabaImageSize !== "1024x1024"
-						? {
+					? {
+							...(alibabaImageSize !== "1024x1024" && {
 								image_size: alibabaImageSize,
-							}
-						: undefined
-					: imageAspectRatio !== "auto" || imageSize !== "1K"
-						? {
-								...(imageAspectRatio !== "auto" && {
-									aspect_ratio: imageAspectRatio,
-								}),
-								...(imageSize !== "1K" && { image_size: imageSize }),
-							}
-						: undefined
+							}),
+							n: imageCount,
+						}
+					: {
+							...(imageAspectRatio !== "auto" && {
+								aspect_ratio: imageAspectRatio,
+							}),
+							...(imageSize !== "1K" && { image_size: imageSize }),
+							n: imageCount,
+						}
 				: undefined;
 
 			const isProviderSpecific = selectedModel.includes("/");
@@ -1239,6 +1288,7 @@ function ExtraChatPanel({
 					...(options?.body ?? {}),
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
+					...(useImageGen ? { is_image_gen: true } : {}),
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
@@ -1251,9 +1301,11 @@ function ExtraChatPanel({
 			sendMessage,
 			reasoningEffort,
 			supportsImageGen,
+			supportsImages,
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,
+			imageCount,
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
@@ -1347,6 +1399,8 @@ function ExtraChatPanel({
 					setImageSize={setImageSize}
 					alibabaImageSize={alibabaImageSize}
 					setAlibabaImageSize={setAlibabaImageSize}
+					imageCount={imageCount}
+					setImageCount={setImageCount}
 					supportsWebSearch={supportsWebSearch}
 					webSearchEnabled={webSearchEnabled}
 					setWebSearchEnabled={setWebSearchEnabled}

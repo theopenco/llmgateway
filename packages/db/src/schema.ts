@@ -208,6 +208,7 @@ export const transaction = pgTable(
 				"subscription_end",
 				"credit_topup",
 				"credit_refund",
+				"credit_gift",
 				"dev_plan_start",
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
@@ -582,6 +583,7 @@ export const passkey = pgTable(
 		deviceType: text(),
 		backedUp: boolean(),
 		transports: text(),
+		aaguid: text(),
 	},
 	(table) => [index("passkey_user_id_idx").on(table.userId)],
 );
@@ -744,6 +746,7 @@ export const model = pgTable(
 		family: text().notNull(),
 		free: boolean().default(false).notNull(),
 		output: json().$type<string[]>().default(["text"]).notNull(),
+		imageInputRequired: boolean().default(false).notNull(),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
 		})
@@ -865,6 +868,7 @@ export const modelProviderMappingHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		totalCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
@@ -912,6 +916,7 @@ export const modelHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		totalCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-minute combination
@@ -956,6 +961,8 @@ export const auditLogActions = [
 	"payment.method.set_default",
 	"payment.method.delete",
 	"payment.credit_topup",
+	// Credits
+	"credits.gift",
 	// Dev Plan
 	"dev_plan.subscribe",
 	"dev_plan.cancel",

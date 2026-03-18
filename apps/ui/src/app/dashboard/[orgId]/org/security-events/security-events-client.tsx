@@ -256,7 +256,7 @@ export function SecurityEventsClient() {
 						<CardHeader className="pb-2">
 							<CardDescription>Blocked</CardDescription>
 							<CardTitle className="text-3xl text-destructive">
-								{stats.byAction.blocked}
+								{stats.byAction?.blocked ?? 0}
 							</CardTitle>
 						</CardHeader>
 					</Card>
@@ -264,7 +264,7 @@ export function SecurityEventsClient() {
 						<CardHeader className="pb-2">
 							<CardDescription>Redacted</CardDescription>
 							<CardTitle className="text-3xl text-orange-500">
-								{stats.byAction.redacted}
+								{stats.byAction?.redacted ?? 0}
 							</CardTitle>
 						</CardHeader>
 					</Card>

@@ -9,6 +9,7 @@ import {
 	Eye,
 	Wrench,
 	MessageSquare,
+	ImagePlus,
 	Braces,
 	Play,
 	Share2,
@@ -53,12 +54,14 @@ interface ModelProviderCardProps {
 	provider: ProviderWithInfo;
 	modelName: string;
 	modelStability?: StabilityLevel;
+	modelOutput?: string[];
 }
 
 export function ModelProviderCard({
 	provider,
 	modelName,
 	modelStability,
+	modelOutput,
 }: ModelProviderCardProps) {
 	const config = useAppConfig();
 	const [copied, setCopied] = useState(false);
@@ -357,35 +360,108 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					</div>
-					{provider.imageOutputPrice !== undefined && (
-						<div className="grid grid-cols-3 gap-3 mt-3">
-							<div className="col-span-3">
-								<div className="text-muted-foreground text-xs mb-1">
-									Image Output
-								</div>
-								<div className="font-mono">
-									<div className="space-y-1">
-										<div className="flex items-center gap-2">
-											{provider.discount ? (
-												<>
-													<span className="line-through text-muted-foreground text-xs">
-														{formatPrice(provider.imageOutputPrice)}
-													</span>
-													<span className="text-green-600 font-semibold">
-														{formatPrice(
-															provider.imageOutputPrice *
-																(1 - provider.discount),
-														)}
-													</span>
-												</>
-											) : (
-												formatPrice(provider.imageOutputPrice)
-											)}
-										</div>
-										<span className="text-muted-foreground text-xs">/M</span>
-									</div>
-								</div>
+					{(provider.imageInputTokensByResolution ??
+						provider.imageOutputTokensByResolution) && (
+						<div className="mt-3 pt-3 border-t">
+							<div className="text-muted-foreground text-xs mb-2">
+								Image Pricing (est. per image)
 							</div>
+							{provider.imageInputPrice &&
+								provider.imageInputTokensByResolution &&
+								(() => {
+									const named = Object.entries(
+										provider.imageInputTokensByResolution,
+									).filter(([k]) => k !== "default");
+									const defaultTokens =
+										provider.imageInputTokensByResolution["default"];
+									const entries: Array<[string, number]> =
+										named.length > 0
+											? named
+											: defaultTokens !== undefined
+												? [["any size", defaultTokens]]
+												: [];
+									if (entries.length === 0) {
+										return null;
+									}
+									const effectiveDiscount = provider.discount ?? 0;
+									return (
+										<div className="mb-2">
+											<div className="text-xs text-muted-foreground mb-1">
+												Input
+											</div>
+											{entries.map(([res, tokensPerImage]) => {
+												const raw = tokensPerImage * provider.imageInputPrice!;
+												const discounted = raw * (1 - effectiveDiscount);
+												return (
+													<div
+														key={res}
+														className="flex justify-between items-center text-xs py-0.5"
+													>
+														<span className="text-muted-foreground">{res}</span>
+														<span className="font-mono">
+															{effectiveDiscount > 0 ? (
+																<>
+																	<span className="line-through text-muted-foreground mr-1">
+																		~${raw.toFixed(4)}
+																	</span>
+																	<span className="text-green-600 font-semibold">
+																		~${discounted.toFixed(4)}
+																	</span>
+																</>
+															) : (
+																`~$${raw.toFixed(4)}`
+															)}
+														</span>
+													</div>
+												);
+											})}
+										</div>
+									);
+								})()}
+							{provider.imageOutputPrice &&
+								provider.imageOutputTokensByResolution &&
+								(() => {
+									const entries = Object.entries(
+										provider.imageOutputTokensByResolution,
+									).filter(([k]) => k !== "default");
+									if (entries.length === 0) {
+										return null;
+									}
+									const effectiveDiscount = provider.discount ?? 0;
+									return (
+										<div>
+											<div className="text-xs text-muted-foreground mb-1">
+												Output
+											</div>
+											{entries.map(([res, tokensPerImage]) => {
+												const raw = tokensPerImage * provider.imageOutputPrice!;
+												const discounted = raw * (1 - effectiveDiscount);
+												return (
+													<div
+														key={res}
+														className="flex justify-between items-center text-xs py-0.5"
+													>
+														<span className="text-muted-foreground">{res}</span>
+														<span className="font-mono">
+															{effectiveDiscount > 0 ? (
+																<>
+																	<span className="line-through text-muted-foreground mr-1">
+																		~${raw.toFixed(4)}
+																	</span>
+																	<span className="text-green-600 font-semibold">
+																		~${discounted.toFixed(4)}
+																	</span>
+																</>
+															) : (
+																`~$${raw.toFixed(4)}`
+															)}
+														</span>
+													</div>
+												);
+											})}
+										</div>
+									);
+								})()}
 						</div>
 					)}
 					{provider.requestPrice !== undefined && provider.requestPrice > 0 && (
@@ -553,6 +629,19 @@ export function ModelProviderCard({
 									</TooltipTrigger>
 									<TooltipContent>
 										<p>Supports structured JSON output</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{modelOutput?.includes("image") && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-pink-50 dark:bg-pink-950/30 text-pink-700 dark:text-pink-300 text-xs">
+											<ImagePlus className="h-3.5 w-3.5" />
+											<span>Image Generation</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>Supports native image generation</p>
 									</TooltipContent>
 								</Tooltip>
 							)}

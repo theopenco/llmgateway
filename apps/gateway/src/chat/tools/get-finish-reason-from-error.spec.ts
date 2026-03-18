@@ -64,9 +64,18 @@ describe("getFinishReasonFromError", () => {
 		).toBe("client_error");
 	});
 
-	it("returns gateway_error for other 400 errors", () => {
+	it("returns content_filter for xAI 403 safety rejection", () => {
+		expect(
+			getFinishReasonFromError(
+				403,
+				"Content violates usage guidelines: SAFETY_CHECK_TYPE_CSAM",
+			),
+		).toBe("content_filter");
+	});
+
+	it("returns client_error for other 400 errors", () => {
 		expect(getFinishReasonFromError(400, "some other error")).toBe(
-			"gateway_error",
+			"client_error",
 		);
 	});
 
@@ -75,7 +84,8 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(403)).toBe("gateway_error");
 	});
 
-	it("returns gateway_error when no error text provided", () => {
-		expect(getFinishReasonFromError(400)).toBe("gateway_error");
+	it("returns client_error when no error text provided for other 4xx", () => {
+		expect(getFinishReasonFromError(400)).toBe("client_error");
+		expect(getFinishReasonFromError(422)).toBe("client_error");
 	});
 });

@@ -55,6 +55,7 @@ import {
 	ToolInput,
 	ToolOutput,
 } from "@/components/ai-elements/tool";
+import { AspectRatioIcon } from "@/components/playground/aspect-ratio-icon";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
@@ -98,7 +99,11 @@ interface ChatUIProps {
 		| "2:3"
 		| "5:4"
 		| "4:5"
-		| "21:9";
+		| "21:9"
+		| "1:4"
+		| "4:1"
+		| "1:8"
+		| "8:1";
 	setImageAspectRatio: (
 		value:
 			| "auto"
@@ -111,12 +116,18 @@ interface ChatUIProps {
 			| "2:3"
 			| "5:4"
 			| "4:5"
-			| "21:9",
+			| "21:9"
+			| "1:4"
+			| "4:1"
+			| "1:8"
+			| "8:1",
 	) => void;
-	imageSize: "1K" | "2K" | "4K";
-	setImageSize: (value: "1K" | "2K" | "4K") => void;
+	imageSize: string;
+	setImageSize: (value: string) => void;
 	alibabaImageSize: string;
 	setAlibabaImageSize: (value: string) => void;
+	imageCount: 1 | 2 | 3 | 4;
+	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	supportsWebSearch: boolean;
 	webSearchEnabled: boolean;
 	setWebSearchEnabled: (value: boolean) => void;
@@ -399,6 +410,8 @@ export const ChatUI = ({
 	setImageSize,
 	alibabaImageSize,
 	setAlibabaImageSize,
+	imageCount,
+	setImageCount,
 	supportsWebSearch,
 	webSearchEnabled,
 	setWebSearchEnabled,
@@ -413,6 +426,22 @@ export const ChatUI = ({
 		selectedModel.toLowerCase().includes("qwen-image") ||
 		selectedModel.toLowerCase().includes("zai") ||
 		selectedModel.toLowerCase().includes("cogview");
+
+	// Seedream/ByteDance models only support 2K and 4K
+	const isSeedream =
+		selectedModel.toLowerCase().includes("seedream") ||
+		selectedModel.toLowerCase().includes("bytedance/seedream");
+
+	// Gemini 3.1 Flash Image supports 0.5K, 1K (default), 2K, 4K
+	const isGemini31FlashImage = selectedModel
+		.toLowerCase()
+		.includes("gemini-3.1-flash-image");
+
+	const availableSizes = isSeedream
+		? (["2K", "4K"] as const)
+		: isGemini31FlashImage
+			? (["0.5K", "1K", "2K", "4K"] as const)
+			: (["1K", "2K", "4K"] as const);
 
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
@@ -691,7 +720,11 @@ export const ChatUI = ({
 													| "2:3"
 													| "5:4"
 													| "4:5"
-													| "21:9",
+													| "21:9"
+													| "1:4"
+													| "4:1"
+													| "1:8"
+													| "8:1",
 											)
 										}
 									>
@@ -699,32 +732,42 @@ export const ChatUI = ({
 											<SelectValue placeholder="Aspect ratio" />
 										</SelectTrigger>
 										<SelectContent>
-											<SelectItem value="auto">Auto</SelectItem>
-											<SelectItem value="1:1">1:1</SelectItem>
-											<SelectItem value="9:16">9:16</SelectItem>
-											<SelectItem value="16:9">16:9</SelectItem>
-											<SelectItem value="3:4">3:4</SelectItem>
-											<SelectItem value="4:3">4:3</SelectItem>
-											<SelectItem value="3:2">3:2</SelectItem>
-											<SelectItem value="2:3">2:3</SelectItem>
-											<SelectItem value="5:4">5:4</SelectItem>
-											<SelectItem value="4:5">4:5</SelectItem>
-											<SelectItem value="21:9">21:9</SelectItem>
+											{[
+												"auto",
+												"1:1",
+												"9:16",
+												"16:9",
+												"3:4",
+												"4:3",
+												"3:2",
+												"2:3",
+												"5:4",
+												"4:5",
+												"21:9",
+												"1:4",
+												"4:1",
+												"1:8",
+												"8:1",
+											].map((r) => (
+												<SelectItem key={r} value={r}>
+													<span className="flex items-center gap-2">
+														<AspectRatioIcon ratio={r} />
+														{r === "auto" ? "Auto" : r}
+													</span>
+												</SelectItem>
+											))}
 										</SelectContent>
 									</Select>
-									<Select
-										value={imageSize}
-										onValueChange={(val) =>
-											setImageSize(val as "1K" | "2K" | "4K")
-										}
-									>
+									<Select value={imageSize} onValueChange={setImageSize}>
 										<SelectTrigger size="sm" className="min-w-[80px]">
 											<SelectValue placeholder="Resolution" />
 										</SelectTrigger>
 										<SelectContent>
-											<SelectItem value="1K">1K</SelectItem>
-											<SelectItem value="2K">2K</SelectItem>
-											<SelectItem value="4K">4K</SelectItem>
+											{availableSizes.map((size) => (
+												<SelectItem key={size} value={size}>
+													{size}
+												</SelectItem>
+											))}
 										</SelectContent>
 									</Select>
 								</>
@@ -745,6 +788,24 @@ export const ChatUI = ({
 										<SelectItem value="1536x1024">1536x1024</SelectItem>
 										<SelectItem value="2048x1024">2048x1024</SelectItem>
 										<SelectItem value="1024x2048">1024x2048</SelectItem>
+									</SelectContent>
+								</Select>
+							)}
+							{supportsImageGen && (
+								<Select
+									value={String(imageCount)}
+									onValueChange={(val) =>
+										setImageCount(Number(val) as 1 | 2 | 3 | 4)
+									}
+								>
+									<SelectTrigger size="sm" className="min-w-[90px]">
+										<SelectValue placeholder="Count" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="1">1 image</SelectItem>
+										<SelectItem value="2">2 images</SelectItem>
+										<SelectItem value="3">3 images</SelectItem>
+										<SelectItem value="4">4 images</SelectItem>
 									</SelectContent>
 								</Select>
 							)}

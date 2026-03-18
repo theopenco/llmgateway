@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import {
 	and,
 	asc,
@@ -14,11 +15,15 @@ import {
 	inArray,
 	isNull,
 	lt,
+	lte,
+	ne,
 	or,
 	sql,
 	tables,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	modelProviderMappingHistory,
+	modelHistory,
 } from "@llmgateway/db";
 import { models, providers } from "@llmgateway/models";
 
@@ -33,6 +38,7 @@ const adminMetricsSchema = z.object({
 	verifiedUsers: z.number(),
 	payingCustomers: z.number(),
 	totalRevenue: z.number(),
+	totalProcessed: z.number(),
 	totalOrganizations: z.number(),
 	totalToppedUp: z.number(),
 	totalSpent: z.number(),
@@ -81,6 +87,9 @@ const organizationSchema = z.object({
 	totalSpent: z.string().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
+	ownerUserId: z.string().nullable().optional(),
+	ownerName: z.string().nullable().optional(),
+	ownerEmail: z.string().nullable().optional(),
 });
 
 const organizationsListSchema = z.object({
@@ -163,12 +172,32 @@ const apiKeysListSchema = z.object({
 	offset: z.number(),
 });
 
+const memberSchema = z.object({
+	id: z.string(),
+	userId: z.string(),
+	role: z.string(),
+	createdAt: z.string(),
+	user: z.object({
+		id: z.string(),
+		email: z.string(),
+		name: z.string().nullable(),
+		emailVerified: z.boolean(),
+	}),
+});
+
+const membersListSchema = z.object({
+	members: z.array(memberSchema),
+	total: z.number(),
+});
+
 const getMetrics = createRoute({
 	method: "get",
 	path: "/metrics",
 	request: {
 		query: z.object({
 			range: timeseriesRangeSchema.default("all").optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -324,24 +353,52 @@ const getOrganizationApiKeys = createRoute({
 	},
 });
 
+const getOrganizationMembers = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/members",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: membersListSchema.openapi({}),
+				},
+			},
+			description: "Organization members.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
 admin.openapi(getMetrics, async (c) => {
 	const query = c.req.valid("query");
-	const range = query.range ?? "all";
-
-	const rangeDays: Record<string, number | null> = {
-		"7d": 7,
-		"30d": 30,
-		"90d": 90,
-		"365d": 365,
-		all: null,
-	};
-	const days = range in rangeDays ? rangeDays[range] : null;
+	const { from, to } = query;
 
 	let startDate: Date | null = null;
-	if (days !== null) {
-		// eslint-disable-next-line no-mixed-operators
-		startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+	if (from && to) {
+		startDate = new Date(from + "T00:00:00");
 		startDate.setUTCHours(0, 0, 0, 0);
+	} else {
+		const range = query.range ?? "all";
+		const rangeDays: Record<string, number | null> = {
+			"7d": 7,
+			"30d": 30,
+			"90d": 90,
+			"365d": 365,
+			all: null,
+		};
+		const days = range in rangeDays ? rangeDays[range] : null;
+		if (days !== null) {
+			// eslint-disable-next-line no-mixed-operators
+			startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+			startDate.setUTCHours(0, 0, 0, 0);
+		}
 	}
 
 	// Total signups
@@ -391,11 +448,11 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue (completed transactions)
+	// Total revenue (completed transactions, excluding gifts, using creditAmount to exclude Stripe fees)
 	const [revenueRow] = await db
 		.select({
 			value:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
 		})
@@ -404,9 +461,13 @@ admin.openapi(getMetrics, async (c) => {
 			startDate
 				? and(
 						eq(tables.transaction.status, "completed"),
+						ne(tables.transaction.type, "credit_gift"),
 						gte(tables.transaction.createdAt, startDate),
 					)
-				: eq(tables.transaction.status, "completed"),
+				: and(
+						eq(tables.transaction.status, "completed"),
+						ne(tables.transaction.type, "credit_gift"),
+					),
 		);
 
 	const totalRevenue = Number(revenueRow?.value ?? 0);
@@ -458,6 +519,30 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalSpent = Number(spentRow?.value ?? 0);
 
+	// Total processed (gross Stripe amounts from completed non-gift transactions)
+	const [processedRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			startDate
+				? and(
+						eq(tables.transaction.status, "completed"),
+						ne(tables.transaction.type, "credit_gift"),
+						gte(tables.transaction.createdAt, startDate),
+					)
+				: and(
+						eq(tables.transaction.status, "completed"),
+						ne(tables.transaction.type, "credit_gift"),
+					),
+		);
+
+	const totalProcessed = Number(processedRow?.value ?? 0);
+
 	const rawBalance = totalToppedUp - totalSpent;
 	const unusedCredits = Math.max(0, rawBalance);
 	const overage = Math.max(0, -rawBalance);
@@ -467,6 +552,7 @@ admin.openapi(getMetrics, async (c) => {
 		verifiedUsers,
 		payingCustomers,
 		totalRevenue,
+		totalProcessed,
 		totalOrganizations,
 		totalToppedUp,
 		totalSpent,
@@ -481,6 +567,8 @@ const getTimeseries = createRoute({
 	request: {
 		query: z.object({
 			range: timeseriesRangeSchema.default("all").optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -497,35 +585,42 @@ const getTimeseries = createRoute({
 
 admin.openapi(getTimeseries, async (c) => {
 	const query = c.req.valid("query");
-	const range = query.range ?? "all";
+	const { from, to } = query;
 
 	const now = new Date();
-	const rangeDays: Record<string, number | null> = {
-		"7d": 7,
-		"30d": 30,
-		"90d": 90,
-		"365d": 365,
-		all: null,
-	};
-	const days = range in rangeDays ? rangeDays[range] : 30;
-
 	let startDate: Date;
-	if (days === null) {
-		const [oldest] = await db
-			.select({
-				minDate: sql<string>`MIN(${tables.user.createdAt})`.as("minDate"),
-			})
-			.from(tables.user);
-		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
-	} else {
-		// eslint-disable-next-line no-mixed-operators
-		startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-	}
-
-	// Normalize to start of day in UTC
-	startDate.setUTCHours(0, 0, 0, 0);
 	const endDate = new Date(now);
 	endDate.setUTCHours(23, 59, 59, 999);
+
+	if (from && to) {
+		startDate = new Date(from + "T00:00:00");
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate.setTime(new Date(to + "T23:59:59").getTime());
+		endDate.setUTCHours(23, 59, 59, 999);
+	} else {
+		const range = query.range ?? "all";
+		const rangeDays: Record<string, number | null> = {
+			"7d": 7,
+			"30d": 30,
+			"90d": 90,
+			"365d": 365,
+			all: null,
+		};
+		const days = range in rangeDays ? rangeDays[range] : 30;
+
+		if (days === null) {
+			const [oldest] = await db
+				.select({
+					minDate: sql<string>`MIN(${tables.user.createdAt})`.as("minDate"),
+				})
+				.from(tables.user);
+			startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
+		} else {
+			// eslint-disable-next-line no-mixed-operators
+			startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+		}
+		startDate.setUTCHours(0, 0, 0, 0);
+	}
 
 	// Signups per day
 	const signupsPerDay = await db
@@ -538,12 +633,12 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
 
-	// Revenue per day (completed transactions)
+	// Revenue per day (completed transactions, excluding gifts, using creditAmount)
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
 			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -551,17 +646,18 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
 				gte(tables.transaction.createdAt, startDate),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Revenue earned before the range (for cumulative chart)
+	// Revenue earned before the range (for cumulative chart, excluding gifts, using creditAmount)
 	const [preRangeRevenueRow] = await db
 		.select({
 			total:
-				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -569,6 +665,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -669,7 +766,7 @@ admin.openapi(getTimeseries, async (c) => {
 	}
 
 	return c.json({
-		range,
+		range: query.range ?? "all",
 		data,
 		totals: {
 			signups: totalSignups,
@@ -743,6 +840,19 @@ admin.openapi(getOrganizations, async (c) => {
 		.groupBy(tables.project.organizationId)
 		.as("total_spent");
 
+	// Subquery for owner user per org
+	const ownerSub = db
+		.select({
+			organizationId: tables.userOrganization.organizationId,
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.role, "owner"))
+		.as("owner_sub");
+
 	const sortColumnMap = {
 		name: tables.organization.name,
 		billingEmail: tables.organization.billingEmail,
@@ -774,6 +884,9 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: sql<string>`COALESCE(${totalSpentSub.total}, '0')`.as(
 				"totalSpent",
 			),
+			ownerUserId: ownerSub.userId,
+			ownerName: ownerSub.userName,
+			ownerEmail: ownerSub.userEmail,
 		})
 		.from(tables.organization)
 		.leftJoin(
@@ -784,6 +897,7 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpentSub,
 			eq(tables.organization.id, totalSpentSub.organizationId),
 		)
+		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(whereClause)
 		.orderBy(orderFn(sortColumn))
 		.limit(limit)
@@ -801,6 +915,9 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: String(org.totalSpent ?? "0"),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			ownerUserId: org.ownerUserId ?? null,
+			ownerName: org.ownerName ?? null,
+			ownerEmail: org.ownerEmail ?? null,
 		})),
 		total,
 		totalCredits,
@@ -1179,6 +1296,53 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	});
 });
 
+admin.openapi(getOrganizationMembers, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const members = await db
+		.select({
+			id: tables.userOrganization.id,
+			userId: tables.userOrganization.userId,
+			role: tables.userOrganization.role,
+			createdAt: tables.userOrganization.createdAt,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+			userEmailVerified: tables.user.emailVerified,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.organizationId, orgId))
+		.orderBy(desc(tables.userOrganization.createdAt));
+
+	return c.json({
+		members: members.map((m) => ({
+			id: m.id,
+			userId: m.userId,
+			role: m.role,
+			createdAt: m.createdAt.toISOString(),
+			user: {
+				id: m.userId,
+				email: m.userEmail,
+				name: m.userName,
+				emailVerified: m.userEmailVerified,
+			},
+		})),
+		total: members.length,
+	});
+});
+
 // ==================== Project-Level Endpoints ====================
 
 const projectMetricsSchema = z.object({
@@ -1404,18 +1568,66 @@ const logEntrySchema = z.object({
 	id: z.string(),
 	createdAt: z.string(),
 	duration: z.number(),
+	requestedModel: z.string().nullable(),
 	usedModel: z.string(),
 	usedProvider: z.string(),
+	usedModelMapping: z.string().nullable(),
+	requestId: z.string().nullable(),
+	projectId: z.string(),
+	organizationId: z.string(),
+	apiKeyId: z.string(),
+	promptTokens: z.string().nullable(),
+	completionTokens: z.string().nullable(),
 	totalTokens: z.string().nullable(),
+	reasoningTokens: z.string().nullable(),
+	cachedTokens: z.string().nullable(),
+	imageInputTokens: z.string().nullable(),
+	imageOutputTokens: z.string().nullable(),
 	cost: z.number().nullable(),
+	inputCost: z.number().nullable(),
+	outputCost: z.number().nullable(),
+	cachedInputCost: z.number().nullable(),
+	requestCost: z.number().nullable(),
+	webSearchCost: z.number().nullable(),
+	imageInputCost: z.number().nullable(),
+	imageOutputCost: z.number().nullable(),
+	dataStorageCost: z.number().nullable(),
 	hasError: z.boolean().nullable(),
+	errorDetails: z.any().nullable(),
+	finishReason: z.string().nullable(),
 	unifiedFinishReason: z.string().nullable(),
 	cached: z.boolean().nullable(),
-	cachedTokens: z.string().nullable(),
+	streamed: z.boolean().nullable(),
+	canceled: z.boolean().nullable(),
+	retried: z.boolean().nullable(),
+	retriedByLogId: z.string().nullable(),
 	source: z.string().nullable(),
 	content: z.string().nullable(),
+	reasoningContent: z.string().nullable(),
+	mode: z.string(),
 	usedMode: z.string(),
 	discount: z.number().nullable(),
+	pricingTier: z.string().nullable(),
+	timeToFirstToken: z.number().nullable(),
+	timeToFirstReasoningToken: z.number().nullable(),
+	responseSize: z.number().nullable(),
+	temperature: z.number().nullable(),
+	maxTokens: z.number().nullable(),
+	topP: z.number().nullable(),
+	frequencyPenalty: z.number().nullable(),
+	reasoningEffort: z.string().nullable(),
+	reasoningMaxTokens: z.number().nullable(),
+	effort: z.string().nullable(),
+	responseFormat: z.any().nullable(),
+	tools: z.any().nullable(),
+	toolChoice: z.any().nullable(),
+	toolResults: z.any().nullable(),
+	messages: z.any().nullable(),
+	params: z.any().nullable(),
+	plugins: z.array(z.string()).nullable(),
+	pluginResults: z.any().nullable(),
+	customHeaders: z.any().nullable(),
+	routingMetadata: z.any().nullable(),
 });
 
 const projectLogsSchema = z.object({
@@ -1507,18 +1719,66 @@ admin.openapi(getProjectLogs, async (c) => {
 			id: tables.log.id,
 			createdAt: tables.log.createdAt,
 			duration: tables.log.duration,
+			requestedModel: tables.log.requestedModel,
 			usedModel: tables.log.usedModel,
 			usedProvider: tables.log.usedProvider,
+			usedModelMapping: tables.log.usedModelMapping,
+			requestId: tables.log.requestId,
+			projectId: tables.log.projectId,
+			organizationId: tables.log.organizationId,
+			apiKeyId: tables.log.apiKeyId,
+			promptTokens: tables.log.promptTokens,
+			completionTokens: tables.log.completionTokens,
 			totalTokens: tables.log.totalTokens,
+			reasoningTokens: tables.log.reasoningTokens,
+			cachedTokens: tables.log.cachedTokens,
+			imageInputTokens: tables.log.imageInputTokens,
+			imageOutputTokens: tables.log.imageOutputTokens,
 			cost: tables.log.cost,
+			inputCost: tables.log.inputCost,
+			outputCost: tables.log.outputCost,
+			cachedInputCost: tables.log.cachedInputCost,
+			requestCost: tables.log.requestCost,
+			webSearchCost: tables.log.webSearchCost,
+			imageInputCost: tables.log.imageInputCost,
+			imageOutputCost: tables.log.imageOutputCost,
+			dataStorageCost: tables.log.dataStorageCost,
 			hasError: tables.log.hasError,
+			errorDetails: tables.log.errorDetails,
+			finishReason: tables.log.finishReason,
 			unifiedFinishReason: tables.log.unifiedFinishReason,
 			cached: tables.log.cached,
-			cachedTokens: tables.log.cachedTokens,
+			streamed: tables.log.streamed,
+			canceled: tables.log.canceled,
+			retried: tables.log.retried,
+			retriedByLogId: tables.log.retriedByLogId,
 			source: tables.log.source,
 			content: tables.log.content,
+			reasoningContent: tables.log.reasoningContent,
+			mode: tables.log.mode,
 			usedMode: tables.log.usedMode,
 			discount: tables.log.discount,
+			pricingTier: tables.log.pricingTier,
+			timeToFirstToken: tables.log.timeToFirstToken,
+			timeToFirstReasoningToken: tables.log.timeToFirstReasoningToken,
+			responseSize: tables.log.responseSize,
+			temperature: tables.log.temperature,
+			maxTokens: tables.log.maxTokens,
+			topP: tables.log.topP,
+			frequencyPenalty: tables.log.frequencyPenalty,
+			reasoningEffort: tables.log.reasoningEffort,
+			reasoningMaxTokens: tables.log.reasoningMaxTokens,
+			effort: tables.log.effort,
+			responseFormat: tables.log.responseFormat,
+			tools: tables.log.tools,
+			toolChoice: tables.log.toolChoice,
+			toolResults: tables.log.toolResults,
+			messages: tables.log.messages,
+			params: tables.log.params,
+			plugins: tables.log.plugins,
+			pluginResults: tables.log.pluginResults,
+			customHeaders: tables.log.customHeaders,
+			routingMetadata: tables.log.routingMetadata,
 		})
 		.from(tables.log)
 		.where(and(...whereConditions))
@@ -1535,8 +1795,16 @@ admin.openapi(getProjectLogs, async (c) => {
 	return c.json({
 		logs: paginatedLogs.map((l) => ({
 			...l,
+			promptTokens: l.promptTokens ? String(l.promptTokens) : null,
+			completionTokens: l.completionTokens ? String(l.completionTokens) : null,
 			totalTokens: l.totalTokens ? String(l.totalTokens) : null,
+			reasoningTokens: l.reasoningTokens ? String(l.reasoningTokens) : null,
 			cachedTokens: l.cachedTokens ? String(l.cachedTokens) : null,
+			imageInputTokens: l.imageInputTokens ? String(l.imageInputTokens) : null,
+			imageOutputTokens: l.imageOutputTokens
+				? String(l.imageOutputTokens)
+				: null,
+			dataStorageCost: l.dataStorageCost ? Number(l.dataStorageCost) : null,
 			createdAt: l.createdAt.toISOString(),
 		})),
 		pagination: {
@@ -2099,11 +2367,13 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 
 const providerSortBySchema = z.enum([
 	"name",
+	"status",
 	"logsCount",
 	"errorsCount",
 	"cachedCount",
 	"avgTimeToFirstToken",
 	"modelCount",
+	"updatedAt",
 ]);
 
 const providerStatsSchema = z.object({
@@ -2116,12 +2386,16 @@ const providerStatsSchema = z.object({
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	modelCount: z.number(),
+	totalTokens: z.number(),
+	totalCost: z.number(),
 	updatedAt: z.string(),
 });
 
 const providersListSchema = z.object({
 	providers: z.array(providerStatsSchema),
 	total: z.number(),
+	totalTokens: z.number(),
+	totalCost: z.number(),
 });
 
 const getProviderStats = createRoute({
@@ -2131,6 +2405,8 @@ const getProviderStats = createRoute({
 		query: z.object({
 			sortBy: providerSortBySchema.default("logsCount").optional(),
 			sortOrder: sortOrderSchema.default("desc").optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -2149,6 +2425,7 @@ admin.openapi(getProviderStats, async (c) => {
 	const query = c.req.valid("query");
 	const sortBy = query.sortBy ?? "logsCount";
 	const sortOrder = query.sortOrder ?? "desc";
+	const { from, to } = query;
 
 	const modelCountSub = db
 		.select({
@@ -2159,15 +2436,124 @@ admin.openapi(getProviderStats, async (c) => {
 		.groupBy(tables.modelProviderMapping.providerId)
 		.as("model_count_sub");
 
+	if (from && to) {
+		let startDate: Date;
+		let endDateExclusive: Date;
+		if (from.includes("T") || from.includes("Z")) {
+			startDate = new Date(from);
+			endDateExclusive = new Date(to);
+		} else {
+			startDate = new Date(from + "T00:00:00");
+			startDate.setUTCHours(0, 0, 0, 0);
+			endDateExclusive = new Date(to + "T00:00:00");
+			endDateExclusive.setUTCHours(0, 0, 0, 0);
+			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
+		}
+
+		const [statsRows, providerRows, modelCountRows] = await Promise.all([
+			db
+				.select({
+					usedProvider: projectHourlyModelStats.usedProvider,
+					logsCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`,
+					errorsCount: sql<number>`SUM(${projectHourlyModelStats.errorCount})`,
+					cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`,
+					totalTokens: sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`,
+					totalCost: sql<number>`SUM(${projectHourlyModelStats.cost})`,
+				})
+				.from(projectHourlyModelStats)
+				.where(
+					and(
+						gte(projectHourlyModelStats.hourTimestamp, startDate),
+						lt(projectHourlyModelStats.hourTimestamp, endDateExclusive),
+					),
+				)
+				.groupBy(projectHourlyModelStats.usedProvider),
+			db
+				.select({
+					id: tables.provider.id,
+					name: tables.provider.name,
+					color: tables.provider.color,
+					status: tables.provider.status,
+					avgTimeToFirstToken: tables.provider.avgTimeToFirstToken,
+					updatedAt: tables.provider.updatedAt,
+				})
+				.from(tables.provider),
+			db
+				.select({
+					providerId: tables.modelProviderMapping.providerId,
+					count: sql<number>`COUNT(*)`,
+				})
+				.from(tables.modelProviderMapping)
+				.groupBy(tables.modelProviderMapping.providerId),
+		]);
+
+		const statsMap = new Map(
+			statsRows.map((r) => [
+				r.usedProvider,
+				{
+					logsCount: Number(r.logsCount ?? 0),
+					errorsCount: Number(r.errorsCount ?? 0),
+					cachedCount: Number(r.cachedCount ?? 0),
+					totalTokens: Number(r.totalTokens ?? 0),
+					totalCost: Number(r.totalCost ?? 0),
+				},
+			]),
+		);
+		const modelCountMap = new Map(
+			modelCountRows.map((r) => [r.providerId, Number(r.count ?? 0)]),
+		);
+
+		const merged = providerRows.map((p) => ({
+			id: p.id,
+			name: p.name,
+			color: p.color,
+			status: p.status,
+			logsCount: statsMap.get(p.id)?.logsCount ?? 0,
+			errorsCount: statsMap.get(p.id)?.errorsCount ?? 0,
+			cachedCount: statsMap.get(p.id)?.cachedCount ?? 0,
+			avgTimeToFirstToken: p.avgTimeToFirstToken,
+			modelCount: modelCountMap.get(p.id) ?? 0,
+			totalTokens: statsMap.get(p.id)?.totalTokens ?? 0,
+			totalCost: statsMap.get(p.id)?.totalCost ?? 0,
+			updatedAt: p.updatedAt.toISOString(),
+		}));
+
+		type MergedProvider = (typeof merged)[number];
+		const sortKey = sortBy as keyof MergedProvider;
+		merged.sort((a, b) => {
+			const av = a[sortKey] ?? 0;
+			const bv = b[sortKey] ?? 0;
+			if (av < bv) {
+				return sortOrder === "asc" ? -1 : 1;
+			}
+			if (av > bv) {
+				return sortOrder === "asc" ? 1 : -1;
+			}
+			return 0;
+		});
+
+		const totalTokensAgg = merged.reduce((s, p) => s + p.totalTokens, 0);
+		const totalCostAgg = merged.reduce((s, p) => s + p.totalCost, 0);
+
+		return c.json({
+			providers: merged,
+			total: merged.length,
+			totalTokens: totalTokensAgg,
+			totalCost: totalCostAgg,
+		});
+	}
+
 	const orderFn = sortOrder === "asc" ? asc : desc;
 
 	const sortColumnMap = {
 		name: tables.provider.name,
+		status: tables.provider.status,
 		logsCount: tables.provider.logsCount,
 		errorsCount: tables.provider.errorsCount,
 		cachedCount: tables.provider.cachedCount,
 		avgTimeToFirstToken: tables.provider.avgTimeToFirstToken,
 		modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
+		updatedAt: tables.provider.updatedAt,
 	} as const;
 
 	const sortColumn = sortColumnMap[sortBy];
@@ -2202,20 +2588,27 @@ admin.openapi(getProviderStats, async (c) => {
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			modelCount: Number(r.modelCount),
+			totalTokens: 0,
+			totalCost: 0,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total: rows.length,
+		totalTokens: 0,
+		totalCost: 0,
 	});
 });
 
 const modelSortBySchema = z.enum([
 	"name",
 	"family",
+	"status",
+	"free",
 	"logsCount",
 	"errorsCount",
 	"cachedCount",
 	"avgTimeToFirstToken",
 	"providerCount",
+	"updatedAt",
 ]);
 
 const modelStatsSchema = z.object({
@@ -2230,6 +2623,8 @@ const modelStatsSchema = z.object({
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	providerCount: z.number(),
+	totalTokens: z.number(),
+	totalCost: z.number(),
 	updatedAt: z.string(),
 });
 
@@ -2238,6 +2633,8 @@ const modelsListSchema = z.object({
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
+	totalTokens: z.number(),
+	totalCost: z.number(),
 });
 
 const getModelStats = createRoute({
@@ -2251,6 +2648,8 @@ const getModelStats = createRoute({
 			sortOrder: sortOrderSchema.default("desc").optional(),
 			limit: z.coerce.number().min(1).max(100).default(50).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -2273,15 +2672,7 @@ admin.openapi(getModelStats, async (c) => {
 	const sortOrderVal = query.sortOrder ?? "desc";
 	const limit = query.limit ?? 50;
 	const offset = query.offset ?? 0;
-
-	const providerCountSub = db
-		.select({
-			modelId: tables.modelProviderMapping.modelId,
-			count: sql<number>`COUNT(*)`.as("provider_count"),
-		})
-		.from(tables.modelProviderMapping)
-		.groupBy(tables.modelProviderMapping.modelId)
-		.as("provider_count_sub");
+	const { from, to } = query;
 
 	const conditions = [];
 	if (search) {
@@ -2296,13 +2687,157 @@ admin.openapi(getModelStats, async (c) => {
 	if (family) {
 		conditions.push(eq(tables.model.family, family));
 	}
-
 	const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-	const [countResult] = await db
+	if (from && to) {
+		let startDate: Date;
+		let endDateExclusive: Date;
+		if (from.includes("T") || from.includes("Z")) {
+			startDate = new Date(from);
+			endDateExclusive = new Date(to);
+		} else {
+			startDate = new Date(from + "T00:00:00");
+			startDate.setUTCHours(0, 0, 0, 0);
+			endDateExclusive = new Date(to + "T00:00:00");
+			endDateExclusive.setUTCHours(0, 0, 0, 0);
+			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
+		}
+
+		const hourStartDate = new Date(startDate);
+		hourStartDate.setMinutes(0, 0, 0);
+
+		const [statsRows, costRows, modelRows, providerCountRows] =
+			await Promise.all([
+				db
+					.select({
+						modelId: modelHistory.modelId,
+						logsCount: sql<number>`SUM(${modelHistory.logsCount})`,
+						errorsCount: sql<number>`SUM(${modelHistory.errorsCount})`,
+						cachedCount: sql<number>`SUM(${modelHistory.cachedCount})`,
+						totalTokens: sql<number>`SUM(CAST(${modelHistory.totalTokens} AS NUMERIC))`,
+					})
+					.from(modelHistory)
+					.where(
+						and(
+							gte(modelHistory.minuteTimestamp, startDate),
+							lt(modelHistory.minuteTimestamp, endDateExclusive),
+						),
+					)
+					.groupBy(modelHistory.modelId),
+				db
+					.select({
+						usedModel: projectHourlyModelStats.usedModel,
+						totalCost:
+							sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+								"total_cost",
+							),
+					})
+					.from(projectHourlyModelStats)
+					.where(
+						and(
+							gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+							lt(projectHourlyModelStats.hourTimestamp, endDateExclusive),
+						),
+					)
+					.groupBy(projectHourlyModelStats.usedModel),
+				db
+					.select({
+						id: tables.model.id,
+						name: tables.model.name,
+						family: tables.model.family,
+						free: tables.model.free,
+						stability: tables.model.stability,
+						status: tables.model.status,
+						avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+						updatedAt: tables.model.updatedAt,
+					})
+					.from(tables.model)
+					.where(whereClause),
+				db
+					.select({
+						modelId: tables.modelProviderMapping.modelId,
+						count: sql<number>`COUNT(*)`,
+					})
+					.from(tables.modelProviderMapping)
+					.groupBy(tables.modelProviderMapping.modelId),
+			]);
+
+		const costMap = new Map(
+			costRows.map((r) => [r.usedModel, Number(r.totalCost ?? 0)]),
+		);
+
+		const statsMap = new Map(
+			statsRows.map((r) => [
+				r.modelId,
+				{
+					logsCount: Number(r.logsCount ?? 0),
+					errorsCount: Number(r.errorsCount ?? 0),
+					cachedCount: Number(r.cachedCount ?? 0),
+					totalTokens: Number(r.totalTokens ?? 0),
+				},
+			]),
+		);
+		const providerCountMap = new Map(
+			providerCountRows.map((r) => [r.modelId, Number(r.count ?? 0)]),
+		);
+
+		const merged = modelRows.map((m) => ({
+			id: m.id,
+			name: m.name,
+			family: m.family,
+			free: m.free,
+			stability: m.stability,
+			status: m.status,
+			logsCount: statsMap.get(m.id)?.logsCount ?? 0,
+			errorsCount: statsMap.get(m.id)?.errorsCount ?? 0,
+			cachedCount: statsMap.get(m.id)?.cachedCount ?? 0,
+			avgTimeToFirstToken: m.avgTimeToFirstToken,
+			providerCount: providerCountMap.get(m.id) ?? 0,
+			totalTokens: statsMap.get(m.id)?.totalTokens ?? 0,
+			totalCost: costMap.get(m.id) ?? 0,
+			updatedAt: m.updatedAt.toISOString(),
+		}));
+
+		type MergedModel = (typeof merged)[number];
+		const sortKey = sortBy as keyof MergedModel;
+		merged.sort((a, b) => {
+			const av = a[sortKey] ?? 0;
+			const bv = b[sortKey] ?? 0;
+			if (av < bv) {
+				return sortOrderVal === "asc" ? -1 : 1;
+			}
+			if (av > bv) {
+				return sortOrderVal === "asc" ? 1 : -1;
+			}
+			return 0;
+		});
+
+		const total = merged.length;
+		const paginated = merged.slice(offset, offset + limit);
+		const totalTokensAgg = merged.reduce((s, m) => s + m.totalTokens, 0);
+		const totalCostAgg = merged.reduce((s, m) => s + m.totalCost, 0);
+
+		return c.json({
+			models: paginated,
+			total,
+			limit,
+			offset,
+			totalTokens: totalTokensAgg,
+			totalCost: totalCostAgg,
+		});
+	}
+
+	const providerCountSub = db
 		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
+			modelId: tables.modelProviderMapping.modelId,
+			count: sql<number>`COUNT(*)`.as("provider_count"),
 		})
+		.from(tables.modelProviderMapping)
+		.groupBy(tables.modelProviderMapping.modelId)
+		.as("provider_count_sub");
+
+	const [countResult] = await db
+		.select({ count: sql<number>`COUNT(*)`.as("count") })
 		.from(tables.model)
 		.where(whereClause);
 
@@ -2313,11 +2848,14 @@ admin.openapi(getModelStats, async (c) => {
 	const sortColumnMap = {
 		name: tables.model.name,
 		family: tables.model.family,
+		status: tables.model.status,
+		free: tables.model.free,
 		logsCount: tables.model.logsCount,
 		errorsCount: tables.model.errorsCount,
 		cachedCount: tables.model.cachedCount,
 		avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 		providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
+		updatedAt: tables.model.updatedAt,
 	} as const;
 
 	const sortColumn = sortColumnMap[sortBy];
@@ -2359,11 +2897,1189 @@ admin.openapi(getModelStats, async (c) => {
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			providerCount: Number(r.providerCount),
+			totalTokens: 0,
+			totalCost: 0,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total,
 		limit,
 		offset,
+		totalTokens: 0,
+		totalCost: 0,
+	});
+});
+
+// --- Shared history helpers (used by model detail + history endpoints) ---
+
+const historyWindowSchema = z.enum([
+	"2m",
+	"5m",
+	"15m",
+	"1h",
+	"2h",
+	"4h",
+	"12h",
+	"24h",
+	"1d",
+	"2d",
+	"7d",
+]);
+
+function getHistoryStartDate(window: string): Date {
+	const windowMinutes: Record<string, number> = {
+		"2m": 2,
+		"5m": 5,
+		"15m": 15,
+		"1h": 60,
+		"2h": 120,
+		"4h": 240,
+		"12h": 720,
+		"24h": 1440,
+		"1d": 1440,
+		"2d": 2880,
+		"7d": 10080,
+	};
+	const minutes = windowMinutes[window] ?? 240;
+	const ms = minutes * 60 * 1000;
+	return new Date(Date.now() - ms);
+}
+
+// Model detail – lists providers that serve a given model (with stats)
+const modelProviderStatsSchema = z.object({
+	providerId: z.string(),
+	providerName: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	cachedCount: z.number(),
+	avgTimeToFirstToken: z.number().nullable(),
+	updatedAt: z.string(),
+});
+
+const modelDetailSchema = z.object({
+	model: z.object({
+		id: z.string(),
+		name: z.string(),
+		family: z.string(),
+		free: z.boolean(),
+		stability: z.string(),
+		status: z.string(),
+		logsCount: z.number(),
+		errorsCount: z.number(),
+		cachedCount: z.number(),
+		avgTimeToFirstToken: z.number().nullable(),
+		providerCount: z.number(),
+		updatedAt: z.string(),
+	}),
+	providers: z.array(modelProviderStatsSchema),
+});
+
+const getModelDetail = createRoute({
+	method: "get",
+	path: "/models/{modelId}",
+	request: {
+		params: z.object({ modelId: z.string() }),
+		query: z.object({
+			window: historyWindowSchema.default("24h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: modelDetailSchema.openapi({}) },
+			},
+			description: "Model detail with per-provider stats.",
+		},
+	},
+});
+
+admin.openapi(getModelDetail, async (c) => {
+	const { modelId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "24h";
+	const startDate = getHistoryStartDate(window);
+
+	const model = await db.query.model.findFirst({
+		where: { id: { eq: modelId } },
+	});
+
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+
+	const [mappings, statsRows] = await Promise.all([
+		db
+			.select({
+				providerId: tables.modelProviderMapping.providerId,
+				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				updatedAt: tables.modelProviderMapping.updatedAt,
+			})
+			.from(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.modelId, modelId)),
+		db
+			.select({
+				providerId: modelProviderMappingHistory.providerId,
+				logsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+						"errors_count",
+					),
+				cachedCount:
+					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+						"cached_count",
+					),
+				avgTtft:
+					sql<number>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+						"avg_ttft",
+					),
+			})
+			.from(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.modelId, modelId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			)
+			.groupBy(modelProviderMappingHistory.providerId),
+	]);
+
+	const providerIds = mappings.map((m) => m.providerId);
+	const providerRows =
+		providerIds.length > 0
+			? await db.query.provider.findMany({
+					where: { id: { in: providerIds } },
+				})
+			: [];
+
+	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
+	const providerStatsMap = new Map(
+		statsRows.map((r) => [
+			r.providerId,
+			{
+				logsCount: Number(r.logsCount ?? 0),
+				errorsCount: Number(r.errorsCount ?? 0),
+				cachedCount: Number(r.cachedCount ?? 0),
+				avgTtft: r.avgTtft !== null ? Number(r.avgTtft) : null,
+			},
+		]),
+	);
+
+	const providerStats = mappings.map((m) => {
+		const stats = providerStatsMap.get(m.providerId);
+		return {
+			providerId: m.providerId,
+			providerName: providerNameMap.get(m.providerId) ?? m.providerId,
+			logsCount: stats?.logsCount ?? 0,
+			errorsCount: stats?.errorsCount ?? 0,
+			cachedCount: stats?.cachedCount ?? 0,
+			avgTimeToFirstToken: stats?.avgTtft ?? m.avgTimeToFirstToken,
+			updatedAt: m.updatedAt.toISOString(),
+		};
+	});
+
+	return c.json({
+		model: {
+			id: model.id,
+			name: model.name,
+			family: model.family,
+			free: model.free,
+			stability: model.stability,
+			status: model.status,
+			logsCount: model.logsCount,
+			errorsCount: model.errorsCount,
+			cachedCount: model.cachedCount,
+			avgTimeToFirstToken: model.avgTimeToFirstToken,
+			providerCount: providerStats.length,
+			updatedAt: model.updatedAt.toISOString(),
+		},
+		providers: providerStats,
+	});
+});
+
+// Gift credits to organization
+const giftCreditsRoute = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/gift-credits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						creditAmount: z
+							.number()
+							.min(0.01, "Credit amount must be positive"),
+						comment: z.string().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						credits: z.string(),
+					}),
+				},
+			},
+			description: "Credits gifted successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(giftCreditsRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { creditAmount, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const description = comment
+		? `Credits gifted by Administrator: ${comment}`
+		: "Credits gifted by Administrator";
+
+	const { transactionId, updatedCredits } = await db.transaction(async (tx) => {
+		const [txn] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: orgId,
+				type: "credit_gift",
+				creditAmount: creditAmount.toString(),
+				currency: "USD",
+				status: "completed",
+				description,
+			})
+			.returning({ id: tables.transaction.id });
+
+		const [updatedOrg] = await tx
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} + ${creditAmount}`,
+			})
+			.where(eq(tables.organization.id, orgId))
+			.returning({ credits: tables.organization.credits });
+
+		return {
+			transactionId: txn.id,
+			updatedCredits: String(updatedOrg.credits),
+		};
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "credits.gift",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			creditAmount,
+			comment,
+			transactionId,
+		},
+	});
+
+	return c.json({
+		message: "Credits gifted successfully",
+		credits: updatedCredits,
+	});
+});
+
+// --- Delete User ---
+
+const deleteUserRoute = createRoute({
+	method: "delete",
+	path: "/users/{userId}",
+	request: {
+		params: z.object({
+			userId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "User deleted.",
+		},
+		404: {
+			description: "User not found.",
+		},
+	},
+});
+
+admin.openapi(deleteUserRoute, async (c) => {
+	const { userId } = c.req.valid("param");
+
+	const existingUser = await db.query.user.findFirst({
+		where: { id: { eq: userId } },
+	});
+
+	if (!existingUser) {
+		throw new HTTPException(404, { message: "User not found" });
+	}
+
+	await db.delete(tables.user).where(eq(tables.user.id, userId));
+
+	return c.json({ success: true });
+});
+
+// --- History endpoints ---
+
+const historyDataPointSchema = z.object({
+	timestamp: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	cachedCount: z.number(),
+	avgTtft: z.number().nullable(),
+	avgDuration: z.number().nullable(),
+	totalTokens: z.number(),
+	totalCost: z.number(),
+});
+
+const historyResponseSchema = z.object({
+	data: z.array(historyDataPointSchema),
+});
+
+function getHourFloor(date: Date): string {
+	const d = new Date(date);
+	d.setMinutes(0, 0, 0);
+	return d.toISOString();
+}
+
+function mapHistoryRows(
+	rows: {
+		minuteTimestamp: Date;
+		logsCount: number;
+		errorsCount: number;
+		cachedCount: number;
+		totalDuration: number;
+		totalTimeToFirstToken: number;
+		totalTokens: number;
+	}[],
+	costByHour: Map<string, number> = new Map(),
+) {
+	const requestsByHour = new Map<string, number>();
+	for (const r of rows) {
+		const hk = getHourFloor(r.minuteTimestamp);
+		requestsByHour.set(hk, (requestsByHour.get(hk) ?? 0) + Number(r.logsCount));
+	}
+
+	return rows.map((r) => {
+		const logsCount = Number(r.logsCount);
+		const errorsCount = Number(r.errorsCount);
+		const cachedCount = Number(r.cachedCount);
+		const totalDuration = Number(r.totalDuration);
+		const totalTimeToFirstToken = Number(r.totalTimeToFirstToken);
+		const totalTokens = Number(r.totalTokens);
+		const nonCached = logsCount - cachedCount;
+
+		const hk = getHourFloor(r.minuteTimestamp);
+		const hourCost = costByHour.get(hk) ?? 0;
+		const hourReqs = requestsByHour.get(hk) ?? 0;
+		const totalCost = hourReqs > 0 ? (logsCount / hourReqs) * hourCost : 0;
+
+		return {
+			timestamp: r.minuteTimestamp.toISOString(),
+			logsCount,
+			errorsCount,
+			cachedCount,
+			avgTtft:
+				nonCached > 0 ? Math.round(totalTimeToFirstToken / nonCached) : null,
+			avgDuration: logsCount > 0 ? Math.round(totalDuration / logsCount) : null,
+			totalTokens,
+			totalCost,
+		};
+	});
+}
+
+// Provider history
+const getProviderHistory = createRoute({
+	method: "get",
+	path: "/providers/{providerId}/history",
+	request: {
+		params: z.object({ providerId: z.string() }),
+		query: z.object({
+			window: historyWindowSchema.default("4h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: historyResponseSchema.openapi({}) },
+			},
+			description: "Provider history timeseries.",
+		},
+	},
+});
+
+admin.openapi(getProviderHistory, async (c) => {
+	const { providerId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "4h";
+	const startDate = getHistoryStartDate(window);
+	const hourStartDate = new Date(startDate);
+	hourStartDate.setMinutes(0, 0, 0);
+
+	const [rows, costRows] = await Promise.all([
+		db
+			.select({
+				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+				logsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+						"errors_count",
+					),
+				cachedCount:
+					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+						"cached_count",
+					),
+				totalDuration:
+					sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
+						"total_duration",
+					),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				totalTokens:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
+						"total_tokens",
+					),
+			})
+			.from(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.providerId, providerId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			)
+			.groupBy(modelProviderMappingHistory.minuteTimestamp)
+			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp)),
+		db
+			.select({
+				hourTimestamp: projectHourlyModelStats.hourTimestamp,
+				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`,
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					eq(projectHourlyModelStats.usedProvider, providerId),
+					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(projectHourlyModelStats.hourTimestamp),
+	]);
+
+	const costByHour = new Map<string, number>(
+		costRows.map((r) => {
+			const d = new Date(r.hourTimestamp);
+			d.setMinutes(0, 0, 0);
+			return [d.toISOString(), Number(r.cost)];
+		}),
+	);
+
+	return c.json({ data: mapHistoryRows(rows, costByHour) });
+});
+
+// Model history
+const getModelHistory = createRoute({
+	method: "get",
+	path: "/models/{modelId}/history",
+	request: {
+		params: z.object({ modelId: z.string() }),
+		query: z.object({
+			window: historyWindowSchema.default("4h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: historyResponseSchema.openapi({}) },
+			},
+			description: "Model history timeseries.",
+		},
+	},
+});
+
+admin.openapi(getModelHistory, async (c) => {
+	const { modelId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "4h";
+	const startDate = getHistoryStartDate(window);
+	const hourStartDate = new Date(startDate);
+	hourStartDate.setMinutes(0, 0, 0);
+
+	const [rows, costRows] = await Promise.all([
+		db
+			.select({
+				minuteTimestamp: modelHistory.minuteTimestamp,
+				logsCount: sql<number>`SUM(${modelHistory.logsCount})`.as("logs_count"),
+				errorsCount: sql<number>`SUM(${modelHistory.errorsCount})`.as(
+					"errors_count",
+				),
+				cachedCount: sql<number>`SUM(${modelHistory.cachedCount})`.as(
+					"cached_count",
+				),
+				totalDuration: sql<number>`SUM(${modelHistory.totalDuration})`.as(
+					"total_duration",
+				),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelHistory.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
+					"total_tokens",
+				),
+			})
+			.from(modelHistory)
+			.where(
+				and(
+					eq(modelHistory.modelId, modelId),
+					gte(modelHistory.minuteTimestamp, startDate),
+				),
+			)
+			.groupBy(modelHistory.minuteTimestamp)
+			.orderBy(asc(modelHistory.minuteTimestamp)),
+		db
+			.select({
+				hourTimestamp: projectHourlyModelStats.hourTimestamp,
+				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`,
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					eq(projectHourlyModelStats.usedModel, modelId),
+					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(projectHourlyModelStats.hourTimestamp),
+	]);
+
+	const costByHour = new Map<string, number>(
+		costRows.map((r) => {
+			const d = new Date(r.hourTimestamp);
+			d.setMinutes(0, 0, 0);
+			return [d.toISOString(), Number(r.cost)];
+		}),
+	);
+
+	return c.json({ data: mapHistoryRows(rows, costByHour) });
+});
+
+// Mapping history (provider + model)
+const getMappingHistory = createRoute({
+	method: "get",
+	path: "/providers/{providerId}/models/{modelId}/history",
+	request: {
+		params: z.object({
+			providerId: z.string(),
+			modelId: z.string(),
+		}),
+		query: z.object({
+			window: historyWindowSchema.default("4h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: historyResponseSchema.openapi({}) },
+			},
+			description: "Provider-model mapping history timeseries.",
+		},
+	},
+});
+
+admin.openapi(getMappingHistory, async (c) => {
+	const { providerId, modelId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "4h";
+	const startDate = getHistoryStartDate(window);
+	const hourStartDate = new Date(startDate);
+	hourStartDate.setMinutes(0, 0, 0);
+
+	const [minuteRows, hourlyRows] = await Promise.all([
+		db
+			.select({
+				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+				logsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+						"errors_count",
+					),
+				cachedCount:
+					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+						"cached_count",
+					),
+				totalDuration:
+					sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
+						"total_duration",
+					),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				totalTokens:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
+						"total_tokens",
+					),
+			})
+			.from(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.providerId, providerId),
+					eq(modelProviderMappingHistory.modelId, modelId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			)
+			.groupBy(modelProviderMappingHistory.minuteTimestamp)
+			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp)),
+		db
+			.select({
+				hourTimestamp: projectHourlyModelStats.hourTimestamp,
+				logsCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"logs_count",
+				),
+				errorsCount: sql<number>`SUM(${projectHourlyModelStats.errorCount})`.as(
+					"errors_count",
+				),
+				cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`.as(
+					"cached_count",
+				),
+				totalTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+						"total_tokens",
+					),
+				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					eq(projectHourlyModelStats.usedProvider, providerId),
+					eq(projectHourlyModelStats.usedModel, modelId),
+					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(projectHourlyModelStats.hourTimestamp)
+			.orderBy(asc(projectHourlyModelStats.hourTimestamp)),
+	]);
+
+	const hasMinuteData = minuteRows.some((r) => Number(r.logsCount) > 0);
+	const costByHour = new Map<string, number>(
+		hourlyRows.map((r) => {
+			const d = new Date(r.hourTimestamp);
+			d.setMinutes(0, 0, 0);
+			return [d.toISOString(), Number(r.cost)];
+		}),
+	);
+
+	// For short windows with minute data, return minute-level granularity
+	const dayWindows = new Set(["1d", "2d", "7d"]);
+	if (hasMinuteData && !dayWindows.has(window)) {
+		return c.json({ data: mapHistoryRows(minuteRows, costByHour) });
+	}
+
+	// For day windows or when minute data is missing, use hourly data as
+	// the timeline base and overlay latency from minute data where available.
+	// This ensures consistent chart granularity across all providers.
+	// When per-provider minute data is empty, fall back to model-level latency
+	// from model_history as an approximation.
+	const latencyByHour = new Map<
+		string,
+		{
+			totalDuration: number;
+			totalTtft: number;
+			logsCount: number;
+			nonCached: number;
+		}
+	>();
+
+	if (hasMinuteData) {
+		for (const r of minuteRows) {
+			const hk = getHourFloor(r.minuteTimestamp);
+			const existing = latencyByHour.get(hk);
+			const logs = Number(r.logsCount);
+			const cached = Number(r.cachedCount);
+			if (existing) {
+				existing.totalDuration += Number(r.totalDuration);
+				existing.totalTtft += Number(r.totalTimeToFirstToken);
+				existing.logsCount += logs;
+				existing.nonCached += logs - cached;
+			} else {
+				latencyByHour.set(hk, {
+					totalDuration: Number(r.totalDuration),
+					totalTtft: Number(r.totalTimeToFirstToken),
+					logsCount: logs,
+					nonCached: logs - cached,
+				});
+			}
+		}
+	} else if (hourlyRows.length > 0) {
+		// No per-provider minute data — use model_history for aggregate latency
+		const modelLatencyRows = await db
+			.select({
+				minuteTimestamp: modelHistory.minuteTimestamp,
+				logsCount: modelHistory.logsCount,
+				cachedCount: modelHistory.cachedCount,
+				totalDuration: modelHistory.totalDuration,
+				totalTimeToFirstToken: modelHistory.totalTimeToFirstToken,
+			})
+			.from(modelHistory)
+			.where(
+				and(
+					eq(modelHistory.modelId, modelId),
+					gte(modelHistory.minuteTimestamp, startDate),
+				),
+			);
+		for (const r of modelLatencyRows) {
+			const hk = getHourFloor(r.minuteTimestamp);
+			const existing = latencyByHour.get(hk);
+			const logs = Number(r.logsCount);
+			const cached = Number(r.cachedCount);
+			if (existing) {
+				existing.totalDuration += Number(r.totalDuration);
+				existing.totalTtft += Number(r.totalTimeToFirstToken);
+				existing.logsCount += logs;
+				existing.nonCached += logs - cached;
+			} else {
+				latencyByHour.set(hk, {
+					totalDuration: Number(r.totalDuration),
+					totalTtft: Number(r.totalTimeToFirstToken),
+					logsCount: logs,
+					nonCached: logs - cached,
+				});
+			}
+		}
+	}
+
+	const data = hourlyRows.map((r) => {
+		const logsCount = Number(r.logsCount);
+		const errorsCount = Number(r.errorsCount);
+		const cachedCount = Number(r.cachedCount);
+		const hk = new Date(r.hourTimestamp).toISOString();
+		const latency = latencyByHour.get(hk);
+		return {
+			timestamp: hk,
+			logsCount,
+			errorsCount,
+			cachedCount,
+			avgTtft:
+				latency && latency.nonCached > 0
+					? Math.round(latency.totalTtft / latency.nonCached)
+					: null,
+			avgDuration:
+				latency && latency.logsCount > 0
+					? Math.round(latency.totalDuration / latency.logsCount)
+					: null,
+			totalTokens: Number(r.totalTokens),
+			totalCost: Number(r.cost),
+		};
+	});
+
+	return c.json({ data });
+});
+
+// --- Cost by model endpoints ---
+
+const costByModelEntrySchema = z.object({
+	model: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	totalTokens: z.number(),
+});
+
+const costByModelResponseSchema = z.object({
+	window: tokenWindowSchema,
+	models: z.array(costByModelEntrySchema),
+	totalCost: z.number(),
+	totalRequests: z.number(),
+});
+
+function getTokenWindowStartDate(window: string): Date {
+	const windowMs: Record<string, number> = {
+		"1h": 60 * 60 * 1000,
+		"4h": 4 * 60 * 60 * 1000,
+		"12h": 12 * 60 * 60 * 1000,
+		"1d": 24 * 60 * 60 * 1000,
+		"7d": 7 * 24 * 60 * 60 * 1000,
+		"30d": 30 * 24 * 60 * 60 * 1000,
+		"90d": 90 * 24 * 60 * 60 * 1000,
+		"365d": 365 * 24 * 60 * 60 * 1000,
+	};
+	const ms = windowMs[window] ?? 7 * 24 * 60 * 60 * 1000;
+	return new Date(Date.now() - ms);
+}
+
+// Global cost by model
+const getGlobalCostByModel = createRoute({
+	method: "get",
+	path: "/metrics/cost-by-model",
+	request: {
+		query: z.object({
+			window: tokenWindowSchema.default("7d").optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: costByModelResponseSchema.openapi({}),
+				},
+			},
+			description: "Global cost breakdown by model.",
+		},
+	},
+});
+
+admin.openapi(getGlobalCostByModel, async (c) => {
+	const query = c.req.valid("query");
+	const window = query.window ?? "7d";
+
+	let startDate: Date;
+	let endDate: Date | undefined;
+	if (query.from && query.to) {
+		startDate = new Date(query.from + "T00:00:00");
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(query.to + "T00:00:00");
+		endDate.setUTCHours(23, 59, 59, 999);
+	} else {
+		startDate = getTokenWindowStartDate(window);
+	}
+
+	const rows = await db
+		.select({
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			requestCount:
+				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			endDate
+				? and(
+						gte(projectHourlyModelStats.hourTimestamp, startDate),
+						lte(projectHourlyModelStats.hourTimestamp, endDate),
+					)
+				: gte(projectHourlyModelStats.hourTimestamp, startDate),
+		)
+		.groupBy(projectHourlyModelStats.usedModel)
+		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.limit(20);
+
+	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
+	const totalRequests = rows.reduce(
+		(sum, r) => sum + Number(r.requestCount),
+		0,
+	);
+
+	return c.json({
+		window,
+		models: rows.map((r) => ({
+			model: r.usedModel,
+			cost: Number(r.cost),
+			requestCount: Number(r.requestCount),
+			totalTokens: Number(r.totalTokens),
+		})),
+		totalCost,
+		totalRequests,
+	});
+});
+
+// Org cost by model
+const getOrgCostByModel = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/cost-by-model",
+	request: {
+		params: z.object({ orgId: z.string() }),
+		query: z.object({
+			window: tokenWindowSchema.default("7d").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: costByModelResponseSchema.openapi({}),
+				},
+			},
+			description: "Organization cost breakdown by model.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(getOrgCostByModel, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "7d";
+	const startDate = getTokenWindowStartDate(window);
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const projectIds = await db
+		.select({ id: tables.project.id })
+		.from(tables.project)
+		.where(eq(tables.project.organizationId, orgId));
+
+	const ids = projectIds.map((p) => p.id);
+
+	if (ids.length === 0) {
+		return c.json({
+			window,
+			models: [],
+			totalCost: 0,
+			totalRequests: 0,
+		});
+	}
+
+	const rows = await db
+		.select({
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			requestCount:
+				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				inArray(projectHourlyModelStats.projectId, ids),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+			),
+		)
+		.groupBy(projectHourlyModelStats.usedModel)
+		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.limit(20);
+
+	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
+	const totalRequests = rows.reduce(
+		(sum, r) => sum + Number(r.requestCount),
+		0,
+	);
+
+	return c.json({
+		window,
+		models: rows.map((r) => ({
+			model: r.usedModel,
+			cost: Number(r.cost),
+			requestCount: Number(r.requestCount),
+			totalTokens: Number(r.totalTokens),
+		})),
+		totalCost,
+		totalRequests,
+	});
+});
+
+// --- Model-Provider Mappings list ---
+
+const modelProviderMappingEntrySchema = z.object({
+	id: z.string(),
+	modelId: z.string(),
+	modelName: z.string(),
+	providerId: z.string(),
+	providerName: z.string(),
+	status: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	cachedCount: z.number(),
+	avgTimeToFirstToken: z.number().nullable(),
+	inputPrice: z.string().nullable(),
+	outputPrice: z.string().nullable(),
+	contextSize: z.number().nullable(),
+	updatedAt: z.string(),
+});
+
+const modelProviderMappingsListSchema = z.object({
+	mappings: z.array(modelProviderMappingEntrySchema),
+	total: z.number(),
+});
+
+const getModelProviderMappings = createRoute({
+	method: "get",
+	path: "/model-provider-mappings",
+	request: {
+		query: z.object({
+			search: z.string().optional(),
+			sortBy: z
+				.enum([
+					"modelId",
+					"providerId",
+					"logsCount",
+					"errorsCount",
+					"avgTimeToFirstToken",
+					"updatedAt",
+				])
+				.optional(),
+			sortOrder: z.enum(["asc", "desc"]).optional(),
+			limit: z.coerce.number().optional(),
+			offset: z.coerce.number().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelProviderMappingsListSchema.openapi({}),
+				},
+			},
+			description: "List of all model-provider mappings.",
+		},
+	},
+});
+
+admin.openapi(getModelProviderMappings, async (c) => {
+	const query = c.req.valid("query");
+	const sortBy = query.sortBy ?? "logsCount";
+	const sortOrder = query.sortOrder ?? "desc";
+	const limit = query.limit ?? 100;
+	const offset = query.offset ?? 0;
+	const search = query.search ?? "";
+
+	const whereClause = search
+		? or(
+				sql`${tables.modelProviderMapping.modelId} ILIKE ${"%" + search + "%"}`,
+				sql`${tables.modelProviderMapping.providerId} ILIKE ${"%" + search + "%"}`,
+			)
+		: undefined;
+
+	// Fetch all mapping metadata rows
+	const [mappingRows, providerRows, statsRows] = await Promise.all([
+		db
+			.select({
+				id: tables.modelProviderMapping.id,
+				modelId: tables.modelProviderMapping.modelId,
+				modelName: tables.modelProviderMapping.modelName,
+				providerId: tables.modelProviderMapping.providerId,
+				status: tables.modelProviderMapping.status,
+				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				inputPrice: tables.modelProviderMapping.inputPrice,
+				outputPrice: tables.modelProviderMapping.outputPrice,
+				contextSize: tables.modelProviderMapping.contextSize,
+				updatedAt: tables.modelProviderMapping.updatedAt,
+			})
+			.from(tables.modelProviderMapping)
+			.where(whereClause),
+		db.query.provider.findMany(),
+		// Aggregate real request counts from projectHourlyModelStats (same source models list uses)
+		db
+			.select({
+				usedModel: projectHourlyModelStats.usedModel,
+				usedProvider: projectHourlyModelStats.usedProvider,
+				logsCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`,
+				errorsCount: sql<number>`SUM(${projectHourlyModelStats.errorCount})`,
+				cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`,
+			})
+			.from(projectHourlyModelStats)
+			.groupBy(
+				projectHourlyModelStats.usedModel,
+				projectHourlyModelStats.usedProvider,
+			),
+	]);
+
+	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
+	const statsKey = (model: string, provider: string) => `${model}::${provider}`;
+	const statsMap = new Map(
+		statsRows.map((r) => [
+			statsKey(r.usedModel, r.usedProvider),
+			{
+				logsCount: Number(r.logsCount ?? 0),
+				errorsCount: Number(r.errorsCount ?? 0),
+				cachedCount: Number(r.cachedCount ?? 0),
+			},
+		]),
+	);
+
+	const merged = mappingRows.map((r) => {
+		const stats = statsMap.get(statsKey(r.modelId, r.providerId));
+		return {
+			id: r.id,
+			modelId: r.modelId,
+			modelName: r.modelName,
+			providerId: r.providerId,
+			providerName: providerNameMap.get(r.providerId) ?? r.providerId,
+			status: r.status,
+			logsCount: stats?.logsCount ?? 0,
+			errorsCount: stats?.errorsCount ?? 0,
+			cachedCount: stats?.cachedCount ?? 0,
+			avgTimeToFirstToken: r.avgTimeToFirstToken,
+			inputPrice: r.inputPrice,
+			outputPrice: r.outputPrice,
+			contextSize: r.contextSize,
+			updatedAt: r.updatedAt.toISOString(),
+		};
+	});
+
+	type MergedRow = (typeof merged)[number];
+	merged.sort((a, b) => {
+		const av = a[sortBy as keyof MergedRow] ?? 0;
+		const bv = b[sortBy as keyof MergedRow] ?? 0;
+		if (av < bv) {
+			return sortOrder === "asc" ? -1 : 1;
+		}
+		if (av > bv) {
+			return sortOrder === "asc" ? 1 : -1;
+		}
+		return 0;
+	});
+
+	return c.json({
+		mappings: merged.slice(offset, offset + limit),
+		total: merged.length,
 	});
 });
 

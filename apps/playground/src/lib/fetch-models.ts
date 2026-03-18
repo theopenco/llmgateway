@@ -52,6 +52,7 @@ export interface ApiModel {
 	family: string;
 	free: boolean | null;
 	output: string[] | null;
+	imageInputRequired: boolean | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	status: "active" | "inactive";
 	mappings: ApiModelProviderMapping[];
