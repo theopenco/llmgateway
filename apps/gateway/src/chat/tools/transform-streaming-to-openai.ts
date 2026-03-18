@@ -1155,6 +1155,11 @@ export function transformStreamingToOpenai(
 					],
 				};
 			} else if (eventType === "metadata" && data.usage) {
+				const inputTokens = data.usage.inputTokens ?? 0;
+				const cacheReadTokens = data.usage.cacheReadInputTokens ?? 0;
+				const cacheWriteTokens = data.usage.cacheWriteInputTokens ?? 0;
+				const promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -1168,9 +1173,14 @@ export function transformStreamingToOpenai(
 						},
 					],
 					usage: {
-						prompt_tokens: data.usage.inputTokens ?? 0,
+						prompt_tokens: promptTokens,
 						completion_tokens: data.usage.outputTokens ?? 0,
 						total_tokens: data.usage.totalTokens ?? 0,
+						...(cacheReadTokens > 0 && {
+							prompt_tokens_details: {
+								cached_tokens: cacheReadTokens,
+							},
+						}),
 					},
 				};
 			} else {
