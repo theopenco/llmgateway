@@ -1486,6 +1486,13 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
+		if (usedProvider === "llmgateway") {
+			throw new HTTPException(400, {
+				message:
+					"Custom models require a provider key configured in your organization settings.",
+			});
+		}
+
 		const envResult = getProviderEnv(usedProvider);
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -1530,6 +1537,13 @@ chat.openapi(completions, async (c) => {
 				throw new HTTPException(402, {
 					message:
 						"No API key set for provider and organization has insufficient credits",
+				});
+			}
+
+			if (usedProvider === "llmgateway") {
+				throw new HTTPException(400, {
+					message:
+						"Custom models require a provider key configured in your organization settings.",
 				});
 			}
 
@@ -2229,6 +2243,16 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 		}
+	}
+
+	// Switch xAI image generation endpoint to /edits when input images are present
+	if (
+		isImageGeneration &&
+		usedProvider === "xai" &&
+		url &&
+		("image" in requestBody || "images" in requestBody)
+	) {
+		url = url.replace("/v1/images/generations", "/v1/images/edits");
 	}
 
 	const startTime = Date.now();

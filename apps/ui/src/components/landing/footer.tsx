@@ -210,6 +210,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/cost-simulator"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch
+									>
+										Cost Simulator
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/referrals"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>

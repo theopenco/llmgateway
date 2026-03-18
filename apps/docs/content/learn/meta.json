@@ -1,0 +1,27 @@
+{
+	"title": "Learn",
+	"description": "Learn how to use the LLM Gateway dashboard",
+	"icon": "GraduationCap",
+	"pages": [
+		"index",
+		"dashboard",
+		"activity",
+		"model-usage",
+		"usage-metrics",
+		"api-keys",
+		"preferences",
+		"provider-keys",
+		"guardrails",
+		"security-events",
+		"billing",
+		"transactions",
+		"referrals",
+		"policies",
+		"org-preferences",
+		"team",
+		"audit-logs",
+		"playground",
+		"playground-group",
+		"playground-image"
+	]
+}

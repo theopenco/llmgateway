@@ -1,0 +1,59 @@
+---
+title: Guardrails
+description: Configure content safety rules to protect your LLM usage
+icon: Shield
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+The Guardrails page lets you configure content safety rules that automatically scan and filter API requests before they reach the LLM provider.
+
+<ThemedImage alt="Guardrails" basePath="/learn/guardrails" />
+
+<Callout type="info">
+	Guardrails are available on the [**Enterprise
+	plan**](https://llmgateway.io/enterprise). Owner or Admin role is required.
+</Callout>
+
+## Main Toggle
+
+A global toggle at the top enables or disables all guardrails for your organization. Click **Save Changes** to apply.
+
+## System Rules
+
+Six built-in rules with individual enable/disable toggles:
+
+| Rule                            | Description                                                          |
+| ------------------------------- | -------------------------------------------------------------------- |
+| **Prompt Injection Detection**  | Detects attempts to override or manipulate system instructions       |
+| **Jailbreak Prevention**        | Identifies attempts to bypass safety measures                        |
+| **PII Detection**               | Identifies personal information like emails, phone numbers, and SSNs |
+| **Secrets Detection**           | Detects API keys, passwords, and credentials                         |
+| **File Type Restrictions**      | Controls which file types can be uploaded                            |
+| **Document Leakage Prevention** | Detects attempts to extract confidential documents                   |
+
+Each rule has an action dropdown to configure the response:
+
+- **Block** — Reject the request entirely
+- **Redact** — Remove or mask sensitive content, then continue
+- **Warn** — Log the violation but allow the request
+
+## File Restrictions
+
+Configure file upload limits:
+
+- **Max file size** — Set the maximum file size in MB
+- **Allowed file types** — Add or remove permitted MIME types
+
+## Custom Rules
+
+Create organization-specific rules by clicking **Add Rule**:
+
+- **Blocked Terms** — Block specific words or phrases
+- **Custom Regex** — Match patterns with regular expressions
+- **Topic Restriction** — Restrict content related to specific topics
+
+Each custom rule can be individually enabled/disabled or deleted.
+
+Learn more about guardrails in the [Guardrails feature docs](/features/guardrails).
