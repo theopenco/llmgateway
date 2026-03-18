@@ -1463,7 +1463,7 @@ export const openaiModels = [
 		description:
 			"Cheapest GPT-5.4-class model for simple high-volume tasks like classification and data extraction.",
 		family: "openai",
-		releasedAt: new Date("2026-03-06"),
+		releasedAt: new Date("2026-03-17"),
 		providers: [
 			{
 				providerId: "openai",
