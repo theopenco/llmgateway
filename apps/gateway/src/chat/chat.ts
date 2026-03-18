@@ -18,6 +18,7 @@ import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 import {
 	createCombinedSignal,
 	createStreamingCombinedSignal,
@@ -1570,6 +1571,40 @@ chat.openapi(completions, async (c) => {
 			modelInfo as ModelDefinition,
 			{ skipEmailVerification: onboarding },
 		);
+	}
+
+	// Check configurable provider/model RPM caps
+	{
+		const providerRateLimitResult = await checkProviderRateLimit(
+			project.organizationId,
+			usedProvider,
+			modelInfo.id,
+			usedModel,
+		);
+
+		if (providerRateLimitResult.limit > 0) {
+			c.header(
+				"X-RateLimit-Limit-Provider",
+				providerRateLimitResult.limit.toString(),
+			);
+			c.header(
+				"X-RateLimit-Remaining-Provider",
+				providerRateLimitResult.remaining.toString(),
+			);
+		}
+
+		if (!providerRateLimitResult.allowed) {
+			const retryAfter = providerRateLimitResult.retryAfter;
+			if (retryAfter) {
+				c.header("Retry-After", retryAfter.toString());
+				const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
+				c.header("X-RateLimit-Reset", resetTime.toString());
+			}
+
+			throw new HTTPException(429, {
+				message: `Rate limit exceeded: maximum ${providerRateLimitResult.limit} requests per minute for this provider/model. Please try again later.`,
+			});
+		}
 	}
 
 	// Check if organization has credits for data retention costs

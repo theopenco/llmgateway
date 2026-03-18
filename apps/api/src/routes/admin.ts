@@ -2363,6 +2363,478 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 	});
 });
 
+// ==================== Rate Limit Management ====================
+
+const rateLimitSchema = z.object({
+	id: z.string(),
+	organizationId: z.string().nullable(),
+	provider: z.string().nullable(),
+	model: z.string().nullable(),
+	maxRpm: z.number(),
+	reason: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const rateLimitsListSchema = z.object({
+	rateLimits: z.array(rateLimitSchema),
+	total: z.number(),
+});
+
+const createRateLimitBodySchema = z.object({
+	provider: z.string().nullable().optional(),
+	model: z.string().nullable().optional(),
+	maxRpm: z.coerce
+		.number()
+		.int("RPM must be a whole number")
+		.min(1, "RPM must be at least 1"),
+	reason: z.string().nullable().optional(),
+});
+
+// --- Global Rate Limits ---
+
+const getGlobalRateLimits = createRoute({
+	method: "get",
+	path: "/rate-limits",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: rateLimitsListSchema.openapi({}),
+				},
+			},
+			description: "List of global rate limits.",
+		},
+	},
+});
+
+const createGlobalRateLimit = createRoute({
+	method: "post",
+	path: "/rate-limits",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createRateLimitBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: rateLimitSchema.openapi({}),
+				},
+			},
+			description: "Created global rate limit.",
+		},
+		400: {
+			description: "Invalid rate limit data.",
+		},
+		409: {
+			description:
+				"Rate limit already exists for this provider/model combination.",
+		},
+	},
+});
+
+const deleteGlobalRateLimit = createRoute({
+	method: "delete",
+	path: "/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			rateLimitId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Rate limit deleted.",
+		},
+		404: {
+			description: "Rate limit not found.",
+		},
+	},
+});
+
+// --- Organization Rate Limits ---
+
+const getOrganizationRateLimits = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/rate-limits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: rateLimitsListSchema.openapi({}),
+				},
+			},
+			description: "List of organization rate limits.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const createOrganizationRateLimit = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/rate-limits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createRateLimitBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: rateLimitSchema.openapi({}),
+				},
+			},
+			description: "Created organization rate limit.",
+		},
+		400: {
+			description: "Invalid rate limit data.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+		409: {
+			description:
+				"Rate limit already exists for this provider/model combination.",
+		},
+	},
+});
+
+const deleteOrganizationRateLimit = createRoute({
+	method: "delete",
+	path: "/organizations/{orgId}/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			rateLimitId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Rate limit deleted.",
+		},
+		404: {
+			description: "Rate limit not found.",
+		},
+	},
+});
+
+// Helper to format rate limit for response
+function formatRateLimit(r: {
+	id: string;
+	organizationId: string | null;
+	provider: string | null;
+	model: string | null;
+	maxRpm: number;
+	reason: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+}) {
+	return {
+		id: r.id,
+		organizationId: r.organizationId,
+		provider: r.provider,
+		model: r.model,
+		maxRpm: r.maxRpm,
+		reason: r.reason,
+		createdAt: r.createdAt.toISOString(),
+		updatedAt: r.updatedAt.toISOString(),
+	};
+}
+
+// --- Global Rate Limit Handlers ---
+
+admin.openapi(getGlobalRateLimits, async (c) => {
+	const rateLimits = await db
+		.select()
+		.from(tables.rateLimit)
+		.where(isNull(tables.rateLimit.organizationId))
+		.orderBy(desc(tables.rateLimit.createdAt));
+
+	return c.json({
+		rateLimits: rateLimits.map(formatRateLimit),
+		total: rateLimits.length,
+	});
+});
+
+admin.openapi(createGlobalRateLimit, async (c) => {
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	// Validate provider/model
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	// Check for existing rate limit
+	const existing = await db
+		.select({ id: tables.rateLimit.id })
+		.from(tables.rateLimit)
+		.where(
+			and(
+				isNull(tables.rateLimit.organizationId),
+				provider
+					? eq(tables.rateLimit.provider, provider)
+					: isNull(tables.rateLimit.provider),
+				model
+					? eq(tables.rateLimit.model, model)
+					: isNull(tables.rateLimit.model),
+			),
+		)
+		.limit(1);
+
+	if (existing.length > 0) {
+		throw new HTTPException(409, {
+			message:
+				"A rate limit already exists for this provider/model combination",
+		});
+	}
+
+	const [created] = await db
+		.insert(tables.rateLimit)
+		.values({
+			organizationId: null,
+			provider,
+			model,
+			maxRpm: body.maxRpm,
+			reason: body.reason ?? null,
+		})
+		.returning();
+
+	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(deleteGlobalRateLimit, async (c) => {
+	const { rateLimitId } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.rateLimit)
+		.where(
+			and(
+				eq(tables.rateLimit.id, rateLimitId),
+				isNull(tables.rateLimit.organizationId),
+			),
+		)
+		.returning({ id: tables.rateLimit.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Rate limit not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+// --- Organization Rate Limit Handlers ---
+
+admin.openapi(getOrganizationRateLimits, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	// Verify organization exists
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const rateLimits = await db
+		.select()
+		.from(tables.rateLimit)
+		.where(eq(tables.rateLimit.organizationId, orgId))
+		.orderBy(desc(tables.rateLimit.createdAt));
+
+	return c.json({
+		rateLimits: rateLimits.map(formatRateLimit),
+		total: rateLimits.length,
+	});
+});
+
+admin.openapi(createOrganizationRateLimit, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	// Verify organization exists
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	// Validate provider/model
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	// Check for existing rate limit
+	const existing = await db
+		.select({ id: tables.rateLimit.id })
+		.from(tables.rateLimit)
+		.where(
+			and(
+				eq(tables.rateLimit.organizationId, orgId),
+				provider
+					? eq(tables.rateLimit.provider, provider)
+					: isNull(tables.rateLimit.provider),
+				model
+					? eq(tables.rateLimit.model, model)
+					: isNull(tables.rateLimit.model),
+			),
+		)
+		.limit(1);
+
+	if (existing.length > 0) {
+		throw new HTTPException(409, {
+			message:
+				"A rate limit already exists for this provider/model combination",
+		});
+	}
+
+	const [created] = await db
+		.insert(tables.rateLimit)
+		.values({
+			organizationId: orgId,
+			provider,
+			model,
+			maxRpm: body.maxRpm,
+			reason: body.reason ?? null,
+		})
+		.returning();
+
+	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(deleteOrganizationRateLimit, async (c) => {
+	const { orgId, rateLimitId } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.rateLimit)
+		.where(
+			and(
+				eq(tables.rateLimit.id, rateLimitId),
+				eq(tables.rateLimit.organizationId, orgId),
+			),
+		)
+		.returning({ id: tables.rateLimit.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Rate limit not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+// --- Available Options for Rate Limit Selection ---
+
+const getAvailableRateLimitOptions = createRoute({
+	method: "get",
+	path: "/rate-limits/options",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							providers: z.array(
+								z.object({
+									id: z.string(),
+									name: z.string(),
+								}),
+							),
+							mappings: z.array(
+								z.object({
+									providerId: z.string(),
+									providerName: z.string(),
+									modelId: z.string(),
+									modelName: z.string(),
+									rootModelId: z.string(),
+									rootModelName: z.string(),
+									family: z.string(),
+								}),
+							),
+						})
+						.openapi({}),
+				},
+			},
+			description:
+				"Available providers and provider/model mappings for rate limit selection.",
+		},
+	},
+});
+
+admin.openapi(getAvailableRateLimitOptions, async (c) => {
+	// Build mappings from all models and their providers
+	const mappings: Array<{
+		providerId: string;
+		providerName: string;
+		modelId: string;
+		modelName: string;
+		rootModelId: string;
+		rootModelName: string;
+		family: string;
+	}> = [];
+
+	for (const model of models) {
+		for (const mapping of model.providers) {
+			const provider = providers.find((p) => p.id === mapping.providerId);
+			if (provider) {
+				mappings.push({
+					providerId: mapping.providerId,
+					providerName: provider.name,
+					modelId: mapping.modelName,
+					modelName: mapping.modelName,
+					rootModelId: model.id,
+					rootModelName: (model as { name?: string }).name ?? model.id,
+					family: model.family,
+				});
+			}
+		}
+	}
+
+	return c.json({
+		providers: providers.map((p) => ({ id: p.id, name: p.name })),
+		mappings,
+	});
+});
+
 // ==================== Provider & Model Stats ====================
 
 const providerSortBySchema = z.enum([

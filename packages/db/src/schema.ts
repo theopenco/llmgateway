@@ -1220,6 +1220,44 @@ export const discount = pgTable(
 	],
 );
 
+// Rate Limit - Admin-configurable RPM caps for providers/models
+// Can be global (organizationId = null) or org-specific
+export const rateLimit = pgTable(
+	"rate_limit",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Scope: null = global rate limit, otherwise org-specific
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		// Target: provider-only, model-only, or both
+		// null provider = applies to all providers
+		provider: text(),
+		// null model = applies to all models (of provider if specified)
+		model: text(),
+		// Maximum requests per minute
+		maxRpm: integer().notNull(),
+		// Optional metadata
+		reason: text(),
+	},
+	(table) => [
+		// Unique constraint: one rate limit per org+provider+model combo
+		unique("rate_limit_org_provider_model_unique").on(
+			table.organizationId,
+			table.provider,
+			table.model,
+		),
+		index("rate_limit_organization_id_idx").on(table.organizationId),
+		index("rate_limit_provider_idx").on(table.provider),
+		index("rate_limit_model_idx").on(table.model),
+	],
+);
+
 // Project hourly statistics aggregation - used for fast dashboard queries
 export const projectHourlyStats = pgTable(
 	"project_hourly_stats",
