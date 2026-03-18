@@ -2750,9 +2750,6 @@ admin.openapi(getModelStats, async (c) => {
 			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
 		}
 
-		const hourStartDate = new Date(startDate);
-		hourStartDate.setMinutes(0, 0, 0);
-
 		const modelStatsSub = db
 			.select({
 				modelId: modelHistory.modelId,
@@ -2784,20 +2781,19 @@ admin.openapi(getModelStats, async (c) => {
 
 		const modelCostSub = db
 			.select({
-				modelId: projectHourlyModelStats.usedModel,
-				totalCost:
-					sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
-						"totalCost",
-					),
+				modelId: modelHistory.modelId,
+				totalCost: sql<number>`COALESCE(SUM(${modelHistory.totalCost}), 0)`.as(
+					"totalCost",
+				),
 			})
-			.from(projectHourlyModelStats)
+			.from(modelHistory)
 			.where(
 				and(
-					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
-					lt(projectHourlyModelStats.hourTimestamp, endDateExclusive),
+					gte(modelHistory.minuteTimestamp, startDate),
+					lt(modelHistory.minuteTimestamp, endDateExclusive),
 				),
 			)
-			.groupBy(projectHourlyModelStats.usedModel)
+			.groupBy(modelHistory.modelId)
 			.as("model_cost_sub");
 
 		const providerCountSub = db
@@ -4113,10 +4109,15 @@ admin.openapi(getModelProviderMappings, async (c) => {
 			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
 		}
 
-		const hourStartDate = new Date(startDate);
-		hourStartDate.setMinutes(0, 0, 0);
-		return { startDate, endDateExclusive, hourStartDate };
+		return { startDate, endDateExclusive };
 	})();
+
+	const historySearchClause = search
+		? or(
+				sql`${modelProviderMappingHistory.modelId} ILIKE ${"%" + search + "%"}`,
+				sql`${modelProviderMappingHistory.providerId} ILIKE ${"%" + search + "%"}`,
+			)
+		: undefined;
 
 	const statsJoin = dateRange
 		? db
@@ -4138,6 +4139,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				.from(modelProviderMappingHistory)
 				.where(
 					and(
+						historySearchClause,
 						gte(
 							modelProviderMappingHistory.minuteTimestamp,
 							dateRange.startDate,
@@ -4164,38 +4166,28 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		? db
 				.select({
 					totalRequests:
-						sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
 							"totalRequests",
 						),
 					totalTokens:
-						sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+						sql<number>`COALESCE(SUM(CAST(${modelProviderMappingHistory.totalTokens} AS NUMERIC)), 0)`.as(
 							"totalTokens",
 						),
 					totalCost:
-						sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
 							"totalCost",
 						),
 				})
-				.from(projectHourlyModelStats)
-				.innerJoin(
-					tables.modelProviderMapping,
-					and(
-						eq(
-							projectHourlyModelStats.usedModel,
-							tables.modelProviderMapping.modelId,
-						),
-						eq(
-							projectHourlyModelStats.usedProvider,
-							tables.modelProviderMapping.providerId,
-						),
-					),
-				)
+				.from(modelProviderMappingHistory)
 				.where(
 					and(
-						whereClause,
-						gte(projectHourlyModelStats.hourTimestamp, dateRange.hourStartDate),
+						historySearchClause,
+						gte(
+							modelProviderMappingHistory.minuteTimestamp,
+							dateRange.startDate,
+						),
 						lt(
-							projectHourlyModelStats.hourTimestamp,
+							modelProviderMappingHistory.minuteTimestamp,
 							dateRange.endDateExclusive,
 						),
 					),
