@@ -408,6 +408,18 @@ export default function Footer() {
 						&copy; {new Date().getFullYear()} LLM Gateway. All rights reserved.
 					</p>
 					<div className="flex items-center gap-6">
+						<a
+							href="https://status.llmgateway.io/"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+						>
+							<span className="relative flex h-2.5 w-2.5">
+								<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+								<span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+							</span>
+							All systems operational
+						</a>
 						<Link
 							href="/legal/privacy"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
