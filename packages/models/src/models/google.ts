@@ -487,8 +487,7 @@ export const googleModels = [
 	{
 		id: "gemini-pro-latest",
 		name: "Gemini Pro Latest",
-		description:
-			"Always points to the latest Gemini Pro model.",
+		description: "Always points to the latest Gemini Pro model.",
 		family: "google",
 		releasedAt: new Date("2026-02-27"),
 		providers: [
