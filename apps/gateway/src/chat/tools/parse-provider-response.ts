@@ -2,8 +2,8 @@ import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
-import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
 import { extractMinimaxThinking } from "./extract-reasoning.js";
+import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
 
 import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
@@ -642,18 +642,25 @@ export function parseProviderResponse(
 				// Standard OpenAI chat completions format
 				toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
 				const message = json.choices?.[0]?.message;
-				const minimaxThinking = extractMinimaxThinking(message?.content);
-				content = minimaxThinking.content;
-				// Extract reasoning content for reasoning-capable models
-				// Check reasoning, reasoning_content, MiniMax reasoning_details, then <think> fallback
-				reasoningContent =
-					message?.reasoning ??
-					message?.reasoning_content ??
-					(message?.reasoning_details
-						?.map((detail: any) => detail?.text)
-						?.filter((text: any): text is string => typeof text === "string")
-						?.join("") || null) ??
-					minimaxThinking.reasoningContent;
+				if (usedProvider === "minimax") {
+					const minimaxThinking = extractMinimaxThinking(message?.content);
+					content = minimaxThinking.content;
+					reasoningContent =
+						message?.reasoning ??
+						message?.reasoning_content ??
+						message?.reasoning_details
+							?.map((detail: any) => detail?.text)
+							?.filter((text: any): text is string => typeof text === "string")
+							?.join("") ??
+						null ??
+						minimaxThinking.reasoningContent;
+				} else {
+					content = message?.content ?? null;
+					// Extract reasoning content for reasoning-capable models
+					// Check both reasoning and reasoning_content (GLM models use reasoning_content)
+					reasoningContent =
+						message?.reasoning ?? message?.reasoning_content ?? null;
+				}
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios

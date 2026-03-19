@@ -1,3 +1,5 @@
+import type { Provider } from "@llmgateway/models";
+
 function extractMinimaxReasoningDetails(reasoningDetails: any): string {
 	if (!Array.isArray(reasoningDetails)) {
 		return "";
@@ -8,8 +10,6 @@ function extractMinimaxReasoningDetails(reasoningDetails: any): string {
 		.filter((text: any): text is string => typeof text === "string")
 		.join("");
 }
-
-import type { Provider } from "@llmgateway/models";
 
 /**
  * Extracts reasoning content from streaming data based on provider format
@@ -35,17 +35,22 @@ export function extractReasoning(data: any, provider: Provider): string {
 			const reasoningParts = parts.filter((part: any) => part.thought);
 			return reasoningParts.map((part: any) => part.text).join("") ?? "";
 		}
-		default: {
-				const delta = data.choices?.[0]?.delta;
-				return (
-					delta?.reasoning ??
-					delta?.reasoning_content ??
-					extractMinimaxReasoningDetails(delta?.reasoning_details)
-				);
-			}
+		case "minimax": {
+			const delta = data.choices?.[0]?.delta;
+			return (
+				delta?.reasoning ??
+				delta?.reasoning_content ??
+				extractMinimaxReasoningDetails(delta?.reasoning_details)
+			);
+		}
+		default:
+			return (
+				data.choices?.[0]?.delta?.reasoning ??
+				data.choices?.[0]?.delta?.reasoning_content ??
+				""
+			);
 	}
 }
-
 
 export function extractMinimaxThinking(content: string | null | undefined): {
 	content: string | null;
@@ -57,10 +62,13 @@ export function extractMinimaxThinking(content: string | null | undefined): {
 
 	const thinkPattern = /<think>([\s\S]*?)<\/think>/gi;
 	let reasoningContent = "";
-	const cleanedContent = content.replace(thinkPattern, (_, thinkText: string) => {
-		reasoningContent += thinkText;
-		return "";
-	});
+	const cleanedContent = content.replace(
+		thinkPattern,
+		(_, thinkText: string) => {
+			reasoningContent += thinkText;
+			return "";
+		},
+	);
 
 	const normalizedContent = cleanedContent.trim();
 	return {
