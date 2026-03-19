@@ -137,9 +137,11 @@ describe("calculateDataStorageCost", () => {
 		expect(cost).toBe("0.01"); // 1M tokens * $0.01 per 1M = $0.01
 	});
 
-	it("includes all token types in calculation", () => {
-		// 250k prompt + 250k cached + 250k completion + 250k reasoning = 1M tokens
-		const cost = calculateDataStorageCost(250000, 250000, 250000, 250000);
+	it("does not double-count cached tokens when promptTokens already includes them", () => {
+		// promptTokens is the canonical input count in gateway logs.
+		// cachedTokens is tracked separately for pricing and diagnostics, but should
+		// not increase storage accounting a second time.
+		const cost = calculateDataStorageCost(500000, 250000, 250000, 250000);
 		expect(cost).toBe("0.01"); // 1M tokens * $0.01 per 1M = $0.01
 	});
 
