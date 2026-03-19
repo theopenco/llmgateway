@@ -1,3 +1,5 @@
+import { extractReasoningDetailsText } from "./reasoning-details.js";
+
 /**
  * Helper function to normalize usage object for OpenAI SDK compatibility
  * Extracts reasoning_tokens from completion_tokens_details to top level
@@ -53,12 +55,17 @@ export function transformOpenaiStreaming(data: any, usedModel: string): any {
 			role: delta.role ?? "assistant",
 		};
 
-		// Normalize reasoning_content field to reasoning for OpenAI compatibility
-		if (newDelta.reasoning_content) {
-			const { reasoning_content, ...rest } = newDelta;
+		const normalizedReasoning =
+			newDelta.reasoning ??
+			newDelta.reasoning_content ??
+			extractReasoningDetailsText(newDelta.reasoning_details);
+
+		// Normalize provider-specific reasoning fields to reasoning for OpenAI compatibility
+		if (normalizedReasoning) {
+			const { reasoning_content: _reasoningContent, ...rest } = newDelta;
 			return {
 				...rest,
-				reasoning: reasoning_content,
+				reasoning: normalizedReasoning,
 			};
 		}
 

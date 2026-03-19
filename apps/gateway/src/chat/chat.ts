@@ -91,6 +91,10 @@ import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
+import {
+	splitTaggedStreamingContentChunk,
+	splitReasoningFromTaggedContent,
+} from "./tools/reasoning-details.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolveProviderContext } from "./tools/resolve-provider-context.js";
 import {
@@ -3267,6 +3271,10 @@ chat.openapi(completions, async (c) => {
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 				let rawUpstreamData = ""; // Raw data received from upstream provider
 				const isAwsBedrock = usedProvider === "aws-bedrock";
+				const minimaxStreamingReasoningState = {
+					inReasoning: false,
+					pending: "",
+				};
 				let shouldTerminateStream = false;
 
 				// Response healing for streaming mode
@@ -3829,6 +3837,34 @@ chat.openapi(completions, async (c) => {
 									processedLength = eventEnd;
 									searchStart = eventEnd;
 									continue;
+								}
+
+								if (usedProvider === "minimax") {
+									const deltaContent =
+										transformedData.choices?.[0]?.delta?.content;
+
+									if (
+										typeof deltaContent === "string" &&
+										deltaContent.length > 0
+									) {
+										const splitChunk = splitTaggedStreamingContentChunk(
+											deltaContent,
+											minimaxStreamingReasoningState,
+										);
+
+										if (splitChunk.content) {
+											transformedData.choices[0].delta.content =
+												splitChunk.content;
+										} else {
+											delete transformedData.choices[0].delta.content;
+										}
+
+										if (splitChunk.reasoning) {
+											transformedData.choices[0].delta.reasoning =
+												(transformedData.choices[0].delta.reasoning ?? "") +
+												splitChunk.reasoning;
+										}
+									}
 								}
 
 								// For Anthropic, if we have partial usage data, complete it
@@ -4733,6 +4769,14 @@ chat.openapi(completions, async (c) => {
 					// Clean up keepalive before any potentially-throwing operations (insertLog, etc.)
 					// clearInterval is idempotent so calling it multiple times is safe
 					clearKeepalive();
+
+					if (usedProvider === "minimax" && !fullReasoningContent) {
+						const splitContent = splitReasoningFromTaggedContent(fullContent);
+						if (splitContent.reasoningContent) {
+							fullContent = splitContent.content ?? "";
+							fullReasoningContent = splitContent.reasoningContent;
+						}
+					}
 
 					// Check if we should bill cancelled requests
 					const billCancelledRequests = shouldBillCancelledRequests();

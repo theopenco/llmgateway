@@ -60,6 +60,12 @@ export interface ToolCall {
 	};
 }
 
+export interface ReasoningDetail {
+	text?: string;
+	type?: string;
+	[key: string]: unknown;
+}
+
 // Base message structure
 export interface BaseMessage {
 	role: "system" | "user" | "assistant" | "tool";
@@ -67,6 +73,9 @@ export interface BaseMessage {
 	name?: string;
 	tool_calls?: ToolCall[];
 	tool_call_id?: string;
+	reasoning?: string;
+	reasoning_content?: string;
+	reasoning_details?: ReasoningDetail[];
 }
 
 // Provider-specific message formats
@@ -202,6 +211,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 		include_usage: boolean;
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	extra_body?: Record<string, unknown>;
 }
 
 export interface OpenAIResponsesFunctionCall {

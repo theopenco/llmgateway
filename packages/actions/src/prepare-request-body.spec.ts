@@ -584,6 +584,32 @@ describe("prepareRequestBody - Google AI Studio", () => {
 	});
 });
 
+describe("prepareRequestBody - MiniMax", () => {
+	test("should enable reasoning_split for reasoning-capable models", async () => {
+		const requestBody = (await prepareRequestBody(
+			"minimax",
+			"MiniMax-M2",
+			[{ role: "user", content: "What is 2+2?" }],
+			true,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"medium",
+			true,
+			false,
+		)) as { extra_body?: Record<string, unknown> };
+
+		expect(requestBody.extra_body).toEqual({
+			reasoning_split: true,
+		});
+	});
+});
+
 describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(

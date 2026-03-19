@@ -312,6 +312,8 @@ export const minimaxModels = [
 				contextSize: 1000000,
 				maxOutput: 131072,
 				streaming: true,
+				reasoning: true,
+				reasoningOutput: "omit",
 				vision: false,
 				tools: false,
 				jsonOutput: false,

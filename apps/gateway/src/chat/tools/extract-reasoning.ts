@@ -1,3 +1,5 @@
+import { extractReasoningDetailsText } from "./reasoning-details.js";
+
 import type { Provider } from "@llmgateway/models";
 
 /**
@@ -28,6 +30,9 @@ export function extractReasoning(data: any, provider: Provider): string {
 			return (
 				data.choices?.[0]?.delta?.reasoning ??
 				data.choices?.[0]?.delta?.reasoning_content ??
+				extractReasoningDetailsText(
+					data.choices?.[0]?.delta?.reasoning_details,
+				) ??
 				""
 			);
 	}

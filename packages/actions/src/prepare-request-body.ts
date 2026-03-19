@@ -1928,6 +1928,12 @@ export async function prepareRequestBody(
 					requestBody.reasoning_effort = reasoning_effort;
 				}
 			}
+			if (usedProvider === "minimax" && supportsReasoning) {
+				requestBody.extra_body = {
+					...(requestBody.extra_body ?? {}),
+					reasoning_split: true,
+				};
+			}
 			break;
 		}
 	}

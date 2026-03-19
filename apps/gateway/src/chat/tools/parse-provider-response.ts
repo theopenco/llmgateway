@@ -3,6 +3,10 @@ import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
 import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	extractReasoningDetailsText,
+	splitReasoningFromTaggedContent,
+} from "./reasoning-details.js";
 
 import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
@@ -380,6 +384,9 @@ export function parseProviderResponse(
 			reasoningContent =
 				json.choices?.[0]?.message?.reasoning ??
 				json.choices?.[0]?.message?.reasoning_content ??
+				extractReasoningDetailsText(
+					json.choices?.[0]?.message?.reasoning_details,
+				) ??
 				null;
 			finishReason = json.choices?.[0]?.finish_reason ?? null;
 			promptTokens = json.usage?.prompt_tokens ?? null;
@@ -460,6 +467,9 @@ export function parseProviderResponse(
 				reasoningContent =
 					json.choices?.[0]?.message?.reasoning ??
 					json.choices?.[0]?.message?.reasoning_content ??
+					extractReasoningDetailsText(
+						json.choices?.[0]?.message?.reasoning_details,
+					) ??
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 				promptTokens = json.usage?.prompt_tokens ?? null;
@@ -646,6 +656,9 @@ export function parseProviderResponse(
 				reasoningContent =
 					json.choices?.[0]?.message?.reasoning ??
 					json.choices?.[0]?.message?.reasoning_content ??
+					extractReasoningDetailsText(
+						json.choices?.[0]?.message?.reasoning_details,
+					) ??
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 
@@ -741,6 +754,18 @@ export function parseProviderResponse(
 				}
 			}
 			break;
+	}
+
+	if (
+		usedProvider === "minimax" &&
+		!reasoningContent &&
+		typeof content === "string"
+	) {
+		const splitContent = splitReasoningFromTaggedContent(content);
+		if (splitContent.reasoningContent) {
+			content = splitContent.content;
+			reasoningContent = splitContent.reasoningContent;
+		}
 	}
 
 	// Cache reasoning_content for Moonshot thinking models when tool_calls are present
