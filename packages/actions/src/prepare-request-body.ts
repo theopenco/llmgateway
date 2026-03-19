@@ -1012,6 +1012,42 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+		case "minimax": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+			requestBody.extra_body = {
+				...(typeof requestBody.extra_body === "object" &&
+				requestBody.extra_body !== null
+					? requestBody.extra_body
+					: {}),
+				reasoning_split: true,
+			};
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
 		case "zai": {
 			if (stream) {
 				requestBody.stream_options = {

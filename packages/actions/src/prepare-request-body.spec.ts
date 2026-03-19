@@ -162,6 +162,31 @@ describe("prepareRequestBody - Anthropic", () => {
 	});
 });
 
+describe("prepareRequestBody - MiniMax", () => {
+	test("should enable reasoning_split via extra_body", async () => {
+		const requestBody = (await prepareRequestBody(
+			"minimax",
+			"MiniMax-M1",
+			[{ role: "user", content: "Explain 2+2." }],
+			true,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+		)) as any;
+
+		expect(requestBody.stream_options).toEqual({ include_usage: true });
+		expect(requestBody.extra_body).toEqual({ reasoning_split: true });
+	});
+});
+
 describe("prepareRequestBody - Google AI Studio", () => {
 	test("should set thinkingBudget when reasoning_effort is provided", async () => {
 		const requestBody = (await prepareRequestBody(
