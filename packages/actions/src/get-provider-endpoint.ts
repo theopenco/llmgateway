@@ -1,6 +1,7 @@
 import {
 	models,
 	providers,
+	type ProviderDefinition,
 	type ProviderModelMapping,
 	type ProviderId,
 	getProviderEnvValue,
@@ -23,6 +24,7 @@ export function getProviderEndpoint(
 	providerKeyOptions?: ProviderKeyOptions,
 	configIndex?: number,
 	imageGenerations?: boolean,
+	region?: string,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -37,6 +39,19 @@ export function getProviderEndpoint(
 		}
 	}
 	let url: string | undefined;
+
+	// Generic region-based base URL resolution.
+	// Any provider with a regionConfig + endpointMap can use this.
+	let regionBaseUrl: string | undefined;
+	if (region) {
+		const providerDef = providers.find((p) => p.id === provider) as
+			| ProviderDefinition
+			| undefined;
+		const endpointMap = providerDef?.regionConfig?.endpointMap as
+			| Record<string, string>
+			| undefined;
+		regionBaseUrl = endpointMap?.[region];
+	}
 
 	if (baseUrl) {
 		url = baseUrl;
@@ -101,19 +116,8 @@ export function getProviderEndpoint(
 				url = "https://api.moonshot.ai";
 				break;
 			case "alibaba": {
-				const alibabaProviderDef = providers.find((p) => p.id === "alibaba");
-				const alibabaRegionConfig = alibabaProviderDef?.regionConfig;
-				const alibabaRegion =
-					providerKeyOptions?.alibaba_region ??
-					getProviderEnvValue("alibaba", "region", configIndex) ??
-					alibabaRegionConfig?.defaultRegion ??
-					"singapore";
 				const alibabaBaseUrl =
-					(
-						alibabaRegionConfig?.endpointMap as
-							| Record<string, string>
-							| undefined
-					)?.[alibabaRegion] ?? "https://dashscope-intl.aliyuncs.com";
+					regionBaseUrl ?? "https://dashscope-intl.aliyuncs.com";
 				// Use different base URL for image generation vs chat completions
 				if (imageGenerations) {
 					url = alibabaBaseUrl;

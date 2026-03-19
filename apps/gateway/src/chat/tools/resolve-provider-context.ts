@@ -183,26 +183,28 @@ export async function resolveProviderContext(
 	);
 
 	// --- Region resolution ---
-	const providerDef = providers.find((p) => p.id === usedProvider) as
-		| ProviderDefinition
-		| undefined;
-	const regionConfig = providerDef?.regionConfig;
+	// Only resolve and use a region when the model explicitly declares supported regions.
+	// Models without regions use the provider's default endpoint (current behavior).
+	const modelRegions = (providerMappingForSelected as ProviderModelMapping)
+		?.regions;
 	let usedRegion: string | undefined;
-	if (regionConfig) {
-		const optionsKey = regionConfig.optionsKey;
-		const keyOptions = providerKey?.options as
-			| Record<string, string | undefined>
-			| null
+	if (modelRegions && modelRegions.length > 0) {
+		const providerDef = providers.find((p) => p.id === usedProvider) as
+			| ProviderDefinition
 			| undefined;
-		usedRegion =
-			keyOptions?.[optionsKey] ??
-			getProviderEnvValue(usedProvider as Provider, "region", configIndex) ??
-			regionConfig.defaultRegion;
+		const regionConfig = providerDef?.regionConfig;
+		if (regionConfig) {
+			const optionsKey = regionConfig.optionsKey;
+			const keyOptions = providerKey?.options as
+				| Record<string, string | undefined>
+				| null
+				| undefined;
+			usedRegion =
+				keyOptions?.[optionsKey] ??
+				getProviderEnvValue(usedProvider as Provider, "region", configIndex) ??
+				regionConfig.defaultRegion;
 
-		// Validate that the selected region is supported by this model mapping
-		const modelRegions = (providerMappingForSelected as ProviderModelMapping)
-			?.regions;
-		if (modelRegions && modelRegions.length > 0) {
+			// Validate that the selected region is supported by this model
 			const isValidRegion = modelRegions.some((r) => r.id === usedRegion);
 			if (!isValidRegion) {
 				const validIds = modelRegions.map((r) => r.id).join(", ");
@@ -236,6 +238,7 @@ export async function resolveProviderContext(
 		providerKey?.options ?? undefined,
 		configIndex,
 		isImageGeneration,
+		usedRegion,
 	);
 
 	if (!url) {
