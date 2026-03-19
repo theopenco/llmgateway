@@ -3083,7 +3083,7 @@ const getModelDetail = createRoute({
 admin.openapi(getModelDetail, async (c) => {
 	const { modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
-	const window = query.window ?? "24h";
+	const window = query.window ?? "4h";
 	const startDate = getHistoryStartDate(window);
 
 	const model = await db.query.model.findFirst({
