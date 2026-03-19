@@ -221,7 +221,7 @@ export function LogDetailClient({
 						<div className="space-y-2">
 							<div className="flex items-center gap-3">
 								<h1 className="text-2xl font-bold tracking-tight">
-									{log.usedModel}
+									{log.usedModel === "" ? "—" : log.usedModel}
 								</h1>
 								<StatusIndicator log={log} />
 								{log.retried && (
@@ -336,7 +336,11 @@ export function LogDetailClient({
 									value={log.requestedModel}
 									mono
 								/>
-								<Field label="Used Model" value={log.usedModel} mono />
+								<Field
+									label="Used Model"
+									value={log.usedModel === "" ? "—" : log.usedModel}
+									mono
+								/>
 								{log.usedModelMapping && (
 									<Field
 										label="Model Mapping"

@@ -605,7 +605,7 @@ chat.openapi(completions, async (c) => {
 					project,
 					apiKey,
 					undefined,
-					requestedModel,
+					"",
 					undefined,
 					"llmgateway",
 					requestedModel,
