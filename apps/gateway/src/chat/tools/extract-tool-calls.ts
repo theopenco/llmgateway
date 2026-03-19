@@ -1,9 +1,14 @@
 import type { Provider } from "@llmgateway/models";
 
 /**
- * Extracts tool calls from streaming data based on provider format
+ * Extracts tool calls from streaming data based on provider format.
+ * For openai/azure, pass transformedData to handle Responses API format.
  */
-export function extractToolCalls(data: any, provider: Provider): any[] | null {
+export function extractToolCalls(
+	data: any,
+	provider: Provider,
+	transformedData?: any,
+): any[] | null {
 	switch (provider) {
 		case "anthropic":
 			// Anthropic streaming tool calls come as content_block_start with tool_use type
@@ -103,7 +108,10 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 			}
 			return null;
 		}
-		default: // OpenAI format
+		case "openai":
+		case "azure":
+			return (transformedData ?? data).choices?.[0]?.delta?.tool_calls ?? null;
+		default: // OpenAI-compatible format
 			return data.choices?.[0]?.delta?.tool_calls ?? null;
 	}
 }

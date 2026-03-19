@@ -74,7 +74,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 							},
 						},
 					],
-					tool_choice: "auto",
+					tool_choice: "required",
 				}),
 			});
 
@@ -182,7 +182,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 							},
 						},
 					],
-					tool_choice: "auto",
+					tool_choice: "required",
 				}),
 			});
 

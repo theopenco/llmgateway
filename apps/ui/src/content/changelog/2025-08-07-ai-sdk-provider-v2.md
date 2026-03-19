@@ -32,7 +32,7 @@ import { llmgateway } from "@llmgateway/ai-sdk-provider";
 import { generateText } from "ai";
 
 const { text } = await generateText({
-  model: llmgateway("openai/gpt-4o"),
+  model: llmgateway("gpt-4o"),
   prompt: `What's up?`,
 });
 
@@ -51,11 +51,11 @@ console.log(`output: ${text}`);
 
 ## 🎯 Supported Models
 
-Access all models using the familiar provider/model format:
+Access all models:
 
-- `openai/gpt-4o`
-- `anthropic/claude-3-5-sonnet-20241022`
-- `groq/llama-3.1-70b-versatile`
+- `gpt-4o`
+- `claude-3-5-sonnet-20241022`
+- `llama-3.1-70b-versatile`
 - And 40+ more models across 14+ providers
 
 Check out the [full documentation](https://docs.llmgateway.io/quick-start#3--sdk-integrations) and explore the package on [npm](https://www.npmjs.com/package/@llmgateway/ai-sdk-provider?utm_source=llmgateway.io).

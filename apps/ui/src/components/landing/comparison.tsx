@@ -14,14 +14,13 @@ const comparisonData = [
 				title: "Credits pricing",
 				description: "Pay-as-you-go with credits",
 				llmgateway: "Flat 5% fee on credit purchases",
-				openrouter:
-					"5% fee + $0.35 per credit purchase; 5% fee still applies with own API key",
+				openrouter: "5.5% platform fee",
 			},
 			{
 				title: "Bring Your Own Keys",
 				description: "Use your own provider API keys",
 				llmgateway: "Free — pay providers directly",
-				openrouter: "5% fee still applies with own API key",
+				openrouter: "1M free reqs/mo, then 5% fee",
 			},
 			{
 				title: "Self-hosting option",
@@ -174,7 +173,7 @@ export function Comparison() {
 									OpenRouter
 								</h3>
 								<p className="text-sm text-muted-foreground mb-2">
-									CLOSED & 5% fee
+									CLOSED & 5.5% fee
 								</p>
 								<p className="text-2xl font-bold text-foreground">From $0</p>
 								<p className="text-xs text-muted-foreground mt-1">

@@ -72,6 +72,10 @@ import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
+import {
+	extractAwsBedrockHttpError,
+	extractAwsBedrockStreamError,
+} from "./tools/extract-aws-bedrock-error.js";
 import { extractContent } from "./tools/extract-content.js";
 import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
 import { extractErrorCause } from "./tools/extract-error-cause.js";
@@ -613,7 +617,7 @@ chat.openapi(completions, async (c) => {
 	const retentionLevel = organization?.retentionLevel ?? "none";
 
 	// Get image size limits from environment variables or use defaults
-	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 10;
+	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
 	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
 
 	// Determine max image size based on plan
@@ -1007,19 +1011,12 @@ chat.openapi(completions, async (c) => {
 				// Filter model providers to only those available (excluding the low-uptime one)
 				// If web search is requested, also filter to providers that support it
 				// If JSON output is requested, also filter to providers that support it
-				const availableModelProviders = modelInfo.providers.filter(
+				const availableModelProviders = iamFilteredModelProviders.filter(
 					(provider) => {
 						if (!availableProviders.includes(provider.providerId)) {
 							return false;
 						}
 						if (provider.providerId === usedProvider) {
-							return false;
-						}
-						// Filter by IAM allowed providers
-						if (
-							iamAllowedProviders &&
-							!iamAllowedProviders.includes(provider.providerId)
-						) {
 							return false;
 						}
 						// If web search tool is requested, only include providers that support it
@@ -1135,6 +1132,34 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// For models with multiple provider mappings for the same provider (e.g., routing models
+	// like grok-4-fast with reasoning and non-reasoning variants), select the correct variant
+	// based on request capabilities when a specific provider is already set
+	if (
+		usedProvider &&
+		usedProvider !== "llmgateway" &&
+		usedProvider !== "custom"
+	) {
+		const sameProviderMappings = modelInfo.providers.filter(
+			(p) => p.providerId === usedProvider,
+		);
+		if (sameProviderMappings.length > 1) {
+			let selectedMapping;
+			if (reasoning_effort !== undefined) {
+				selectedMapping = sameProviderMappings.find(
+					(p) => (p as ProviderModelMapping).reasoning === true,
+				);
+			} else {
+				selectedMapping = sameProviderMappings.find(
+					(p) => (p as ProviderModelMapping).reasoning !== true,
+				);
+			}
+			if (selectedMapping) {
+				usedModel = selectedMapping.modelName;
+			}
+		}
+	}
+
 	if (!usedProvider) {
 		if (iamFilteredModelProviders.length === 0) {
 			throw new HTTPException(403, {
@@ -1146,7 +1171,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider = iamFilteredModelProviders[0].providerId;
 			usedModel = iamFilteredModelProviders[0].modelName;
 		} else {
-			const providerIds = modelInfo.providers.map((p) => p.providerId);
+			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
 				project.organizationId,
 				providerIds,
@@ -1163,44 +1188,60 @@ chat.openapi(completions, async (c) => {
 			// Filter model providers to only those available
 			// If web search is requested, also filter to providers that support it
 			// If JSON output is requested, also filter to providers that support it
-			const availableModelProviders = modelInfo.providers.filter((provider) => {
-				if (!availableProviders.includes(provider.providerId)) {
-					return false;
-				}
-				// Filter by IAM allowed providers
-				if (
-					iamAllowedProviders &&
-					!iamAllowedProviders.includes(provider.providerId)
-				) {
-					return false;
-				}
-				// If web search tool is requested, only include providers that support it
-				if (webSearchTool) {
-					if ((provider as ProviderModelMapping).webSearch !== true) {
+			const availableModelProviders = iamFilteredModelProviders.filter(
+				(provider) => {
+					if (!availableProviders.includes(provider.providerId)) {
 						return false;
 					}
-				}
-				// If JSON output is requested, only include providers that support it
-				if (
-					response_format?.type === "json_object" ||
-					response_format?.type === "json_schema"
-				) {
-					if ((provider as ProviderModelMapping).jsonOutput !== true) {
+					// If web search tool is requested, only include providers that support it
+					if (webSearchTool) {
+						if ((provider as ProviderModelMapping).webSearch !== true) {
+							return false;
+						}
+					}
+					// If JSON output is requested, only include providers that support it
+					if (
+						response_format?.type === "json_object" ||
+						response_format?.type === "json_schema"
+					) {
+						if ((provider as ProviderModelMapping).jsonOutput !== true) {
+							return false;
+						}
+					}
+					// If JSON schema output is requested, also include providers that support it
+					if (response_format?.type === "json_schema") {
+						if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
+							return false;
+						}
+					}
+					// If images are present in messages, only include providers that support vision
+					if (hasImages && (provider as ProviderModelMapping).vision !== true) {
 						return false;
 					}
-				}
-				// If JSON schema output is requested, also include providers that support it
-				if (response_format?.type === "json_schema") {
-					if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
-						return false;
+					// If reasoning_effort is specified, only include providers with reasoning support
+					if (reasoning_effort !== undefined) {
+						if ((provider as ProviderModelMapping).reasoning !== true) {
+							return false;
+						}
 					}
-				}
-				// If images are present in messages, only include providers that support vision
-				if (hasImages && (provider as ProviderModelMapping).vision !== true) {
-					return false;
-				}
-				return true;
-			});
+					// If reasoning_effort is NOT specified, prefer non-reasoning providers
+					// by excluding reasoning providers when a non-reasoning alternative exists for same provider
+					if (reasoning_effort === undefined) {
+						const hasNonReasoningAlternative = modelInfo.providers.some(
+							(p) =>
+								p.providerId === provider.providerId &&
+								(p as ProviderModelMapping).reasoning !== true,
+						);
+						if (
+							hasNonReasoningAlternative &&
+							(provider as ProviderModelMapping).reasoning === true
+						) {
+							return false;
+						}
+					}
+					return true;
+				},
+			);
 
 			if (availableModelProviders.length === 0) {
 				throw new HTTPException(400, {
@@ -1446,6 +1487,13 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
+		if (usedProvider === "llmgateway") {
+			throw new HTTPException(400, {
+				message:
+					"Custom models require a provider key configured in your organization settings.",
+			});
+		}
+
 		const envResult = getProviderEnv(usedProvider);
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -1490,6 +1538,13 @@ chat.openapi(completions, async (c) => {
 				throw new HTTPException(402, {
 					message:
 						"No API key set for provider and organization has insufficient credits",
+				});
+			}
+
+			if (usedProvider === "llmgateway") {
+				throw new HTTPException(400, {
+					message:
+						"Custom models require a provider key configured in your organization settings.",
 				});
 			}
 
@@ -2193,6 +2248,16 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Switch xAI image generation endpoint to /edits when input images are present
+	if (
+		isImageGeneration &&
+		usedProvider === "xai" &&
+		url &&
+		("image" in requestBody || "images" in requestBody)
+	) {
+		url = url.replace("/v1/images/generations", "/v1/images/edits");
+	}
+
 	const startTime = Date.now();
 
 	// Handle streaming response if requested
@@ -2842,7 +2907,11 @@ chat.openapi(completions, async (c) => {
 					}
 
 					if (!res.ok) {
-						const errorResponseText = await res.text();
+						const rawErrorResponseText = await res.text();
+						const errorResponseText =
+							usedProvider === "aws-bedrock"
+								? extractAwsBedrockHttpError(res, rawErrorResponseText)
+								: rawErrorResponseText;
 
 						// Determine the finish reason for error handling
 						const finishReason = getFinishReasonFromError(
@@ -3202,6 +3271,7 @@ chat.openapi(completions, async (c) => {
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 				let rawUpstreamData = ""; // Raw data received from upstream provider
 				const isAwsBedrock = usedProvider === "aws-bedrock";
+				let shouldTerminateStream = false;
 
 				// Response healing for streaming mode
 				const streamingResponseHealingEnabled = plugins?.some(
@@ -3211,7 +3281,10 @@ chat.openapi(completions, async (c) => {
 					response_format?.type === "json_object" ||
 					response_format?.type === "json_schema";
 				const shouldBufferForHealing =
-					streamingResponseHealingEnabled && streamingIsJsonResponseFormat;
+					streamingIsJsonResponseFormat &&
+					(streamingResponseHealingEnabled === true ||
+						usedProvider === "novita" ||
+						usedProvider === "minimax");
 
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end
@@ -3650,12 +3723,14 @@ chat.openapi(completions, async (c) => {
 									});
 								}
 
-								await writeSSEAndCache({
-									event: "done",
-									data: "[DONE]",
-									id: String(eventId++),
-								});
-								doneSent = true;
+								if (!shouldBufferForHealing) {
+									await writeSSEAndCache({
+										event: "done",
+										data: "[DONE]",
+										id: String(eventId++),
+									});
+									doneSent = true;
+								}
 
 								processedLength = eventEnd;
 							} else {
@@ -3696,6 +3771,53 @@ chat.openapi(completions, async (c) => {
 									processedLength = eventEnd;
 									searchStart = eventEnd;
 									continue;
+								}
+
+								const awsBedrockStreamError =
+									usedProvider === "aws-bedrock"
+										? extractAwsBedrockStreamError(data)
+										: null;
+								if (awsBedrockStreamError) {
+									const errorType = getFinishReasonFromError(
+										awsBedrockStreamError.statusCode,
+										awsBedrockStreamError.responseText,
+									);
+
+									streamingError = {
+										message: awsBedrockStreamError.message,
+										type: errorType,
+										code: awsBedrockStreamError.eventType,
+										details: {
+											statusCode: awsBedrockStreamError.statusCode,
+											statusText: awsBedrockStreamError.eventType,
+											responseText: awsBedrockStreamError.responseText,
+										},
+									};
+									finishReason = errorType;
+
+									await writeSSEAndCache({
+										event: "error",
+										data: JSON.stringify({
+											error: {
+												message: awsBedrockStreamError.message,
+												type: errorType,
+												code: awsBedrockStreamError.eventType,
+												param: null,
+												responseText: awsBedrockStreamError.responseText,
+											},
+										}),
+										id: String(eventId++),
+									});
+									await writeSSEAndCache({
+										event: "done",
+										data: "[DONE]",
+										id: String(eventId++),
+									});
+									doneSent = true;
+									shouldTerminateStream = true;
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									break;
 								}
 
 								// Transform streaming responses to OpenAI format for all providers
@@ -3742,7 +3864,8 @@ chat.openapi(completions, async (c) => {
 								// For Google providers, add usage information when available
 								if (
 									usedProvider === "google-ai-studio" ||
-									usedProvider === "google-vertex"
+									usedProvider === "google-vertex" ||
+									usedProvider === "obsidian"
 								) {
 									const usage = extractTokenUsage(
 										data,
@@ -3875,7 +3998,10 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// Extract usage data from transformedData to update tracking variables
-								if (transformedData.usage && usedProvider === "openai") {
+								if (
+									transformedData.usage &&
+									(usedProvider === "openai" || usedProvider === "azure")
+								) {
 									const usage = transformedData.usage;
 									if (
 										usage.prompt_tokens !== undefined &&
@@ -3911,6 +4037,7 @@ chat.openapi(completions, async (c) => {
 								const contentChunk = extractContent(
 									usedProvider === "google-ai-studio" ||
 										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian" ||
 										usedProvider === "anthropic"
 										? data
 										: transformedData,
@@ -3992,6 +4119,7 @@ chat.openapi(completions, async (c) => {
 								const reasoningContentChunk = extractReasoning(
 									usedProvider === "google-ai-studio" ||
 										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian" ||
 										usedProvider === "anthropic"
 										? data
 										: transformedData,
@@ -4007,8 +4135,11 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
-								// Extract and accumulate tool calls
-								const toolCallsChunk = extractToolCalls(data, usedProvider);
+								const toolCallsChunk = extractToolCalls(
+									data,
+									usedProvider,
+									transformedData,
+								);
 								if (toolCallsChunk && toolCallsChunk.length > 0) {
 									streamingToolCalls ??= [];
 									// Merge tool calls (accumulating function arguments)
@@ -4138,6 +4269,10 @@ chat.openapi(completions, async (c) => {
 						// Remove processed data from buffer
 						if (processedLength > 0) {
 							buffer = bufferCopy.slice(processedLength);
+						}
+
+						if (shouldTerminateStream) {
+							break;
 						}
 					}
 				} catch (error) {
@@ -4326,7 +4461,8 @@ chat.openapi(completions, async (c) => {
 					// These include both finishReason values and promptFeedback.blockReason values
 					const isGoogleContentFilterStreaming =
 						(usedProvider === "google-ai-studio" ||
-							usedProvider === "google-vertex") &&
+							usedProvider === "google-vertex" ||
+							usedProvider === "obsidian") &&
 						(finishReason === "SAFETY" ||
 							finishReason === "PROHIBITED_CONTENT" ||
 							finishReason === "RECITATION" ||
@@ -4709,7 +4845,8 @@ chat.openapi(completions, async (c) => {
 					// Enhanced logging for Google models streaming to debug missing responses
 					if (
 						usedProvider === "google-ai-studio" ||
-						usedProvider === "google-vertex"
+						usedProvider === "google-vertex" ||
+						usedProvider === "obsidian"
 					) {
 						logger.debug("Google model streaming response completed", {
 							usedProvider,
@@ -4760,15 +4897,42 @@ chat.openapi(completions, async (c) => {
 						hasError: streamingError !== null,
 						errorDetails: streamingError
 							? {
-									statusCode: 500,
-									statusText: "Streaming Error",
+									statusCode:
+										typeof streamingError === "object" &&
+										streamingError !== null &&
+										"details" in streamingError &&
+										typeof streamingError.details === "object" &&
+										streamingError.details !== null &&
+										"statusCode" in streamingError.details &&
+										typeof streamingError.details.statusCode === "number"
+											? streamingError.details.statusCode
+											: 500,
+									statusText:
+										typeof streamingError === "object" &&
+										streamingError !== null &&
+										"details" in streamingError &&
+										typeof streamingError.details === "object" &&
+										streamingError.details !== null &&
+										"statusText" in streamingError.details &&
+										typeof streamingError.details.statusText === "string"
+											? streamingError.details.statusText
+											: "Streaming Error",
 									responseText:
 										typeof streamingError === "object" &&
-										"details" in streamingError
-											? JSON.stringify(streamingError) // Store structured error as JSON string
-											: streamingError instanceof Error
-												? streamingError.message
-												: String(streamingError),
+										streamingError !== null &&
+										"details" in streamingError &&
+										typeof streamingError.details === "object" &&
+										streamingError.details !== null &&
+										"responseText" in streamingError.details &&
+										typeof streamingError.details.responseText === "string"
+											? streamingError.details.responseText
+											: typeof streamingError === "object" &&
+												  streamingError !== null &&
+												  "details" in streamingError
+												? JSON.stringify(streamingError)
+												: streamingError instanceof Error
+													? streamingError.message
+													: String(streamingError),
 								}
 							: null,
 						streamed: true,
@@ -5334,7 +5498,11 @@ chat.openapi(completions, async (c) => {
 			// Body read can throw TimeoutError if the abort signal fires during consumption
 			let errorResponseText: string;
 			try {
-				errorResponseText = await res.text();
+				const rawErrorResponseText = await res.text();
+				errorResponseText =
+					usedProvider === "aws-bedrock"
+						? extractAwsBedrockHttpError(res, rawErrorResponseText)
+						: rawErrorResponseText;
 			} catch (bodyError) {
 				if (isTimeoutError(bodyError)) {
 					const errorMessage =
@@ -5845,7 +6013,6 @@ chat.openapi(completions, async (c) => {
 		webSearchCount,
 	} = parsedResponse;
 
-	// Apply response healing if enabled and response_format is json_object or json_schema
 	const responseHealingEnabled = plugins?.some(
 		(p) => p.id === "response-healing",
 	);
@@ -5861,7 +6028,13 @@ chat.openapi(completions, async (c) => {
 		};
 	} = {};
 
-	if (responseHealingEnabled && isJsonResponseFormat && content) {
+	const shouldHealNonStreaming =
+		isJsonResponseFormat &&
+		(responseHealingEnabled === true ||
+			usedProvider === "novita" ||
+			usedProvider === "minimax");
+
+	if (shouldHealNonStreaming && content) {
 		const healingResult = healJsonResponse(content);
 		pluginResults.responseHealing = {
 			healed: healingResult.healed,

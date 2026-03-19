@@ -8,6 +8,8 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
+import { CopyMarkdownButton } from "./copy-markdown-button";
+
 import type { Guide } from "content-collections";
 import type { Metadata } from "next";
 
@@ -108,7 +110,7 @@ export default async function GuidePage({ params }: GuidePageProps) {
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">
 					<div className="max-w-4xl mx-auto">
-						<div className="mb-8">
+						<div className="mb-8 flex items-center justify-between">
 							<Link
 								href="/guides"
 								className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
@@ -116,6 +118,7 @@ export default async function GuidePage({ params }: GuidePageProps) {
 								<ArrowLeftIcon className="mr-2 h-4 w-4" />
 								Back to guides
 							</Link>
+							<CopyMarkdownButton content={guide.content} />
 						</div>
 
 						<article className="prose prose-lg dark:prose-invert max-w-none">

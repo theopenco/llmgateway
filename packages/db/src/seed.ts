@@ -1096,7 +1096,18 @@ function generateSeedModelProviderMappingHistory(
 	mappings: Array<Record<string, any>>,
 ) {
 	const history: Array<Record<string, any>> = [];
-	const topMappings = mappings.slice(0, 20);
+	// Pick one mapping per provider to ensure all providers have history data
+	const seenProviders = new Set<string>();
+	const topMappings: Array<Record<string, any>> = [];
+	for (const m of mappings) {
+		if (!seenProviders.has(m.providerId)) {
+			seenProviders.add(m.providerId);
+			topMappings.push(m);
+		}
+		if (topMappings.length >= 50) {
+			break;
+		}
+	}
 	for (const mapping of topMappings) {
 		for (let i = 0; i < 144; i++) {
 			const ts = minutesAgo(i * 10);
@@ -1131,7 +1142,7 @@ function generateSeedModelProviderMappingHistory(
 
 function generateSeedModelHistory() {
 	const history: Array<Record<string, any>> = [];
-	const topModels = (allModels as readonly ModelDefinition[]).slice(0, 15);
+	const topModels = (allModels as readonly ModelDefinition[]).slice(0, 50);
 	for (const m of topModels) {
 		for (let i = 0; i < 144; i++) {
 			const ts = minutesAgo(i * 10);

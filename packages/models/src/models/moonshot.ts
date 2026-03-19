@@ -33,7 +33,7 @@ export const moonshotModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				jsonOutput: false,
 			},
 			{
 				providerId: "moonshot",

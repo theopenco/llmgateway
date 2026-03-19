@@ -565,22 +565,55 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		amount,
 	});
 
-	const paymentIntent = await getStripe().paymentIntents.create({
-		amount: Math.round(feeBreakdown.totalAmount * 100),
-		currency: "usd",
-		description: `Credit purchase for ${amount} USD (including fees)`,
-		payment_method: paymentMethod.stripePaymentMethodId,
-		customer: stripeCustomerId,
-		confirm: true,
-		off_session: true,
-		metadata: {
-			organizationId: userOrganization.organization.id,
-			baseAmount: amount.toString(),
-			platformFee: feeBreakdown.platformFee.toString(),
-			userEmail: user.email,
-			userId: user.id,
-		},
-	});
+	let paymentIntent: Stripe.PaymentIntent;
+
+	try {
+		paymentIntent = await getStripe().paymentIntents.create({
+			amount: Math.round(feeBreakdown.totalAmount * 100),
+			currency: "usd",
+			description: `Credit purchase for ${amount} USD (including fees)`,
+			payment_method: paymentMethod.stripePaymentMethodId,
+			customer: stripeCustomerId,
+			confirm: true,
+			off_session: true,
+			metadata: {
+				organizationId: userOrganization.organization.id,
+				baseAmount: amount.toString(),
+				platformFee: feeBreakdown.platformFee.toString(),
+				userEmail: user.email,
+				userId: user.id,
+			},
+		});
+	} catch (err) {
+		if (err instanceof Stripe.errors.StripeCardError) {
+			const declineCode = err.decline_code;
+			const stripeMessage = err.message;
+			let userMessage = stripeMessage;
+
+			if (declineCode === "do_not_honor" || declineCode === "generic_decline") {
+				userMessage =
+					"Your bank declined the payment. Please contact your card issuer or try a different payment method.";
+			} else if (declineCode === "insufficient_funds") {
+				userMessage =
+					"Your card has insufficient funds. Please try a different payment method.";
+			} else if (declineCode === "expired_card") {
+				userMessage =
+					"Your card has expired. Please update your payment method.";
+			} else if (declineCode === "lost_card" || declineCode === "stolen_card") {
+				userMessage =
+					"This card cannot be used. Please use a different payment method.";
+			} else if (declineCode === "incorrect_cvc") {
+				userMessage =
+					"The security code is incorrect. Please check your card details and try again.";
+			}
+
+			throw new HTTPException(402, {
+				message: userMessage,
+			});
+		}
+
+		throw err;
+	}
 
 	if (paymentIntent.status !== "succeeded") {
 		throw new HTTPException(400, {
