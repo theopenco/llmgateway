@@ -44,24 +44,16 @@ mockServer.post("/v1/chat/completions", async (c) => {
 });
 
 async function cleanupDb() {
-	await Promise.all([
-		db.delete(tables.log),
-		db.delete(tables.apiKey),
-		db.delete(tables.providerKey),
-	]);
-
-	await Promise.all([
-		db.delete(tables.userOrganization),
-		db.delete(tables.project),
-	]);
-
-	await Promise.all([
-		db.delete(tables.organization),
-		db.delete(tables.user),
-		db.delete(tables.account),
-		db.delete(tables.session),
-		db.delete(tables.verification),
-	]);
+	await db.delete(tables.log);
+	await db.delete(tables.apiKey);
+	await db.delete(tables.providerKey);
+	await db.delete(tables.userOrganization);
+	await db.delete(tables.project);
+	await db.delete(tables.organization);
+	await db.delete(tables.user);
+	await db.delete(tables.account);
+	await db.delete(tables.session);
+	await db.delete(tables.verification);
 }
 
 async function setupTestData(opts: {
