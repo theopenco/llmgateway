@@ -31,6 +31,7 @@ export const zaiModels = [
 				test: "skip",
 				modelName: "zai/glm-5",
 				inputPrice: 0.9 / 1e6,
+				cachedInputPrice: 0.2 / 1e6,
 				outputPrice: 3.1 / 1e6,
 				discount: 0.3,
 				requestPrice: 0,
