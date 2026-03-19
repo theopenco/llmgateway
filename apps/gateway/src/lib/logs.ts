@@ -55,6 +55,9 @@ export function getUnifiedFinishReason(
 	if (finishReason === "client_error") {
 		return UnifiedFinishReason.CLIENT_ERROR;
 	}
+	if (finishReason === "llmgateway_content_filter") {
+		return UnifiedFinishReason.CONTENT_FILTER;
+	}
 
 	switch (provider) {
 		case "anthropic":
