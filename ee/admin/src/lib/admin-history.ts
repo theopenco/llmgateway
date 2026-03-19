@@ -48,6 +48,20 @@ export async function getMappingHistory(
 	return data?.data ?? null;
 }
 
+export async function getModelProviderHistories(
+	modelId: string,
+	window: HistoryWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/models/{modelId}/providers/history", {
+		params: {
+			path: { modelId: encodeURIComponent(modelId) },
+			query: { window },
+		},
+	});
+	return data?.data ?? null;
+}
+
 export async function getModelDetail(modelId: string, window?: HistoryWindow) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/models/{modelId}", {

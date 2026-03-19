@@ -1,37 +1,34 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
 import { Badge } from "@/components/ui/badge";
-import { getMappingHistory } from "@/lib/admin-history";
+import { getModelProviderHistories } from "@/lib/admin-history";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
-import type { ModelProviderStats } from "@/lib/types";
+import type {
+	HistoryDataPoint,
+	ModelProviderHistoriesResponse,
+	ModelProviderStats,
+} from "@/lib/types";
 
 function formatNumber(n: number) {
 	return new Intl.NumberFormat("en-US").format(n);
 }
 
 function ProviderSection({
-	modelId,
 	provider,
-	window,
+	data,
+	loading,
 }: {
-	modelId: string;
 	provider: ModelProviderStats;
-	window: HistoryWindow;
+	data: HistoryDataPoint[];
+	loading: boolean;
 }) {
 	const ProviderIcon = getProviderIcon(provider.providerId);
-
-	const fetchData = useCallback(
-		async (w: HistoryWindow) => {
-			return await getMappingHistory(provider.providerId, modelId, w);
-		},
-		[provider.providerId, modelId],
-	);
 
 	const errorRate =
 		provider.logsCount > 0
@@ -75,8 +72,8 @@ function ProviderSection({
 			<HistoryChart
 				title={`${provider.providerName} — History`}
 				description={`Request volume, errors, latency, and tokens for ${provider.providerName}`}
-				fetchData={fetchData}
-				externalWindow={window}
+				externalData={data}
+				externalLoading={loading}
 			/>
 		</div>
 	);
@@ -91,6 +88,25 @@ export function ModelProviderCharts({
 	providers: ModelProviderStats[];
 	window: HistoryWindow;
 }) {
+	const [historyByProvider, setHistoryByProvider] = useState<
+		ModelProviderHistoriesResponse["data"]
+	>({});
+	const [loading, setLoading] = useState(true);
+
+	const loadHistories = useCallback(async () => {
+		setLoading(true);
+		try {
+			const result = await getModelProviderHistories(modelId, window);
+			setHistoryByProvider(result ?? {});
+		} finally {
+			setLoading(false);
+		}
+	}, [modelId, window]);
+
+	useEffect(() => {
+		void loadHistories();
+	}, [loadHistories]);
+
 	if (providers.length === 0) {
 		return (
 			<div className="flex h-32 items-center justify-center rounded-lg border border-border/60 text-sm text-muted-foreground">
@@ -104,9 +120,9 @@ export function ModelProviderCharts({
 			{providers.map((provider) => (
 				<ProviderSection
 					key={provider.providerId}
-					modelId={modelId}
 					provider={provider}
-					window={window}
+					data={historyByProvider[provider.providerId] ?? []}
+					loading={loading}
 				/>
 			))}
 		</div>

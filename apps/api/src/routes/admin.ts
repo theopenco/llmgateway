@@ -3357,6 +3357,10 @@ const historyResponseSchema = z.object({
 	data: z.array(historyDataPointSchema),
 });
 
+const providerHistoryMapResponseSchema = z.object({
+	data: z.record(z.string(), z.array(historyDataPointSchema)),
+});
+
 function getHourFloor(date: Date): string {
 	const d = new Date(date);
 	d.setMinutes(0, 0, 0);
@@ -3797,6 +3801,157 @@ admin.openapi(getMappingHistory, async (c) => {
 			totalCost: Number(r.cost),
 		};
 	});
+
+	return c.json({ data });
+});
+
+const getModelProvidersHistory = createRoute({
+	method: "get",
+	path: "/models/{modelId}/providers/history",
+	request: {
+		params: z.object({ modelId: z.string() }),
+		query: z.object({
+			window: historyWindowSchema.default("4h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerHistoryMapResponseSchema.openapi({}),
+				},
+			},
+			description: "Per-provider model history timeseries for all providers.",
+		},
+	},
+});
+
+admin.openapi(getModelProvidersHistory, async (c) => {
+	const { modelId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "4h";
+	const startDate = getHistoryStartDate(window);
+	const hourStartDate = new Date(startDate);
+	hourStartDate.setMinutes(0, 0, 0);
+
+	const [minuteRows, hourlyRows] = await Promise.all([
+		db
+			.select({
+				providerId: modelProviderMappingHistory.providerId,
+				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+				logsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+						"errors_count",
+					),
+				cachedCount:
+					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+						"cached_count",
+					),
+				totalDuration:
+					sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
+						"total_duration",
+					),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				totalTokens:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
+						"total_tokens",
+					),
+			})
+			.from(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.modelId, modelId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			)
+			.groupBy(
+				modelProviderMappingHistory.providerId,
+				modelProviderMappingHistory.minuteTimestamp,
+			)
+			.orderBy(
+				asc(modelProviderMappingHistory.providerId),
+				asc(modelProviderMappingHistory.minuteTimestamp),
+			),
+		db
+			.select({
+				providerId: projectHourlyModelStats.usedProvider,
+				hourTimestamp: projectHourlyModelStats.hourTimestamp,
+				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					eq(projectHourlyModelStats.usedModel, modelId),
+					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(
+				projectHourlyModelStats.usedProvider,
+				projectHourlyModelStats.hourTimestamp,
+			)
+			.orderBy(
+				asc(projectHourlyModelStats.usedProvider),
+				asc(projectHourlyModelStats.hourTimestamp),
+			),
+	]);
+
+	const minuteRowsByProvider = new Map<
+		string,
+		{
+			minuteTimestamp: Date;
+			logsCount: number;
+			errorsCount: number;
+			cachedCount: number;
+			totalDuration: number;
+			totalTimeToFirstToken: number;
+			totalTokens: number;
+		}[]
+	>();
+	for (const row of minuteRows) {
+		const rows = minuteRowsByProvider.get(row.providerId) ?? [];
+		rows.push({
+			minuteTimestamp: row.minuteTimestamp,
+			logsCount: Number(row.logsCount),
+			errorsCount: Number(row.errorsCount),
+			cachedCount: Number(row.cachedCount),
+			totalDuration: Number(row.totalDuration),
+			totalTimeToFirstToken: Number(row.totalTimeToFirstToken),
+			totalTokens: Number(row.totalTokens),
+		});
+		minuteRowsByProvider.set(row.providerId, rows);
+	}
+
+	const costByHourByProvider = new Map<string, Map<string, number>>();
+	for (const row of hourlyRows) {
+		const providerCosts =
+			costByHourByProvider.get(row.providerId) ?? new Map<string, number>();
+		const d = new Date(row.hourTimestamp);
+		d.setMinutes(0, 0, 0);
+		providerCosts.set(d.toISOString(), Number(row.cost));
+		costByHourByProvider.set(row.providerId, providerCosts);
+	}
+
+	const providerIds = new Set([
+		...minuteRowsByProvider.keys(),
+		...costByHourByProvider.keys(),
+	]);
+
+	const data = Object.fromEntries(
+		[...providerIds].map((providerId) => [
+			providerId,
+			mapHistoryRows(
+				minuteRowsByProvider.get(providerId) ?? [],
+				costByHourByProvider.get(providerId) ?? new Map(),
+			),
+		]),
+	);
 
 	return c.json({ data });
 });

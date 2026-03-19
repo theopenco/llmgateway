@@ -2680,6 +2680,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/models/{modelId}/providers/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                };
+                header?: never;
+                path: {
+                    modelId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Per-provider model history timeseries for all providers. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: {
+                                [key: string]: {
+                                    timestamp: string;
+                                    logsCount: number;
+                                    errorsCount: number;
+                                    cachedCount: number;
+                                    avgTtft: number | null;
+                                    avgDuration: number | null;
+                                    totalTokens: number;
+                                    totalCost: number;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/metrics/cost-by-model": {
         parameters: {
             query?: never;
