@@ -574,7 +574,7 @@ export const googleModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 				deprecatedAt: new Date("2026-02-27"),
-				deactivatedAt: new Date("2026-03-09"),
+				deactivatedAt: new Date("2026-03-26"),
 			},
 			{
 				test: "skip",
@@ -612,7 +612,7 @@ export const googleModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 				deprecatedAt: new Date("2026-02-27"),
-				deactivatedAt: new Date("2026-03-09"),
+				deactivatedAt: new Date("2026-03-26"),
 			},
 		],
 	},
