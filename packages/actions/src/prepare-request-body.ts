@@ -803,16 +803,7 @@ export async function prepareRequestBody(
 	}
 
 	if (forcesToolUse && usedProvider === "moonshot") {
-		const providerMapping = modelDef?.providers.find(
-			(p) => p.modelName === usedModel && p.providerId === usedProvider,
-		);
-		const isExplicitThinkingModel =
-			providerMapping &&
-			"reasoning" in providerMapping &&
-			providerMapping.reasoning === true;
-		if (!isExplicitThinkingModel) {
-			requestBody.thinking = { enabled: false };
-		}
+		requestBody.thinking = { enabled: false };
 	}
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
