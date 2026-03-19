@@ -141,6 +141,50 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("MiniMax reasoning extraction", () => {
+		it("maps reasoning_details into reasoningContent", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "Final answer",
+							reasoning_details: [
+								{ text: "First step. " },
+								{ text: "Second step." },
+							],
+						},
+						finish_reason: "stop",
+					},
+				],
+			};
+
+			const result = parseProviderResponse("minimax", "MiniMax-M1", json);
+
+			expect(result.content).toBe("Final answer");
+			expect(result.reasoningContent).toBe("First step. Second step.");
+		});
+
+		it("extracts <think> content into reasoningContent and removes it from content", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "<think>Reasoning trace</think>Visible answer",
+						},
+						finish_reason: "stop",
+					},
+				],
+			};
+
+			const result = parseProviderResponse("minimax", "MiniMax-M1", json);
+
+			expect(result.content).toBe("Visible answer");
+			expect(result.reasoningContent).toBe("Reasoning trace");
+		});
+	});
+
 	describe("anthropic cachedTokens", () => {
 		it("returns cachedTokens as 0 when cache_read_input_tokens is 0", () => {
 			const json = {

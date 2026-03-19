@@ -3,6 +3,7 @@ import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
 import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import { extractMinimaxThinking } from "./extract-reasoning.js";
 
 import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
@@ -640,13 +641,19 @@ export function parseProviderResponse(
 			} else {
 				// Standard OpenAI chat completions format
 				toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
-				content = json.choices?.[0]?.message?.content ?? null;
+				const message = json.choices?.[0]?.message;
+				const minimaxThinking = extractMinimaxThinking(message?.content);
+				content = minimaxThinking.content;
 				// Extract reasoning content for reasoning-capable models
-				// Check both reasoning and reasoning_content (GLM models use reasoning_content)
+				// Check reasoning, reasoning_content, MiniMax reasoning_details, then <think> fallback
 				reasoningContent =
-					json.choices?.[0]?.message?.reasoning ??
-					json.choices?.[0]?.message?.reasoning_content ??
-					null;
+					message?.reasoning ??
+					message?.reasoning_content ??
+					(message?.reasoning_details
+						?.map((detail: any) => detail?.text)
+						?.filter((text: any): text is string => typeof text === "string")
+						?.join("") || null) ??
+					minimaxThinking.reasoningContent;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios

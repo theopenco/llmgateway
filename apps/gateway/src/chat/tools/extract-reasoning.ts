@@ -1,3 +1,14 @@
+function extractMinimaxReasoningDetails(reasoningDetails: any): string {
+	if (!Array.isArray(reasoningDetails)) {
+		return "";
+	}
+
+	return reasoningDetails
+		.map((detail: any) => detail?.text)
+		.filter((text: any): text is string => typeof text === "string")
+		.join("");
+}
+
 import type { Provider } from "@llmgateway/models";
 
 /**
@@ -24,11 +35,36 @@ export function extractReasoning(data: any, provider: Provider): string {
 			const reasoningParts = parts.filter((part: any) => part.thought);
 			return reasoningParts.map((part: any) => part.text).join("") ?? "";
 		}
-		default: // OpenAI format (includes GLM/ZAI which use reasoning_content)
-			return (
-				data.choices?.[0]?.delta?.reasoning ??
-				data.choices?.[0]?.delta?.reasoning_content ??
-				""
-			);
+		default: {
+				const delta = data.choices?.[0]?.delta;
+				return (
+					delta?.reasoning ??
+					delta?.reasoning_content ??
+					extractMinimaxReasoningDetails(delta?.reasoning_details)
+				);
+			}
 	}
+}
+
+
+export function extractMinimaxThinking(content: string | null | undefined): {
+	content: string | null;
+	reasoningContent: string | null;
+} {
+	if (typeof content !== "string") {
+		return { content: content ?? null, reasoningContent: null };
+	}
+
+	const thinkPattern = /<think>([\s\S]*?)<\/think>/gi;
+	let reasoningContent = "";
+	const cleanedContent = content.replace(thinkPattern, (_, thinkText: string) => {
+		reasoningContent += thinkText;
+		return "";
+	});
+
+	const normalizedContent = cleanedContent.trim();
+	return {
+		content: normalizedContent.length > 0 ? normalizedContent : null,
+		reasoningContent: reasoningContent || null,
+	};
 }

@@ -53,12 +53,24 @@ export function transformOpenaiStreaming(data: any, usedModel: string): any {
 			role: delta.role ?? "assistant",
 		};
 
-		// Normalize reasoning_content field to reasoning for OpenAI compatibility
+		// Normalize provider-specific reasoning fields to reasoning for OpenAI compatibility
 		if (newDelta.reasoning_content) {
 			const { reasoning_content, ...rest } = newDelta;
 			return {
 				...rest,
 				reasoning: reasoning_content,
+			};
+		}
+
+		if (Array.isArray(newDelta.reasoning_details)) {
+			const reasoning = newDelta.reasoning_details
+				.map((detail: any) => detail?.text)
+				.filter((text: any): text is string => typeof text === "string")
+				.join("");
+			const { reasoning_details, ...rest } = newDelta;
+			return {
+				...rest,
+				...(reasoning ? { reasoning } : {}),
 			};
 		}
 

@@ -83,6 +83,34 @@ describe("transformOpenaiStreaming", () => {
 		expect(result.choices[0].delta).not.toHaveProperty("reasoning_content");
 	});
 
+	test("should normalize MiniMax reasoning_details to reasoning", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "MiniMax-M1",
+			choices: [
+				{
+					index: 0,
+					delta: {
+						role: "assistant",
+						reasoning_details: [{ text: "step 1" }, { text: " + step 2" }],
+						content: "answer",
+					},
+				},
+			],
+			usage: null,
+		};
+
+		const result = transformOpenaiStreaming(input, "MiniMax-M1");
+
+		const delta = result.choices[0].delta;
+		expect(delta).toHaveProperty("role", "assistant");
+		expect(delta).toHaveProperty("content", "answer");
+		expect(delta).toHaveProperty("reasoning", "step 1 + step 2");
+		expect(delta).not.toHaveProperty("reasoning_details");
+	});
+
 	test("should preserve role when transforming reasoning_content", () => {
 		const input = {
 			id: "test-id",
