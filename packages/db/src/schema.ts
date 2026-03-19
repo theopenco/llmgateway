@@ -255,6 +255,40 @@ export const followUpEmail = pgTable(
 	],
 );
 
+export const enterpriseContactSubmission = pgTable(
+	"enterprise_contact_submission",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text().notNull(),
+		email: text().notNull(),
+		country: text().notNull(),
+		size: text().notNull(),
+		message: text().notNull(),
+		honeypot: text(),
+		clientTimestampMs: text(),
+		ipAddress: text(),
+		userAgent: text(),
+		spamFilterStatus: text({
+			enum: ["pending", "rejected", "delivered", "delivery_failed"],
+		})
+			.notNull()
+			.default("pending"),
+		rejectionReason: text(),
+	},
+	(table) => [
+		index("enterprise_contact_submission_created_at_idx").on(table.createdAt),
+		index("enterprise_contact_submission_email_idx").on(table.email),
+		index("enterprise_contact_submission_status_idx").on(
+			table.spamFilterStatus,
+		),
+	],
+);
+
 export const userOrganization = pgTable(
 	"user_organization",
 	{
@@ -887,6 +921,17 @@ export const modelProviderMappingHistory = pgTable(
 			table.minuteTimestamp,
 			table.modelId,
 		),
+		// Index for admin model detail queries (filter by model + time range)
+		index("model_provider_mapping_history_model_id_minute_timestamp_idx").on(
+			table.modelId,
+			table.minuteTimestamp,
+		),
+		// Index for admin provider+model mapping queries
+		index("model_provider_mapping_history_id_ts_idx").on(
+			table.providerId,
+			table.modelId,
+			table.minuteTimestamp,
+		),
 	],
 );
 
@@ -923,6 +968,11 @@ export const modelHistory = pgTable(
 		unique().on(table.modelId, table.minuteTimestamp),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_history_minute_timestamp_idx").on(table.minuteTimestamp),
+		// Index for admin model history queries (filter by model + time range)
+		index("model_history_model_id_minute_timestamp_idx").on(
+			table.modelId,
+			table.minuteTimestamp,
+		),
 	],
 );
 
@@ -1389,6 +1439,17 @@ export const projectHourlyModelStats = pgTable(
 		),
 		// Index for worker refresh queries
 		index("project_hourly_model_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+		// Index for admin model detail queries (global aggregation by model)
+		index("project_hourly_model_stats_used_model_hour_timestamp_idx").on(
+			table.usedModel,
+			table.hourTimestamp,
+		),
+		// Index for admin provider+model queries
+		index("project_hourly_model_stats_p_m_time_idx").on(
+			table.usedProvider,
+			table.usedModel,
 			table.hourTimestamp,
 		),
 	],

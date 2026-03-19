@@ -8,6 +8,7 @@ import {
 	GitMerge,
 	LayoutDashboard,
 	LogOut,
+	Mail,
 	Menu,
 	Percent,
 	Server,
@@ -85,6 +86,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isProviders = pathname === "/providers";
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
+	const isContactSubmissions = pathname.startsWith("/contact-submissions");
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -178,6 +180,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									>
 										<GitMerge className="h-4 w-4" />
 										<span>Model Mappings</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/contact-submissions" className="block">
+									<SidebarMenuButton isActive={isContactSubmissions} size="lg">
+										<Mail className="h-4 w-4" />
+										<span>Contact Submissions</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

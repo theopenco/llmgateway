@@ -294,6 +294,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/contact/enterprise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        /** Format: email */
+                        email: string;
+                        country: string;
+                        size: string;
+                        message: string;
+                        honeypot?: string;
+                        timestamp?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Enterprise contact request handled successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Submission rejected by validation or spam checks */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Submission rejected by rate limiting */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Submission could not be processed */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -2641,7 +2728,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
+                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2808,7 +2895,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
+                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2858,7 +2945,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
+                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -2908,7 +2995,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    window?: "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "1d" | "2d" | "7d";
+                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
                 };
                 header?: never;
                 path: {
@@ -3071,6 +3158,8 @@ export interface paths {
                     sortOrder?: "asc" | "desc";
                     limit?: number | null;
                     offset?: number | null;
+                    from?: string;
+                    to?: string;
                 };
                 header?: never;
                 path?: never;
@@ -3100,6 +3189,66 @@ export interface paths {
                                 outputPrice: string | null;
                                 contextSize: number | null;
                                 updatedAt: string;
+                            }[];
+                            total: number;
+                            totalRequests: number;
+                            totalTokens: number;
+                            totalCost: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/contact-submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                    search?: string;
+                    status?: "pending" | "rejected" | "delivered" | "delivery_failed";
+                    sortBy?: "createdAt" | "name" | "email" | "spamFilterStatus";
+                    sortOrder?: "asc" | "desc";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of enterprise contact submissions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            submissions: {
+                                id: string;
+                                createdAt: string;
+                                name: string;
+                                email: string;
+                                country: string;
+                                size: string;
+                                message: string;
+                                ipAddress: string | null;
+                                userAgent: string | null;
+                                spamFilterStatus: string;
+                                rejectionReason: string | null;
                             }[];
                             total: number;
                         };

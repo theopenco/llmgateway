@@ -1,4 +1,5 @@
 export type PageWindow =
+	| "1m"
 	| "2m"
 	| "5m"
 	| "15m"
@@ -7,11 +8,11 @@ export type PageWindow =
 	| "4h"
 	| "12h"
 	| "24h"
-	| "1d"
 	| "2d"
 	| "7d";
 
 export const pageWindowOptions: { value: PageWindow; label: string }[] = [
+	{ value: "1m", label: "1m" },
 	{ value: "2m", label: "2m" },
 	{ value: "5m", label: "5m" },
 	{ value: "15m", label: "15m" },
@@ -20,7 +21,6 @@ export const pageWindowOptions: { value: PageWindow; label: string }[] = [
 	{ value: "4h", label: "4h" },
 	{ value: "12h", label: "12h" },
 	{ value: "24h", label: "24h" },
-	{ value: "1d", label: "1d" },
 	{ value: "2d", label: "2d" },
 	{ value: "7d", label: "7d" },
 ];
@@ -31,7 +31,7 @@ export function parsePageWindow(value: string | undefined): PageWindow {
 	if (value && validWindows.has(value as PageWindow)) {
 		return value as PageWindow;
 	}
-	return "24h";
+	return "4h";
 }
 
 export function windowToFromTo(window: PageWindow): {
@@ -40,6 +40,7 @@ export function windowToFromTo(window: PageWindow): {
 } {
 	const now = new Date();
 	const windowMinutes: Record<PageWindow, number> = {
+		"1m": 1,
 		"2m": 2,
 		"5m": 5,
 		"15m": 15,
@@ -48,7 +49,6 @@ export function windowToFromTo(window: PageWindow): {
 		"4h": 240,
 		"12h": 720,
 		"24h": 1440,
-		"1d": 1440,
 		"2d": 2880,
 		"7d": 10080,
 	};

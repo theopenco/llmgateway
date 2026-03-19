@@ -26,6 +26,7 @@ import type { ProviderStats } from "@/lib/types";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
+		"1m": "1m",
 		"2m": "2m",
 		"5m": "5m",
 		"15m": "15m",
@@ -34,7 +35,6 @@ function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 		"4h": "4h",
 		"12h": "12h",
 		"24h": "24h",
-		"1d": "1d",
 		"2d": "2d",
 		"7d": "7d",
 	};

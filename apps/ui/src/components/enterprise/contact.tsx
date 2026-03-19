@@ -7,10 +7,6 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import {
-	sendContactEmail,
-	type ContactFormData,
-} from "@/app/actions/send-contact-email";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -29,6 +25,7 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { Textarea } from "@/lib/components/textarea";
+import { useAppConfig } from "@/lib/config";
 import { countries } from "@/lib/countries";
 
 const contactFormSchema = z.object({
@@ -41,7 +38,10 @@ const contactFormSchema = z.object({
 	timestamp: z.number().optional(),
 });
 
+type ContactFormData = z.infer<typeof contactFormSchema>;
+
 export function ContactFormEnterprise() {
+	const config = useAppConfig();
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
 	const [formLoadTime] = useState(() => Date.now());
@@ -67,9 +67,22 @@ export function ContactFormEnterprise() {
 	const onSubmit = async (data: ContactFormData) => {
 		setIsSubmitting(true);
 		try {
-			const result = await sendContactEmail(data);
+			const response = await fetch(
+				`${config.apiUrl}/public/contact/enterprise`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(data),
+				},
+			);
+			const result = (await response.json()) as {
+				success: boolean;
+				message?: string;
+			};
 
-			if (result.success) {
+			if (response.ok && result.success) {
 				setIsSuccess(true);
 				form.reset();
 				toast.success("Message sent successfully!", {
