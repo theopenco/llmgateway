@@ -6,6 +6,8 @@ import { Card } from "@/lib/components/card";
 
 import {
 	AnthropicIcon,
+	AutohandIcon,
+	CodexIcon,
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
@@ -29,6 +31,14 @@ interface Integration {
 
 const integrations: Integration[] = [
 	{
+		name: "Autohand",
+		description:
+			"Use LLM Gateway with Autohand for autonomous AI-powered coding in your terminal, IDE, and Slack.",
+		href: "/guides/autohand",
+		icon: AutohandIcon,
+		comingSoon: false,
+	},
+	{
 		name: "Claude Code",
 		description:
 			"Use LLM Gateway with Claude Code for AI-powered terminal assistance and coding.",
@@ -44,6 +54,14 @@ const integrations: Integration[] = [
 		icon: CursorIcon,
 		comingSoon: false,
 		badge: "Plan mode only",
+	},
+	{
+		name: "Codex CLI",
+		description:
+			"Use LLM Gateway with OpenAI's Codex CLI for AI-powered terminal coding.",
+		href: "/guides/codex-cli",
+		icon: CodexIcon,
+		comingSoon: false,
 	},
 	{
 		name: "Cline",
