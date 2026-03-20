@@ -343,7 +343,10 @@ function collectModelDetail(modelId?: ModelId): ModelDetail | undefined {
 		requestPrice: getPricingSummary(providersWithInfo, "requestPrice"),
 		imageInputPrice: getPricingSummary(providersWithInfo, "imageInputPrice"),
 		hasTieredPricing: providersWithInfo.some(
-			(p) => p.pricingTiers && p.pricingTiers.length > 1,
+			(p) =>
+				(p.pricingTiers ?? p.regions?.[0]?.pricingTiers)?.length !==
+					undefined &&
+				(p.pricingTiers ?? p.regions?.[0]?.pricingTiers)!.length > 1,
 		),
 	};
 
@@ -550,9 +553,12 @@ function renderRowValue(
 			const summary =
 				getProviderPricingSummary(selectedProvider, "inputPrice") ??
 				detail.aggregated.inputPrice;
+			const tiers = selectedProvider
+				? (selectedProvider.pricingTiers ??
+					selectedProvider.regions?.[0]?.pricingTiers)
+				: undefined;
 			const hasTiered = selectedProvider
-				? selectedProvider.pricingTiers &&
-					selectedProvider.pricingTiers.length > 1
+				? tiers && tiers.length > 1
 				: detail.aggregated.hasTieredPricing;
 			return <PricingCell summary={summary} hasTieredPricing={hasTiered} />;
 		}
@@ -560,9 +566,12 @@ function renderRowValue(
 			const summary =
 				getProviderPricingSummary(selectedProvider, "outputPrice") ??
 				detail.aggregated.outputPrice;
+			const tiers = selectedProvider
+				? (selectedProvider.pricingTiers ??
+					selectedProvider.regions?.[0]?.pricingTiers)
+				: undefined;
 			const hasTiered = selectedProvider
-				? selectedProvider.pricingTiers &&
-					selectedProvider.pricingTiers.length > 1
+				? tiers && tiers.length > 1
 				: detail.aggregated.hasTieredPricing;
 			return <PricingCell summary={summary} hasTieredPricing={hasTiered} />;
 		}

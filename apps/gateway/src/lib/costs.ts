@@ -252,16 +252,21 @@ export async function calculateCosts(
 	}
 
 	// Resolve region-specific pricing when available.
-	// If the region doesn't match, regionPricing stays undefined and top-level
-	// pricing is used. This shouldn't happen — resolve-provider-context validates
-	// the region before the request is processed — so log an error to surface it.
+	// When a region is specified, look it up directly. When no region is specified
+	// but the mapping defines regions, fall back to regions[0] (the default region).
+	// This lets model definitions omit top-level inputPrice/outputPrice/pricingTiers
+	// when regions are defined — the first region is the canonical default.
 	let regionPricing: ProviderRegion | undefined;
-	if (region && providerInfo.regions && providerInfo.regions.length > 0) {
-		regionPricing = providerInfo.regions.find((r) => r.id === region);
-		if (!regionPricing) {
-			logger.error(
-				`Region "${region}" not found in pricing for model "${model}" provider "${provider}". This indicates a bug — region should have been validated upstream.`,
-			);
+	if (providerInfo.regions && providerInfo.regions.length > 0) {
+		if (region) {
+			regionPricing = providerInfo.regions.find((r) => r.id === region);
+			if (!regionPricing) {
+				logger.error(
+					`Region "${region}" not found in pricing for model "${model}" provider "${provider}". This indicates a bug — region should have been validated upstream.`,
+				);
+			}
+		} else {
+			regionPricing = providerInfo.regions[0];
 		}
 	}
 

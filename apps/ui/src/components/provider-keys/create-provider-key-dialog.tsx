@@ -25,11 +25,7 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import {
-	providers,
-	type ProviderDefinition,
-	type ProviderRegionConfig,
-} from "@llmgateway/models";
+import { providers, type ProviderDefinition } from "@llmgateway/models";
 
 import { ProviderSelect } from "./provider-select";
 
@@ -84,6 +80,10 @@ export function CreateProviderKeyDialog({
 	const queryClient = useQueryClient();
 
 	const createMutation = api.useMutation("post", "/keys/provider");
+
+	const selectedProviderDef = providers.find(
+		(p) => p.id === selectedProvider,
+	) as ProviderDefinition | undefined;
 
 	// Filter provider keys by selected organization
 	const organizationProviderKeys = existingProviderKeys.filter(
@@ -186,13 +186,10 @@ export function CreateProviderKeyDialog({
 			};
 		}
 		// Include region in options for providers that support it
-		const providerDef = providers.find((p) => p.id === selectedProvider) as
-			| ProviderDefinition
-			| undefined;
-		if (providerDef?.regionConfig && selectedRegion) {
+		if (selectedProviderDef?.regionConfig && selectedRegion) {
 			payload.options = {
 				...payload.options,
-				[providerDef.regionConfig.optionsKey]: selectedRegion,
+				[selectedProviderDef.regionConfig.optionsKey]: selectedRegion,
 			};
 		}
 
@@ -275,7 +272,10 @@ export function CreateProviderKeyDialog({
 					<div className="space-y-2">
 						<Label htmlFor="provider">Provider</Label>
 						<ProviderSelect
-							onValueChange={setSelectedProvider}
+							onValueChange={(value) => {
+								setSelectedProvider(value);
+								setSelectedRegion("");
+							}}
 							value={selectedProvider}
 							providers={availableProviders}
 							loading={false}
@@ -434,42 +434,33 @@ export function CreateProviderKeyDialog({
 						</>
 					)}
 
-					{(() => {
-						const providerWithRegion = providers.find(
-							(p) => p.id === selectedProvider,
-						) as ProviderDefinition | undefined;
-						const rc = providerWithRegion?.regionConfig as
-							| ProviderRegionConfig
-							| undefined;
-						if (!rc) {
-							return null;
-						}
-						const effectiveRegion = selectedRegion || rc.defaultRegion;
-						return (
-							<div className="space-y-2">
-								<Label htmlFor="provider-region">Region</Label>
-								<Select
-									value={effectiveRegion}
-									onValueChange={setSelectedRegion}
-								>
-									<SelectTrigger id="provider-region">
-										<SelectValue placeholder="Select region" />
-									</SelectTrigger>
-									<SelectContent>
-										{rc.regions.map((r) => (
-											<SelectItem key={r.id} value={r.id}>
-												{r.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-								<p className="text-sm text-muted-foreground">
-									API keys are region-specific. Make sure your key matches the
-									selected region.
-								</p>
-							</div>
-						);
-					})()}
+					{selectedProviderDef?.regionConfig && (
+						<div className="space-y-2">
+							<Label htmlFor="provider-region">Region</Label>
+							<Select
+								value={
+									selectedRegion ||
+									selectedProviderDef.regionConfig.defaultRegion
+								}
+								onValueChange={setSelectedRegion}
+							>
+								<SelectTrigger id="provider-region">
+									<SelectValue placeholder="Select region" />
+								</SelectTrigger>
+								<SelectContent>
+									{selectedProviderDef.regionConfig.regions.map((r) => (
+										<SelectItem key={r.id} value={r.id}>
+											{r.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="text-sm text-muted-foreground">
+								API keys are region-specific. Make sure your key matches the
+								selected region.
+							</p>
+						</div>
+					)}
 
 					{selectedProvider === "custom" && (
 						<>
