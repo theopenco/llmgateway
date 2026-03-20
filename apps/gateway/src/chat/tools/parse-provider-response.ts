@@ -756,15 +756,11 @@ export function parseProviderResponse(
 			break;
 	}
 
-	if (
-		usedProvider === "minimax" &&
-		!reasoningContent &&
-		typeof content === "string"
-	) {
+	if (usedProvider === "minimax" && typeof content === "string") {
 		const splitContent = splitReasoningFromTaggedContent(content);
 		if (splitContent.reasoningContent) {
 			content = splitContent.content;
-			reasoningContent = splitContent.reasoningContent;
+			reasoningContent ??= splitContent.reasoningContent;
 		}
 	}
 

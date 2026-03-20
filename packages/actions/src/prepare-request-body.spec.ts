@@ -608,6 +608,28 @@ describe("prepareRequestBody - MiniMax", () => {
 			reasoning_split: true,
 		});
 	});
+
+	test("should not set reasoning_split when supportsReasoning is false", async () => {
+		const requestBody = (await prepareRequestBody(
+			"minimax",
+			"MiniMax-M2",
+			[{ role: "user", content: "What is 2+2?" }],
+			true,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"medium",
+			false,
+			false,
+		)) as { extra_body?: Record<string, unknown> };
+
+		expect(requestBody.extra_body?.reasoning_split).toBeUndefined();
+	});
 });
 
 describe("prepareRequestBody - AWS Bedrock", () => {

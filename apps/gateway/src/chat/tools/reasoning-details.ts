@@ -4,12 +4,21 @@ const THINK_TAG_PATTERNS = [
 	/<think>([\s\S]*?)<\/think>/gi,
 	/<thinking>([\s\S]*?)<\/thinking>/gi,
 ];
-const OPEN_THINK_TAG = "<think>";
-const CLOSE_THINK_TAG = "</think>";
+const THINK_TAG_PAIRS = [
+	{
+		open: "<think>",
+		close: "</think>",
+	},
+	{
+		open: "<thinking>",
+		close: "</thinking>",
+	},
+] as const;
 
 export interface TaggedStreamingReasoningState {
 	inReasoning: boolean;
 	pending: string;
+	activeCloseTag?: string;
 }
 
 export function extractReasoningDetailsText(
@@ -92,6 +101,33 @@ function getTrailingPartialTagLength(content: string, tag: string): number {
 	return 0;
 }
 
+function findFirstOpeningTag(content: string):
+	| {
+			index: number;
+			open: string;
+			close: string;
+	  }
+	| undefined {
+	const matches = THINK_TAG_PAIRS.map((pair) => ({
+		...pair,
+		index: content.indexOf(pair.open),
+	})).filter((match) => match.index !== -1);
+
+	if (matches.length === 0) {
+		return undefined;
+	}
+
+	return matches.reduce((earliest, current) =>
+		current.index < earliest.index ? current : earliest,
+	);
+}
+
+function getTrailingPartialOpeningTagLength(content: string): number {
+	return THINK_TAG_PAIRS.reduce((maxLength, pair) => {
+		return Math.max(maxLength, getTrailingPartialTagLength(content, pair.open));
+	}, 0);
+}
+
 export function splitTaggedStreamingContentChunk(
 	content: string,
 	state: TaggedStreamingReasoningState,
@@ -107,11 +143,12 @@ export function splitTaggedStreamingContentChunk(
 
 	while (remaining.length > 0) {
 		if (state.inReasoning) {
-			const closeIndex = remaining.indexOf(CLOSE_THINK_TAG);
+			const closeTag = state.activeCloseTag ?? "</think>";
+			const closeIndex = remaining.indexOf(closeTag);
 			if (closeIndex === -1) {
 				const partialCloseLength = getTrailingPartialTagLength(
 					remaining,
-					CLOSE_THINK_TAG,
+					closeTag,
 				);
 				const emitEnd = remaining.length - partialCloseLength;
 				if (emitEnd > 0) {
@@ -124,17 +161,15 @@ export function splitTaggedStreamingContentChunk(
 			if (closeIndex > 0) {
 				reasoningParts.push(remaining.slice(0, closeIndex));
 			}
-			remaining = remaining.slice(closeIndex + CLOSE_THINK_TAG.length);
+			remaining = remaining.slice(closeIndex + closeTag.length);
 			state.inReasoning = false;
+			state.activeCloseTag = undefined;
 			continue;
 		}
 
-		const openIndex = remaining.indexOf(OPEN_THINK_TAG);
-		if (openIndex === -1) {
-			const partialOpenLength = getTrailingPartialTagLength(
-				remaining,
-				OPEN_THINK_TAG,
-			);
+		const openingTag = findFirstOpeningTag(remaining);
+		if (!openingTag) {
+			const partialOpenLength = getTrailingPartialOpeningTagLength(remaining);
 			const emitEnd = remaining.length - partialOpenLength;
 			if (emitEnd > 0) {
 				contentParts.push(remaining.slice(0, emitEnd));
@@ -143,15 +178,42 @@ export function splitTaggedStreamingContentChunk(
 			break;
 		}
 
-		if (openIndex > 0) {
-			contentParts.push(remaining.slice(0, openIndex));
+		if (openingTag.index > 0) {
+			contentParts.push(remaining.slice(0, openingTag.index));
 		}
-		remaining = remaining.slice(openIndex + OPEN_THINK_TAG.length);
+		remaining = remaining.slice(openingTag.index + openingTag.open.length);
 		state.inReasoning = true;
+		state.activeCloseTag = openingTag.close;
 	}
 
 	return {
 		...(contentParts.length > 0 && { content: contentParts.join("") }),
 		...(reasoningParts.length > 0 && { reasoning: reasoningParts.join("") }),
+	};
+}
+
+export function flushTaggedStreamingRemainder(
+	state: TaggedStreamingReasoningState,
+): {
+	content?: string;
+	reasoning?: string;
+} {
+	if (!state.pending) {
+		return {};
+	}
+
+	const pending = state.pending;
+	state.pending = "";
+	state.activeCloseTag = undefined;
+
+	if (state.inReasoning) {
+		state.inReasoning = false;
+		return {
+			reasoning: pending,
+		};
+	}
+
+	return {
+		content: pending,
 	};
 }

@@ -255,5 +255,30 @@ describe("parseProviderResponse", () => {
 			expect(result.content).toBe("Final answer");
 			expect(result.reasoningContent).toBe("step 1\nstep 2");
 		});
+
+		it("strips reasoning tags from content even when reasoning_details are present", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "<think>tagged reasoning</think>\nFinal answer",
+							reasoning_details: [{ text: "structured reasoning" }],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("minimax", "MiniMax-M2", json);
+
+			expect(result.content).toBe("Final answer");
+			expect(result.reasoningContent).toBe("structured reasoning");
+		});
 	});
 });

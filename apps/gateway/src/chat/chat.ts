@@ -92,6 +92,7 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import {
+	flushTaggedStreamingRemainder,
 	splitTaggedStreamingContentChunk,
 	splitReasoningFromTaggedContent,
 } from "./tools/reasoning-details.js";
@@ -3727,6 +3728,39 @@ chat.openapi(completions, async (c) => {
 								}
 
 								if (!shouldBufferForHealing) {
+									if (usedProvider === "minimax") {
+										const flushedRemainder = flushTaggedStreamingRemainder(
+											minimaxStreamingReasoningState,
+										);
+										if (
+											flushedRemainder.content ||
+											flushedRemainder.reasoning
+										) {
+											await writeSSEAndCache({
+												data: JSON.stringify({
+													id: `chatcmpl-${Date.now()}`,
+													object: "chat.completion.chunk",
+													created: Math.floor(Date.now() / 1000),
+													model: usedModelFormatted,
+													choices: [
+														{
+															index: 0,
+															delta: {
+																...(flushedRemainder.content && {
+																	content: flushedRemainder.content,
+																}),
+																...(flushedRemainder.reasoning && {
+																	reasoning: flushedRemainder.reasoning,
+																}),
+															},
+														},
+													],
+												}),
+												id: String(eventId++),
+											});
+										}
+									}
+
 									await writeSSEAndCache({
 										event: "done",
 										data: "[DONE]",
