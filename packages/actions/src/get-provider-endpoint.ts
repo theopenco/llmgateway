@@ -353,6 +353,25 @@ export function getProviderEndpoint(
 			if (imageGenerations) {
 				return `${url}/v1/images/generations`;
 			}
+			if (model) {
+				const modelDef = models.find(
+					(m) =>
+						m.id === model ||
+						m.providers.some(
+							(p) => p.modelName === model && p.providerId === "xai",
+						),
+				);
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === "xai",
+				);
+				const supportsResponsesApi =
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
+
+				if (supportsResponsesApi) {
+					return `${url}/v1/responses`;
+				}
+			}
 			return `${url}/v1/chat/completions`;
 		case "inference.net":
 		case "llmgateway":

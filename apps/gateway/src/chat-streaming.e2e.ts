@@ -67,6 +67,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 			expect(streamResult.hasValidSSE).toBe(true);
 			expect(streamResult.eventCount).toBeGreaterThan(0);
+			expect(
+				streamResult.hasError,
+				JSON.stringify(streamResult.errorEvents, null, 2),
+			).toBe(false);
 			expect(streamResult.hasContent).toBe(true);
 
 			// Verify that all streaming responses are transformed to OpenAI format

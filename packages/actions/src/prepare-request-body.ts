@@ -822,7 +822,8 @@ export async function prepareRequestBody(
 
 	switch (usedProvider) {
 		case "azure":
-		case "openai": {
+		case "openai":
+		case "xai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
 			// Otherwise, fall back to checking the model definition.

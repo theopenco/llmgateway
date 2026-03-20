@@ -685,7 +685,8 @@ export function transformStreamingToOpenai(
 		}
 
 		case "azure":
-		case "openai": {
+		case "openai":
+		case "xai": {
 			if (data.type) {
 				// Log full OpenAI event data for debugging
 				logger.info("[OpenAI Streaming Debug]", {
@@ -1200,7 +1201,6 @@ export function transformStreamingToOpenai(
 		case "zai":
 		case "groq":
 		case "cerebras":
-		case "xai":
 		case "deepseek":
 		case "alibaba":
 		case "moonshot":

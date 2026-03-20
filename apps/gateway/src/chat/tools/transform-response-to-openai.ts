@@ -609,9 +609,48 @@ export function transformResponseToOpenai(
 			break;
 		}
 		case "xai": {
-			// Check if this is a Grok Imagine image generation response
-			// Format: { data: [{ url: "..." }] }
-			if (json.data && Array.isArray(json.data)) {
+			if (json.output && Array.isArray(json.output)) {
+				transformedResponse = {
+					id: json.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: json.created_at ?? Math.floor(Date.now() / 1000),
+					model: `${usedProvider}/${baseModelName}`,
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: content,
+								...(reasoningContent !== null && {
+									reasoning: reasoningContent,
+								}),
+								...(toolResults && { tool_calls: toolResults }),
+								...(annotations && annotations.length > 0 && { annotations }),
+							},
+							finish_reason: finishReason ?? "stop",
+						},
+					],
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+						showUpgradeMessage,
+					),
+					metadata: {
+						requested_model: requestedModel,
+						requested_provider: requestedProvider,
+						used_model: baseModelName,
+						used_provider: usedProvider,
+						underlying_used_model: usedModel,
+						...(routing && { routing }),
+					},
+				};
+			} else if (json.data && Array.isArray(json.data)) {
+				// Check if this is a Grok Imagine image generation response
+				// Format: { data: [{ url: "..." }] }
 				transformedResponse = {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",

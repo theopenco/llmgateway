@@ -50,6 +50,9 @@ export const metaModels = [
 				jsonOutput: false,
 			},
 			{
+				// Together currently requires a dedicated endpoint for this model.
+				test: "skip",
+				deactivatedAt: new Date("2026-03-20"),
 				providerId: "together.ai",
 				modelName: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 				inputPrice: 0.06 / 1e6,
@@ -185,6 +188,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-03-20"),
 			},
 		],
 	},

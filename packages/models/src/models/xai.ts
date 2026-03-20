@@ -569,6 +569,7 @@ export const xaiModels = [
 				vision: true,
 				reasoning: true,
 				reasoningOutput: "omit",
+				supportsResponsesApi: true,
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
