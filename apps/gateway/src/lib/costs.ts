@@ -251,10 +251,18 @@ export async function calculateCosts(
 		};
 	}
 
-	// Resolve region-specific pricing when available
+	// Resolve region-specific pricing when available.
+	// If the region doesn't match, regionPricing stays undefined and top-level
+	// pricing is used. This shouldn't happen — resolve-provider-context validates
+	// the region before the request is processed — so log an error to surface it.
 	let regionPricing: ProviderRegion | undefined;
 	if (region && providerInfo.regions && providerInfo.regions.length > 0) {
 		regionPricing = providerInfo.regions.find((r) => r.id === region);
+		if (!regionPricing) {
+			logger.error(
+				`Region "${region}" not found in pricing for model "${model}" provider "${provider}". This indicates a bug — region should have been validated upstream.`,
+			);
+		}
 	}
 
 	// Get pricing based on token count (supports tiered pricing)
