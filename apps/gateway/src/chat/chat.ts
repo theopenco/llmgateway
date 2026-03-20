@@ -3741,7 +3741,7 @@ chat.openapi(completions, async (c) => {
 													id: `chatcmpl-${Date.now()}`,
 													object: "chat.completion.chunk",
 													created: Math.floor(Date.now() / 1000),
-													model: usedModelFormatted,
+													model: usedModel,
 													choices: [
 														{
 															index: 0,
