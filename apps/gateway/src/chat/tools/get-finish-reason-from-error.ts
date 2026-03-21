@@ -34,6 +34,11 @@ export function getFinishReasonFromError(
 		return "content_filter";
 	}
 
+	// ByteDance / DeepSeek provider moderation block
+	if (errorText?.includes("SensitiveContentDetected")) {
+		return "content_filter";
+	}
+
 	// xAI (Grok) content safety violations (e.g. SAFETY_CHECK_TYPE_CSAM, usage guidelines)
 	if (
 		statusCode === 403 &&
