@@ -17,7 +17,11 @@ import {
 import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
-import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	calculateDataStorageCost,
+	getUnifiedFinishReason,
+	insertLog,
+} from "@/lib/logs.js";
 import {
 	createCombinedSignal,
 	createStreamingCombinedSignal,
@@ -44,6 +48,7 @@ import {
 	type InferSelectModel,
 	isCachingEnabled,
 	shortid,
+	UnifiedFinishReason,
 	type tables,
 } from "@llmgateway/db";
 import {
@@ -118,6 +123,70 @@ const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 
 // Reusable TextDecoder to avoid per-chunk allocation in the streaming hot path
 const sharedTextDecoder = new TextDecoder();
+
+function getUnifiedFinishReasonForError(
+	errorType: string | undefined,
+	status?: number,
+) {
+	if (!errorType) {
+		return UnifiedFinishReason.UNKNOWN;
+	}
+
+	if (errorType === "invalid_request_error") {
+		return UnifiedFinishReason.CLIENT_ERROR;
+	}
+
+	if (errorType === "upstream_timeout") {
+		return UnifiedFinishReason.UPSTREAM_ERROR;
+	}
+
+	if (errorType === "request_canceled" || errorType === "canceled") {
+		return UnifiedFinishReason.CANCELED;
+	}
+
+	const unifiedFinishReason = getUnifiedFinishReason(errorType, undefined);
+	if (unifiedFinishReason !== UnifiedFinishReason.UNKNOWN) {
+		return unifiedFinishReason;
+	}
+
+	if (status !== undefined) {
+		if (status === 401 || status === 403) {
+			return UnifiedFinishReason.GATEWAY_ERROR;
+		}
+		if (status >= 400 && status < 500) {
+			return UnifiedFinishReason.CLIENT_ERROR;
+		}
+		if (status >= 500) {
+			return UnifiedFinishReason.UPSTREAM_ERROR;
+		}
+	}
+
+	return UnifiedFinishReason.UNKNOWN;
+}
+
+function withUnifiedFinishReason<T extends { error?: Record<string, unknown> }>(
+	payload: T,
+	status?: number,
+): T {
+	if (!payload.error || typeof payload.error !== "object") {
+		return payload;
+	}
+
+	if (typeof payload.error.unified_finish_reason === "string") {
+		return payload;
+	}
+
+	const errorType =
+		typeof payload.error.type === "string" ? payload.error.type : undefined;
+
+	return {
+		...payload,
+		error: {
+			...payload.error,
+			unified_finish_reason: getUnifiedFinishReasonForError(errorType, status),
+		},
+	};
+}
 
 export const chat = new OpenAPIHono<ServerTypes>();
 
@@ -234,6 +303,7 @@ const completions = createRoute({
 							type: z.string(),
 							param: z.string().nullable(),
 							code: z.string(),
+							unified_finish_reason: z.string().optional(),
 						}),
 					}),
 				},
@@ -256,14 +326,17 @@ chat.openapi(completions, async (c) => {
 		rawBody = await c.req.json();
 	} catch {
 		return c.json(
-			{
-				error: {
-					message: "Invalid JSON in request body",
-					type: "invalid_request_error",
-					param: null,
-					code: "invalid_json",
+			withUnifiedFinishReason(
+				{
+					error: {
+						message: "Invalid JSON in request body",
+						type: "invalid_request_error",
+						param: null,
+						code: "invalid_json",
+					},
 				},
-			},
+				400,
+			),
 			400,
 		);
 	}
@@ -272,14 +345,17 @@ chat.openapi(completions, async (c) => {
 	const validationResult = completionsRequestSchema.safeParse(rawBody);
 	if (!validationResult.success) {
 		return c.json(
-			{
-				error: {
-					message: "Invalid request parameters",
-					type: "invalid_request_error",
-					param: null,
-					code: "invalid_parameters",
+			withUnifiedFinishReason(
+				{
+					error: {
+						message: "Invalid request parameters",
+						type: "invalid_request_error",
+						param: null,
+						code: "invalid_parameters",
+					},
 				},
-			},
+				400,
+			),
 			400,
 		);
 	}
@@ -343,14 +419,17 @@ chat.openapi(completions, async (c) => {
 		reasoning_object_effort !== undefined
 	) {
 		return c.json(
-			{
-				error: {
-					message:
-						"Cannot specify both reasoning_effort and reasoning.effort. Use one or the other.",
-					type: "invalid_request_error",
-					code: "invalid_request",
+			withUnifiedFinishReason(
+				{
+					error: {
+						message:
+							"Cannot specify both reasoning_effort and reasoning.effort. Use one or the other.",
+						type: "invalid_request_error",
+						code: "invalid_request",
+					},
 				},
-			},
+				400,
+			),
 			400,
 		);
 	}
@@ -2598,13 +2677,18 @@ chat.openapi(completions, async (c) => {
 
 							await stream.writeSSE({
 								event: "error",
-								data: JSON.stringify({
-									error: {
-										message: `Upstream provider timeout: ${errorMessage}`,
-										type: "upstream_timeout",
-										code: "timeout",
-									},
-								}),
+								data: JSON.stringify(
+									withUnifiedFinishReason(
+										{
+											error: {
+												message: `Upstream provider timeout: ${errorMessage}`,
+												type: "upstream_timeout",
+												code: "timeout",
+											},
+										},
+										504,
+									),
+								),
 								id: String(eventId++),
 							});
 							return;
@@ -2882,13 +2966,18 @@ chat.openapi(completions, async (c) => {
 							// Send error event to the client
 							await writeSSEAndCache({
 								event: "error",
-								data: JSON.stringify({
-									error: {
-										message: `Failed to connect to provider: ${errorMessage}`,
-										type: "upstream_error",
-										code: "fetch_failed",
-									},
-								}),
+								data: JSON.stringify(
+									withUnifiedFinishReason(
+										{
+											error: {
+												message: `Failed to connect to provider: ${errorMessage}`,
+												type: "upstream_error",
+												code: "fetch_failed",
+											},
+										},
+										502,
+									),
+								),
 								id: String(eventId++),
 							});
 							await writeSSEAndCache({
@@ -3140,7 +3229,9 @@ chat.openapi(completions, async (c) => {
 
 							await writeSSEAndCache({
 								event: "error",
-								data: JSON.stringify(errorData),
+								data: JSON.stringify(
+									withUnifiedFinishReason(errorData, res.status),
+								),
 								id: String(eventId++),
 							});
 							await writeSSEAndCache({
@@ -3198,13 +3289,18 @@ chat.openapi(completions, async (c) => {
 				if (!res || !res.ok) {
 					await writeSSEAndCache({
 						event: "error",
-						data: JSON.stringify({
-							error: {
-								message: "All provider attempts failed",
-								type: "upstream_error",
-								code: "all_providers_failed",
-							},
-						}),
+						data: JSON.stringify(
+							withUnifiedFinishReason(
+								{
+									error: {
+										message: "All provider attempts failed",
+										type: "upstream_error",
+										code: "all_providers_failed",
+									},
+								},
+								502,
+							),
+						),
 						id: String(eventId++),
 					});
 					await writeSSEAndCache({
@@ -3230,14 +3326,19 @@ chat.openapi(completions, async (c) => {
 				if (!res.body) {
 					await writeSSEAndCache({
 						event: "error",
-						data: JSON.stringify({
-							error: {
-								message: "No response body from provider",
-								type: "gateway_error",
-								param: null,
-								code: "gateway_error",
-							},
-						}),
+						data: JSON.stringify(
+							withUnifiedFinishReason(
+								{
+									error: {
+										message: "No response body from provider",
+										type: "gateway_error",
+										param: null,
+										code: "gateway_error",
+									},
+								},
+								500,
+							),
+						),
 						id: String(eventId++),
 					});
 					await writeSSEAndCache({
@@ -3352,14 +3453,19 @@ chat.openapi(completions, async (c) => {
 							try {
 								await stream.writeSSE({
 									event: "error",
-									data: JSON.stringify({
-										error: {
-											message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
-											type: "gateway_error",
-											param: null,
-											code: "buffer_overflow",
-										},
-									}),
+									data: JSON.stringify(
+										withUnifiedFinishReason(
+											{
+												error: {
+													message: `Streaming buffer exceeded ${bufferSizeMB}MB limit`,
+													type: "gateway_error",
+													param: null,
+													code: "buffer_overflow",
+												},
+											},
+											500,
+										),
+									),
 									id: String(eventId++),
 								});
 								await stream.writeSSE({
@@ -3793,15 +3899,20 @@ chat.openapi(completions, async (c) => {
 
 									await writeSSEAndCache({
 										event: "error",
-										data: JSON.stringify({
-											error: {
-												message: awsBedrockStreamError.message,
-												type: errorType,
-												code: awsBedrockStreamError.eventType,
-												param: null,
-												responseText: awsBedrockStreamError.responseText,
-											},
-										}),
+										data: JSON.stringify(
+											withUnifiedFinishReason(
+												{
+													error: {
+														message: awsBedrockStreamError.message,
+														type: errorType,
+														code: awsBedrockStreamError.eventType,
+														param: null,
+														responseText: awsBedrockStreamError.responseText,
+													},
+												},
+												awsBedrockStreamError.statusCode,
+											),
+										),
 										id: String(eventId++),
 									});
 									await writeSSEAndCache({
@@ -4288,14 +4399,19 @@ chat.openapi(completions, async (c) => {
 						try {
 							await stream.writeSSE({
 								event: "error",
-								data: JSON.stringify({
-									error: {
-										message: `Upstream provider timeout: ${errorMessage}`,
-										type: "upstream_timeout",
-										param: null,
-										code: "timeout",
-									},
-								}),
+								data: JSON.stringify(
+									withUnifiedFinishReason(
+										{
+											error: {
+												message: `Upstream provider timeout: ${errorMessage}`,
+												type: "upstream_timeout",
+												param: null,
+												code: "timeout",
+											},
+										},
+										504,
+									),
+								),
 								id: String(eventId++),
 							});
 							await stream.writeSSE({
@@ -4367,9 +4483,12 @@ chat.openapi(completions, async (c) => {
 						try {
 							await stream.writeSSE({
 								event: "error",
-								data: JSON.stringify({
-									error: normalizedStreamingError.client,
-								}),
+								data: JSON.stringify(
+									withUnifiedFinishReason(
+										{ error: normalizedStreamingError.client },
+										normalizedStreamingError.client.details.statusCode,
+									),
+								),
 								id: String(eventId++),
 							});
 							await stream.writeSSE({
@@ -4513,15 +4632,20 @@ chat.openapi(completions, async (c) => {
 						try {
 							await writeSSEAndCache({
 								event: "error",
-								data: JSON.stringify({
-									error: {
-										message: errorMessage,
-										type: "upstream_error",
-										code: "upstream_error",
-										param: null,
-										responseText: errorMessage,
-									},
-								}),
+								data: JSON.stringify(
+									withUnifiedFinishReason(
+										{
+											error: {
+												message: errorMessage,
+												type: "upstream_error",
+												code: "upstream_error",
+												param: null,
+												responseText: errorMessage,
+											},
+										},
+										502,
+									),
+								),
 								id: String(eventId++),
 							});
 							await writeSSEAndCache({
@@ -5338,20 +5462,23 @@ chat.openapi(completions, async (c) => {
 
 			// Return error response - use 504 for timeouts, 502 for other connection failures
 			return c.json(
-				{
-					error: {
-						message: isTimeoutFetchError
-							? `Upstream provider timeout: ${errorMessage}`
-							: `Failed to connect to provider: ${errorMessage}`,
-						type: isTimeoutFetchError ? "upstream_timeout" : "upstream_error",
-						param: null,
-						code: isTimeoutFetchError ? "timeout" : "fetch_failed",
-						requestedProvider,
-						usedProvider,
-						requestedModel: initialRequestedModel,
-						usedModel,
+				withUnifiedFinishReason(
+					{
+						error: {
+							message: isTimeoutFetchError
+								? `Upstream provider timeout: ${errorMessage}`
+								: `Failed to connect to provider: ${errorMessage}`,
+							type: isTimeoutFetchError ? "upstream_timeout" : "upstream_error",
+							param: null,
+							code: isTimeoutFetchError ? "timeout" : "fetch_failed",
+							requestedProvider,
+							usedProvider,
+							requestedModel: initialRequestedModel,
+							usedModel,
+						},
 					},
-				},
+					isTimeoutFetchError ? 504 : 502,
+				),
 				isTimeoutFetchError ? 504 : 502,
 			);
 		}
@@ -5487,14 +5614,17 @@ chat.openapi(completions, async (c) => {
 			});
 
 			return c.json(
-				{
-					error: {
-						message: "Request canceled by client",
-						type: "canceled",
-						param: null,
-						code: "request_canceled",
+				withUnifiedFinishReason(
+					{
+						error: {
+							message: "Request canceled by client",
+							type: "canceled",
+							param: null,
+							code: "request_canceled",
+						},
 					},
-				},
+					400,
+				),
 				400,
 			); // Using 400 status code for client closed request
 		}
@@ -5598,14 +5728,17 @@ chat.openapi(completions, async (c) => {
 					});
 
 					return c.json(
-						{
-							error: {
-								message: `Upstream provider timeout: ${errorMessage}`,
-								type: "upstream_timeout",
-								param: null,
-								code: "timeout",
+						withUnifiedFinishReason(
+							{
+								error: {
+									message: `Upstream provider timeout: ${errorMessage}`,
+									type: "upstream_timeout",
+									param: null,
+									code: "timeout",
+								},
 							},
-						},
+							504,
+						),
 						504,
 					);
 				}
@@ -5801,7 +5934,10 @@ chat.openapi(completions, async (c) => {
 			if (finishReason === "client_error") {
 				try {
 					const originalError = JSON.parse(errorResponseText);
-					return c.json(originalError, res.status as 400);
+					return c.json(
+						withUnifiedFinishReason(originalError, res.status),
+						res.status as 400,
+					);
 				} catch {
 					// If we can't parse the original error, fall back to our format
 				}
@@ -5809,19 +5945,22 @@ chat.openapi(completions, async (c) => {
 
 			// Return our wrapped error response for non-client errors
 			return c.json(
-				{
-					error: {
-						message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
-						type: finishReason,
-						param: null,
-						code: finishReason,
-						requestedProvider,
-						usedProvider,
-						requestedModel: initialRequestedModel,
-						usedModel,
-						responseText: errorResponseText,
+				withUnifiedFinishReason(
+					{
+						error: {
+							message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+							type: finishReason,
+							param: null,
+							code: finishReason,
+							requestedProvider,
+							usedProvider,
+							requestedModel: initialRequestedModel,
+							usedModel,
+							responseText: errorResponseText,
+						},
 					},
-				},
+					500,
+				),
 				500,
 			);
 		}
@@ -5867,14 +6006,17 @@ chat.openapi(completions, async (c) => {
 	if (!res || !res.ok) {
 		// All retries exhausted
 		return c.json(
-			{
-				error: {
-					message: "All provider attempts failed",
-					type: "upstream_error",
-					param: null,
-					code: "all_providers_failed",
+			withUnifiedFinishReason(
+				{
+					error: {
+						message: "All provider attempts failed",
+						type: "upstream_error",
+						param: null,
+						code: "all_providers_failed",
+					},
 				},
-			},
+				502,
+			),
 			502,
 		);
 	}
@@ -5976,14 +6118,17 @@ chat.openapi(completions, async (c) => {
 			});
 
 			return c.json(
-				{
-					error: {
-						message: `Upstream provider timeout: ${errorMessage}`,
-						type: "upstream_timeout",
-						param: null,
-						code: "timeout",
+				withUnifiedFinishReason(
+					{
+						error: {
+							message: `Upstream provider timeout: ${errorMessage}`,
+							type: "upstream_timeout",
+							param: null,
+							code: "timeout",
+						},
 					},
-				},
+					504,
+				),
 				504,
 			);
 		}
