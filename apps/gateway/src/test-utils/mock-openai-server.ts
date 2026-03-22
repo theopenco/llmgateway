@@ -504,6 +504,35 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	return c.json(response);
 });
 
+mockOpenAIServer.post("/v1/moderations", async (c) => {
+	const body = await c.req.json();
+	const inputs = Array.isArray(body.input) ? body.input : [body.input];
+	const combinedInput = inputs
+		.map((item: any) =>
+			typeof item === "string" ? item : JSON.stringify(item ?? null),
+		)
+		.join(" ");
+	const flagged = /harm|kill|attack/i.test(combinedInput);
+
+	return c.json({
+		id: "modr-123",
+		model: body.model ?? "omni-moderation-latest",
+		results: [
+			{
+				flagged,
+				categories: {
+					violence: flagged,
+					self_harm: false,
+				},
+				category_scores: {
+					violence: flagged ? 0.98 : 0.01,
+					self_harm: 0.01,
+				},
+			},
+		],
+	});
+});
+
 mockOpenAIServer.post("/v1/videos", async (c) => {
 	const contentType = c.req.header("content-type") ?? "";
 	const isMultipart = contentType.includes("multipart/form-data");

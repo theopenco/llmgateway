@@ -74,6 +74,66 @@ describe("api", () => {
 		expect(logs[0].finishReason).toBe("stop");
 	});
 
+	test("/v1/moderations e2e success", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = "moderation-request-id";
+		const res = await app.request("/v1/moderations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				input: "I want to attack someone.",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(json).toHaveProperty("id", "modr-123");
+		expect(json).toHaveProperty("model", "omni-moderation-latest");
+		expect(json.results[0].flagged).toBe(true);
+
+		const logs = await waitForLogs(1);
+		const moderationLog = logs.find((log) => log.requestId === requestId);
+
+		expect(moderationLog).toBeTruthy();
+		expect(moderationLog?.usedModel).toBe("openai-moderation");
+		expect(moderationLog?.requestedModel).toBe("openai-moderation");
+		expect(moderationLog?.usedModelMapping).toBe("omni-moderation-latest");
+		expect(moderationLog?.usedProvider).toBe("openai");
+		expect(moderationLog?.cost).toBe(0);
+		expect(moderationLog?.inputCost).toBe(0);
+		expect(moderationLog?.outputCost).toBe(0);
+		expect(moderationLog?.requestCost).toBe(0);
+		expect(moderationLog?.streamed).toBe(false);
+		expect(moderationLog?.finishReason).toBe("stop");
+		expect(moderationLog?.messages).toEqual([
+			{
+				role: "user",
+				content: "I want to attack someone.",
+			},
+		]);
+		expect(moderationLog?.content).toContain('"flagged":true');
+	});
+
 	test("Reasoning effort error for unsupported model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

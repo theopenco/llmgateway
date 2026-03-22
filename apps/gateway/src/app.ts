@@ -24,6 +24,7 @@ import { imagesRoute } from "./images/route.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
+import { moderationsRoute } from "./moderations/route.js";
 import { responses } from "./responses/responses.js";
 import { videosRoute } from "./videos/route.js";
 
@@ -313,6 +314,7 @@ const v1 = new OpenAPIHono<ServerTypes>();
 v1.route("/chat", chat);
 v1.route("/images", imagesRoute);
 v1.route("/models", models);
+v1.route("/moderations", moderationsRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);
 v1.route("/videos", videosRoute);
