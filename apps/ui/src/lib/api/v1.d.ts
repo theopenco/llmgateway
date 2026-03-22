@@ -852,15 +852,10 @@ export interface paths {
                                 inputCost: number | null;
                                 outputCost: number | null;
                                 requestCost: number | null;
-                                cachedInputCost?: number | null;
-                                webSearchCost?: number | null;
                                 imageInputTokens: string | null;
                                 imageOutputTokens: string | null;
                                 imageInputCost: number | null;
                                 imageOutputCost: number | null;
-                                videoOutputCost: number | null;
-                                videoDownloadCount: number | null;
-                                lastVideoDownloadedAt: string | null;
                                 estimatedCost: boolean | null;
                                 canceled: boolean | null;
                                 streamed: boolean | null;
@@ -1037,15 +1032,10 @@ export interface paths {
                                 inputCost: number | null;
                                 outputCost: number | null;
                                 requestCost: number | null;
-                                cachedInputCost?: number | null;
-                                webSearchCost?: number | null;
                                 imageInputTokens: string | null;
                                 imageOutputTokens: string | null;
                                 imageInputCost: number | null;
                                 imageOutputCost: number | null;
-                                videoOutputCost: number | null;
-                                videoDownloadCount: number | null;
-                                lastVideoDownloadedAt: string | null;
                                 estimatedCost: boolean | null;
                                 canceled: boolean | null;
                                 streamed: boolean | null;
@@ -1186,7 +1176,6 @@ export interface paths {
                                 dataStorageCost: number;
                                 imageInputCost: number;
                                 imageOutputCost: number;
-                                videoOutputCost: number;
                                 cachedInputCost: number;
                                 errorCount: number;
                                 errorRate: number;
@@ -1844,7 +1833,6 @@ export interface paths {
                                 webSearchCost: number | null;
                                 imageInputCost: number | null;
                                 imageOutputCost: number | null;
-                                videoOutputCost: number | null;
                                 dataStorageCost: number | null;
                                 hasError: boolean | null;
                                 errorDetails?: unknown;

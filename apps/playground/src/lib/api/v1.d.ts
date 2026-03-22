@@ -247,6 +247,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/models/{modelId}/benchmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get model benchmarks
+         * @description Returns per-provider performance benchmarks and Arena scores for a specific model
+         */
+        get: operations["internal_get_model_benchmarks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/discounts/model/{modelId}": {
         parameters: {
             query?: never;
@@ -2308,7 +2328,7 @@ export interface paths {
                 query?: {
                     search?: string;
                     family?: string;
-                    sortBy?: "name" | "family" | "status" | "free" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "providerCount" | "updatedAt";
+                    sortBy?: "name" | "family" | "status" | "free" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "cachedCount" | "avgTimeToFirstToken" | "providerCount" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                     limit?: number;
                     offset?: number | null;
@@ -2337,6 +2357,9 @@ export interface paths {
                                 status: string;
                                 logsCount: number;
                                 errorsCount: number;
+                                clientErrorsCount: number;
+                                gatewayErrorsCount: number;
+                                upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 providerCount: number;
@@ -2680,58 +2703,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/models/{modelId}/providers/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: {
-                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
-                };
-                header?: never;
-                path: {
-                    modelId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Per-provider model history timeseries for all providers. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            data: {
-                                [key: string]: {
-                                    timestamp: string;
-                                    logsCount: number;
-                                    errorsCount: number;
-                                    cachedCount: number;
-                                    avgTtft: number | null;
-                                    avgDuration: number | null;
-                                    totalTokens: number;
-                                    totalCost: number;
-                                }[];
-                            };
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/admin/metrics/cost-by-model": {
         parameters: {
             query?: never;
@@ -2850,7 +2821,7 @@ export interface paths {
             parameters: {
                 query?: {
                     search?: string;
-                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "avgTimeToFirstToken" | "updatedAt";
+                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "avgTimeToFirstToken" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                     limit?: number | null;
                     offset?: number | null;
@@ -2879,6 +2850,9 @@ export interface paths {
                                 status: string;
                                 logsCount: number;
                                 errorsCount: number;
+                                clientErrorsCount: number;
+                                gatewayErrorsCount: number;
+                                upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 inputPrice: string | null;
@@ -6983,6 +6957,56 @@ export interface operations {
                             /** @enum {string} */
                             status: "active" | "inactive";
                         }[];
+                    };
+                };
+            };
+        };
+    };
+    internal_get_model_benchmarks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                modelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-provider benchmarks and Arena scores for the model */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        modelId: string;
+                        providers: {
+                            providerId: string;
+                            providerName: string;
+                            logsCount: number;
+                            errorsCount: number;
+                            clientErrorsCount: number;
+                            gatewayErrorsCount: number;
+                            upstreamErrorsCount: number;
+                            cachedCount: number;
+                            avgTimeToFirstToken: number | null;
+                            errorRate: number;
+                        }[];
+                        arena: {
+                            text: {
+                                rank: number;
+                                score: number;
+                                matchedName: string;
+                            } | null;
+                            code: {
+                                rank: number;
+                                score: number;
+                                matchedName: string;
+                            } | null;
+                            source: string;
+                            fetchedAt: string;
+                        };
                     };
                 };
             };
