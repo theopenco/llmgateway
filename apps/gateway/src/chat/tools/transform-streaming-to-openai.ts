@@ -1213,6 +1213,7 @@ export function transformStreamingToOpenai(
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":
+		case "embercloud":
 		case "llmgateway": {
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(data, usedModel);

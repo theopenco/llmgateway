@@ -1374,13 +1374,20 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	} else {
-		finalModelInfo = models.find(
-			(m) =>
-				m.id === usedModel ||
-				m.providers.some(
-					(p) => p.modelName === usedModel && p.providerId === usedProvider,
-				),
-		);
+		finalModelInfo =
+			models.find(
+				(m) =>
+					(m.id === usedModel ||
+						m.providers.some((p) => p.modelName === usedModel)) &&
+					m.providers.some((p) => p.providerId === usedProvider),
+			) ??
+			models.find(
+				(m) =>
+					m.id === usedModel ||
+					m.providers.some(
+						(p) => p.modelName === usedModel && p.providerId === usedProvider,
+					),
+			);
 	}
 
 	// Use the canonical model ID from finalModelInfo (looked up after routing)
