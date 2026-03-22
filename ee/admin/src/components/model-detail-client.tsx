@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { windowOptions } from "@/components/history-chart";
 import { ModelProviderCharts } from "@/components/model-provider-charts";
@@ -56,26 +56,23 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 	if (value && validWindows.has(value as HistoryWindow)) {
 		return value as HistoryWindow;
 	}
-	return "4h";
+	return "24h";
 }
 
 export function ModelDetailClient({
 	modelId,
 	allTimeStats,
-	initialWindow,
 	providers: initialProviders,
 }: {
 	modelId: string;
 	allTimeStats: ModelInfo;
-	initialWindow: HistoryWindow;
 	providers: ModelProviderStats[];
 }) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	const initialLoadSkippedRef = useRef(false);
-	const [loading, setLoading] = useState(false);
+	const [loading, setLoading] = useState(true);
 	const [providers, setProviders] =
 		useState<ModelProviderStats[]>(initialProviders);
 	const [stats, setStats] = useState({
@@ -113,12 +110,8 @@ export function ModelDetailClient({
 	);
 
 	useEffect(() => {
-		if (!initialLoadSkippedRef.current && window === initialWindow) {
-			initialLoadSkippedRef.current = true;
-			return;
-		}
 		void loadStats(window);
-	}, [initialWindow, loadStats, window]);
+	}, [loadStats, window]);
 
 	const displayName =
 		allTimeStats.name !== allTimeStats.id ? allTimeStats.name : allTimeStats.id;

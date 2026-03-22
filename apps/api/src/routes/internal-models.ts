@@ -1,7 +1,9 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { and, db, gte, isNull, or, tables } from "@llmgateway/db";
+import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
+
+import { and, db, eq, gte, isNull, or, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -222,4 +224,130 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	});
 
 	return c.json({ providers });
+});
+
+// GET /internal/models/{modelId}/benchmarks - Per-provider performance stats
+const providerBenchmarkSchema = z.object({
+	providerId: z.string(),
+	providerName: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
+	cachedCount: z.number(),
+	avgTimeToFirstToken: z.number().nullable(),
+	errorRate: z.number(),
+});
+
+const arenaScoreSchema = z.object({
+	rank: z.number(),
+	score: z.number(),
+	matchedName: z.string(),
+});
+
+const arenaBenchmarkSchema = z.object({
+	text: arenaScoreSchema.nullable(),
+	code: arenaScoreSchema.nullable(),
+	source: z.string(),
+	fetchedAt: z.string(),
+});
+
+const modelBenchmarksRoute = createRoute({
+	operationId: "internal_get_model_benchmarks",
+	summary: "Get model benchmarks",
+	description:
+		"Returns per-provider performance benchmarks and Arena scores for a specific model",
+	method: "get",
+	path: "/models/{modelId}/benchmarks",
+	request: {
+		params: z.object({
+			modelId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						modelId: z.string(),
+						providers: z.array(providerBenchmarkSchema),
+						arena: arenaBenchmarkSchema,
+					}),
+				},
+			},
+			description: "Per-provider benchmarks and Arena scores for the model",
+		},
+	},
+});
+
+internalModels.openapi(modelBenchmarksRoute, async (c) => {
+	const { modelId } = c.req.valid("param");
+
+	const mappings = await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			providerName: tables.provider.name,
+			logsCount: tables.modelProviderMapping.logsCount,
+			errorsCount: tables.modelProviderMapping.errorsCount,
+			clientErrorsCount: tables.modelProviderMapping.clientErrorsCount,
+			gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
+			upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
+			cachedCount: tables.modelProviderMapping.cachedCount,
+			avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+		})
+		.from(tables.modelProviderMapping)
+		.innerJoin(
+			tables.provider,
+			eq(tables.modelProviderMapping.providerId, tables.provider.id),
+		)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.modelId, modelId),
+				eq(tables.modelProviderMapping.status, "active"),
+			),
+		);
+
+	const providers = mappings.map((m) => ({
+		providerId: m.providerId,
+		providerName: m.providerName ?? m.providerId,
+		logsCount: m.logsCount,
+		errorsCount: m.errorsCount,
+		clientErrorsCount: m.clientErrorsCount,
+		gatewayErrorsCount: m.gatewayErrorsCount,
+		upstreamErrorsCount: m.upstreamErrorsCount,
+		cachedCount: m.cachedCount,
+		avgTimeToFirstToken: m.avgTimeToFirstToken,
+		errorRate:
+			m.logsCount > 0
+				? Math.round((m.errorsCount / m.logsCount) * 1000) / 10
+				: 0,
+	}));
+
+	// Fetch Arena benchmarks
+	const arenaBenchmarks = await getArenaBenchmarks();
+
+	const textMatch = findArenaMatch(modelId, arenaBenchmarks.text);
+	const codeMatch = findArenaMatch(modelId, arenaBenchmarks.code);
+
+	const arena = {
+		text: textMatch
+			? {
+					rank: textMatch.rank,
+					score: textMatch.score,
+					matchedName: textMatch.model,
+				}
+			: null,
+		code: codeMatch
+			? {
+					rank: codeMatch.rank,
+					score: codeMatch.score,
+					matchedName: codeMatch.model,
+				}
+			: null,
+		source: "https://arena.ai/leaderboard",
+		fetchedAt: arenaBenchmarks.fetchedAt,
+	};
+
+	return c.json({ modelId, providers, arena });
 });

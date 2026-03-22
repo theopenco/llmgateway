@@ -19,6 +19,7 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
+import type { paths } from "@/lib/api/v1";
 import type { Log } from "@llmgateway/db";
 
 const UnifiedFinishReason = {
@@ -32,20 +33,29 @@ const UnifiedFinishReason = {
 	UNKNOWN: "unknown",
 } as const;
 
+type ApiLog =
+	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
+
 interface RecentLogsProps {
 	initialData?:
-		| {
-				message?: string;
-				logs: Log[];
-				pagination: {
-					nextCursor: string | null;
-					hasMore: boolean;
-					limit: number;
-				};
-		  }
+		| paths["/logs"]["get"]["responses"][200]["content"]["application/json"]
 		| undefined;
 	projectId: string | null;
 	orgId?: string | null;
+}
+
+function toUiLog(log: ApiLog): Partial<Log> {
+	return {
+		...log,
+		createdAt: new Date(log.createdAt),
+		updatedAt: new Date(log.updatedAt),
+		lastVideoDownloadedAt: log.lastVideoDownloadedAt
+			? new Date(log.lastVideoDownloadedAt)
+			: null,
+		videoDownloadCount: log.videoDownloadCount ?? undefined,
+		toolChoice: log.toolChoice as any,
+		customHeaders: log.customHeaders as any,
+	};
 }
 
 export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
@@ -203,22 +213,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 			initialData:
 				shouldUseInitialData && initialData
 					? {
-							pages: [
-								{
-									...initialData,
-									logs: initialData.logs.map((log) => ({
-										...log,
-										createdAt:
-											log.createdAt instanceof Date
-												? log.createdAt.toISOString()
-												: log.createdAt,
-										updatedAt:
-											log.updatedAt instanceof Date
-												? log.updatedAt.toISOString()
-												: log.updatedAt,
-									})),
-								},
-							],
+							pages: [initialData],
 							pageParams: [undefined],
 						}
 					: undefined,
@@ -360,13 +355,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 							{allLogs.map((log) => (
 								<LogCard
 									key={log.id}
-									log={{
-										...log,
-										createdAt: new Date(log.createdAt),
-										updatedAt: new Date(log.updatedAt),
-										toolChoice: log.toolChoice as any,
-										customHeaders: log.customHeaders as any,
-									}}
+									log={toUiLog(log)}
 									orgId={orgId ?? undefined}
 									projectId={projectId || undefined}
 								/>

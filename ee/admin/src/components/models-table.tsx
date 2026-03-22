@@ -46,6 +46,9 @@ type ModelSortBy =
 	| "free"
 	| "logsCount"
 	| "errorsCount"
+	| "clientErrorsCount"
+	| "gatewayErrorsCount"
+	| "upstreamErrorsCount"
 	| "cachedCount"
 	| "avgTimeToFirstToken"
 	| "providerCount"
@@ -173,6 +176,15 @@ function ModelRow({
 				<TableCell className="tabular-nums">
 					{formatNumber(model.errorsCount)}
 				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(model.clientErrorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(model.gatewayErrorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(model.upstreamErrorsCount)}
+				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(model.cachedCount)}
@@ -216,7 +228,7 @@ function ModelRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={12} className="p-4">
+					<TableCell colSpan={15} className="p-4">
 						<HistoryChart
 							title={`${model.name !== model.id ? model.name : model.id} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -269,6 +281,9 @@ export function ModelsTable({
 					{sh("Providers", "providerCount")}
 					{sh("Requests", "logsCount")}
 					{sh("Errors", "errorsCount")}
+					{sh("Client", "clientErrorsCount")}
+					{sh("Gateway", "gatewayErrorsCount")}
+					{sh("Upstream", "upstreamErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
@@ -280,7 +295,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={12}
+							colSpan={15}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found

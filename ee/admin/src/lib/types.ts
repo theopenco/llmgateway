@@ -77,8 +77,6 @@ export type ModelStats = ModelsListResponse["models"][number];
 // Model detail
 export type ModelDetailResponse = GetJsonResponse<"/admin/models/{modelId}">;
 export type ModelProviderStats = ModelDetailResponse["providers"][number];
-export type ModelProviderHistoriesResponse =
-	GetJsonResponse<"/admin/models/{modelId}/providers/history">;
 
 // History
 export type HistoryResponse =

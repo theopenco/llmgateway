@@ -35,10 +35,11 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 
 interface LogDetailClientProps {
-	initialData: { log: Log } | null;
+	initialData: LogDetailData | null;
 	orgId: string;
 	projectId: string;
 	logId: string;
@@ -168,21 +169,7 @@ export function LogDetailClient({
 		"/logs/{id}",
 		{ params: { path: { id: logId } } },
 		{
-			initialData: initialData
-				? {
-						log: {
-							...initialData.log,
-							createdAt:
-								initialData.log.createdAt instanceof Date
-									? initialData.log.createdAt.toISOString()
-									: initialData.log.createdAt,
-							updatedAt:
-								initialData.log.updatedAt instanceof Date
-									? initialData.log.updatedAt.toISOString()
-									: initialData.log.updatedAt,
-						},
-					}
-				: undefined,
+			initialData: initialData ?? undefined,
 			refetchOnWindowFocus: false,
 			staleTime: 5 * 60 * 1000,
 		},
@@ -206,6 +193,10 @@ export function LogDetailClient({
 		...data.log,
 		createdAt: new Date(data.log.createdAt),
 		updatedAt: new Date(data.log.updatedAt),
+		lastVideoDownloadedAt: data.log.lastVideoDownloadedAt
+			? new Date(data.log.lastVideoDownloadedAt)
+			: null,
+		videoDownloadCount: data.log.videoDownloadCount ?? 0,
 	} as Log;
 
 	const retentionEnabled =
@@ -552,6 +543,14 @@ export function LogDetailClient({
 												<Field
 													label="Image Output Cost"
 													value={`$${Number(log.imageOutputCost).toFixed(8)}`}
+													muted
+												/>
+											)}
+										{!!log.videoOutputCost &&
+											Number(log.videoOutputCost) > 0 && (
+												<Field
+													label="Video Output Cost"
+													value={`$${Number(log.videoOutputCost).toFixed(8)}`}
 													muted
 												/>
 											)}

@@ -609,6 +609,13 @@ export function LogCard({
 													<div>{`$${Number(log.imageOutputCost).toFixed(8)}`}</div>
 												</>
 											)}
+										{!!log.videoOutputCost &&
+											Number(log.videoOutputCost) > 0 && (
+												<>
+													<div>Video Output Cost</div>
+													<div>{`$${Number(log.videoOutputCost).toFixed(8)}`}</div>
+												</>
+											)}
 										<div>Inference Total</div>
 										<div>{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}</div>
 										{log.discount && log.discount !== 1 && (

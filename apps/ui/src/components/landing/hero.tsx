@@ -15,6 +15,7 @@ import { AnimatedGroup } from "./animated-group";
 import { Navbar } from "./navbar";
 
 import type { Variants } from "@/components/motion-wrapper";
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { ProviderId } from "@llmgateway/models";
 
 const transitionVariants: { item: Variants } = {
@@ -105,17 +106,23 @@ export function Hero({
 	sticky = true,
 	children,
 	migrations = [],
+	models,
+	providers,
 }: {
 	navbarOnly?: boolean;
 	sticky?: boolean;
 	children: React.ReactNode;
 	migrations?: MigrationData[];
+	models?: ApiModel[];
+	providers?: ApiProvider[];
 }) {
 	const config = useAppConfig();
 
 	return (
 		<>
-			<Navbar sticky={sticky}>{children}</Navbar>
+			<Navbar sticky={sticky} models={models} providers={providers}>
+				{children}
+			</Navbar>
 			{!navbarOnly && (
 				<main className="overflow-hidden">
 					<div

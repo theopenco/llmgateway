@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Loader2 } from "lucide-react";
+import { ArrowRight, Check, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -18,56 +18,64 @@ export default function InactivePlanChooser({
 	onSubscribe,
 }: InactivePlanChooserProps) {
 	return (
-		<div>
-			<h3 className="font-semibold mb-4">Choose a Plan</h3>
-			<div className="grid md:grid-cols-3 gap-6">
-				{plans.map((plan) => (
-					<div
-						key={plan.tier}
-						className={`rounded-lg border p-6 ${plan.popular ? "border-primary ring-2 ring-primary/20 relative" : ""}`}
-					>
-						{plan.popular && (
-							<div className="absolute -top-3 left-1/2 -translate-x-1/2">
-								<span className="bg-primary text-primary-foreground text-xs font-medium px-3 py-1 rounded-full">
-									Most Popular
-								</span>
-							</div>
-						)}
-						<div className="text-center mb-4">
-							<h4 className="font-semibold">{plan.name}</h4>
-							<p className="text-sm text-muted-foreground">
-								{plan.description}
-							</p>
+		<div className="grid gap-5 md:grid-cols-3 max-w-4xl mx-auto">
+			{plans.map((plan) => (
+				<div
+					key={plan.tier}
+					className={`relative flex flex-col rounded-xl border bg-card p-6 transition-shadow ${
+						plan.popular
+							? "border-foreground/20 shadow-lg ring-1 ring-foreground/5"
+							: "hover:shadow-md"
+					}`}
+				>
+					{plan.popular && (
+						<div className="absolute -top-2.5 left-5">
+							<span className="rounded-full bg-foreground px-2.5 py-0.5 text-[11px] font-medium text-background">
+								Popular
+							</span>
 						</div>
-						<div className="text-center mb-4">
-							<span className="text-3xl font-bold">${plan.price}</span>
-							<span className="text-muted-foreground">/month</span>
-						</div>
-						<ul className="space-y-2 mb-6">
-							<li className="flex items-center gap-2 text-sm">
-								<Check className="h-4 w-4 text-primary" />
-								Access to all models
-							</li>
-							<li className="flex items-center gap-2 text-sm">
-								<Check className="h-4 w-4 text-primary" />
-								Usage resets monthly
-							</li>
-						</ul>
-						<Button
-							className="w-full"
-							variant={plan.popular ? "default" : "outline"}
-							onClick={() => onSubscribe(plan.tier)}
-							disabled={subscribingTier === plan.tier}
-						>
-							{subscribingTier === plan.tier ? (
-								<Loader2 className="h-4 w-4 animate-spin" />
-							) : (
-								"Subscribe"
-							)}
-						</Button>
+					)}
+					<div className="mb-5">
+						<h3 className="font-semibold">{plan.name}</h3>
+						<p className="mt-0.5 text-sm text-muted-foreground">
+							{plan.description}
+						</p>
 					</div>
-				))}
-			</div>
+					<div className="mb-1 flex items-baseline gap-1">
+						<span className="text-3xl font-bold">${plan.price}</span>
+						<span className="text-sm text-muted-foreground">/mo</span>
+					</div>
+					<div className="mb-5 flex items-center gap-1.5 text-sm">
+						<ArrowRight className="h-3 w-3 text-muted-foreground" />
+						<span className="font-medium">${plan.usage}</span>
+						<span className="text-muted-foreground">in usage</span>
+					</div>
+					<ul className="mb-6 flex-1 space-y-2.5">
+						{[
+							`$${plan.usage} model usage`,
+							"All 200+ models",
+							"Resets monthly",
+						].map((feature) => (
+							<li key={feature} className="flex items-start gap-2">
+								<Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/60" />
+								<span className="text-sm text-muted-foreground">{feature}</span>
+							</li>
+						))}
+					</ul>
+					<Button
+						className="w-full"
+						variant={plan.popular ? "default" : "outline"}
+						onClick={() => onSubscribe(plan.tier)}
+						disabled={subscribingTier === plan.tier}
+					>
+						{subscribingTier === plan.tier ? (
+							<Loader2 className="h-4 w-4 animate-spin" />
+						) : (
+							"Subscribe"
+						)}
+					</Button>
+				</div>
+			))}
 		</div>
 	);
 }

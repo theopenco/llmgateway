@@ -2652,6 +2652,9 @@ const modelSortBySchema = z.enum([
 	"free",
 	"logsCount",
 	"errorsCount",
+	"clientErrorsCount",
+	"gatewayErrorsCount",
+	"upstreamErrorsCount",
 	"cachedCount",
 	"avgTimeToFirstToken",
 	"providerCount",
@@ -2667,6 +2670,9 @@ const modelStatsSchema = z.object({
 	status: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	providerCount: z.number(),
@@ -2760,6 +2766,18 @@ admin.openapi(getModelStats, async (c) => {
 					sql<number>`COALESCE(SUM(${modelHistory.errorsCount}), 0)`.as(
 						"errorsCount",
 					),
+				clientErrorsCount:
+					sql<number>`COALESCE(SUM(${modelHistory.clientErrorsCount}), 0)`.as(
+						"clientErrorsCount",
+					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${modelHistory.gatewayErrorsCount}), 0)`.as(
+						"gatewayErrorsCount",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${modelHistory.upstreamErrorsCount}), 0)`.as(
+						"upstreamErrorsCount",
+					),
 				cachedCount:
 					sql<number>`COALESCE(SUM(${modelHistory.cachedCount}), 0)`.as(
 						"cachedCount",
@@ -2813,6 +2831,9 @@ admin.openapi(getModelStats, async (c) => {
 			free: tables.model.free,
 			logsCount: sql`COALESCE(${modelStatsSub.logsCount}, 0)`,
 			errorsCount: sql`COALESCE(${modelStatsSub.errorsCount}, 0)`,
+			clientErrorsCount: sql`COALESCE(${modelStatsSub.clientErrorsCount}, 0)`,
+			gatewayErrorsCount: sql`COALESCE(${modelStatsSub.gatewayErrorsCount}, 0)`,
+			upstreamErrorsCount: sql`COALESCE(${modelStatsSub.upstreamErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${modelStatsSub.cachedCount}, 0)`,
 			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
@@ -2855,6 +2876,18 @@ admin.openapi(getModelStats, async (c) => {
 					errorsCount:
 						sql<number>`COALESCE(${modelStatsSub.errorsCount}, 0)`.as(
 							"errorsCount",
+						),
+					clientErrorsCount:
+						sql<number>`COALESCE(${modelStatsSub.clientErrorsCount}, 0)`.as(
+							"clientErrorsCount",
+						),
+					gatewayErrorsCount:
+						sql<number>`COALESCE(${modelStatsSub.gatewayErrorsCount}, 0)`.as(
+							"gatewayErrorsCount",
+						),
+					upstreamErrorsCount:
+						sql<number>`COALESCE(${modelStatsSub.upstreamErrorsCount}, 0)`.as(
+							"upstreamErrorsCount",
 						),
 					cachedCount:
 						sql<number>`COALESCE(${modelStatsSub.cachedCount}, 0)`.as(
@@ -2900,6 +2933,9 @@ admin.openapi(getModelStats, async (c) => {
 				status: r.status,
 				logsCount: Number(r.logsCount ?? 0),
 				errorsCount: Number(r.errorsCount ?? 0),
+				clientErrorsCount: Number(r.clientErrorsCount ?? 0),
+				gatewayErrorsCount: Number(r.gatewayErrorsCount ?? 0),
+				upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
 				avgTimeToFirstToken: r.avgTimeToFirstToken,
 				providerCount: Number(r.providerCount ?? 0),
@@ -2940,6 +2976,9 @@ admin.openapi(getModelStats, async (c) => {
 		free: tables.model.free,
 		logsCount: tables.model.logsCount,
 		errorsCount: tables.model.errorsCount,
+		clientErrorsCount: tables.model.clientErrorsCount,
+		gatewayErrorsCount: tables.model.gatewayErrorsCount,
+		upstreamErrorsCount: tables.model.upstreamErrorsCount,
 		cachedCount: tables.model.cachedCount,
 		avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 		providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
@@ -2958,6 +2997,9 @@ admin.openapi(getModelStats, async (c) => {
 			status: tables.model.status,
 			logsCount: tables.model.logsCount,
 			errorsCount: tables.model.errorsCount,
+			clientErrorsCount: tables.model.clientErrorsCount,
+			gatewayErrorsCount: tables.model.gatewayErrorsCount,
+			upstreamErrorsCount: tables.model.upstreamErrorsCount,
 			cachedCount: tables.model.cachedCount,
 			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 			providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
@@ -2982,6 +3024,9 @@ admin.openapi(getModelStats, async (c) => {
 			status: r.status,
 			logsCount: r.logsCount,
 			errorsCount: r.errorsCount,
+			clientErrorsCount: r.clientErrorsCount,
+			gatewayErrorsCount: r.gatewayErrorsCount,
+			upstreamErrorsCount: r.upstreamErrorsCount,
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			providerCount: Number(r.providerCount),
@@ -3083,7 +3128,7 @@ const getModelDetail = createRoute({
 admin.openapi(getModelDetail, async (c) => {
 	const { modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
-	const window = query.window ?? "4h";
+	const window = query.window ?? "24h";
 	const startDate = getHistoryStartDate(window);
 
 	const model = await db.query.model.findFirst({
@@ -3355,10 +3400,6 @@ const historyDataPointSchema = z.object({
 
 const historyResponseSchema = z.object({
 	data: z.array(historyDataPointSchema),
-});
-
-const providerHistoryMapResponseSchema = z.object({
-	data: z.record(z.string(), z.array(historyDataPointSchema)),
 });
 
 function getHourFloor(date: Date): string {
@@ -3805,157 +3846,6 @@ admin.openapi(getMappingHistory, async (c) => {
 	return c.json({ data });
 });
 
-const getModelProvidersHistory = createRoute({
-	method: "get",
-	path: "/models/{modelId}/providers/history",
-	request: {
-		params: z.object({ modelId: z.string() }),
-		query: z.object({
-			window: historyWindowSchema.default("4h").optional(),
-		}),
-	},
-	responses: {
-		200: {
-			content: {
-				"application/json": {
-					schema: providerHistoryMapResponseSchema.openapi({}),
-				},
-			},
-			description: "Per-provider model history timeseries for all providers.",
-		},
-	},
-});
-
-admin.openapi(getModelProvidersHistory, async (c) => {
-	const { modelId } = c.req.valid("param");
-	const query = c.req.valid("query");
-	const window = query.window ?? "4h";
-	const startDate = getHistoryStartDate(window);
-	const hourStartDate = new Date(startDate);
-	hourStartDate.setMinutes(0, 0, 0);
-
-	const [minuteRows, hourlyRows] = await Promise.all([
-		db
-			.select({
-				providerId: modelProviderMappingHistory.providerId,
-				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
-				logsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
-						"logs_count",
-					),
-				errorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
-						"errors_count",
-					),
-				cachedCount:
-					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
-						"cached_count",
-					),
-				totalDuration:
-					sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
-						"total_duration",
-					),
-				totalTimeToFirstToken:
-					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
-						"total_ttft",
-					),
-				totalTokens:
-					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
-						"total_tokens",
-					),
-			})
-			.from(modelProviderMappingHistory)
-			.where(
-				and(
-					eq(modelProviderMappingHistory.modelId, modelId),
-					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
-				),
-			)
-			.groupBy(
-				modelProviderMappingHistory.providerId,
-				modelProviderMappingHistory.minuteTimestamp,
-			)
-			.orderBy(
-				asc(modelProviderMappingHistory.providerId),
-				asc(modelProviderMappingHistory.minuteTimestamp),
-			),
-		db
-			.select({
-				providerId: projectHourlyModelStats.usedProvider,
-				hourTimestamp: projectHourlyModelStats.hourTimestamp,
-				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
-			})
-			.from(projectHourlyModelStats)
-			.where(
-				and(
-					eq(projectHourlyModelStats.usedModel, modelId),
-					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
-				),
-			)
-			.groupBy(
-				projectHourlyModelStats.usedProvider,
-				projectHourlyModelStats.hourTimestamp,
-			)
-			.orderBy(
-				asc(projectHourlyModelStats.usedProvider),
-				asc(projectHourlyModelStats.hourTimestamp),
-			),
-	]);
-
-	const minuteRowsByProvider = new Map<
-		string,
-		{
-			minuteTimestamp: Date;
-			logsCount: number;
-			errorsCount: number;
-			cachedCount: number;
-			totalDuration: number;
-			totalTimeToFirstToken: number;
-			totalTokens: number;
-		}[]
-	>();
-	for (const row of minuteRows) {
-		const rows = minuteRowsByProvider.get(row.providerId) ?? [];
-		rows.push({
-			minuteTimestamp: row.minuteTimestamp,
-			logsCount: Number(row.logsCount),
-			errorsCount: Number(row.errorsCount),
-			cachedCount: Number(row.cachedCount),
-			totalDuration: Number(row.totalDuration),
-			totalTimeToFirstToken: Number(row.totalTimeToFirstToken),
-			totalTokens: Number(row.totalTokens),
-		});
-		minuteRowsByProvider.set(row.providerId, rows);
-	}
-
-	const costByHourByProvider = new Map<string, Map<string, number>>();
-	for (const row of hourlyRows) {
-		const providerCosts =
-			costByHourByProvider.get(row.providerId) ?? new Map<string, number>();
-		const d = new Date(row.hourTimestamp);
-		d.setMinutes(0, 0, 0);
-		providerCosts.set(d.toISOString(), Number(row.cost));
-		costByHourByProvider.set(row.providerId, providerCosts);
-	}
-
-	const providerIds = new Set([
-		...minuteRowsByProvider.keys(),
-		...costByHourByProvider.keys(),
-	]);
-
-	const data = Object.fromEntries(
-		[...providerIds].map((providerId) => [
-			providerId,
-			mapHistoryRows(
-				minuteRowsByProvider.get(providerId) ?? [],
-				costByHourByProvider.get(providerId) ?? new Map(),
-			),
-		]),
-	);
-
-	return c.json({ data });
-});
-
 // --- Cost by model endpoints ---
 
 const costByModelEntrySchema = z.object({
@@ -4179,6 +4069,9 @@ const modelProviderMappingEntrySchema = z.object({
 	status: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	inputPrice: z.string().nullable(),
@@ -4207,6 +4100,9 @@ const getModelProviderMappings = createRoute({
 					"providerId",
 					"logsCount",
 					"errorsCount",
+					"clientErrorsCount",
+					"gatewayErrorsCount",
+					"upstreamErrorsCount",
 					"avgTimeToFirstToken",
 					"updatedAt",
 				])
@@ -4286,6 +4182,18 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
 							"errorsCount",
 						),
+					clientErrorsCount:
+						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+							"clientErrorsCount",
+						),
+					gatewayErrorsCount:
+						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+							"gatewayErrorsCount",
+						),
+					upstreamErrorsCount:
+						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+							"upstreamErrorsCount",
+						),
 					cachedCount:
 						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
 							"cachedCount",
@@ -4312,6 +4220,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					mappingId: tables.modelProviderMapping.id,
 					logsCount: tables.modelProviderMapping.logsCount,
 					errorsCount: tables.modelProviderMapping.errorsCount,
+					clientErrorsCount: tables.modelProviderMapping.clientErrorsCount,
+					gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
+					upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 					cachedCount: tables.modelProviderMapping.cachedCount,
 				})
 				.from(tables.modelProviderMapping)
@@ -4361,6 +4272,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		providerId: tables.modelProviderMapping.providerId,
 		logsCount: sql`COALESCE(${statsJoin.logsCount}, 0)`,
 		errorsCount: sql`COALESCE(${statsJoin.errorsCount}, 0)`,
+		clientErrorsCount: sql`COALESCE(${statsJoin.clientErrorsCount}, 0)`,
+		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
+		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
 		avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
@@ -4387,6 +4301,18 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				errorsCount: sql<number>`COALESCE(${statsJoin.errorsCount}, 0)`.as(
 					"errorsCount",
 				),
+				clientErrorsCount:
+					sql<number>`COALESCE(${statsJoin.clientErrorsCount}, 0)`.as(
+						"clientErrorsCount",
+					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`.as(
+						"gatewayErrorsCount",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`.as(
+						"upstreamErrorsCount",
+					),
 				cachedCount: sql<number>`COALESCE(${statsJoin.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
@@ -4421,6 +4347,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 			status: r.status,
 			logsCount: Number(r.logsCount ?? 0),
 			errorsCount: Number(r.errorsCount ?? 0),
+			clientErrorsCount: Number(r.clientErrorsCount ?? 0),
+			gatewayErrorsCount: Number(r.gatewayErrorsCount ?? 0),
+			upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 			cachedCount: Number(r.cachedCount ?? 0),
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			inputPrice: r.inputPrice,

@@ -19,6 +19,7 @@ import {
 	GlobalDiscountBanner,
 	type DiscountData,
 } from "@/components/models/global-discount-banner";
+import { ModelBenchmarks } from "@/components/models/model-benchmarks";
 import { ModelProviderCard } from "@/components/models/model-provider-card";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
@@ -522,6 +523,10 @@ export default async function ModelPage({ params }: PageProps) {
 								/>
 							))}
 						</div>
+					</div>
+
+					<div className="mb-8">
+						<ModelBenchmarks modelId={decodedName} />
 					</div>
 				</div>
 			</div>
