@@ -277,6 +277,14 @@ function stripUnsupportedSchemaProperties(
 	return cleaned;
 }
 
+function mapGoogleImageSize(imageSize: string): string {
+	if (imageSize === "0.5K") {
+		return "512";
+	}
+
+	return imageSize;
+}
+
 /**
  * Recursively sanitizes tool input schemas for AWS Bedrock Converse.
  * Bedrock is stricter than Anthropic's direct API and rejects several JSON Schema
@@ -1720,7 +1728,7 @@ export async function prepareRequestBody(
 				}
 				if (image_config.image_size !== undefined) {
 					requestBody.generationConfig.imageConfig.imageSize =
-						image_config.image_size;
+						mapGoogleImageSize(image_config.image_size);
 				}
 			}
 
