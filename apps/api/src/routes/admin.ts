@@ -1650,6 +1650,10 @@ const getProjectLogs = createRoute({
 		query: z.object({
 			limit: z.coerce.number().min(1).max(100).default(50).optional(),
 			cursor: z.string().optional(),
+			provider: z.string().optional(),
+			model: z.string().optional(),
+			source: z.string().optional(),
+			unifiedFinishReason: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -1671,7 +1675,7 @@ admin.openapi(getProjectLogs, async (c) => {
 	const { orgId, projectId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
-	const { cursor } = query;
+	const { cursor, provider, model, source, unifiedFinishReason } = query;
 
 	// Verify project belongs to the organization
 	const project = await db.query.project.findFirst({
@@ -1688,6 +1692,35 @@ admin.openapi(getProjectLogs, async (c) => {
 	}
 
 	const whereConditions = [eq(tables.log.projectId, projectId)];
+
+	// Add filter conditions
+	if (provider) {
+		const providerValues = provider.split(",").filter(Boolean);
+		if (providerValues.length === 1) {
+			whereConditions.push(eq(tables.log.usedProvider, providerValues[0]));
+		} else if (providerValues.length > 1) {
+			whereConditions.push(inArray(tables.log.usedProvider, providerValues));
+		}
+	}
+
+	if (model) {
+		whereConditions.push(
+			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
+				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
+				ELSE ${tables.log.usedModel}
+			END = ${model}`,
+		);
+	}
+
+	if (source) {
+		whereConditions.push(eq(tables.log.source, source));
+	}
+
+	if (unifiedFinishReason) {
+		whereConditions.push(
+			eq(tables.log.unifiedFinishReason, unifiedFinishReason),
+		);
+	}
 
 	if (cursor) {
 		const cursorLog = await db

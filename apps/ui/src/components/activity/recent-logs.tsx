@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { LogCard } from "@/components/dashboard/log-card";
 import {
@@ -40,6 +40,10 @@ interface RecentLogsProps {
 	initialData?:
 		| paths["/logs"]["get"]["responses"][200]["content"]["application/json"]
 		| undefined;
+	initialUniqueModels?: {
+		models: string[];
+		providers: string[];
+	};
 	projectId: string | null;
 	orgId?: string | null;
 }
@@ -54,7 +58,12 @@ function toUiLog(log: ApiLog): Partial<Log> {
 	};
 }
 
-export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
+export function RecentLogs({
+	initialData,
+	initialUniqueModels,
+	projectId,
+	orgId,
+}: RecentLogsProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
@@ -78,15 +87,6 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 
 	const api = useApi();
 
-	// Fetch unique models for the current project
-	const { data: uniqueModels } = api.useQuery("get", "/logs/unique-models", {
-		params: {
-			query: projectId ? { projectId } : {},
-		},
-		enabled: !!projectId,
-		refetchOnWindowFocus: false,
-		staleTime: 10 * 60 * 1000, // 10 minutes
-	});
 	const scrollPositionRef = useRef<number>(0);
 	const isFilteringRef = useRef<boolean>(false);
 
@@ -181,7 +181,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 	}
 
 	const shouldUseInitialData =
-		!dateRange && // No date range selected (date range is not in URL initially)
+		!dateRange &&
 		unifiedFinishReason ===
 			(searchParams.get("unifiedFinishReason") ?? undefined) &&
 		provider === (searchParams.get("provider") ?? undefined) &&
@@ -226,6 +226,31 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 
 	// Flatten all pages into a single array of logs
 	const allLogs = data?.pages.flatMap((page) => page?.logs ?? []) ?? [];
+
+	// Build unique models/providers from SSR data + loaded logs
+	const uniqueModels = useMemo(() => {
+		const providerSet = new Set<string>(initialUniqueModels?.providers ?? []);
+		const modelSet = new Set<string>(initialUniqueModels?.models ?? []);
+
+		for (const log of allLogs) {
+			if (log.usedProvider) {
+				providerSet.add(log.usedProvider);
+			}
+			if (log.usedModel) {
+				const slashIndex = log.usedModel.indexOf("/");
+				modelSet.add(
+					slashIndex !== -1
+						? log.usedModel.substring(slashIndex + 1)
+						: log.usedModel,
+				);
+			}
+		}
+
+		return {
+			providers: Array.from(providerSet).sort(),
+			models: Array.from(modelSet).sort(),
+		};
+	}, [allLogs, initialUniqueModels]);
 
 	const handleDateRangeChange = (_value: string, range: DateRange) => {
 		setDateRange(range);
@@ -296,14 +321,14 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 					onValueChange={handleFilterChange("model", setModel)}
 					value={model ?? "all"}
 				>
-					<SelectTrigger className="w-[180px]">
+					<SelectTrigger className="w-[200px]">
 						<SelectValue placeholder="Filter by model" />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All models</SelectItem>
-						{(uniqueModels?.models ?? []).map((modelName) => (
-							<SelectItem key={modelName} value={modelName}>
-								{modelName}
+						{(uniqueModels?.models ?? []).map((m) => (
+							<SelectItem key={m} value={m}>
+								{m}
 							</SelectItem>
 						))}
 					</SelectContent>

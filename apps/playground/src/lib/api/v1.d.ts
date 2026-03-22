@@ -1789,6 +1789,10 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    provider?: string;
+                    model?: string;
+                    source?: string;
+                    unifiedFinishReason?: string;
                 };
                 header?: never;
                 path: {

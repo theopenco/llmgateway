@@ -447,10 +447,14 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(lte(tables.log.createdAt, new Date(endDate)));
 	}
 
-	// Add model filter - match the model name part after the slash
+	// Add model filter - match the model name part after the slash,
+	// or the full value if there's no slash (seed data / legacy format)
 	if (model) {
 		whereConditions.push(
-			sql`SPLIT_PART(${tables.log.usedModel}, '/', 2) = ${model}`,
+			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
+				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
+				ELSE ${tables.log.usedModel}
+			END = ${model}`,
 		);
 	}
 
@@ -637,6 +641,7 @@ logs.openapi(uniqueModelsGet, async (c) => {
 	if (!organizationIds.length) {
 		return c.json({
 			models: [],
+			providers: [],
 		});
 	}
 
@@ -669,6 +674,7 @@ logs.openapi(uniqueModelsGet, async (c) => {
 	if (!projects.length) {
 		return c.json({
 			models: [],
+			providers: [],
 		});
 	}
 
@@ -693,16 +699,10 @@ logs.openapi(uniqueModelsGet, async (c) => {
 	const finalWhereClause =
 		whereConditions.length > 0 ? and(...whereConditions) : undefined;
 
-	let dbQuery = db
+	const uniqueUsedModels = await db
 		.selectDistinct({ usedModel: tables.log.usedModel })
-		.from(tables.log);
-
-	if (finalWhereClause) {
-		// @ts-ignore
-		dbQuery = dbQuery.where(finalWhereClause);
-	}
-
-	const uniqueUsedModels = await dbQuery;
+		.from(tables.log)
+		.where(finalWhereClause!);
 
 	// Extract model names and provider names from usedModel field
 	const modelNames: string[] = [];
@@ -710,6 +710,9 @@ logs.openapi(uniqueModelsGet, async (c) => {
 
 	for (const row of uniqueUsedModels) {
 		const usedModel = row.usedModel;
+		if (!usedModel) {
+			continue;
+		}
 		const slashIndex = usedModel.indexOf("/");
 		if (slashIndex !== -1) {
 			const provider = usedModel.substring(0, slashIndex);

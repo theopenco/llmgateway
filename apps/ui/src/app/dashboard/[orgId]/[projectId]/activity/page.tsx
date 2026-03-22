@@ -4,6 +4,34 @@ import { fetchServerData } from "@/lib/server-api";
 
 import type { LogsData } from "@/types/activity";
 
+function extractUniqueModelsFromLogs(logs: LogsData["logs"] | undefined) {
+	if (!logs?.length) {
+		return { models: [] as string[], providers: [] as string[] };
+	}
+
+	const providerSet = new Set<string>();
+	const modelSet = new Set<string>();
+
+	for (const log of logs) {
+		if (log.usedProvider) {
+			providerSet.add(log.usedProvider);
+		}
+		if (log.usedModel) {
+			const slashIndex = log.usedModel.indexOf("/");
+			modelSet.add(
+				slashIndex !== -1
+					? log.usedModel.substring(slashIndex + 1)
+					: log.usedModel,
+			);
+		}
+	}
+
+	return {
+		models: Array.from(modelSet).sort(),
+		providers: Array.from(providerSet).sort(),
+	};
+}
+
 export default async function ActivityPage({
 	params,
 	searchParams,
@@ -60,12 +88,26 @@ export default async function ActivityPage({
 		logsQueryParams.limit = searchParamsData.limit;
 	}
 
-	// Server-side data fetching for logs with all query parameters
-	const initialLogsData = await fetchServerData<LogsData>("GET", "/logs", {
-		params: {
-			query: logsQueryParams,
-		},
-	});
+	// Fetch a larger batch for extracting unique models/providers, and the filtered page
+	const [initialLogsData, allRecentLogs] = await Promise.all([
+		fetchServerData<LogsData>("GET", "/logs", {
+			params: {
+				query: logsQueryParams,
+			},
+		}),
+		// Fetch unfiltered logs to populate model/provider dropdowns
+		fetchServerData<LogsData>("GET", "/logs", {
+			params: {
+				query: {
+					orderBy: "createdAt_desc",
+					projectId,
+					limit: "100",
+				},
+			},
+		}),
+	]);
+
+	const initialUniqueModels = extractUniqueModelsFromLogs(allRecentLogs?.logs);
 
 	return (
 		<div className="flex flex-col">
@@ -77,6 +119,7 @@ export default async function ActivityPage({
 						<CardContent>
 							<RecentLogs
 								initialData={initialLogsData ?? undefined}
+								initialUniqueModels={initialUniqueModels}
 								projectId={projectId}
 								orgId={orgId}
 							/>

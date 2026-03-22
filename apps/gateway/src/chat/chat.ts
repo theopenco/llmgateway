@@ -4515,6 +4515,10 @@ chat.openapi(completions, async (c) => {
 						(!fullContent || fullContent.trim() === "") &&
 						(!streamingToolCalls || streamingToolCalls.length === 0);
 
+					let streamingCostsEarly:
+						| Awaited<ReturnType<typeof calculateCosts>>
+						| undefined;
+
 					if (hasEmptyResponse) {
 						logger.warn("[streaming] Empty response detected", {
 							provider: usedProvider,
@@ -4569,80 +4573,120 @@ chat.openapi(completions, async (c) => {
 							);
 						}
 					} else {
-						// Send final usage chunk if we need to send usage data
-						// This includes cases where:
-						// 1. No usage tokens were provided at all (all null)
-						// 2. Some tokens are missing (e.g., Google AI Studio doesn't provide completion tokens during streaming)
-						const needsUsageChunk =
-							(promptTokens === null &&
-								completionTokens === null &&
-								totalTokens === null &&
-								(calculatedPromptTokens !== null ||
-									calculatedCompletionTokens !== null)) ||
-							(completionTokens === null &&
-								calculatedCompletionTokens !== null);
-
-						if (needsUsageChunk) {
-							try {
-								const finalUsageChunk = {
-									id: `chatcmpl-${Date.now()}`,
-									object: "chat.completion.chunk",
-									created: Math.floor(Date.now() / 1000),
-									model: usedModel,
-									choices: [
+						// Calculate costs before sending usage chunk so we can include cost data
+						const billCancelledRequestsEarly = shouldBillCancelledRequests();
+						streamingCostsEarly =
+							canceled && !billCancelledRequestsEarly
+								? {
+										inputCost: null,
+										outputCost: null,
+										cachedInputCost: null,
+										requestCost: null,
+										webSearchCost: null,
+										imageInputTokens: null,
+										imageOutputTokens: null,
+										imageInputCost: null,
+										imageOutputCost: null,
+										totalCost: null,
+										promptTokens: null,
+										completionTokens: null,
+										cachedTokens: null,
+										estimatedCost: false,
+										discount: undefined,
+										pricingTier: undefined,
+									}
+								: await calculateCosts(
+										usedModel,
+										usedProvider,
+										calculatedPromptTokens,
+										calculatedCompletionTokens,
+										cachedTokens,
 										{
-											index: 0,
-											delta: {},
-											finish_reason: null,
+											prompt: messages
+												.map((m) => messageContentToString(m.content))
+												.join("\n"),
+											completion: fullContent,
+											toolResults: streamingToolCalls ?? undefined,
 										},
-									],
-									usage: (() => {
-										// Only add image input tokens for providers that
-										// exclude them from upstream usage (Google)
-										const providerExcludesImageInput =
-											usedProvider === "google-ai-studio" ||
-											usedProvider === "google-vertex" ||
-											usedProvider === "obsidian";
-										const imageInputAdj = providerExcludesImageInput
-											? inputImageCount * 560
-											: 0;
-										const adjPrompt = Math.max(
-											1,
-											Math.round(
-												promptTokens && promptTokens > 0
-													? promptTokens + imageInputAdj
-													: (calculatedPromptTokens ?? 1) + imageInputAdj,
-											),
-										);
-										const adjCompletion = Math.round(
-											completionTokens ?? calculatedCompletionTokens ?? 0,
-										);
-										return {
-											prompt_tokens: adjPrompt,
-											completion_tokens: adjCompletion,
-											total_tokens: Math.max(
-												1,
-												Math.round(adjPrompt + adjCompletion),
-											),
-											...(cachedTokens !== null && {
-												prompt_tokens_details: {
-													cached_tokens: cachedTokens,
-												},
-											}),
-										};
-									})(),
-								};
+										reasoningTokens,
+										outputImageCount,
+										image_config?.image_size,
+										inputImageCount,
+										webSearchCount,
+										project.organizationId,
+									);
 
-								await writeSSEAndCache({
-									data: JSON.stringify(finalUsageChunk),
-									id: String(eventId++),
-								});
-							} catch (error) {
-								logger.error(
-									"Error sending final usage chunk",
-									error instanceof Error ? error : new Error(String(error)),
-								);
-							}
+						// Always send final usage chunk with cost data for SDK compatibility
+						try {
+							const finalUsageChunk = {
+								id: `chatcmpl-${Date.now()}`,
+								object: "chat.completion.chunk",
+								created: Math.floor(Date.now() / 1000),
+								model: usedModel,
+								choices: [
+									{
+										index: 0,
+										delta: {},
+										finish_reason: null,
+									},
+								],
+								usage: (() => {
+									// Only add image input tokens for providers that
+									// exclude them from upstream usage (Google)
+									const providerExcludesImageInput =
+										usedProvider === "google-ai-studio" ||
+										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian";
+									const imageInputAdj = providerExcludesImageInput
+										? inputImageCount * 560
+										: 0;
+									const adjPrompt = Math.max(
+										1,
+										Math.round(
+											promptTokens && promptTokens > 0
+												? promptTokens + imageInputAdj
+												: (calculatedPromptTokens ?? 1) + imageInputAdj,
+										),
+									);
+									const adjCompletion = Math.round(
+										completionTokens ?? calculatedCompletionTokens ?? 0,
+									);
+									return {
+										prompt_tokens: adjPrompt,
+										completion_tokens: adjCompletion,
+										total_tokens: Math.max(
+											1,
+											Math.round(adjPrompt + adjCompletion),
+										),
+										...(cachedTokens !== null && {
+											prompt_tokens_details: {
+												cached_tokens: cachedTokens,
+											},
+										}),
+										...(streamingCostsEarly.totalCost !== null && {
+											cost_usd_total: streamingCostsEarly.totalCost,
+											cost_usd_input: streamingCostsEarly.inputCost,
+											cost_usd_output: streamingCostsEarly.outputCost,
+											cost_usd_cached_input:
+												streamingCostsEarly.cachedInputCost,
+											cost_usd_request: streamingCostsEarly.requestCost,
+											cost_usd_image_input: streamingCostsEarly.imageInputCost,
+											cost_usd_image_output:
+												streamingCostsEarly.imageOutputCost,
+										}),
+									};
+								})(),
+							};
+
+							await writeSSEAndCache({
+								data: JSON.stringify(finalUsageChunk),
+								id: String(eventId++),
+							});
+						} catch (error) {
+							logger.error(
+								"Error sending final usage chunk",
+								error instanceof Error ? error : new Error(String(error)),
+							);
 						}
 
 						// Send healed content if buffering was enabled
@@ -4778,12 +4822,12 @@ chat.openapi(completions, async (c) => {
 					// clearInterval is idempotent so calling it multiple times is safe
 					clearKeepalive();
 
-					// Check if we should bill cancelled requests
+					// Reuse costs calculated earlier (before usage chunk was sent)
+					// If we came through the error path (hasEmptyResponse), calculate now
 					const billCancelledRequests = shouldBillCancelledRequests();
-
-					// Calculate costs - for cancelled requests, only bill if env var is enabled
 					const costs =
-						canceled && !billCancelledRequests
+						streamingCostsEarly ??
+						(canceled && !billCancelledRequests
 							? {
 									inputCost: null,
 									outputCost: null,
@@ -4821,7 +4865,7 @@ chat.openapi(completions, async (c) => {
 									inputImageCount,
 									webSearchCount,
 									project.organizationId,
-								);
+								));
 
 					// Use costs.promptTokens as canonical value (includes image input
 					// tokens for providers that exclude them from upstream usage)

@@ -31,6 +31,12 @@ export async function loadProjectLogsAction(
 	orgId: string,
 	projectId: string,
 	cursor?: string,
+	filters?: {
+		provider?: string;
+		model?: string;
+		source?: string;
+		unifiedFinishReason?: string;
+	},
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
@@ -38,7 +44,7 @@ export async function loadProjectLogsAction(
 		{
 			params: {
 				path: { orgId, projectId },
-				query: { limit: 50, cursor },
+				query: { limit: 50, cursor, ...filters },
 			},
 		},
 	);
