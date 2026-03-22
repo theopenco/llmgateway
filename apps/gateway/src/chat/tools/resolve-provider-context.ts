@@ -215,6 +215,11 @@ export async function resolveProviderContext(
 		}
 	}
 
+	// --- Resolve region data for post-selection overrides (e.g. maxOutput) ---
+	const regionData = usedRegion
+		? modelRegions?.find((r) => r.id === usedRegion)
+		: undefined;
+
 	// --- Check if model supports reasoning (from selected provider, not any) ---
 	const supportsReasoning =
 		(providerMappingForSelected as ProviderModelMapping)?.reasoning === true;
@@ -294,13 +299,13 @@ export async function resolveProviderContext(
 
 	// --- max_tokens validation ---
 	if (max_tokens !== undefined && providerMappingForSelected) {
-		if (
-			"maxOutput" in providerMappingForSelected &&
-			providerMappingForSelected.maxOutput !== undefined
-		) {
-			if (max_tokens > providerMappingForSelected.maxOutput) {
+		const effectiveMaxOutput =
+			regionData?.maxOutput ??
+			(providerMappingForSelected as ProviderModelMapping).maxOutput;
+		if (effectiveMaxOutput !== undefined) {
+			if (max_tokens > effectiveMaxOutput) {
 				// Silently cap to max output instead of throwing on retry
-				max_tokens = providerMappingForSelected.maxOutput;
+				max_tokens = effectiveMaxOutput;
 			}
 		}
 	}

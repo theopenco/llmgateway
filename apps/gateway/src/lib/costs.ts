@@ -285,11 +285,14 @@ export async function calculateCosts(
 	const cachedInputPrice = new Decimal(
 		pricing.cachedInputPrice ?? pricing.inputPrice,
 	);
-	const requestPrice = new Decimal(providerInfo.requestPrice ?? 0);
+	const requestPrice = new Decimal(
+		regionPricing?.requestPrice ?? providerInfo.requestPrice ?? 0,
+	);
 
 	// Get effective discount (checks org-specific, global, then hardcoded)
 	// Pass both the root model ID and the provider-specific model name for matching
-	const hardcodedDiscount = providerInfo.discount ?? 0;
+	const hardcodedDiscount =
+		regionPricing?.discount ?? providerInfo.discount ?? 0;
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
@@ -393,7 +396,9 @@ export async function calculateCosts(
 	const requestCost = requestPrice.times(discountMultiplier);
 
 	// Calculate web search cost
-	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice ?? 0);
+	const webSearchPrice = new Decimal(
+		regionPricing?.webSearchPrice ?? (providerInfo as any).webSearchPrice ?? 0,
+	);
 	const webSearchCost =
 		webSearchCount && webSearchCount > 0
 			? webSearchPrice.times(webSearchCount).times(discountMultiplier)

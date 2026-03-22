@@ -59,13 +59,15 @@ export interface ProviderRegion {
 	 */
 	id: string;
 	/**
-	 * Price per input token in USD for this region
+	 * Price per input token in USD for this region.
+	 * When absent, falls back to the mapping-level inputPrice.
 	 */
-	inputPrice: number;
+	inputPrice?: number;
 	/**
-	 * Price per output token in USD for this region
+	 * Price per output token in USD for this region.
+	 * When absent, falls back to the mapping-level outputPrice.
 	 */
-	outputPrice: number;
+	outputPrice?: number;
 	/**
 	 * Price per cached input token in USD for this region
 	 */
@@ -75,6 +77,26 @@ export interface ProviderRegion {
 	 * When absent, falls back to the mapping-level pricingTiers.
 	 */
 	pricingTiers?: PricingTier[];
+	/**
+	 * Discount multiplier (0-1) for this region.
+	 * When absent, falls back to the mapping-level discount.
+	 */
+	discount?: number;
+	/**
+	 * Price per request in USD for this region.
+	 * When absent, falls back to the mapping-level requestPrice.
+	 */
+	requestPrice?: number;
+	/**
+	 * Price per web search query in USD for this region.
+	 * When absent, falls back to the mapping-level webSearchPrice.
+	 */
+	webSearchPrice?: number;
+	/**
+	 * Maximum output size in tokens for this region.
+	 * When absent, falls back to the mapping-level maxOutput.
+	 */
+	maxOutput?: number;
 }
 
 export interface ProviderModelMapping {
