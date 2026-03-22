@@ -1,7 +1,38 @@
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 
+export type ContentFilterMode = "disabled" | "monitor" | "enabled";
+
 let cachedKeywords: string[] | null = null;
 let cachedEnvValue: string | undefined;
+
+let cachedMode: ContentFilterMode | null = null;
+let cachedModeEnvValue: string | undefined;
+
+/**
+ * Returns the content filter mode from LLM_CONTENT_FILTER_MODE env var.
+ * - "disabled" (default): content filter is off
+ * - "monitor": check content filter but don't block; log evaluation entries
+ * - "enabled": block requests that match content filter keywords
+ */
+export function getContentFilterMode(): ContentFilterMode {
+	const envValue = process.env.LLM_CONTENT_FILTER_MODE;
+
+	if (envValue === cachedModeEnvValue && cachedMode !== null) {
+		return cachedMode;
+	}
+
+	cachedModeEnvValue = envValue;
+
+	if (envValue === "monitor") {
+		cachedMode = "monitor";
+	} else if (envValue === "enabled") {
+		cachedMode = "enabled";
+	} else {
+		cachedMode = "disabled";
+	}
+
+	return cachedMode;
+}
 
 /**
  * Returns the list of blocked keywords from LLM_CONTENT_FILTER_KEYWORDS env var.

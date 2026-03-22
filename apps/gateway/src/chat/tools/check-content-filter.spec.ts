@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
 
-import { checkContentFilter } from "./check-content-filter.js";
+import {
+	checkContentFilter,
+	getContentFilterMode,
+} from "./check-content-filter.js";
 
 describe("checkContentFilter", () => {
 	const originalEnv = process.env.LLM_CONTENT_FILTER_KEYWORDS;
@@ -93,5 +96,42 @@ describe("checkContentFilter", () => {
 				{ role: "user", content: "this has beta and gamma" },
 			]),
 		).toBe("beta");
+	});
+});
+
+describe("getContentFilterMode", () => {
+	const originalEnv = process.env.LLM_CONTENT_FILTER_MODE;
+
+	afterEach(() => {
+		if (originalEnv === undefined) {
+			delete process.env.LLM_CONTENT_FILTER_MODE;
+		} else {
+			process.env.LLM_CONTENT_FILTER_MODE = originalEnv;
+		}
+	});
+
+	it("returns disabled by default when env var is not set", () => {
+		delete process.env.LLM_CONTENT_FILTER_MODE;
+		expect(getContentFilterMode()).toBe("disabled");
+	});
+
+	it("returns disabled for empty string", () => {
+		process.env.LLM_CONTENT_FILTER_MODE = "";
+		expect(getContentFilterMode()).toBe("disabled");
+	});
+
+	it("returns disabled for unknown values", () => {
+		process.env.LLM_CONTENT_FILTER_MODE = "something";
+		expect(getContentFilterMode()).toBe("disabled");
+	});
+
+	it("returns monitor when set to monitor", () => {
+		process.env.LLM_CONTENT_FILTER_MODE = "monitor";
+		expect(getContentFilterMode()).toBe("monitor");
+	});
+
+	it("returns enabled when set to enabled", () => {
+		process.env.LLM_CONTENT_FILTER_MODE = "enabled";
+		expect(getContentFilterMode()).toBe("enabled");
 	});
 });

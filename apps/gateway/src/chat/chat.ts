@@ -71,7 +71,10 @@ import {
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
-import { checkContentFilter } from "./tools/check-content-filter.js";
+import {
+	checkContentFilter,
+	getContentFilterMode,
+} from "./tools/check-content-filter.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
@@ -592,14 +595,46 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Check gateway-level content filter (keyword-based, configured via env var)
-	const contentFilterMatch = checkContentFilter(messages as BaseMessage[]);
-	if (contentFilterMatch) {
+	const contentFilterMode = getContentFilterMode();
+	const contentFilterMatch =
+		contentFilterMode !== "disabled"
+			? checkContentFilter(messages as BaseMessage[])
+			: null;
+
+	// Wrap insertLog for monitor mode: also inserts an evaluation log when
+	// the content filter would have triggered, so we can compare the gateway's
+	// decision against the actual upstream result.
+	const doInsertLog =
+		contentFilterMode === "monitor" && contentFilterMatch
+			? async (logData: Parameters<typeof insertLog>[0]) => {
+					const result = await insertLog(logData);
+					try {
+						const { id: _id, ...evalData } = logData;
+						await doInsertLog({
+							...evalData,
+							kind: "content_filter_evaluation",
+							cost: 0,
+							inputCost: 0,
+							outputCost: 0,
+							cachedInputCost: 0,
+							requestCost: 0,
+							webSearchCost: 0,
+							dataStorageCost: "0",
+						});
+					} catch {
+						// Silently ignore evaluation logging failures
+					}
+					return result;
+				}
+			: insertLog;
+
+	if (contentFilterMode === "enabled" && contentFilterMatch) {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
 		const contentFilterCreated = Math.floor(Date.now() / 1000);
 
 		// Log the filtered request
 		try {
-			await insertLog({
+			await doInsertLog({
 				...createLogEntry(
 					requestId,
 					project,
@@ -1921,7 +1956,7 @@ chat.openapi(completions, async (c) => {
 					project.organizationId,
 				);
 
-				await insertLog({
+				await doInsertLog({
 					...baseLogEntry,
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
@@ -2080,7 +2115,7 @@ chat.openapi(completions, async (c) => {
 					(cachedReasoningContent?.length ?? 0) +
 					500; // overhead for metadata
 
-				await insertLog({
+				await doInsertLog({
 					...baseLogEntry,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
@@ -2671,7 +2706,7 @@ chat.openapi(completions, async (c) => {
 								undefined, // No plugin results for error case
 							);
 
-							await insertLog({
+							await doInsertLog({
 								...baseLogEntry,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null,
@@ -2815,7 +2850,7 @@ chat.openapi(completions, async (c) => {
 								undefined, // No plugin results for canceled request
 							);
 
-							await insertLog({
+							await doInsertLog({
 								...baseLogEntry,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null, // Not applicable for canceled request
@@ -2953,7 +2988,7 @@ chat.openapi(completions, async (c) => {
 								undefined, // No plugin results for error case
 							);
 
-							await insertLog({
+							await doInsertLog({
 								...baseLogEntry,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null, // Not applicable for error case
@@ -3119,7 +3154,7 @@ chat.openapi(completions, async (c) => {
 							undefined, // No plugin results for error case
 						);
 
-						await insertLog({
+						await doInsertLog({
 							...baseLogEntry,
 							duration: Date.now() - perAttemptStartTime,
 							timeToFirstToken: null,
@@ -5024,7 +5059,7 @@ chat.openapi(completions, async (c) => {
 					const shouldIncludeTokensForBilling =
 						!canceled || (canceled && billCancelledRequests);
 
-					await insertLog({
+					await doInsertLog({
 						...baseLogEntry,
 						id: routingAttempts.length > 0 ? finalLogId : undefined,
 						duration,
@@ -5431,7 +5466,7 @@ chat.openapi(completions, async (c) => {
 				undefined, // No plugin results for error case
 			);
 
-			await insertLog({
+			await doInsertLog({
 				...baseLogEntry,
 				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
@@ -5589,7 +5624,7 @@ chat.openapi(completions, async (c) => {
 				undefined, // No plugin results for canceled request
 			);
 
-			await insertLog({
+			await doInsertLog({
 				...baseLogEntry,
 				duration,
 				timeToFirstToken: null, // Not applicable for canceled request
@@ -5715,7 +5750,7 @@ chat.openapi(completions, async (c) => {
 						undefined,
 					);
 
-					await insertLog({
+					await doInsertLog({
 						...baseLogEntry,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null,
@@ -5847,7 +5882,7 @@ chat.openapi(completions, async (c) => {
 				undefined, // No plugin results for error case
 			);
 
-			await insertLog({
+			await doInsertLog({
 				...baseLogEntry,
 				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
@@ -6101,7 +6136,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 			);
 
-			await insertLog({
+			await doInsertLog({
 				...baseLogEntry,
 				duration: Date.now() - startTime,
 				timeToFirstToken: null,
@@ -6445,7 +6480,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	await insertLog({
+	await doInsertLog({
 		...baseLogEntry,
 		id: routingAttempts.length > 0 ? finalLogId : undefined,
 		duration,
