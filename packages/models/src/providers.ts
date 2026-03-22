@@ -459,6 +459,22 @@ export const providers = [
 		website: "https://minimax.io",
 		announcement: null,
 	},
+	{
+		id: "embercloud",
+		name: "EmberCloud",
+		description:
+			"EmberCloud provides access to a variety of large language models via an OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_EMBERCLOUD_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#FF6047",
+		website: "https://www.embercloud.ai",
+		announcement: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

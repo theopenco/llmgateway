@@ -148,6 +148,9 @@ export function getProviderEndpoint(
 			case "canopywave":
 				url = "https://inference.canopywave.io";
 				break;
+			case "embercloud":
+				url = "https://api.embercloud.ai";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -364,6 +367,7 @@ export function getProviderEndpoint(
 		case "nanogpt":
 		case "canopywave":
 		case "minimax":
+		case "embercloud":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
