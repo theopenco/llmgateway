@@ -821,6 +821,7 @@ export const modelProviderMapping = pgTable(
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
 		modelName: text().notNull(),
+		region: text(),
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
@@ -870,7 +871,7 @@ export const modelProviderMapping = pgTable(
 		statsUpdatedAt: timestamp(),
 	},
 	(table) => [
-		unique().on(table.modelId, table.providerId),
+		unique().on(table.modelId, table.providerId, table.region),
 		index("model_provider_mapping_status_idx").on(table.status),
 	],
 );

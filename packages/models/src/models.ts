@@ -246,10 +246,16 @@ export interface ProviderModelMapping {
 	 */
 	imageGenerations?: boolean;
 	/**
-	 * Available regions and their per-region pricing for this provider mapping.
-	 * The first entry is the default region. Top-level inputPrice/outputPrice
-	 * must match the first region's prices for backwards compatibility.
-	 * When absent, the provider uses a single global endpoint with no region routing.
+	 * Geographic region for this provider mapping.
+	 * Set automatically when a mapping with `regions` is expanded into flat entries.
+	 * When absent (undefined), the provider uses a single global endpoint.
+	 */
+	region?: string;
+	/**
+	 * Available regions for this provider mapping.
+	 * Each region can optionally override pricing and other properties.
+	 * Properties not specified in a region entry are inherited from the parent mapping.
+	 * At sync/routing time, each region is expanded into a separate DB row / candidate.
 	 */
 	regions?: ProviderRegion[];
 }

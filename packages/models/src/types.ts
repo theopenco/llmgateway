@@ -329,6 +329,7 @@ export interface ModelWithPricing {
 export interface AvailableModelProvider {
 	providerId: string;
 	modelName: string;
+	region?: string;
 }
 
 // Function type definitions

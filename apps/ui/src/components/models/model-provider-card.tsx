@@ -497,8 +497,7 @@ export function ModelProviderCard({
 						</div>
 					)}
 					{(() => {
-						const tiers =
-							provider.pricingTiers ?? provider.regions?.[0]?.pricingTiers;
+						const tiers = provider.pricingTiers;
 						if (!tiers || tiers.length <= 1) {
 							return null;
 						}

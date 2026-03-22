@@ -134,8 +134,7 @@ export function ModelCard({ modelName, providers }: ModelCardProps) {
 								provider.requestPrice !== 0 &&
 								` / $${(provider.requestPrice * 1000).toFixed(2)} per 1K req`}
 						</p>
-						{((provider.pricingTiers ?? provider.regions?.[0]?.pricingTiers)
-							?.length ?? 0) > 1 && (
+						{(provider.pricingTiers?.length ?? 0) > 1 && (
 							<p className="text-muted-foreground/70 text-[10px] mt-0.5">
 								Tiered pricing available
 							</p>

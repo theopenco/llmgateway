@@ -16,7 +16,7 @@ export const alibabaModels = [
 				inputPrice: 1.6 / 1e6,
 				outputPrice: 6.4 / 1e6,
 				regions: [
-					{ id: "singapore", inputPrice: 1.6 / 1e6, outputPrice: 6.4 / 1e6 },
+					{ id: "singapore" },
 					{
 						id: "cn-beijing",
 						inputPrice: 0.345 / 1e6,
@@ -48,7 +48,7 @@ export const alibabaModels = [
 				inputPrice: 1.6 / 1e6,
 				outputPrice: 6.4 / 1e6,
 				regions: [
-					{ id: "singapore", inputPrice: 1.6 / 1e6, outputPrice: 6.4 / 1e6 },
+					{ id: "singapore" },
 					{
 						id: "cn-beijing",
 						inputPrice: 0.345 / 1e6,
@@ -82,9 +82,6 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
-						inputPrice: 0.4 / 1e6,
-						outputPrice: 1.2 / 1e6,
-						cachedInputPrice: 0.08 / 1e6,
 						pricingTiers: [
 							{
 								name: "Up to 256K",
@@ -174,9 +171,6 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
-						inputPrice: 0.4 / 1e6,
-						outputPrice: 1.2 / 1e6,
-						cachedInputPrice: 0.08 / 1e6,
 						pricingTiers: [
 							{
 								name: "Up to 256K",
@@ -266,9 +260,6 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
-						inputPrice: 0.05 / 1e6,
-						outputPrice: 0.4 / 1e6,
-						cachedInputPrice: 0.01 / 1e6,
 						pricingTiers: [
 							{
 								name: "Up to 256K",
@@ -378,7 +369,7 @@ export const alibabaModels = [
 				inputPrice: 0.05 / 1e6,
 				outputPrice: 0.2 / 1e6,
 				regions: [
-					{ id: "singapore", inputPrice: 0.05 / 1e6, outputPrice: 0.2 / 1e6 },
+					{ id: "singapore" },
 					{
 						id: "cn-beijing",
 						inputPrice: 0.044 / 1e6,
@@ -1245,7 +1236,7 @@ export const alibabaModels = [
 				inputPrice: 0.6 / 1e6,
 				outputPrice: 3.6 / 1e6,
 				regions: [
-					{ id: "singapore", inputPrice: 0.6 / 1e6, outputPrice: 3.6 / 1e6 },
+					{ id: "singapore" },
 					{
 						id: "us-virginia",
 						inputPrice: 0.143 / 1e6,
@@ -1405,7 +1396,7 @@ export const alibabaModels = [
 				inputPrice: 0.8 / 1e6,
 				outputPrice: 2.4 / 1e6,
 				regions: [
-					{ id: "singapore", inputPrice: 0.8 / 1e6, outputPrice: 2.4 / 1e6 },
+					{ id: "singapore" },
 					{
 						id: "cn-beijing",
 						inputPrice: 0.23 / 1e6,
@@ -1438,9 +1429,7 @@ export const alibabaModels = [
 				discount: 0.2,
 				inputPrice: 1.0 / 1e6,
 				outputPrice: 5.0 / 1e6,
-				regions: [
-					{ id: "cn-beijing", inputPrice: 1.0 / 1e6, outputPrice: 5.0 / 1e6 },
-				],
+				regions: [{ id: "cn-beijing" }],
 				requestPrice: 0,
 				contextSize: 131072,
 				maxOutput: 8192,
@@ -1468,9 +1457,6 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
-						inputPrice: 0.3 / 1e6,
-						outputPrice: 1.5 / 1e6,
-						cachedInputPrice: 0.06 / 1e6,
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -1602,9 +1588,6 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
-						inputPrice: 0.2 / 1e6,
-						outputPrice: 1.6 / 1e6,
-						cachedInputPrice: 0.04 / 1e6,
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -1715,9 +1698,6 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
-						inputPrice: 0.05 / 1e6,
-						outputPrice: 0.4 / 1e6,
-						cachedInputPrice: 0.01 / 1e6,
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -1930,9 +1910,6 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
-						inputPrice: 1.2 / 1e6,
-						outputPrice: 6.0 / 1e6,
-						cachedInputPrice: 0.24 / 1e6,
 						pricingTiers: [
 							{
 								name: "Up to 32K",

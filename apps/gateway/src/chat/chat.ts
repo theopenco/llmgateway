@@ -43,6 +43,7 @@ import {
 	getProviderMetricsForCombinations,
 	type InferSelectModel,
 	isCachingEnabled,
+	metricsKey,
 	shortid,
 	type tables,
 } from "@llmgateway/db";
@@ -64,6 +65,7 @@ import {
 	type ProviderRequestBody,
 	providers,
 	type WebSearchTool,
+	expandAllProviderRegions,
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
@@ -97,6 +99,7 @@ import {
 	type RoutingAttempt,
 	getErrorType,
 	MAX_RETRIES,
+	providerRetryKey,
 	selectNextProvider,
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
@@ -448,8 +451,13 @@ chat.openapi(completions, async (c) => {
 		requestedModel,
 		parseResult.requestedProvider,
 	);
-	let modelInfo = modelInfoResult.modelInfo;
-	const allModelProviders = modelInfoResult.allModelProviders;
+	let modelInfo = {
+		...modelInfoResult.modelInfo,
+		providers: expandAllProviderRegions(modelInfoResult.modelInfo.providers),
+	};
+	const allModelProviders = expandAllProviderRegions(
+		modelInfoResult.allModelProviders,
+	);
 	let requestedProvider = modelInfoResult.requestedProvider;
 
 	// Validate that models requiring image input have at least one image in the request
@@ -772,8 +780,12 @@ chat.openapi(completions, async (c) => {
 			}
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
+			// Expand region entries into separate candidates for scoring
+			const expandedCandidateProviders = expandAllProviderRegions(
+				modelDef.providers,
+			);
 			// Check if any of the model's providers are available
-			const availableModelProviders = modelDef.providers.filter(
+			const availableModelProviders = expandedCandidateProviders.filter(
 				(provider) =>
 					availableProviders.includes(provider.providerId) &&
 					(!candidateAllowedProviders ||
@@ -863,7 +875,7 @@ chat.openapi(completions, async (c) => {
 				// Find the cheapest among the suitable providers for this model
 				for (const provider of suitableProviders) {
 					const totalPrice =
-						((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
+						((provider.inputPrice ?? 0) + (provider.outputPrice ?? 0)) / 2;
 
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
@@ -880,6 +892,7 @@ chat.openapi(completions, async (c) => {
 			const metricsCombinations = selectedProviders.map((p) => ({
 				modelId: selectedModel.id,
 				providerId: p.providerId,
+				region: (p as ProviderModelMapping).region,
 			}));
 			const metricsMap =
 				await getProviderMetricsForCombinations(metricsCombinations);
@@ -932,7 +945,10 @@ chat.openapi(completions, async (c) => {
 			// Fallback case: look up the default model definition
 			const fallbackModelDef = models.find((m) => m.id === "gpt-5-nano");
 			if (fallbackModelDef) {
-				modelInfo = fallbackModelDef;
+				modelInfo = {
+					...fallbackModelDef,
+					providers: expandAllProviderRegions(fallbackModelDef.providers),
+				};
 			}
 		}
 		// Clear requestedProvider so retry/fallback logic knows this was auto-routed
@@ -984,7 +1000,7 @@ chat.openapi(completions, async (c) => {
 			{ modelId: baseModelId, providerId: usedProvider },
 		]);
 
-		const metrics = metricsMap.get(`${baseModelId}:${usedProvider}`);
+		const metrics = metricsMap.get(metricsKey(baseModelId, usedProvider));
 
 		// If we have metrics and uptime is below 90%, route to an alternative
 		if (metrics && metrics.uptime !== undefined && metrics.uptime < 90) {
@@ -1061,6 +1077,7 @@ chat.openapi(completions, async (c) => {
 						const metricsCombinations = availableModelProviders.map((p) => ({
 							modelId: modelWithPricing.id,
 							providerId: p.providerId,
+							region: (p as ProviderModelMapping).region,
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
@@ -1070,7 +1087,11 @@ chat.openapi(completions, async (c) => {
 						const betterUptimeProviders = availableModelProviders.filter(
 							(p) => {
 								const providerMetrics = allMetricsMap.get(
-									`${modelWithPricing.id}:${p.providerId}`,
+									metricsKey(
+										modelWithPricing.id,
+										p.providerId,
+										(p as ProviderModelMapping).region,
+									),
 								);
 								// If no metrics, assume the provider is healthy (100% uptime)
 								// If has metrics, only include if uptime is better than original
@@ -1263,6 +1284,7 @@ chat.openapi(completions, async (c) => {
 				const metricsCombinations = availableModelProviders.map((p) => ({
 					modelId: modelWithPricing.id,
 					providerId: p.providerId,
+					region: (p as ProviderModelMapping).region,
 				}));
 				const metricsMap =
 					await getProviderMetricsForCombinations(metricsCombinations);
@@ -1321,13 +1343,20 @@ chat.openapi(completions, async (c) => {
 			const metricsCombinations = allModelProviders.map((p) => ({
 				modelId: baseModelId,
 				providerId: p.providerId,
+				region: (p as ProviderModelMapping).region,
 			}));
 			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
 
 		// Build provider scores for all providers (including deactivated) with default values for missing metrics
 		const allProviderScores = allModelProviders.map((p) => {
-			const metrics = metricsMap.get(`${baseModelId}:${p.providerId}`);
+			const metrics = metricsMap.get(
+				metricsKey(
+					baseModelId,
+					p.providerId,
+					(p as ProviderModelMapping).region,
+				),
+			);
 			const price = (p.inputPrice ?? 0) + (p.outputPrice ?? 0);
 			const isSelected = p.providerId === usedProvider;
 			return {
@@ -2434,7 +2463,9 @@ chat.openapi(completions, async (c) => {
 							frequency_penalty = ctx.frequency_penalty;
 							presence_penalty = ctx.presence_penalty;
 						} catch {
-							failedProviderIds.add(nextProvider.providerId);
+							failedProviderIds.add(
+								providerRetryKey(nextProvider.providerId, nextProvider.region),
+							);
 							// Don't consume a retry slot for context-resolution failures
 							retryAttempt--;
 							continue;
@@ -2594,7 +2625,9 @@ chat.openapi(completions, async (c) => {
 									error_type: getErrorType(0),
 									succeeded: false,
 								});
-								failedProviderIds.add(usedProvider);
+								failedProviderIds.add(
+									providerRetryKey(usedProvider, usedRegion),
+								);
 								continue;
 							}
 
@@ -2878,7 +2911,9 @@ chat.openapi(completions, async (c) => {
 									error_type: getErrorType(0),
 									succeeded: false,
 								});
-								failedProviderIds.add(usedProvider);
+								failedProviderIds.add(
+									providerRetryKey(usedProvider, usedRegion),
+								);
 								continue;
 							}
 
@@ -3048,7 +3083,7 @@ chat.openapi(completions, async (c) => {
 								error_type: getErrorType(res.status),
 								succeeded: false,
 							});
-							failedProviderIds.add(usedProvider);
+							failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 							continue;
 						}
 
@@ -5134,7 +5169,9 @@ chat.openapi(completions, async (c) => {
 				presence_penalty = ctx.presence_penalty;
 				usedRegion = ctx.usedRegion;
 			} catch {
-				failedProviderIds.add(nextProvider.providerId);
+				failedProviderIds.add(
+					providerRetryKey(nextProvider.providerId, nextProvider.region),
+				);
 				// Don't consume a retry slot for context-resolution failures
 				retryAttempt--;
 				continue;
@@ -5325,7 +5362,7 @@ chat.openapi(completions, async (c) => {
 					error_type: getErrorType(0),
 					succeeded: false,
 				});
-				failedProviderIds.add(usedProvider);
+				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
 
@@ -5754,7 +5791,7 @@ chat.openapi(completions, async (c) => {
 					error_type: getErrorType(res.status),
 					succeeded: false,
 				});
-				failedProviderIds.add(usedProvider);
+				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
 

@@ -8,9 +8,14 @@ import {
 	and,
 	sql,
 	isNotNull,
+	isNull,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { providers, models } from "@llmgateway/models";
+import {
+	providers,
+	models,
+	expandAllProviderRegions,
+} from "@llmgateway/models";
 
 export async function syncProvidersAndModels() {
 	logger.info("Starting providers and models sync...");
@@ -93,7 +98,12 @@ export async function syncProvidersAndModels() {
 				});
 
 			if (modelDef.providers && modelDef.providers.length > 0) {
-				for (const mapping of modelDef.providers) {
+				const expandedProviders = expandAllProviderRegions(modelDef.providers);
+				for (const mapping of expandedProviders) {
+					const mappingRegion =
+						"region" in mapping
+							? (mapping.region as string | undefined)
+							: undefined;
 					const mappings = await database
 						.select()
 						.from(modelProviderMapping)
@@ -101,6 +111,9 @@ export async function syncProvidersAndModels() {
 							and(
 								eq(modelProviderMapping.modelId, modelDef.id),
 								eq(modelProviderMapping.providerId, mapping.providerId),
+								mappingRegion
+									? eq(modelProviderMapping.region, mappingRegion)
+									: isNull(modelProviderMapping.region),
 							),
 						)
 						.limit(1);
@@ -113,6 +126,7 @@ export async function syncProvidersAndModels() {
 							.update(modelProviderMapping)
 							.set({
 								modelName: mapping.modelName,
+								region: mappingRegion ?? null,
 								inputPrice:
 									"inputPrice" in mapping && mapping.inputPrice !== undefined
 										? mapping.inputPrice.toString()
@@ -197,6 +211,7 @@ export async function syncProvidersAndModels() {
 							modelId: modelDef.id,
 							providerId: mapping.providerId,
 							modelName: mapping.modelName,
+							region: mappingRegion ?? undefined,
 							inputPrice:
 								"inputPrice" in mapping && mapping.inputPrice !== undefined
 									? mapping.inputPrice.toString()

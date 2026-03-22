@@ -12,13 +12,12 @@ import {
 } from "@llmgateway/actions";
 import {
 	type BaseMessage,
-	getProviderEnvValue,
+	getRegionSpecificEnvValue,
 	hasMaxTokens,
 	type ModelDefinition,
 	type OpenAIRequestBody,
 	type OpenAIToolInput,
 	type Provider,
-	type ProviderDefinition,
 	type ProviderModelMapping,
 	type ProviderRequestBody,
 	providers,
@@ -112,7 +111,7 @@ interface OrgInfo {
  * Used by the retry loop to quickly set up a new provider context on fallback.
  */
 export async function resolveProviderContext(
-	providerMapping: { providerId: string; modelName: string },
+	providerMapping: { providerId: string; modelName: string; region?: string },
 	project: ProjectInfo,
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
@@ -178,47 +177,22 @@ export async function resolveProviderContext(
 	}
 
 	// --- Look up the specific provider mapping for the selected provider ---
+	// modelInfo.providers is already expanded (regions flattened into separate entries)
+	const usedRegion = providerMapping.region;
 	const providerMappingForSelected = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		(p) =>
+			p.providerId === usedProvider &&
+			p.modelName === usedModel &&
+			(p as ProviderModelMapping).region === usedRegion,
 	);
 
-	// --- Region resolution ---
-	// Only resolve and use a region when the model explicitly declares supported regions.
-	// Models without regions use the provider's default endpoint (current behavior).
-	const modelRegions = (providerMappingForSelected as ProviderModelMapping)
-		?.regions;
-	let usedRegion: string | undefined;
-	if (modelRegions && modelRegions.length > 0) {
-		const providerDef = providers.find((p) => p.id === usedProvider) as
-			| ProviderDefinition
-			| undefined;
-		const regionConfig = providerDef?.regionConfig;
-		if (regionConfig) {
-			const optionsKey = regionConfig.optionsKey;
-			const keyOptions = providerKey?.options as
-				| Record<string, string | undefined>
-				| null
-				| undefined;
-			usedRegion =
-				keyOptions?.[optionsKey] ??
-				getProviderEnvValue(usedProvider as Provider, "region", configIndex) ??
-				regionConfig.defaultRegion;
-
-			// Validate that the selected region is supported by this model
-			const isValidRegion = modelRegions.some((r) => r.id === usedRegion);
-			if (!isValidRegion) {
-				const validIds = modelRegions.map((r) => r.id).join(", ");
-				throw new HTTPException(400, {
-					message: `Model "${baseModelName}" is not available in region "${usedRegion}". Available regions: ${validIds}`,
-				});
-			}
+	// Override token with region-specific env var if available (credits/hybrid mode)
+	if (usedRegion && !providerKey) {
+		const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
+		if (regionToken) {
+			usedToken = regionToken;
 		}
 	}
-
-	// --- Resolve region data for post-selection overrides (e.g. maxOutput) ---
-	const regionData = usedRegion
-		? modelRegions?.find((r) => r.id === usedRegion)
-		: undefined;
 
 	// --- Check if model supports reasoning (from selected provider, not any) ---
 	const supportsReasoning =
@@ -299,9 +273,9 @@ export async function resolveProviderContext(
 
 	// --- max_tokens validation ---
 	if (max_tokens !== undefined && providerMappingForSelected) {
-		const effectiveMaxOutput =
-			regionData?.maxOutput ??
-			(providerMappingForSelected as ProviderModelMapping).maxOutput;
+		const effectiveMaxOutput = (
+			providerMappingForSelected as ProviderModelMapping
+		).maxOutput;
 		if (effectiveMaxOutput !== undefined) {
 			if (max_tokens > effectiveMaxOutput) {
 				// Silently cap to max output instead of throwing on retry

@@ -103,3 +103,25 @@ export function validateProviderEnv(provider: Provider): string[] {
 
 	return errors;
 }
+
+/**
+ * Get a region-specific environment variable value.
+ * Checks for `{BASE_ENV_VAR}__{REGION}` first, then falls back to the base env var.
+ * Region is normalized to uppercase with hyphens replaced by underscores.
+ *
+ * Example: getRegionSpecificEnvValue("alibaba", "us-virginia")
+ *   → checks LLM_ALIBABA_API_KEY__US_VIRGINIA, then LLM_ALIBABA_API_KEY
+ */
+export function getRegionSpecificEnvValue(
+	provider: Provider,
+	region: string,
+): string | undefined {
+	const baseEnvVar = getProviderEnvVar(provider);
+	if (!baseEnvVar) {
+		return undefined;
+	}
+	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	return (
+		process.env[`${baseEnvVar}__${regionSuffix}`] ?? process.env[baseEnvVar]
+	);
+}

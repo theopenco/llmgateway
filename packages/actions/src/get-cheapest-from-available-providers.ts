@@ -1,11 +1,10 @@
+import { type ProviderMetrics, metricsKey } from "@llmgateway/db";
 import {
 	getProviderDefinition,
 	type ProviderModelMapping,
 	type AvailableModelProvider,
 	type ModelWithPricing,
 } from "@llmgateway/models";
-
-import type { ProviderMetrics } from "@llmgateway/db";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -64,6 +63,7 @@ export interface RoutingMetadata {
 	selectionReason: string;
 	providerScores: Array<{
 		providerId: string;
+		region?: string;
 		score: number;
 		uptime?: number;
 		latency?: number;
@@ -128,7 +128,9 @@ export function getCheapestFromAvailableProviders<
 	// Filter out unstable and experimental providers
 	const stableProviders = availableModelProviders.filter((provider) => {
 		const providerInfo = modelWithPricing.providers.find(
-			(p) => p.providerId === provider.providerId,
+			(p) =>
+				p.providerId === provider.providerId &&
+				(p as ProviderModelMapping).region === provider.region,
 		);
 		const providerStability =
 			providerInfo && "stability" in providerInfo
@@ -176,7 +178,9 @@ export function getCheapestFromAvailableProviders<
 
 	for (const provider of stableProviders) {
 		const providerInfo = modelWithPricing.providers.find(
-			(p) => p.providerId === provider.providerId,
+			(p) =>
+				p.providerId === provider.providerId &&
+				(p as ProviderModelMapping).region === provider.region,
 		);
 		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
 		const discountMultiplier = 1 - discount;
@@ -185,8 +189,12 @@ export function getCheapestFromAvailableProviders<
 				2) *
 			discountMultiplier;
 
-		const metricsKey = `${modelWithPricing.id}:${provider.providerId}`;
-		const metrics = metricsMap.get(metricsKey);
+		const mKey = metricsKey(
+			modelWithPricing.id,
+			provider.providerId,
+			provider.region,
+		);
+		const metrics = metricsMap.get(mKey);
 
 		providerScores.push({
 			provider,
@@ -299,6 +307,7 @@ export function getCheapestFromAvailableProviders<
 			const priority = providerDef?.priority ?? 1;
 			return {
 				providerId: p.provider.providerId,
+				region: p.provider.region,
 				score: Number(p.score.toFixed(3)),
 				uptime: p.uptime,
 				latency: p.latency,
@@ -327,6 +336,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 
 	const providerPrices: Array<{
 		providerId: string;
+		region?: string;
 		price: number;
 		effectivePrice: number;
 		priority: number;
@@ -334,7 +344,9 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 
 	for (const provider of stableProviders) {
 		const providerInfo = modelWithPricing.providers.find(
-			(p) => p.providerId === provider.providerId,
+			(p) =>
+				p.providerId === provider.providerId &&
+				(p as ProviderModelMapping).region === provider.region,
 		);
 		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
 		const discountMultiplier = 1 - discount;
@@ -350,6 +362,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 
 		providerPrices.push({
 			providerId: provider.providerId,
+			region: provider.region,
 			price: totalPrice,
 			effectivePrice,
 			priority,
@@ -367,6 +380,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		selectionReason: "price-only-no-metrics",
 		providerScores: providerPrices.map((p) => ({
 			providerId: p.providerId,
+			region: p.region,
 			score: 0,
 			price: p.price,
 			priority: p.priority,

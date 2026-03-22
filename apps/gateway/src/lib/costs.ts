@@ -8,7 +8,6 @@ import {
 	models,
 	type PricingTier,
 	type ToolCall,
-	type ProviderRegion,
 } from "@llmgateway/models";
 
 // Define ChatMessage type to match what gpt-tokenizer expects
@@ -251,32 +250,14 @@ export async function calculateCosts(
 		};
 	}
 
-	// Resolve region-specific pricing when available.
-	// When a region is specified, look it up directly. When no region is specified
-	// but the mapping defines regions, fall back to regions[0] (the default region).
-	// This lets model definitions omit top-level inputPrice/outputPrice/pricingTiers
-	// when regions are defined — the first region is the canonical default.
-	let regionPricing: ProviderRegion | undefined;
-	if (providerInfo.regions && providerInfo.regions.length > 0) {
-		if (region) {
-			regionPricing = providerInfo.regions.find((r) => r.id === region);
-			if (!regionPricing) {
-				logger.error(
-					`Region "${region}" not found in pricing for model "${model}" provider "${provider}". This indicates a bug — region should have been validated upstream.`,
-				);
-			}
-		} else {
-			regionPricing = providerInfo.regions[0];
-		}
-	}
-
 	// Get pricing based on token count (supports tiered pricing)
-	// Region-specific pricing takes precedence over mapping-level pricing
+	// Each region is now a separate provider mapping with its own pricing,
+	// so no region-specific lookup is needed here.
 	const pricing = getPricingForTokenCount(
-		regionPricing?.pricingTiers ?? providerInfo.pricingTiers,
-		regionPricing?.inputPrice ?? providerInfo.inputPrice ?? 0,
-		regionPricing?.outputPrice ?? providerInfo.outputPrice ?? 0,
-		regionPricing?.cachedInputPrice ?? providerInfo.cachedInputPrice,
+		providerInfo.pricingTiers,
+		providerInfo.inputPrice ?? 0,
+		providerInfo.outputPrice ?? 0,
+		providerInfo.cachedInputPrice,
 		calculatedPromptTokens,
 	);
 
@@ -285,14 +266,11 @@ export async function calculateCosts(
 	const cachedInputPrice = new Decimal(
 		pricing.cachedInputPrice ?? pricing.inputPrice,
 	);
-	const requestPrice = new Decimal(
-		regionPricing?.requestPrice ?? providerInfo.requestPrice ?? 0,
-	);
+	const requestPrice = new Decimal(providerInfo.requestPrice ?? 0);
 
 	// Get effective discount (checks org-specific, global, then hardcoded)
 	// Pass both the root model ID and the provider-specific model name for matching
-	const hardcodedDiscount =
-		regionPricing?.discount ?? providerInfo.discount ?? 0;
+	const hardcodedDiscount = providerInfo.discount ?? 0;
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
@@ -396,9 +374,7 @@ export async function calculateCosts(
 	const requestCost = requestPrice.times(discountMultiplier);
 
 	// Calculate web search cost
-	const webSearchPrice = new Decimal(
-		regionPricing?.webSearchPrice ?? (providerInfo as any).webSearchPrice ?? 0,
-	);
+	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice ?? 0);
 	const webSearchCost =
 		webSearchCount && webSearchCount > 0
 			? webSearchPrice.times(webSearchCount).times(discountMultiplier)
