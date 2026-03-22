@@ -601,32 +601,14 @@ chat.openapi(completions, async (c) => {
 			? checkContentFilter(messages as BaseMessage[])
 			: null;
 
-	// Wrap insertLog for monitor mode: also inserts an evaluation log when
-	// the content filter would have triggered, so we can compare the gateway's
-	// decision against the actual upstream result.
-	const doInsertLog =
-		contentFilterMode === "monitor" && contentFilterMatch
-			? async (logData: Parameters<typeof insertLog>[0]) => {
-					const result = await insertLog(logData);
-					try {
-						const { id: _id, ...evalData } = logData;
-						await doInsertLog({
-							...evalData,
-							internalContentFilter: true,
-							cost: 0,
-							inputCost: 0,
-							outputCost: 0,
-							cachedInputCost: 0,
-							requestCost: 0,
-							webSearchCost: 0,
-							dataStorageCost: "0",
-						});
-					} catch {
-						// Silently ignore evaluation logging failures
-					}
-					return result;
-				}
-			: insertLog;
+	// In monitor mode, tag logs with internalContentFilter when the keyword
+	// filter would have blocked the request, so we can compare against upstream.
+	const shouldTagContentFilter =
+		contentFilterMode === "monitor" && contentFilterMatch;
+	const doInsertLog = shouldTagContentFilter
+		? (logData: Parameters<typeof insertLog>[0]) =>
+				insertLog({ ...logData, internalContentFilter: true })
+		: insertLog;
 
 	if (contentFilterMode === "enabled" && contentFilterMatch) {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
