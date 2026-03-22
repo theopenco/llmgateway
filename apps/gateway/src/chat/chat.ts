@@ -612,7 +612,7 @@ chat.openapi(completions, async (c) => {
 						const { id: _id, ...evalData } = logData;
 						await doInsertLog({
 							...evalData,
-							kind: "content_filter_evaluation",
+							internalContentFilter: true,
 							cost: 0,
 							inputCost: 0,
 							outputCost: 0,
