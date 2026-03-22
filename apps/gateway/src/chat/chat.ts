@@ -619,6 +619,7 @@ chat.openapi(completions, async (c) => {
 
 	let usedProvider = requestedProvider;
 	let usedModel: string = requestedModel;
+	let usedRegion: string | undefined;
 	let routingMetadata: RoutingMetadata | undefined;
 
 	// Extract retention level for data storage cost calculation
@@ -906,6 +907,7 @@ chat.openapi(completions, async (c) => {
 			if (cheapestResult) {
 				usedProvider = cheapestResult.provider.providerId;
 				usedModel = cheapestResult.provider.modelName;
+				usedRegion = (cheapestResult.provider as ProviderModelMapping).region;
 				routingMetadata = {
 					...cheapestResult.metadata,
 					...(noFallback ? { noFallback: true } : {}),
@@ -1191,6 +1193,8 @@ chat.openapi(completions, async (c) => {
 		if (iamFilteredModelProviders.length === 1) {
 			usedProvider = iamFilteredModelProviders[0].providerId;
 			usedModel = iamFilteredModelProviders[0].modelName;
+			usedRegion = (iamFilteredModelProviders[0] as ProviderModelMapping)
+				.region;
 		} else {
 			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
@@ -1298,6 +1302,7 @@ chat.openapi(completions, async (c) => {
 				if (cheapestResult) {
 					usedProvider = cheapestResult.provider.providerId;
 					usedModel = cheapestResult.provider.modelName;
+					usedRegion = (cheapestResult.provider as ProviderModelMapping).region;
 					routingMetadata = {
 						...cheapestResult.metadata,
 						...(noFallback ? { noFallback: true } : {}),
@@ -1305,10 +1310,14 @@ chat.openapi(completions, async (c) => {
 				} else {
 					usedProvider = availableModelProviders[0].providerId;
 					usedModel = availableModelProviders[0].modelName;
+					usedRegion = (availableModelProviders[0] as ProviderModelMapping)
+						.region;
 				}
 			} else {
 				usedProvider = availableModelProviders[0].providerId;
 				usedModel = availableModelProviders[0].modelName;
+				usedRegion = (availableModelProviders[0] as ProviderModelMapping)
+					.region;
 			}
 		}
 	}
@@ -1398,13 +1407,19 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	} else {
-		finalModelInfo = models.find(
+		const rawFinalModelInfo = models.find(
 			(m) =>
 				m.id === usedModel ||
 				m.providers.some(
 					(p) => p.modelName === usedModel && p.providerId === usedProvider,
 				),
 		);
+		if (rawFinalModelInfo) {
+			finalModelInfo = {
+				...rawFinalModelInfo,
+				providers: expandAllProviderRegions(rawFinalModelInfo.providers),
+			};
+		}
 	}
 
 	// Use the canonical model ID from finalModelInfo (looked up after routing)
@@ -1413,7 +1428,10 @@ chat.openapi(completions, async (c) => {
 
 	// Check if this is an image generation model
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
-		(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		(p) =>
+			p.providerId === usedProvider &&
+			p.modelName === usedModel &&
+			(p as ProviderModelMapping).region === usedRegion,
 	);
 	let isImageGeneration =
 		(imageGenProviderMapping as ProviderModelMapping)?.imageGenerations ===
@@ -1454,8 +1472,6 @@ chat.openapi(completions, async (c) => {
 	let usedToken: string | undefined;
 	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
-	let usedRegion: string | undefined;
-
 	if (
 		project.mode === "credits" &&
 		(usedProvider === "custom" || usedProvider === "llmgateway")
@@ -1629,7 +1645,10 @@ chat.openapi(completions, async (c) => {
 
 	// Check if the selected provider supports reasoning (from specific mapping, not any)
 	const selectedProviderMapping = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		(p) =>
+			p.providerId === usedProvider &&
+			p.modelName === usedModel &&
+			(p as ProviderModelMapping).region === usedRegion,
 	);
 	let supportsReasoning =
 		(selectedProviderMapping as ProviderModelMapping)?.reasoning === true;
@@ -2053,7 +2072,10 @@ chat.openapi(completions, async (c) => {
 	if (max_tokens !== undefined && finalModelInfo) {
 		// Find the provider mapping for the used provider
 		const providerMapping = finalModelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+			(p) =>
+				p.providerId === usedProvider &&
+				p.modelName === usedModel &&
+				(p as ProviderModelMapping).region === usedRegion,
 		);
 
 		if (
@@ -2088,7 +2110,10 @@ chat.openapi(completions, async (c) => {
 	// Check if effort parameter is supported by the specific provider being used
 	if (effort !== undefined && finalModelInfo) {
 		const providerMapping = finalModelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+			(p) =>
+				p.providerId === usedProvider &&
+				p.modelName === usedModel &&
+				(p as ProviderModelMapping).region === usedRegion,
 		);
 
 		if (providerMapping) {
@@ -2114,7 +2139,10 @@ chat.openapi(completions, async (c) => {
 	// Strip unsupported parameters based on model's supportedParameters
 	if (finalModelInfo) {
 		const providerMapping = finalModelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+			(p) =>
+				p.providerId === usedProvider &&
+				p.modelName === usedModel &&
+				(p as ProviderModelMapping).region === usedRegion,
 		);
 		const supported = (providerMapping as ProviderModelMapping | undefined)
 			?.supportedParameters;
@@ -2262,7 +2290,10 @@ chat.openapi(completions, async (c) => {
 	) {
 		// Find the provider mapping for the used provider
 		const providerMapping = finalModelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+			(p) =>
+				p.providerId === usedProvider &&
+				p.modelName === usedModel &&
+				(p as ProviderModelMapping).region === usedRegion,
 		);
 		if (
 			providerMapping &&
