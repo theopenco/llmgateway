@@ -20,7 +20,7 @@ import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
-	insertLog,
+	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import {
 	createCombinedSignal,
@@ -605,10 +605,10 @@ chat.openapi(completions, async (c) => {
 	// filter would have blocked the request, so we can compare against upstream.
 	const shouldTagContentFilter =
 		contentFilterMode === "monitor" && contentFilterMatch;
-	const doInsertLog = shouldTagContentFilter
-		? (logData: Parameters<typeof insertLog>[0]) =>
-				insertLog({ ...logData, internalContentFilter: true })
-		: insertLog;
+	const insertLog = shouldTagContentFilter
+		? (logData: Parameters<typeof _insertLog>[0]) =>
+				_insertLog({ ...logData, internalContentFilter: true })
+		: _insertLog;
 
 	if (contentFilterMode === "enabled" && contentFilterMatch) {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
@@ -616,7 +616,7 @@ chat.openapi(completions, async (c) => {
 
 		// Log the filtered request
 		try {
-			await doInsertLog({
+			await insertLog({
 				...createLogEntry(
 					requestId,
 					project,
@@ -1938,7 +1938,7 @@ chat.openapi(completions, async (c) => {
 					project.organizationId,
 				);
 
-				await doInsertLog({
+				await insertLog({
 					...baseLogEntry,
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
@@ -2097,7 +2097,7 @@ chat.openapi(completions, async (c) => {
 					(cachedReasoningContent?.length ?? 0) +
 					500; // overhead for metadata
 
-				await doInsertLog({
+				await insertLog({
 					...baseLogEntry,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
@@ -2688,7 +2688,7 @@ chat.openapi(completions, async (c) => {
 								undefined, // No plugin results for error case
 							);
 
-							await doInsertLog({
+							await insertLog({
 								...baseLogEntry,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null,
@@ -2832,7 +2832,7 @@ chat.openapi(completions, async (c) => {
 								undefined, // No plugin results for canceled request
 							);
 
-							await doInsertLog({
+							await insertLog({
 								...baseLogEntry,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null, // Not applicable for canceled request
@@ -2970,7 +2970,7 @@ chat.openapi(completions, async (c) => {
 								undefined, // No plugin results for error case
 							);
 
-							await doInsertLog({
+							await insertLog({
 								...baseLogEntry,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null, // Not applicable for error case
@@ -3136,7 +3136,7 @@ chat.openapi(completions, async (c) => {
 							undefined, // No plugin results for error case
 						);
 
-						await doInsertLog({
+						await insertLog({
 							...baseLogEntry,
 							duration: Date.now() - perAttemptStartTime,
 							timeToFirstToken: null,
@@ -5041,7 +5041,7 @@ chat.openapi(completions, async (c) => {
 					const shouldIncludeTokensForBilling =
 						!canceled || (canceled && billCancelledRequests);
 
-					await doInsertLog({
+					await insertLog({
 						...baseLogEntry,
 						id: routingAttempts.length > 0 ? finalLogId : undefined,
 						duration,
@@ -5448,7 +5448,7 @@ chat.openapi(completions, async (c) => {
 				undefined, // No plugin results for error case
 			);
 
-			await doInsertLog({
+			await insertLog({
 				...baseLogEntry,
 				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
@@ -5606,7 +5606,7 @@ chat.openapi(completions, async (c) => {
 				undefined, // No plugin results for canceled request
 			);
 
-			await doInsertLog({
+			await insertLog({
 				...baseLogEntry,
 				duration,
 				timeToFirstToken: null, // Not applicable for canceled request
@@ -5732,7 +5732,7 @@ chat.openapi(completions, async (c) => {
 						undefined,
 					);
 
-					await doInsertLog({
+					await insertLog({
 						...baseLogEntry,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null,
@@ -5864,7 +5864,7 @@ chat.openapi(completions, async (c) => {
 				undefined, // No plugin results for error case
 			);
 
-			await doInsertLog({
+			await insertLog({
 				...baseLogEntry,
 				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
@@ -6118,7 +6118,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 			);
 
-			await doInsertLog({
+			await insertLog({
 				...baseLogEntry,
 				duration: Date.now() - startTime,
 				timeToFirstToken: null,
@@ -6462,7 +6462,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	await doInsertLog({
+	await insertLog({
 		...baseLogEntry,
 		id: routingAttempts.length > 0 ? finalLogId : undefined,
 		duration,
