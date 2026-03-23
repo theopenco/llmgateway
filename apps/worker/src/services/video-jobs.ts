@@ -45,6 +45,7 @@ const VIDEO_JOB_TIMEOUT_MS = VIDEO_JOB_TIMEOUT_SECONDS * 1000;
 const VIDEO_JOB_POLL_CLAIM_TTL_MS = 30_000;
 const VIDEO_JOB_ERROR_BASE_DELAY_MS = 10_000;
 const VIDEO_JOB_ERROR_MAX_DELAY_MS = 5 * 60 * 1000;
+const VIDEO_JOB_MAX_POLL_ERROR_COUNT = 5;
 const VIDEO_RESOLUTION_4K = "4k";
 const VIDEO_DEFAULT_RESOLUTION = "default";
 const ACTIVE_VIDEO_STATUSES = ["queued", "in_progress"] as const;
@@ -1761,19 +1762,48 @@ export async function processPendingVideoJobs(): Promise<void> {
 				},
 			);
 
-			if (hasVideoJobTimedOut(job, now)) {
-				const timedOutResponse = buildVideoJobTimeoutResponse(job, now);
+			const nextErrorCount = getVideoJobPollErrorCount(job) + 1;
+			const currentStatusResponse =
+				job.upstreamStatusResponse &&
+				typeof job.upstreamStatusResponse === "object" &&
+				!Array.isArray(job.upstreamStatusResponse)
+					? (job.upstreamStatusResponse as Record<string, unknown>)
+					: {};
+
+			if (
+				hasVideoJobTimedOut(job, now) ||
+				nextErrorCount >= VIDEO_JOB_MAX_POLL_ERROR_COUNT
+			) {
+				const failedResponse = hasVideoJobTimedOut(job, now)
+					? buildVideoJobTimeoutResponse(job, now, currentStatusResponse)
+					: addRequestedVideoMetadata(job, {
+							...currentStatusResponse,
+							status: "failed",
+							progress: 100,
+							completed_at: now.toISOString(),
+							error: {
+								code: "poll_error",
+								message: `Video generation failed after ${nextErrorCount} consecutive polling errors: ${message}`,
+								details: {
+									reason: "poll_error_limit",
+									error_count: nextErrorCount,
+									last_error: message,
+								},
+							},
+							llmgateway_poll_error_count: nextErrorCount,
+							llmgateway_last_poll_error: message,
+						});
 				const updatedJob = await db
 					.update(tables.videoJob)
 					.set({
 						status: "failed",
 						progress: 100,
-						error: extractError(timedOutResponse),
+						error: extractError(failedResponse),
 						completedAt: now,
 						lastPolledAt: now,
 						nextPollAt: now,
 						pollAttemptCount: job.pollAttemptCount + 1,
-						upstreamStatusResponse: timedOutResponse,
+						upstreamStatusResponse: failedResponse,
 					})
 					.where(eq(tables.videoJob.id, job.id))
 					.returning()
@@ -1782,14 +1812,6 @@ export async function processPendingVideoJobs(): Promise<void> {
 				await finalizeVideoJob(updatedJob);
 				continue;
 			}
-
-			const nextErrorCount = getVideoJobPollErrorCount(job) + 1;
-			const currentStatusResponse =
-				job.upstreamStatusResponse &&
-				typeof job.upstreamStatusResponse === "object" &&
-				!Array.isArray(job.upstreamStatusResponse)
-					? (job.upstreamStatusResponse as Record<string, unknown>)
-					: {};
 
 			await db
 				.update(tables.videoJob)
