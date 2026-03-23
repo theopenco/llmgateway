@@ -19,6 +19,16 @@ export {
 } from "./health-check.js";
 
 export {
+	buildGatewayVideoLogContentUrl,
+	getGatewayPublicBaseUrl,
+} from "./gateway-url.js";
+
+export {
+	getAvalancheApiBaseUrl,
+	getAvalancheFileUploadBaseUrl,
+} from "./avalanche.js";
+
+export {
 	createHttpClient,
 	type HttpClientOptions,
 	type HttpClientConfig,
@@ -33,5 +43,10 @@ export {
 export { useIsMobile } from "./hooks/use-mobile.js";
 
 export { cn } from "./lib/utils.js";
+
+export {
+	getVideoProxyRedisKey,
+	VIDEO_PROXY_REDIS_TTL_SECONDS,
+} from "./video-proxy.js";
 
 export * from "./components/ui/index.js";

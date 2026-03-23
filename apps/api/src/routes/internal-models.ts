@@ -4,6 +4,10 @@ import { z } from "zod";
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
 
 import { and, db, eq, gte, isNull, or, tables } from "@llmgateway/db";
+import {
+	models as modelDefinitions,
+	type ProviderModelMapping,
+} from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -49,6 +53,10 @@ const modelProviderMappingSchema = z.object({
 	discount: z.string().nullable(),
 	stability: z.enum(["stable", "beta", "unstable", "experimental"]).nullable(),
 	supportedParameters: z.array(z.string()).nullable(),
+	supportedVideoSizes: z.array(z.string()).nullable(),
+	supportedVideoDurationsSeconds: z.array(z.number()).nullable(),
+	supportsVideoAudio: z.boolean().nullable(),
+	supportsVideoWithoutAudio: z.boolean().nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
 	status: z.enum(["active", "inactive"]),
@@ -177,6 +185,12 @@ internalModels.openapi(getModelsRoute, async (c) => {
 	const transformedModels = models.map((model) => ({
 		...model,
 		mappings: model.modelProviderMappings.map((mapping) => {
+			const sharedMapping: ProviderModelMapping | null =
+				modelDefinitions
+					.find((modelDefinition) => modelDefinition.id === model.id)
+					?.providers.find(
+						(provider) => provider.providerId === mapping.providerId,
+					) ?? null;
 			const globalDiscount = getGlobalDiscount(
 				mapping.providerId,
 				model.id,
@@ -184,7 +198,16 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			);
 			// Global discount takes precedence over hardcoded mapping discount
 			const effectiveDiscount = globalDiscount ?? mapping.discount;
-			return { ...mapping, discount: effectiveDiscount };
+			return {
+				...mapping,
+				discount: effectiveDiscount,
+				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
+				supportedVideoDurationsSeconds:
+					sharedMapping?.supportedVideoDurationsSeconds ?? null,
+				supportsVideoAudio: sharedMapping?.supportsVideoAudio ?? null,
+				supportsVideoWithoutAudio:
+					sharedMapping?.supportsVideoWithoutAudio ?? null,
+			};
 		}),
 	}));
 

@@ -9,6 +9,14 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
 		},
+		"./gcs": {
+			"types": "./dist/gcs.d.ts",
+			"import": "./dist/gcs.js"
+		},
+		"./video-access": {
+			"types": "./dist/video-access.d.ts",
+			"import": "./dist/video-access.js"
+		},
 		"./components": {
 			"types": "./dist/components/index.d.ts",
 			"import": "./dist/components/index.js"
@@ -30,6 +38,7 @@
 		"lint": "eslint . && prettier --check ."
 	},
 	"dependencies": {
+		"@google-cloud/storage": "7.19.0",
 		"@llmgateway/models": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"@radix-ui/react-avatar": "1.1.11",

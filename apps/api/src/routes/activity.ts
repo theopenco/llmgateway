@@ -48,6 +48,7 @@ const dailyActivitySchema = z.object({
 	dataStorageCost: z.number(),
 	imageInputCost: z.number(),
 	imageOutputCost: z.number(),
+	videoOutputCost: z.number(),
 	cachedInputCost: z.number(),
 	errorCount: z.number(),
 	errorRate: z.number(),
@@ -217,6 +218,10 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageOutputCost}), 0)`.as(
 						"imageOutputCost",
 					),
+				videoOutputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.videoOutputCost}), 0)`.as(
+						"videoOutputCost",
+					),
 				cachedTokens:
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.cachedTokens} AS NUMERIC)), 0)`.as(
 						"cachedTokens",
@@ -342,6 +347,7 @@ activity.openapi(getActivity, async (c) => {
 			const discountSavings = Number(day.discountSavings);
 			const imageInputCost = Number(day.imageInputCost);
 			const imageOutputCost = Number(day.imageOutputCost);
+			const videoOutputCost = Number(day.videoOutputCost);
 			const cachedInputCost = Number(day.cachedInputCost);
 
 			const creditsRequestCount = Number(day.creditsRequestCount);
@@ -370,6 +376,7 @@ activity.openapi(getActivity, async (c) => {
 				dataStorageCost,
 				imageInputCost,
 				imageOutputCost,
+				videoOutputCost,
 				cachedInputCost,
 				errorCount,
 				errorRate,
@@ -442,6 +449,10 @@ activity.openapi(getActivity, async (c) => {
 			imageOutputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.imageOutputCost}), 0)`.as(
 					"imageOutputCost",
+				),
+			videoOutputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.videoOutputCost}), 0)`.as(
+					"videoOutputCost",
 				),
 			cachedInputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
@@ -573,6 +584,7 @@ activity.openapi(getActivity, async (c) => {
 		const dataStorageCost = Number(day.dataStorageCost);
 		const imageInputCost = Number(day.imageInputCost);
 		const imageOutputCost = Number(day.imageOutputCost);
+		const videoOutputCost = Number(day.videoOutputCost);
 		const cachedInputCost = Number(day.cachedInputCost);
 		const errorCount = Number(day.errorCount);
 		const cacheCount = Number(day.cacheCount);
@@ -602,6 +614,7 @@ activity.openapi(getActivity, async (c) => {
 			dataStorageCost,
 			imageInputCost,
 			imageOutputCost,
+			videoOutputCost,
 			cachedInputCost,
 			errorCount,
 			errorRate,

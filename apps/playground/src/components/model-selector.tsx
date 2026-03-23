@@ -70,6 +70,8 @@ interface ModelSelectorProps {
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
+	isOptionDisabled?: (value: string) => boolean;
+	getOptionDisabledReason?: (value: string) => string | undefined;
 }
 
 interface FilterState {
@@ -379,6 +381,8 @@ export function ModelSelector({
 	value,
 	onValueChange,
 	placeholder = "Select model...",
+	isOptionDisabled,
+	getOptionDisabledReason,
 }: ModelSelectorProps) {
 	const [open, setOpen] = React.useState(false);
 	const [filterOpen, setFilterOpen] = React.useState(false);
@@ -982,6 +986,10 @@ export function ModelSelector({
 											({ model, mapping, provider, isRoot }, index) => {
 												if (isRoot) {
 													const entryKey = model.id;
+													const disabled =
+														isOptionDisabled?.(entryKey) ?? false;
+													const disabledReason =
+														getOptionDisabledReason?.(entryKey);
 													const _aggregate = getRootAggregateInfo(model);
 													const hasRequestPrice = model.mappings.some(
 														(p) =>
@@ -993,6 +1001,8 @@ export function ModelSelector({
 														<CommandItem
 															key={`${entryKey}-${index}`}
 															value={entryKey}
+															disabled={disabled}
+															title={disabledReason}
 															onMouseEnter={() =>
 																setPreviewEntry({
 																	model,
@@ -1002,10 +1012,18 @@ export function ModelSelector({
 																})
 															}
 															onSelect={() => {
+																if (disabled) {
+																	return;
+																}
 																onValueChange?.(model.id);
 																setOpen(false);
 															}}
-															className="p-2 sm:p-3 cursor-pointer"
+															className={cn(
+																"p-2 sm:p-3",
+																disabled
+																	? "cursor-not-allowed opacity-50"
+																	: "cursor-pointer",
+															)}
 														>
 															<Check
 																className={cn(
@@ -1028,7 +1046,7 @@ export function ModelSelector({
 																			)}
 																		</div>
 																		<span className="text-xs text-muted-foreground truncate">
-																			Auto-select provider
+																			{disabledReason ?? "Auto-select provider"}
 																		</span>
 																	</div>
 																</div>
@@ -1055,6 +1073,11 @@ export function ModelSelector({
 													? getProviderIcon(provider.id)
 													: null;
 												const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
+												const providerModelValue = `${mapping!.providerId}/${model.id}`;
+												const disabled =
+													isOptionDisabled?.(providerModelValue) ?? false;
+												const disabledReason =
+													getOptionDisabledReason?.(providerModelValue);
 												const isUnstable = isModelUnstable(mapping!, model);
 												const isDeprecated =
 													mapping!.deprecatedAt &&
@@ -1068,6 +1091,8 @@ export function ModelSelector({
 													<CommandItem
 														key={entryKey}
 														value={entryKey}
+														disabled={disabled}
+														title={disabledReason}
 														onMouseEnter={() =>
 															setPreviewEntry({
 																model,
@@ -1077,12 +1102,18 @@ export function ModelSelector({
 															})
 														}
 														onSelect={() => {
-															onValueChange?.(
-																`${mapping!.providerId}/${model.id}`,
-															);
+															if (disabled) {
+																return;
+															}
+															onValueChange?.(providerModelValue);
 															setOpen(false);
 														}}
-														className="p-2 sm:p-3 cursor-pointer"
+														className={cn(
+															"p-2 sm:p-3",
+															disabled
+																? "cursor-not-allowed opacity-50"
+																: "cursor-pointer",
+														)}
 													>
 														<Check
 															className={cn(
@@ -1110,7 +1141,7 @@ export function ModelSelector({
 																		)}
 																	</div>
 																	<span className="text-xs text-muted-foreground truncate">
-																		{provider?.name}
+																		{disabledReason ?? provider?.name}
 																	</span>
 																</div>
 															</div>

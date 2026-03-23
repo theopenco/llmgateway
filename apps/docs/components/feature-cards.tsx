@@ -18,6 +18,7 @@ import {
 	MessageCircle,
 	Route,
 	Shield,
+	Video,
 	Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -54,6 +55,12 @@ const features: Feature[] = [
 			"Generate images using AI models through the OpenAI-compatible API.",
 		href: "/features/image-generation",
 		icon: <Image className="size-5" />,
+	},
+	{
+		title: "Video Generation",
+		description: "Generate videos using the OpenAI-compatible async video API.",
+		href: "/features/video-generation",
+		icon: <Video className="size-5" />,
 	},
 	// Model capabilities
 	{

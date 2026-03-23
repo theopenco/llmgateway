@@ -95,6 +95,12 @@ export interface ProviderModelMapping {
 	 */
 	requestPrice?: number;
 	/**
+	 * Price per second in USD for video generation models.
+	 * Maps billing keys like "default", "4k", "default_audio", "4k_audio",
+	 * "default_video", and "4k_video" to per-second pricing.
+	 */
+	perSecondPrice?: Record<string, number>;
+	/**
 	 * Discount multiplier (0-1), where 0.5 = 50% off
 	 */
 	discount?: number;
@@ -193,6 +199,27 @@ export interface ProviderModelMapping {
 	 * When true, requests are routed to a provider-specific image generation endpoint.
 	 */
 	imageGenerations?: boolean;
+	/**
+	 * Whether this model uses a dedicated video generation API.
+	 * When true, requests are routed to a provider-specific video generation endpoint.
+	 */
+	videoGenerations?: boolean;
+	/**
+	 * Supported OpenAI-style video sizes in widthxheight format for this provider.
+	 */
+	supportedVideoSizes?: string[];
+	/**
+	 * Supported output durations in seconds for this provider.
+	 */
+	supportedVideoDurationsSeconds?: number[];
+	/**
+	 * Whether this provider mapping supports generating video with audio.
+	 */
+	supportsVideoAudio?: boolean;
+	/**
+	 * Whether this provider mapping supports generating video without audio.
+	 */
+	supportsVideoWithoutAudio?: boolean;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
@@ -232,11 +259,15 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image")[];
+	output?: ("text" | "image" | "video")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
 	imageInputRequired?: boolean;
+	/**
+	 * Maximum supported output duration in seconds for video generation models.
+	 */
+	maxVideoDurationSeconds?: number;
 	/**
 	 * Stability level of the model (defaults to 'stable' if not specified)
 	 * - stable: Fully tested and production ready

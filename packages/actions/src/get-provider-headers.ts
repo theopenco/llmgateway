@@ -31,6 +31,7 @@ export function getProviderHeaders(
 		case "google-vertex":
 			return {};
 		case "obsidian":
+		case "avalanche":
 			return {
 				Authorization: `Bearer ${token}`,
 			};

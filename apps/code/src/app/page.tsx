@@ -24,22 +24,15 @@ const plans = [
 	{
 		name: "Lite",
 		price: 29,
-		usage: 87,
 		description: "For occasional AI-assisted coding",
-		features: [
-			"$87 in model usage",
-			"All 200+ models included",
-			"Usage resets monthly",
-		],
+		features: ["All 200+ models included", "Usage resets monthly"],
 		tier: "lite",
 	},
 	{
 		name: "Pro",
 		price: 79,
-		usage: 237,
 		description: "For daily development workflows",
 		features: [
-			"$237 in model usage",
 			"All 200+ models included",
 			"Usage resets monthly",
 			"Best value for developers",
@@ -50,10 +43,8 @@ const plans = [
 	{
 		name: "Max",
 		price: 179,
-		usage: 537,
 		description: "For power users and heavy sessions",
 		features: [
-			"$537 in model usage",
 			"All 200+ models included",
 			"Usage resets monthly",
 			"Maximum throughput",
@@ -102,7 +93,7 @@ export default function LandingPage() {
 						<div className="mx-auto max-w-3xl text-center">
 							<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/50 px-4 py-1.5 text-sm text-muted-foreground">
 								<Sparkles className="h-3.5 w-3.5" />
-								Pay once, get 3x the value in usage
+								Fixed-price plans for AI coding tools
 							</div>
 							<h1 className="mb-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
 								One subscription.
@@ -208,10 +199,10 @@ export default function LandingPage() {
 								<div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-foreground text-background">
 									<Zap className="h-5 w-5" strokeWidth={1.5} />
 								</div>
-								<h3 className="mb-2 font-semibold">3x your money</h3>
+								<h3 className="mb-2 font-semibold">Predictable pricing</h3>
 								<p className="text-sm leading-relaxed text-muted-foreground">
-									Every dollar you pay unlocks $3 in model usage. A $29 plan
-									gives you $87 worth of API calls.
+									One flat monthly fee. No surprise bills or token counting.
+									Just code with any model you want.
 								</p>
 							</div>
 							<div className="rounded-xl border p-6 transition-colors hover:bg-muted/30">
@@ -313,14 +304,9 @@ export default function LandingPage() {
 											{plan.description}
 										</p>
 									</div>
-									<div className="mb-1 flex items-baseline gap-1">
+									<div className="mb-6 flex items-baseline gap-1">
 										<span className="text-4xl font-bold">${plan.price}</span>
 										<span className="text-muted-foreground">/mo</span>
-									</div>
-									<div className="mb-6 flex items-center gap-1.5 text-sm">
-										<ArrowRight className="h-3 w-3 text-muted-foreground" />
-										<span className="font-medium">${plan.usage}</span>
-										<span className="text-muted-foreground">in usage</span>
 									</div>
 									<ul className="mb-8 flex-1 space-y-3">
 										{plan.features.map((feature) => (

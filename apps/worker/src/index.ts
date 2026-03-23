@@ -3,6 +3,10 @@ import { logger } from "@llmgateway/logger";
 import { startWorker, stopWorker } from "./worker.js";
 
 export { processLogQueue } from "./worker.js";
+export {
+	processPendingVideoJobs,
+	processPendingWebhookDeliveries,
+} from "./services/video-jobs.js";
 
 let isShuttingDown = false;
 

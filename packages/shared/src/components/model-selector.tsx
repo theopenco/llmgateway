@@ -489,7 +489,9 @@ export function ModelSelector({
 	// Get unique providers and capabilities for filtering
 	const availableProviders = React.useMemo(() => {
 		const ids = new Set(
-			allEntries.filter((e) => e.mapping).map((e) => e.mapping!.providerId),
+			allEntries
+				.flatMap((entry) => (entry.mapping ? [entry.mapping] : []))
+				.map((mapping) => mapping.providerId),
 		);
 		return providers.filter((p) => ids.has(p.id as any));
 	}, [allEntries, providers]);
@@ -1037,18 +1039,21 @@ export function ModelSelector({
 												const ProviderIcon = provider
 													? getProviderIcon(provider.id)
 													: null;
-												const entryKey = `${mapping!.providerId}-${model.id}-${index}`;
-												const isUnstable = isModelUnstable(mapping!, model);
+												if (!mapping) {
+													return null;
+												}
+												const entryKey = `${mapping.providerId}-${model.id}-${index}`;
+												const isUnstable = isModelUnstable(mapping, model);
 												const isDeprecated =
-													mapping!.deprecatedAt &&
-													new Date(mapping!.deprecatedAt) <= new Date();
+													mapping.deprecatedAt &&
+													new Date(mapping.deprecatedAt) <= new Date();
 												const hasRequestPrice =
-													mapping!.requestPrice && mapping!.requestPrice > 0;
+													mapping.requestPrice && mapping.requestPrice > 0;
 												const isFreeMapping =
 													model.free === true && !hasRequestPrice;
 												const isSelected =
 													selectedModel?.id === model.id &&
-													selectedProviderId === mapping!.providerId;
+													selectedProviderId === mapping.providerId;
 												return (
 													<CommandItem
 														key={entryKey}
@@ -1063,7 +1068,7 @@ export function ModelSelector({
 														}
 														onSelect={() => {
 															onValueChange?.(
-																`${mapping!.providerId}/${model.id}`,
+																`${mapping.providerId}/${model.id}`,
 															);
 															setOpen(false);
 														}}

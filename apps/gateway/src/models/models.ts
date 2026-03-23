@@ -21,8 +21,8 @@ const modelSchema = z.object({
 	description: z.string().optional(),
 	family: z.string(),
 	architecture: z.object({
-		input_modalities: z.array(z.enum(["text", "image"])),
-		output_modalities: z.array(z.enum(["text", "image"])),
+		input_modalities: z.array(z.enum(["text", "image", "video"])),
+		output_modalities: z.array(z.enum(["text", "image", "video"])),
 		tokenizer: z.string().optional(),
 	}),
 	top_provider: z.object({
@@ -32,11 +32,15 @@ const modelSchema = z.object({
 		z.object({
 			providerId: z.string(),
 			modelName: z.string(),
+			supportedVideoSizes: z.array(z.string()).optional(),
+			supportsVideoAudio: z.boolean().optional(),
+			supportsVideoWithoutAudio: z.boolean().optional(),
 			pricing: z
 				.object({
 					prompt: z.string(),
 					completion: z.string(),
 					image: z.string().optional(),
+					per_second: z.record(z.string()).optional(),
 				})
 				.optional(),
 			streaming: z.boolean(),
@@ -54,6 +58,7 @@ const modelSchema = z.object({
 		prompt: z.string(),
 		completion: z.string(),
 		image: z.string().optional(),
+		per_second: z.record(z.string()).optional(),
 		request: z.string().optional(),
 		input_cache_read: z.string().optional(),
 		input_cache_write: z.string().optional(),
@@ -147,7 +152,7 @@ modelsApi.openapi(listModels, async (c) => {
 
 		const modelData = filteredModels.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
-			const inputModalities: ("text" | "image")[] = ["text"];
+			const inputModalities: ("text" | "image" | "video")[] = ["text"];
 
 			// Check if any provider has vision support
 			if (model.providers.some((p) => p.vision)) {
@@ -155,13 +160,16 @@ modelsApi.openapi(listModels, async (c) => {
 			}
 
 			// Determine output modalities from model definition or default to text only
-			const outputModalities: ("text" | "image")[] = model.output ?? ["text"];
+			const outputModalities: ("text" | "image" | "video")[] = model.output ?? [
+				"text",
+			];
 
 			const firstProviderWithPricing = model.providers.find(
 				(p: ProviderModelMapping) =>
 					p.inputPrice !== undefined ||
 					p.outputPrice !== undefined ||
-					p.imageInputPrice !== undefined,
+					p.imageInputPrice !== undefined ||
+					p.perSecondPrice !== undefined,
 			);
 
 			const inputPrice =
@@ -195,14 +203,28 @@ modelsApi.openapi(listModels, async (c) => {
 					return {
 						providerId: provider.providerId,
 						modelName: provider.modelName,
+						supportedVideoSizes: provider.supportedVideoSizes,
+						supportsVideoAudio: provider.supportsVideoAudio,
+						supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,
 						pricing:
 							provider.inputPrice !== undefined ||
 							provider.outputPrice !== undefined ||
-							provider.imageInputPrice !== undefined
+							provider.imageInputPrice !== undefined ||
+							provider.perSecondPrice !== undefined
 								? {
 										prompt: provider.inputPrice?.toString() ?? "0",
 										completion: provider.outputPrice?.toString() ?? "0",
 										image: provider.imageInputPrice?.toString() ?? "0",
+										per_second: provider.perSecondPrice
+											? Object.fromEntries(
+													Object.entries(provider.perSecondPrice).map(
+														([resolution, price]) => [
+															resolution,
+															price.toString(),
+														],
+													),
+												)
+											: undefined,
 									}
 								: undefined,
 						streaming: provider.streaming,
@@ -218,6 +240,13 @@ modelsApi.openapi(listModels, async (c) => {
 					prompt: inputPrice,
 					completion: outputPrice,
 					image: imagePrice,
+					per_second: firstProviderWithPricing?.perSecondPrice
+						? Object.fromEntries(
+								Object.entries(firstProviderWithPricing.perSecondPrice).map(
+									([resolution, price]) => [resolution, price.toString()],
+								),
+							)
+						: undefined,
 					request: firstProviderWithPricing?.requestPrice?.toString() ?? "0",
 					input_cache_read:
 						firstProviderWithPricing?.cachedInputPrice?.toString() ?? "0",
@@ -229,6 +258,7 @@ modelsApi.openapi(listModels, async (c) => {
 				context_length:
 					Math.max(...model.providers.map((p) => p.contextSize ?? 0)) ??
 					undefined,
+				per_request_limits: getPerRequestLimits(model),
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
 				// Add model-level capabilities
@@ -266,6 +296,19 @@ modelsApi.openapi(listModels, async (c) => {
 		throw new HTTPException(500, { message: "Internal server error" });
 	}
 });
+
+function getPerRequestLimits(
+	model: ModelDefinition,
+): Record<string, string> | undefined {
+	const limits: Record<string, string> = {};
+
+	if (model.maxVideoDurationSeconds !== undefined) {
+		limits.max_video_duration_seconds =
+			model.maxVideoDurationSeconds.toString();
+	}
+
+	return Object.keys(limits).length > 0 ? limits : undefined;
+}
 
 // Helper function to determine supported parameters from model definitions
 // Falls back to common default parameters if not explicitly defined

@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "internal_content_filter" boolean;

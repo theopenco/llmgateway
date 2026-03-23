@@ -9,7 +9,10 @@ export default defineConfig({
 		environment: "node",
 		testTimeout: 60000, // Longer timeout for e2e tests
 		hookTimeout: 30000, // Timeout for hooks
-		setupFiles: ["./vitest/e2e-setup.ts"],
+		setupFiles: [
+			"./vitest/test-database-setup.ts",
+			"./vitest/e2e-setup.ts",
+		],
 		reporters: ["default"],
 		coverage: {
 			reporter: ["text", "json", "html"],
