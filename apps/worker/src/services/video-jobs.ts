@@ -15,7 +15,14 @@ import {
 	UnifiedFinishReason,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { models, type ProviderModelMapping } from "@llmgateway/models";
+import {
+	getProviderEnvConfig,
+	getProviderEnvValue,
+	getProviderEnvVar,
+	models,
+	type Provider,
+	type ProviderModelMapping,
+} from "@llmgateway/models";
 import {
 	buildGatewayVideoLogContentUrl,
 	getAvalancheApiBaseUrl,
@@ -51,14 +58,143 @@ const TERMINAL_VIDEO_STATUSES = new Set<string>(TERMINAL_VIDEO_STATUS_VALUES);
 
 type VideoJobRecord = InferSelectModel<typeof tables.videoJob>;
 type WebhookDeliveryRecord = InferSelectModel<typeof tables.webhookDeliveryLog>;
+interface ResolvedVideoProviderContext {
+	baseUrl: string;
+	token: string;
+}
 
-function getVideoProviderHeaders(job: VideoJobRecord): Record<string, string> {
+function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
+	switch (providerId) {
+		case "google-vertex":
+			return "https://us-central1-aiplatform.googleapis.com";
+		default:
+			return null;
+	}
+}
+
+async function findActiveProviderKey(
+	organizationId: string,
+	providerId: string,
+): Promise<InferSelectModel<typeof tables.providerKey> | undefined> {
+	const [providerKey] = await db
+		.select()
+		.from(tables.providerKey)
+		.where(
+			and(
+				eq(tables.providerKey.status, "active"),
+				eq(tables.providerKey.organizationId, organizationId),
+				eq(tables.providerKey.provider, providerId),
+			),
+		)
+		.limit(1);
+
+	return providerKey;
+}
+
+function resolveProviderEnvToken(
+	providerId: Provider,
+	configIndex: number | null,
+): string {
+	const envVarName = getProviderEnvVar(providerId);
+	if (!envVarName) {
+		throw new Error(`No environment variable set for provider: ${providerId}`);
+	}
+
+	const envValue = process.env[envVarName];
+	if (!envValue) {
+		throw new Error(
+			`No API key set in environment for provider: ${providerId}`,
+		);
+	}
+
+	const envConfig = getProviderEnvConfig(providerId);
+	if (envConfig?.required) {
+		for (const [key, requiredEnvVarName] of Object.entries(
+			envConfig.required,
+		)) {
+			if (key === "apiKey" || !requiredEnvVarName) {
+				continue;
+			}
+
+			if (!process.env[requiredEnvVarName]) {
+				throw new Error(
+					`${requiredEnvVarName} environment variable is required for ${providerId} provider`,
+				);
+			}
+		}
+	}
+
+	const values = envValue
+		.split(",")
+		.map((value) => value.trim())
+		.filter((value) => value.length > 0);
+
+	if (values.length === 0) {
+		throw new Error(`Environment variable ${envVarName} is empty`);
+	}
+
+	const resolvedIndex = configIndex ?? 0;
+	return resolvedIndex >= values.length
+		? values[values.length - 1]
+		: values[resolvedIndex];
+}
+
+async function resolveVideoProviderContext(
+	job: VideoJobRecord,
+): Promise<ResolvedVideoProviderContext> {
+	const providerId = job.usedProvider as Provider;
+	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+
+	if (job.usedMode === "api-keys") {
+		const providerKey = await findActiveProviderKey(
+			job.organizationId,
+			job.usedProvider,
+		);
+		if (!providerKey) {
+			throw new Error(`No API key set for provider: ${job.usedProvider}`);
+		}
+
+		const baseUrl =
+			providerKey.baseUrl ??
+			getProviderEnvValue(providerId, "baseUrl") ??
+			defaultBaseUrl;
+		if (!baseUrl) {
+			throw new Error(`No base URL set for provider: ${job.usedProvider}`);
+		}
+
+		return {
+			baseUrl,
+			token: providerKey.token,
+		};
+	}
+
+	const token = resolveProviderEnvToken(providerId, job.providerConfigIndex);
+	const baseUrl =
+		getProviderEnvValue(
+			providerId,
+			"baseUrl",
+			job.providerConfigIndex ?? undefined,
+		) ?? defaultBaseUrl;
+	if (!baseUrl) {
+		throw new Error(`No base URL set for provider: ${job.usedProvider}`);
+	}
+
+	return {
+		baseUrl,
+		token,
+	};
+}
+
+function getVideoProviderHeaders(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Record<string, string> {
 	if (job.usedProvider === "google-vertex") {
 		return {};
 	}
 
 	return {
-		Authorization: `Bearer ${job.providerToken}`,
+		Authorization: `Bearer ${providerContext.token}`,
 	};
 }
 
@@ -788,16 +924,17 @@ async function fetchJsonResponse(
 
 async function fetchAvalancheRecordInfo(
 	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
 	taskId: string,
 ): Promise<Record<string, unknown>> {
 	const url = new URL(
-		joinUrl(getAvalancheApiBaseUrl(job.providerBaseUrl), "/record-info"),
+		joinUrl(getAvalancheApiBaseUrl(providerContext.baseUrl), "/record-info"),
 	);
 	url.searchParams.set("taskId", taskId);
 
 	const { body, response } = await fetchJsonResponse(url.toString(), {
 		method: "GET",
-		headers: getVideoProviderHeaders(job),
+		headers: getVideoProviderHeaders(job, providerContext),
 	});
 
 	if (!response.ok) {
@@ -812,17 +949,21 @@ async function fetchAvalancheRecordInfo(
 
 async function fetchAvalanche1080pUpgrade(
 	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
 	baseResponse: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
 	const url = new URL(
-		joinUrl(getAvalancheApiBaseUrl(job.providerBaseUrl), "/get-1080p-video"),
+		joinUrl(
+			getAvalancheApiBaseUrl(providerContext.baseUrl),
+			"/get-1080p-video",
+		),
 	);
 	url.searchParams.set("taskId", job.upstreamId);
 	url.searchParams.set("index", "0");
 
 	const { body, response } = await fetchJsonResponse(url.toString(), {
 		method: "GET",
-		headers: getVideoProviderHeaders(job),
+		headers: getVideoProviderHeaders(job, providerContext),
 	});
 	const data = readAvalancheResponseData(body);
 	const resultUrl =
@@ -851,17 +992,18 @@ async function fetchAvalanche1080pUpgrade(
 
 async function fetchAvalanche4kUpgrade(
 	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
 	baseResponse: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
 	const url = joinUrl(
-		getAvalancheApiBaseUrl(job.providerBaseUrl),
+		getAvalancheApiBaseUrl(providerContext.baseUrl),
 		"/get-4k-video",
 	);
 	const { body, response } = await fetchJsonResponse(url, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			...getVideoProviderHeaders(job),
+			...getVideoProviderHeaders(job, providerContext),
 		},
 		body: JSON.stringify({
 			taskId: job.upstreamId,
@@ -913,8 +1055,13 @@ async function fetchAvalanche4kUpgrade(
 
 async function fetchAvalancheStatus(
 	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
 ): Promise<Record<string, unknown>> {
-	const recordInfo = await fetchAvalancheRecordInfo(job, job.upstreamId);
+	const recordInfo = await fetchAvalancheRecordInfo(
+		job,
+		providerContext,
+		job.upstreamId,
+	);
 	const normalizedRecordInfo = normalizeAvalancheRecordInfo(job, recordInfo);
 	const requestedResolution = getRequestedAvalancheResolution(job);
 	const resolvedResolution =
@@ -943,11 +1090,19 @@ async function fetchAvalancheStatus(
 	}
 
 	if (requestedResolution === "1080p") {
-		return await fetchAvalanche1080pUpgrade(job, normalizedRecordInfo);
+		return await fetchAvalanche1080pUpgrade(
+			job,
+			providerContext,
+			normalizedRecordInfo,
+		);
 	}
 
 	if (requestedResolution === "4k") {
-		return await fetchAvalanche4kUpgrade(job, normalizedRecordInfo);
+		return await fetchAvalanche4kUpgrade(
+			job,
+			providerContext,
+			normalizedRecordInfo,
+		);
 	}
 
 	return normalizedRecordInfo;
@@ -1044,6 +1199,7 @@ function normalizeGoogleVertexOperation(
 
 async function fetchGoogleVertexStatus(
 	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
 ): Promise<Record<string, unknown>> {
 	const operationMetadata = getGoogleVertexOperationMetadata(job);
 	if (!operationMetadata) {
@@ -1051,15 +1207,15 @@ async function fetchGoogleVertexStatus(
 	}
 
 	const url = joinUrl(
-		job.providerBaseUrl,
+		providerContext.baseUrl,
 		`/v1/projects/${operationMetadata.projectId}/locations/${operationMetadata.region}/publishers/google/models/${operationMetadata.modelName}:fetchPredictOperation`,
 	);
-	const authenticatedUrl = appendQueryParam(url, "key", job.providerToken);
+	const authenticatedUrl = appendQueryParam(url, "key", providerContext.token);
 	const { body, response } = await fetchJsonResponse(authenticatedUrl, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			...getVideoProviderHeaders(job),
+			...getVideoProviderHeaders(job, providerContext),
 		},
 		body: JSON.stringify({
 			operationName: job.upstreamId,
@@ -1392,18 +1548,20 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 async function fetchUpstreamStatus(
 	job: VideoJobRecord,
 ): Promise<Record<string, unknown>> {
+	const providerContext = await resolveVideoProviderContext(job);
+
 	if (job.usedProvider === "avalanche") {
-		return await fetchAvalancheStatus(job);
+		return await fetchAvalancheStatus(job, providerContext);
 	}
 
 	if (job.usedProvider === "google-vertex") {
-		return await fetchGoogleVertexStatus(job);
+		return await fetchGoogleVertexStatus(job, providerContext);
 	}
 
-	const url = joinUrl(job.providerBaseUrl, `/v1/videos/${job.upstreamId}`);
+	const url = joinUrl(providerContext.baseUrl, `/v1/videos/${job.upstreamId}`);
 	const { body, response } = await fetchJsonResponse(url, {
 		method: "GET",
-		headers: getVideoProviderHeaders(job),
+		headers: getVideoProviderHeaders(job, providerContext),
 	});
 
 	if (!response.ok) {
@@ -1430,14 +1588,15 @@ async function fetchUpstreamContentMetadata(
 		return null;
 	}
 
+	const providerContext = await resolveVideoProviderContext(job);
 	const url = joinUrl(
-		job.providerBaseUrl,
+		providerContext.baseUrl,
 		`/v1/videos/${job.upstreamId}/content`,
 	);
 	const response = await fetch(url, {
 		method: "GET",
 		headers: {
-			Authorization: `Bearer ${job.providerToken}`,
+			Authorization: `Bearer ${providerContext.token}`,
 			Accept: "application/json",
 		},
 		redirect: "manual",

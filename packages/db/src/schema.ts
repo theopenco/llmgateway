@@ -631,8 +631,7 @@ export const videoJob = pgTable(
 		requestedProvider: text(),
 		usedProvider: text().notNull(),
 		usedModel: text().notNull(),
-		providerToken: text().notNull(),
-		providerBaseUrl: text().notNull(),
+		providerConfigIndex: integer(),
 		upstreamId: text().notNull(),
 		prompt: text().notNull(),
 		status: text({

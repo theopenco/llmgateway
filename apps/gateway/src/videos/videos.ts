@@ -441,6 +441,7 @@ interface ProviderContext {
 	baseUrl: string;
 	token: string;
 	usedMode: "api-keys" | "credits";
+	configIndex: number | null;
 	vertexProjectId?: string;
 	vertexRegion?: string;
 	uploadBaseUrl?: string;
@@ -969,6 +970,7 @@ async function resolveProviderContext(
 			baseUrl,
 			token: providerKey.token,
 			usedMode: "api-keys",
+			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			uploadBaseUrl:
@@ -1015,6 +1017,7 @@ async function resolveProviderContext(
 			baseUrl,
 			token: env.token,
 			usedMode: "credits",
+			configIndex: env.configIndex,
 			vertexProjectId,
 			vertexRegion,
 			uploadBaseUrl:
@@ -1052,6 +1055,7 @@ async function resolveProviderContext(
 			baseUrl,
 			token: providerKey.token,
 			usedMode: "api-keys",
+			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			uploadBaseUrl:
@@ -1103,6 +1107,7 @@ async function resolveProviderContext(
 		baseUrl,
 		token: env.token,
 		usedMode: "credits",
+		configIndex: env.configIndex,
 		vertexProjectId,
 		vertexRegion,
 		uploadBaseUrl:
@@ -2877,8 +2882,7 @@ videos.openapi(createVideo, async (c) => {
 			requestedProvider: requestedProvider ?? null,
 			usedProvider: selectedProviderContext.providerId,
 			usedModel: selectedUpstreamModelName,
-			providerToken: selectedProviderContext.token,
-			providerBaseUrl: selectedProviderContext.baseUrl,
+			providerConfigIndex: selectedProviderContext.configIndex,
 			upstreamId,
 			prompt: request.prompt,
 			status: initialStatus,

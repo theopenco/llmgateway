@@ -2088,9 +2088,15 @@ describe("videos", () => {
 		const created = await createRes.json();
 
 		await db
+			.update(tables.providerKey)
+			.set({
+				baseUrl: "http://127.0.0.1:1",
+			})
+			.where(eq(tables.providerKey.organizationId, "org-id"));
+
+		await db
 			.update(tables.videoJob)
 			.set({
-				providerBaseUrl: "http://127.0.0.1:1",
 				nextPollAt: new Date(),
 			})
 			.where(eq(tables.videoJob.id, created.id));
