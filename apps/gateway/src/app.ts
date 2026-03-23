@@ -25,6 +25,7 @@ import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { responses } from "./responses/responses.js";
+import { videosRoute } from "./videos/route.js";
 
 import type { ServerTypes } from "./vars.js";
 
@@ -314,6 +315,7 @@ v1.route("/images", imagesRoute);
 v1.route("/models", models);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);
+v1.route("/videos", videosRoute);
 
 app.route("/v1", v1);
 

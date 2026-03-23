@@ -84,6 +84,10 @@ function toUiLog(log: ApiLog): Partial<Log> {
 		...log,
 		createdAt: new Date(log.createdAt),
 		updatedAt: new Date(log.updatedAt),
+		lastVideoDownloadedAt: log.lastVideoDownloadedAt
+			? new Date(log.lastVideoDownloadedAt)
+			: null,
+		videoDownloadCount: log.videoDownloadCount ?? undefined,
 		toolChoice: log.toolChoice as any,
 		customHeaders: log.customHeaders as any,
 	};

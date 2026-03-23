@@ -775,7 +775,7 @@ chat.openapi(completions, async (c) => {
 		modelInfo,
 	);
 	if (!iamValidation.allowed) {
-		throwIamException(iamValidation.reason!);
+		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
 	// IAM allowed providers - used to filter available providers during routing
 	const iamAllowedProviders = iamValidation.allowedProviders;
@@ -1002,7 +1002,7 @@ chat.openapi(completions, async (c) => {
 				// Find the cheapest among the suitable providers for this model
 				for (const provider of suitableProviders) {
 					const totalPrice =
-						((provider.inputPrice || 0) + (provider.outputPrice || 0)) / 2;
+						((provider.inputPrice ?? 0) + (provider.outputPrice ?? 0)) / 2;
 
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
@@ -1089,11 +1089,12 @@ chat.openapi(completions, async (c) => {
 			modelInfo,
 		);
 		if (!resolvedIamValidation.allowed) {
-			throwIamException(resolvedIamValidation.reason!);
+			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
 		}
-		iamFilteredModelProviders = resolvedIamValidation.allowedProviders
+		const allowedProviders = resolvedIamValidation.allowedProviders;
+		iamFilteredModelProviders = allowedProviders
 			? modelInfo.providers.filter((p) =>
-					resolvedIamValidation.allowedProviders!.includes(p.providerId),
+					allowedProviders.includes(p.providerId),
 				)
 			: modelInfo.providers;
 	} else if (

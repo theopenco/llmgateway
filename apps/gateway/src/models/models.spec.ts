@@ -192,6 +192,64 @@ describe("Models API", () => {
 		]);
 	});
 
+	test("GET /v1/models should include proper output modalities for Veo 3.1 preview models", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+
+		for (const modelId of [
+			"veo-3.1-generate-preview",
+			"veo-3.1-fast-generate-preview",
+		]) {
+			const videoModel = json.data.find((model: any) => model.id === modelId);
+
+			expect(videoModel).toBeDefined();
+			expect(videoModel.architecture.input_modalities).toEqual(["text"]);
+			expect(videoModel.architecture.output_modalities).toEqual(["video"]);
+			expect(videoModel.pricing.per_second).toBeDefined();
+			expect(videoModel.per_request_limits).toEqual({
+				max_video_duration_seconds: "10",
+			});
+			const obsidianProvider = videoModel.providers.find(
+				(provider: any) => provider.providerId === "obsidian",
+			);
+			const avalancheProvider = videoModel.providers.find(
+				(provider: any) => provider.providerId === "avalanche",
+			);
+			const googleVertexProvider = videoModel.providers.find(
+				(provider: any) => provider.providerId === "google-vertex",
+			);
+			expect(obsidianProvider?.pricing.per_second).toBeDefined();
+			expect(obsidianProvider?.supportedVideoSizes).toEqual([
+				"1280x720",
+				"720x1280",
+			]);
+			expect(obsidianProvider?.supportsVideoAudio).toBe(true);
+			expect(obsidianProvider?.supportsVideoWithoutAudio).toBe(false);
+			expect(googleVertexProvider?.pricing.per_second).toBeDefined();
+			expect(googleVertexProvider?.supportedVideoSizes).toEqual([
+				"1280x720",
+				"720x1280",
+				"1920x1080",
+				"1080x1920",
+				"3840x2160",
+				"2160x3840",
+			]);
+			expect(googleVertexProvider?.supportsVideoAudio).toBe(true);
+			expect(googleVertexProvider?.supportsVideoWithoutAudio).toBe(true);
+			expect(avalancheProvider?.pricing.per_second).toBeDefined();
+			expect(avalancheProvider?.supportedVideoSizes).toEqual([
+				"1920x1080",
+				"1080x1920",
+				"3840x2160",
+				"2160x3840",
+			]);
+			expect(avalancheProvider?.supportsVideoAudio).toBe(true);
+			expect(avalancheProvider?.supportsVideoWithoutAudio).toBe(false);
+		}
+	});
+
 	test("GET /v1/models should include stability information for models", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);

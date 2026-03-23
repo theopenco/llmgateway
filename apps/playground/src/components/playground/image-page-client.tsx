@@ -73,7 +73,6 @@ export default function ImagePageClient({
 	const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
-	const [recentPrompts, setRecentPrompts] = useState<string[]>([]);
 
 	// Image config state
 	const [imageAspectRatio, setImageAspectRatio] = useState<AspectRatio>("auto");
@@ -209,15 +208,6 @@ export default function ImagePageClient({
 			const currentPrompt = effectivePrompt.trim();
 			setIsGenerating(true);
 
-			// Add to recent prompts
-			setRecentPrompts((prev) => {
-				const updated = [
-					currentPrompt,
-					...prev.filter((p) => p !== currentPrompt),
-				];
-				return updated.slice(0, 20);
-			});
-
 			const itemId = crypto.randomUUID();
 
 			// Create placeholder gallery item
@@ -225,6 +215,13 @@ export default function ImagePageClient({
 				id: itemId,
 				prompt: currentPrompt,
 				timestamp: Date.now(),
+				inputImages:
+					inputImages.length > 0
+						? inputImages.map((img) => ({
+								dataUrl: img.dataUrl,
+								mediaType: img.mediaType,
+							}))
+						: undefined,
 				models: selectedModels.map((modelId) => ({
 					modelId,
 					modelName: getModelName(modelId),
@@ -424,6 +421,21 @@ export default function ImagePageClient({
 		[generateImages],
 	);
 
+	const handleNewChat = useCallback(() => {
+		setGalleryItems([]);
+		setPrompt("");
+		setInputImages([]);
+		setIsGenerating(false);
+		pendingRef.current = 0;
+	}, []);
+
+	const handleItemClick = useCallback((itemId: string) => {
+		const element = document.getElementById(`gallery-${itemId}`);
+		if (element) {
+			element.scrollIntoView({ behavior: "smooth", block: "start" });
+		}
+	}, []);
+
 	// Low credits check
 	const isLowCredits = selectedOrganization
 		? Number(selectedOrganization.credits) < 1
@@ -433,8 +445,9 @@ export default function ImagePageClient({
 		<SidebarProvider>
 			<div className="flex h-dvh w-full">
 				<ImageSidebar
-					recentPrompts={recentPrompts}
-					onPromptClick={handleSuggestionClick}
+					galleryItems={galleryItems}
+					onNewChat={handleNewChat}
+					onItemClick={handleItemClick}
 					selectedOrganization={selectedOrganization}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">

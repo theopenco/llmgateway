@@ -37,6 +37,10 @@ export interface ApiModelProviderMapping {
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;
+	supportedVideoSizes: string[] | null;
+	supportedVideoDurationsSeconds: number[] | null;
+	supportsVideoAudio: boolean | null;
+	supportsVideoWithoutAudio: boolean | null;
 	deprecatedAt: string | null;
 	deactivatedAt: string | null;
 	status: "active" | "inactive";

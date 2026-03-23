@@ -193,6 +193,10 @@ export function LogDetailClient({
 		...data.log,
 		createdAt: new Date(data.log.createdAt),
 		updatedAt: new Date(data.log.updatedAt),
+		lastVideoDownloadedAt: data.log.lastVideoDownloadedAt
+			? new Date(data.log.lastVideoDownloadedAt)
+			: null,
+		videoDownloadCount: data.log.videoDownloadCount ?? 0,
 	} as Log;
 
 	const retentionEnabled =
@@ -543,6 +547,14 @@ export function LogDetailClient({
 												<Field
 													label="Image Output Cost"
 													value={`$${Number(log.imageOutputCost).toFixed(8)}`}
+													muted
+												/>
+											)}
+										{!!log.videoOutputCost &&
+											Number(log.videoOutputCost) > 0 && (
+												<Field
+													label="Video Output Cost"
+													value={`$${Number(log.videoOutputCost).toFixed(8)}`}
 													muted
 												/>
 											)}

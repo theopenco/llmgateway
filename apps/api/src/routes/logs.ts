@@ -13,6 +13,7 @@ import {
 	errorDetails,
 	gt,
 	gte,
+	type InferSelectModel,
 	inArray,
 	lt,
 	lte,
@@ -23,10 +24,24 @@ import {
 	toolResults,
 	tools,
 } from "@llmgateway/db";
+import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const logs = new OpenAPIHono<ServerTypes>();
+
+type LogRecord = InferSelectModel<typeof tables.log>;
+
+async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
+	logEntries: T[],
+): Promise<T[]> {
+	return logEntries.map((log) =>
+		log.usedModel.includes("veo-3.1") &&
+		(log.content !== null || (log.videoOutputCost ?? 0) > 0)
+			? { ...log, content: buildSignedGatewayVideoLogContentUrl(log.id) }
+			: log,
+	);
+}
 
 // Use the log schema directly from the database
 // Using z.object directly instead of createSelectSchema due to compatibility issues
@@ -70,10 +85,15 @@ const logSchema = z.object({
 	inputCost: z.number().nullable(),
 	outputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
+	cachedInputCost: z.number().nullable().optional(),
+	webSearchCost: z.number().nullable().optional(),
 	imageInputTokens: z.string().nullable(),
 	imageOutputTokens: z.string().nullable(),
 	imageInputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
+	videoOutputCost: z.number().nullable(),
+	videoDownloadCount: z.number().nullable(),
+	lastVideoDownloadedAt: z.date().nullable(),
 	estimatedCost: z.boolean().nullable(),
 	canceled: z.boolean().nullable(),
 	streamed: z.boolean().nullable(),
@@ -140,6 +160,35 @@ const getById = createRoute({
 	},
 });
 
+logs.openapi(getById, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const log = await db.query.log.findFirst({
+		where: { id },
+	});
+
+	if (!log) {
+		throw new HTTPException(404, { message: "Log not found" });
+	}
+
+	// Verify user has access to this log's organization
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
+
+	if (!organizationIds.includes(log.organizationId)) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this log",
+		});
+	}
+
+	const [enrichedLog] = await enrichLogsWithVideoContentUrls([log]);
+	return c.json({ log: enrichedLog });
+});
 const querySchema = z.object({
 	apiKeyId: z.string().optional().openapi({
 		description: "Filter logs by API key ID",
@@ -551,7 +600,7 @@ logs.openapi(get, async (c) => {
 	}
 
 	return c.json({
-		logs: paginatedLogs,
+		logs: await enrichLogsWithVideoContentUrls(paginatedLogs),
 		pagination: {
 			nextCursor,
 			hasMore,
