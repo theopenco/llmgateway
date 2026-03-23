@@ -140,35 +140,6 @@ const getById = createRoute({
 	},
 });
 
-logs.openapi(getById, async (c) => {
-	const user = c.get("user");
-
-	if (!user) {
-		throw new HTTPException(401, { message: "Unauthorized" });
-	}
-
-	const { id } = c.req.valid("param");
-
-	const log = await db.query.log.findFirst({
-		where: { id },
-	});
-
-	if (!log) {
-		throw new HTTPException(404, { message: "Log not found" });
-	}
-
-	// Verify user has access to this log's organization
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
-
-	if (!organizationIds.includes(log.organizationId)) {
-		throw new HTTPException(403, {
-			message: "You don't have access to this log",
-		});
-	}
-
-	return c.json({ log });
-});
-
 const querySchema = z.object({
 	apiKeyId: z.string().optional().openapi({
 		description: "Filter logs by API key ID",
@@ -695,43 +666,75 @@ logs.openapi(uniqueModelsGet, async (c) => {
 		whereConditions.push(inArray(tables.log.projectId, projectIds));
 	}
 
-	// Execute query to get distinct usedModel values
 	const finalWhereClause =
 		whereConditions.length > 0 ? and(...whereConditions) : undefined;
 
-	const uniqueUsedModels = await db
-		.selectDistinct({ usedModel: tables.log.usedModel })
-		.from(tables.log)
-		.where(finalWhereClause!);
+	const [uniqueUsedModels, uniqueUsedProviders] = await Promise.all([
+		db
+			.selectDistinct({ usedModel: tables.log.usedModel })
+			.from(tables.log)
+			.where(finalWhereClause!),
+		db
+			.selectDistinct({ usedProvider: tables.log.usedProvider })
+			.from(tables.log)
+			.where(finalWhereClause!),
+	]);
 
-	// Extract model names and provider names from usedModel field
-	const modelNames: string[] = [];
-	const providerNames: string[] = [];
+	const modelNames = new Set<string>();
+	const providerNames = new Set<string>();
+
+	for (const row of uniqueUsedProviders) {
+		if (row.usedProvider) {
+			providerNames.add(row.usedProvider);
+		}
+	}
 
 	for (const row of uniqueUsedModels) {
 		const usedModel = row.usedModel;
 		if (!usedModel) {
 			continue;
 		}
+
 		const slashIndex = usedModel.indexOf("/");
 		if (slashIndex !== -1) {
-			const provider = usedModel.substring(0, slashIndex);
-			const model = usedModel.substring(slashIndex + 1);
-			if (!providerNames.includes(provider)) {
-				providerNames.push(provider);
-			}
-			if (!modelNames.includes(model)) {
-				modelNames.push(model);
-			}
+			providerNames.add(usedModel.substring(0, slashIndex));
+			modelNames.add(usedModel.substring(slashIndex + 1));
 		} else {
-			if (!modelNames.includes(usedModel)) {
-				modelNames.push(usedModel);
-			}
+			modelNames.add(usedModel);
 		}
 	}
 
 	return c.json({
-		models: modelNames.sort(),
-		providers: providerNames.sort(),
+		models: Array.from(modelNames).sort(),
+		providers: Array.from(providerNames).sort(),
 	});
+});
+
+logs.openapi(getById, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const log = await db.query.log.findFirst({
+		where: { id },
+	});
+
+	if (!log) {
+		throw new HTTPException(404, { message: "Log not found" });
+	}
+
+	// Verify user has access to this log's organization
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
+
+	if (!organizationIds.includes(log.organizationId)) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this log",
+		});
+	}
+
+	return c.json({ log });
 });

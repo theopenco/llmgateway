@@ -1,7 +1,15 @@
 "use client";
 
+import { Check, ChevronsUpDown } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useDeferredValue,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { LogCard } from "@/components/dashboard/log-card";
 import {
@@ -9,7 +17,19 @@ import {
 	DateRangeSelect,
 } from "@/components/date-range-select";
 import { Button } from "@/lib/components/button";
+import {
+	Command,
+	CommandEmpty,
+	CommandInput,
+	CommandItem,
+	CommandList,
+} from "@/lib/components/command";
 import { Input } from "@/lib/components/input";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/lib/components/popover";
 import {
 	Select,
 	SelectContent,
@@ -18,6 +38,7 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
+import { cn } from "@/lib/utils";
 
 import type { paths } from "@/lib/api/v1";
 import type { Log } from "@llmgateway/db";
@@ -36,14 +57,24 @@ const UnifiedFinishReason = {
 type ApiLog =
 	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
 
+interface ProviderOption {
+	id: string;
+	label: string;
+}
+
+interface ModelOption {
+	id: string;
+	label: string;
+	aliases: string[];
+	providerIds: string[];
+}
+
 interface RecentLogsProps {
 	initialData?:
 		| paths["/logs"]["get"]["responses"][200]["content"]["application/json"]
 		| undefined;
-	initialUniqueModels?: {
-		models: string[];
-		providers: string[];
-	};
+	providerOptions: ProviderOption[];
+	modelOptions: ModelOption[];
 	projectId: string | null;
 	orgId?: string | null;
 }
@@ -60,12 +91,15 @@ function toUiLog(log: ApiLog): Partial<Log> {
 
 export function RecentLogs({
 	initialData,
-	initialUniqueModels,
+	providerOptions,
+	modelOptions,
 	projectId,
 	orgId,
 }: RecentLogsProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
+	const [modelPickerOpen, setModelPickerOpen] = useState(false);
+	const [modelSearch, setModelSearch] = useState("");
 
 	// Initialize state from URL parameters
 	const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -86,6 +120,7 @@ export function RecentLogs({
 	);
 
 	const api = useApi();
+	const deferredModelSearch = useDeferredValue(modelSearch);
 
 	const scrollPositionRef = useRef<number>(0);
 	const isFilteringRef = useRef<boolean>(false);
@@ -227,30 +262,35 @@ export function RecentLogs({
 	// Flatten all pages into a single array of logs
 	const allLogs = data?.pages.flatMap((page) => page?.logs ?? []) ?? [];
 
-	// Build unique models/providers from SSR data + loaded logs
-	const uniqueModels = useMemo(() => {
-		const providerSet = new Set<string>(initialUniqueModels?.providers ?? []);
-		const modelSet = new Set<string>(initialUniqueModels?.models ?? []);
+	const selectedModelOption = useMemo(
+		() => modelOptions.find((option) => option.id === model),
+		[model, modelOptions],
+	);
 
-		for (const log of allLogs) {
-			if (log.usedProvider) {
-				providerSet.add(log.usedProvider);
-			}
-			if (log.usedModel) {
-				const slashIndex = log.usedModel.indexOf("/");
-				modelSet.add(
-					slashIndex !== -1
-						? log.usedModel.substring(slashIndex + 1)
-						: log.usedModel,
-				);
-			}
-		}
+	const filteredModelOptions = useMemo(() => {
+		const normalizedSearch = deferredModelSearch
+			.trim()
+			.toLowerCase()
+			.replace(/[\s/_-]/g, "");
 
-		return {
-			providers: Array.from(providerSet).sort(),
-			models: Array.from(modelSet).sort(),
-		};
-	}, [allLogs, initialUniqueModels]);
+		return modelOptions.filter((option) => {
+			if (provider && !option.providerIds.includes(provider)) {
+				return false;
+			}
+
+			if (!normalizedSearch) {
+				return true;
+			}
+
+			const searchFields = [option.id, option.label, ...option.aliases];
+			return searchFields.some((field) =>
+				field
+					.toLowerCase()
+					.replace(/[\s/_-]/g, "")
+					.includes(normalizedSearch),
+			);
+		});
+	}, [deferredModelSearch, modelOptions, provider]);
 
 	const handleDateRangeChange = (_value: string, range: DateRange) => {
 		setDateRange(range);
@@ -260,6 +300,33 @@ export function RecentLogs({
 			endDate: range.end?.toISOString(),
 		});
 	};
+
+	const handleProviderChange = useCallback(
+		(value: string) => {
+			isFilteringRef.current = true;
+			scrollPositionRef.current = window.scrollY;
+
+			const nextProvider = value === "all" ? undefined : value;
+			const shouldClearModel =
+				model !== undefined &&
+				nextProvider !== undefined &&
+				!modelOptions.some(
+					(option) =>
+						option.id === model && option.providerIds.includes(nextProvider),
+				);
+
+			setProvider(nextProvider);
+			if (shouldClearModel) {
+				setModel(undefined);
+			}
+
+			updateUrlWithFilters({
+				provider: nextProvider,
+				model: shouldClearModel ? undefined : model,
+			});
+		},
+		[model, modelOptions, updateUrlWithFilters],
+	);
 
 	if (!projectId) {
 		return (
@@ -300,39 +367,89 @@ export function RecentLogs({
 					</SelectContent>
 				</Select>
 
-				<Select
-					onValueChange={handleFilterChange("provider", setProvider)}
-					value={provider ?? "all"}
-				>
+				<Select onValueChange={handleProviderChange} value={provider ?? "all"}>
 					<SelectTrigger className="w-[160px]">
 						<SelectValue placeholder="Filter by provider" />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All providers</SelectItem>
-						{(uniqueModels?.providers ?? []).map((p) => (
-							<SelectItem key={p} value={p}>
-								{p}
+						{providerOptions.map((option) => (
+							<SelectItem key={option.id} value={option.id}>
+								{option.label}
 							</SelectItem>
 						))}
 					</SelectContent>
 				</Select>
 
-				<Select
-					onValueChange={handleFilterChange("model", setModel)}
-					value={model ?? "all"}
-				>
-					<SelectTrigger className="w-[200px]">
-						<SelectValue placeholder="Filter by model" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">All models</SelectItem>
-						{(uniqueModels?.models ?? []).map((m) => (
-							<SelectItem key={m} value={m}>
-								{m}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+				<Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
+					<PopoverTrigger asChild>
+						<Button
+							variant="outline"
+							role="combobox"
+							aria-expanded={modelPickerOpen}
+							className="w-[260px] justify-between"
+						>
+							<span className="truncate">
+								{selectedModelOption?.label ?? model ?? "Filter by model"}
+							</span>
+							<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent className="w-[320px] p-0" align="start">
+						<Command shouldFilter={false}>
+							<CommandInput
+								placeholder="Search models..."
+								value={modelSearch}
+								onValueChange={setModelSearch}
+							/>
+							<CommandList>
+								<CommandEmpty>No models found.</CommandEmpty>
+								<CommandItem
+									value="all"
+									onSelect={() => {
+										handleFilterChange("model", setModel)("all");
+										setModelPickerOpen(false);
+										setModelSearch("");
+									}}
+								>
+									<Check
+										className={cn(
+											"h-4 w-4",
+											!model ? "opacity-100" : "opacity-0",
+										)}
+									/>
+									All models
+								</CommandItem>
+								{filteredModelOptions.map((option) => (
+									<CommandItem
+										key={option.id}
+										value={`${option.id} ${option.label} ${option.aliases.join(" ")}`}
+										onSelect={() => {
+											handleFilterChange("model", setModel)(option.id);
+											setModelPickerOpen(false);
+											setModelSearch("");
+										}}
+									>
+										<Check
+											className={cn(
+												"h-4 w-4",
+												model === option.id ? "opacity-100" : "opacity-0",
+											)}
+										/>
+										<div className="flex min-w-0 flex-col">
+											<span className="truncate">{option.label}</span>
+											{option.label !== option.id ? (
+												<span className="truncate text-xs text-muted-foreground">
+													{option.id}
+												</span>
+											) : null}
+										</div>
+									</CommandItem>
+								))}
+							</CommandList>
+						</Command>
+					</PopoverContent>
+				</Popover>
 
 				<Input
 					placeholder="Custom header key (e.g., uid)"

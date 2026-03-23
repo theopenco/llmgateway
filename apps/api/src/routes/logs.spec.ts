@@ -241,6 +241,62 @@ describe("logs route", () => {
 		});
 	});
 
+	describe("unique models route", () => {
+		test("should return providers from usedProvider and models from usedModel", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs/unique-models?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.models).toEqual(["gpt-4"]);
+			expect(json.providers).toEqual(["openai"]);
+		});
+
+		test("should scope unique models and providers to the selected project", async () => {
+			await db.insert(tables.log).values({
+				id: "test-log-id-3",
+				requestId: "test-log-id-3",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 150,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "openai/gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 1500,
+				content: "Test response content 3",
+				finishReason: "stop",
+				promptTokens: "15",
+				completionTokens: "25",
+				totalTokens: "40",
+				temperature: 0.6,
+				maxTokens: 150,
+				messages: JSON.stringify([{ role: "user", content: "Hello 3" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			});
+
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs/unique-models?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.models).toEqual(["gpt-4", "gpt-4o-mini"]);
+			expect(json.providers).toEqual(["openai"]);
+		});
+	});
+
 	// Tests for pagination functionality
 	describe("pagination functionality", () => {
 		beforeEach(async () => {

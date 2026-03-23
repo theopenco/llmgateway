@@ -1,36 +1,9 @@
 import { RecentLogs } from "@/components/activity/recent-logs";
 import { Card, CardContent } from "@/lib/components/card";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { LogsData } from "@/types/activity";
-
-function extractUniqueModelsFromLogs(logs: LogsData["logs"] | undefined) {
-	if (!logs?.length) {
-		return { models: [] as string[], providers: [] as string[] };
-	}
-
-	const providerSet = new Set<string>();
-	const modelSet = new Set<string>();
-
-	for (const log of logs) {
-		if (log.usedProvider) {
-			providerSet.add(log.usedProvider);
-		}
-		if (log.usedModel) {
-			const slashIndex = log.usedModel.indexOf("/");
-			modelSet.add(
-				slashIndex !== -1
-					? log.usedModel.substring(slashIndex + 1)
-					: log.usedModel,
-			);
-		}
-	}
-
-	return {
-		models: Array.from(modelSet).sort(),
-		providers: Array.from(providerSet).sort(),
-	};
-}
 
 export default async function ActivityPage({
 	params,
@@ -88,26 +61,33 @@ export default async function ActivityPage({
 		logsQueryParams.limit = searchParamsData.limit;
 	}
 
-	// Fetch a larger batch for extracting unique models/providers, and the filtered page
-	const [initialLogsData, allRecentLogs] = await Promise.all([
+	const [initialLogsData, providers, models] = await Promise.all([
 		fetchServerData<LogsData>("GET", "/logs", {
 			params: {
 				query: logsQueryParams,
 			},
 		}),
-		// Fetch unfiltered logs to populate model/provider dropdowns
-		fetchServerData<LogsData>("GET", "/logs", {
-			params: {
-				query: {
-					orderBy: "createdAt_desc",
-					projectId,
-					limit: "100",
-				},
-			},
-		}),
+		fetchProviders(),
+		fetchModels(),
 	]);
 
-	const initialUniqueModels = extractUniqueModelsFromLogs(allRecentLogs?.logs);
+	const providerOptions = providers
+		.map((provider) => ({
+			id: provider.id,
+			label: provider.name ?? provider.id,
+		}))
+		.toSorted((a, b) => a.label.localeCompare(b.label));
+
+	const modelOptions = models
+		.map((model) => ({
+			id: model.id,
+			label: model.name ?? model.id,
+			aliases: model.aliases ?? [],
+			providerIds: Array.from(
+				new Set(model.mappings.map((mapping) => mapping.providerId)),
+			).toSorted(),
+		}))
+		.toSorted((a, b) => a.label.localeCompare(b.label));
 
 	return (
 		<div className="flex flex-col">
@@ -119,7 +99,8 @@ export default async function ActivityPage({
 						<CardContent>
 							<RecentLogs
 								initialData={initialLogsData ?? undefined}
-								initialUniqueModels={initialUniqueModels}
+								providerOptions={providerOptions}
+								modelOptions={modelOptions}
 								projectId={projectId}
 								orgId={orgId}
 							/>
