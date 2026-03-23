@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "73dfac74-f475-4b0f-8fd4-413a10cbe96d",
+  "id": "da2c104b-bd04-42d0-86b9-cf13f9f473a4",
   "prevId": "5bef2472-2656-44b8-a6ff-f5f3546f4b10",
   "ddl": [
     {
@@ -9498,27 +9498,14 @@
       "table": "video_job"
     },
     {
-      "type": "text",
+      "type": "integer",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "provider_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "video_job"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "provider_base_url",
+      "name": "provider_config_index",
       "entityType": "columns",
       "schema": "public",
       "table": "video_job"
