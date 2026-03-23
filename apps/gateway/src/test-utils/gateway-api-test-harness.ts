@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 
 import { and, db, eq, pool, tables } from "@llmgateway/db";
+import { getProviderDefinition, models } from "@llmgateway/models";
 import { verifyVideoContentAccessToken } from "@llmgateway/shared/video-access";
 
 import {
@@ -67,6 +68,57 @@ async function seedGatewayTestData() {
 		organizationId: TEST_ORGANIZATION_ID,
 		mode: "api-keys",
 	});
+}
+
+async function ensureRoutingMetricMapping(modelId: string, providerId: string) {
+	const modelDefinition = models.find((model) => model.id === modelId);
+	const providerMapping = modelDefinition?.providers.find(
+		(mapping) => mapping.providerId === providerId,
+	);
+
+	if (!modelDefinition || !providerMapping) {
+		return;
+	}
+
+	const providerDefinition = getProviderDefinition(providerId);
+
+	await db
+		.insert(tables.provider)
+		.values({
+			id: providerId,
+			name: providerDefinition?.name ?? providerId,
+			description:
+				providerDefinition?.description ?? `Test provider ${providerId}`,
+			streaming: providerDefinition?.streaming ?? null,
+			cancellation: providerDefinition?.cancellation ?? null,
+			color: providerDefinition?.color ?? null,
+			website: providerDefinition?.website ?? null,
+			announcement: providerDefinition?.announcement ?? null,
+			status: "active",
+		})
+		.onConflictDoNothing();
+
+	await db
+		.insert(tables.model)
+		.values({
+			id: modelId,
+			name: modelDefinition.name,
+			description: modelDefinition.description,
+			family: modelDefinition.family,
+			status: "active",
+		})
+		.onConflictDoNothing();
+
+	await db
+		.insert(tables.modelProviderMapping)
+		.values({
+			id: `${modelId}::${providerId}`,
+			modelId,
+			providerId,
+			modelName: providerMapping.modelName,
+			status: "active",
+		})
+		.onConflictDoNothing();
 }
 
 export function createGatewayApiTestHarness(
@@ -136,6 +188,8 @@ export function createGatewayApiTestHarness(
 				totalRequests?: number;
 			},
 		) {
+			await ensureRoutingMetricMapping(modelId, providerId);
+
 			await db
 				.update(tables.modelProviderMapping)
 				.set({

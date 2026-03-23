@@ -160,35 +160,6 @@ const getById = createRoute({
 	},
 });
 
-logs.openapi(getById, async (c) => {
-	const user = c.get("user");
-
-	if (!user) {
-		throw new HTTPException(401, { message: "Unauthorized" });
-	}
-
-	const { id } = c.req.valid("param");
-
-	const log = await db.query.log.findFirst({
-		where: { id },
-	});
-
-	if (!log) {
-		throw new HTTPException(404, { message: "Log not found" });
-	}
-
-	// Verify user has access to this log's organization
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
-
-	if (!organizationIds.includes(log.organizationId)) {
-		throw new HTTPException(403, {
-			message: "You don't have access to this log",
-		});
-	}
-
-	const [enrichedLog] = await enrichLogsWithVideoContentUrls([log]);
-	return c.json({ log: enrichedLog });
-});
 const querySchema = z.object({
 	apiKeyId: z.string().optional().openapi({
 		description: "Filter logs by API key ID",
