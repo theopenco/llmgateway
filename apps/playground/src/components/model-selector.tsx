@@ -996,7 +996,15 @@ export function ModelSelector({
 															p.requestPrice && parseFloat(p.requestPrice) > 0,
 													);
 													const isFreeRoot =
-														model.free === true && !hasRequestPrice;
+														model.free === true &&
+														!hasRequestPrice &&
+														model.mappings.every(
+															(p) =>
+																(!p.inputPrice ||
+																	parseFloat(p.inputPrice) === 0) &&
+																(!p.outputPrice ||
+																	parseFloat(p.outputPrice) === 0),
+														);
 													return (
 														<CommandItem
 															key={`${entryKey}-${index}`}
@@ -1086,7 +1094,12 @@ export function ModelSelector({
 													mapping!.requestPrice &&
 													parseFloat(mapping!.requestPrice) > 0;
 												const isFreeMapping =
-													model.free === true && !hasRequestPrice;
+													model.free === true &&
+													!hasRequestPrice &&
+													(!mapping!.inputPrice ||
+														parseFloat(mapping!.inputPrice) === 0) &&
+													(!mapping!.outputPrice ||
+														parseFloat(mapping!.outputPrice) === 0);
 												return (
 													<CommandItem
 														key={entryKey}
