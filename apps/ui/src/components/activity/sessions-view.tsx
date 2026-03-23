@@ -6,6 +6,7 @@ import {
 	Clock,
 	Coins,
 	Cpu,
+	Terminal,
 	Zap,
 } from "lucide-react";
 import { useState } from "react";
@@ -46,6 +47,7 @@ const SESSION_GAP_MS = 30 * 60 * 1000; // 30 minutes
 const KNOWN_SOURCES = [
 	"claude.com/claude-code",
 	"open-code",
+	"opencode",
 	"cursor",
 ] as const;
 
@@ -53,6 +55,7 @@ const SOURCE_OPTIONS = [
 	{ value: "all", label: "All integrations" },
 	{ value: "claude.com/claude-code", label: "Claude Code" },
 	{ value: "open-code", label: "Open Code" },
+	{ value: "opencode", label: "OpenCode" },
 	{ value: "cursor", label: "Cursor" },
 ] as const;
 
@@ -146,6 +149,8 @@ function formatSourceLabel(source: string): string {
 			return "Claude Code";
 		case "open-code":
 			return "Open Code";
+		case "opencode":
+			return "OpenCode";
 		case "cursor":
 			return "Cursor";
 		case "chatbox":
@@ -303,15 +308,47 @@ export function SessionsView({
 			</div>
 
 			{isLoading ? (
-				<div>Loading sessions...</div>
+				<div className="flex flex-col items-center justify-center py-16">
+					<div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground/70" />
+					<p className="mt-4 text-sm text-muted-foreground">
+						Loading sessions...
+					</p>
+				</div>
 			) : error ? (
-				<div>Error loading sessions</div>
+				<div className="py-8 text-center text-sm text-destructive">
+					Failed to load sessions. Please try again.
+				</div>
 			) : (
 				<div className="space-y-3">
 					{sessions.length === 0 && !hasNextPage ? (
-						<div className="py-8 text-center text-muted-foreground">
-							No sessions found. Sessions are created when tools like Claude
-							Code or Open Code make API requests.
+						<div className="flex flex-col items-center justify-center py-16 px-4">
+							<div className="relative mb-6">
+								<div className="absolute -inset-3 rounded-full bg-muted/50 blur-md" />
+								<div className="relative rounded-xl border border-border/60 bg-muted/30 p-4">
+									<Terminal className="h-8 w-8 text-muted-foreground/70" />
+								</div>
+							</div>
+							<h3 className="text-lg font-semibold tracking-tight mb-1.5">
+								No sessions yet
+							</h3>
+							<p className="text-sm text-muted-foreground max-w-sm text-center mb-6">
+								Sessions appear when coding tools like Claude Code, OpenCode, or
+								Cursor make API requests through the gateway.
+							</p>
+							<div className="flex items-center gap-6 text-xs text-muted-foreground/60">
+								<div className="flex items-center gap-1.5">
+									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+									Claude Code
+								</div>
+								<div className="flex items-center gap-1.5">
+									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+									OpenCode
+								</div>
+								<div className="flex items-center gap-1.5">
+									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+									Cursor
+								</div>
+							</div>
 						</div>
 					) : (
 						sessions.map((session) => (
