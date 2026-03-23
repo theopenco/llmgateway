@@ -63,6 +63,7 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	pageWindow,
+	projectId,
 }: {
 	label: string;
 	sortKey: ModelSortBy;
@@ -70,13 +71,17 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	pageWindow?: PageWindow;
+	projectId?: string;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}`;
+	const projectIdParam = projectId
+		? `&projectId=${encodeURIComponent(projectId)}`
+		: "";
+	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${projectIdParam}`;
 
 	return (
 		<Link
@@ -248,12 +253,14 @@ export function ModelsTable({
 	sortOrder = "desc",
 	search = "",
 	pageWindow,
+	projectId,
 }: {
 	models: ModelStats[];
 	sortBy?: ModelSortBy;
 	sortOrder?: SortOrder;
 	search?: string;
 	pageWindow?: PageWindow;
+	projectId?: string;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -266,6 +273,7 @@ export function ModelsTable({
 				currentSortOrder={sortOrder}
 				search={search}
 				pageWindow={pageWindow}
+				projectId={projectId}
 			/>
 		</TableHead>
 	);

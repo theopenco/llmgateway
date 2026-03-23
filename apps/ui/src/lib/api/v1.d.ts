@@ -2328,6 +2328,7 @@ export interface paths {
                 query?: {
                     search?: string;
                     family?: string;
+                    projectId?: string;
                     sortBy?: "name" | "family" | "status" | "free" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "cachedCount" | "avgTimeToFirstToken" | "providerCount" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                     limit?: number;
