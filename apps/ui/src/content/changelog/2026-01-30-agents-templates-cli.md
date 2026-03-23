@@ -1,5 +1,5 @@
 ---
-id: "38"
+id: "39"
 slug: "agents-templates-cli"
 date: "2026-01-30"
 title: "AI Agent skills, Agents, Templates & CLI"

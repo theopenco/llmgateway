@@ -50,6 +50,7 @@ export const user = pgTable("user", {
 	emailVerified: boolean().notNull().default(false),
 	image: text(),
 	onboardingCompleted: boolean().notNull().default(false),
+	newsletterSubscribed: boolean().notNull().default(false),
 });
 
 export const session = pgTable(

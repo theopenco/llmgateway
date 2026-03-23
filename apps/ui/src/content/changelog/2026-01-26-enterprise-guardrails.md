@@ -1,5 +1,5 @@
 ---
-id: "36"
+id: "37"
 slug: "enterprise-guardrails"
 date: "2026-01-26"
 title: "Enterprise Guardrails"

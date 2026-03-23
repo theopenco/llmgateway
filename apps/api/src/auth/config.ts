@@ -11,7 +11,7 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getResendClient } from "@llmgateway/shared/email";
+import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 
 const apiUrl = process.env.API_URL ?? "http://localhost:4002";
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
@@ -364,6 +364,7 @@ async function createResendContact(
 		});
 
 		const { data, error } = await client.contacts.create({
+			audienceId: resendAudienceId,
 			email,
 			firstName: firstName ?? undefined,
 			lastName: lastName ?? undefined,
@@ -423,6 +424,7 @@ export async function updateResendContact(
 		});
 
 		const { data, error } = await client.contacts.update({
+			audienceId: resendAudienceId,
 			email,
 			...(firstName && { firstName }),
 			...(lastName && { lastName }),
