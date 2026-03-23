@@ -51,6 +51,7 @@ export function VideoHeader({
 										value={model}
 										onValueChange={(v) => onModelChange(index, v)}
 										placeholder="Select model..."
+										mode="video"
 										isOptionDisabled={isModelOptionDisabled}
 										getOptionDisabledReason={getModelOptionDisabledReason}
 									/>
@@ -87,6 +88,7 @@ export function VideoHeader({
 							value={selectedModels[0] ?? ""}
 							onValueChange={(v) => onModelChange(0, v)}
 							placeholder="Select a video model..."
+							mode="video"
 							isOptionDisabled={isModelOptionDisabled}
 							getOptionDisabledReason={getModelOptionDisabledReason}
 						/>

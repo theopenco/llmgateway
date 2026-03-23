@@ -41,6 +41,7 @@ export interface ApiModelProviderMapping {
 	supportedVideoDurationsSeconds: number[] | null;
 	supportsVideoAudio: boolean | null;
 	supportsVideoWithoutAudio: boolean | null;
+	perSecondPrice: Record<string, string> | null;
 	deprecatedAt: string | null;
 	deactivatedAt: string | null;
 	status: "active" | "inactive";

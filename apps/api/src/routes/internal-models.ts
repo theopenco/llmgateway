@@ -57,6 +57,7 @@ const modelProviderMappingSchema = z.object({
 	supportedVideoDurationsSeconds: z.array(z.number()).nullable(),
 	supportsVideoAudio: z.boolean().nullable(),
 	supportsVideoWithoutAudio: z.boolean().nullable(),
+	perSecondPrice: z.record(z.string()).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
 	status: z.enum(["active", "inactive"]),
@@ -207,6 +208,13 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				supportsVideoAudio: sharedMapping?.supportsVideoAudio ?? null,
 				supportsVideoWithoutAudio:
 					sharedMapping?.supportsVideoWithoutAudio ?? null,
+				perSecondPrice: sharedMapping?.perSecondPrice
+					? Object.fromEntries(
+							Object.entries(sharedMapping.perSecondPrice).map(
+								([key, price]) => [key, price.toString()],
+							),
+						)
+					: null,
 			};
 		}),
 	}));
