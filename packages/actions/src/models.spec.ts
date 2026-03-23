@@ -575,6 +575,45 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
+	it("should use per-second pricing for video providers", () => {
+		const videoModel = models.find(
+			(model) => model.id === "veo-3.1-generate-preview",
+		);
+
+		expect(videoModel).toBeDefined();
+
+		const availableProviders =
+			videoModel?.providers.filter(
+				(provider) =>
+					provider.providerId === "google-vertex" ||
+					provider.providerId === "avalanche",
+			) ?? [];
+
+		const cheapestProvider = getCheapestFromAvailableProviders(
+			availableProviders,
+			videoModel!,
+			{
+				videoPricing: {
+					durationSeconds: 8,
+					includeAudio: true,
+					resolution: "default",
+				},
+			},
+		);
+
+		expect(cheapestProvider?.provider.providerId).toBe("avalanche");
+
+		const vertexScore = cheapestProvider?.metadata.providerScores.find(
+			(provider) => provider.providerId === "google-vertex",
+		);
+		const avalancheScore = cheapestProvider?.metadata.providerScores.find(
+			(provider) => provider.providerId === "avalanche",
+		);
+
+		expect(vertexScore?.price).toBeCloseTo(3.2);
+		expect(avalancheScore?.price).toBeCloseTo(2.56);
+	});
+
 	it("should return null for empty provider list", () => {
 		const testModel = models[0];
 		const result = getCheapestFromAvailableProviders([], testModel);

@@ -19,8 +19,10 @@ import { validateModelAccess } from "@/lib/iam.js";
 import {
 	getCheapestFromAvailableProviders,
 	getProviderHeaders,
+	getProviderSelectionPrice,
 	processImageUrl,
 	type RoutingMetadata,
+	type VideoPricingContext,
 } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -1198,6 +1200,11 @@ async function resolveVideoExecution(
 	organizationId: string,
 	noFallback: boolean,
 ): Promise<ResolvedVideoExecution> {
+	const videoPricing: VideoPricingContext = {
+		durationSeconds: videoDurationSeconds,
+		includeAudio,
+		resolution: videoSize.resolution === "4k" ? "4k" : "default",
+	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
 		requestedProvider,
@@ -1307,7 +1314,7 @@ async function resolveVideoExecution(
 					const betterResult = getCheapestFromAvailableProviders(
 						betterMappings,
 						modelInfo,
-						{ metricsMap, isStreaming: false },
+						{ metricsMap, isStreaming: false, videoPricing },
 					);
 
 					if (betterResult) {
@@ -1315,9 +1322,7 @@ async function resolveVideoExecution(
 							(provider) => provider.providerId === requestedProvider,
 						);
 						const originalPrice = originalMapping
-							? ((originalMapping.inputPrice ?? 0) +
-									(originalMapping.outputPrice ?? 0)) /
-								2
+							? getProviderSelectionPrice(originalMapping, videoPricing)
 							: 0;
 						routingMetadata = {
 							...betterResult.metadata,
@@ -1366,7 +1371,7 @@ async function resolveVideoExecution(
 			const cheapestResult = getCheapestFromAvailableProviders(
 				configuredEligibleMappings,
 				modelInfo,
-				{ metricsMap, isStreaming: false },
+				{ metricsMap, isStreaming: false, videoPricing },
 			);
 			if (cheapestResult) {
 				routingMetadata = {
@@ -1409,7 +1414,7 @@ async function resolveVideoExecution(
 		providerScores: configuredEligibleMappings.map((provider) => ({
 			providerId: provider.providerId,
 			score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
-			price: ((provider.inputPrice ?? 0) + (provider.outputPrice ?? 0)) / 2,
+			price: getProviderSelectionPrice(provider, videoPricing),
 		})),
 		...(noFallback ? { noFallback: true } : {}),
 	};
