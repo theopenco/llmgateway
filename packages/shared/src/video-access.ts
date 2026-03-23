@@ -4,6 +4,7 @@ import { buildGatewayVideoLogContentUrl } from "./gateway-url.js";
 
 const VIDEO_CONTENT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 const VIDEO_CONTENT_TOKEN_SECRET_ENV = "LLM_VIDEO_CONTENT_JWT_SECRET";
+const VIDEO_CONTENT_TOKEN_ALLOW_DEV_ENV = "VIDEO_CONTENT_TOKEN_ALLOW_DEV";
 const DEV_VIDEO_CONTENT_TOKEN_SECRET = "llmgateway-dev-video-content-secret";
 const JWT_HEADER_BASE64URL = base64urlEncode('{"alg":"HS256"}');
 
@@ -18,13 +19,16 @@ function getVideoContentTokenSecret(): string {
 		return configuredSecret;
 	}
 
-	if (process.env.NODE_ENV === "production") {
-		throw new Error(
-			`${VIDEO_CONTENT_TOKEN_SECRET_ENV} is required in production`,
-		);
+	if (
+		process.env.NODE_ENV === "development" ||
+		process.env[VIDEO_CONTENT_TOKEN_ALLOW_DEV_ENV]?.trim()
+	) {
+		return DEV_VIDEO_CONTENT_TOKEN_SECRET;
 	}
 
-	return DEV_VIDEO_CONTENT_TOKEN_SECRET;
+	throw new Error(
+		`${VIDEO_CONTENT_TOKEN_SECRET_ENV} is required unless NODE_ENV is development or ${VIDEO_CONTENT_TOKEN_ALLOW_DEV_ENV} is set`,
+	);
 }
 
 function base64urlEncode(input: string): string {
