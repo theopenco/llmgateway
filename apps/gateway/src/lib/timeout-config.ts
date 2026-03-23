@@ -44,6 +44,20 @@ export function getTimeoutMs(): number {
 	return 180000;
 }
 
+/**
+ * Gets the upstream video creation timeout.
+ * Video job creation should fail fast enough to return a JSON error before
+ * callers hit their own route/runtime timeout limits.
+ * Default: 45 seconds or 5 seconds below the gateway timeout, whichever is lower.
+ */
+export function getVideoCreateTimeoutMs(): number {
+	const envValue = Number(process.env.AI_VIDEO_CREATE_TIMEOUT_MS);
+	if (envValue > 0) {
+		return envValue;
+	}
+	return Math.min(45000, Math.max(1000, getGatewayTimeoutMs() - 5000));
+}
+
 // Legacy exports for backwards compatibility (read at module load time)
 // These should be avoided in new code - use the getter functions instead
 export const GATEWAY_TIMEOUT_MS = getGatewayTimeoutMs();
@@ -64,6 +78,13 @@ export function createStreamingTimeoutSignal(): AbortSignal {
  */
 export function createTimeoutSignal(): AbortSignal {
 	return AbortSignal.timeout(getTimeoutMs());
+}
+
+/**
+ * Creates an AbortSignal that will abort after the video creation timeout.
+ */
+export function createVideoCreateTimeoutSignal(): AbortSignal {
+	return AbortSignal.timeout(getVideoCreateTimeoutMs());
 }
 
 /**

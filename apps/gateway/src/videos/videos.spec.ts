@@ -906,6 +906,165 @@ describe("videos", () => {
 		}
 	});
 
+	test("/v1/videos returns 504 when upstream create times out before job creation", async () => {
+		const originalVideoCreateTimeout = process.env.AI_VIDEO_CREATE_TIMEOUT_MS;
+		process.env.AI_VIDEO_CREATE_TIMEOUT_MS = "50";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "obsidian",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "obsidian/veo-3.1-generate-preview",
+					prompt:
+						"TRIGGER_OBSIDIAN_ONLY_TIMEOUT_200 A robot dancing in the rain",
+					seconds: 8,
+				}),
+			});
+
+			expect(res.status).toBe(504);
+			const json = await res.json();
+			expect(JSON.stringify(json)).toContain(
+				"Video creation timed out while waiting for the upstream provider",
+			);
+
+			const videoJobs = await db.query.videoJob.findMany();
+			expect(videoJobs).toHaveLength(0);
+		} finally {
+			if (originalVideoCreateTimeout !== undefined) {
+				process.env.AI_VIDEO_CREATE_TIMEOUT_MS = originalVideoCreateTimeout;
+			} else {
+				delete process.env.AI_VIDEO_CREATE_TIMEOUT_MS;
+			}
+		}
+	});
+
+	test("/v1/videos falls back after an upstream create timeout", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		const originalVideoCreateTimeout = process.env.AI_VIDEO_CREATE_TIMEOUT_MS;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+		process.env.AI_VIDEO_CREATE_TIMEOUT_MS = "50";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values([
+				{
+					id: "provider-key-avalanche",
+					token: "sk-avalanche-key",
+					provider: "avalanche",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-vertex",
+					token: "vertex-test-token",
+					provider: "google-vertex",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+			]);
+
+			await setRoutingMetrics("veo-3.1-generate-preview", "avalanche", {
+				uptime: 70,
+				latency: 300,
+				throughput: 50,
+			});
+			await setRoutingMetrics("veo-3.1-generate-preview", "google-vertex", {
+				uptime: 99.9,
+				latency: 80,
+				throughput: 180,
+			});
+
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "veo-3.1-generate-preview",
+					prompt:
+						"TRIGGER_VERTEX_ONLY_TIMEOUT_200 A cinematic city skyline at dusk",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: json.id } },
+			});
+			expect(videoJob?.usedProvider).toBe("avalanche");
+			expect(
+				videoJob?.routingMetadata?.routing?.map((attempt) => ({
+					provider: attempt.provider,
+					succeeded: attempt.succeeded,
+					status_code: attempt.status_code,
+					error_type: attempt.error_type,
+				})),
+			).toEqual([
+				{
+					provider: "google-vertex",
+					succeeded: false,
+					status_code: 504,
+					error_type: "upstream_error",
+				},
+				{
+					provider: "avalanche",
+					succeeded: true,
+					status_code: 200,
+					error_type: "none",
+				},
+			]);
+		} finally {
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalGoogleVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+			if (originalVideoCreateTimeout !== undefined) {
+				process.env.AI_VIDEO_CREATE_TIMEOUT_MS = originalVideoCreateTimeout;
+			} else {
+				delete process.env.AI_VIDEO_CREATE_TIMEOUT_MS;
+			}
+		}
+	});
+
 	test("/v1/videos supports retrieve and content for completed jobs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

@@ -7,6 +7,19 @@ import { getGatewayErrorMessage, readGatewayResponseBody } from "./utils";
 
 export const maxDuration = 60;
 
+function getVideoCreateProxyTimeoutMs(): number {
+	const envValue = Number(process.env.PLAYGROUND_VIDEO_CREATE_TIMEOUT_MS);
+	if (envValue > 0) {
+		return envValue;
+	}
+
+	return Math.max(1000, maxDuration * 1000 - 5000);
+}
+
+function isTimeoutError(error: unknown): boolean {
+	return error instanceof Error && error.name === "TimeoutError";
+}
+
 export async function POST(req: Request) {
 	const user = await getUser();
 	if (!user) {
@@ -31,16 +44,32 @@ export async function POST(req: Request) {
 	const requestBody = await req.json();
 	const noFallback = req.headers.get("x-no-fallback");
 
-	const response = await fetch(`${gatewayBaseUrl}/v1/videos`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${apiKey}`,
-			"x-source": "chat.llmgateway.io",
-			...(noFallback ? { "x-no-fallback": noFallback } : {}),
-		},
-		body: JSON.stringify(requestBody),
-	});
+	let response: Response;
+	try {
+		response = await fetch(`${gatewayBaseUrl}/v1/videos`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${apiKey}`,
+				"x-source": "chat.llmgateway.io",
+				...(noFallback ? { "x-no-fallback": noFallback } : {}),
+			},
+			body: JSON.stringify(requestBody),
+			signal: AbortSignal.timeout(getVideoCreateProxyTimeoutMs()),
+		});
+	} catch (error) {
+		if (isTimeoutError(error)) {
+			return NextResponse.json(
+				{
+					error:
+						"Video creation timed out before the gateway responded. Please try again.",
+				},
+				{ status: 504 },
+			);
+		}
+
+		throw error;
+	}
 
 	const responseBody = await readGatewayResponseBody(response);
 

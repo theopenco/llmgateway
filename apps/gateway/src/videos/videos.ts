@@ -15,6 +15,11 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { validateModelAccess } from "@/lib/iam.js";
+import {
+	createVideoCreateTimeoutSignal,
+	getVideoCreateTimeoutMs,
+	isTimeoutError,
+} from "@/lib/timeout-config.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -2246,7 +2251,30 @@ async function fetchUpstreamJson(
 ): Promise<Record<string, unknown>> {
 	const startedAt = Date.now();
 	const method = init.method ?? "GET";
-	const response = await fetch(url, init);
+	const timeoutSignal = createVideoCreateTimeoutSignal();
+	const signal = init.signal
+		? AbortSignal.any([init.signal, timeoutSignal])
+		: timeoutSignal;
+	let response: Response;
+	try {
+		response = await fetch(url, {
+			...init,
+			signal,
+		});
+	} catch (error) {
+		if (isTimeoutError(error)) {
+			logger.warn("Upstream video create request timed out", {
+				url,
+				timeoutMs: getVideoCreateTimeoutMs(),
+			});
+			throw new HTTPException(504, {
+				message:
+					"Video creation timed out while waiting for the upstream provider. Please try again.",
+			});
+		}
+
+		throw error;
+	}
 	const text = await response.text();
 	const durationMs = Date.now() - startedAt;
 	const logPayload = {

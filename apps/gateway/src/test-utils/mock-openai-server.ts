@@ -53,6 +53,26 @@ function extractTimeoutDelay(content: string): number | null {
 	return null;
 }
 
+function extractProviderSpecificTimeoutDelay(
+	content: string,
+	provider: "obsidian" | "avalanche" | "vertex",
+): number | null {
+	const token =
+		provider === "vertex"
+			? "TRIGGER_VERTEX_ONLY_TIMEOUT"
+			: provider === "avalanche"
+				? "TRIGGER_AVALANCHE_ONLY_TIMEOUT"
+				: "TRIGGER_OBSIDIAN_ONLY_TIMEOUT";
+	const match = content.match(new RegExp(`${token}_(\\d+)`));
+	if (match) {
+		return parseInt(match[1], 10);
+	}
+	if (content.includes(token)) {
+		return 5000;
+	}
+	return null;
+}
+
 // Helper to extract a specific HTTP status code from message content
 // e.g., "TRIGGER_STATUS_429" -> { statusCode: 429, errorResponse: {...} }
 function extractStatusCodeTrigger(
@@ -569,6 +589,10 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 		? await c.req.parseBody({ all: true })
 		: await c.req.json();
 	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const timeoutDelay = extractProviderSpecificTimeoutDelay(prompt, "obsidian");
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
 	const statusTrigger = extractStatusCodeTrigger(prompt);
 	if (statusTrigger) {
 		c.status(statusTrigger.statusCode as any);
@@ -639,6 +663,10 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 mockOpenAIServer.post("/api/v1/veo/generate", async (c) => {
 	const body = await c.req.json();
 	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const timeoutDelay = extractProviderSpecificTimeoutDelay(prompt, "avalanche");
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
 	if (
 		prompt.includes("TRIGGER_STATUS_500_AVALANCHE_ONLY") ||
 		prompt.includes("TRIGGER_AVALANCHE_ONLY_500")
@@ -836,6 +864,13 @@ mockOpenAIServer.post(
 					"string"
 					? ((body.instances[0] as Record<string, unknown>).prompt as string)
 					: "";
+			const timeoutDelay = extractProviderSpecificTimeoutDelay(
+				prompt,
+				"vertex",
+			);
+			if (timeoutDelay) {
+				await delay(timeoutDelay);
+			}
 			if (
 				prompt.includes("TRIGGER_STATUS_500_VERTEX_ONLY") ||
 				prompt.includes("TRIGGER_VERTEX_ONLY_500")
