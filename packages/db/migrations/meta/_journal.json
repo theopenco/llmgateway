@@ -750,6 +750,13 @@
       "when": 1774285728875,
       "tag": "1774285728_bored_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "8",
+      "when": 1774300855725,
+      "tag": "1774300855_dizzy_blindfold",
+      "breakpoints": true
     }
   ]
 }
