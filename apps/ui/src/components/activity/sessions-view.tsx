@@ -108,8 +108,10 @@ function groupLogsIntoSessions(logs: ApiLog[]): Session[] {
 	for (let i = 1; i < sorted.length; i++) {
 		const prevTime = new Date(sorted[i - 1].createdAt).getTime();
 		const currTime = new Date(sorted[i].createdAt).getTime();
+		const sourceChanged =
+			(sorted[i].source ?? "") !== (sorted[i - 1].source ?? "");
 
-		if (currTime - prevTime > SESSION_GAP_MS) {
+		if (currTime - prevTime > SESSION_GAP_MS || sourceChanged) {
 			sessions.push(buildSession(currentSession, sessions.length));
 			currentSession = [sorted[i]];
 		} else {
@@ -304,21 +306,23 @@ export function SessionsView({
 				<div>Loading sessions...</div>
 			) : error ? (
 				<div>Error loading sessions</div>
-			) : sessions.length === 0 ? (
-				<div className="py-8 text-center text-muted-foreground">
-					No sessions found. Sessions are created when tools like Claude Code or
-					Open Code make API requests.
-				</div>
 			) : (
 				<div className="space-y-3">
-					{sessions.map((session) => (
-						<SessionCard
-							key={session.id}
-							session={session}
-							orgId={orgId}
-							projectId={projectId}
-						/>
-					))}
+					{sessions.length === 0 && !hasNextPage ? (
+						<div className="py-8 text-center text-muted-foreground">
+							No sessions found. Sessions are created when tools like Claude
+							Code or Open Code make API requests.
+						</div>
+					) : (
+						sessions.map((session) => (
+							<SessionCard
+								key={session.id}
+								session={session}
+								orgId={orgId}
+								projectId={projectId}
+							/>
+						))
+					)}
 
 					{hasNextPage && (
 						<div className="flex justify-center pt-4">

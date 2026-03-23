@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { LogCard } from "@/components/log-card";
 import { Button } from "@/components/ui/button";
@@ -53,7 +53,6 @@ export function ProjectLogsSection({
 	// Stable set of unique values from initial unfiltered load
 	const [knownProviders, setKnownProviders] = useState<string[]>([]);
 	const [knownModels, setKnownModels] = useState<string[]>([]);
-	const initialLoadDone = useRef(false);
 
 	// Filter state
 	const [provider, setProvider] = useState<string>("all");
@@ -125,12 +124,17 @@ export function ProjectLogsSection({
 					}
 					setPagination(data.pagination);
 
-					// Populate dropdown options from first load
-					if (!initialLoadDone.current && data.logs.length > 0) {
+					// Accumulate dropdown options from all loaded pages
+					if (data.logs.length > 0) {
 						const { providers, models } = extractUniqueValues(data.logs);
-						setKnownProviders(providers);
-						setKnownModels(models);
-						initialLoadDone.current = true;
+						setKnownProviders((prev) => {
+							const merged = new Set([...prev, ...providers]);
+							return Array.from(merged).sort();
+						});
+						setKnownModels((prev) => {
+							const merged = new Set([...prev, ...models]);
+							return Array.from(merged).sort();
+						});
 					}
 				}
 			} catch (error) {

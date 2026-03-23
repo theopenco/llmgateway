@@ -4663,17 +4663,13 @@ chat.openapi(completions, async (c) => {
 												cached_tokens: cachedTokens,
 											},
 										}),
-										...(streamingCostsEarly.totalCost !== null && {
-											cost_usd_total: streamingCostsEarly.totalCost,
-											cost_usd_input: streamingCostsEarly.inputCost,
-											cost_usd_output: streamingCostsEarly.outputCost,
-											cost_usd_cached_input:
-												streamingCostsEarly.cachedInputCost,
-											cost_usd_request: streamingCostsEarly.requestCost,
-											cost_usd_image_input: streamingCostsEarly.imageInputCost,
-											cost_usd_image_output:
-												streamingCostsEarly.imageOutputCost,
-										}),
+										cost_usd_total: streamingCostsEarly.totalCost,
+										cost_usd_input: streamingCostsEarly.inputCost,
+										cost_usd_output: streamingCostsEarly.outputCost,
+										cost_usd_cached_input: streamingCostsEarly.cachedInputCost,
+										cost_usd_request: streamingCostsEarly.requestCost,
+										cost_usd_image_input: streamingCostsEarly.imageInputCost,
+										cost_usd_image_output: streamingCostsEarly.imageOutputCost,
 									};
 								})(),
 							};
