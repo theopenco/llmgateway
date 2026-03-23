@@ -35,8 +35,13 @@ type LogRecord = InferSelectModel<typeof tables.log>;
 async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
 	logEntries: T[],
 ): Promise<T[]> {
+	const hasVideoLogState = (log: T) =>
+		log.videoOutputCost !== null ||
+		log.videoDownloadCount > 0 ||
+		log.lastVideoDownloadedAt !== null;
+
 	return logEntries.map((log) =>
-		log.usedModel.includes("veo-3.1") &&
+		hasVideoLogState(log) &&
 		(log.content !== null || (log.videoOutputCost ?? 0) > 0)
 			? { ...log, content: buildSignedGatewayVideoLogContentUrl(log.id) }
 			: log,
