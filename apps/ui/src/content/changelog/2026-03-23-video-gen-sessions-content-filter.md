@@ -2,11 +2,11 @@
 id: "43"
 slug: "video-gen-sessions-content-filter"
 date: "2026-03-23"
-title: "Video Generation, Sessions, 3-Mode Content Filter & More"
-summary: "Generate videos via the API, track conversations with sessions, filter content with a new 3-mode content filter, and more — plus new models and providers."
+title: "Video Generation, Sessions & More"
+summary: "Generate videos via the API, track conversations with sessions, and more — plus new models and providers."
 image:
   src: "/changelog/video-gen.png"
-  alt: "Video generation, sessions, and content filter now available on LLM Gateway"
+  alt: "Video generation and sessions now available on LLM Gateway"
   width: 1768
   height: 677
 ---
@@ -31,20 +31,6 @@ LLM Gateway now supports **video generation** via the API. Generate videos from 
 - Filter activity logs by session
 - View streaming cost breakdowns per session
 - Improved empty state UI when no sessions exist
-
----
-
-## 3-Mode Content Filter
-
-A new **3-mode content filter** gives you granular control over content moderation at the gateway level:
-
-- **Off** — No filtering, all requests pass through
-- **Flag** — Requests are flagged but still processed
-- **Block** — Flagged requests are blocked before reaching the provider
-
-Configure the filter per project to match your safety requirements.
-
-**[Read the guardrails docs](https://docs.llmgateway.io/features/guardrails)**
 
 ---
 
