@@ -561,6 +561,52 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	return c.json(response);
 });
 
+mockOpenAIServer.post("/v1/moderations", async (c) => {
+	const body = await c.req.json();
+	const inputs = Array.isArray(body.input) ? body.input : [body.input];
+	const combinedInput = inputs
+		.map((item: any) =>
+			typeof item === "string" ? item : JSON.stringify(item ?? null),
+		)
+		.join(" ");
+
+	const timeoutDelay = extractTimeoutDelay(combinedInput);
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
+
+	const statusTrigger = extractStatusCodeTrigger(combinedInput);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (combinedInput.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	const flagged = /harm|kill|attack/i.test(combinedInput);
+
+	return c.json({
+		id: "modr-123",
+		model: body.model ?? "omni-moderation-latest",
+		results: [
+			{
+				flagged,
+				categories: {
+					violence: flagged,
+					self_harm: false,
+				},
+				category_scores: {
+					violence: flagged ? 0.98 : 0.01,
+					self_harm: 0.01,
+				},
+			},
+		],
+	});
+});
+
 mockOpenAIServer.post("/v1/videos", async (c) => {
 	const contentType = c.req.header("content-type") ?? "";
 	const authorization = c.req.header("authorization") ?? "";
