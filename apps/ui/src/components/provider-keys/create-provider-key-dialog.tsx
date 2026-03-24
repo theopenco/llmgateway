@@ -222,6 +222,15 @@ export function CreateProviderKeyDialog({
 					void queryClient.invalidateQueries({ queryKey });
 					setOpen(false);
 				},
+				onError: () => {
+					setIsValidating(false);
+					toast({
+						title: "Validation Failed",
+						description:
+							"Failed to validate the API key. Please check your key and region.",
+						variant: "destructive",
+					});
+				},
 			},
 		);
 	};

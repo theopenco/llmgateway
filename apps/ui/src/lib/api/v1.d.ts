@@ -3672,6 +3672,7 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    alibaba_region?: string;
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -3707,6 +3708,7 @@ export interface paths {
                             /** @enum {string} */
                             azure_deployment_type?: "openai" | "ai-foundry";
                             azure_validation_model?: string;
+                            alibaba_region?: string;
                         };
                         organizationId: string;
                     };
@@ -3735,6 +3737,7 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    alibaba_region?: string;
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -3851,6 +3854,7 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    alibaba_region?: string;
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;

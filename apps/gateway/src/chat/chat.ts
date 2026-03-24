@@ -568,14 +568,61 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// In credits/hybrid mode, only keep regions that have env keys configured.
-	// This avoids wasting retries on regions where the base key won't work.
-	if (project.mode !== "api-keys") {
+	// Filter region candidates based on available keys.
+	// - credits mode: only keep regions with env keys (base key → default region only)
+	// - hybrid mode: providers with a DB key keep all regions (user chose their region);
+	//   providers without a DB key are filtered like credits mode
+	// - api-keys mode: no filtering (all regions available, user picks via DB key)
+	if (project.mode === "credits") {
 		modelInfo = {
 			...modelInfo,
 			providers: filterRegionsByAvailableKeys(modelInfo.providers),
 		};
 		allModelProviders = filterRegionsByAvailableKeys(allModelProviders);
+	} else if (project.mode === "hybrid") {
+		const dbProviderKeys = await findActiveProviderKeys(project.organizationId);
+		const providersWithDbKeys = new Set(dbProviderKeys.map((k) => k.provider));
+		const filterHybridRegions = (
+			expanded: ProviderModelMapping[],
+		): ProviderModelMapping[] =>
+			expanded.filter((mapping) => {
+				// Providers with a DB key: keep all regions
+				if (providersWithDbKeys.has(mapping.providerId)) {
+					return true;
+				}
+				// Providers without a DB key: filter like credits mode
+				if (!mapping.region) {
+					return true;
+				}
+				const providerDef = providers.find(
+					(p) => p.id === mapping.providerId,
+				) as ProviderDefinition | undefined;
+				if (!providerDef?.regionConfig) {
+					return true;
+				}
+				if (mapping.region === providerDef.regionConfig.defaultRegion) {
+					return true;
+				}
+				return hasRegionSpecificEnvKey(
+					mapping.providerId as Provider,
+					mapping.region,
+				);
+			});
+		modelInfo = {
+			...modelInfo,
+			providers: filterHybridRegions(modelInfo.providers),
+		};
+		allModelProviders = filterHybridRegions(allModelProviders);
+	}
+
+	const regionCandidates = modelInfo.providers
+		.filter((p) => p.region)
+		.map((p) => `${p.providerId}:${p.region}`);
+	if (regionCandidates.length > 0) {
+		logger.info("[region-debug] Region candidates after filtering", {
+			projectMode: project.mode,
+			regionCandidates,
+		});
 	}
 
 	// Fetch organization for coding model restriction check and credit validation
@@ -964,11 +1011,11 @@ chat.openapi(completions, async (c) => {
 
 			// Expand region entries into separate candidates for scoring
 			const expandedCandidateProviders =
-				project.mode === "api-keys"
-					? expandAllProviderRegions(modelDef.providers)
-					: filterRegionsByAvailableKeys(
+				project.mode === "credits"
+					? filterRegionsByAvailableKeys(
 							expandAllProviderRegions(modelDef.providers),
-						);
+						)
+					: expandAllProviderRegions(modelDef.providers);
 			// Check if any of the model's providers are available
 			const availableModelProviders = expandedCandidateProviders.filter(
 				(provider) =>
@@ -1373,12 +1420,40 @@ chat.openapi(completions, async (c) => {
 							.filter((p) => hasProviderEnvironmentToken(p.id as Provider))
 							.map((p) => p.id);
 
+			// Build a map of provider → locked region from DB provider keys.
+			// When a user sets a region in their provider key (e.g. alibaba_region: "cn-beijing"),
+			// only that region should be a candidate — not all expanded regions.
+			const providerLockedRegions = new Map<string, string>();
+			for (const key of providerKeys) {
+				const providerDef = providers.find((p) => p.id === key.provider) as
+					| ProviderDefinition
+					| undefined;
+				const regionKey = providerDef?.regionConfig?.optionsKey;
+				if (regionKey && key.options) {
+					const lockedRegion = (
+						key.options as Record<string, string | undefined>
+					)[regionKey];
+					if (lockedRegion) {
+						providerLockedRegions.set(key.provider, lockedRegion);
+					}
+				}
+			}
+
 			// Filter model providers to only those available
 			// If web search is requested, also filter to providers that support it
 			// If JSON output is requested, also filter to providers that support it
 			const availableModelProviders = iamFilteredModelProviders.filter(
 				(provider) => {
 					if (!availableProviders.includes(provider.providerId)) {
+						return false;
+					}
+					// If the user has a DB key with a locked region, only allow that region
+					const lockedRegion = providerLockedRegions.get(provider.providerId);
+					if (
+						lockedRegion &&
+						provider.region &&
+						provider.region !== lockedRegion
+					) {
 						return false;
 					}
 					// If web search tool is requested, only include providers that support it
@@ -1641,6 +1716,23 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Helper: resolve the locked region from a provider key's options
+	function resolveRegionFromProviderKey(
+		key: InferSelectModel<typeof tables.providerKey>,
+	): string | undefined {
+		const providerDef = providers.find((p) => p.id === key.provider) as
+			| ProviderDefinition
+			| undefined;
+		if (!providerDef?.regionConfig) {
+			return undefined;
+		}
+		const regionKey = providerDef.regionConfig.optionsKey;
+		const explicitRegion = key.options
+			? (key.options as Record<string, string | undefined>)[regionKey]
+			: undefined;
+		return explicitRegion ?? providerDef.regionConfig.defaultRegion;
+	}
+
 	if (project.mode === "api-keys") {
 		// Get the provider key from the database using cached helper function
 		if (usedProvider === "custom" && customProviderName) {
@@ -1663,6 +1755,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		usedToken = providerKey.token;
+		usedRegion ??= resolveRegionFromProviderKey(providerKey);
 	} else if (project.mode === "credits") {
 		// Check both regular credits AND dev plan credits
 		const regularCredits = parseFloat(organization.credits ?? "0");
@@ -1715,6 +1808,12 @@ chat.openapi(completions, async (c) => {
 
 		if (providerKey) {
 			usedToken = providerKey.token;
+			usedRegion ??= resolveRegionFromProviderKey(providerKey);
+			logger.info("[region-debug] Hybrid mode: DB key found", {
+				provider: usedProvider,
+				resolvedRegion: usedRegion ?? "none",
+				keyOptions: providerKey.options,
+			});
 		} else {
 			// No API key available, fall back to credits
 			// Check both regular credits AND dev plan credits
@@ -1837,7 +1936,16 @@ chat.openapi(completions, async (c) => {
 			providerKey?.options ?? undefined,
 			configIndex,
 			isImageGeneration,
+			usedRegion,
 		);
+
+		logger.info("[region-debug] Request resolved", {
+			provider: usedProvider,
+			model: usedModel,
+			region: usedRegion ?? "default",
+			endpoint: url,
+			tokenSource: providerKey ? "db-provider-key" : "env-var",
+		});
 	} catch (error) {
 		if (usedProvider === "llmgateway" && usedModel !== "custom") {
 			throw new HTTPException(400, {
