@@ -309,8 +309,11 @@ describe("videos", () => {
 	test("/v1/videos uses routing metrics to pick the best eligible provider", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		const originalGoogleVertexVideoOutputBucket =
+			process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
 		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
 		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+		process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET = "vertex-test-bucket";
 
 		try {
 			await db.insert(tables.apiKey).values({
@@ -385,6 +388,12 @@ describe("videos", () => {
 				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
 			} else {
 				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+			if (originalGoogleVertexVideoOutputBucket !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET =
+					originalGoogleVertexVideoOutputBucket;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
 			}
 		}
 	});
