@@ -322,6 +322,8 @@ export interface ModelWithPricing {
 		supportedParameters?: string[];
 		modelName: string;
 		discount?: number;
+		region?: string;
+		stability?: string;
 	}>;
 }
 

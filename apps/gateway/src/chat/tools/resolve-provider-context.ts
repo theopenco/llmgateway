@@ -18,7 +18,7 @@ import {
 	type OpenAIRequestBody,
 	type OpenAIToolInput,
 	type Provider,
-	type ProviderModelMapping,
+	type ProviderDefinition,
 	type ProviderRequestBody,
 	providers,
 	type ToolChoiceType,
@@ -183,8 +183,21 @@ export async function resolveProviderContext(
 		(p) =>
 			p.providerId === usedProvider &&
 			p.modelName === usedModel &&
-			(p as ProviderModelMapping).region === usedRegion,
+			p.region === usedRegion,
 	);
+
+	// --- Region validation ---
+	if (usedRegion) {
+		const providerDef = providers.find((p) => p.id === usedProvider) as
+			| ProviderDefinition
+			| undefined;
+		const validRegions = providerDef?.regionConfig?.regions;
+		if (validRegions && !validRegions.some((r) => r.id === usedRegion)) {
+			throw new HTTPException(400, {
+				message: `Model ${usedModel} is not available in region "${usedRegion}". Available regions: ${validRegions.map((r) => r.id).join(", ")}`,
+			});
+		}
+	}
 
 	// Override token with region-specific env var if available (credits/hybrid mode)
 	if (usedRegion && !providerKey) {
@@ -195,13 +208,11 @@ export async function resolveProviderContext(
 	}
 
 	// --- Check if model supports reasoning (from selected provider, not any) ---
-	const supportsReasoning =
-		(providerMappingForSelected as ProviderModelMapping)?.reasoning === true;
+	const supportsReasoning = providerMappingForSelected?.reasoning === true;
 
 	// --- Image generation check ---
 	const isImageGeneration =
-		(providerMappingForSelected as ProviderModelMapping)?.imageGenerations ===
-		true;
+		providerMappingForSelected?.imageGenerations === true;
 
 	// --- URL resolution ---
 	const url = getProviderEndpoint(
@@ -237,8 +248,7 @@ export async function resolveProviderContext(
 	let presence_penalty = originalParams.presence_penalty;
 
 	if (providerMappingForSelected) {
-		const supported = (providerMappingForSelected as ProviderModelMapping)
-			.supportedParameters;
+		const supported = providerMappingForSelected.supportedParameters;
 		if (supported && supported.length > 0) {
 			if (temperature !== undefined && !supported.includes("temperature")) {
 				temperature = undefined;
@@ -273,9 +283,7 @@ export async function resolveProviderContext(
 
 	// --- max_tokens validation ---
 	if (max_tokens !== undefined && providerMappingForSelected) {
-		const effectiveMaxOutput = (
-			providerMappingForSelected as ProviderModelMapping
-		).maxOutput;
+		const effectiveMaxOutput = providerMappingForSelected.maxOutput;
 		if (effectiveMaxOutput !== undefined) {
 			if (max_tokens > effectiveMaxOutput) {
 				// Silently cap to max output instead of throwing on retry

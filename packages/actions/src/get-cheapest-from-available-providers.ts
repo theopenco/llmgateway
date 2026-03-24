@@ -1,7 +1,6 @@
 import { type ProviderMetrics, metricsKey } from "@llmgateway/db";
 import {
 	getProviderDefinition,
-	type ProviderModelMapping,
 	type AvailableModelProvider,
 	type ModelWithPricing,
 } from "@llmgateway/models";
@@ -129,13 +128,9 @@ export function getCheapestFromAvailableProviders<
 	const stableProviders = availableModelProviders.filter((provider) => {
 		const providerInfo = modelWithPricing.providers.find(
 			(p) =>
-				p.providerId === provider.providerId &&
-				(p as ProviderModelMapping).region === provider.region,
+				p.providerId === provider.providerId && p.region === provider.region,
 		);
-		const providerStability =
-			providerInfo && "stability" in providerInfo
-				? (providerInfo as ProviderModelMapping).stability
-				: undefined;
+		const providerStability = providerInfo?.stability;
 		const modelStability =
 			"stability" in modelWithPricing
 				? (modelWithPricing as { stability?: string }).stability
@@ -179,10 +174,9 @@ export function getCheapestFromAvailableProviders<
 	for (const provider of stableProviders) {
 		const providerInfo = modelWithPricing.providers.find(
 			(p) =>
-				p.providerId === provider.providerId &&
-				(p as ProviderModelMapping).region === provider.region,
+				p.providerId === provider.providerId && p.region === provider.region,
 		);
-		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
+		const discount = providerInfo?.discount ?? 0;
 		const discountMultiplier = 1 - discount;
 		const price =
 			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
@@ -345,10 +339,9 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	for (const provider of stableProviders) {
 		const providerInfo = modelWithPricing.providers.find(
 			(p) =>
-				p.providerId === provider.providerId &&
-				(p as ProviderModelMapping).region === provider.region,
+				p.providerId === provider.providerId && p.region === provider.region,
 		);
-		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
+		const discount = providerInfo?.discount ?? 0;
 		const discountMultiplier = 1 - discount;
 		const totalPrice =
 			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /

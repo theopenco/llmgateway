@@ -6923,6 +6923,7 @@ export interface operations {
                                 modelId: string;
                                 providerId: string;
                                 modelName: string;
+                                region: string | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;
                                 cachedInputPrice: string | null;

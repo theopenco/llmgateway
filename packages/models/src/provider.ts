@@ -125,3 +125,19 @@ export function getRegionSpecificEnvValue(
 		process.env[`${baseEnvVar}__${regionSuffix}`] ?? process.env[baseEnvVar]
 	);
 }
+
+/**
+ * Check whether a dedicated env var exists for a specific region
+ * (i.e. `{BASE_ENV_VAR}__{REGION}`), WITHOUT falling back to the base key.
+ */
+export function hasRegionSpecificEnvKey(
+	provider: Provider,
+	region: string,
+): boolean {
+	const baseEnvVar = getProviderEnvVar(provider);
+	if (!baseEnvVar) {
+		return false;
+	}
+	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	return Boolean(process.env[`${baseEnvVar}__${regionSuffix}`]);
+}

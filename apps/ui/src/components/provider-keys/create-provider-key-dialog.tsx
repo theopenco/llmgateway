@@ -160,14 +160,7 @@ export function CreateProviderKeyDialog({
 			token: string;
 			name?: string;
 			baseUrl?: string;
-			options?: {
-				aws_bedrock_region_prefix?: "us." | "global." | "eu.";
-				azure_resource?: string;
-				azure_api_version?: string;
-				azure_deployment_type?: "openai" | "ai-foundry";
-				azure_validation_model?: string;
-				[key: string]: string | undefined;
-			};
+			options?: Record<string, string | undefined>;
 			organizationId: string;
 		} = {
 			provider: selectedProvider,

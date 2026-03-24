@@ -100,7 +100,6 @@ export async function calculateCosts(
 	inputImageCount = 0,
 	webSearchCount: number | null = null,
 	organizationId: string | null = null,
-	region: string | null = null,
 ) {
 	// Find the model info - try both base model name and provider model name
 	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
@@ -251,8 +250,6 @@ export async function calculateCosts(
 	}
 
 	// Get pricing based on token count (supports tiered pricing)
-	// Each region is now a separate provider mapping with its own pricing,
-	// so no region-specific lookup is needed here.
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
 		providerInfo.inputPrice ?? 0,

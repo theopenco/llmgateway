@@ -100,10 +100,7 @@ export async function syncProvidersAndModels() {
 			if (modelDef.providers && modelDef.providers.length > 0) {
 				const expandedProviders = expandAllProviderRegions(modelDef.providers);
 				for (const mapping of expandedProviders) {
-					const mappingRegion =
-						"region" in mapping
-							? (mapping.region as string | undefined)
-							: undefined;
+					const mappingRegion = mapping.region;
 					const mappings = await database
 						.select()
 						.from(modelProviderMapping)

@@ -58,9 +58,11 @@ import {
 	getModelStreamingSupport,
 	hasMaxTokens,
 	hasProviderEnvironmentToken,
+	hasRegionSpecificEnvKey,
 	type ModelDefinition,
 	models,
 	type Provider,
+	type ProviderDefinition,
 	type ProviderModelMapping,
 	type ProviderRequestBody,
 	providers,
@@ -114,6 +116,36 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+
+/**
+ * Filter expanded region entries to only those with available API keys.
+ * - Non-regional mappings (no region) pass through unchanged.
+ * - The default region for a provider always passes (uses the base env key).
+ * - Non-default regions only pass if a region-specific env key exists
+ *   (e.g. LLM_ALIBABA_API_KEY__US_VIRGINIA).
+ */
+function filterRegionsByAvailableKeys(
+	expandedProviders: ProviderModelMapping[],
+): ProviderModelMapping[] {
+	return expandedProviders.filter((mapping) => {
+		if (!mapping.region) {
+			return true;
+		}
+		const providerDef = providers.find((p) => p.id === mapping.providerId) as
+			| ProviderDefinition
+			| undefined;
+		if (!providerDef?.regionConfig) {
+			return true;
+		}
+		if (mapping.region === providerDef.regionConfig.defaultRegion) {
+			return true;
+		}
+		return hasRegionSpecificEnvKey(
+			mapping.providerId as Provider,
+			mapping.region,
+		);
+	});
+}
 
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
@@ -455,7 +487,7 @@ chat.openapi(completions, async (c) => {
 		...modelInfoResult.modelInfo,
 		providers: expandAllProviderRegions(modelInfoResult.modelInfo.providers),
 	};
-	const allModelProviders = expandAllProviderRegions(
+	let allModelProviders = expandAllProviderRegions(
 		modelInfoResult.allModelProviders,
 	);
 	let requestedProvider = modelInfoResult.requestedProvider;
@@ -525,6 +557,16 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(410, {
 			message: "Project has been archived and is no longer accessible",
 		});
+	}
+
+	// In credits/hybrid mode, only keep regions that have env keys configured.
+	// This avoids wasting retries on regions where the base key won't work.
+	if (project.mode !== "api-keys") {
+		modelInfo = {
+			...modelInfo,
+			providers: filterRegionsByAvailableKeys(modelInfo.providers),
+		};
+		allModelProviders = filterRegionsByAvailableKeys(allModelProviders);
 	}
 
 	// Fetch organization for coding model restriction check and credit validation
@@ -782,9 +824,12 @@ chat.openapi(completions, async (c) => {
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
 			// Expand region entries into separate candidates for scoring
-			const expandedCandidateProviders = expandAllProviderRegions(
-				modelDef.providers,
-			);
+			const expandedCandidateProviders =
+				project.mode === "api-keys"
+					? expandAllProviderRegions(modelDef.providers)
+					: filterRegionsByAvailableKeys(
+							expandAllProviderRegions(modelDef.providers),
+						);
 			// Check if any of the model's providers are available
 			const availableModelProviders = expandedCandidateProviders.filter(
 				(provider) =>
@@ -796,10 +841,7 @@ chat.openapi(completions, async (c) => {
 			// Filter by context size requirement, reasoning capability, and deprecation status
 			const suitableProviders = availableModelProviders.filter((provider) => {
 				// Skip deprecated provider mappings
-				if (
-					(provider as ProviderModelMapping).deprecatedAt &&
-					now > (provider as ProviderModelMapping).deprecatedAt!
-				) {
+				if (provider.deprecatedAt && now > provider.deprecatedAt!) {
 					return false;
 				}
 
@@ -808,25 +850,19 @@ chat.openapi(completions, async (c) => {
 				const contextSizeMet = modelContextSize >= requiredContextSize;
 
 				// If no_reasoning is true, exclude reasoning models
-				if (
-					no_reasoning &&
-					(provider as ProviderModelMapping).reasoning === true
-				) {
+				if (no_reasoning && provider.reasoning === true) {
 					return false;
 				}
 
 				// Check reasoning capability if reasoning_effort is specified
-				if (
-					reasoning_effort !== undefined &&
-					(provider as ProviderModelMapping).reasoning !== true
-				) {
+				if (reasoning_effort !== undefined && provider.reasoning !== true) {
 					return false;
 				}
 
 				// Check reasoning.max_tokens support if specified
 				if (
 					reasoning_max_tokens !== undefined &&
-					(provider as ProviderModelMapping).reasoningMaxTokens !== true
+					provider.reasoningMaxTokens !== true
 				) {
 					return false;
 				}
@@ -834,16 +870,13 @@ chat.openapi(completions, async (c) => {
 				// Check tool capability if tools or tool_choice is specified
 				if (
 					(tools !== undefined || tool_choice !== undefined) &&
-					(provider as ProviderModelMapping).tools !== true
+					provider.tools !== true
 				) {
 					return false;
 				}
 
 				// Check web search capability if web search tool is requested
-				if (
-					webSearchTool &&
-					(provider as ProviderModelMapping).webSearch !== true
-				) {
+				if (webSearchTool && provider.webSearch !== true) {
 					return false;
 				}
 
@@ -852,20 +885,20 @@ chat.openapi(completions, async (c) => {
 					response_format?.type === "json_object" ||
 					response_format?.type === "json_schema"
 				) {
-					if ((provider as ProviderModelMapping).jsonOutput !== true) {
+					if (provider.jsonOutput !== true) {
 						return false;
 					}
 				}
 
 				// Check JSON schema output capability if json_schema response format is requested
 				if (response_format?.type === "json_schema") {
-					if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
+					if (provider.jsonOutputSchema !== true) {
 						return false;
 					}
 				}
 
 				// Check vision capability if images are present in messages
-				if (hasImages && (provider as ProviderModelMapping).vision !== true) {
+				if (hasImages && provider.vision !== true) {
 					return false;
 				}
 
@@ -893,7 +926,7 @@ chat.openapi(completions, async (c) => {
 			const metricsCombinations = selectedProviders.map((p) => ({
 				modelId: selectedModel.id,
 				providerId: p.providerId,
-				region: (p as ProviderModelMapping).region,
+				region: p.region,
 			}));
 			const metricsMap =
 				await getProviderMetricsForCombinations(metricsCombinations);
@@ -907,7 +940,7 @@ chat.openapi(completions, async (c) => {
 			if (cheapestResult) {
 				usedProvider = cheapestResult.provider.providerId;
 				usedModel = cheapestResult.provider.modelName;
-				usedRegion = (cheapestResult.provider as ProviderModelMapping).region;
+				usedRegion = cheapestResult.provider.region;
 				routingMetadata = {
 					...cheapestResult.metadata,
 					...(noFallback ? { noFallback: true } : {}),
@@ -1039,7 +1072,7 @@ chat.openapi(completions, async (c) => {
 						}
 						// If web search tool is requested, only include providers that support it
 						if (webSearchTool) {
-							if ((provider as ProviderModelMapping).webSearch !== true) {
+							if (provider.webSearch !== true) {
 								return false;
 							}
 						}
@@ -1048,23 +1081,18 @@ chat.openapi(completions, async (c) => {
 							response_format?.type === "json_object" ||
 							response_format?.type === "json_schema"
 						) {
-							if ((provider as ProviderModelMapping).jsonOutput !== true) {
+							if (provider.jsonOutput !== true) {
 								return false;
 							}
 						}
 						// If JSON schema output is requested, only include providers that support it
 						if (response_format?.type === "json_schema") {
-							if (
-								(provider as ProviderModelMapping).jsonOutputSchema !== true
-							) {
+							if (provider.jsonOutputSchema !== true) {
 								return false;
 							}
 						}
 						// If images are present in messages, only include providers that support vision
-						if (
-							hasImages &&
-							(provider as ProviderModelMapping).vision !== true
-						) {
+						if (hasImages && provider.vision !== true) {
 							return false;
 						}
 						return true;
@@ -1079,7 +1107,7 @@ chat.openapi(completions, async (c) => {
 						const metricsCombinations = availableModelProviders.map((p) => ({
 							modelId: modelWithPricing.id,
 							providerId: p.providerId,
-							region: (p as ProviderModelMapping).region,
+							region: p.region,
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
@@ -1089,11 +1117,7 @@ chat.openapi(completions, async (c) => {
 						const betterUptimeProviders = availableModelProviders.filter(
 							(p) => {
 								const providerMetrics = allMetricsMap.get(
-									metricsKey(
-										modelWithPricing.id,
-										p.providerId,
-										(p as ProviderModelMapping).region,
-									),
+									metricsKey(modelWithPricing.id, p.providerId, p.region),
 								);
 								// If no metrics, assume the provider is healthy (100% uptime)
 								// If has metrics, only include if uptime is better than original
@@ -1170,11 +1194,11 @@ chat.openapi(completions, async (c) => {
 			let selectedMapping;
 			if (reasoning_effort !== undefined) {
 				selectedMapping = sameProviderMappings.find(
-					(p) => (p as ProviderModelMapping).reasoning === true,
+					(p) => p.reasoning === true,
 				);
 			} else {
 				selectedMapping = sameProviderMappings.find(
-					(p) => (p as ProviderModelMapping).reasoning !== true,
+					(p) => p.reasoning !== true,
 				);
 			}
 			if (selectedMapping) {
@@ -1193,8 +1217,7 @@ chat.openapi(completions, async (c) => {
 		if (iamFilteredModelProviders.length === 1) {
 			usedProvider = iamFilteredModelProviders[0].providerId;
 			usedModel = iamFilteredModelProviders[0].modelName;
-			usedRegion = (iamFilteredModelProviders[0] as ProviderModelMapping)
-				.region;
+			usedRegion = iamFilteredModelProviders[0].region;
 		} else {
 			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
@@ -1220,7 +1243,7 @@ chat.openapi(completions, async (c) => {
 					}
 					// If web search tool is requested, only include providers that support it
 					if (webSearchTool) {
-						if ((provider as ProviderModelMapping).webSearch !== true) {
+						if (provider.webSearch !== true) {
 							return false;
 						}
 					}
@@ -1229,23 +1252,23 @@ chat.openapi(completions, async (c) => {
 						response_format?.type === "json_object" ||
 						response_format?.type === "json_schema"
 					) {
-						if ((provider as ProviderModelMapping).jsonOutput !== true) {
+						if (provider.jsonOutput !== true) {
 							return false;
 						}
 					}
 					// If JSON schema output is requested, also include providers that support it
 					if (response_format?.type === "json_schema") {
-						if ((provider as ProviderModelMapping).jsonOutputSchema !== true) {
+						if (provider.jsonOutputSchema !== true) {
 							return false;
 						}
 					}
 					// If images are present in messages, only include providers that support vision
-					if (hasImages && (provider as ProviderModelMapping).vision !== true) {
+					if (hasImages && provider.vision !== true) {
 						return false;
 					}
 					// If reasoning_effort is specified, only include providers with reasoning support
 					if (reasoning_effort !== undefined) {
-						if ((provider as ProviderModelMapping).reasoning !== true) {
+						if (provider.reasoning !== true) {
 							return false;
 						}
 					}
@@ -1254,13 +1277,9 @@ chat.openapi(completions, async (c) => {
 					if (reasoning_effort === undefined) {
 						const hasNonReasoningAlternative = modelInfo.providers.some(
 							(p) =>
-								p.providerId === provider.providerId &&
-								(p as ProviderModelMapping).reasoning !== true,
+								p.providerId === provider.providerId && p.reasoning !== true,
 						);
-						if (
-							hasNonReasoningAlternative &&
-							(provider as ProviderModelMapping).reasoning === true
-						) {
+						if (hasNonReasoningAlternative && provider.reasoning === true) {
 							return false;
 						}
 					}
@@ -1288,7 +1307,7 @@ chat.openapi(completions, async (c) => {
 				const metricsCombinations = availableModelProviders.map((p) => ({
 					modelId: modelWithPricing.id,
 					providerId: p.providerId,
-					region: (p as ProviderModelMapping).region,
+					region: p.region,
 				}));
 				const metricsMap =
 					await getProviderMetricsForCombinations(metricsCombinations);
@@ -1302,7 +1321,7 @@ chat.openapi(completions, async (c) => {
 				if (cheapestResult) {
 					usedProvider = cheapestResult.provider.providerId;
 					usedModel = cheapestResult.provider.modelName;
-					usedRegion = (cheapestResult.provider as ProviderModelMapping).region;
+					usedRegion = cheapestResult.provider.region;
 					routingMetadata = {
 						...cheapestResult.metadata,
 						...(noFallback ? { noFallback: true } : {}),
@@ -1310,14 +1329,12 @@ chat.openapi(completions, async (c) => {
 				} else {
 					usedProvider = availableModelProviders[0].providerId;
 					usedModel = availableModelProviders[0].modelName;
-					usedRegion = (availableModelProviders[0] as ProviderModelMapping)
-						.region;
+					usedRegion = availableModelProviders[0].region;
 				}
 			} else {
 				usedProvider = availableModelProviders[0].providerId;
 				usedModel = availableModelProviders[0].modelName;
-				usedRegion = (availableModelProviders[0] as ProviderModelMapping)
-					.region;
+				usedRegion = availableModelProviders[0].region;
 			}
 		}
 	}
@@ -1352,7 +1369,7 @@ chat.openapi(completions, async (c) => {
 			const metricsCombinations = allModelProviders.map((p) => ({
 				modelId: baseModelId,
 				providerId: p.providerId,
-				region: (p as ProviderModelMapping).region,
+				region: p.region,
 			}));
 			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
@@ -1360,11 +1377,7 @@ chat.openapi(completions, async (c) => {
 		// Build provider scores for all providers (including deactivated) with default values for missing metrics
 		const allProviderScores = allModelProviders.map((p) => {
 			const metrics = metricsMap.get(
-				metricsKey(
-					baseModelId,
-					p.providerId,
-					(p as ProviderModelMapping).region,
-				),
+				metricsKey(baseModelId, p.providerId, p.region),
 			);
 			const price = (p.inputPrice ?? 0) + (p.outputPrice ?? 0);
 			const isSelected = p.providerId === usedProvider;
@@ -1389,10 +1402,11 @@ chat.openapi(completions, async (c) => {
 
 	// Update baseModelName to match the final usedModel after routing
 	// Find the model definition that corresponds to the final usedModel
-	let finalModelInfo;
+	let finalModelInfo: ModelDefinition | undefined;
 	if (usedProvider === "custom") {
 		finalModelInfo = {
-			model: usedModel,
+			id: usedModel,
+			family: "custom",
 			providers: [
 				{
 					providerId: "custom" as const,
@@ -1431,11 +1445,9 @@ chat.openapi(completions, async (c) => {
 		(p) =>
 			p.providerId === usedProvider &&
 			p.modelName === usedModel &&
-			(p as ProviderModelMapping).region === usedRegion,
+			p.region === usedRegion,
 	);
-	let isImageGeneration =
-		(imageGenProviderMapping as ProviderModelMapping)?.imageGenerations ===
-		true;
+	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 
 	// Create the model mapping values according to new schema
 	let usedModelMapping = usedModel; // Store the original provider model name
@@ -1451,7 +1463,7 @@ chat.openapi(completions, async (c) => {
 	) {
 		// Check if the selected model supports reasoning
 		const selectedModelSupportsReasoning = finalModelInfo.providers.some(
-			(provider) => (provider as ProviderModelMapping).reasoning === true,
+			(provider) => provider.reasoning === true,
 		);
 
 		if (selectedModelSupportsReasoning) {
@@ -1648,10 +1660,9 @@ chat.openapi(completions, async (c) => {
 		(p) =>
 			p.providerId === usedProvider &&
 			p.modelName === usedModel &&
-			(p as ProviderModelMapping).region === usedRegion,
+			p.region === usedRegion,
 	);
-	let supportsReasoning =
-		(selectedProviderMapping as ProviderModelMapping)?.reasoning === true;
+	let supportsReasoning = selectedProviderMapping?.reasoning === true;
 
 	// Check if messages contain existing tool calls or tool results
 	// If so, use Chat Completions API instead of Responses API
@@ -1846,7 +1857,6 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 					null, // webSearchCount
 					project.organizationId,
-					usedRegion ?? null,
 				);
 
 				await insertLog({
@@ -1997,7 +2007,6 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 					null, // webSearchCount
 					project.organizationId,
-					usedRegion ?? null,
 				);
 
 				// Estimate cached response size based on content to avoid expensive stringify
@@ -2075,7 +2084,7 @@ chat.openapi(completions, async (c) => {
 			(p) =>
 				p.providerId === usedProvider &&
 				p.modelName === usedModel &&
-				(p as ProviderModelMapping).region === usedRegion,
+				p.region === usedRegion,
 		);
 
 		if (
@@ -2113,12 +2122,11 @@ chat.openapi(completions, async (c) => {
 			(p) =>
 				p.providerId === usedProvider &&
 				p.modelName === usedModel &&
-				(p as ProviderModelMapping).region === usedRegion,
+				p.region === usedRegion,
 		);
 
 		if (providerMapping) {
-			const params = (providerMapping as ProviderModelMapping)
-				.supportedParameters;
+			const params = providerMapping.supportedParameters;
 			if (!params?.includes("effort")) {
 				throw new HTTPException(400, {
 					message: `Model ${usedModel} with provider ${usedProvider} does not support the effort parameter. Try using provider 'anthropic' instead.`,
@@ -2142,10 +2150,9 @@ chat.openapi(completions, async (c) => {
 			(p) =>
 				p.providerId === usedProvider &&
 				p.modelName === usedModel &&
-				(p as ProviderModelMapping).region === usedRegion,
+				p.region === usedRegion,
 		);
-		const supported = (providerMapping as ProviderModelMapping | undefined)
-			?.supportedParameters;
+		const supported = providerMapping?.supportedParameters;
 		if (supported && supported.length > 0) {
 			if (temperature !== undefined && !supported.includes("temperature")) {
 				temperature = undefined;
@@ -2293,7 +2300,7 @@ chat.openapi(completions, async (c) => {
 			(p) =>
 				p.providerId === usedProvider &&
 				p.modelName === usedModel &&
-				(p as ProviderModelMapping).region === usedRegion,
+				p.region === usedRegion,
 		);
 		if (
 			providerMapping &&
@@ -2717,7 +2724,6 @@ chat.openapi(completions, async (c) => {
 									inputImageCount,
 									webSearchTool ? 1 : null, // Bill for web search if it was enabled
 									project.organizationId,
-									usedRegion ?? null,
 								);
 							}
 
@@ -3734,7 +3740,6 @@ chat.openapi(completions, async (c) => {
 										inputImageCount,
 										webSearchCount,
 										project.organizationId,
-										usedRegion ?? null,
 									);
 
 									// Include costs in response for all users
@@ -4848,7 +4853,6 @@ chat.openapi(completions, async (c) => {
 									inputImageCount,
 									webSearchCount,
 									project.organizationId,
-									usedRegion ?? null,
 								);
 
 					// Use costs.promptTokens as canonical value (includes image input
@@ -5460,7 +5464,6 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 					webSearchTool ? 1 : null, // Bill for web search if it was enabled
 					project.organizationId,
-					usedRegion ?? null,
 				);
 			}
 
@@ -6200,7 +6203,6 @@ chat.openapi(completions, async (c) => {
 		inputImageCount,
 		webSearchCount,
 		project.organizationId,
-		usedRegion ?? null,
 	);
 
 	// Use costs.promptTokens as canonical value (includes image input
