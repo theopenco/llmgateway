@@ -259,6 +259,7 @@ describe("e2e individual tests", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
@@ -338,6 +339,7 @@ describe("e2e individual tests", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer ${creditsToken}`,
 				},
 				body: JSON.stringify({
@@ -385,6 +387,7 @@ describe("e2e individual tests", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
@@ -453,6 +456,7 @@ describe("e2e individual tests", () => {
 			headers: {
 				"Content-Type": "application/json",
 				"x-request-id": requestId,
+				"x-no-fallback": "true",
 				Authorization: `Bearer ${customToken}`,
 			},
 			body: JSON.stringify({
@@ -588,6 +592,7 @@ describe("e2e individual tests", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
@@ -663,6 +668,7 @@ describe("e2e individual tests", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
@@ -732,6 +738,7 @@ describe("e2e individual tests", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({

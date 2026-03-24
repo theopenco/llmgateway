@@ -17,7 +17,11 @@ import {
 import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
-import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	calculateDataStorageCost,
+	getUnifiedFinishReason,
+	insertLog as _insertLog,
+} from "@/lib/logs.js";
 import {
 	createCombinedSignal,
 	createStreamingCombinedSignal,
@@ -71,6 +75,10 @@ import {
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
+import {
+	checkContentFilter,
+	getContentFilterMode,
+} from "./tools/check-content-filter.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
@@ -92,6 +100,7 @@ import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
+import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
@@ -635,6 +644,136 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Check gateway-level content filter (keyword-based, configured via env var)
+	const contentFilterMode = getContentFilterMode();
+	const contentFilterMatch =
+		contentFilterMode !== "disabled"
+			? checkContentFilter(messages as BaseMessage[])
+			: null;
+
+	// In monitor mode, tag logs with internalContentFilter when the keyword
+	// filter would have blocked the request, so we can compare against upstream.
+	const shouldTagContentFilter =
+		contentFilterMode === "monitor" && contentFilterMatch;
+	const insertLog = shouldTagContentFilter
+		? (logData: Parameters<typeof _insertLog>[0]) =>
+				_insertLog({ ...logData, internalContentFilter: true })
+		: _insertLog;
+
+	if (contentFilterMode === "enabled" && contentFilterMatch) {
+		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
+		const contentFilterCreated = Math.floor(Date.now() / 1000);
+
+		// Log the filtered request
+		try {
+			await insertLog({
+				...createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					undefined,
+					"",
+					undefined,
+					"llmgateway",
+					requestedModel,
+					requestedProvider,
+					messages as any[],
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					undefined,
+					undefined,
+					effort as "low" | "medium" | "high" | undefined,
+					response_format,
+					tools,
+					tool_choice,
+					source,
+					customHeaders,
+					c.req.header("x-debug") === "true",
+					c.req.header("user-agent"),
+				),
+				content: null,
+				responseSize: 0,
+				finishReason: "llmgateway_content_filter",
+				unifiedFinishReason: "content_filter",
+				promptTokens: null,
+				completionTokens: null,
+				totalTokens: null,
+				reasoningTokens: null,
+				cachedTokens: null,
+				hasError: false,
+				streamed: !!stream,
+				canceled: false,
+				errorDetails: null,
+				duration: 0,
+				timeToFirstToken: null,
+				inputCost: 0,
+				outputCost: 0,
+				cachedInputCost: 0,
+				requestCost: 0,
+				webSearchCost: 0,
+				imageInputTokens: null,
+				imageOutputTokens: null,
+				imageInputCost: null,
+				imageOutputCost: null,
+				cost: 0,
+				estimatedCost: false,
+				discount: null,
+				pricingTier: null,
+				dataStorageCost: "0",
+			});
+		} catch {
+			// Silently ignore logging failures
+		}
+
+		if (stream) {
+			return streamSSE(c, async (sseStream) => {
+				const chunk = {
+					id: contentFilterResponseId,
+					object: "chat.completion.chunk",
+					created: contentFilterCreated,
+					model: requestedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: "content_filter",
+						},
+					],
+				};
+				await sseStream.writeSSE({
+					data: JSON.stringify(chunk),
+					id: "0",
+				});
+				await sseStream.writeSSE({ data: "[DONE]" });
+			});
+		}
+
+		return c.json({
+			id: contentFilterResponseId,
+			object: "chat.completion",
+			created: contentFilterCreated,
+			model: requestedModel,
+			choices: [
+				{
+					index: 0,
+					message: {
+						role: "assistant",
+						content: null,
+					},
+					finish_reason: "content_filter",
+				},
+			],
+			usage: {
+				prompt_tokens: 0,
+				completion_tokens: 0,
+				total_tokens: 0,
+			},
+		});
+	}
+
 	// Validate coding model restriction for dev plan personal orgs
 	// This check must happen BEFORE capability checks to give the right error message
 	if (
@@ -687,7 +826,7 @@ chat.openapi(completions, async (c) => {
 		modelInfo,
 	);
 	if (!iamValidation.allowed) {
-		throwIamException(iamValidation.reason!);
+		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
 	// IAM allowed providers - used to filter available providers during routing
 	const iamAllowedProviders = iamValidation.allowedProviders;
@@ -1001,11 +1140,12 @@ chat.openapi(completions, async (c) => {
 			modelInfo,
 		);
 		if (!resolvedIamValidation.allowed) {
-			throwIamException(resolvedIamValidation.reason!);
+			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
 		}
-		iamFilteredModelProviders = resolvedIamValidation.allowedProviders
+		const allowedProviders = resolvedIamValidation.allowedProviders;
+		iamFilteredModelProviders = allowedProviders
 			? modelInfo.providers.filter((p) =>
-					resolvedIamValidation.allowedProviders!.includes(p.providerId),
+					allowedProviders.includes(p.providerId),
 				)
 			: modelInfo.providers;
 	} else if (
@@ -1421,13 +1561,20 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	} else {
-		const rawFinalModelInfo = models.find(
-			(m) =>
-				m.id === usedModel ||
-				m.providers.some(
-					(p) => p.modelName === usedModel && p.providerId === usedProvider,
-				),
-		);
+		const rawFinalModelInfo =
+			models.find(
+				(m) =>
+					(m.id === usedModel ||
+						m.providers.some((p) => p.modelName === usedModel)) &&
+					m.providers.some((p) => p.providerId === usedProvider),
+			) ??
+			models.find(
+				(m) =>
+					m.id === usedModel ||
+					m.providers.some(
+						(p) => p.modelName === usedModel && p.providerId === usedProvider,
+					),
+			);
 		if (rawFinalModelInfo) {
 			finalModelInfo = {
 				...rawFinalModelInfo,
@@ -2563,6 +2710,10 @@ chat.openapi(completions, async (c) => {
 								requestedProvider,
 								usedModel,
 								initialRequestedModel,
+								unifiedFinishReason: getUnifiedFinishReason(
+									"upstream_error",
+									usedProvider,
+								),
 							});
 
 							// Log the timeout error in the database
@@ -2842,6 +2993,10 @@ chat.openapi(completions, async (c) => {
 								requestedProvider,
 								usedModel,
 								initialRequestedModel,
+								unifiedFinishReason: getUnifiedFinishReason(
+									"upstream_error",
+									usedProvider,
+								),
 							});
 
 							// Log the error in the database
@@ -3005,6 +3160,10 @@ chat.openapi(completions, async (c) => {
 								organizationId: project.organizationId,
 								projectId: apiKey.projectId,
 								apiKeyId: apiKey.id,
+								unifiedFinishReason: getUnifiedFinishReason(
+									finishReason,
+									usedProvider,
+								),
 							});
 						}
 
@@ -4358,6 +4517,10 @@ chat.openapi(completions, async (c) => {
 							requestedProvider,
 							usedModel,
 							initialRequestedModel,
+							unifiedFinishReason: getUnifiedFinishReason(
+								"upstream_error",
+								usedProvider,
+							),
 						});
 
 						try {
@@ -4400,9 +4563,48 @@ chat.openapi(completions, async (c) => {
 							},
 						};
 					} else {
-						logger.warn(
-							"Error reading stream",
+						const normalizedStreamingError = normalizeStreamingError({
+							error,
+							provider: usedProvider,
+							model: usedModel,
+							bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
+							phase: "upstream_read",
+						});
+
+						logger.error(
+							"Error reading upstream stream",
 							error instanceof Error ? error : new Error(String(error)),
+							{
+								requestId,
+								usedProvider,
+								requestedProvider,
+								usedModel,
+								initialRequestedModel,
+								upstreamStatus: res?.status ?? null,
+								upstreamStatusText: res?.statusText ?? null,
+								upstreamHeaders: res
+									? {
+											contentType: res.headers.get("content-type"),
+											contentLength: res.headers.get("content-length"),
+											transferEncoding: res.headers.get("transfer-encoding"),
+											requestId:
+												res.headers.get("x-request-id") ??
+												res.headers.get("request-id") ??
+												res.headers.get("openai-request-id"),
+										}
+									: null,
+								streamingDiagnostics: normalizedStreamingError.log.details,
+								timeToFirstToken,
+								timeToFirstReasoningToken,
+								firstTokenReceived,
+								firstReasoningTokenReceived,
+								unifiedFinishReason: getUnifiedFinishReason(
+									normalizedStreamingError.client.type === "gateway_error"
+										? "gateway_error"
+										: "upstream_error",
+									usedProvider,
+								),
+							},
 						);
 
 						// Forward the error to the client with the buffered content that caused the error
@@ -4410,14 +4612,7 @@ chat.openapi(completions, async (c) => {
 							await stream.writeSSE({
 								event: "error",
 								data: JSON.stringify({
-									error: {
-										message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
-										type: "gateway_error",
-										param: null,
-										code: "streaming_error",
-										// Include the buffer content that caused the parsing error
-										responseText: buffer.substring(0, 5000), // Limit to 5000 chars to avoid too large error messages
-									},
+									error: normalizedStreamingError.client,
 								}),
 								id: String(eventId++),
 							});
@@ -4436,20 +4631,7 @@ chat.openapi(completions, async (c) => {
 							);
 						}
 
-						// Create structured error object for logging
-						streamingError = {
-							message: error instanceof Error ? error.message : String(error),
-							type: "streaming_error",
-							code: "streaming_error",
-							details: {
-								name: error instanceof Error ? error.name : "UnknownError",
-								stack: error instanceof Error ? error.stack : undefined,
-								timestamp: new Date().toISOString(),
-								provider: usedProvider,
-								model: usedModel,
-								bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
-							},
-						};
+						streamingError = normalizedStreamingError.log;
 					}
 				} finally {
 					// Clean up the reader to prevent file descriptor leaks
@@ -4551,6 +4733,10 @@ chat.openapi(completions, async (c) => {
 						(!fullContent || fullContent.trim() === "") &&
 						(!streamingToolCalls || streamingToolCalls.length === 0);
 
+					let streamingCostsEarly:
+						| Awaited<ReturnType<typeof calculateCosts>>
+						| undefined;
+
 					if (hasEmptyResponse) {
 						logger.warn("[streaming] Empty response detected", {
 							provider: usedProvider,
@@ -4565,6 +4751,10 @@ chat.openapi(completions, async (c) => {
 							completionTokens,
 							totalTokens,
 							reasoningTokens,
+							unifiedFinishReason: getUnifiedFinishReason(
+								"upstream_error",
+								usedProvider,
+							),
 						});
 						const errorMessage =
 							"Response finished successfully but returned no content or tool calls";
@@ -4601,80 +4791,116 @@ chat.openapi(completions, async (c) => {
 							);
 						}
 					} else {
-						// Send final usage chunk if we need to send usage data
-						// This includes cases where:
-						// 1. No usage tokens were provided at all (all null)
-						// 2. Some tokens are missing (e.g., Google AI Studio doesn't provide completion tokens during streaming)
-						const needsUsageChunk =
-							(promptTokens === null &&
-								completionTokens === null &&
-								totalTokens === null &&
-								(calculatedPromptTokens !== null ||
-									calculatedCompletionTokens !== null)) ||
-							(completionTokens === null &&
-								calculatedCompletionTokens !== null);
-
-						if (needsUsageChunk) {
-							try {
-								const finalUsageChunk = {
-									id: `chatcmpl-${Date.now()}`,
-									object: "chat.completion.chunk",
-									created: Math.floor(Date.now() / 1000),
-									model: usedModel,
-									choices: [
+						// Calculate costs before sending usage chunk so we can include cost data
+						const billCancelledRequestsEarly = shouldBillCancelledRequests();
+						streamingCostsEarly =
+							canceled && !billCancelledRequestsEarly
+								? {
+										inputCost: null,
+										outputCost: null,
+										cachedInputCost: null,
+										requestCost: null,
+										webSearchCost: null,
+										imageInputTokens: null,
+										imageOutputTokens: null,
+										imageInputCost: null,
+										imageOutputCost: null,
+										totalCost: null,
+										promptTokens: null,
+										completionTokens: null,
+										cachedTokens: null,
+										estimatedCost: false,
+										discount: undefined,
+										pricingTier: undefined,
+									}
+								: await calculateCosts(
+										usedModel,
+										usedProvider,
+										calculatedPromptTokens,
+										calculatedCompletionTokens,
+										cachedTokens,
 										{
-											index: 0,
-											delta: {},
-											finish_reason: null,
+											prompt: messages
+												.map((m) => messageContentToString(m.content))
+												.join("\n"),
+											completion: fullContent,
+											toolResults: streamingToolCalls ?? undefined,
 										},
-									],
-									usage: (() => {
-										// Only add image input tokens for providers that
-										// exclude them from upstream usage (Google)
-										const providerExcludesImageInput =
-											usedProvider === "google-ai-studio" ||
-											usedProvider === "google-vertex" ||
-											usedProvider === "obsidian";
-										const imageInputAdj = providerExcludesImageInput
-											? inputImageCount * 560
-											: 0;
-										const adjPrompt = Math.max(
-											1,
-											Math.round(
-												promptTokens && promptTokens > 0
-													? promptTokens + imageInputAdj
-													: (calculatedPromptTokens ?? 1) + imageInputAdj,
-											),
-										);
-										const adjCompletion = Math.round(
-											completionTokens ?? calculatedCompletionTokens ?? 0,
-										);
-										return {
-											prompt_tokens: adjPrompt,
-											completion_tokens: adjCompletion,
-											total_tokens: Math.max(
-												1,
-												Math.round(adjPrompt + adjCompletion),
-											),
-											...(cachedTokens !== null && {
-												prompt_tokens_details: {
-													cached_tokens: cachedTokens,
-												},
-											}),
-										};
-									})(),
-								};
+										reasoningTokens,
+										outputImageCount,
+										image_config?.image_size,
+										inputImageCount,
+										webSearchCount,
+										project.organizationId,
+									);
 
-								await writeSSEAndCache({
-									data: JSON.stringify(finalUsageChunk),
-									id: String(eventId++),
-								});
-							} catch (error) {
-								logger.error(
-									"Error sending final usage chunk",
-									error instanceof Error ? error : new Error(String(error)),
-								);
-							}
+						// Always send final usage chunk with cost data for SDK compatibility
+						try {
+							const finalUsageChunk = {
+								id: `chatcmpl-${Date.now()}`,
+								object: "chat.completion.chunk",
+								created: Math.floor(Date.now() / 1000),
+								model: usedModel,
+								choices: [
+									{
+										index: 0,
+										delta: {},
+										finish_reason: null,
+									},
+								],
+								usage: (() => {
+									// Only add image input tokens for providers that
+									// exclude them from upstream usage (Google)
+									const providerExcludesImageInput =
+										usedProvider === "google-ai-studio" ||
+										usedProvider === "google-vertex" ||
+										usedProvider === "obsidian";
+									const imageInputAdj = providerExcludesImageInput
+										? inputImageCount * 560
+										: 0;
+									const adjPrompt = Math.max(
+										1,
+										Math.round(
+											promptTokens && promptTokens > 0
+												? promptTokens + imageInputAdj
+												: (calculatedPromptTokens ?? 1) + imageInputAdj,
+										),
+									);
+									const adjCompletion = Math.round(
+										completionTokens ?? calculatedCompletionTokens ?? 0,
+									);
+									return {
+										prompt_tokens: adjPrompt,
+										completion_tokens: adjCompletion,
+										total_tokens: Math.max(
+											1,
+											Math.round(adjPrompt + adjCompletion),
+										),
+										...(cachedTokens !== null && {
+											prompt_tokens_details: {
+												cached_tokens: cachedTokens,
+											},
+										}),
+										cost_usd_total: streamingCostsEarly.totalCost,
+										cost_usd_input: streamingCostsEarly.inputCost,
+										cost_usd_output: streamingCostsEarly.outputCost,
+										cost_usd_cached_input: streamingCostsEarly.cachedInputCost,
+										cost_usd_request: streamingCostsEarly.requestCost,
+										cost_usd_image_input: streamingCostsEarly.imageInputCost,
+										cost_usd_image_output: streamingCostsEarly.imageOutputCost,
+									};
+								})(),
+							};
+
+							await writeSSEAndCache({
+								data: JSON.stringify(finalUsageChunk),
+								id: String(eventId++),
+							});
+						} catch (error) {
+							logger.error(
+								"Error sending final usage chunk",
+								error instanceof Error ? error : new Error(String(error)),
+							);
 						}
 
 						// Send healed content if buffering was enabled
@@ -4810,12 +5036,12 @@ chat.openapi(completions, async (c) => {
 					// clearInterval is idempotent so calling it multiple times is safe
 					clearKeepalive();
 
-					// Check if we should bill cancelled requests
+					// Reuse costs calculated earlier (before usage chunk was sent)
+					// If we came through the error path (hasEmptyResponse), calculate now
 					const billCancelledRequests = shouldBillCancelledRequests();
-
-					// Calculate costs - for cancelled requests, only bill if env var is enabled
 					const costs =
-						canceled && !billCancelledRequests
+						streamingCostsEarly ??
+						(canceled && !billCancelledRequests
 							? {
 									inputCost: null,
 									outputCost: null,
@@ -4853,7 +5079,7 @@ chat.openapi(completions, async (c) => {
 									inputImageCount,
 									webSearchCount,
 									project.organizationId,
-								);
+								));
 
 					// Use costs.promptTokens as canonical value (includes image input
 					// tokens for providers that exclude them from upstream usage)
@@ -5290,6 +5516,10 @@ chat.openapi(completions, async (c) => {
 				requestedProvider,
 				usedModel,
 				initialRequestedModel,
+				unifiedFinishReason: getUnifiedFinishReason(
+					"upstream_error",
+					usedProvider,
+				),
 			});
 
 			// Log the error in the database
@@ -5586,6 +5816,10 @@ chat.openapi(completions, async (c) => {
 						usedModel,
 						status: res.status,
 						cause: bodyErrorCause,
+						unifiedFinishReason: getUnifiedFinishReason(
+							"upstream_error",
+							usedProvider,
+						),
 					});
 
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -5697,6 +5931,10 @@ chat.openapi(completions, async (c) => {
 					organizationId: project.organizationId,
 					projectId: apiKey.projectId,
 					apiKeyId: apiKey.id,
+					unifiedFinishReason: getUnifiedFinishReason(
+						finishReason,
+						usedProvider,
+					),
 				});
 			}
 
@@ -5964,6 +6202,10 @@ chat.openapi(completions, async (c) => {
 				usedModel,
 				initialRequestedModel,
 				cause: bodyReadCause,
+				unifiedFinishReason: getUnifiedFinishReason(
+					"upstream_error",
+					usedProvider,
+				),
 			});
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];

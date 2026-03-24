@@ -1,88 +1,19 @@
-import {
-	afterAll,
-	beforeEach,
-	beforeAll,
-	describe,
-	expect,
-	test,
-	vi,
-} from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
 import { app } from "./app.js";
-import {
-	startMockServer,
-	stopMockServer,
-} from "./test-utils/mock-openai-server.js";
-import { clearCache, waitForLogs, readAll } from "./test-utils/test-helpers.js";
+import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+import { readAll, waitForLogs } from "./test-utils/test-helpers.js";
 
-describe("test", () => {
-	let mockServerUrl: string;
+describe("api", () => {
+	const harness = createGatewayApiTestHarness({
+		mockServerPort: 3001,
+	});
+	let mockServerUrl = "";
 
-	// Start the mock OpenAI server and mock log insertion before all tests
 	beforeAll(() => {
-		// Start the mock OpenAI server
-		mockServerUrl = startMockServer(3001);
-	});
-
-	// Stop the mock server and restore mocks after all tests
-	afterAll(() => {
-		console.log("Stopping mock server...");
-		stopMockServer();
-	});
-
-	beforeEach(async () => {
-		await clearCache();
-
-		await Promise.all([
-			db.delete(tables.log),
-			db.delete(tables.apiKey),
-			db.delete(tables.providerKey),
-		]);
-
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-			db.delete(tables.session),
-			db.delete(tables.verification),
-		]);
-	});
-
-	beforeEach(async () => {
-		await db.insert(tables.user).values({
-			id: "user-id",
-			name: "user",
-			email: "user",
-		});
-
-		await db.insert(tables.organization).values({
-			id: "org-id",
-			name: "Test Organization",
-			billingEmail: "user",
-			plan: "pro",
-			retentionLevel: "retain",
-			credits: "100.00", // Add credits for retention storage costs
-		});
-
-		await db.insert(tables.userOrganization).values({
-			id: "user-org-id",
-			userId: "user-id",
-			organizationId: "org-id",
-		});
-
-		await db.insert(tables.project).values({
-			id: "project-id",
-			name: "Test Project",
-			organizationId: "org-id",
-			mode: "api-keys",
-		});
+		mockServerUrl = harness.mockServerUrl;
 	});
 
 	test("/", async () => {

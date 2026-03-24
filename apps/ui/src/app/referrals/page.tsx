@@ -462,18 +462,15 @@ export default function ReferralsPublicPage() {
 											{
 												name: "Lite",
 												price: "$29",
-												value: "$87 in usage",
 											},
 											{
 												name: "Pro",
 												price: "$79",
-												value: "$237 in usage",
 												popular: true,
 											},
 											{
 												name: "Max",
 												price: "$179",
-												value: "$537 in usage",
 											},
 										].map((plan) => (
 											<div
@@ -492,8 +489,7 @@ export default function ReferralsPublicPage() {
 													) : null}
 												</span>
 												<span className="text-muted-foreground">
-													{plan.price}/mo &rarr;{" "}
-													<span className="text-foreground">{plan.value}</span>
+													{plan.price}/mo
 												</span>
 											</div>
 										))}

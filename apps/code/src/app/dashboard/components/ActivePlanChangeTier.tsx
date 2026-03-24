@@ -21,27 +21,37 @@ export default function ActivePlanChangeTier({
 }: ActivePlanChangeTierProps) {
 	return (
 		<div>
-			<h3 className="font-semibold mb-4">Change Plan</h3>
-			<div className="grid md:grid-cols-3 gap-4">
+			<h2 className="mb-4 font-semibold">Change plan</h2>
+			<div className="grid gap-4 md:grid-cols-3">
 				{plans.map((plan) => {
-					const isCurrentPlan = currentPlan === plan.tier;
+					const isCurrent = currentPlan === plan.tier;
 					return (
 						<div
 							key={plan.tier}
-							className={`rounded-lg border p-4 ${isCurrentPlan ? "border-primary ring-2 ring-primary/20" : ""}`}
+							className={`flex flex-col rounded-xl border p-5 transition-shadow ${
+								isCurrent
+									? "border-foreground/20 ring-1 ring-foreground/5"
+									: "hover:shadow-sm"
+							}`}
 						>
-							<div className="flex items-center justify-between mb-2">
+							<div className="flex items-center justify-between mb-3">
 								<span className="font-medium">{plan.name}</span>
-								{isCurrentPlan && (
-									<span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded">
+								{isCurrent && (
+									<span className="rounded-md bg-foreground/10 px-2 py-0.5 text-[11px] font-medium">
 										Current
 									</span>
 								)}
 							</div>
-							<p className="text-2xl font-bold mb-4">${plan.price}/mo</p>
-							{!isCurrentPlan && (
+							<div className="mb-1 flex items-baseline gap-1">
+								<span className="text-2xl font-bold">${plan.price}</span>
+								<span className="text-sm text-muted-foreground">/mo</span>
+							</div>
+							<div className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+								<ArrowRight className="h-3 w-3" />${plan.usage} in usage
+							</div>
+							{!isCurrent && (
 								<Button
-									className="w-full"
+									className="w-full mt-auto"
 									variant="outline"
 									size="sm"
 									onClick={() => onChangeTier(plan.tier)}
@@ -51,7 +61,8 @@ export default function ActivePlanChangeTier({
 										<Loader2 className="h-4 w-4 animate-spin" />
 									) : (
 										<>
-											Switch <ArrowRight className="h-4 w-4 ml-1" />
+											Switch to {plan.name}
+											<ArrowRight className="ml-1 h-3.5 w-3.5" />
 										</>
 									)}
 								</Button>

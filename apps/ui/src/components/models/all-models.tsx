@@ -20,6 +20,7 @@ import {
 	ArrowUpDown,
 	ArrowUp,
 	ArrowDown,
+	Video,
 	ImagePlus,
 	ExternalLink,
 	Percent,
@@ -185,6 +186,13 @@ function computeCapabilities(
 			icon: ImagePlus,
 			label: "Image Generation",
 			color: "text-pink-500",
+		});
+	}
+	if (model?.output?.includes("video")) {
+		capabilities.push({
+			icon: Video,
+			label: "Video Generation",
+			color: "text-violet-500",
 		});
 	}
 	if (provider.webSearch) {
@@ -480,6 +488,7 @@ export function AllModels({
 			jsonOutput: searchParams.get("jsonOutput") === "true",
 			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
+			videoGeneration: searchParams.get("videoGeneration") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -732,6 +741,12 @@ export function AllModels({
 			if (
 				filters.capabilities.imageGeneration &&
 				!model.output?.includes("image")
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.videoGeneration &&
+				!model.output?.includes("video")
 			) {
 				return false;
 			}
@@ -1209,6 +1224,13 @@ export function AllModels({
 				color: "text-pink-500",
 			});
 		}
+		if (model?.output?.includes("video")) {
+			capabilities.push({
+				icon: Video,
+				label: "Video Generation",
+				color: "text-violet-500",
+			});
+		}
 		if (provider.webSearch) {
 			capabilities.push({
 				icon: Globe,
@@ -1232,6 +1254,7 @@ export function AllModels({
 				jsonOutput: false,
 				jsonOutputSchema: false,
 				imageGeneration: false,
+				videoGeneration: false,
 				webSearch: false,
 				free: false,
 				discounted: false,
@@ -1255,6 +1278,7 @@ export function AllModels({
 			jsonOutput: undefined,
 			jsonOutputSchema: undefined,
 			imageGeneration: undefined,
+			videoGeneration: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
@@ -1403,6 +1427,12 @@ export function AllModels({
 									label: "Image Gen",
 									icon: ImagePlus,
 									color: "text-pink-500",
+								},
+								{
+									key: "videoGeneration",
+									label: "Video Gen",
+									icon: Video,
+									color: "text-violet-500",
 								},
 								{
 									key: "webSearch",

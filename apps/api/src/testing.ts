@@ -154,6 +154,10 @@ function getCommonAggregationFields() {
 			sql<number>`coalesce(sum(${tables.log.imageOutputCost}), 0)`.as(
 				"imageOutputCost",
 			),
+		videoOutputCost:
+			sql<number>`coalesce(sum(${tables.log.videoOutputCost}), 0)`.as(
+				"videoOutputCost",
+			),
 		cachedInputCost:
 			sql<number>`coalesce(sum(${tables.log.cachedInputCost}), 0)`.as(
 				"cachedInputCost",

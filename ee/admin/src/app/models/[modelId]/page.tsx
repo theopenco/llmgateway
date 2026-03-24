@@ -6,47 +6,17 @@ import { ModelDetailClient } from "@/components/model-detail-client";
 import { Button } from "@/components/ui/button";
 import { createServerApiClient } from "@/lib/server-api";
 
-import type { HistoryWindow } from "@/components/history-chart";
-
-const validHistoryWindows = new Set<HistoryWindow>([
-	"1m",
-	"2m",
-	"5m",
-	"15m",
-	"1h",
-	"2h",
-	"4h",
-	"12h",
-	"24h",
-	"2d",
-	"7d",
-]);
-
-function parseHistoryWindow(value?: string): HistoryWindow {
-	if (value && validHistoryWindows.has(value as HistoryWindow)) {
-		return value as HistoryWindow;
-	}
-	return "4h";
-}
-
 export default async function ModelDetailPage({
 	params,
-	searchParams,
 }: {
 	params: Promise<{ modelId: string }>;
-	searchParams: Promise<{ window?: string }>;
 }) {
 	const { modelId } = await params;
-	const { window: rawWindow } = await searchParams;
 	const decodedModelId = decodeURIComponent(modelId);
-	const window = parseHistoryWindow(rawWindow);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/models/{modelId}", {
-		params: {
-			path: { modelId: encodeURIComponent(decodedModelId) },
-			query: { window },
-		},
+		params: { path: { modelId: encodeURIComponent(decodedModelId) } },
 	});
 
 	if (!data) {
@@ -81,7 +51,6 @@ export default async function ModelDetailPage({
 				<ModelDetailClient
 					modelId={decodedModelId}
 					allTimeStats={model}
-					initialWindow={window}
 					providers={providers}
 				/>
 			</Suspense>

@@ -319,6 +319,7 @@ export interface ModelWithPricing {
 		providerId: string;
 		inputPrice?: number;
 		outputPrice?: number;
+		perSecondPrice?: Record<string, number>;
 		supportedParameters?: string[];
 		modelName: string;
 		discount?: number;

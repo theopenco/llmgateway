@@ -70,6 +70,9 @@ interface ModelSelectorProps {
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
+	mode?: "chat" | "video";
+	isOptionDisabled?: (value: string) => boolean;
+	getOptionDisabledReason?: (value: string) => string | undefined;
 }
 
 interface FilterState {
@@ -373,12 +376,65 @@ function getRootAggregateInfo(model: ApiModel): RootAggregateInfo {
 
 // Removed old ModelItem; we render entries per provider below
 
+function formatPerSecondPrice(perSecondPrice: Record<string, string>): string {
+	const defaultAudio = perSecondPrice["default_audio"];
+	const defaultVideo = perSecondPrice["default_video"];
+	const defaultPrice = perSecondPrice["default"];
+	if (defaultAudio && defaultVideo) {
+		return `$${defaultVideo} – $${defaultAudio}/sec`;
+	}
+	if (defaultPrice) {
+		return `$${defaultPrice}/sec`;
+	}
+	const firstValue = Object.values(perSecondPrice)[0];
+	return firstValue ? `$${firstValue}/sec` : "Unknown";
+}
+
+function getMinPerSecondPrice(
+	mappings: ApiModelProviderMapping[],
+): string | null {
+	let min: number | null = null;
+	for (const m of mappings) {
+		if (!m.perSecondPrice) {
+			continue;
+		}
+		for (const v of Object.values(m.perSecondPrice)) {
+			const n = parseFloat(v);
+			if (Number.isFinite(n) && (min === null || n < min)) {
+				min = n;
+			}
+		}
+	}
+	return min !== null ? `$${min}/sec` : null;
+}
+
+function getMaxPerSecondPrice(
+	mappings: ApiModelProviderMapping[],
+): string | null {
+	let max: number | null = null;
+	for (const m of mappings) {
+		if (!m.perSecondPrice) {
+			continue;
+		}
+		for (const v of Object.values(m.perSecondPrice)) {
+			const n = parseFloat(v);
+			if (Number.isFinite(n) && (max === null || n > max)) {
+				max = n;
+			}
+		}
+	}
+	return max !== null ? `$${max}/sec` : null;
+}
+
 export function ModelSelector({
 	models,
 	providers,
 	value,
 	onValueChange,
 	placeholder = "Select model...",
+	mode = "chat",
+	isOptionDisabled,
+	getOptionDisabledReason,
 }: ModelSelectorProps) {
 	const [open, setOpen] = React.useState(false);
 	const [filterOpen, setFilterOpen] = React.useState(false);
@@ -462,8 +518,9 @@ export function ModelSelector({
 
 			// Add root model entry (auto-routing)
 			// Only include "auto" in search text for the actual auto model
+			const aliasText = m.aliases?.join(" ") ?? "";
 			const rootSearchText = normalize(
-				[m.name ?? "", m.family ?? "", m.id].join(" "),
+				[m.name ?? "", m.family ?? "", m.id, aliasText].join(" "),
 			);
 			out.push({
 				model: m,
@@ -482,9 +539,13 @@ export function ModelSelector({
 				if (!isDeactivated) {
 					const provider = providers.find((p) => p.id === mp.providerId);
 					const searchText = normalize(
-						[m.name ?? "", m.family ?? "", m.id, provider?.name ?? ""].join(
-							" ",
-						),
+						[
+							m.name ?? "",
+							m.family ?? "",
+							m.id,
+							provider?.name ?? "",
+							aliasText,
+						].join(" "),
 					);
 					out.push({
 						model: m,
@@ -982,17 +1043,31 @@ export function ModelSelector({
 											({ model, mapping, provider, isRoot }, index) => {
 												if (isRoot) {
 													const entryKey = model.id;
+													const disabled =
+														isOptionDisabled?.(entryKey) ?? false;
+													const disabledReason =
+														getOptionDisabledReason?.(entryKey);
 													const _aggregate = getRootAggregateInfo(model);
 													const hasRequestPrice = model.mappings.some(
 														(p) =>
 															p.requestPrice && parseFloat(p.requestPrice) > 0,
 													);
 													const isFreeRoot =
-														model.free === true && !hasRequestPrice;
+														model.free === true &&
+														!hasRequestPrice &&
+														model.mappings.every(
+															(p) =>
+																(!p.inputPrice ||
+																	parseFloat(p.inputPrice) === 0) &&
+																(!p.outputPrice ||
+																	parseFloat(p.outputPrice) === 0),
+														);
 													return (
 														<CommandItem
 															key={`${entryKey}-${index}`}
 															value={entryKey}
+															disabled={disabled}
+															title={disabledReason}
 															onMouseEnter={() =>
 																setPreviewEntry({
 																	model,
@@ -1002,10 +1077,18 @@ export function ModelSelector({
 																})
 															}
 															onSelect={() => {
+																if (disabled) {
+																	return;
+																}
 																onValueChange?.(model.id);
 																setOpen(false);
 															}}
-															className="p-2 sm:p-3 cursor-pointer"
+															className={cn(
+																"p-2 sm:p-3",
+																disabled
+																	? "cursor-not-allowed opacity-50"
+																	: "cursor-pointer",
+															)}
 														>
 															<Check
 																className={cn(
@@ -1028,7 +1111,7 @@ export function ModelSelector({
 																			)}
 																		</div>
 																		<span className="text-xs text-muted-foreground truncate">
-																			Auto-select provider
+																			{disabledReason ?? "Auto-select provider"}
 																		</span>
 																	</div>
 																</div>
@@ -1055,6 +1138,11 @@ export function ModelSelector({
 													? getProviderIcon(provider.id)
 													: null;
 												const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
+												const providerModelValue = `${mapping!.providerId}/${model.id}`;
+												const disabled =
+													isOptionDisabled?.(providerModelValue) ?? false;
+												const disabledReason =
+													getOptionDisabledReason?.(providerModelValue);
 												const isUnstable = isModelUnstable(mapping!, model);
 												const isDeprecated =
 													mapping!.deprecatedAt &&
@@ -1063,11 +1151,18 @@ export function ModelSelector({
 													mapping!.requestPrice &&
 													parseFloat(mapping!.requestPrice) > 0;
 												const isFreeMapping =
-													model.free === true && !hasRequestPrice;
+													model.free === true &&
+													!hasRequestPrice &&
+													(!mapping!.inputPrice ||
+														parseFloat(mapping!.inputPrice) === 0) &&
+													(!mapping!.outputPrice ||
+														parseFloat(mapping!.outputPrice) === 0);
 												return (
 													<CommandItem
 														key={entryKey}
 														value={entryKey}
+														disabled={disabled}
+														title={disabledReason}
 														onMouseEnter={() =>
 															setPreviewEntry({
 																model,
@@ -1077,12 +1172,18 @@ export function ModelSelector({
 															})
 														}
 														onSelect={() => {
-															onValueChange?.(
-																`${mapping!.providerId}/${model.id}`,
-															);
+															if (disabled) {
+																return;
+															}
+															onValueChange?.(providerModelValue);
 															setOpen(false);
 														}}
-														className="p-2 sm:p-3 cursor-pointer"
+														className={cn(
+															"p-2 sm:p-3",
+															disabled
+																? "cursor-not-allowed opacity-50"
+																: "cursor-pointer",
+														)}
 													>
 														<Check
 															className={cn(
@@ -1110,7 +1211,7 @@ export function ModelSelector({
 																		)}
 																	</div>
 																	<span className="text-xs text-muted-foreground truncate">
-																		{provider?.name}
+																		{disabledReason ?? provider?.name}
 																	</span>
 																</div>
 															</div>
@@ -1196,17 +1297,27 @@ export function ModelSelector({
 														previewEntry.model,
 													);
 
-													const hasPricingOrLimits =
-														aggregate.minInputPrice !== undefined ||
-														aggregate.minOutputPrice !== undefined ||
-														aggregate.maxContextSize !== undefined ||
-														aggregate.maxOutput !== undefined;
+													const isVideo = mode === "video";
+													const minPerSec = isVideo
+														? getMinPerSecondPrice(previewEntry.model.mappings)
+														: null;
+													const maxPerSec = isVideo
+														? getMaxPerSecondPrice(previewEntry.model.mappings)
+														: null;
+
+													const hasPricingOrLimits = isVideo
+														? minPerSec !== null
+														: aggregate.minInputPrice !== undefined ||
+															aggregate.minOutputPrice !== undefined ||
+															aggregate.maxContextSize !== undefined ||
+															aggregate.maxOutput !== undefined;
 
 													const hasImagePricing =
-														(aggregate.minRequestPrice !== undefined &&
+														!isVideo &&
+														((aggregate.minRequestPrice !== undefined &&
 															aggregate.minRequestPrice > 0) ||
-														aggregate.minImageInputPrice !== undefined ||
-														aggregate.minImageOutputPrice !== undefined;
+															aggregate.minImageInputPrice !== undefined ||
+															aggregate.minImageOutputPrice !== undefined);
 
 													const hasCapabilities =
 														aggregate.capabilities.length > 0;
@@ -1221,58 +1332,91 @@ export function ModelSelector({
 
 													return (
 														<div className="space-y-3 pt-3 border-t border-dashed">
-															{hasPricingOrLimits && (
-																<div className="space-y-2">
-																	<h5 className="font-medium text-xs">
-																		Pricing &amp; Limits{" "}
-																		<span className="text-[11px] font-normal text-muted-foreground">
-																			(starts at)
-																		</span>
-																	</h5>
-																	<div className="grid grid-cols-2 gap-3">
-																		<div className="space-y-1">
-																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																				Input
+															{hasPricingOrLimits &&
+																(isVideo ? (
+																	<div className="space-y-2">
+																		<h5 className="font-medium text-xs">
+																			Video Pricing{" "}
+																			<span className="text-[11px] font-normal text-muted-foreground">
+																				(per second)
 																			</span>
-																			<p className="text-xs font-mono">
-																				{aggregate.minInputPrice !== undefined
-																					? formatPrice(aggregate.minInputPrice)
-																					: "Unknown"}
-																			</p>
-																		</div>
-																		<div className="space-y-1">
-																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																				Output
-																			</span>
-																			<p className="text-xs font-mono">
-																				{aggregate.minOutputPrice !== undefined
-																					? formatPrice(
-																							aggregate.minOutputPrice,
-																						)
-																					: "Unknown"}
-																			</p>
-																		</div>
-																		<div className="space-y-1">
-																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																				Context
-																			</span>
-																			<p className="text-xs font-mono">
-																				{formatContextSize(
-																					aggregate.maxContextSize,
-																				)}
-																			</p>
-																		</div>
-																		<div className="space-y-1">
-																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																				Max Output
-																			</span>
-																			<p className="text-xs font-mono">
-																				{formatContextSize(aggregate.maxOutput)}
-																			</p>
+																		</h5>
+																		<div className="grid grid-cols-2 gap-3">
+																			<div className="space-y-1">
+																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																					From
+																				</span>
+																				<p className="text-xs font-mono">
+																					{minPerSec ?? "Unknown"}
+																				</p>
+																			</div>
+																			<div className="space-y-1">
+																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																					Up to
+																				</span>
+																				<p className="text-xs font-mono">
+																					{maxPerSec ?? "Unknown"}
+																				</p>
+																			</div>
 																		</div>
 																	</div>
-																</div>
-															)}
+																) : (
+																	<div className="space-y-2">
+																		<h5 className="font-medium text-xs">
+																			Pricing &amp; Limits{" "}
+																			<span className="text-[11px] font-normal text-muted-foreground">
+																				(starts at)
+																			</span>
+																		</h5>
+																		<div className="grid grid-cols-2 gap-3">
+																			<div className="space-y-1">
+																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																					Input
+																				</span>
+																				<p className="text-xs font-mono">
+																					{aggregate.minInputPrice !== undefined
+																						? formatPrice(
+																								aggregate.minInputPrice,
+																							)
+																						: "Unknown"}
+																				</p>
+																			</div>
+																			<div className="space-y-1">
+																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																					Output
+																				</span>
+																				<p className="text-xs font-mono">
+																					{aggregate.minOutputPrice !==
+																					undefined
+																						? formatPrice(
+																								aggregate.minOutputPrice,
+																							)
+																						: "Unknown"}
+																				</p>
+																			</div>
+																			<div className="space-y-1">
+																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																					Context
+																				</span>
+																				<p className="text-xs font-mono">
+																					{formatContextSize(
+																						aggregate.maxContextSize,
+																					)}
+																				</p>
+																			</div>
+																			<div className="space-y-1">
+																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																					Max Output
+																				</span>
+																				<p className="text-xs font-mono">
+																					{formatContextSize(
+																						aggregate.maxOutput,
+																					)}
+																				</p>
+																			</div>
+																		</div>
+																	</div>
+																))}
 
 															{hasImagePricing && (
 																<div className="pt-2">
@@ -1361,90 +1505,109 @@ export function ModelSelector({
 
 												<div className="space-y-2">
 													<h5 className="font-medium text-xs">
-														Pricing & Limits
+														{mode === "video"
+															? "Video Pricing"
+															: "Pricing & Limits"}
 													</h5>
-													<div className="grid grid-cols-2 gap-3">
-														<div className="space-y-1">
-															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																Input
-															</span>
-															<p className="text-xs font-mono">
-																{(() => {
-																	const price = getMappingPriceInfo(
-																		previewEntry.mapping,
-																		"input",
-																	);
-																	if (
-																		price.original &&
-																		price.discounted &&
-																		price.original !== price.discounted
-																	) {
-																		return (
-																			<>
-																				<span className="line-through text-muted-foreground">
-																					{price.original}
-																				</span>{" "}
-																				<span className="text-green-500">
-																					{price.discounted}
-																				</span>
-																			</>
+													{mode === "video" ? (
+														<div className="grid grid-cols-1 gap-3">
+															<div className="space-y-1">
+																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																	Per Second
+																</span>
+																<p className="text-xs font-mono">
+																	{previewEntry.mapping?.perSecondPrice
+																		? formatPerSecondPrice(
+																				previewEntry.mapping.perSecondPrice,
+																			)
+																		: "Unknown"}
+																</p>
+															</div>
+														</div>
+													) : (
+														<div className="grid grid-cols-2 gap-3">
+															<div className="space-y-1">
+																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																	Input
+																</span>
+																<p className="text-xs font-mono">
+																	{(() => {
+																		const price = getMappingPriceInfo(
+																			previewEntry.mapping,
+																			"input",
 																		);
-																	}
-																	return price.label;
-																})()}
-															</p>
-														</div>
-														<div className="space-y-1">
-															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																Output
-															</span>
-															<p className="text-xs font-mono">
-																{(() => {
-																	const price = getMappingPriceInfo(
-																		previewEntry.mapping,
-																		"output",
-																	);
-																	if (
-																		price.original &&
-																		price.discounted &&
-																		price.original !== price.discounted
-																	) {
-																		return (
-																			<>
-																				<span className="line-through text-muted-foreground">
-																					{price.original}
-																				</span>{" "}
-																				<span className="text-green-500">
-																					{price.discounted}
-																				</span>
-																			</>
+																		if (
+																			price.original &&
+																			price.discounted &&
+																			price.original !== price.discounted
+																		) {
+																			return (
+																				<>
+																					<span className="line-through text-muted-foreground">
+																						{price.original}
+																					</span>{" "}
+																					<span className="text-green-500">
+																						{price.discounted}
+																					</span>
+																				</>
+																			);
+																		}
+																		return price.label;
+																	})()}
+																</p>
+															</div>
+															<div className="space-y-1">
+																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																	Output
+																</span>
+																<p className="text-xs font-mono">
+																	{(() => {
+																		const price = getMappingPriceInfo(
+																			previewEntry.mapping,
+																			"output",
 																		);
-																	}
-																	return price.label;
-																})()}
-															</p>
+																		if (
+																			price.original &&
+																			price.discounted &&
+																			price.original !== price.discounted
+																		) {
+																			return (
+																				<>
+																					<span className="line-through text-muted-foreground">
+																						{price.original}
+																					</span>{" "}
+																					<span className="text-green-500">
+																						{price.discounted}
+																					</span>
+																				</>
+																			);
+																		}
+																		return price.label;
+																	})()}
+																</p>
+															</div>
+															<div className="space-y-1">
+																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																	Context
+																</span>
+																<p className="text-xs font-mono">
+																	{formatContextSize(
+																		previewEntry.mapping?.contextSize,
+																	)}
+																</p>
+															</div>
+															<div className="space-y-1">
+																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																	Max Output
+																</span>
+																<p className="text-xs font-mono">
+																	{formatContextSize(
+																		previewEntry.mapping?.maxOutput,
+																	)}
+																</p>
+															</div>
 														</div>
-														<div className="space-y-1">
-															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																Context
-															</span>
-															<p className="text-xs font-mono">
-																{formatContextSize(
-																	previewEntry.mapping?.contextSize,
-																)}
-															</p>
-														</div>
-														<div className="space-y-1">
-															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																Max Output
-															</span>
-															<p className="text-xs font-mono">
-																{formatContextSize(
-																	previewEntry.mapping?.maxOutput,
-																)}
-															</p>
-														</div>
-													</div>
+													)}
 													{previewEntry.mapping?.cachedInputPrice && (
 														<div className="pt-2 border-t border-dashed">
 															<div className="space-y-1">

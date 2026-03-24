@@ -184,7 +184,9 @@ export function LogCard({
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
 						<div className="flex items-center gap-1">
 							<Package className="h-3.5 w-3.5 shrink-0" />
-							<span className="truncate">{log.usedModel}</span>
+							<span className="truncate">
+								{log.usedModel === "" ? "—" : log.usedModel}
+							</span>
 						</div>
 						<div className="flex items-center gap-1">
 							<Zap className="h-3.5 w-3.5 shrink-0" />
@@ -304,7 +306,7 @@ export function LogCard({
 								</div>
 								<div className="text-muted-foreground">Used Model</div>
 								<div className="font-mono text-xs break-all">
-									{log.usedModel}
+									{log.usedModel === "" ? "—" : log.usedModel}
 								</div>
 								{log.usedModelMapping && (
 									<>
@@ -607,6 +609,13 @@ export function LogCard({
 												<>
 													<div>Image Output Cost</div>
 													<div>{`$${Number(log.imageOutputCost).toFixed(8)}`}</div>
+												</>
+											)}
+										{!!log.videoOutputCost &&
+											Number(log.videoOutputCost) > 0 && (
+												<>
+													<div>Video Output Cost</div>
+													<div>{`$${Number(log.videoOutputCost).toFixed(8)}`}</div>
 												</>
 											)}
 										<div>Inference Total</div>

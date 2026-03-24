@@ -7,6 +7,7 @@ export interface GalleryItem {
 	id: string;
 	prompt: string;
 	timestamp: number;
+	inputImages?: { dataUrl: string; mediaType: string }[];
 	models: {
 		modelId: string;
 		modelName: string;

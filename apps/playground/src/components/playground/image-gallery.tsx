@@ -107,6 +107,29 @@ function EmptyState({
 	);
 }
 
+function InputImageThumbnails({
+	images,
+}: {
+	images?: { dataUrl: string; mediaType: string }[];
+}) {
+	if (!images || images.length === 0) {
+		return null;
+	}
+
+	return (
+		<div className="flex gap-1 shrink-0">
+			{images.map((img, i) => (
+				<img
+					key={i}
+					src={img.dataUrl}
+					alt={`Input ${i + 1}`}
+					className="h-6 w-6 rounded border object-cover"
+				/>
+			))}
+		</div>
+	);
+}
+
 function SingleModeItem({ item }: { item: GalleryItem }) {
 	const model = item.models[0];
 	if (!model) {
@@ -116,6 +139,7 @@ function SingleModeItem({ item }: { item: GalleryItem }) {
 	return (
 		<div className="space-y-2">
 			<div className="flex items-center gap-2">
+				<InputImageThumbnails images={item.inputImages} />
 				<p className="text-sm text-muted-foreground truncate flex-1">
 					{item.prompt}
 				</p>
@@ -156,6 +180,7 @@ function ComparisonModeItem({ item }: { item: GalleryItem }) {
 	return (
 		<div className="space-y-2">
 			<div className="flex items-center gap-2">
+				<InputImageThumbnails images={item.inputImages} />
 				<p className="text-sm text-muted-foreground truncate flex-1">
 					{item.prompt}
 				</p>
@@ -221,13 +246,15 @@ export function ImageGallery({
 
 	return (
 		<div className="space-y-8">
-			{items.map((item) =>
-				comparisonMode ? (
-					<ComparisonModeItem key={item.id} item={item} />
-				) : (
-					<SingleModeItem key={item.id} item={item} />
-				),
-			)}
+			{items.map((item) => (
+				<div key={item.id} id={`gallery-${item.id}`}>
+					{comparisonMode ? (
+						<ComparisonModeItem item={item} />
+					) : (
+						<SingleModeItem item={item} />
+					)}
+				</div>
+			))}
 		</div>
 	);
 }

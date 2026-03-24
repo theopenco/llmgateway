@@ -27,6 +27,9 @@ type MappingSortBy =
 	| "modelId"
 	| "logsCount"
 	| "errorsCount"
+	| "clientErrorsCount"
+	| "gatewayErrorsCount"
+	| "upstreamErrorsCount"
 	| "avgTimeToFirstToken"
 	| "updatedAt";
 
@@ -135,6 +138,15 @@ function MappingRow({ mapping }: { mapping: ModelProviderMappingEntry }) {
 			</TableCell>
 			<TableCell className="tabular-nums">
 				{formatNumber(mapping.errorsCount)}
+			</TableCell>
+			<TableCell className="tabular-nums">
+				{formatNumber(mapping.clientErrorsCount)}
+			</TableCell>
+			<TableCell className="tabular-nums">
+				{formatNumber(mapping.gatewayErrorsCount)}
+			</TableCell>
+			<TableCell className="tabular-nums">
+				{formatNumber(mapping.upstreamErrorsCount)}
 			</TableCell>
 			<TableCell className="tabular-nums">{errorRate}%</TableCell>
 			<TableCell className="tabular-nums">
@@ -324,6 +336,9 @@ export default async function ModelProviderMappingsPage({
 							<TableHead>Status</TableHead>
 							{sh("Requests", "logsCount")}
 							{sh("Errors", "errorsCount")}
+							{sh("Client", "clientErrorsCount")}
+							{sh("Gateway", "gatewayErrorsCount")}
+							{sh("Upstream", "upstreamErrorsCount")}
 							<TableHead>Error Rate</TableHead>
 							{sh("Avg TTFT", "avgTimeToFirstToken")}
 							<TableHead>Input Price</TableHead>
@@ -335,7 +350,7 @@ export default async function ModelProviderMappingsPage({
 						{data.mappings.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={10}
+									colSpan={13}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No mappings found

@@ -129,7 +129,7 @@ export default async function GroupPage({
 				/>
 			) : null}
 			<GroupChatClient
-				models={models}
+				models={models.filter((m) => !m.output?.includes("video"))}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

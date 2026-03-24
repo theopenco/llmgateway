@@ -695,6 +695,7 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
+		case "embercloud":
 		case "zai": {
 			// Check if this is a CogView image generation response
 			// Format: { created: number, data: [{ url: "..." }] }

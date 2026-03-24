@@ -1,4 +1,4 @@
-import type { Log } from "@llmgateway/db";
+import type { paths } from "@/lib/api/v1";
 
 export interface ActivityModelUsage {
 	id: string;
@@ -24,6 +24,7 @@ export interface DailyActivity {
 	dataStorageCost: number;
 	imageInputCost: number;
 	imageOutputCost: number;
+	videoOutputCost: number;
 	cachedInputCost: number;
 	errorCount: number;
 	errorRate: number;
@@ -59,6 +60,7 @@ export type ActivitT =
 				dataStorageCost: number;
 				imageInputCost: number;
 				imageOutputCost: number;
+				videoOutputCost: number;
 				cachedInputCost: number;
 				errorCount: number;
 				errorRate: number;
@@ -78,10 +80,9 @@ export type ActivitT =
 
 export interface LogsData {
 	message?: string;
-	logs: Log[];
-	pagination: {
-		nextCursor: string | null;
-		hasMore: boolean;
-		limit: number;
-	};
+	logs: paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"];
+	pagination: paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["pagination"];
 }
+
+export type LogDetailData =
+	paths["/logs/{id}"]["get"]["responses"][200]["content"]["application/json"];

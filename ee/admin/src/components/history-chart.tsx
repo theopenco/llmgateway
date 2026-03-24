@@ -104,30 +104,20 @@ export function HistoryChart({
 	description,
 	fetchData,
 	externalWindow,
-	externalData,
-	externalLoading,
 }: {
 	title: string;
 	description?: string;
-	fetchData?: (window: HistoryWindow) => Promise<HistoryDataPoint[] | null>;
+	fetchData: (window: HistoryWindow) => Promise<HistoryDataPoint[] | null>;
 	externalWindow?: HistoryWindow;
-	externalData?: HistoryDataPoint[];
-	externalLoading?: boolean;
 }) {
-	const isExternallyControlled = externalData !== undefined;
-	const [data, setData] = useState<HistoryDataPoint[]>(externalData ?? []);
-	const [loading, setLoading] = useState(
-		isExternallyControlled ? (externalLoading ?? false) : true,
-	);
+	const [data, setData] = useState<HistoryDataPoint[]>([]);
+	const [loading, setLoading] = useState(true);
 	const [internalWindow, setInternalWindow] = useState<HistoryWindow>("4h");
 	const window = externalWindow ?? internalWindow;
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
 
 	const loadData = useCallback(
 		async (w: HistoryWindow) => {
-			if (!fetchData) {
-				return;
-			}
 			setLoading(true);
 			try {
 				const result = await fetchData(w);
@@ -143,13 +133,8 @@ export function HistoryChart({
 	);
 
 	useEffect(() => {
-		if (isExternallyControlled) {
-			setData(externalData ?? []);
-			setLoading(externalLoading ?? false);
-			return;
-		}
 		void loadData(window);
-	}, [externalData, externalLoading, isExternallyControlled, loadData, window]);
+	}, [loadData, window]);
 
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);

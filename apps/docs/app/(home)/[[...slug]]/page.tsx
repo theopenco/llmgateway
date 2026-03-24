@@ -10,6 +10,7 @@ import { notFound } from "next/navigation";
 import posthog from "posthog-js";
 
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
+import { EnterpriseCTA } from "@/components/enterprise-cta";
 import { Feedback } from "@/components/feedback";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
@@ -68,6 +69,7 @@ export default async function Page(props: {
 			full={page.data.full}
 			tableOfContent={{
 				style: "clerk",
+				footer: <EnterpriseCTA />,
 			}}
 			lastUpdate={time ? new Date(time) : new Date()}
 		>

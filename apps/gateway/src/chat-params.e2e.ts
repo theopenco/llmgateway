@@ -65,6 +65,7 @@ describe("e2e params", getConcurrentTestOptions(), () => {
 					headers: {
 						"Content-Type": "application/json",
 						"x-request-id": requestId,
+						"x-no-fallback": "true",
 						Authorization: `Bearer real-token`,
 					},
 					body: JSON.stringify({

@@ -50,6 +50,7 @@ export const user = pgTable("user", {
 	emailVerified: boolean().notNull().default(false),
 	image: text(),
 	onboardingCompleted: boolean().notNull().default(false),
+	newsletterSubscribed: boolean().notNull().default(false),
 });
 
 export const session = pgTable(
@@ -511,6 +512,9 @@ export const log = pgTable(
 		imageOutputTokens: decimal(),
 		imageInputCost: real(),
 		imageOutputCost: real(),
+		videoOutputCost: real(),
+		videoDownloadCount: integer().notNull().default(0),
+		lastVideoDownloadedAt: timestamp(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
 		pricingTier: text(),
@@ -576,6 +580,7 @@ export const log = pgTable(
 		}>(),
 		retried: boolean().default(false),
 		retriedByLogId: text(),
+		internalContentFilter: boolean(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -596,6 +601,162 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
+	],
+);
+
+export const videoJob = pgTable(
+	"video_job",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		requestId: text().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text()
+			.notNull()
+			.references(() => apiKey.id, { onDelete: "cascade" }),
+		mode: text({
+			enum: ["api-keys", "credits", "hybrid"],
+		}).notNull(),
+		usedMode: text({
+			enum: ["api-keys", "credits"],
+		}).notNull(),
+		model: text().notNull(),
+		requestedProvider: text(),
+		usedProvider: text().notNull(),
+		usedModel: text().notNull(),
+		providerConfigIndex: integer(),
+		upstreamId: text().notNull(),
+		prompt: text().notNull(),
+		status: text({
+			enum: [
+				"queued",
+				"in_progress",
+				"completed",
+				"failed",
+				"canceled",
+				"expired",
+			],
+		})
+			.notNull()
+			.default("queued"),
+		progress: integer().notNull().default(0),
+		error: jsonb().$type<{
+			code?: string;
+			message: string;
+			details?: unknown;
+		}>(),
+		contentUrl: text(),
+		storageProvider: text(),
+		storageBucket: text(),
+		storageObjectPath: text(),
+		storageUri: text(),
+		storageExpiresAt: timestamp(),
+		contentType: text(),
+		completedAt: timestamp(),
+		expiresAt: timestamp(),
+		lastPolledAt: timestamp(),
+		nextPollAt: timestamp().notNull().defaultNow(),
+		pollAttemptCount: integer().notNull().default(0),
+		callbackUrl: text(),
+		callbackSecret: text(),
+		callbackStatus: text({
+			enum: ["none", "pending", "delivered", "failed"],
+		})
+			.notNull()
+			.default("none"),
+		callbackEventId: text(),
+		callbackEventType: text(),
+		callbackDeliveredAt: timestamp(),
+		resultLoggedAt: timestamp(),
+		routingMetadata: jsonb().$type<{
+			availableProviders?: string[];
+			selectedProvider?: string;
+			selectionReason?: string;
+			providerScores?: Array<{
+				providerId: string;
+				score: number;
+				uptime?: number;
+				latency?: number;
+				throughput?: number;
+				price?: number;
+				priority?: number;
+				failed?: boolean;
+				status_code?: number;
+				error_type?: string;
+			}>;
+			originalProvider?: string;
+			originalProviderUptime?: number;
+			noFallback?: boolean;
+			routing?: Array<{
+				provider: string;
+				model: string;
+				status_code: number;
+				error_type: string;
+				succeeded: boolean;
+			}>;
+		}>(),
+		upstreamCreateResponse: jsonb(),
+		upstreamStatusResponse: jsonb(),
+	},
+	(table) => [
+		index("video_job_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("video_job_status_next_poll_at_idx").on(
+			table.status,
+			table.nextPollAt,
+		),
+		index("video_job_upstream_id_idx").on(table.upstreamId),
+		index("video_job_callback_status_idx").on(table.callbackStatus),
+	],
+);
+
+export const webhookDeliveryLog = pgTable(
+	"webhook_delivery_log",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		videoJobId: text()
+			.notNull()
+			.references(() => videoJob.id, { onDelete: "cascade" }),
+		eventId: text().notNull(),
+		eventType: text().notNull(),
+		targetUrl: text().notNull(),
+		attempt: integer().notNull().default(1),
+		status: text({
+			enum: ["pending", "retrying", "delivered", "failed"],
+		})
+			.notNull()
+			.default("pending"),
+		lastTriedAt: timestamp(),
+		nextRetryAt: timestamp().notNull().defaultNow(),
+		deliveredAt: timestamp(),
+		requestHeaders: jsonb(),
+		requestBody: jsonb(),
+		responseStatus: integer(),
+		responseBody: text(),
+		error: text(),
+	},
+	(table) => [
+		index("webhook_delivery_log_video_job_id_idx").on(table.videoJobId),
+		index("webhook_delivery_log_status_next_retry_at_idx").on(
+			table.status,
+			table.nextRetryAt,
+		),
 	],
 );
 
@@ -1316,6 +1477,7 @@ export const projectHourlyStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
@@ -1379,6 +1541,7 @@ export const projectHourlyModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
@@ -1464,6 +1627,7 @@ export const apiKeyHourlyStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
@@ -1538,6 +1702,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),

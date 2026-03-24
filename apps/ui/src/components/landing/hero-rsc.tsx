@@ -1,3 +1,5 @@
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+
 import { GitHubStars } from "./github-stars";
 import { Hero } from "./hero";
 
@@ -8,7 +10,11 @@ export const HeroRSC = async ({
 	navbarOnly?: boolean;
 	sticky?: boolean;
 }) => {
-	const { allMigrations } = await import("content-collections");
+	const [{ allMigrations }, models, providers] = await Promise.all([
+		import("content-collections"),
+		fetchModels(),
+		fetchProviders(),
+	]);
 	const migrations = navbarOnly
 		? []
 		: allMigrations.map((m) => ({
@@ -18,7 +24,13 @@ export const HeroRSC = async ({
 			}));
 
 	return (
-		<Hero navbarOnly={navbarOnly} sticky={sticky} migrations={migrations}>
+		<Hero
+			navbarOnly={navbarOnly}
+			sticky={sticky}
+			migrations={migrations}
+			models={models}
+			providers={providers}
+		>
 			<GitHubStars />
 		</Hero>
 	);

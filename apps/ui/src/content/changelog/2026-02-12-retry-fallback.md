@@ -1,5 +1,5 @@
 ---
-id: "39"
+id: "40"
 slug: "retry-fallback"
 date: "2026-02-12"
 title: "Automatic Retry & Fallback with Full Routing Transparency"

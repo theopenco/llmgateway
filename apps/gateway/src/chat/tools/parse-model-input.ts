@@ -55,8 +55,15 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 		if (requestedProvider === "custom") {
 			requestedModel = modelName as Model;
 		} else {
-			// First try to find by base model name
-			let modelDef = models.find((m) => m.id === modelName);
+			// First try to find by base model name with matching provider
+			let modelDef = models.find(
+				(m) =>
+					m.id === modelName &&
+					m.providers.some((p) => p.providerId === requestedProvider),
+			);
+
+			// Fall back to matching by model name only
+			modelDef ??= models.find((m) => m.id === modelName);
 
 			modelDef ??= models.find((m) =>
 				m.providers.some(

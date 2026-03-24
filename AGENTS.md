@@ -32,6 +32,8 @@ Always run `pnpm format` before committing code. Run `pnpm build` if API routes 
 This is a pure TypeScript project. Never use `any` or `as any` unless absolutely necessary.
 This repository always uses tabs for indentation.
 
+When you are done writing code features or bug fixes, ALWAYS commit your changes. If in doubt, commit any changes.
+
 ### Testing
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.

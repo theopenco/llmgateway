@@ -1,0 +1,218 @@
+---
+title: Video Generation
+description: Generate videos with an OpenAI-compatible async API and signed completion callbacks
+icon: Video
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Video Generation
+
+LLMGateway supports asynchronous video generation through an OpenAI-compatible `POST /v1/videos` flow.
+
+Veo 3.1 is currently available through `obsidian` for 720p, `avalanche` for 1080p and 4k, and `google-vertex` for 720p, 1080p, and 4k.
+
+You can find the current list of video-capable models on our [models page with the video filter enabled](https://llmgateway.io/models?filters=1&videoGeneration=true) or programmatically through the [/v1/models endpoint](/v1_models).
+
+<Callout type="success">
+	Video generation models are temporarily available at 60% off.
+</Callout>
+
+## What Works Today
+
+- `POST /v1/videos`
+- `GET /v1/videos/{video_id}`
+- `GET /v1/videos/{video_id}/content`
+- Optional signed callbacks with `callback_url` and `callback_secret`
+
+## Request Format
+
+LLMGateway currently supports a focused subset of the OpenAI video API for Veo 3.1 preview models.
+
+### Supported fields
+
+| Field              | Type   | Required | Description                                                                      |
+| ------------------ | ------ | -------- | -------------------------------------------------------------------------------- |
+| `model`            | string | yes      | Any video-capable model from the filtered models page                            |
+| `prompt`           | string | yes      | Text prompt for the video                                                        |
+| `seconds`          | number | yes      | Duration in seconds. Supported values: `4`, `6`, `8`, `10` depending on provider |
+| `size`             | string | no       | `widthxheight`, limited to the supported Veo sizes                               |
+| `image`            | object | no       | Optional first frame for image-to-video generation                               |
+| `last_frame`       | object | no       | Optional ending frame when `image` is provided                                   |
+| `reference_images` | array  | no       | One to three provider-specific image inputs                                      |
+| `input_reference`  | object | no       | Alias for one or more `reference_images`                                         |
+| `callback_url`     | string | no       | LLMGateway extension for completion webhooks                                     |
+| `callback_secret`  | string | no       | LLMGateway extension used to sign webhook deliveries                             |
+
+Supported `size` values for Veo 3.1:
+
+- `1280x720`
+- `720x1280`
+- `1920x1080`
+- `1080x1920`
+- `3840x2160`
+- `2160x3840`
+
+Current provider support:
+
+- `google-vertex` supports `4`, `6`, `8`, and `10` second outputs
+- `obsidian` and `avalanche` currently support only `8` second outputs
+- `obsidian` currently supports only `1280x720` and `720x1280`
+- `google-vertex` supports all currently exposed Veo 3.1 sizes
+- `avalanche` supports `1920x1080`, `1080x1920`, `3840x2160`, and `2160x3840`
+- Requests return `400` when the requested provider cannot serve the requested `size`
+
+### Not supported yet
+
+- multipart uploads
+- `n` values other than `1`
+- remix/list/delete video endpoints
+
+## Create a Video
+
+Video generation requires at least `$1.00` in available organization credits before the job is submitted upstream.
+
+Current pricing for Veo 3.1:
+
+| Model                           | Provider        | Supported sizes                                  | Price            |
+| ------------------------------- | --------------- | ------------------------------------------------ | ---------------- |
+| `veo-3.1-generate-preview`      | `obsidian`      | `1280x720`, `720x1280`                           | `$0.40 / second` |
+| `veo-3.1-fast-generate-preview` | `obsidian`      | `1280x720`, `720x1280`                           | `$0.15 / second` |
+| `veo-3.1-generate-preview`      | `google-vertex` | `1280x720`, `720x1280`, `1920x1080`, `1080x1920` | `$0.40 / second` |
+| `veo-3.1-fast-generate-preview` | `google-vertex` | `1280x720`, `720x1280`, `1920x1080`, `1080x1920` | `$0.15 / second` |
+| `veo-3.1-generate-preview`      | `google-vertex` | `3840x2160`, `2160x3840`                         | `$0.60 / second` |
+| `veo-3.1-fast-generate-preview` | `google-vertex` | `3840x2160`, `2160x3840`                         | `$0.35 / second` |
+| `veo-3.1-generate-preview`      | `avalanche`     | `1920x1080`, `1080x1920`                         | `$0.40 / second` |
+| `veo-3.1-fast-generate-preview` | `avalanche`     | `1920x1080`, `1080x1920`                         | `$0.15 / second` |
+| `veo-3.1-generate-preview`      | `avalanche`     | `3840x2160`, `2160x3840`                         | `$0.60 / second` |
+| `veo-3.1-fast-generate-preview` | `avalanche`     | `3840x2160`, `2160x3840`                         | `$0.35 / second` |
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/videos" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "veo-3.1-generate-preview",
+    "prompt": "A cinematic aerial shot flying above a rainforest waterfall at sunrise",
+    "seconds": 8,
+    "size": "1920x1080"
+  }'
+```
+
+Example response:
+
+```json
+{
+	"id": "v_123",
+	"object": "video",
+	"model": "veo-3.1-generate-preview",
+	"status": "queued",
+	"progress": 0,
+	"created_at": 1773600000,
+	"completed_at": null,
+	"expires_at": null,
+	"error": null
+}
+```
+
+## Retrieve Job Status
+
+```bash
+curl "https://api.llmgateway.io/v1/videos/v_123" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY"
+```
+
+Typical statuses:
+
+- `queued`
+- `in_progress`
+- `completed`
+- `failed`
+- `canceled`
+- `expired`
+
+`avalanche` requests for `1080p` and `4k` stay `in_progress` until the upgraded output is ready. The gateway keeps polling the upstream upgrade endpoints and only marks the job `completed` once the requested resolution is available.
+
+`google-vertex` follows Vertex AI's long-running operation flow. The gateway submits Veo generation with `predictLongRunning`, polls with `fetchPredictOperation`, and streams the final bytes through the gateway content endpoint once the operation is done.
+
+## Download the Video
+
+Once the job is complete, stream the resulting video bytes from the content endpoint:
+
+```bash
+curl "https://api.llmgateway.io/v1/videos/v_123/content" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  --output video.mp4
+```
+
+## Signed Callbacks
+
+LLMGateway can notify your application when the job reaches a terminal state.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/videos" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "veo-3.1-fast-generate-preview",
+    "prompt": "A slow-motion close-up of waves crashing against black volcanic rock",
+    "seconds": 8,
+    "callback_url": "https://example.com/webhooks/video",
+    "callback_secret": "whsec_your_secret_here"
+  }'
+```
+
+### Delivery behavior
+
+- Callbacks are sent only for terminal states in v1
+- Event types are `video.completed` and `video.failed`
+- Deliveries retry with exponential backoff on network errors, timeouts, and non-2xx responses
+- Each attempt is recorded internally in the webhook delivery log table
+
+### Headers
+
+- `webhook-id`
+- `webhook-timestamp`
+- `webhook-signature`
+
+### Signature format
+
+LLMGateway signs the string:
+
+```text
+{webhook-id}.{webhook-timestamp}.{raw-request-body}
+```
+
+using HMAC-SHA256 with your `callback_secret`, then sends:
+
+```text
+webhook-signature: v1,{base64_signature}
+```
+
+### Verification example
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verifyWebhook(
+	body: string,
+	webhookId: string,
+	webhookTimestamp: string,
+	webhookSignature: string,
+	secret: string,
+) {
+	const expected = createHmac("sha256", secret)
+		.update(`${webhookId}.${webhookTimestamp}.${body}`)
+		.digest("base64");
+
+	const provided = webhookSignature.replace(/^v1,/, "");
+
+	return timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
+}
+```
+
+## Related Docs
+
+- [Image Generation](/features/image-generation)
+- [Routing](/features/routing)
+- [Models API](/v1_models)

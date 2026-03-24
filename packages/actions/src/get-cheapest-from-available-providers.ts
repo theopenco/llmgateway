@@ -3,6 +3,7 @@ import {
 	getProviderDefinition,
 	type AvailableModelProvider,
 	type ModelWithPricing,
+	type ProviderModelMapping,
 } from "@llmgateway/models";
 
 interface ProviderScore<T extends AvailableModelProvider> {
@@ -97,6 +98,56 @@ export interface ProviderSelectionResult<T extends AvailableModelProvider> {
 export interface ProviderSelectionOptions {
 	metricsMap?: Map<string, ProviderMetrics>;
 	isStreaming?: boolean;
+	videoPricing?: VideoPricingContext;
+}
+
+export interface VideoPricingContext {
+	durationSeconds: number;
+	includeAudio: boolean;
+	resolution: "default" | "4k";
+}
+
+function getPerSecondBillingKeys(
+	videoPricing: VideoPricingContext,
+): Array<keyof NonNullable<ProviderModelMapping["perSecondPrice"]>> {
+	if (videoPricing.resolution === "4k") {
+		return videoPricing.includeAudio
+			? ["4k_audio", "default_audio", "4k", "default"]
+			: ["4k_video", "default_video", "4k", "default"];
+	}
+
+	return videoPricing.includeAudio
+		? ["default_audio", "default"]
+		: ["default_video", "default"];
+}
+
+export function getProviderSelectionPrice(
+	providerInfo:
+		| Pick<
+				ProviderModelMapping,
+				"discount" | "inputPrice" | "outputPrice" | "perSecondPrice"
+		  >
+		| undefined,
+	videoPricing?: VideoPricingContext,
+): number {
+	const discount = providerInfo?.discount ?? 0;
+	const discountMultiplier = 1 - discount;
+
+	if (providerInfo?.perSecondPrice && videoPricing) {
+		for (const billingKey of getPerSecondBillingKeys(videoPricing)) {
+			const perSecondPrice = providerInfo.perSecondPrice[billingKey];
+			if (perSecondPrice !== undefined) {
+				return (
+					perSecondPrice * videoPricing.durationSeconds * discountMultiplier
+				);
+			}
+		}
+	}
+
+	return (
+		(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) / 2) *
+		discountMultiplier
+	);
 }
 
 /**
@@ -117,6 +168,7 @@ export function getCheapestFromAvailableProviders<
 ): ProviderSelectionResult<T> | null {
 	const metricsMap = options?.metricsMap;
 	const isStreaming = options?.isStreaming ?? false;
+	const videoPricing = options?.videoPricing;
 	// Use higher price weight for image generation models
 	const isImageModel = modelWithPricing.output?.includes("image") ?? false;
 	const effectivePriceWeight = isImageModel ? IMAGE_PRICE_WEIGHT : PRICE_WEIGHT;
@@ -165,7 +217,7 @@ export function getCheapestFromAvailableProviders<
 
 	// If no metrics provided, fall back to price-only selection
 	if (!metricsMap || metricsMap.size === 0) {
-		return selectByPriceOnly(stableProviders, modelWithPricing);
+		return selectByPriceOnly(stableProviders, modelWithPricing, videoPricing);
 	}
 
 	// Calculate scores for each provider
@@ -176,12 +228,7 @@ export function getCheapestFromAvailableProviders<
 			(p) =>
 				p.providerId === provider.providerId && p.region === provider.region,
 		);
-		const discount = providerInfo?.discount ?? 0;
-		const discountMultiplier = 1 - discount;
-		const price =
-			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
-				2) *
-			discountMultiplier;
+		const price = getProviderSelectionPrice(providerInfo, videoPricing);
 
 		const mKey = metricsKey(
 			modelWithPricing.id,
@@ -324,6 +371,7 @@ export function getCheapestFromAvailableProviders<
 function selectByPriceOnly<T extends AvailableModelProvider>(
 	stableProviders: T[],
 	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
+	videoPricing?: VideoPricingContext,
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestEffectivePrice = Number.MAX_VALUE;
@@ -341,12 +389,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			(p) =>
 				p.providerId === provider.providerId && p.region === provider.region,
 		);
-		const discount = providerInfo?.discount ?? 0;
-		const discountMultiplier = 1 - discount;
-		const totalPrice =
-			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
-				2) *
-			discountMultiplier;
+		const totalPrice = getProviderSelectionPrice(providerInfo, videoPricing);
 
 		// Apply provider priority: lower priority = effectively higher price
 		const providerDef = getProviderDefinition(provider.providerId);
