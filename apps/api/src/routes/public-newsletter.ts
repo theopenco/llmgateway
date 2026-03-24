@@ -220,9 +220,56 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		});
 
 		if (!postResponse.ok) {
-			const body = (await postResponse.json()) as { message?: string };
-			throw new Error(
-				body.message ?? `Resend API error: ${postResponse.status}`,
+			const isDuplicate =
+				postResponse.status === 409 || postResponse.status === 422;
+
+			if (!isDuplicate) {
+				const body = (await postResponse.json()) as {
+					message?: string;
+				};
+				throw new Error(
+					body.message ?? `Resend API error: ${postResponse.status}`,
+				);
+			}
+
+			// Race condition: contact was created between our GET and POST.
+			// Fall back to PATCH to ensure the subscription state is correct.
+			const patchResponse = await fetch(
+				`https://api.resend.com/contacts/${encodeURIComponent(email)}`,
+				{
+					method: "PATCH",
+					headers: {
+						Authorization: `Bearer ${resendApiKey}`,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						unsubscribed: false,
+						topics: [
+							{
+								id: resendNewsletterTopicId,
+								subscription: "opt_in",
+							},
+						],
+					}),
+					signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
+				},
+			);
+
+			if (!patchResponse.ok) {
+				const body = (await patchResponse.json()) as {
+					message?: string;
+				};
+				throw new Error(
+					body.message ?? `Resend API error: ${patchResponse.status}`,
+				);
+			}
+
+			return c.json(
+				{
+					success: true,
+					message: "Successfully subscribed to the newsletter!",
+				},
+				200,
 			);
 		}
 
