@@ -2231,12 +2231,35 @@ function isDebugMode(c: Context): boolean {
 	);
 }
 
+function getVideoUpstreamLogUrl(url: string): string {
+	try {
+		const parsedUrl = new URL(url);
+		return `${parsedUrl.origin}${parsedUrl.pathname}`;
+	} catch {
+		return url;
+	}
+}
+
 async function fetchUpstreamJson(
 	url: string,
 	init: RequestInit,
 ): Promise<Record<string, unknown>> {
+	const startedAt = Date.now();
+	const method = init.method ?? "GET";
 	const response = await fetch(url, init);
 	const text = await response.text();
+	const durationMs = Date.now() - startedAt;
+	const logPayload = {
+		url: getVideoUpstreamLogUrl(url),
+		method,
+		status: response.status,
+		durationMs,
+	};
+	if (durationMs >= 5_000) {
+		logger.warn("Slow upstream video request", logPayload);
+	} else {
+		logger.info("Completed upstream video request", logPayload);
+	}
 	let body: Record<string, unknown> = {};
 
 	if (text.length > 0) {
@@ -3119,9 +3142,12 @@ async function getAvalancheImageUrl(
 }
 
 videos.openapi(createVideo, async (c) => {
+	const requestStartedAt = Date.now();
 	const { rawBody, request } = await parseJsonBody(c);
+	const parsedBodyAt = Date.now();
 	const { apiKey, project, organization, requestId } =
 		await requireRequestContext(c);
+	const requestContextResolvedAt = Date.now();
 	const { normalizedModel, requestedProvider } = getVideoModel(request.model);
 	const firstFrameInput = getVideoFirstFrameInput(request);
 	const lastFrameInput = getVideoLastFrameInput(request);
@@ -3154,6 +3180,7 @@ videos.openapi(createVideo, async (c) => {
 		requestedProvider,
 		modelInfo,
 	);
+	const iamValidatedAt = Date.now();
 
 	if (!iamValidation.allowed) {
 		throw new HTTPException(403, {
@@ -3179,6 +3206,7 @@ videos.openapi(createVideo, async (c) => {
 		organization.id,
 		noFallback,
 	);
+	const videoExecutionResolvedAt = Date.now();
 
 	const videoId = shortid();
 	let selectedProviderMapping = providerMapping;
@@ -3189,6 +3217,7 @@ videos.openapi(createVideo, async (c) => {
 	const processedLastFrameInput = await processVideoImageInput(lastFrameInput);
 	const processedReferenceImages =
 		await processVideoImageInputs(referenceImageInputs);
+	const inputsProcessedAt = Date.now();
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviders = new Set<string>();
 	let retryCount = 0;
@@ -3306,6 +3335,7 @@ videos.openapi(createVideo, async (c) => {
 		}
 
 		try {
+			const upstreamAttemptStartedAt = Date.now();
 			const upstreamJob = await createUpstreamVideoJob(
 				selectedProviderContext,
 				selectedProviderMapping,
@@ -3324,9 +3354,28 @@ videos.openapi(createVideo, async (c) => {
 				organization.id,
 				project.id,
 			);
+			const upstreamAttemptDurationMs = Date.now() - upstreamAttemptStartedAt;
 			upstreamId = upstreamJob.upstreamId;
 			upstreamRequest = upstreamJob.upstreamRequest;
 			upstreamResponse = upstreamJob.upstreamResponse;
+			logger.info("Video upstream job created", {
+				requestId,
+				videoId,
+				provider: selectedProviderContext.providerId,
+				model: selectedUpstreamModelName,
+				durationMs: upstreamAttemptDurationMs,
+				retryCount,
+			});
+			if (upstreamAttemptDurationMs >= 5_000) {
+				logger.warn("Slow video upstream job creation", {
+					requestId,
+					videoId,
+					provider: selectedProviderContext.providerId,
+					model: selectedUpstreamModelName,
+					durationMs: upstreamAttemptDurationMs,
+					retryCount,
+				});
+			}
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: selectedUpstreamModelName,
@@ -3430,6 +3479,7 @@ videos.openapi(createVideo, async (c) => {
 	const parsedStorageUri = parseGcsUri(storageUri);
 
 	const initialStatus = normalizeVideoStatus(upstreamResponse.status);
+	const databaseInsertStartedAt = Date.now();
 	const created = await db
 		.insert(tables.videoJob)
 		.values({
@@ -3482,6 +3532,7 @@ videos.openapi(createVideo, async (c) => {
 		})
 		.returning()
 		.then((rows) => rows[0]);
+	const databaseInsertCompletedAt = Date.now();
 
 	logger.info("Created video job", {
 		videoId: created.id,
@@ -3490,7 +3541,26 @@ videos.openapi(createVideo, async (c) => {
 		organizationId: organization.id,
 		model: normalizedModel,
 		usedProvider: selectedProviderContext.providerId,
+		timings: {
+			parseBodyMs: parsedBodyAt - requestStartedAt,
+			requestContextMs: requestContextResolvedAt - parsedBodyAt,
+			iamValidationMs: iamValidatedAt - requestContextResolvedAt,
+			resolveExecutionMs: videoExecutionResolvedAt - iamValidatedAt,
+			processInputsMs: inputsProcessedAt - videoExecutionResolvedAt,
+			upstreamCreateMs: databaseInsertStartedAt - inputsProcessedAt,
+			databaseInsertMs: databaseInsertCompletedAt - databaseInsertStartedAt,
+			totalMs: databaseInsertCompletedAt - requestStartedAt,
+		},
 	});
+	if (databaseInsertCompletedAt - requestStartedAt >= 5_000) {
+		logger.warn("Slow video create request", {
+			requestId,
+			videoId: created.id,
+			model: normalizedModel,
+			usedProvider: selectedProviderContext.providerId,
+			totalMs: databaseInsertCompletedAt - requestStartedAt,
+		});
+	}
 
 	return c.json(await serializeVideoJob(created));
 });
