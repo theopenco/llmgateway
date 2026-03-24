@@ -25,6 +25,7 @@ export {
 
 export {
 	getAvalancheApiBaseUrl,
+	getAvalancheJobsApiBaseUrl,
 	getAvalancheFileUploadBaseUrl,
 } from "./avalanche.js";
 
