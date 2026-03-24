@@ -26,6 +26,7 @@ import {
 import {
 	buildGatewayVideoLogContentUrl,
 	getAvalancheApiBaseUrl,
+	getAvalancheJobsApiBaseUrl,
 	getVideoProxyRedisKey,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "@llmgateway/shared";
@@ -47,6 +48,8 @@ const VIDEO_JOB_ERROR_BASE_DELAY_MS = 10_000;
 const VIDEO_JOB_ERROR_MAX_DELAY_MS = 5 * 60 * 1000;
 const VIDEO_JOB_MAX_POLL_ERROR_COUNT = 5;
 const VIDEO_RESOLUTION_4K = "4k";
+const VIDEO_RESOLUTION_HD = "hd";
+const VIDEO_RESOLUTION_1080P = "1080p";
 const VIDEO_DEFAULT_RESOLUTION = "default";
 const ACTIVE_VIDEO_STATUSES = ["queued", "in_progress"] as const;
 const TERMINAL_VIDEO_STATUS_VALUES: Array<VideoJobRecord["status"]> = [
@@ -66,11 +69,23 @@ interface ResolvedVideoProviderContext {
 
 function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
+		case "openai":
+			return "https://api.openai.com";
 		case "google-vertex":
 			return "https://us-central1-aiplatform.googleapis.com";
 		default:
 			return null;
 	}
+}
+
+function isSoraVideoModelName(modelName: string): boolean {
+	return modelName === "sora-2" || modelName === "sora-2-pro";
+}
+
+function isAvalancheSoraJob(job: VideoJobRecord): boolean {
+	return (
+		job.usedProvider === "avalanche" && isSoraVideoModelName(job.usedModel)
+	);
 }
 
 async function findActiveProviderKey(
@@ -219,11 +234,15 @@ function normalizeVideoStatus(value: unknown): VideoJobRecord["status"] {
 	switch (value.toLowerCase()) {
 		case "queued":
 		case "pending":
+		case "submitted":
+		case "waiting":
+		case "queuing":
 			return "queued";
 		case "in_progress":
 		case "in-progress":
 		case "processing":
 		case "running":
+		case "generating":
 			return "in_progress";
 		case "completed":
 		case "success":
@@ -563,13 +582,25 @@ async function getPublicVideoContentUrl(
 	job: VideoJobRecord,
 	logId?: string | null,
 ): Promise<string | null> {
+	if (job.status !== "completed") {
+		return null;
+	}
+
 	const resolvedLogId =
 		logId ?? (await getVideoLogIdByRequestId(job.requestId));
 	if (
 		resolvedLogId &&
 		(job.contentUrl || job.storageUri || getInlineGoogleVertexVideo(job))
 	) {
-		return buildSignedGatewayVideoLogContentUrl(resolvedLogId);
+		try {
+			return buildSignedGatewayVideoLogContentUrl(resolvedLogId);
+		} catch (error) {
+			logger.warn("Falling back to direct video content URL", {
+				videoJobId: job.id,
+				logId: resolvedLogId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	return await getExternalVideoContentUrl(job);
@@ -702,7 +733,7 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 	size: string;
 	width: number;
 	height: number;
-	resolution: "720p" | "1080p" | "4k";
+	resolution: "720p" | "1080p" | "hd" | "4k";
 } | null {
 	const size = getRequestedVideoSize(job);
 	if (!size) {
@@ -724,9 +755,11 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 	const resolution =
 		largestDimension >= 3840
 			? "4k"
-			: largestDimension >= 1920
-				? "1080p"
-				: "720p";
+			: largestDimension >= 1792
+				? "hd"
+				: largestDimension >= 1920
+					? "1080p"
+					: "720p";
 
 	return {
 		size,
@@ -833,6 +866,83 @@ function getAvalancheMessage(body: Record<string, unknown>): string | null {
 	}
 
 	return null;
+}
+
+function parseAvalancheTaskJsonRecord(
+	value: unknown,
+): Record<string, unknown> | null {
+	if (!value || typeof value !== "string" || value.length === 0) {
+		return null;
+	}
+
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+function parseAvalancheTaskResultUrls(value: unknown): string[] {
+	if (Array.isArray(value)) {
+		return value.filter((item): item is string => typeof item === "string");
+	}
+
+	if (typeof value === "string" && value.length > 0) {
+		return [value];
+	}
+
+	return [];
+}
+
+function normalizeAvalancheSoraRecordInfo(
+	job: VideoJobRecord,
+	body: Record<string, unknown>,
+): Record<string, unknown> {
+	const data = readAvalancheResponseData(body);
+	const result = parseAvalancheTaskJsonRecord(data.resultJson);
+	const resultUrls = parseAvalancheTaskResultUrls(result?.resultUrls);
+	const originUrls = parseAvalancheTaskResultUrls(result?.originUrls);
+	const url = resultUrls[0] ?? originUrls[0] ?? null;
+	const status = normalizeVideoStatus(data.state);
+	const progress =
+		typeof data.progress === "number" && Number.isFinite(data.progress)
+			? Math.max(0, Math.min(100, Math.round(data.progress)))
+			: status === "completed" || status === "failed"
+				? 100
+				: status === "in_progress"
+					? 50
+					: 0;
+	const failCode =
+		typeof data.failCode === "string" && data.failCode.length > 0
+			? data.failCode
+			: undefined;
+	const failMsg =
+		typeof data.failMsg === "string" && data.failMsg.length > 0
+			? data.failMsg
+			: null;
+
+	return addRequestedVideoMetadata(job, {
+		status,
+		progress,
+		url,
+		output_url: url,
+		mime_type: url ? "video/mp4" : undefined,
+		completed_at: data.completeTime,
+		created_at: data.createTime,
+		error:
+			status === "failed"
+				? {
+						message: failMsg ?? "Avalanche Sora video generation failed",
+						code: failCode,
+						details: body,
+					}
+				: null,
+		avalanche_result_json: result ?? data.resultJson,
+		avalanche_record_info: body,
+	});
 }
 
 function createAvalanchePendingUpgradeResponse(
@@ -946,6 +1056,30 @@ async function fetchAvalancheRecordInfo(
 	}
 
 	return body;
+}
+
+async function fetchAvalancheSoraStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = new URL(
+		joinUrl(getAvalancheJobsApiBaseUrl(providerContext.baseUrl), "/recordInfo"),
+	);
+	url.searchParams.set("taskId", job.upstreamId);
+
+	const { body, response } = await fetchJsonResponse(url.toString(), {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			getAvalancheMessage(body) ??
+				`Avalanche Sora status request failed with status ${response.status}`,
+		);
+	}
+
+	return normalizeAvalancheSoraRecordInfo(job, body);
 }
 
 async function fetchAvalanche1080pUpgrade(
@@ -1324,10 +1458,18 @@ function getVideoPricing(job: VideoJobRecord): Record<string, number> | null {
 	return mapping?.perSecondPrice ?? null;
 }
 
+function getVideoRequestPrice(job: VideoJobRecord): number | null {
+	const model = models.find((item) => item.id === job.model);
+	const mapping = model?.providers.find(
+		(provider) => provider.providerId === job.usedProvider,
+	) as ProviderModelMapping | undefined;
+	return mapping?.requestPrice ?? null;
+}
+
 function getVideoOutputCost(job: VideoJobRecord): number {
 	const pricing = getVideoPricing(job);
 	if (!pricing) {
-		return 0;
+		return getVideoRequestPrice(job) ?? 0;
 	}
 
 	const durationSeconds = extractVideoDurationSeconds(job);
@@ -1340,19 +1482,34 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 		return 0;
 	}
 
+	const requestedResolution =
+		getRequestedVideoMetadata(job)?.resolution ?? null;
 	const resolutionKey = is4kVideo(job)
 		? VIDEO_RESOLUTION_4K
-		: VIDEO_DEFAULT_RESOLUTION;
+		: requestedResolution === VIDEO_RESOLUTION_HD
+			? VIDEO_RESOLUTION_HD
+			: requestedResolution === VIDEO_RESOLUTION_1080P
+				? VIDEO_RESOLUTION_1080P
+				: VIDEO_DEFAULT_RESOLUTION;
+	const resolutionCandidates = [
+		requestedResolution,
+		resolutionKey,
+		VIDEO_DEFAULT_RESOLUTION,
+	].filter(
+		(candidate, index, array): candidate is string =>
+			typeof candidate === "string" && array.indexOf(candidate) === index,
+	);
 	const includesAudio =
 		videoIncludesAudio(job) ?? inferVideoIncludesAudioFromPricing(pricing);
 	const priceCandidates =
 		includesAudio === null
-			? [resolutionKey, VIDEO_DEFAULT_RESOLUTION]
+			? resolutionCandidates
 			: [
-					`${resolutionKey}_${includesAudio ? "audio" : "video"}`,
-					`${VIDEO_DEFAULT_RESOLUTION}_${includesAudio ? "audio" : "video"}`,
-					resolutionKey,
-					VIDEO_DEFAULT_RESOLUTION,
+					...resolutionCandidates.map(
+						(resolution) =>
+							`${resolution}_${includesAudio ? "audio" : "video"}`,
+					),
+					...resolutionCandidates,
 				];
 	const pricePerSecond = priceCandidates
 		.map((key) => pricing[key])
@@ -1552,13 +1709,22 @@ async function fetchUpstreamStatus(
 	const providerContext = await resolveVideoProviderContext(job);
 
 	if (job.usedProvider === "avalanche") {
-		return await fetchAvalancheStatus(job, providerContext);
+		return isAvalancheSoraJob(job)
+			? await fetchAvalancheSoraStatus(job, providerContext)
+			: await fetchAvalancheStatus(job, providerContext);
 	}
 
 	if (job.usedProvider === "google-vertex") {
 		return await fetchGoogleVertexStatus(job, providerContext);
 	}
 
+	return await fetchGenericVideoStatus(job, providerContext);
+}
+
+async function fetchGenericVideoStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
 	const url = joinUrl(providerContext.baseUrl, `/v1/videos/${job.upstreamId}`);
 	const { body, response } = await fetchJsonResponse(url, {
 		method: "GET",
@@ -1749,7 +1915,18 @@ export async function processPendingVideoJobs(): Promise<void> {
 				.then((rows) => rows[0]);
 
 			if (TERMINAL_VIDEO_STATUSES.has(updatedJob.status)) {
-				await finalizeVideoJob(updatedJob);
+				try {
+					await finalizeVideoJob(updatedJob);
+				} catch (error) {
+					logger.error(
+						"Error finalizing video job",
+						error instanceof Error ? error : new Error(String(error)),
+						{
+							videoJobId: updatedJob.id,
+							upstreamId: updatedJob.upstreamId,
+						},
+					);
+				}
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -1849,7 +2026,18 @@ export async function processPendingVideoJobs(): Promise<void> {
 		.limit(25);
 
 	for (const job of terminalJobsToFinalize) {
-		await finalizeVideoJob(job);
+		try {
+			await finalizeVideoJob(job);
+		} catch (error) {
+			logger.error(
+				"Error finalizing terminal video job",
+				error instanceof Error ? error : new Error(String(error)),
+				{
+					videoJobId: job.id,
+					upstreamId: job.upstreamId,
+				},
+			);
+		}
 	}
 }
 

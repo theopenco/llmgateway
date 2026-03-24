@@ -104,7 +104,7 @@ export interface ProviderSelectionOptions {
 export interface VideoPricingContext {
 	durationSeconds: number;
 	includeAudio: boolean;
-	resolution: "default" | "4k";
+	resolution: "default" | "hd" | "4k";
 }
 
 function getPerSecondBillingKeys(
@@ -116,6 +116,12 @@ function getPerSecondBillingKeys(
 			: ["4k_video", "default_video", "4k", "default"];
 	}
 
+	if (videoPricing.resolution === "hd") {
+		return videoPricing.includeAudio
+			? ["hd_audio", "default_audio", "hd", "default"]
+			: ["hd_video", "default_video", "hd", "default"];
+	}
+
 	return videoPricing.includeAudio
 		? ["default_audio", "default"]
 		: ["default_video", "default"];
@@ -125,7 +131,11 @@ export function getProviderSelectionPrice(
 	providerInfo:
 		| Pick<
 				ProviderModelMapping,
-				"discount" | "inputPrice" | "outputPrice" | "perSecondPrice"
+				| "discount"
+				| "inputPrice"
+				| "outputPrice"
+				| "perSecondPrice"
+				| "requestPrice"
 		  >
 		| undefined,
 	videoPricing?: VideoPricingContext,
@@ -142,6 +152,10 @@ export function getProviderSelectionPrice(
 				);
 			}
 		}
+	}
+
+	if (providerInfo?.requestPrice !== undefined) {
+		return providerInfo.requestPrice * discountMultiplier;
 	}
 
 	return (
