@@ -1,6 +1,6 @@
 ---
 id: "43"
-slug: "video-gen-sessions-content-filter"
+slug: "video-gen-sessions-and-more"
 date: "2026-03-23"
 title: "Video Generation, Sessions & More"
 summary: "Generate videos via the API, track conversations with sessions, and more — plus new models and providers."
