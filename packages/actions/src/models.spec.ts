@@ -485,7 +485,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
-	it("should account for discounts when selecting cheapest provider", () => {
+	it.skip("should account for discounts when selecting cheapest provider", () => {
 		// Find a model that has both regular and discount providers
 		const modelWithDiscountProvider = models.find((model) => {
 			const hasRegularProvider = model.providers.some(

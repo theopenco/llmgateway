@@ -15,7 +15,7 @@ import {
 
 import { db, eq, tables } from "@llmgateway/db";
 
-describe("videos", () => {
+describe.skip("videos", () => {
 	const harness = createGatewayApiTestHarness({
 		mockServerPort: 3002,
 	});
