@@ -11,14 +11,15 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { extractApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
-import type { Context } from "hono";
 
 const moderationRequestSchema = z.object({
 	input: z.any().openapi({
@@ -30,27 +31,6 @@ const moderationRequestSchema = z.object({
 		example: "omni-moderation-latest",
 	}),
 });
-
-function getApiToken(c: Context): string {
-	const auth = c.req.header("Authorization");
-	const xApiKey = c.req.header("x-api-key");
-
-	if (auth) {
-		const split = auth.split("Bearer ");
-		if (split.length === 2 && split[1]) {
-			return split[1];
-		}
-	}
-
-	if (xApiKey) {
-		return xApiKey;
-	}
-
-	throw new HTTPException(401, {
-		message:
-			"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
-	});
-}
 
 function normalizeModerationInputToMessages(input: unknown) {
 	if (Array.isArray(input)) {
@@ -164,7 +144,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	const customHeaders = extractCustomHeaders(c);
 	const normalizedMessages = normalizeModerationInputToMessages(input);
 
-	const token = getApiToken(c);
+	const token = extractApiToken(c);
 	const apiKey = await findApiKeyByToken(token);
 
 	if (!apiKey || apiKey.status !== "active") {
@@ -237,52 +217,139 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		model: upstreamModel,
 	};
 
-	const baseLogEntry = createLogEntry(
+	const baseLogEntry = createLogEntry({
 		requestId,
 		project,
 		apiKey,
-		providerKey?.id,
-		"openai-moderation",
-		upstreamModel,
-		"openai",
-		"openai-moderation",
-		"openai",
-		normalizedMessages,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
+		providerKeyId: providerKey?.id,
+		usedModel: "openai-moderation",
+		usedModelMapping: upstreamModel,
+		usedProvider: "openai",
+		requestedModel: "openai-moderation",
+		requestedProvider: "openai",
+		messages: normalizedMessages,
 		source,
 		customHeaders,
 		debugMode,
 		userAgent,
-		undefined,
-		undefined,
-		rawBody,
-		undefined,
-		requestBody,
-		undefined,
-	);
-
-	const upstreamResponse = await fetch(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("openai", usedToken),
-		},
-		body: JSON.stringify(requestBody),
+		rawRequest: rawBody,
+		upstreamRequest: requestBody,
 	});
 
-	const upstreamText = await upstreamResponse.text();
-	const duration = Date.now() - startedAt;
-	const responseSize = upstreamText.length;
+	const controller = new AbortController();
+	const onAbort = () => {
+		controller.abort();
+	};
+	c.req.raw.signal.addEventListener("abort", onAbort);
+
+	let upstreamResponse: Response;
+	let upstreamText: string;
+	let duration: number;
+	let responseSize: number;
+
+	try {
+		const fetchSignal = createCombinedSignal(controller);
+		upstreamResponse = await fetch(upstreamUrl, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("openai", usedToken),
+			},
+			body: JSON.stringify(requestBody),
+			signal: fetchSignal,
+		});
+
+		upstreamText = await upstreamResponse.text();
+		duration = Date.now() - startedAt;
+		responseSize = upstreamText.length;
+	} catch (error) {
+		duration = Date.now() - startedAt;
+		const isCanceled = error instanceof Error && error.name === "AbortError";
+		const isTimeout = isTimeoutError(error);
+
+		await insertLog({
+			...baseLogEntry,
+			duration,
+			timeToFirstToken: null,
+			timeToFirstReasoningToken: null,
+			responseSize: 0,
+			content: null,
+			reasoningContent: null,
+			finishReason: isCanceled ? "canceled" : "upstream_error",
+			promptTokens: null,
+			completionTokens: null,
+			totalTokens: null,
+			reasoningTokens: null,
+			cachedTokens: null,
+			hasError: !isCanceled,
+			streamed: false,
+			canceled: isCanceled,
+			errorDetails: isCanceled
+				? null
+				: {
+						statusCode: 0,
+						statusText: error instanceof Error ? error.name : "FetchError",
+						responseText:
+							error instanceof Error ? error.message : String(error),
+					},
+			inputCost: 0,
+			outputCost: 0,
+			cachedInputCost: 0,
+			requestCost: 0,
+			webSearchCost: 0,
+			imageInputTokens: null,
+			imageOutputTokens: null,
+			imageInputCost: null,
+			imageOutputCost: null,
+			cost: 0,
+			estimatedCost: false,
+			discount: null,
+			pricingTier: null,
+			dataStorageCost: calculateDataStorageCost(
+				null,
+				null,
+				null,
+				null,
+				retentionLevel,
+			),
+			cached: false,
+			toolResults: null,
+		});
+
+		if (isCanceled) {
+			return c.json(
+				{
+					error: {
+						message: "Request canceled by client",
+						type: "canceled",
+						param: null,
+						code: "request_canceled",
+					},
+				},
+				400,
+			);
+		}
+
+		return c.json(
+			{
+				error: {
+					message: isTimeout
+						? `Upstream provider timeout: ${
+								error instanceof Error ? error.message : String(error)
+							}`
+						: `Failed to connect to provider: ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+					type: isTimeout ? "upstream_timeout" : "upstream_error",
+					param: null,
+					code: isTimeout ? "timeout" : "fetch_failed",
+				},
+			},
+			isTimeout ? 504 : 502,
+		);
+	} finally {
+		c.req.raw.signal.removeEventListener("abort", onAbort);
+	}
 
 	let upstreamJson: unknown = null;
 	if (upstreamText) {

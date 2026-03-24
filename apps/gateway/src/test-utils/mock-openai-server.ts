@@ -512,6 +512,23 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 			typeof item === "string" ? item : JSON.stringify(item ?? null),
 		)
 		.join(" ");
+
+	const timeoutDelay = extractTimeoutDelay(combinedInput);
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
+
+	const statusTrigger = extractStatusCodeTrigger(combinedInput);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (combinedInput.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
 	const flagged = /harm|kill|attack/i.test(combinedInput);
 
 	return c.json({

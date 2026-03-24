@@ -11,9 +11,116 @@ export interface PluginResults {
 	};
 }
 
+export interface CreateLogEntryOptions {
+	requestId: string;
+	project: Project;
+	apiKey: ApiKey;
+	providerKeyId?: string;
+	usedModel: string;
+	usedModelMapping?: string;
+	usedProvider: string;
+	requestedModel: string;
+	requestedProvider?: string;
+	messages: any[];
+	temperature?: number;
+	max_tokens?: number;
+	top_p?: number;
+	frequency_penalty?: number;
+	presence_penalty?: number;
+	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoningMaxTokens?: number;
+	effort?: "low" | "medium" | "high";
+	responseFormat?: any;
+	tools?: OpenAIToolInput[];
+	toolChoice?: any;
+	source?: string;
+	customHeaders: Record<string, string>;
+	debugMode: boolean;
+	userAgent?: string;
+	imageConfig?:
+		| {
+				aspect_ratio?: string;
+				image_size?: string;
+		  }
+		| undefined;
+	routingMetadata?: RoutingMetadata;
+	rawRequest?: unknown;
+	rawResponse?: unknown;
+	upstreamRequest?: unknown;
+	upstreamResponse?: unknown;
+	plugins?: string[];
+	pluginResults?: PluginResults;
+}
+
 /**
  * Creates a partial log entry with common fields to reduce duplication
  */
+function buildLogEntry(options: CreateLogEntryOptions) {
+	const activeSpan = trace.getActiveSpan();
+	const traceId = activeSpan?.spanContext().traceId ?? null;
+
+	return {
+		requestId: options.requestId,
+		organizationId: options.project.organizationId,
+		projectId: options.apiKey.projectId,
+		apiKeyId: options.apiKey.id,
+		usedMode: options.providerKeyId ? "api-keys" : "credits",
+		usedModel: options.usedModel,
+		usedModelMapping: options.usedModelMapping,
+		usedProvider: options.usedProvider,
+		requestedModel: options.requestedModel,
+		requestedProvider: options.requestedProvider,
+		messages: options.messages,
+		temperature: options.temperature ?? null,
+		maxTokens: options.max_tokens ?? null,
+		topP: options.top_p ?? null,
+		frequencyPenalty: options.frequency_penalty ?? null,
+		presencePenalty: options.presence_penalty ?? null,
+		reasoningEffort: options.reasoningEffort ?? null,
+		reasoningMaxTokens: options.reasoningMaxTokens ?? null,
+		effort: options.effort ?? null,
+		responseFormat: options.responseFormat ?? null,
+		tools: options.tools ?? null,
+		toolChoice: options.toolChoice ?? null,
+		mode: options.project.mode,
+		source: options.source ?? null,
+		customHeaders:
+			Object.keys(options.customHeaders).length > 0
+				? options.customHeaders
+				: null,
+		params:
+			options.imageConfig?.aspect_ratio || options.imageConfig?.image_size
+				? { image_config: options.imageConfig }
+				: null,
+		routingMetadata: options.routingMetadata ?? null,
+		traceId,
+		userAgent: options.userAgent ?? null,
+		// Only include raw payloads if x-debug header is set to true
+		rawRequest: options.debugMode ? (options.rawRequest ?? null) : null,
+		rawResponse: options.debugMode ? (options.rawResponse ?? null) : null,
+		upstreamRequest: options.debugMode
+			? (options.upstreamRequest ?? null)
+			: null,
+		upstreamResponse: options.debugMode
+			? (options.upstreamResponse ?? null)
+			: null,
+		plugins:
+			options.plugins && options.plugins.length > 0 ? options.plugins : null,
+		pluginResults: options.pluginResults ?? null,
+	} as const;
+}
+
+function requireDefined<T>(value: T | undefined, name: string): T {
+	if (value === undefined) {
+		throw new Error(`Missing createLogEntry legacy argument: ${name}`);
+	}
+
+	return value;
+}
+
+export function createLogEntry(
+	options: CreateLogEntryOptions,
+): ReturnType<typeof buildLogEntry>;
 export function createLogEntry(
 	requestId: string,
 	project: Project,
@@ -53,49 +160,84 @@ export function createLogEntry(
 	upstreamResponse?: unknown,
 	plugins?: string[],
 	pluginResults?: PluginResults,
-) {
-	const activeSpan = trace.getActiveSpan();
-	const traceId = activeSpan?.spanContext().traceId ?? null;
+): ReturnType<typeof buildLogEntry>;
+export function createLogEntry(
+	requestIdOrOptions: string | CreateLogEntryOptions,
+	project?: Project,
+	apiKey?: ApiKey,
+	providerKeyId?: string,
+	usedModel?: string,
+	usedModelMapping?: string,
+	usedProvider?: string,
+	requestedModel?: string,
+	requestedProvider?: string,
+	messages?: any[],
+	temperature?: number,
+	max_tokens?: number,
+	top_p?: number,
+	frequency_penalty?: number,
+	presence_penalty?: number,
+	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoningMaxTokens?: number,
+	effort?: "low" | "medium" | "high",
+	responseFormat?: any,
+	tools?: OpenAIToolInput[],
+	toolChoice?: any,
+	source?: string,
+	customHeaders?: Record<string, string>,
+	debugMode?: boolean,
+	userAgent?: string,
+	imageConfig?:
+		| {
+				aspect_ratio?: string;
+				image_size?: string;
+		  }
+		| undefined,
+	routingMetadata?: RoutingMetadata,
+	rawRequest?: unknown,
+	rawResponse?: unknown,
+	upstreamRequest?: unknown,
+	upstreamResponse?: unknown,
+	plugins?: string[],
+	pluginResults?: PluginResults,
+): ReturnType<typeof buildLogEntry> {
+	if (typeof requestIdOrOptions !== "string") {
+		return buildLogEntry(requestIdOrOptions);
+	}
 
-	return {
-		requestId,
-		organizationId: project.organizationId,
-		projectId: apiKey.projectId,
-		apiKeyId: apiKey.id,
-		usedMode: providerKeyId ? "api-keys" : "credits",
-		usedModel,
+	return buildLogEntry({
+		requestId: requestIdOrOptions,
+		project: requireDefined(project, "project"),
+		apiKey: requireDefined(apiKey, "apiKey"),
+		providerKeyId,
+		usedModel: requireDefined(usedModel, "usedModel"),
 		usedModelMapping,
-		usedProvider,
-		requestedModel,
+		usedProvider: requireDefined(usedProvider, "usedProvider"),
+		requestedModel: requireDefined(requestedModel, "requestedModel"),
 		requestedProvider,
-		messages,
-		temperature: temperature ?? null,
-		maxTokens: max_tokens ?? null,
-		topP: top_p ?? null,
-		frequencyPenalty: frequency_penalty ?? null,
-		presencePenalty: presence_penalty ?? null,
-		reasoningEffort: reasoningEffort ?? null,
-		reasoningMaxTokens: reasoningMaxTokens ?? null,
-		effort: effort ?? null,
-		responseFormat: responseFormat ?? null,
-		tools: tools ?? null,
-		toolChoice: toolChoice ?? null,
-		mode: project.mode,
-		source: source ?? null,
-		customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : null,
-		params:
-			imageConfig?.aspect_ratio || imageConfig?.image_size
-				? { image_config: imageConfig }
-				: null,
-		routingMetadata: routingMetadata ?? null,
-		traceId,
-		userAgent: userAgent ?? null,
-		// Only include raw payloads if x-debug header is set to true
-		rawRequest: debugMode ? (rawRequest ?? null) : null,
-		rawResponse: debugMode ? (rawResponse ?? null) : null,
-		upstreamRequest: debugMode ? (upstreamRequest ?? null) : null,
-		upstreamResponse: debugMode ? (upstreamResponse ?? null) : null,
-		plugins: plugins && plugins.length > 0 ? plugins : null,
-		pluginResults: pluginResults ?? null,
-	} as const;
+		messages: requireDefined(messages, "messages"),
+		temperature,
+		max_tokens,
+		top_p,
+		frequency_penalty,
+		presence_penalty,
+		reasoningEffort,
+		reasoningMaxTokens,
+		effort,
+		responseFormat,
+		tools,
+		toolChoice,
+		source,
+		customHeaders: requireDefined(customHeaders, "customHeaders"),
+		debugMode: requireDefined(debugMode, "debugMode"),
+		userAgent,
+		imageConfig,
+		routingMetadata,
+		rawRequest,
+		rawResponse,
+		upstreamRequest,
+		upstreamResponse,
+		plugins,
+		pluginResults,
+	});
 }

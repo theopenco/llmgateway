@@ -134,6 +134,69 @@ describe("api", () => {
 		expect(moderationLog?.content).toContain('"flagged":true');
 	});
 
+	test("/v1/moderations e2e timeout error", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const previousTimeout = process.env.AI_TIMEOUT_MS;
+		process.env.AI_TIMEOUT_MS = "25";
+
+		try {
+			const requestId = "moderation-timeout-request-id";
+			const res = await app.request("/v1/moderations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					input: "TRIGGER_TIMEOUT_100 moderation timeout",
+				}),
+			});
+
+			expect(res.status).toBe(504);
+
+			const json = await res.json();
+			expect(json).toEqual({
+				error: {
+					message: expect.stringContaining("Upstream provider timeout"),
+					type: "upstream_timeout",
+					param: null,
+					code: "timeout",
+				},
+			});
+
+			const logs = await waitForLogs(1);
+			const moderationLog = logs.find((log) => log.requestId === requestId);
+
+			expect(moderationLog).toBeTruthy();
+			expect(moderationLog?.finishReason).toBe("upstream_error");
+			expect(moderationLog?.hasError).toBe(true);
+			expect(moderationLog?.canceled).toBe(false);
+			expect(moderationLog?.content).toBeNull();
+		} finally {
+			if (previousTimeout === undefined) {
+				delete process.env.AI_TIMEOUT_MS;
+			} else {
+				process.env.AI_TIMEOUT_MS = previousTimeout;
+			}
+		}
+	});
+
 	test("Reasoning effort error for unsupported model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
