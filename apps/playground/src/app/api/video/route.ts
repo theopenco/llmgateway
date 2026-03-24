@@ -13,7 +13,7 @@ function getVideoCreateProxyTimeoutMs(): number {
 		return envValue;
 	}
 
-	return Math.max(1000, maxDuration * 1000 - 5000);
+	return Math.max(1000, (maxDuration * 1000) - 5000);
 }
 
 function isTimeoutError(error: unknown): boolean {
