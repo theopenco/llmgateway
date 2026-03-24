@@ -104,7 +104,7 @@ export interface ProviderSelectionOptions {
 export interface VideoPricingContext {
 	durationSeconds: number;
 	includeAudio: boolean;
-	resolution: "default" | "hd" | "4k";
+	resolution: "default" | "hd" | "1080p" | "4k";
 }
 
 function getPerSecondBillingKeys(
@@ -120,6 +120,12 @@ function getPerSecondBillingKeys(
 		return videoPricing.includeAudio
 			? ["hd_audio", "default_audio", "hd", "default"]
 			: ["hd_video", "default_video", "hd", "default"];
+	}
+
+	if (videoPricing.resolution === "1080p") {
+		return videoPricing.includeAudio
+			? ["1080p_audio", "hd_audio", "default_audio", "1080p", "hd", "default"]
+			: ["1080p_video", "hd_video", "default_video", "1080p", "hd", "default"];
 	}
 
 	return videoPricing.includeAudio
