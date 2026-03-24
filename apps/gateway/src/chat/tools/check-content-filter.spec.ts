@@ -75,6 +75,16 @@ describe("checkContentFilter", () => {
 		).toBe("blocked");
 	});
 
+	it("ignores messages with null content", () => {
+		process.env.LLM_CONTENT_FILTER_KEYWORDS = "blocked";
+		expect(
+			checkContentFilter([
+				{ role: "user", content: null as unknown as string },
+				{ role: "user", content: "safe content" },
+			]),
+		).toBeNull();
+	});
+
 	it("trims whitespace from keywords", () => {
 		process.env.LLM_CONTENT_FILTER_KEYWORDS = " banned , blocked ";
 		expect(

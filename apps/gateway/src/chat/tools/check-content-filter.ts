@@ -61,9 +61,15 @@ function getFilterKeywords(): string[] {
 	return cachedKeywords;
 }
 
-function extractTextFromContent(content: string | MessageContent[]): string {
+function extractTextFromContent(
+	content: string | MessageContent[] | null | undefined,
+): string {
 	if (typeof content === "string") {
 		return content;
+	}
+
+	if (!Array.isArray(content)) {
+		return "";
 	}
 
 	return content
