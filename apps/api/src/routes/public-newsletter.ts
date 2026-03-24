@@ -4,23 +4,32 @@ import { z } from "zod";
 import { redisClient } from "@/auth/config.js";
 
 import { logger } from "@llmgateway/logger";
-import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const publicNewsletter = new OpenAPIHono<ServerTypes>();
 
-const subscribeSchema = z.object({
-	email: z.string().email("Invalid email address"),
-});
-
-const responseSchema = z.object({
-	success: z.boolean(),
-	message: z.string(),
-});
-
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
+
+const resendApiKey = process.env.RESEND_API_KEY;
+const resendNewsletterTopicId = process.env.RESEND_NEWSLETTER_TOPIC_ID;
+
+function extractClientIP(c: {
+	req: { header: (name: string) => string | undefined };
+}): string | null {
+	const cfConnectingIP = c.req.header("CF-Connecting-IP");
+	if (cfConnectingIP) {
+		return cfConnectingIP;
+	}
+
+	const xForwardedFor = c.req.header("X-Forwarded-For");
+	if (xForwardedFor) {
+		return xForwardedFor.split(",")[0]?.trim() ?? null;
+	}
+
+	return c.req.header("X-Real-IP") ?? null;
+}
 
 async function checkRateLimit(identifier: string): Promise<boolean> {
 	const key = `newsletter_rate_limit:${identifier}`;
@@ -39,22 +48,6 @@ async function checkRateLimit(identifier: string): Promise<boolean> {
 	}
 }
 
-function extractClientIP(c: {
-	req: { header: (name: string) => string | undefined };
-}): string | null {
-	const cfConnectingIP = c.req.header("CF-Connecting-IP");
-	if (cfConnectingIP) {
-		return cfConnectingIP;
-	}
-
-	const xForwardedFor = c.req.header("X-Forwarded-For");
-	if (xForwardedFor) {
-		return xForwardedFor.split(",")[0]?.trim() ?? null;
-	}
-
-	return c.req.header("X-Real-IP") ?? null;
-}
-
 const subscribeRoute = createRoute({
 	method: "post",
 	path: "/subscribe",
@@ -62,7 +55,9 @@ const subscribeRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: subscribeSchema,
+					schema: z.object({
+						email: z.string().email("Invalid email address"),
+					}),
 				},
 			},
 		},
@@ -71,7 +66,10 @@ const subscribeRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: responseSchema,
+					schema: z.object({
+						success: z.boolean(),
+						message: z.string(),
+					}),
 				},
 			},
 			description: "Successfully subscribed to newsletter",
@@ -79,7 +77,10 @@ const subscribeRoute = createRoute({
 		429: {
 			content: {
 				"application/json": {
-					schema: responseSchema,
+					schema: z.object({
+						success: z.boolean(),
+						message: z.string(),
+					}),
 				},
 			},
 			description: "Rate limit exceeded",
@@ -87,10 +88,13 @@ const subscribeRoute = createRoute({
 		500: {
 			content: {
 				"application/json": {
-					schema: responseSchema,
+					schema: z.object({
+						success: z.boolean(),
+						message: z.string(),
+					}),
 				},
 			},
-			description: "Failed to subscribe",
+			description: "Internal server error",
 		},
 	},
 });
@@ -105,44 +109,59 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		return c.json(
 			{
 				success: false,
-				message: "Too many attempts. Please try again later.",
+				message: "Too many requests. Please try again later.",
 			},
 			429,
 		);
 	}
 
-	const resend = getResendClient();
-	if (!resend) {
-		logger.error("Resend client not configured for newsletter subscription");
+	if (!resendApiKey) {
+		logger.error("RESEND_API_KEY not configured for newsletter");
 		return c.json(
 			{
 				success: false,
-				message: "Newsletter service is temporarily unavailable.",
+				message: "Email service is not configured. Please try again later.",
 			},
 			500,
 		);
 	}
 
-	if (!resendAudienceId) {
-		logger.error("RESEND_AUDIENCE_ID not configured for newsletter");
+	if (!resendNewsletterTopicId) {
+		logger.error("RESEND_NEWSLETTER_TOPIC_ID not configured");
 		return c.json(
 			{
 				success: false,
-				message: "Newsletter service is temporarily unavailable.",
+				message: "Newsletter is not configured. Please try again later.",
 			},
 			500,
 		);
 	}
 
 	try {
-		const { error } = await resend.contacts.create({
-			audienceId: resendAudienceId,
-			email,
-			unsubscribed: false,
+		const response = await fetch("https://api.resend.com/contacts", {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${resendApiKey}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				email,
+				unsubscribed: false,
+				topics: [
+					{
+						id: resendNewsletterTopicId,
+						subscription: "opt_in",
+					},
+				],
+			}),
 		});
 
-		if (error) {
-			if (error.message?.includes("already exists")) {
+		if (!response.ok) {
+			const body = (await response.json()) as {
+				message?: string;
+				name?: string;
+			};
+			if (body.message?.includes("already exists")) {
 				return c.json(
 					{
 						success: true,
@@ -151,20 +170,19 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 					200,
 				);
 			}
-			throw new Error(error.message);
+			throw new Error(body.message ?? `Resend API error: ${response.status}`);
 		}
 
-		logger.info("Newsletter subscription created", { email });
 		return c.json(
 			{
 				success: true,
-				message: "You're subscribed! Welcome aboard.",
+				message: "Successfully subscribed to the newsletter!",
 			},
 			200,
 		);
 	} catch (error) {
-		logger.error("Failed to create newsletter subscription", {
-			...(error instanceof Error ? { err: error } : { error }),
+		logger.error("Failed to subscribe to newsletter", {
+			error,
 			email,
 		});
 		return c.json(

@@ -450,7 +450,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Failed to subscribe */
+                /** @description Internal server error */
                 500: {
                     headers: {
                         [name: string]: unknown;
