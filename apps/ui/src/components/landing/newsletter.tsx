@@ -140,6 +140,9 @@ export default function Newsletter() {
 									className="flex flex-col gap-3"
 									onSubmit={(e) => {
 										e.preventDefault();
+										if (subscribe.isPending) {
+											return;
+										}
 										subscribe.mutate({
 											body: { email },
 										});
