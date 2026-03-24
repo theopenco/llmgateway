@@ -160,14 +160,22 @@ export function getProviderSelectionPrice(
 		}
 	}
 
+	if (
+		providerInfo?.inputPrice !== undefined ||
+		providerInfo?.outputPrice !== undefined
+	) {
+		return (
+			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
+				2) *
+			discountMultiplier
+		);
+	}
+
 	if (providerInfo?.requestPrice !== undefined) {
 		return providerInfo.requestPrice * discountMultiplier;
 	}
 
-	return (
-		(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) / 2) *
-		discountMultiplier
-	);
+	return 0;
 }
 
 /**
