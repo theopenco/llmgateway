@@ -8,7 +8,7 @@ export type VideoSize =
 	| "3840x2160"
 	| "2160x3840";
 
-export type VideoDuration = 4 | 6 | 8 | 10;
+export type VideoDuration = 4 | 6 | 8 | 10 | 12 | 15;
 
 export interface VideoInputImage {
 	dataUrl: string;
@@ -59,7 +59,7 @@ export interface VideoGalleryItem {
 
 export type VideoInputMode = "none" | "frames" | "reference";
 
-const VIDEO_DURATIONS: VideoDuration[] = [4, 6, 8, 10];
+const VIDEO_DURATIONS: VideoDuration[] = [4, 6, 8, 10, 12, 15];
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
 	"1280x720": "720p Landscape",

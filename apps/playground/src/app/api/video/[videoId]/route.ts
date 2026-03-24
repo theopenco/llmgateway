@@ -8,12 +8,34 @@ import {
 import { getUser } from "@/lib/getUser";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
+
+const API_TIMEOUT_MS = 10_000;
+
+function isTimeoutError(error: unknown): boolean {
+	return error instanceof Error && error.name === "TimeoutError";
+}
 
 export async function GET(
 	_req: Request,
 	{ params }: { params: Promise<{ videoId: string }> },
 ) {
-	const user = await getUser();
+	let user: Awaited<ReturnType<typeof getUser>> = null;
+	try {
+		user = await getUser({
+			signal: AbortSignal.timeout(API_TIMEOUT_MS),
+		});
+	} catch (error) {
+		if (isTimeoutError(error)) {
+			return NextResponse.json(
+				{ error: "Authentication request timed out" },
+				{ status: 504 },
+			);
+		}
+
+		throw error;
+	}
+
 	if (!user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
@@ -35,16 +57,29 @@ export async function GET(
 			? "http://localhost:4001"
 			: "https://api.llmgateway.io");
 
-	const response = await fetch(
-		`${gatewayBaseUrl}/v1/videos/${encodeURIComponent(videoId)}`,
-		{
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				"x-source": "chat.llmgateway.io",
+	let response: Response;
+	try {
+		response = await fetch(
+			`${gatewayBaseUrl}/v1/videos/${encodeURIComponent(videoId)}`,
+			{
+				headers: {
+					Authorization: `Bearer ${apiKey}`,
+					"x-source": "chat.llmgateway.io",
+				},
+				cache: "no-store",
+				signal: AbortSignal.timeout(API_TIMEOUT_MS),
 			},
-			cache: "no-store",
-		},
-	);
+		);
+	} catch (error) {
+		if (isTimeoutError(error)) {
+			return NextResponse.json(
+				{ error: "Video status request timed out" },
+				{ status: 504 },
+			);
+		}
+
+		throw error;
+	}
 
 	const body = await readGatewayResponseBody(response);
 

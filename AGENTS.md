@@ -15,16 +15,16 @@ This file provides guidance to AI agents when working with code in this reposito
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
 - `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, Code on :3004, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006)
-- `pnpm build` - Build all applications for production. Always run this after finishing work on a feature.
+- `pnpm build` - Build all applications for production. ALWAYS run this after finishing work on a feature. ALWAYS run a full build to make sure things fork.
 - `pnpm clean` - Clean build artifacts and cache directories
 
 ### Code Quality
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-Always run `pnpm format` before committing code. Run `pnpm build` if API routes were modified.
+ALWAYS run `pnpm format` before committing code. Run `pnpm build` if API routes were modified.
 
-- `pnpm format` - Format code and fix linting issues. Always run this before committing code.
+- `pnpm format` - Format code and fix linting issues. ALWAYS run this before committing code.
 - `pnpm lint` - Check linting and formatting (without fixing)
 
 ### Writing code
@@ -142,6 +142,8 @@ When creating a new package in `packages/`, include these config files. Copy the
 
 ### Code Standards
 
+- Always use the internal api (`apps/api/`) for any backend operations, never use NextJS API routes.
+- Do not use useEffect for data fetching in the UI; instead, use TanStack Query for all data fetching and state management.
 - Always use top-level `import`, never use require or dynamic imports
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - Do not --amend commits after pushing to remote
@@ -152,6 +154,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse
 - No unnecessary code comments
+- Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
 
 ### Testing and Quality Assurance
 
