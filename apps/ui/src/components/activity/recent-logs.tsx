@@ -263,8 +263,10 @@ export function RecentLogs({
 		},
 	);
 
-	// Flatten all pages into a single array of logs
-	const allLogs = data?.pages.flatMap((page) => page?.logs ?? []) ?? [];
+	// Flatten all pages into a single array of logs, hiding retried requests
+	const allLogs = (
+		data?.pages.flatMap((page) => page?.logs ?? []) ?? []
+	).filter((log) => !log.retriedByLogId);
 
 	const selectedModelOption = useMemo(
 		() => modelOptions.find((option) => option.id === model),
