@@ -677,11 +677,25 @@ function getVideoModel(model: string): {
 	normalizedModel: string;
 	requestedProvider: string | undefined;
 } {
-	const supportedVideoModels = models.filter((modelInfo) =>
+	const now = new Date();
+	const allVideoModels = models.filter((modelInfo) =>
 		modelInfo.providers.some(
 			(provider) => (provider as ProviderModelMapping).videoGenerations,
 		),
 	);
+	const supportedVideoModels = allVideoModels
+		.map((modelInfo) => ({
+			...modelInfo,
+			providers: modelInfo.providers.filter(
+				(provider) =>
+					(provider as ProviderModelMapping).videoGenerations &&
+					!(
+						(provider as ProviderModelMapping).deactivatedAt &&
+						now > (provider as ProviderModelMapping).deactivatedAt!
+					),
+			),
+		}))
+		.filter((modelInfo) => modelInfo.providers.length > 0);
 	const exactMatch = supportedVideoModels.find(
 		(modelInfo) => modelInfo.id === model,
 	);
@@ -690,6 +704,15 @@ function getVideoModel(model: string): {
 			normalizedModel: model,
 			requestedProvider: undefined,
 		};
+	}
+
+	const exactDeactivatedMatch = allVideoModels.find(
+		(modelInfo) => modelInfo.id === model,
+	);
+	if (exactDeactivatedMatch) {
+		throw new HTTPException(410, {
+			message: `Model ${model} has been deactivated and is no longer available`,
+		});
 	}
 
 	for (const modelInfo of supportedVideoModels) {
@@ -704,6 +727,21 @@ function getVideoModel(model: string): {
 					normalizedModel: modelInfo.id,
 					requestedProvider: provider.providerId,
 				};
+			}
+		}
+	}
+
+	for (const modelInfo of allVideoModels) {
+		for (const provider of modelInfo.providers as readonly ProviderModelMapping[]) {
+			if (!provider.videoGenerations) {
+				continue;
+			}
+
+			const prefixedModel = `${provider.providerId}/${modelInfo.id}`;
+			if (model === prefixedModel) {
+				throw new HTTPException(410, {
+					message: `Model ${model} has been deactivated and is no longer available`,
+				});
 			}
 		}
 	}
@@ -884,8 +922,16 @@ function getEligibleVideoProviderMappings(
 	inputImageCount: number,
 	includeAudio: boolean,
 ): ProviderModelMapping[] {
+	const now = new Date();
 	const candidateProviders = modelInfo.providers.filter((provider) => {
 		if (!provider.videoGenerations) {
+			return false;
+		}
+
+		if (
+			(provider as ProviderModelMapping).deactivatedAt &&
+			now > (provider as ProviderModelMapping).deactivatedAt!
+		) {
 			return false;
 		}
 
@@ -1361,9 +1407,11 @@ async function resolveVideoExecution(
 		resolution:
 			videoSize.resolution === "4k"
 				? "4k"
-				: videoSize.resolution === "hd"
-					? "hd"
-					: "default",
+				: videoSize.resolution === "1080p"
+					? "1080p"
+					: videoSize.resolution === "hd"
+						? "hd"
+						: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,

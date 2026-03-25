@@ -755,10 +755,10 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 	const resolution =
 		largestDimension >= 3840
 			? "4k"
-			: largestDimension >= 1792
-				? "hd"
-				: largestDimension >= 1920
-					? "1080p"
+			: largestDimension >= 1920
+				? "1080p"
+				: largestDimension >= 1792
+					? "hd"
 					: "720p";
 
 	return {

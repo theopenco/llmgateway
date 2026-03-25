@@ -104,7 +104,7 @@ export interface ProviderSelectionOptions {
 export interface VideoPricingContext {
 	durationSeconds: number;
 	includeAudio: boolean;
-	resolution: "default" | "hd" | "4k";
+	resolution: "default" | "hd" | "1080p" | "4k";
 }
 
 function getPerSecondBillingKeys(
@@ -120,6 +120,12 @@ function getPerSecondBillingKeys(
 		return videoPricing.includeAudio
 			? ["hd_audio", "default_audio", "hd", "default"]
 			: ["hd_video", "default_video", "hd", "default"];
+	}
+
+	if (videoPricing.resolution === "1080p") {
+		return videoPricing.includeAudio
+			? ["1080p_audio", "hd_audio", "default_audio", "1080p", "hd", "default"]
+			: ["1080p_video", "hd_video", "default_video", "1080p", "hd", "default"];
 	}
 
 	return videoPricing.includeAudio
@@ -142,6 +148,12 @@ export function getProviderSelectionPrice(
 ): number {
 	const discount = providerInfo?.discount ?? 0;
 	const discountMultiplier = 1 - discount;
+	const inputPrice = providerInfo?.inputPrice;
+	const outputPrice = providerInfo?.outputPrice;
+	const requestPrice = providerInfo?.requestPrice;
+	const hasAnyTokenPrice =
+		inputPrice !== undefined || outputPrice !== undefined;
+	const hasPositiveTokenPrice = (inputPrice ?? 0) > 0 || (outputPrice ?? 0) > 0;
 
 	if (providerInfo?.perSecondPrice && videoPricing) {
 		for (const billingKey of getPerSecondBillingKeys(videoPricing)) {
@@ -154,14 +166,19 @@ export function getProviderSelectionPrice(
 		}
 	}
 
-	if (providerInfo?.requestPrice !== undefined) {
-		return providerInfo.requestPrice * discountMultiplier;
+	if (hasPositiveTokenPrice) {
+		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
 	}
 
-	return (
-		(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) / 2) *
-		discountMultiplier
-	);
+	if (requestPrice !== undefined && !hasPositiveTokenPrice) {
+		return requestPrice * discountMultiplier;
+	}
+
+	if (hasAnyTokenPrice) {
+		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
+	}
+
+	return 0;
 }
 
 /**
