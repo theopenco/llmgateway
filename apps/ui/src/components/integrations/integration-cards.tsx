@@ -32,9 +32,9 @@ interface Integration {
 
 const integrations: Integration[] = [
 	{
-		name: "Autohand",
+		name: "Autohand Code",
 		description:
-			"Use LLM Gateway with Autohand for autonomous AI-powered coding in your terminal, IDE, and Slack.",
+			"Use LLM Gateway with Autohand Code for autonomous AI-powered coding in your terminal, IDE, and Slack.",
 		href: "/guides/autohand",
 		icon: AutohandIcon,
 		comingSoon: false,

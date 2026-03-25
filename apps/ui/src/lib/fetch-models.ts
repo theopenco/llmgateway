@@ -38,6 +38,11 @@ export interface ApiModelProviderMapping {
 	jsonOutputSchema: boolean | null;
 	webSearch: boolean | null;
 	webSearchPrice: string | null;
+	supportedVideoSizes: string[] | null;
+	supportedVideoDurationsSeconds: number[] | null;
+	supportsVideoAudio: boolean | null;
+	supportsVideoWithoutAudio: boolean | null;
+	perSecondPrice: Record<string, string> | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;
