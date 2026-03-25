@@ -149,25 +149,35 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
-	// Check if a provider key already exists for this provider and organization
-	const existingKey = await db.query.providerKey.findFirst({
-		where: {
-			status: {
-				ne: "deleted",
-			},
-			provider: {
-				eq: provider,
-			},
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-	});
-
-	if (existingKey) {
+	if (provider === "custom" && (!name || !baseUrl)) {
 		throw new HTTPException(400, {
-			message: `A key for provider '${provider}' already exists for this project`,
+			message: "Custom providers require both a name and base URL",
 		});
+	}
+
+	if (provider === "custom" && name) {
+		const existingCustomProvider = await db.query.providerKey.findFirst({
+			where: {
+				status: {
+					ne: "deleted",
+				},
+				provider: {
+					eq: "custom",
+				},
+				name: {
+					eq: name,
+				},
+				organizationId: {
+					eq: organizationId,
+				},
+			},
+		});
+
+		if (existingCustomProvider) {
+			throw new HTTPException(400, {
+				message: `A custom provider named '${name}' already exists for this organization`,
+			});
+		}
 	}
 
 	let validationResult;

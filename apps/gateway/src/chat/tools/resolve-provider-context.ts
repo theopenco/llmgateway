@@ -61,6 +61,7 @@ export interface OriginalRequestParams {
 }
 
 export interface ProviderContextOptions {
+	requestId: string;
 	stream: boolean;
 	effectiveStream: boolean;
 	messages: BaseMessage[];
@@ -133,9 +134,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
+				options.requestId,
 			);
 		} else {
-			providerKey = await findProviderKey(project.organizationId, usedProvider);
+			providerKey = await findProviderKey(
+				project.organizationId,
+				usedProvider,
+				options.requestId,
+			);
 		}
 
 		if (!providerKey) {
@@ -155,9 +161,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
+				options.requestId,
 			);
 		} else {
-			providerKey = await findProviderKey(project.organizationId, usedProvider);
+			providerKey = await findProviderKey(
+				project.organizationId,
+				usedProvider,
+				options.requestId,
+			);
 		}
 
 		if (providerKey) {

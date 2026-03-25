@@ -186,7 +186,11 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	let usedToken: string | undefined;
 
 	if (project.mode === "api-keys") {
-		providerKey = await findProviderKey(project.organizationId, "openai");
+		providerKey = await findProviderKey(
+			project.organizationId,
+			"openai",
+			requestId,
+		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
 				message:
@@ -197,7 +201,11 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	} else if (project.mode === "credits") {
 		usedToken = getProviderEnv("openai").token;
 	} else if (project.mode === "hybrid") {
-		providerKey = await findProviderKey(project.organizationId, "openai");
+		providerKey = await findProviderKey(
+			project.organizationId,
+			"openai",
+			requestId,
+		);
 		usedToken = providerKey?.token ?? getProviderEnv("openai").token;
 	} else {
 		throw new HTTPException(400, {

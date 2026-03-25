@@ -793,6 +793,7 @@ chat.openapi(completions, async (c) => {
 		const customProviderKey = await findCustomProviderKey(
 			project.organizationId,
 			customProviderName,
+			requestId,
 		);
 		if (!customProviderKey) {
 			throw new HTTPException(400, {
@@ -1589,9 +1590,14 @@ chat.openapi(completions, async (c) => {
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				customProviderName,
+				requestId,
 			);
 		} else {
-			providerKey = await findProviderKey(project.organizationId, usedProvider);
+			providerKey = await findProviderKey(
+				project.organizationId,
+				usedProvider,
+				requestId,
+			);
 		}
 
 		if (!providerKey) {
@@ -1650,9 +1656,14 @@ chat.openapi(completions, async (c) => {
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				customProviderName,
+				requestId,
 			);
 		} else {
-			providerKey = await findProviderKey(project.organizationId, usedProvider);
+			providerKey = await findProviderKey(
+				project.organizationId,
+				usedProvider,
+				requestId,
+			);
 		}
 
 		if (providerKey) {
@@ -2538,6 +2549,7 @@ chat.openapi(completions, async (c) => {
 								modelInfo,
 								originalRequestParams,
 								{
+									requestId,
 									stream: true,
 									effectiveStream,
 									messages: messages as BaseMessage[],
@@ -5313,6 +5325,7 @@ chat.openapi(completions, async (c) => {
 					modelInfo,
 					originalRequestParams,
 					{
+						requestId,
 						stream,
 						effectiveStream,
 						messages: messages as BaseMessage[],
