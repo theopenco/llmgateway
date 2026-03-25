@@ -2082,35 +2082,4 @@ export const alibabaModels = [
 			},
 		],
 	},
-	{
-		id: "deepseek-v3.2",
-		name: "DeepSeek V3.2",
-		description: "DeepSeek V3.2 685B parameter model hosted on Alibaba Cloud.",
-		family: "deepseek",
-		releasedAt: new Date("2025-03-01"),
-		providers: [
-			{
-				providerId: "alibaba",
-				modelName: "deepseek-v3.2",
-				discount: 0.2,
-				inputPrice: 0.57 / 1e6,
-				outputPrice: 1.71 / 1e6,
-				regions: [
-					{ id: "singapore" },
-					{
-						id: "cn-beijing",
-						inputPrice: 0.287 / 1e6,
-						outputPrice: 0.431 / 1e6,
-					},
-				],
-				requestPrice: 0,
-				contextSize: 131072,
-				maxOutput: 65536,
-				streaming: true,
-				vision: false,
-				tools: true,
-				jsonOutput: true,
-			},
-		],
-	},
 ] as const satisfies ModelDefinition[];

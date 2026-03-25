@@ -2931,6 +2931,7 @@ export interface paths {
                                 id: string;
                                 modelId: string;
                                 modelName: string;
+                                region: string | null;
                                 providerId: string;
                                 providerName: string;
                                 status: string;

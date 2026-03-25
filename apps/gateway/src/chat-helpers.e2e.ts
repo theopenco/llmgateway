@@ -10,6 +10,7 @@ import {
 	providers,
 	getConcurrentTestOptions,
 	getTestOptions,
+	expandAllProviderRegions,
 } from "@llmgateway/models";
 
 import {
@@ -192,14 +193,18 @@ export const testModels = filteredModels
 			// test root model without a specific provider
 			testCases.push({
 				model: model.id,
-				providers: model.providers.filter(
-					(provider: ProviderModelMapping) => provider.test !== "skip",
-				),
+				providers: expandAllProviderRegions(
+					model.providers as ProviderModelMapping[],
+				).filter((provider: ProviderModelMapping) => provider.test !== "skip"),
 			});
 		}
 
 		// Create entries for provider-specific requests using provider/model format
-		for (const provider of model.providers as ProviderModelMapping[]) {
+		// Expand regions so each provider:region combo becomes a separate test case
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
 			// Skip deactivated provider mappings
 			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
 				continue;
@@ -281,7 +286,11 @@ export const providerModels = filteredModels
 	.flatMap((model) => {
 		const testCases = [];
 
-		for (const provider of model.providers as ProviderModelMapping[]) {
+		// Expand regions so each provider:region combo becomes a separate test case
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
 			// Skip deactivated provider mappings
 			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
 				continue;

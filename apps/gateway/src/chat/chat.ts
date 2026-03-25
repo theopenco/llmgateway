@@ -482,6 +482,7 @@ chat.openapi(completions, async (c) => {
 	const parseResult = parseModelInput(modelInput);
 	const requestedModel = parseResult.requestedModel;
 	const customProviderName = parseResult.customProviderName;
+	const requestedRegion = parseResult.requestedRegion;
 
 	// Count input images from messages for cost calculation
 	const inputImageCount =
@@ -503,6 +504,25 @@ chat.openapi(completions, async (c) => {
 		modelInfoResult.allModelProviders,
 	);
 	let requestedProvider = modelInfoResult.requestedProvider;
+
+	// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
+	// filter providers to only those matching the requested region
+	if (requestedRegion) {
+		modelInfo = {
+			...modelInfo,
+			providers: modelInfo.providers.filter(
+				(p) => p.region === requestedRegion,
+			),
+		};
+		allModelProviders = allModelProviders.filter(
+			(p) => p.region === requestedRegion,
+		);
+		if (modelInfo.providers.length === 0) {
+			throw new HTTPException(400, {
+				message: `Region '${requestedRegion}' is not available for model ${requestedModel}`,
+			});
+		}
+	}
 
 	// Validate that models requiring image input have at least one image in the request
 	if (
