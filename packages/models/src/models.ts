@@ -93,6 +93,11 @@ export interface ProviderRegion {
 	 */
 	webSearchPrice?: number;
 	/**
+	 * Context window size in tokens for this region.
+	 * When absent, falls back to the mapping-level contextSize.
+	 */
+	contextSize?: number;
+	/**
 	 * Maximum output size in tokens for this region.
 	 * When absent, falls back to the mapping-level maxOutput.
 	 */
