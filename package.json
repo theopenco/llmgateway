@@ -21,11 +21,11 @@
 		"prepare-codex": "mv ~/.nvm ~/.nvm-bak && export PATH=\"${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH\" && . ~/.bashrc && sudo service postgresql start && sudo service redis-server start && sleep 20 && pnpm sync",
 		"push": "pnpm push-dev && pnpm push-test",
 		"push-dev": "pnpm --filter db push",
-		"push-test": "cross-env-shell \"DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}\" pnpm --filter db push",
+		"push-test": "DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test} pnpm --filter db push",
 		"seed": "pnpm --filter db seed",
 		"setup": "pnpm build:core && docker compose down -v && docker compose up -d && sleep 5 && pnpm push-test && pnpm push-dev && pnpm seed",
 		"sync": "pnpm push-dev; pnpm push-test",
-		"test:e2e": "pnpm build:core && cross-env-shell \"E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism\"",
+		"test:e2e": "pnpm build:core && E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
 		"test:unit": "pnpm build:core && vitest run --no-file-parallelism"
 	},
 	"commitlint": {
@@ -43,7 +43,6 @@
 		"@types/node": "25.3.0",
 		"commitlint": "20.4.3",
 		"concurrently": "^9.2.1",
-		"cross-env-shell": "7.0.3",
 		"dotenv": "16.5.0",
 		"esbuild-fix-imports-plugin": "1.0.23",
 		"eslint": "^9.34.0",

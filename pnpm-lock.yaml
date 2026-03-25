@@ -45,9 +45,6 @@ importers:
       concurrently:
         specifier: ^9.2.1
         version: 9.2.1
-      cross-env-shell:
-        specifier: 7.0.3
-        version: 7.0.3
       dotenv:
         specifier: 16.5.0
         version: 16.5.0
@@ -5573,10 +5570,6 @@ packages:
 
   crisp-sdk-web@1.0.26:
     resolution: {integrity: sha512-MBK/+tCNJmt/l9ZYHb0cUUaaF02rCKeqLw1cruY/HU48tPOOnhUM0JdvuPaeq1d5VB2DCILY4rGYE4NeJbXvzg==}
-
-  cross-env-shell@7.0.3:
-    resolution: {integrity: sha512-ZEtnHInQRRzuAbmMpUqu/mk1jaZun14WdcmnpzZZ6Bpi1BLTPkbKioQ6+wkFssf+m/DpdttDpsCX6g8zU9W40A==}
-    hasBin: true
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -15562,8 +15555,6 @@ snapshots:
       typescript: 5.9.2
 
   crisp-sdk-web@1.0.26: {}
-
-  cross-env-shell@7.0.3: {}
 
   cross-spawn@7.0.6:
     dependencies:
