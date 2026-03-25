@@ -148,6 +148,12 @@ export function getProviderSelectionPrice(
 ): number {
 	const discount = providerInfo?.discount ?? 0;
 	const discountMultiplier = 1 - discount;
+	const inputPrice = providerInfo?.inputPrice;
+	const outputPrice = providerInfo?.outputPrice;
+	const requestPrice = providerInfo?.requestPrice;
+	const hasAnyTokenPrice =
+		inputPrice !== undefined || outputPrice !== undefined;
+	const hasPositiveTokenPrice = (inputPrice ?? 0) > 0 || (outputPrice ?? 0) > 0;
 
 	if (providerInfo?.perSecondPrice && videoPricing) {
 		for (const billingKey of getPerSecondBillingKeys(videoPricing)) {
@@ -160,19 +166,16 @@ export function getProviderSelectionPrice(
 		}
 	}
 
-	if (
-		providerInfo?.inputPrice !== undefined ||
-		providerInfo?.outputPrice !== undefined
-	) {
-		return (
-			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
-				2) *
-			discountMultiplier
-		);
+	if (hasPositiveTokenPrice) {
+		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
 	}
 
-	if (providerInfo?.requestPrice !== undefined) {
-		return providerInfo.requestPrice * discountMultiplier;
+	if (requestPrice !== undefined && !hasPositiveTokenPrice) {
+		return requestPrice * discountMultiplier;
+	}
+
+	if (hasAnyTokenPrice) {
+		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
 	}
 
 	return 0;
