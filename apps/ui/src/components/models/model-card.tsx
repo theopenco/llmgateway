@@ -331,116 +331,171 @@ export function ModelCard({
 													</Badge>
 												)}
 										</div>
-										<div className="grid grid-cols-3 gap-3">
+										{provider.perSecondPrice &&
+										Object.keys(provider.perSecondPrice).length > 0 ? (
 											<div className="space-y-1">
 												<div className="text-xs text-muted-foreground">
-													Input
+													Video Per Second
 												</div>
 												<div className="font-semibold text-foreground text-sm">
-													{typeof formatPrice(
-														provider.inputPrice,
-														provider.discount,
-													) === "string" ? (
-														<>
-															{formatPrice(
-																provider.inputPrice,
-																provider.discount,
-															)}
-															<span className="text-muted-foreground text-xs ml-1">
-																/M
-															</span>
-														</>
-													) : (
-														<span className="inline-flex items-baseline gap-1">
-															{formatPrice(
-																provider.inputPrice,
-																provider.discount,
-															)}
-															<span className="text-muted-foreground text-xs">
-																/M
-															</span>
-														</span>
-													)}
+													{(() => {
+														const prices = provider.perSecondPrice!;
+														const defaultVideo = prices["default_video"];
+														const defaultAudio = prices["default_audio"];
+														if (defaultVideo && defaultAudio) {
+															return (
+																<>
+																	${defaultVideo} – ${defaultAudio}
+																	<span className="text-muted-foreground text-xs ml-1">
+																		/sec
+																	</span>
+																</>
+															);
+														}
+														const defaultPrice = prices["default"];
+														if (defaultPrice) {
+															return (
+																<>
+																	${defaultPrice}
+																	<span className="text-muted-foreground text-xs ml-1">
+																		/sec
+																	</span>
+																</>
+															);
+														}
+														const entries = Object.entries(prices);
+														return (
+															<div className="space-y-0.5">
+																{entries.map(([key, value]) => (
+																	<div
+																		key={key}
+																		className="flex justify-between text-xs"
+																	>
+																		<span className="text-muted-foreground">
+																			{key}
+																		</span>
+																		<span className="font-mono">
+																			${value}/sec
+																		</span>
+																	</div>
+																))}
+															</div>
+														);
+													})()}
 												</div>
 											</div>
-											<div className="space-y-1">
-												<div className="text-xs text-muted-foreground">
-													Cached
-												</div>
-												<div className="font-semibold text-foreground text-sm">
-													{typeof formatPrice(
-														provider.cachedInputPrice,
-														provider.discount,
-													) === "string" ? (
-														<>
-															{formatPrice(
-																provider.cachedInputPrice,
-																provider.discount,
-															)}
-															<span className="text-muted-foreground text-xs ml-1">
-																/M
-															</span>
-														</>
-													) : (
-														<span className="inline-flex items-baseline gap-1">
-															{formatPrice(
-																provider.cachedInputPrice,
-																provider.discount,
-															)}
-															<span className="text-muted-foreground text-xs">
-																/M
-															</span>
-														</span>
-													)}
-												</div>
-											</div>
-											<div className="space-y-1">
-												<div className="text-xs text-muted-foreground">
-													Output
-												</div>
-												<div className="font-semibold text-foreground text-sm">
-													{typeof formatPrice(
-														provider.outputPrice,
-														provider.discount,
-													) === "string" ? (
-														<>
-															{formatPrice(
-																provider.outputPrice,
-																provider.discount,
-															)}
-															<span className="text-muted-foreground text-xs ml-1">
-																/M
-															</span>
-														</>
-													) : (
-														<span className="inline-flex items-baseline gap-1">
-															{formatPrice(
-																provider.outputPrice,
-																provider.discount,
-															)}
-															<span className="text-muted-foreground text-xs">
-																/M
-															</span>
-														</span>
-													)}
-												</div>
-											</div>
-											{provider.requestPrice !== null &&
-												provider.requestPrice !== undefined &&
-												parseFloat(provider.requestPrice) > 0 && (
-													<div className="space-y-1">
-														<div className="text-xs text-muted-foreground">
-															Per Request
-														</div>
-														<div className="font-semibold text-foreground text-sm">
-															${parseFloat(provider.requestPrice).toFixed(3)}
-															<span className="text-muted-foreground text-xs ml-1">
-																/req
-															</span>
-														</div>
+										) : (
+											<div className="grid grid-cols-3 gap-3">
+												<div className="space-y-1">
+													<div className="text-xs text-muted-foreground">
+														Input
 													</div>
-												)}
-										</div>
+													<div className="font-semibold text-foreground text-sm">
+														{typeof formatPrice(
+															provider.inputPrice,
+															provider.discount,
+														) === "string" ? (
+															<>
+																{formatPrice(
+																	provider.inputPrice,
+																	provider.discount,
+																)}
+																<span className="text-muted-foreground text-xs ml-1">
+																	/M
+																</span>
+															</>
+														) : (
+															<span className="inline-flex items-baseline gap-1">
+																{formatPrice(
+																	provider.inputPrice,
+																	provider.discount,
+																)}
+																<span className="text-muted-foreground text-xs">
+																	/M
+																</span>
+															</span>
+														)}
+													</div>
+												</div>
+												<div className="space-y-1">
+													<div className="text-xs text-muted-foreground">
+														Cached
+													</div>
+													<div className="font-semibold text-foreground text-sm">
+														{typeof formatPrice(
+															provider.cachedInputPrice,
+															provider.discount,
+														) === "string" ? (
+															<>
+																{formatPrice(
+																	provider.cachedInputPrice,
+																	provider.discount,
+																)}
+																<span className="text-muted-foreground text-xs ml-1">
+																	/M
+																</span>
+															</>
+														) : (
+															<span className="inline-flex items-baseline gap-1">
+																{formatPrice(
+																	provider.cachedInputPrice,
+																	provider.discount,
+																)}
+																<span className="text-muted-foreground text-xs">
+																	/M
+																</span>
+															</span>
+														)}
+													</div>
+												</div>
+												<div className="space-y-1">
+													<div className="text-xs text-muted-foreground">
+														Output
+													</div>
+													<div className="font-semibold text-foreground text-sm">
+														{typeof formatPrice(
+															provider.outputPrice,
+															provider.discount,
+														) === "string" ? (
+															<>
+																{formatPrice(
+																	provider.outputPrice,
+																	provider.discount,
+																)}
+																<span className="text-muted-foreground text-xs ml-1">
+																	/M
+																</span>
+															</>
+														) : (
+															<span className="inline-flex items-baseline gap-1">
+																{formatPrice(
+																	provider.outputPrice,
+																	provider.discount,
+																)}
+																<span className="text-muted-foreground text-xs">
+																	/M
+																</span>
+															</span>
+														)}
+													</div>
+												</div>
+												{provider.requestPrice !== null &&
+													provider.requestPrice !== undefined &&
+													parseFloat(provider.requestPrice) > 0 && (
+														<div className="space-y-1">
+															<div className="text-xs text-muted-foreground">
+																Per Request
+															</div>
+															<div className="font-semibold text-foreground text-sm">
+																${parseFloat(provider.requestPrice).toFixed(3)}
+																<span className="text-muted-foreground text-xs ml-1">
+																	/req
+																</span>
+															</div>
+														</div>
+													)}
+											</div>
+										)}
 									</div>
 
 									<div>

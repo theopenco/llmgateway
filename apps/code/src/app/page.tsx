@@ -11,14 +11,9 @@ import {
 import Link from "next/link";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
+import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
-
-import {
-	AnthropicIcon,
-	ClineIcon,
-	CursorIcon,
-} from "@llmgateway/shared/components";
 
 const plans = [
 	{
@@ -51,12 +46,6 @@ const plans = [
 		],
 		tier: "max",
 	},
-];
-
-const tools = [
-	{ name: "Claude Code", icon: AnthropicIcon },
-	{ name: "Cursor", icon: CursorIcon },
-	{ name: "Cline", icon: ClineIcon },
 ];
 
 export default function LandingPage() {
@@ -117,69 +106,7 @@ export default function LandingPage() {
 							</div>
 						</div>
 
-						{/* Terminal preview */}
-						<div className="mx-auto mt-16 max-w-2xl">
-							<div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-lg">
-								<div className="flex items-center gap-2 border-b border-border/40 px-4 py-3">
-									<div className="flex gap-1.5">
-										<div className="h-3 w-3 rounded-full bg-muted-foreground/20" />
-										<div className="h-3 w-3 rounded-full bg-muted-foreground/20" />
-										<div className="h-3 w-3 rounded-full bg-muted-foreground/20" />
-									</div>
-									<span className="ml-2 text-xs text-muted-foreground font-mono">
-										terminal
-									</span>
-								</div>
-								<div className="p-5 font-mono text-sm leading-relaxed">
-									<div className="text-muted-foreground">
-										<span className="text-foreground/70">$</span> export
-										ANTHROPIC_BASE_URL=
-										<span className="text-foreground">
-											https://api.llmgateway.io
-										</span>
-									</div>
-									<div className="mt-1 text-muted-foreground">
-										<span className="text-foreground/70">$</span> export
-										ANTHROPIC_AUTH_TOKEN=
-										<span className="text-foreground">llmgtwy_your_key</span>
-									</div>
-									<div className="mt-1 text-muted-foreground">
-										<span className="text-foreground/70">$</span> claude
-									</div>
-									<div className="mt-3 text-muted-foreground/60">
-										# works with any model — switch freely
-									</div>
-									<div className="mt-1 text-muted-foreground">
-										<span className="text-foreground/70">$</span> export
-										ANTHROPIC_MODEL=
-										<span className="text-foreground">gpt-5</span>
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
-				</section>
-
-				{/* Compatible tools */}
-				<section className="border-y border-border/40 bg-muted/30 py-10">
-					<div className="container mx-auto px-4">
-						<div className="flex flex-col items-center gap-6 sm:flex-row sm:justify-center sm:gap-12">
-							<span className="text-sm text-muted-foreground">Works with</span>
-							<div className="flex items-center gap-8 sm:gap-10">
-								{tools.map((tool) => (
-									<div
-										key={tool.name}
-										className="flex items-center gap-2.5 text-muted-foreground"
-									>
-										<tool.icon className="h-5 w-5" />
-										<span className="text-sm font-medium">{tool.name}</span>
-									</div>
-								))}
-								<span className="text-sm text-muted-foreground">
-									+ any OpenAI-compatible tool
-								</span>
-							</div>
-						</div>
+						<TerminalPreview />
 					</div>
 				</section>
 
