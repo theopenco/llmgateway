@@ -14,12 +14,12 @@ import { logger } from "@llmgateway/logger";
 import {
 	type BaseMessage,
 	getRegionSpecificEnvValue,
+	getProviderEnvVar,
 	hasMaxTokens,
 	type ModelDefinition,
 	type OpenAIRequestBody,
 	type OpenAIToolInput,
 	type Provider,
-	type ProviderDefinition,
 	type ProviderRequestBody,
 	providers,
 	type ToolChoiceType,
@@ -216,14 +216,16 @@ export async function resolveProviderContext(
 	);
 
 	// --- Region validation ---
+	// Validate against the expanded model-provider mapping (which contains per-model region info)
+	// rather than the provider-level catalog (which lists all regions the provider supports).
 	if (usedRegion) {
-		const providerDef = providers.find((p) => p.id === usedProvider) as
-			| ProviderDefinition
-			| undefined;
-		const validRegions = providerDef?.regionConfig?.regions;
-		if (validRegions && !validRegions.some((r) => r.id === usedRegion)) {
+		const modelRegions = modelInfo.providers
+			.filter((p) => p.providerId === usedProvider)
+			.map((p) => p.region)
+			.filter(Boolean) as string[];
+		if (modelRegions.length > 0 && !modelRegions.includes(usedRegion)) {
 			throw new HTTPException(400, {
-				message: `Model ${usedModel} is not available in region "${usedRegion}". Available regions: ${validRegions.map((r) => r.id).join(", ")}`,
+				message: `Model ${usedModel} is not available in region "${usedRegion}". Available regions: ${modelRegions.join(", ")}`,
 			});
 		}
 	}
@@ -233,6 +235,13 @@ export async function resolveProviderContext(
 		const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
 		if (regionToken) {
 			usedToken = regionToken;
+			// Update envVarName to reflect the regional env var
+			const baseEnvVar = getProviderEnvVar(usedProvider);
+			if (baseEnvVar) {
+				const regionSuffix = usedRegion.toUpperCase().replace(/-/g, "_");
+				const regionalEnvVar = `${baseEnvVar}__${regionSuffix}`;
+				envVarName = process.env[regionalEnvVar] ? regionalEnvVar : baseEnvVar;
+			}
 		}
 	}
 

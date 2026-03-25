@@ -73,6 +73,9 @@ export function CreateProviderKeyDialog({
 		(p) => p.id === selectedProvider,
 	) as ProviderDefinition | undefined;
 
+	const effectiveRegion =
+		(selectedRegion || selectedProviderDef?.regionConfig?.defaultRegion) ?? "";
+
 	const availableProviders = providers.filter(
 		(provider) => provider.id !== "llmgateway",
 	);
@@ -150,10 +153,10 @@ export function CreateProviderKeyDialog({
 			};
 		}
 		// Include region in options for providers that support it
-		if (selectedProviderDef?.regionConfig && selectedRegion) {
+		if (selectedProviderDef?.regionConfig && effectiveRegion) {
 			payload.options = {
 				...payload.options,
-				[selectedProviderDef.regionConfig.optionsKey]: selectedRegion,
+				[selectedProviderDef.regionConfig.optionsKey]: effectiveRegion,
 			};
 		}
 
@@ -410,13 +413,7 @@ export function CreateProviderKeyDialog({
 					{selectedProviderDef?.regionConfig && (
 						<div className="space-y-2">
 							<Label htmlFor="provider-region">Region</Label>
-							<Select
-								value={
-									selectedRegion ||
-									selectedProviderDef.regionConfig.defaultRegion
-								}
-								onValueChange={setSelectedRegion}
-							>
+							<Select value={effectiveRegion} onValueChange={setSelectedRegion}>
 								<SelectTrigger id="provider-region">
 									<SelectValue placeholder="Select region" />
 								</SelectTrigger>

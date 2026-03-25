@@ -29,9 +29,9 @@ function getValidationModel(
 		| undefined;
 	const regionKey = providerDef?.regionConfig?.optionsKey;
 	const selectedRegion = regionKey
-		? (providerKeyOptions as Record<string, string | undefined> | undefined)?.[
+		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
 				regionKey
-			]
+			] ?? providerDef?.regionConfig?.defaultRegion)
 		: undefined;
 
 	const currentDate = new Date();

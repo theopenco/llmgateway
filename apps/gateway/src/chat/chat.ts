@@ -72,6 +72,7 @@ import {
 	providers,
 	type WebSearchTool,
 	expandAllProviderRegions,
+	getRegionSpecificEnvValue,
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
@@ -1243,17 +1244,21 @@ chat.openapi(completions, async (c) => {
 
 		// Fetch uptime metrics for the requested provider
 		const metricsMap = await getProviderMetricsForCombinations([
-			{ modelId: baseModelId, providerId: usedProvider },
+			{ modelId: baseModelId, providerId: usedProvider, region: usedRegion },
 		]);
 
-		const metrics = metricsMap.get(metricsKey(baseModelId, usedProvider));
+		const metrics = metricsMap.get(
+			metricsKey(baseModelId, usedProvider, usedRegion),
+		);
 
 		// If we have metrics and uptime is below 90%, route to an alternative
 		if (metrics && metrics.uptime !== undefined && metrics.uptime < 90) {
 			const currentUptime = metrics.uptime;
 			// Get available providers for routing
 			const providerIds = modelInfo.providers
-				.filter((p) => p.providerId !== usedProvider) // Exclude the low-uptime provider
+				.filter(
+					(p) => !(p.providerId === usedProvider && p.region === usedRegion),
+				) // Exclude the exact low-uptime provider+region pair
 				.map((p) => p.providerId);
 
 			if (providerIds.length > 0) {
@@ -1278,7 +1283,10 @@ chat.openapi(completions, async (c) => {
 						if (!availableProviders.includes(provider.providerId)) {
 							return false;
 						}
-						if (provider.providerId === usedProvider) {
+						if (
+							provider.providerId === usedProvider &&
+							provider.region === usedRegion
+						) {
 							return false;
 						}
 						// If web search tool is requested, only include providers that support it
@@ -1619,9 +1627,11 @@ chat.openapi(completions, async (c) => {
 				metricsKey(baseModelId, p.providerId, p.region),
 			);
 			const price = (p.inputPrice ?? 0) + (p.outputPrice ?? 0);
-			const isSelected = p.providerId === usedProvider;
+			const isSelected =
+				p.providerId === usedProvider && p.region === usedRegion;
 			return {
 				providerId: p.providerId,
+				region: p.region,
 				score: isSelected ? 1 : 0,
 				price,
 				uptime: metrics?.uptime ?? 0,
@@ -1828,6 +1838,14 @@ chat.openapi(completions, async (c) => {
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
 		envVarName = envResult.envVarName;
+
+		// Override with region-specific env var if a non-default region is selected
+		if (usedRegion) {
+			const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
+			if (regionToken) {
+				usedToken = regionToken;
+			}
+		}
 	} else if (project.mode === "hybrid") {
 		// First try to get the provider key from the database
 		if (usedProvider === "custom" && customProviderName) {
@@ -1893,6 +1911,14 @@ chat.openapi(completions, async (c) => {
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
 			envVarName = envResult.envVarName;
+
+			// Override with region-specific env var if a non-default region is selected
+			if (usedRegion) {
+				const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
+				if (regionToken) {
+					usedToken = regionToken;
+				}
+			}
 		}
 	} else {
 		throw new HTTPException(400, {
@@ -2794,6 +2820,7 @@ chat.openapi(completions, async (c) => {
 							top_p = ctx.top_p;
 							frequency_penalty = ctx.frequency_penalty;
 							presence_penalty = ctx.presence_penalty;
+							usedRegion = ctx.usedRegion;
 						} catch {
 							failedProviderIds.add(
 								providerRetryKey(nextProvider.providerId, nextProvider.region),

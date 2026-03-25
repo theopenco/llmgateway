@@ -127,8 +127,9 @@ export function getRegionSpecificEnvValue(
 }
 
 /**
- * Check whether a dedicated env var exists for a specific region
- * (i.e. `{BASE_ENV_VAR}__{REGION}`), WITHOUT falling back to the base key.
+ * Check whether an env var exists for a specific region.
+ * Returns true if a region-specific env var (`{BASE_ENV_VAR}__{REGION}`) exists,
+ * OR if the base env var exists and the queried region is the provider's default region.
  */
 export function hasRegionSpecificEnvKey(
 	provider: Provider,
@@ -139,5 +140,13 @@ export function hasRegionSpecificEnvKey(
 		return false;
 	}
 	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
-	return Boolean(process.env[`${baseEnvVar}__${regionSuffix}`]);
+	if (process.env[`${baseEnvVar}__${regionSuffix}`]) {
+		return true;
+	}
+	// The base key covers the provider's default region
+	const def = getProviderDefinition(provider);
+	if (def?.regionConfig?.defaultRegion === region && process.env[baseEnvVar]) {
+		return true;
+	}
+	return false;
 }

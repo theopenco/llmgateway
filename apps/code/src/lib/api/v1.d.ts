@@ -3673,7 +3673,8 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
-                                    alibaba_region?: string;
+                                    /** @enum {string} */
+                                    alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -3709,7 +3710,8 @@ export interface paths {
                             /** @enum {string} */
                             azure_deployment_type?: "openai" | "ai-foundry";
                             azure_validation_model?: string;
-                            alibaba_region?: string;
+                            /** @enum {string} */
+                            alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                         };
                         organizationId: string;
                     };
@@ -3738,7 +3740,8 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
-                                    alibaba_region?: string;
+                                    /** @enum {string} */
+                                    alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -3855,7 +3858,8 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
-                                    alibaba_region?: string;
+                                    /** @enum {string} */
+                                    alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;

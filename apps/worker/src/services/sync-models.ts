@@ -101,20 +101,21 @@ export async function syncProvidersAndModels() {
 				const expandedProviders = expandAllProviderRegions(modelDef.providers);
 				for (const mapping of expandedProviders) {
 					const mappingRegion = mapping.region;
-					const mappings = await database
-						.select()
-						.from(modelProviderMapping)
-						.where(
-							and(
-								eq(modelProviderMapping.modelId, modelDef.id),
-								eq(modelProviderMapping.providerId, mapping.providerId),
-								mappingRegion
-									? eq(modelProviderMapping.region, mappingRegion)
-									: isNull(modelProviderMapping.region),
-							),
-						)
-						.limit(1);
-					const existingMapping = mappings[0];
+					const existingMapping = (
+						await database
+							.select()
+							.from(modelProviderMapping)
+							.where(
+								and(
+									eq(modelProviderMapping.modelId, modelDef.id),
+									eq(modelProviderMapping.providerId, mapping.providerId),
+									mappingRegion
+										? eq(modelProviderMapping.region, mappingRegion)
+										: isNull(modelProviderMapping.region),
+								),
+							)
+							.limit(1)
+					)[0];
 
 					if (existingMapping) {
 						// Use null (not undefined) for missing fields to ensure DB is updated
