@@ -363,20 +363,24 @@ const TERMINAL_STATUSES = new Set([
 ]);
 
 const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 minutes
-const MAX_CONSECUTIVE_ERRORS = 10;
 const TRANSIENT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 function pollDelay(ms: number, signal?: AbortSignal): Promise<void> {
+	if (signal?.aborted) {
+		return Promise.reject(new DOMException("Aborted", "AbortError"));
+	}
 	return new Promise<void>((resolve, reject) => {
-		const timer = setTimeout(resolve, ms);
-		signal?.addEventListener(
-			"abort",
-			() => {
-				clearTimeout(timer);
-				reject(new DOMException("Aborted", "AbortError"));
-			},
-			{ once: true },
-		);
+		const timer = setTimeout(() => {
+			if (signal) {
+				signal.removeEventListener("abort", onAbort);
+			}
+			resolve();
+		}, ms);
+		const onAbort = () => {
+			clearTimeout(timer);
+			reject(new DOMException("Aborted", "AbortError"));
+		};
+		signal?.addEventListener("abort", onAbort, { once: true });
 	});
 }
 
@@ -422,7 +426,7 @@ export async function* pollVideoJob(
 				return;
 			}
 			consecutiveErrors++;
-			if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+			if (Date.now() - startTime > MAX_POLL_DURATION_MS) {
 				throw new Error(
 					`Poll failed after ${consecutiveErrors} consecutive network errors`,
 				);
@@ -434,7 +438,7 @@ export async function* pollVideoJob(
 		if (!response.ok) {
 			if (TRANSIENT_STATUS_CODES.has(response.status)) {
 				consecutiveErrors++;
-				if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+				if (Date.now() - startTime > MAX_POLL_DURATION_MS) {
 					throw new Error(
 						`Poll failed: ${response.status} (after ${consecutiveErrors} retries)`,
 					);
