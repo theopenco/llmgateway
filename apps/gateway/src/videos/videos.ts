@@ -2758,7 +2758,20 @@ async function createGoogleVertexVideoJob(
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
-	if (!providerContext.vertexProjectId || !providerContext.vertexRegion) {
+	const outputBucket = getGoogleVertexVideoOutputBucket();
+	const storageProjectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
+	const vertexProjectId = outputBucket
+		? storageProjectId
+		: providerContext.vertexProjectId;
+
+	if (outputBucket && !storageProjectId) {
+		throw new HTTPException(500, {
+			message:
+				"GOOGLE_CLOUD_PROJECT environment variable is required for google-vertex video output storage",
+		});
+	}
+
+	if (!vertexProjectId || !providerContext.vertexRegion) {
 		throw new HTTPException(500, {
 			message:
 				"Google Vertex video generation requires project and region metadata",
@@ -2775,7 +2788,6 @@ async function createGoogleVertexVideoJob(
 				? "frames"
 				: "none",
 	);
-	const outputBucket = getGoogleVertexVideoOutputBucket();
 	const outputStorageUri = outputBucket
 		? buildVertexVideoOutputStorageUri({
 				bucket: outputBucket,
@@ -2787,7 +2799,7 @@ async function createGoogleVertexVideoJob(
 		: null;
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
-		`/v1/projects/${providerContext.vertexProjectId}/locations/${providerContext.vertexRegion}/publishers/google/models/${upstreamModelName}:predictLongRunning`,
+		`/v1/projects/${vertexProjectId}/locations/${providerContext.vertexRegion}/publishers/google/models/${upstreamModelName}:predictLongRunning`,
 	);
 	const authenticatedUpstreamUrl = appendQueryParam(
 		upstreamUrl,
@@ -2845,7 +2857,7 @@ async function createGoogleVertexVideoJob(
 				name: upstreamId,
 				status: rawResponse.done === true ? "completed" : "queued",
 				duration: durationSeconds,
-				google_vertex_project_id: providerContext.vertexProjectId,
+				google_vertex_project_id: vertexProjectId,
 				google_vertex_region: providerContext.vertexRegion,
 				google_vertex_model_name: upstreamModelName,
 				google_vertex_generate_audio: includeAudio,

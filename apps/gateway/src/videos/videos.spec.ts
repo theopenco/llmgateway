@@ -695,10 +695,12 @@ describe.skip("videos", () => {
 
 	test("/v1/videos uses routing metrics to pick the best eligible provider", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 		const originalGoogleVertexVideoOutputBucket =
 			process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "provider-project";
+		process.env.GOOGLE_CLOUD_PROJECT = "runtime-project";
 		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
 		process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET = "vertex-test-bucket";
 
@@ -770,6 +772,11 @@ describe.skip("videos", () => {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
 			} else {
 				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalRuntimeGoogleCloudProject !== undefined) {
+				process.env.GOOGLE_CLOUD_PROJECT = originalRuntimeGoogleCloudProject;
+			} else {
+				delete process.env.GOOGLE_CLOUD_PROJECT;
 			}
 			if (originalGoogleVertexRegion !== undefined) {
 				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
@@ -1286,12 +1293,14 @@ describe.skip("videos", () => {
 
 	test("/v1/videos supports completed google-vertex jobs", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 		const originalGoogleVertexVideoOutputBucket =
 			process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
 		const originalGoogleVertexSignedUrlBaseUrl =
 			process.env.LLM_GOOGLE_VERTEX_TEST_SIGNED_URL_BASE_URL;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "provider-project";
+		process.env.GOOGLE_CLOUD_PROJECT = "runtime-project";
 		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
 		process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET = "vertex-test-bucket";
 		process.env.LLM_GOOGLE_VERTEX_TEST_SIGNED_URL_BASE_URL = `${mockServerUrl}/mock-gcs`;
@@ -1337,6 +1346,14 @@ describe.skip("videos", () => {
 			expect(videoJob).toBeTruthy();
 			expect(videoJob?.usedProvider).toBe("google-vertex");
 			expect(videoJob?.usedModel).toBe("veo-3.1-generate-preview");
+			expect(videoJob?.upstreamId).toContain("projects/runtime-project/");
+			expect(
+				(
+					videoJob?.upstreamStatusResponse as {
+						google_vertex_project_id?: string;
+					} | null
+				)?.google_vertex_project_id,
+			).toBe("runtime-project");
 
 			setMockVideoStatus(videoJob!.upstreamId, "completed");
 			await processPendingVideoJobs();
@@ -1380,6 +1397,11 @@ describe.skip("videos", () => {
 			} else {
 				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
 			}
+			if (originalRuntimeGoogleCloudProject !== undefined) {
+				process.env.GOOGLE_CLOUD_PROJECT = originalRuntimeGoogleCloudProject;
+			} else {
+				delete process.env.GOOGLE_CLOUD_PROJECT;
+			}
 			if (originalGoogleVertexRegion !== undefined) {
 				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
 			} else {
@@ -1402,10 +1424,12 @@ describe.skip("videos", () => {
 
 	test("/v1/videos accepts 10 second google-vertex jobs", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 		const originalGoogleVertexVideoOutputBucket =
 			process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "provider-project";
+		process.env.GOOGLE_CLOUD_PROJECT = "runtime-project";
 		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
 		process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET = "vertex-test-bucket";
 
@@ -1454,6 +1478,11 @@ describe.skip("videos", () => {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
 			} else {
 				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalRuntimeGoogleCloudProject !== undefined) {
+				process.env.GOOGLE_CLOUD_PROJECT = originalRuntimeGoogleCloudProject;
+			} else {
+				delete process.env.GOOGLE_CLOUD_PROJECT;
 			}
 			if (originalGoogleVertexRegion !== undefined) {
 				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
@@ -2259,12 +2288,14 @@ describe.skip("videos", () => {
 
 	test("/v1/videos keeps inline vertex output when no GCS bucket is configured", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 		const originalGoogleVertexVideoOutputBucket =
 			process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
 		const originalGoogleVertexSignedUrlBaseUrl =
 			process.env.LLM_GOOGLE_VERTEX_TEST_SIGNED_URL_BASE_URL;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "provider-project";
+		process.env.GOOGLE_CLOUD_PROJECT = "runtime-project";
 		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
 		delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
 		delete process.env.LLM_GOOGLE_VERTEX_TEST_SIGNED_URL_BASE_URL;
@@ -2307,6 +2338,14 @@ describe.skip("videos", () => {
 				where: { id: { eq: created.id } },
 			});
 			expect(videoJob?.storageUri).toBeNull();
+			expect(videoJob?.upstreamId).toContain("projects/provider-project/");
+			expect(
+				(
+					videoJob?.upstreamStatusResponse as {
+						google_vertex_project_id?: string;
+					} | null
+				)?.google_vertex_project_id,
+			).toBe("provider-project");
 
 			setMockVideoStatus(videoJob!.upstreamId, "completed");
 			await processPendingVideoJobs();
@@ -2341,6 +2380,11 @@ describe.skip("videos", () => {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
 			} else {
 				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalRuntimeGoogleCloudProject !== undefined) {
+				process.env.GOOGLE_CLOUD_PROJECT = originalRuntimeGoogleCloudProject;
+			} else {
+				delete process.env.GOOGLE_CLOUD_PROJECT;
 			}
 			if (originalGoogleVertexRegion !== undefined) {
 				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
