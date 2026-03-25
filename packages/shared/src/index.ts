@@ -50,4 +50,6 @@ export {
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "./video-proxy.js";
 
+export { selectLoadBalancedItem } from "./load-balance.js";
+
 export * from "./components/ui/index.js";

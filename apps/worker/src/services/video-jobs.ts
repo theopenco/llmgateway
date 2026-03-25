@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
+	asc,
 	db,
 	eq,
 	type InferSelectModel,
@@ -67,6 +68,31 @@ interface ResolvedVideoProviderContext {
 	token: string;
 }
 
+function getDeterministicHash(seed: string): number {
+	let hash = 5381;
+
+	for (const char of seed) {
+		hash = (hash * 33) ^ char.charCodeAt(0);
+	}
+
+	return Math.abs(hash >>> 0);
+}
+
+function selectLoadBalancedItem<T>(
+	items: T[],
+	selectionKey?: string,
+): T | undefined {
+	if (items.length === 0) {
+		return undefined;
+	}
+
+	if (items.length === 1 || !selectionKey) {
+		return items[0];
+	}
+
+	return items[getDeterministicHash(selectionKey) % items.length];
+}
+
 function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
@@ -91,8 +117,9 @@ function isAvalancheSoraJob(job: VideoJobRecord): boolean {
 async function findActiveProviderKey(
 	organizationId: string,
 	providerId: string,
+	selectionKey?: string,
 ): Promise<InferSelectModel<typeof tables.providerKey> | undefined> {
-	const [providerKey] = await db
+	const providerKeys = await db
 		.select()
 		.from(tables.providerKey)
 		.where(
@@ -102,9 +129,9 @@ async function findActiveProviderKey(
 				eq(tables.providerKey.provider, providerId),
 			),
 		)
-		.limit(1);
+		.orderBy(asc(tables.providerKey.createdAt), asc(tables.providerKey.id));
 
-	return providerKey;
+	return selectLoadBalancedItem(providerKeys, selectionKey);
 }
 
 function resolveProviderEnvToken(
@@ -165,6 +192,7 @@ async function resolveVideoProviderContext(
 		const providerKey = await findActiveProviderKey(
 			job.organizationId,
 			job.usedProvider,
+			job.requestId,
 		);
 		if (!providerKey) {
 			throw new Error(`No API key set for provider: ${job.usedProvider}`);

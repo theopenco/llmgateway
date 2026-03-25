@@ -1102,6 +1102,7 @@ async function resolveProviderContext(
 	providerId: Provider,
 	project: InferSelectModel<typeof tables.project>,
 	organizationId: string,
+	selectionKey: string,
 	baseModelName?: string,
 ): Promise<ProviderContext> {
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
@@ -1120,7 +1121,11 @@ async function resolveProviderContext(
 			: undefined;
 
 	if (project.mode === "api-keys") {
-		const providerKey = await findProviderKey(organizationId, providerId);
+		const providerKey = await findProviderKey(
+			organizationId,
+			providerId,
+			selectionKey,
+		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
 				message: `No API key set for provider: ${providerId}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
@@ -1222,7 +1227,11 @@ async function resolveProviderContext(
 		);
 	}
 
-	const providerKey = await findProviderKey(organizationId, providerId);
+	const providerKey = await findProviderKey(
+		organizationId,
+		providerId,
+		selectionKey,
+	);
 	if (providerKey) {
 		const baseUrl =
 			providerKey.baseUrl ??
@@ -1399,6 +1408,7 @@ async function resolveVideoExecution(
 	includeAudio: boolean,
 	project: InferSelectModel<typeof tables.project>,
 	organizationId: string,
+	requestId: string,
 	noFallback: boolean,
 ): Promise<ResolvedVideoExecution> {
 	const videoPricing: VideoPricingContext = {
@@ -1632,6 +1642,7 @@ async function resolveVideoExecution(
 		providerMapping.providerId as Provider,
 		project,
 		organizationId,
+		requestId,
 		providerMapping.modelName,
 	);
 	return {
@@ -2151,7 +2162,11 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 
 	if (job.usedMode === "api-keys") {
-		const providerKey = await findProviderKey(job.organizationId, providerId);
+		const providerKey = await findProviderKey(
+			job.organizationId,
+			providerId,
+			job.requestId,
+		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
 				message: `No API key set for provider: ${providerId}`,
@@ -3237,6 +3252,7 @@ videos.openapi(createVideo, async (c) => {
 		request.audio,
 		project,
 		organization.id,
+		requestId,
 		noFallback,
 	);
 
@@ -3299,6 +3315,7 @@ videos.openapi(createVideo, async (c) => {
 				nextMapping.providerId as Provider,
 				project,
 				organization.id,
+				requestId,
 				nextMapping.modelName,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
@@ -3354,6 +3371,7 @@ videos.openapi(createVideo, async (c) => {
 				nextMapping.providerId as Provider,
 				project,
 				organization.id,
+				requestId,
 				nextMapping.modelName,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
@@ -3446,6 +3464,7 @@ videos.openapi(createVideo, async (c) => {
 				nextMapping.providerId as Provider,
 				project,
 				organization.id,
+				requestId,
 				nextMapping.modelName,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(

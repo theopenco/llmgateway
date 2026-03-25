@@ -99,6 +99,14 @@ describe("Cached Queries - Gateway Database Access", () => {
 		});
 
 		await db.insert(providerKey).values({
+			id: "test-provider-key-cached-queries-2",
+			token: "test-provider-token-2",
+			provider: "openai",
+			organizationId: testOrgId,
+			status: "active",
+		});
+
+		await db.insert(providerKey).values({
 			id: "test-custom-provider-key",
 			token: "test-custom-token",
 			provider: "custom",
@@ -209,6 +217,34 @@ describe("Cached Queries - Gateway Database Access", () => {
 			expect(result?.status).toBe("active");
 		});
 
+		it("should deterministically load balance between provider keys", async () => {
+			const requestOne = await findProviderKey(
+				testOrgId,
+				"openai",
+				"request-one",
+			);
+			const requestOneRepeat = await findProviderKey(
+				testOrgId,
+				"openai",
+				"request-one",
+			);
+			const requestTwo = await findProviderKey(
+				testOrgId,
+				"openai",
+				"request-two",
+			);
+
+			expect(requestOne?.id).toBe(requestOneRepeat?.id);
+			expect([
+				testProviderKeyId,
+				"test-provider-key-cached-queries-2",
+			]).toContain(requestOne?.id);
+			expect([
+				testProviderKeyId,
+				"test-provider-key-cached-queries-2",
+			]).toContain(requestTwo?.id);
+		});
+
 		it("should return undefined for non-existent provider", async () => {
 			const result = await findProviderKey(testOrgId, "nonexistent");
 
@@ -220,7 +256,7 @@ describe("Cached Queries - Gateway Database Access", () => {
 		it("should find all active provider keys for organization", async () => {
 			const result = await findActiveProviderKeys(testOrgId);
 
-			expect(result).toHaveLength(2); // openai and custom
+			expect(result).toHaveLength(3); // two openai keys and one custom
 			expect(result.every((k) => k.status === "active")).toBe(true);
 			expect(result.every((k) => k.organizationId === testOrgId)).toBe(true);
 		});
@@ -236,7 +272,7 @@ describe("Cached Queries - Gateway Database Access", () => {
 		it("should find provider keys for specific providers", async () => {
 			const result = await findProviderKeysByProviders(testOrgId, ["openai"]);
 
-			expect(result).toHaveLength(1);
+			expect(result).toHaveLength(2);
 			expect(result[0]?.provider).toBe("openai");
 		});
 
@@ -252,7 +288,7 @@ describe("Cached Queries - Gateway Database Access", () => {
 				"custom",
 			]);
 
-			expect(result).toHaveLength(2);
+			expect(result).toHaveLength(3);
 		});
 	});
 
