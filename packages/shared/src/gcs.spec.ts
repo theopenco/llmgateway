@@ -46,7 +46,23 @@ afterEach(() => {
 	}
 });
 
-describe("createSignedGcsReadUrl", () => {
+describe("gcs", () => {
+	test("buildGcsUri trims the bucket and normalizes the object path", async () => {
+		const { buildGcsUri } = await loadGcsModule();
+
+		expect(buildGcsUri("  bucket  ", " /nested//video.mp4 ")).toBe(
+			"gs://bucket/nested/video.mp4",
+		);
+	});
+
+	test("buildGcsUri rejects empty normalized paths", async () => {
+		const { buildGcsUri } = await loadGcsModule();
+
+		expect(() => buildGcsUri("bucket", " / / ")).toThrow(
+			"GCS object path is required",
+		);
+	});
+
 	test("uses GOOGLE_CLOUD_PROJECT for the storage client", async () => {
 		process.env.GOOGLE_CLOUD_PROJECT = "runtime-project";
 		const { createSignedGcsReadUrl } = await loadGcsModule();

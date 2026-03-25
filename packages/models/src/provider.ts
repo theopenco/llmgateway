@@ -33,7 +33,7 @@ export function hasProviderEnvironmentToken(
 	provider: Provider | string,
 ): boolean {
 	const envVar = getProviderEnvVar(provider);
-	return envVar ? Boolean(process.env[envVar]) : false;
+	return envVar ? Boolean(process.env[envVar]?.trim()) : false;
 }
 
 export function getProviderEnvValue(
@@ -62,7 +62,7 @@ export function getProviderEnvValue(
 
 	const envValue = process.env[envVarName];
 
-	if (!envValue) {
+	if (!envValue?.trim()) {
 		return defaultValue;
 	}
 

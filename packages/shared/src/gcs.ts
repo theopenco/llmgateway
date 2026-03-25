@@ -60,8 +60,18 @@ export function parseGcsUri(
 }
 
 export function buildGcsUri(bucket: string, objectPath: string): string {
+	const normalizedBucket = bucket.trim();
 	const normalizedPath = getNormalizedObjectPath(objectPath);
-	return `gs://${bucket}/${normalizedPath}`;
+
+	if (!normalizedBucket) {
+		throw new Error("GCS bucket is required");
+	}
+
+	if (!normalizedPath) {
+		throw new Error("GCS object path is required");
+	}
+
+	return `gs://${normalizedBucket}/${normalizedPath}`;
 }
 
 export function buildVertexVideoOutputStorageUri(input: {

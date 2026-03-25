@@ -13,6 +13,11 @@ interface VideoContentTokenPayload {
 	exp: number;
 }
 
+function isExplicitDevFallbackEnabled(): boolean {
+	const value = process.env[VIDEO_CONTENT_TOKEN_ALLOW_DEV_ENV]?.trim();
+	return value === "true" || value === "1";
+}
+
 function getVideoContentTokenSecret(): string {
 	const configuredSecret = process.env[VIDEO_CONTENT_TOKEN_SECRET_ENV]?.trim();
 	if (configuredSecret) {
@@ -21,7 +26,7 @@ function getVideoContentTokenSecret(): string {
 
 	if (
 		process.env.NODE_ENV === "development" ||
-		process.env[VIDEO_CONTENT_TOKEN_ALLOW_DEV_ENV]?.trim()
+		isExplicitDevFallbackEnabled()
 	) {
 		return DEV_VIDEO_CONTENT_TOKEN_SECRET;
 	}

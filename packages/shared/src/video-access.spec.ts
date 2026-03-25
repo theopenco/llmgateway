@@ -72,6 +72,16 @@ describe("video access tokens", () => {
 		expect(verifyVideoContentAccessToken(token, "log-3")).toBe(true);
 	});
 
+	test("requires an explicit truthy opt-in for the development fallback", () => {
+		process.env.NODE_ENV = "test";
+		setOptionalEnv(VIDEO_CONTENT_TOKEN_SECRET_ENV, undefined);
+		process.env[VIDEO_CONTENT_TOKEN_ALLOW_DEV_ENV] = "false";
+
+		expect(() => createVideoContentAccessToken("log-3b")).toThrow(
+			/LLM_VIDEO_CONTENT_JWT_SECRET/,
+		);
+	});
+
 	test("fails closed without a configured secret or explicit opt-in", () => {
 		process.env.NODE_ENV = "test";
 		setOptionalEnv(VIDEO_CONTENT_TOKEN_SECRET_ENV, undefined);
