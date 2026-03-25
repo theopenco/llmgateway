@@ -8,8 +8,6 @@ set -euo pipefail
 CONTAINER_NAME="${CONTAINER_NAME:-llmgateway}"
 POSTGRES_VOLUME="${POSTGRES_VOLUME:-llmgateway_postgres}"
 REDIS_VOLUME="${REDIS_VOLUME:-llmgateway_redis}"
-POSTGRES_DB="${POSTGRES_DB:-llmgateway}"
-POSTGRES_USER="${POSTGRES_USER:-postgres}"
 
 if [ -z "${LLM_GATEWAY_SECRET:-}" ]; then
     echo "LLM_GATEWAY_SECRET is not set." >&2
@@ -39,10 +37,6 @@ docker run -d \
     -v "$POSTGRES_VOLUME:/var/lib/postgresql/data" \
     -v "$REDIS_VOLUME:/var/lib/redis" \
     -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
-    -e POSTGRES_PASSWORD="$LLM_GATEWAY_SECRET" \
-    -e POSTGRES_DB="$POSTGRES_DB" \
-    -e POSTGRES_USER="$POSTGRES_USER" \
-    -e DATABASE_URL="postgres://$POSTGRES_USER:$LLM_GATEWAY_SECRET@localhost:5432/$POSTGRES_DB" \
     ghcr.io/theopenco/llmgateway-unified:latest
 
 echo "Container started. Follow logs with:"

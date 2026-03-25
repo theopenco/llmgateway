@@ -48,8 +48,6 @@ docker run -d \
   -v llmgateway_postgres:/var/lib/postgresql/data \
   -v llmgateway_redis:/var/lib/redis \
   -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
-  -e POSTGRES_PASSWORD="$LLM_GATEWAY_SECRET" \
-  -e DATABASE_URL="postgres://postgres:$LLM_GATEWAY_SECRET@localhost:5432/llmgateway" \
   ghcr.io/theopenco/llmgateway-unified:latest
 ```
 
