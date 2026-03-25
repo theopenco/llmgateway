@@ -36,8 +36,6 @@ docker run -d \
     -p 3006:3006 \
     -p 4001:4001 \
     -p 4002:4002 \
-    -p 5432:5432 \
-    -p 6379:6379 \
     -v "$POSTGRES_VOLUME:/var/lib/postgresql/data" \
     -v "$REDIS_VOLUME:/var/lib/redis" \
     -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
