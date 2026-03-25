@@ -101,7 +101,10 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
-import { resolveProviderContext } from "./tools/resolve-provider-context.js";
+import {
+	formatUsedModelForDisplay,
+	resolveProviderContext,
+} from "./tools/resolve-provider-context.js";
 import {
 	type RoutingAttempt,
 	getErrorType,
@@ -1540,7 +1543,11 @@ chat.openapi(completions, async (c) => {
 
 	// Create the model mapping values according to new schema
 	let usedModelMapping = usedModel; // Store the original provider model name
-	let usedModelFormatted = `${usedProvider}/${baseModelName}`; // Store in LLMGateway format
+	let usedModelFormatted = formatUsedModelForDisplay(
+		usedProvider,
+		baseModelName,
+		customProviderName,
+	); // Store in LLMGateway format
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
 	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
