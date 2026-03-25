@@ -1,45 +1,49 @@
-# docs
+# Docs App
 
-This is a Next.js application generated with
-[Create Fumadocs](https://github.com/fuma-nama/fumadocs).
+This app powers the public documentation site for LLM Gateway.
 
-Run development server:
+## Local Development
+
+From the repository root:
 
 ```bash
-npm run dev
-# or
-pnpm dev
-# or
-yarn dev
+pnpm --filter docs dev
 ```
 
-Open http://localhost:3000 with your browser to see the result.
+The docs app runs on `http://localhost:3005`.
 
-## Explore
+If you have not set up the monorepo yet, run the root setup flow first:
 
-In the project, you can see:
+```bash
+pnpm i
+pnpm run setup
+```
 
-- `lib/source.ts`: Code for content source adapter, [`loader()`](https://fumadocs.dev/docs/headless/source-api) provides the interface to access your content.
-- `app/layout.config.tsx`: Shared options for layouts, optional but preferred to keep.
+## Common Commands
 
-| Route                     | Description                                            |
-| ------------------------- | ------------------------------------------------------ |
-| `app/(home)`              | The route group for your landing page and other pages. |
-| `app/docs`                | The documentation layout and pages.                    |
-| `app/api/search/route.ts` | The Route Handler for search.                          |
+```bash
+pnpm --filter docs dev
+pnpm --filter docs build
+pnpm --filter docs lint
+pnpm --filter docs gen-docs
+```
 
-### Fumadocs MDX
+## Content Structure
 
-A `source.config.ts` config file has been included, you can customise different options like frontmatter schema.
+- `content/`: hand-written documentation pages
+- `content/(api)/`: generated API reference pages
+- `app/`: Next.js routes and layouts
+- `components/`: shared docs UI components
+- `scripts/generate-docs.mjs`: regenerates API docs from the gateway OpenAPI spec
 
-Read the [Introduction](https://fumadocs.dev/docs/mdx) for further details.
+## Updating API Reference Docs
 
-## Learn More
+The API reference is generated from `apps/gateway/openapi.json`.
 
-To learn more about Next.js and Fumadocs, take a look at the following
-resources:
+After changing the gateway OpenAPI output, regenerate the docs app content:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js
-  features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-- [Fumadocs](https://fumadocs.vercel.app) - learn about Fumadocs
+```bash
+pnpm --filter docs gen-docs
+```
+
+Generated files are written to `content/(api)/`.

@@ -83,6 +83,8 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
    pnpm dev
    ```
 
+   To work only on the documentation site, run `pnpm --filter docs dev` and open `http://localhost:3005`.
+
 3. Build for production:
    ```bash
    pnpm build
