@@ -1649,6 +1649,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				modelName: "sora-2",
+				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1670,6 +1671,7 @@ export const openaiModels = [
 			{
 				providerId: "obsidian",
 				modelName: "sora-2",
+				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1691,6 +1693,7 @@ export const openaiModels = [
 			{
 				providerId: "avalanche",
 				modelName: "sora-2",
+				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1725,6 +1728,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				modelName: "sora-2-pro",
+				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1755,6 +1759,7 @@ export const openaiModels = [
 			{
 				providerId: "obsidian",
 				modelName: "sora-2-pro",
+				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1776,6 +1781,7 @@ export const openaiModels = [
 			{
 				providerId: "avalanche",
 				modelName: "sora-2-pro",
+				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
