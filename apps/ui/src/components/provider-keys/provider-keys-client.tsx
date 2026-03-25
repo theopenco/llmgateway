@@ -47,7 +47,6 @@ export function ProviderKeysClient({
 					{selectedOrganization && (
 						<CreateProviderKeyDialog
 							selectedOrganization={selectedOrganization}
-							existingProviderKeys={initialProviderKeysData?.providerKeys ?? []}
 						>
 							<Button>
 								<Plus className="mr-2 h-4 w-4" />

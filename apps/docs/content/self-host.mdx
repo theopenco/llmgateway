@@ -18,6 +18,9 @@ LLMGateway is a self-hostable platform that provides a unified API gateway for m
 This option uses a single Docker container that includes all services (UI, API, Gateway, Database, Redis).
 
 ```bash
+# Set a strong secret first
+export LLM_GATEWAY_SECRET="your-secret-key-here"
+
 # Run the container
 docker run -d \
   --name llmgateway \
@@ -28,10 +31,13 @@ docker run -d \
   -p 3006:3006 \
   -p 4001:4001 \
   -p 4002:4002 \
-  -v ~/llmgateway_data:/var/lib/postgresql/data \
-  -e AUTH_SECRET=your-secret-key-here \
+  -v llmgateway_postgres:/var/lib/postgresql/data \
+  -v llmgateway_redis:/var/lib/redis \
+  -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
   ghcr.io/theopenco/llmgateway-unified:latest
 ```
+
+Docker will create the named volumes automatically on first run. Do not bind-mount a host directory directly to `/var/lib/postgresql/data`, because PostgreSQL initialization inside the container needs to manage permissions on that path.
 
 Note: it is recommended to use the latest version tag from here instead of `latest`: https://github.com/theopenco/llmgateway/releases
 
@@ -40,10 +46,10 @@ Note: it is recommended to use the latest version tag from here instead of `late
 ```bash
 # Download the compose file
 curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/infra/docker-compose.unified.yml
-curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/.env.example
+curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/.env.unified.example
 
 # Configure environment
-cp .env.example .env
+cp .env.unified.example .env
 # Edit .env with your configuration
 
 # Start the service

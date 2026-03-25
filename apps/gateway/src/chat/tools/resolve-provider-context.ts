@@ -64,6 +64,7 @@ export interface OriginalRequestParams {
 }
 
 export interface ProviderContextOptions {
+	requestId: string;
 	stream: boolean;
 	effectiveStream: boolean;
 	messages: BaseMessage[];
@@ -104,6 +105,19 @@ interface OrgInfo {
 	devPlanExpiresAt: Date | null;
 }
 
+export function formatUsedModelForDisplay(
+	usedProvider: string,
+	baseModelName: string,
+	customProviderName?: string,
+): string {
+	const usedModelProviderPrefix =
+		usedProvider === "custom" && customProviderName
+			? customProviderName
+			: usedProvider;
+
+	return `${usedModelProviderPrefix}/${baseModelName}`;
+}
+
 /**
  * Resolves all provider-dependent context needed to make a fetch request.
  * This includes token resolution, URL building, parameter stripping,
@@ -123,7 +137,11 @@ export async function resolveProviderContext(
 	const usedModel = providerMapping.modelName;
 	const baseModelName = modelInfo.id || usedModel;
 	const usedModelMapping = usedModel;
-	const usedModelFormatted = `${usedProvider}/${baseModelName}`;
+	const usedModelFormatted = formatUsedModelForDisplay(
+		usedProvider,
+		baseModelName,
+		options.customProviderName,
+	);
 
 	// --- Token resolution ---
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -136,9 +154,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
+				options.requestId,
 			);
 		} else {
-			providerKey = await findProviderKey(project.organizationId, usedProvider);
+			providerKey = await findProviderKey(
+				project.organizationId,
+				usedProvider,
+				options.requestId,
+			);
 		}
 
 		if (!providerKey) {
@@ -158,9 +181,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
+				options.requestId,
 			);
 		} else {
-			providerKey = await findProviderKey(project.organizationId, usedProvider);
+			providerKey = await findProviderKey(
+				project.organizationId,
+				usedProvider,
+				options.requestId,
+			);
 		}
 
 		if (providerKey) {

@@ -5,7 +5,11 @@ import { getConfig } from "@/lib/config-server";
 
 import type { User } from "better-auth/types";
 
-export async function getUser() {
+interface GetUserOptions {
+	signal?: AbortSignal;
+}
+
+export async function getUser(options?: GetUserOptions) {
 	const posthog = PostHogClient();
 	const config = getConfig();
 	const cookieStore = await cookies();
@@ -24,6 +28,7 @@ export async function getUser() {
 					? `${key}=${sessionCookie.value}`
 					: "",
 		},
+		signal: options?.signal,
 	});
 
 	if (!data.ok) {
