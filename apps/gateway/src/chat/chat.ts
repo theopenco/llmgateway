@@ -1701,18 +1701,20 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	} else {
+		const baseUsedModel = stripRegionFromModelName(usedModel, usedRegion);
 		const rawFinalModelInfo =
 			models.find(
 				(m) =>
-					(m.id === usedModel ||
-						m.providers.some((p) => p.modelName === usedModel)) &&
+					(m.id === baseUsedModel ||
+						m.providers.some((p) => p.modelName === baseUsedModel)) &&
 					m.providers.some((p) => p.providerId === usedProvider),
 			) ??
 			models.find(
 				(m) =>
-					m.id === usedModel ||
+					m.id === baseUsedModel ||
 					m.providers.some(
-						(p) => p.modelName === usedModel && p.providerId === usedProvider,
+						(p) =>
+							p.modelName === baseUsedModel && p.providerId === usedProvider,
 					),
 			);
 		if (rawFinalModelInfo) {
@@ -1725,7 +1727,8 @@ chat.openapi(completions, async (c) => {
 
 	// Use the canonical model ID from finalModelInfo (looked up after routing)
 	// Fall back to usedModel (raw provider model name) for custom providers
-	let baseModelName = finalModelInfo?.id ?? usedModel;
+	let baseModelName =
+		finalModelInfo?.id ?? stripRegionFromModelName(usedModel, usedRegion);
 
 	// Check if this is an image generation model
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
