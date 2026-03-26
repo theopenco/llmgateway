@@ -3,6 +3,7 @@ export const MAX_RETRIES = 2;
 export interface RoutingAttempt {
 	provider: string;
 	model: string;
+	region?: string;
 	status_code: number;
 	error_type: string;
 	succeeded: boolean;

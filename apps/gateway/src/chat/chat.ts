@@ -252,12 +252,14 @@ const completions = createRoute({
 							requested_provider: z.string().nullable(),
 							used_model: z.string(),
 							used_provider: z.string(),
+							used_region: z.string().nullable().optional(),
 							underlying_used_model: z.string(),
 							routing: z
 								.array(
 									z.object({
 										provider: z.string(),
 										model: z.string(),
+										region: z.string().optional(),
 										status_code: z.number(),
 										error_type: z.string(),
 									}),
@@ -2984,6 +2986,7 @@ chat.openapi(completions, async (c) => {
 								routingAttempts.push({
 									provider: usedProvider,
 									model: usedModel,
+									...(usedRegion && { region: usedRegion }),
 									status_code: 0,
 									error_type: getErrorType(0),
 									succeeded: false,
@@ -3273,6 +3276,7 @@ chat.openapi(completions, async (c) => {
 								routingAttempts.push({
 									provider: usedProvider,
 									model: usedModel,
+									...(usedRegion && { region: usedRegion }),
 									status_code: 0,
 									error_type: getErrorType(0),
 									succeeded: false,
@@ -3449,6 +3453,7 @@ chat.openapi(completions, async (c) => {
 							routingAttempts.push({
 								provider: usedProvider,
 								model: usedModel,
+								...(usedRegion && { region: usedRegion }),
 								status_code: res.status,
 								error_type: getErrorType(res.status),
 								succeeded: false,
@@ -3477,6 +3482,7 @@ chat.openapi(completions, async (c) => {
 									requested_provider: requestedProvider,
 									used_model: baseModelName,
 									used_provider: usedProvider,
+									...(usedRegion && { used_region: usedRegion }),
 									underlying_used_model: usedModel,
 								},
 							};
@@ -3570,6 +3576,7 @@ chat.openapi(completions, async (c) => {
 					routingAttempts.push({
 						provider: usedProvider,
 						model: usedModel,
+						...(usedRegion && { region: usedRegion }),
 						status_code: res.status,
 						error_type: "none",
 						succeeded: true,
@@ -5173,6 +5180,7 @@ chat.openapi(completions, async (c) => {
 										requested_provider: requestedProvider ?? null,
 										used_model: baseModelName,
 										used_provider: usedProvider,
+										...(usedRegion && { used_region: usedRegion }),
 										underlying_used_model: usedModel,
 										routing: routingAttempts,
 									},
@@ -5798,6 +5806,7 @@ chat.openapi(completions, async (c) => {
 				routingAttempts.push({
 					provider: usedProvider,
 					model: usedModel,
+					...(usedRegion && { region: usedRegion }),
 					status_code: 0,
 					error_type: getErrorType(0),
 					succeeded: false,
@@ -6234,6 +6243,7 @@ chat.openapi(completions, async (c) => {
 				routingAttempts.push({
 					provider: usedProvider,
 					model: usedModel,
+					...(usedRegion && { region: usedRegion }),
 					status_code: res.status,
 					error_type: getErrorType(res.status),
 					succeeded: false,
@@ -6270,6 +6280,7 @@ chat.openapi(completions, async (c) => {
 						requested_provider: requestedProvider,
 						used_model: baseModelName,
 						used_provider: usedProvider,
+						...(usedRegion && { used_region: usedRegion }),
 						underlying_used_model: usedModel,
 					},
 				});
@@ -6312,6 +6323,7 @@ chat.openapi(completions, async (c) => {
 		routingAttempts.push({
 			provider: usedProvider,
 			model: usedModel,
+			...(usedRegion && { region: usedRegion }),
 			status_code: res.status,
 			error_type: "none",
 			succeeded: true,
@@ -6674,6 +6686,7 @@ chat.openapi(completions, async (c) => {
 		false, // showUpgradeMessage - never show since Pro plan is removed
 		annotations,
 		routingAttempts.length > 0 ? routingAttempts : null,
+		usedRegion,
 	);
 
 	// Extract plugin IDs for logging
