@@ -267,6 +267,126 @@ describe("stats-calculator", () => {
 			expect(claudeRecord?.cachedCount).toBe(0); // No cached requests for claude
 		});
 
+		it("should attribute region-suffixed logs to the matching regional mappings", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			await db.insert(provider).values({
+				id: "alibaba",
+				name: "Alibaba",
+				description: "Alibaba provider",
+				streaming: true,
+				cancellation: false,
+				color: "#ff6a00",
+				website: "https://www.alibabacloud.com",
+				status: "active",
+			});
+
+			await db.insert(model).values({
+				id: "deepseek-v3.2",
+				name: "DeepSeek V3.2",
+				family: "deepseek",
+				status: "active",
+			});
+
+			await db.insert(modelProviderMapping).values([
+				{
+					id: "mapping-3",
+					modelId: "deepseek-v3.2",
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2:singapore",
+					region: "singapore",
+					status: "active",
+				},
+				{
+					id: "mapping-4",
+					modelId: "deepseek-v3.2",
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2:cn-beijing",
+					region: "cn-beijing",
+					status: "active",
+				},
+			]);
+
+			await db.insert(log).values([
+				{
+					id: "log-region-1",
+					requestId: "req-region-1",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1200,
+					requestedModel: "alibaba/deepseek-v3.2:singapore",
+					requestedProvider: "alibaba",
+					usedModel: "alibaba/deepseek-v3.2:singapore",
+					usedProvider: "alibaba",
+					responseSize: 100,
+					hasError: false,
+					promptTokens: "100",
+					completionTokens: "80",
+					totalTokens: "180",
+					cost: 0.12,
+					unifiedFinishReason: "completed",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 10000),
+				},
+				{
+					id: "log-region-2",
+					requestId: "req-region-2",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1500,
+					requestedModel: "alibaba/deepseek-v3.2:cn-beijing",
+					requestedProvider: "alibaba",
+					usedModel: "alibaba/deepseek-v3.2:cn-beijing",
+					usedProvider: "alibaba",
+					responseSize: 120,
+					hasError: false,
+					promptTokens: "120",
+					completionTokens: "90",
+					totalTokens: "210",
+					cost: 0.21,
+					unifiedFinishReason: "completed",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 20000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			const deepseekHistory = (await db.select().from(modelHistory)).find(
+				(record) => record.modelId === "deepseek-v3.2",
+			);
+
+			expect(deepseekHistory).toBeTruthy();
+			expect(deepseekHistory?.logsCount).toBe(2);
+			expect(deepseekHistory?.totalInputTokens).toBe(220);
+			expect(deepseekHistory?.totalOutputTokens).toBe(170);
+			expect(deepseekHistory?.totalCost).toBeCloseTo(0.33);
+
+			const regionHistory = await db.select().from(modelProviderMappingHistory);
+			const singaporeHistory = regionHistory.find(
+				(record) => record.modelProviderMappingId === "mapping-3",
+			);
+			const beijingHistory = regionHistory.find(
+				(record) => record.modelProviderMappingId === "mapping-4",
+			);
+
+			expect(singaporeHistory).toBeTruthy();
+			expect(singaporeHistory?.logsCount).toBe(1);
+			expect(singaporeHistory?.totalInputTokens).toBe(100);
+			expect(singaporeHistory?.totalOutputTokens).toBe(80);
+			expect(singaporeHistory?.totalCost).toBeCloseTo(0.12);
+
+			expect(beijingHistory).toBeTruthy();
+			expect(beijingHistory?.logsCount).toBe(1);
+			expect(beijingHistory?.totalInputTokens).toBe(120);
+			expect(beijingHistory?.totalOutputTokens).toBe(90);
+			expect(beijingHistory?.totalCost).toBeCloseTo(0.21);
+		});
+
 		it("should handle cached requests correctly by ignoring tokens but counting requests", async () => {
 			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
 

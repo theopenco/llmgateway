@@ -300,6 +300,11 @@ export async function updateTimingAverages() {
 
 	try {
 		const database = db;
+		const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
+		const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 1)`;
+		const usedRegionSql = sql<
+			string | null
+		>`nullif(split_part(${usedModelWithRegionSql}, ':', 2), '')`;
 
 		// Update provider averages
 		const providerAverages = await database
@@ -331,9 +336,7 @@ export async function updateTimingAverages() {
 		// Update model averages
 		const modelAverages = await database
 			.select({
-				modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as(
-					"modelId",
-				),
+				modelId: usedBaseModelSql.as("modelId"),
 				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
 					"avgTimeToFirstToken",
 				),
@@ -344,7 +347,7 @@ export async function updateTimingAverages() {
 			})
 			.from(log)
 			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
-			.groupBy(sql`split_part(${log.usedModel}, '/', 2)`);
+			.groupBy(usedBaseModelSql);
 
 		for (const avg of modelAverages) {
 			await database
@@ -360,10 +363,9 @@ export async function updateTimingAverages() {
 		// Update model-provider mapping averages
 		const mappingAverages = await database
 			.select({
-				modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as(
-					"modelId",
-				),
+				modelId: usedBaseModelSql.as("modelId"),
 				providerId: log.usedProvider,
+				region: usedRegionSql.as("region"),
 				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
 					"avgTimeToFirstToken",
 				),
@@ -374,7 +376,7 @@ export async function updateTimingAverages() {
 			})
 			.from(log)
 			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
-			.groupBy(sql`split_part(${log.usedModel}, '/', 2)`, log.usedProvider);
+			.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql);
 
 		for (const avg of mappingAverages) {
 			await database
@@ -388,6 +390,9 @@ export async function updateTimingAverages() {
 					and(
 						eq(modelProviderMapping.modelId, avg.modelId),
 						eq(modelProviderMapping.providerId, avg.providerId),
+						avg.region
+							? eq(modelProviderMapping.region, avg.region)
+							: isNull(modelProviderMapping.region),
 					),
 				);
 		}
