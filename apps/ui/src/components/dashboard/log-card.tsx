@@ -60,6 +60,22 @@ export function LogCard({
 		setIsExpanded(!isExpanded);
 	};
 
+	const getCanonicalAttemptModel = (attempt: {
+		provider: string;
+		region?: string | null;
+	}) => {
+		const fallbackModel = log.usedModel ?? log.requestedModel ?? "unknown";
+		const canonicalModel = fallbackModel.includes("/")
+			? fallbackModel.split("/").slice(1).join("/")
+			: fallbackModel;
+		const canonicalBaseModel = canonicalModel.split(":")[0] ?? canonicalModel;
+		const canonicalModelWithRegion = attempt.region
+			? `${canonicalBaseModel}:${attempt.region}`
+			: canonicalBaseModel;
+
+		return `${attempt.provider}/${canonicalModelWithRegion}`;
+	};
+
 	// Format duration in ms to a readable format
 	const formatDuration = (ms: number) => {
 		if (ms < 1000) {
@@ -429,12 +445,7 @@ export function LogCard({
 																	) : (
 																		<AlertCircle className="h-3 w-3" />
 																	)}
-																	{attempt.provider}/{attempt.model}
-																	{attempt.region && (
-																		<span className="text-muted-foreground">
-																			({attempt.region})
-																		</span>
-																	)}
+																	{getCanonicalAttemptModel(attempt)}
 																</span>
 																<span>
 																	{attempt.status_code}{" "}
