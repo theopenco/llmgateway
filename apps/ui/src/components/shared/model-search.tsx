@@ -109,6 +109,16 @@ export function ModelSearch({
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, []);
 
+	const aliasMap = useMemo(() => {
+		const map = new Map<string, string[]>();
+		for (const model of models) {
+			if (model.aliases?.length) {
+				map.set(model.id, model.aliases);
+			}
+		}
+		return map;
+	}, [models]);
+
 	const entries = useMemo<ModelSearchEntry[]>(() => {
 		const now = new Date();
 		const map = new Map<string, ModelSearchEntry>();
@@ -191,7 +201,7 @@ export function ModelSearch({
 				>
 					<Search className="h-3.5 w-3.5 shrink-0" />
 					<span className="truncate">
-						Search models by provider, name, or ID…
+						Search models by provider, name, ID, or alias…
 					</span>
 					<span className="ml-auto hidden rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-flex">
 						⌘K
@@ -215,7 +225,7 @@ export function ModelSearch({
 									return (
 										<CommandItem
 											key={`${entry.providerId}-${entry.id}`}
-											value={`${entry.providerName} ${entry.name} ${entry.id}`}
+											value={`${entry.providerName} ${entry.name} ${entry.id}${aliasMap.has(entry.id) ? ` ${aliasMap.get(entry.id)!.join(" ")}` : ""}`}
 											onSelect={() => {
 												router.push(`/models/${encodeURIComponent(entry.id)}`);
 												setOpen(false);
