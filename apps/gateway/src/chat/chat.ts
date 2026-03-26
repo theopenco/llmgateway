@@ -73,6 +73,7 @@ import {
 	type WebSearchTool,
 	expandAllProviderRegions,
 	getRegionSpecificEnvValue,
+	stripRegionFromModelName,
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
@@ -1434,9 +1435,12 @@ chat.openapi(completions, async (c) => {
 				usedModel = selectedMapping.modelName;
 				usedRegion ??= selectedMapping.region;
 			}
+		} else if (sameProviderMappings.length === 1) {
+			// Single matching entry — use its modelName (may include :region suffix)
+			usedModel = sameProviderMappings[0].modelName;
+			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
 		}
-		// If region still unset (single mapping or no reasoning variant selection),
-		// derive it from the first matching entry
+		// If region still unset, derive it from the first matching entry
 		if (!usedRegion) {
 			const firstMatch = sameProviderMappings[0] as
 				| ProviderModelMapping
@@ -1826,6 +1830,13 @@ chat.openapi(completions, async (c) => {
 
 		usedToken = providerKey.token;
 		usedRegion ??= resolveRegionFromProviderKey(providerKey);
+		// Override with region-specific env var if the DB key doesn't match the requested region
+		if (usedRegion) {
+			const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
+			if (regionToken && regionToken !== usedToken) {
+				usedToken = regionToken;
+			}
+		}
 	} else if (project.mode === "credits") {
 		// Check both regular credits AND dev plan credits
 		const regularCredits = parseFloat(organization.credits ?? "0");
@@ -1892,6 +1903,13 @@ chat.openapi(completions, async (c) => {
 		if (providerKey) {
 			usedToken = providerKey.token;
 			usedRegion ??= resolveRegionFromProviderKey(providerKey);
+			// Override with region-specific env var if the DB key doesn't match the requested region
+			if (usedRegion) {
+				const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
+				if (regionToken && regionToken !== usedToken) {
+					usedToken = regionToken;
+				}
+			}
 			logger.info("[region-debug] Hybrid mode: DB key found", {
 				provider: usedProvider,
 				resolvedRegion: usedRegion ?? "none",
@@ -2007,6 +2025,9 @@ chat.openapi(completions, async (c) => {
 		(msg: any) => msg.tool_calls ?? msg.role === "tool",
 	);
 
+	// Strip :region suffix before sending to upstream provider API
+	const upstreamModelName = stripRegionFromModelName(usedModel, usedRegion);
+
 	try {
 		if (!usedProvider) {
 			throw new HTTPException(400, {
@@ -2017,7 +2038,7 @@ chat.openapi(completions, async (c) => {
 		url = getProviderEndpoint(
 			usedProvider,
 			providerKey?.baseUrl ?? undefined,
-			usedModel,
+			upstreamModelName,
 			usedProvider === "google-ai-studio" || usedProvider === "google-vertex"
 				? usedToken
 				: undefined,
@@ -2630,7 +2651,7 @@ chat.openapi(completions, async (c) => {
 
 	let requestBody: ProviderRequestBody = await prepareRequestBody(
 		usedProvider,
-		usedModel,
+		upstreamModelName,
 		messages as BaseMessage[],
 		effectiveStream,
 		temperature,
