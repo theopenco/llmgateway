@@ -162,21 +162,31 @@ describe("fallback and error status code handling", () => {
 		modelId: string,
 		providerId: string,
 		routingUptime: number,
+		options?: {
+			region?: string;
+			routingLatency?: number;
+			routingThroughput?: number;
+			routingTotalRequests?: number;
+		},
 	) {
+		const conditions = [
+			eq(tables.modelProviderMapping.modelId, modelId),
+			eq(tables.modelProviderMapping.providerId, providerId),
+		];
+
+		if (options?.region) {
+			conditions.push(eq(tables.modelProviderMapping.region, options.region));
+		}
+
 		await db
 			.update(tables.modelProviderMapping)
 			.set({
 				routingUptime,
-				routingLatency: 100,
-				routingThroughput: 100,
-				routingTotalRequests: 100,
+				routingLatency: options?.routingLatency ?? 100,
+				routingThroughput: options?.routingThroughput ?? 100,
+				routingTotalRequests: options?.routingTotalRequests ?? 100,
 			})
-			.where(
-				and(
-					eq(tables.modelProviderMapping.modelId, modelId),
-					eq(tables.modelProviderMapping.providerId, providerId),
-				),
-			);
+			.where(and(...conditions));
 	}
 
 	async function insertIamRules(
@@ -778,6 +788,69 @@ describe("fallback and error status code handling", () => {
 	});
 
 	describe("routing metadata in DB log entries", () => {
+		test("direct provider selection still records weighted regional scores", async () => {
+			await setupKeys("alibaba");
+			await db
+				.update(tables.providerKey)
+				.set({
+					options: {
+						alibaba_region: "singapore",
+					},
+				})
+				.where(eq(tables.providerKey.id, "provider-key-id"));
+
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "singapore",
+				routingLatency: 866,
+				routingThroughput: 1,
+			});
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 1767,
+				routingThroughput: 0.5,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/deepseek-v3.2",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			const singaporeScore = logs[0].routingMetadata?.providerScores?.find(
+				(score) =>
+					score.providerId === "alibaba" && score.region === "singapore",
+			);
+			const beijingScore = logs[0].routingMetadata?.providerScores?.find(
+				(score) =>
+					score.providerId === "alibaba" && score.region === "cn-beijing",
+			);
+			const defaultAlibabaScore = logs[0].routingMetadata?.providerScores?.find(
+				(score) => score.providerId === "alibaba" && !score.region,
+			);
+			const positiveAlibabaScores =
+				logs[0].routingMetadata?.providerScores?.filter(
+					(score) => score.providerId === "alibaba" && score.score > 0,
+				) ?? [];
+
+			expect(logs[0].routingMetadata?.selectionReason).toBe(
+				"direct-provider-specified",
+			);
+			expect(singaporeScore).toBeTruthy();
+			expect(beijingScore).toBeTruthy();
+			expect(defaultAlibabaScore?.score).toBeGreaterThan(0);
+			expect(singaporeScore?.score).not.toBe(1);
+			expect(positiveAlibabaScores.length).toBeGreaterThan(1);
+		});
+
 		test("successful request stores routing metadata with selection reason in DB log", async () => {
 			await setupKeys("openai");
 

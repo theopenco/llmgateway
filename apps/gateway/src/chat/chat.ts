@@ -50,6 +50,7 @@ import {
 	metricsKey,
 	shortid,
 	type tables,
+	type ProviderMetrics,
 } from "@llmgateway/db";
 import {
 	applyRedactions,
@@ -1655,10 +1656,7 @@ chat.openapi(completions, async (c) => {
 		// Fetch metrics for all providers (including deactivated) to include in routing metadata
 		// This provides visibility into uptime/latency/throughput for all providers
 		const baseModelId = (modelInfo as ModelDefinition).id;
-		let metricsMap: Map<
-			string,
-			{ uptime?: number; averageLatency?: number; throughput?: number }
-		> = new Map();
+		let metricsMap: Map<string, ProviderMetrics> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
 			const metricsCombinations = allModelProviders.map((p) => ({
@@ -1669,24 +1667,37 @@ chat.openapi(completions, async (c) => {
 			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
 
-		// Build provider scores for all providers (including deactivated) with default values for missing metrics
-		const allProviderScores = allModelProviders.map((p) => {
-			const metrics = metricsMap.get(
-				metricsKey(baseModelId, p.providerId, p.region),
-			);
-			const price = (p.inputPrice ?? 0) + (p.outputPrice ?? 0);
-			const isSelected =
-				p.providerId === usedProvider && p.region === usedRegion;
-			return {
-				providerId: p.providerId,
-				region: p.region,
-				score: isSelected ? 1 : 0,
-				price,
-				uptime: metrics?.uptime ?? 0,
-				latency: metrics?.averageLatency ?? 0,
-				throughput: metrics?.throughput ?? 0,
-			};
-		});
+		// Even when the provider/region was chosen directly, show the real weighted
+		// scores for all candidates so the routing debug view stays informative.
+		const weightedScores = getCheapestFromAvailableProviders(
+			allModelProviders,
+			modelInfo as ModelDefinition & {
+				id: string;
+				output?: string[];
+			},
+			{
+				metricsMap,
+				isStreaming: stream,
+			},
+		);
+
+		const allProviderScores =
+			weightedScores?.metadata.providerScores ??
+			allModelProviders.map((p) => {
+				const metrics = metricsMap.get(
+					metricsKey(baseModelId, p.providerId, p.region),
+				);
+				const price = (p.inputPrice ?? 0) + (p.outputPrice ?? 0);
+				return {
+					providerId: p.providerId,
+					region: p.region,
+					score: 0,
+					price,
+					uptime: metrics?.uptime ?? 0,
+					latency: metrics?.averageLatency ?? 0,
+					throughput: metrics?.throughput ?? 0,
+				};
+			});
 
 		routingMetadata = {
 			availableProviders: allModelProviders.map((p) => p.providerId),
