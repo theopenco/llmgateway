@@ -1440,12 +1440,17 @@ chat.openapi(completions, async (c) => {
 			usedModel = sameProviderMappings[0].modelName;
 			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
 		}
-		// If region still unset, derive it from the first matching entry
+		// If region still unset, derive it from the first regional entry.
+		// This handles the case where the user selects "Alibaba Cloud" (no region)
+		// for a model that only exists in specific regions (e.g., cn-beijing only).
 		if (!usedRegion) {
-			const firstMatch = sameProviderMappings[0] as
-				| ProviderModelMapping
-				| undefined;
-			usedRegion = firstMatch?.region;
+			const firstRegionalMatch = sameProviderMappings.find(
+				(p) => (p as ProviderModelMapping).region,
+			) as ProviderModelMapping | undefined;
+			if (firstRegionalMatch) {
+				usedRegion = firstRegionalMatch.region;
+				usedModel = firstRegionalMatch.modelName;
+			}
 		}
 	}
 

@@ -31,8 +31,6 @@ export function expandProviderRegions(
 
 	const { regions: _, ...base } = mapping;
 
-	// Include the base entry (no region) as the provider-level "auto-select region"
-	// option, plus one entry per region with :region suffix in modelName.
 	const regionEntries = mapping.regions.map(({ id, ...overrides }) => ({
 		...base,
 		...overrides,
