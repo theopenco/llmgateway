@@ -83,7 +83,9 @@ function modelMatchesAnyTestModel(
 	if (!parsedTestModels) {
 		return false;
 	}
-	return providers.some((p) =>
+	// Expand regions so "alibaba/model:cn-beijing" matches a nested region entry
+	const expanded = expandAllProviderRegions(providers);
+	return expanded.some((p) =>
 		matchesTestModel(p.providerId, modelId, p.region),
 	);
 }
@@ -217,7 +219,10 @@ export const filteredModels = models
 		if (!specifiedModels && !specifiedProviders) {
 			return true;
 		}
-		return model.providers.some((provider: ProviderModelMapping) => {
+		const expanded = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		return expanded.some((provider: ProviderModelMapping) => {
 			if (specifiedProviders) {
 				return specifiedProviders.includes(provider.providerId);
 			}
