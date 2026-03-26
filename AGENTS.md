@@ -38,6 +38,8 @@ When you are done writing code features or bug fixes, ALWAYS commit your changes
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
+Do not run test files or suites in parallel unless the repository instructions for that exact suite explicitly require it. Some gateway and worker tests share ports, databases, and process state, so parallel test runs can produce false failures.
+
 - `pnpm test:unit` - Run unit tests (\*.spec.ts files)
 - `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
 

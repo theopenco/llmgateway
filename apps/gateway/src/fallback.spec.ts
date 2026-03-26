@@ -848,6 +848,15 @@ describe("fallback and error status code handling", () => {
 			expect(beijingScore).toBeTruthy();
 			expect(defaultAlibabaScore?.score).toBeGreaterThan(0);
 			expect(singaporeScore?.score).not.toBe(1);
+			expect(logs[0].routingMetadata?.routing).toEqual([
+				expect.objectContaining({
+					provider: "alibaba",
+					model: "deepseek-v3.2",
+					region: "singapore",
+					status_code: 200,
+					succeeded: true,
+				}),
+			]);
 			expect(positiveAlibabaScores.length).toBeGreaterThan(1);
 		});
 

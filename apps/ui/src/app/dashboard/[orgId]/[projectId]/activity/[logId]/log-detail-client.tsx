@@ -156,22 +156,6 @@ function formatDuration(ms: number) {
 	return `${(ms / 1000).toFixed(2)}s`;
 }
 
-function getCanonicalAttemptModel(
-	log: Partial<Log>,
-	attempt: { provider: string; region?: string | null },
-) {
-	const fallbackModel = log.usedModel ?? log.requestedModel ?? "unknown";
-	const canonicalModel = fallbackModel.includes("/")
-		? fallbackModel.split("/").slice(1).join("/")
-		: fallbackModel;
-	const canonicalBaseModel = canonicalModel.split(":")[0] ?? canonicalModel;
-	const canonicalModelWithRegion = attempt.region
-		? `${canonicalBaseModel}:${attempt.region}`
-		: canonicalBaseModel;
-
-	return `${attempt.provider}/${canonicalModelWithRegion}`;
-}
-
 export function LogDetailClient({
 	initialData,
 	orgId,
@@ -489,7 +473,12 @@ export function LogDetailClient({
 																) : (
 																	<AlertCircle className="h-3 w-3" />
 																)}
-																{getCanonicalAttemptModel(log, attempt)}
+																{attempt.provider}/{attempt.model}
+																{attempt.region && (
+																	<span className="text-muted-foreground">
+																		({attempt.region})
+																	</span>
+																)}
 															</span>
 															<span>
 																{attempt.status_code}{" "}

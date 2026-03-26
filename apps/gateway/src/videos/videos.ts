@@ -3272,7 +3272,7 @@ videos.openapi(createVideo, async (c) => {
 		) {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
-				model: selectedUpstreamModelName,
+				model: modelInfo.id,
 				status_code: 402,
 				error_type: "insufficient_credits",
 				succeeded: false,
@@ -3325,7 +3325,7 @@ videos.openapi(createVideo, async (c) => {
 			const statusCode = 400;
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
-				model: selectedUpstreamModelName,
+				model: modelInfo.id,
 				status_code: statusCode,
 				error_type: "client_error",
 				succeeded: false,
@@ -3397,7 +3397,7 @@ videos.openapi(createVideo, async (c) => {
 			upstreamResponse = upstreamJob.upstreamResponse;
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
-				model: selectedUpstreamModelName,
+				model: modelInfo.id,
 				status_code: 200,
 				error_type: "none",
 				succeeded: true,
@@ -3407,7 +3407,7 @@ videos.openapi(createVideo, async (c) => {
 			const statusCode = error instanceof HTTPException ? error.status : 0;
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
-				model: selectedUpstreamModelName,
+				model: modelInfo.id,
 				status_code: statusCode,
 				error_type: getErrorType(statusCode),
 				succeeded: false,

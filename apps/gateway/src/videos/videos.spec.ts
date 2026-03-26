@@ -475,17 +475,20 @@ describe("videos", () => {
 			expect(
 				videoJob?.routingMetadata?.routing?.map((attempt) => ({
 					provider: attempt.provider,
+					model: attempt.model,
 					succeeded: attempt.succeeded,
 					status_code: attempt.status_code,
 				})),
 			).toEqual([
 				{
 					provider: "google-vertex",
+					model: "veo-3.1-generate-preview",
 					succeeded: false,
 					status_code: 500,
 				},
 				{
 					provider: "avalanche",
+					model: "veo-3.1-generate-preview",
 					succeeded: true,
 					status_code: 200,
 				},

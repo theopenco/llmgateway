@@ -3076,7 +3076,7 @@ chat.openapi(completions, async (c) => {
 							if (willRetryTimeout) {
 								routingAttempts.push({
 									provider: usedProvider,
-									model: usedModel,
+									model: baseModelName,
 									...(usedRegion && { region: usedRegion }),
 									status_code: 0,
 									error_type: getErrorType(0),
@@ -3366,7 +3366,7 @@ chat.openapi(completions, async (c) => {
 							if (willRetryFetch) {
 								routingAttempts.push({
 									provider: usedProvider,
-									model: usedModel,
+									model: baseModelName,
 									...(usedRegion && { region: usedRegion }),
 									status_code: 0,
 									error_type: getErrorType(0),
@@ -3543,7 +3543,7 @@ chat.openapi(completions, async (c) => {
 						if (willRetryHttpError) {
 							routingAttempts.push({
 								provider: usedProvider,
-								model: usedModel,
+								model: baseModelName,
 								...(usedRegion && { region: usedRegion }),
 								status_code: res.status,
 								error_type: getErrorType(res.status),
@@ -3666,7 +3666,7 @@ chat.openapi(completions, async (c) => {
 				if (res && res.ok && usedProvider) {
 					routingAttempts.push({
 						provider: usedProvider,
-						model: usedModel,
+						model: baseModelName,
 						...(usedRegion && { region: usedRegion }),
 						status_code: res.status,
 						error_type: "none",
@@ -5873,7 +5873,7 @@ chat.openapi(completions, async (c) => {
 			if (willRetryFetchNonStreaming) {
 				routingAttempts.push({
 					provider: usedProvider,
-					model: usedModel,
+					model: baseModelName,
 					...(usedRegion && { region: usedRegion }),
 					status_code: 0,
 					error_type: getErrorType(0),
@@ -6310,7 +6310,7 @@ chat.openapi(completions, async (c) => {
 			if (willRetryHttpNonStreaming) {
 				routingAttempts.push({
 					provider: usedProvider,
-					model: usedModel,
+					model: baseModelName,
 					...(usedRegion && { region: usedRegion }),
 					status_code: res.status,
 					error_type: getErrorType(res.status),
@@ -6390,7 +6390,7 @@ chat.openapi(completions, async (c) => {
 	if (res && res.ok && usedProvider) {
 		routingAttempts.push({
 			provider: usedProvider,
-			model: usedModel,
+			model: baseModelName,
 			...(usedRegion && { region: usedRegion }),
 			status_code: res.status,
 			error_type: "none",
