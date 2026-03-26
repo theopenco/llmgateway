@@ -161,6 +161,18 @@ function filterRegionsByAvailableKeys(
 	});
 }
 
+function usesGoogleQueryToken(provider: string): boolean {
+	return (
+		provider === "google-ai-studio" ||
+		provider === "google-vertex" ||
+		provider === "quartz"
+	);
+}
+
+function isGoogleCompatibleProvider(provider: string): boolean {
+	return usesGoogleQueryToken(provider) || provider === "obsidian";
+}
+
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 
@@ -2047,9 +2059,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			providerKey?.baseUrl ?? undefined,
 			upstreamModelName,
-			usedProvider === "google-ai-studio" || usedProvider === "google-vertex"
-				? usedToken
-				: undefined,
+			usesGoogleQueryToken(usedProvider) ? usedToken : undefined,
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
@@ -2586,11 +2596,7 @@ chat.openapi(completions, async (c) => {
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (
-		usedProvider === "google-ai-studio" ||
-		usedProvider === "google-vertex" ||
-		usedProvider === "obsidian"
-	) {
+	if (isGoogleCompatibleProvider(usedProvider)) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -4347,11 +4353,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// For Google providers, add usage information when available
-								if (
-									usedProvider === "google-ai-studio" ||
-									usedProvider === "google-vertex" ||
-									usedProvider === "obsidian"
-								) {
+								if (isGoogleCompatibleProvider(usedProvider)) {
 									const usage = extractTokenUsage(
 										data,
 										usedProvider,
@@ -4520,9 +4522,7 @@ chat.openapi(completions, async (c) => {
 								// For providers with custom extraction logic (google-ai-studio, anthropic),
 								// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 								const contentChunk = extractContent(
-									usedProvider === "google-ai-studio" ||
-										usedProvider === "google-vertex" ||
-										usedProvider === "obsidian" ||
+									isGoogleCompatibleProvider(usedProvider) ||
 										usedProvider === "anthropic"
 										? data
 										: transformedData,
@@ -4539,11 +4539,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// Track image data size for Google providers (for token estimation)
-								if (
-									usedProvider === "google-ai-studio" ||
-									usedProvider === "google-vertex" ||
-									usedProvider === "obsidian"
-								) {
+								if (isGoogleCompatibleProvider(usedProvider)) {
 									const parts = data.candidates?.[0]?.content?.parts ?? [];
 									for (const part of parts) {
 										if (part.inlineData?.data) {
@@ -4566,11 +4562,7 @@ chat.openapi(completions, async (c) => {
 									) {
 										webSearchCount++;
 									}
-								} else if (
-									usedProvider === "google-ai-studio" ||
-									usedProvider === "google-vertex" ||
-									usedProvider === "obsidian"
-								) {
+								} else if (isGoogleCompatibleProvider(usedProvider)) {
 									// For Google, count when grounding metadata is present
 									if (data.candidates?.[0]?.groundingMetadata) {
 										const groundingMetadata =
@@ -4602,9 +4594,7 @@ chat.openapi(completions, async (c) => {
 								// For providers with custom extraction logic (google-ai-studio, anthropic),
 								// use raw data. For others, use transformed OpenAI format.
 								const reasoningContentChunk = extractReasoning(
-									usedProvider === "google-ai-studio" ||
-										usedProvider === "google-vertex" ||
-										usedProvider === "obsidian" ||
+									isGoogleCompatibleProvider(usedProvider) ||
 										usedProvider === "anthropic"
 										? data
 										: transformedData,
@@ -4666,6 +4656,7 @@ chat.openapi(completions, async (c) => {
 								switch (usedProvider) {
 									case "google-ai-studio":
 									case "google-vertex":
+									case "quartz":
 									case "obsidian":
 										// Preserve original Google finish reason for logging
 										if (data.promptFeedback?.blockReason) {
@@ -4968,9 +4959,7 @@ chat.openapi(completions, async (c) => {
 					// For Google, check for original finish reasons that indicate content filtering
 					// These include both finishReason values and promptFeedback.blockReason values
 					const isGoogleContentFilterStreaming =
-						(usedProvider === "google-ai-studio" ||
-							usedProvider === "google-vertex" ||
-							usedProvider === "obsidian") &&
+						isGoogleCompatibleProvider(usedProvider) &&
 						(finishReason === "SAFETY" ||
 							finishReason === "PROHIBITED_CONTENT" ||
 							finishReason === "RECITATION" ||
@@ -5107,9 +5096,7 @@ chat.openapi(completions, async (c) => {
 									// Only add image input tokens for providers that
 									// exclude them from upstream usage (Google)
 									const providerExcludesImageInput =
-										usedProvider === "google-ai-studio" ||
-										usedProvider === "google-vertex" ||
-										usedProvider === "obsidian";
+										isGoogleCompatibleProvider(usedProvider);
 									const imageInputAdj = providerExcludesImageInput
 										? inputImageCount * 560
 										: 0;
@@ -5395,11 +5382,7 @@ chat.openapi(completions, async (c) => {
 					);
 
 					// Enhanced logging for Google models streaming to debug missing responses
-					if (
-						usedProvider === "google-ai-studio" ||
-						usedProvider === "google-vertex" ||
-						usedProvider === "obsidian"
-					) {
+					if (isGoogleCompatibleProvider(usedProvider)) {
 						logger.debug("Google model streaming response completed", {
 							usedProvider,
 							usedModel,
@@ -6625,11 +6608,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Enhanced logging for Google models to debug missing responses
-	if (
-		usedProvider === "google-ai-studio" ||
-		usedProvider === "google-vertex" ||
-		usedProvider === "obsidian"
-	) {
+	if (isGoogleCompatibleProvider(usedProvider)) {
 		logger.debug("Google model response parsed", {
 			usedProvider,
 			usedModel,
@@ -6807,9 +6786,7 @@ chat.openapi(completions, async (c) => {
 	// For Google, check for original finish reasons that indicate content filtering
 	// These include both finishReason values and promptFeedback.blockReason values
 	const isGoogleContentFilter =
-		(usedProvider === "google-ai-studio" ||
-			usedProvider === "google-vertex" ||
-			usedProvider === "obsidian") &&
+		isGoogleCompatibleProvider(usedProvider) &&
 		(finishReason === "SAFETY" ||
 			finishReason === "PROHIBITED_CONTENT" ||
 			finishReason === "RECITATION" ||

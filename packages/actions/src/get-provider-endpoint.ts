@@ -10,6 +10,55 @@ import {
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
+function buildVertexCompatibleEndpoint(
+	provider: "google-vertex" | "quartz",
+	url: string,
+	modelName: string | undefined,
+	token: string | undefined,
+	stream: boolean | undefined,
+	configIndex: number | undefined,
+): string {
+	const endpoint = stream ? "streamGenerateContent" : "generateContent";
+	const model = modelName ?? "gemini-2.5-flash-lite";
+
+	if (model === "gemini-2.0-flash-lite" || model === "gemini-2.5-flash-lite") {
+		const baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
+		const queryParams = [];
+		if (token) {
+			queryParams.push(`key=${token}`);
+		}
+		if (stream) {
+			queryParams.push("alt=sse");
+		}
+		return queryParams.length > 0
+			? `${baseEndpoint}?${queryParams.join("&")}`
+			: baseEndpoint;
+	}
+
+	const projectId = getProviderEnvValue(provider, "project", configIndex);
+	const region =
+		getProviderEnvValue(provider, "region", configIndex, "global") ?? "global";
+
+	if (!projectId) {
+		const providerEnv = getProviderEnvConfig(provider);
+		throw new Error(
+			`${providerEnv?.required.project ?? "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex-compatible model "${model}"`,
+		);
+	}
+
+	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
+	const queryParams = [];
+	if (token) {
+		queryParams.push(`key=${token}`);
+	}
+	if (stream) {
+		queryParams.push("alt=sse");
+	}
+	return queryParams.length > 0
+		? `${baseEndpoint}?${queryParams.join("&")}`
+		: baseEndpoint;
+}
+
 /**
  * Get the endpoint URL for a provider API call
  */
@@ -76,6 +125,14 @@ export function getProviderEndpoint(
 				break;
 			case "google-vertex":
 				url = "https://aiplatform.googleapis.com";
+				break;
+			case "quartz":
+				url = getProviderEnvValue("quartz", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Quartz provider requires LLM_QUARTZ_BASE_URL environment variable",
+					);
+				}
 				break;
 			case "obsidian":
 				url = getProviderEnvValue("obsidian", "baseUrl", configIndex);
@@ -217,53 +274,16 @@ export function getProviderEndpoint(
 				? `${baseEndpoint}?${queryParams.join("&")}`
 				: baseEndpoint;
 		}
-		case "google-vertex": {
-			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const model = modelName ?? "gemini-2.5-flash-lite";
-
-			// Special handling for some models which require a non-global location
-			let baseEndpoint: string;
-			if (
-				model === "gemini-2.0-flash-lite" ||
-				model === "gemini-2.5-flash-lite"
-			) {
-				baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
-			} else {
-				const projectId = getProviderEnvValue(
-					"google-vertex",
-					"project",
-					configIndex,
-				);
-
-				const region =
-					getProviderEnvValue(
-						"google-vertex",
-						"region",
-						configIndex,
-						"global",
-					) ?? "global";
-
-				if (!projectId) {
-					const vertexEnv = getProviderEnvConfig("google-vertex");
-					throw new Error(
-						`${vertexEnv?.required.project ?? "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex model "${model}"`,
-					);
-				}
-
-				baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
-			}
-
-			const queryParams = [];
-			if (token) {
-				queryParams.push(`key=${token}`);
-			}
-			if (stream) {
-				queryParams.push("alt=sse");
-			}
-			return queryParams.length > 0
-				? `${baseEndpoint}?${queryParams.join("&")}`
-				: baseEndpoint;
-		}
+		case "google-vertex":
+		case "quartz":
+			return buildVertexCompatibleEndpoint(
+				provider,
+				url,
+				modelName,
+				token,
+				stream,
+				configIndex,
+			);
 		case "perplexity":
 			return `${url}/chat/completions`;
 		case "novita":

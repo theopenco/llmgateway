@@ -360,7 +360,30 @@ export interface ModelDefinition {
 	releasedAt?: Date;
 }
 
-export const models = [
+function addQuartzProviderMappings(
+	modelDefinitions: readonly ModelDefinition[],
+): ModelDefinition[] {
+	return modelDefinitions.map((model) => {
+		if (
+			!model.providers.some(
+				(provider) => provider.providerId === "google-vertex",
+			)
+		) {
+			return model;
+		}
+
+		return {
+			...model,
+			providers: model.providers.flatMap((provider) =>
+				provider.providerId === "google-vertex"
+					? [provider, { ...provider, providerId: "quartz" }]
+					: [provider],
+			),
+		};
+	});
+}
+
+export const models = addQuartzProviderMappings([
 	...llmgatewayModels,
 	...openaiModels,
 	...anthropicModels,
@@ -377,4 +400,4 @@ export const models = [
 	...bytedanceModels,
 	...nousresearchModels,
 	...zaiModels,
-] as const satisfies ModelDefinition[];
+] as const satisfies ModelDefinition[]);

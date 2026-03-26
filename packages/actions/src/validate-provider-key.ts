@@ -191,7 +191,9 @@ export async function validateProviderKey(
 			provider,
 			baseUrl,
 			effectiveModelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock, azure)
-			provider === "google-ai-studio" || provider === "google-vertex"
+			provider === "google-ai-studio" ||
+				provider === "google-vertex" ||
+				provider === "quartz"
 				? token
 				: undefined,
 			false, // validation doesn't need streaming

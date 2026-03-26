@@ -220,6 +220,9 @@ describe("Models API", () => {
 			const googleVertexProvider = videoModel.providers.find(
 				(provider: any) => provider.providerId === "google-vertex",
 			);
+			const quartzProvider = videoModel.providers.find(
+				(provider: any) => provider.providerId === "quartz",
+			);
 			expect(obsidianProvider?.pricing.per_second).toBeDefined();
 			expect(obsidianProvider?.supportedVideoSizes).toEqual([
 				"1280x720",
@@ -238,6 +241,17 @@ describe("Models API", () => {
 			]);
 			expect(googleVertexProvider?.supportsVideoAudio).toBe(true);
 			expect(googleVertexProvider?.supportsVideoWithoutAudio).toBe(true);
+			expect(quartzProvider?.pricing.per_second).toBeDefined();
+			expect(quartzProvider?.supportedVideoSizes).toEqual([
+				"1280x720",
+				"720x1280",
+				"1920x1080",
+				"1080x1920",
+				"3840x2160",
+				"2160x3840",
+			]);
+			expect(quartzProvider?.supportsVideoAudio).toBe(true);
+			expect(quartzProvider?.supportsVideoWithoutAudio).toBe(true);
 			expect(avalancheProvider?.pricing.per_second).toBeDefined();
 			expect(avalancheProvider?.supportedVideoSizes).toEqual([
 				"1920x1080",

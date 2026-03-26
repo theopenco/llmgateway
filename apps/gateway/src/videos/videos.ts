@@ -748,7 +748,7 @@ function getVideoModel(model: string): {
 
 	throw new HTTPException(400, {
 		message:
-			"Unsupported video model. Use a video-capable model from /v1/models, optionally prefixed with a configured provider like openai/, avalanche/, obsidian/, or google-vertex/.",
+			"Unsupported video model. Use a video-capable model from /v1/models, optionally prefixed with a configured provider like openai/, avalanche/, obsidian/, google-vertex/, or quartz/.",
 	});
 }
 
@@ -759,6 +759,10 @@ function getVideoSizeConfig(size: string | undefined): VideoSizeConfig {
 
 function isSoraVideoModelName(modelName: string): boolean {
 	return modelName === "sora-2" || modelName === "sora-2-pro";
+}
+
+function isVertexCompatibleVideoProvider(providerId: string): boolean {
+	return providerId === "google-vertex" || providerId === "quartz";
 }
 
 function getVideoProviderConstraintReasons(
@@ -830,12 +834,12 @@ function getVideoProviderConstraintReasons(
 	if (
 		!isSoraVideoModelName(provider.modelName) &&
 		inputMode === "frames" &&
-		provider.providerId !== "google-vertex" &&
+		!isVertexCompatibleVideoProvider(provider.providerId) &&
 		provider.providerId !== "avalanche" &&
 		provider.providerId !== "obsidian"
 	) {
 		reasons.push(
-			"frame inputs are currently only supported through obsidian, google-vertex, or avalanche",
+			"frame inputs are currently only supported through obsidian, google-vertex, quartz, or avalanche",
 		);
 	}
 
@@ -850,10 +854,10 @@ function getVideoProviderConstraintReasons(
 			return reasons;
 		}
 
-		if (provider.providerId === "google-vertex") {
+		if (isVertexCompatibleVideoProvider(provider.providerId)) {
 			if (provider.modelName !== "veo-3.1-generate-preview") {
 				reasons.push(
-					"reference images are currently only supported on google-vertex/veo-3.1-generate-preview",
+					`reference images are currently only supported on ${provider.providerId}/veo-3.1-generate-preview`,
 				);
 			}
 		} else if (provider.providerId === "avalanche") {
@@ -870,7 +874,7 @@ function getVideoProviderConstraintReasons(
 			}
 		} else {
 			reasons.push(
-				"reference images are currently only supported through obsidian, google-vertex, or avalanche",
+				"reference images are currently only supported through obsidian, google-vertex, quartz, or avalanche",
 			);
 		}
 
@@ -1018,6 +1022,7 @@ function getVideoUpstreamModelName(
 		case "avalanche":
 			return getAvalancheVideoModelName(baseModelName);
 		case "google-vertex":
+		case "quartz":
 			return baseModelName;
 		default:
 			return baseModelName;
@@ -1068,6 +1073,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://api.openai.com";
 		case "google-vertex":
 			return "https://us-central1-aiplatform.googleapis.com";
+		case "quartz":
+			return null;
 		default:
 			return null;
 	}
@@ -1106,19 +1113,13 @@ async function resolveProviderContext(
 	baseModelName?: string,
 ): Promise<ProviderContext> {
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
-	const sharedVertexProjectId =
-		providerId === "google-vertex"
-			? getProviderEnvValue("google-vertex", "project")
-			: undefined;
-	const sharedVertexRegion =
-		providerId === "google-vertex"
-			? (getProviderEnvValue(
-					"google-vertex",
-					"region",
-					undefined,
-					"us-central1",
-				) ?? "us-central1")
-			: undefined;
+	const sharedVertexProjectId = isVertexCompatibleVideoProvider(providerId)
+		? getProviderEnvValue(providerId, "project")
+		: undefined;
+	const sharedVertexRegion = isVertexCompatibleVideoProvider(providerId)
+		? (getProviderEnvValue(providerId, "region", undefined, "us-central1") ??
+			"us-central1")
+		: undefined;
 
 	if (project.mode === "api-keys") {
 		const providerKey = await findProviderKey(
@@ -1142,10 +1143,9 @@ async function resolveProviderContext(
 			});
 		}
 
-		if (providerId === "google-vertex" && !sharedVertexProjectId) {
+		if (isVertexCompatibleVideoProvider(providerId) && !sharedVertexProjectId) {
 			throw new HTTPException(500, {
-				message:
-					"LLM_GOOGLE_CLOUD_PROJECT environment variable is required for google-vertex video generation",
+				message: `${providerId} project environment variable is required for video generation`,
 			});
 		}
 
@@ -1181,24 +1181,21 @@ async function resolveProviderContext(
 			});
 		}
 
-		const vertexProjectId =
-			providerId === "google-vertex"
-				? getProviderEnvValue("google-vertex", "project", env.configIndex)
-				: undefined;
-		const vertexRegion =
-			providerId === "google-vertex"
-				? (getProviderEnvValue(
-						"google-vertex",
-						"region",
-						env.configIndex,
-						"us-central1",
-					) ?? "us-central1")
-				: undefined;
+		const vertexProjectId = isVertexCompatibleVideoProvider(providerId)
+			? getProviderEnvValue(providerId, "project", env.configIndex)
+			: undefined;
+		const vertexRegion = isVertexCompatibleVideoProvider(providerId)
+			? (getProviderEnvValue(
+					providerId,
+					"region",
+					env.configIndex,
+					"us-central1",
+				) ?? "us-central1")
+			: undefined;
 
-		if (providerId === "google-vertex" && !vertexProjectId) {
+		if (isVertexCompatibleVideoProvider(providerId) && !vertexProjectId) {
 			throw new HTTPException(500, {
-				message:
-					"LLM_GOOGLE_CLOUD_PROJECT environment variable is required for google-vertex video generation",
+				message: `${providerId} project environment variable is required for video generation`,
 			});
 		}
 
@@ -1243,10 +1240,9 @@ async function resolveProviderContext(
 			});
 		}
 
-		if (providerId === "google-vertex" && !sharedVertexProjectId) {
+		if (isVertexCompatibleVideoProvider(providerId) && !sharedVertexProjectId) {
 			throw new HTTPException(500, {
-				message:
-					"LLM_GOOGLE_CLOUD_PROJECT environment variable is required for google-vertex video generation",
+				message: `${providerId} project environment variable is required for video generation`,
 			});
 		}
 
@@ -1287,24 +1283,21 @@ async function resolveProviderContext(
 		});
 	}
 
-	const vertexProjectId =
-		providerId === "google-vertex"
-			? getProviderEnvValue("google-vertex", "project", env.configIndex)
-			: undefined;
-	const vertexRegion =
-		providerId === "google-vertex"
-			? (getProviderEnvValue(
-					"google-vertex",
-					"region",
-					env.configIndex,
-					"us-central1",
-				) ?? "us-central1")
-			: undefined;
+	const vertexProjectId = isVertexCompatibleVideoProvider(providerId)
+		? getProviderEnvValue(providerId, "project", env.configIndex)
+		: undefined;
+	const vertexRegion = isVertexCompatibleVideoProvider(providerId)
+		? (getProviderEnvValue(
+				providerId,
+				"region",
+				env.configIndex,
+				"us-central1",
+			) ?? "us-central1")
+		: undefined;
 
-	if (providerId === "google-vertex" && !vertexProjectId) {
+	if (isVertexCompatibleVideoProvider(providerId) && !vertexProjectId) {
 		throw new HTTPException(500, {
-			message:
-				"LLM_GOOGLE_CLOUD_PROJECT environment variable is required for google-vertex video generation",
+			message: `${providerId} project environment variable is required for video generation`,
 		});
 	}
 
@@ -1343,8 +1336,8 @@ async function hasVideoProviderConfiguration(
 				(providerKey.baseUrl ??
 					getProviderEnvValue(providerId, "baseUrl") ??
 					defaultBaseUrl) &&
-				(providerId !== "google-vertex" ||
-					Boolean(getProviderEnvValue("google-vertex", "project"))),
+				(!isVertexCompatibleVideoProvider(providerId) ||
+					Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
@@ -1357,10 +1350,10 @@ async function hasVideoProviderConfiguration(
 					getProviderEnv(providerId).configIndex,
 				) ??
 					defaultBaseUrl) &&
-				(providerId !== "google-vertex" ||
+				(!isVertexCompatibleVideoProvider(providerId) ||
 					Boolean(
 						getProviderEnvValue(
-							"google-vertex",
+							providerId,
 							"project",
 							getProviderEnv(providerId).configIndex,
 						),
@@ -1374,8 +1367,8 @@ async function hasVideoProviderConfiguration(
 			(providerKey.baseUrl ??
 				getProviderEnvValue(providerId, "baseUrl") ??
 				defaultBaseUrl) &&
-				(providerId !== "google-vertex" ||
-					Boolean(getProviderEnvValue("google-vertex", "project"))),
+				(!isVertexCompatibleVideoProvider(providerId) ||
+					Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
@@ -1387,10 +1380,10 @@ async function hasVideoProviderConfiguration(
 				getProviderEnv(providerId).configIndex,
 			) ??
 				defaultBaseUrl) &&
-			(providerId !== "google-vertex" ||
+			(!isVertexCompatibleVideoProvider(providerId) ||
 				Boolean(
 					getProviderEnvValue(
-						"google-vertex",
+						providerId,
 						"project",
 						getProviderEnv(providerId).configIndex,
 					),
@@ -2830,19 +2823,19 @@ async function createGoogleVertexVideoJob(
 	if (outputBucket && !storageProjectId) {
 		throw new HTTPException(500, {
 			message:
-				"GOOGLE_CLOUD_PROJECT environment variable is required for google-vertex video output storage",
+				"GOOGLE_CLOUD_PROJECT environment variable is required for vertex-compatible video output storage",
 		});
 	}
 
 	if (!vertexProjectId || !providerContext.vertexRegion) {
 		throw new HTTPException(500, {
 			message:
-				"Google Vertex video generation requires project and region metadata",
+				"Vertex-compatible video generation requires project and region metadata",
 		});
 	}
 
 	const upstreamModelName = getVideoUpstreamModelName(
-		"google-vertex",
+		providerContext.providerId,
 		providerMapping.modelName,
 		videoSize,
 		referenceImages.length > 0
@@ -3000,6 +2993,7 @@ async function createUpstreamVideoJob(
 						referenceImageInputs,
 					);
 		case "google-vertex":
+		case "quartz":
 			return await createGoogleVertexVideoJob(
 				providerContext,
 				providerMapping,
@@ -3328,7 +3322,7 @@ videos.openapi(createVideo, async (c) => {
 		}
 
 		if (
-			selectedProviderContext.providerId === "google-vertex" &&
+			isVertexCompatibleVideoProvider(selectedProviderContext.providerId) &&
 			!getGoogleVertexVideoOutputBucket() &&
 			organization.retentionLevel === "none"
 		) {
@@ -3350,7 +3344,7 @@ videos.openapi(createVideo, async (c) => {
 			if (!nextProvider || requestedProvider) {
 				throw new HTTPException(400, {
 					message:
-						"Google Vertex video generation requires either GCS output storage or data retention to be enabled.",
+						"Vertex-compatible video generation requires either GCS output storage or data retention to be enabled.",
 				});
 			}
 

@@ -135,6 +135,27 @@ export const providers = [
 		announcement: null,
 	},
 	{
+		id: "quartz",
+		name: "Quartz",
+		description:
+			"Quartz is a Vertex-compatible provider for accessing Gemini and other Vertex-routed models.",
+		env: {
+			required: {
+				apiKey: "LLM_QUARTZ_API_KEY",
+				baseUrl: "LLM_QUARTZ_BASE_URL",
+				project: "LLM_QUARTZ_PROJECT",
+			},
+			optional: {
+				region: "LLM_QUARTZ_REGION",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: null,
+		announcement: null,
+	},
+	{
 		id: "obsidian",
 		name: "Obsidian",
 		description: "Obsidian - Google-compatible LLM provider.",

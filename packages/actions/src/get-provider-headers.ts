@@ -29,6 +29,7 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 			return {};
 		case "obsidian":
 		case "avalanche":
