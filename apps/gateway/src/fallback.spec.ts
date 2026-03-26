@@ -833,9 +833,6 @@ describe("fallback and error status code handling", () => {
 				(score) =>
 					score.providerId === "alibaba" && score.region === "cn-beijing",
 			);
-			const defaultAlibabaScore = logs[0].routingMetadata?.providerScores?.find(
-				(score) => score.providerId === "alibaba" && !score.region,
-			);
 			const positiveAlibabaScores =
 				logs[0].routingMetadata?.providerScores?.filter(
 					(score) => score.providerId === "alibaba" && score.score > 0,
@@ -846,7 +843,11 @@ describe("fallback and error status code handling", () => {
 			);
 			expect(singaporeScore).toBeTruthy();
 			expect(beijingScore).toBeTruthy();
-			expect(defaultAlibabaScore?.score).toBeGreaterThan(0);
+			expect(
+				logs[0].routingMetadata?.providerScores?.some(
+					(score) => score.providerId === "alibaba" && !score.region,
+				),
+			).toBe(false);
 			expect(singaporeScore?.score).not.toBe(1);
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
