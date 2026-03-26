@@ -1,5 +1,3 @@
-import { HTTPException } from "hono/http-exception";
-
 import { createTimeoutSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
@@ -183,18 +181,6 @@ function getFlaggedCategories(results: OpenAIModerationResult[]): string[] {
 	return [...categories];
 }
 
-function getOpenAIContentFilterErrorMessage(error: unknown): string {
-	if (isTimeoutError(error)) {
-		return "Gateway content filter moderation check timed out";
-	}
-
-	if (error instanceof Error) {
-		return `Gateway content filter moderation check failed: ${error.message}`;
-	}
-
-	return `Gateway content filter moderation check failed: ${String(error)}`;
-}
-
 function logModerationResult(
 	context: GatewayContentFilterContext,
 	payload: Record<string, unknown>,
@@ -225,6 +211,17 @@ function logModerationError(
 		apiKeyId: context.apiKeyId,
 		...payload,
 	});
+}
+
+function createFailedOpenAIContentFilterResult(
+	upstreamRequestId: string | null = null,
+): OpenAIContentFilterCheckResult {
+	return {
+		flagged: false,
+		model: OPENAI_MODERATION_MODEL,
+		upstreamRequestId,
+		results: [],
+	};
 }
 
 export async function checkOpenAIContentFilter(
@@ -263,9 +260,7 @@ export async function checkOpenAIContentFilter(
 			timeout: isTimeoutError(error),
 		});
 
-		throw new HTTPException(isTimeoutError(error) ? 504 : 502, {
-			message: getOpenAIContentFilterErrorMessage(error),
-		});
+		return createFailedOpenAIContentFilterResult();
 	}
 
 	let responseJson: unknown = null;
@@ -278,30 +273,28 @@ export async function checkOpenAIContentFilter(
 	}
 
 	if (!upstreamResponse.ok) {
+		const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
 		logModerationError(context, {
 			status: upstreamResponse.status,
 			statusText: upstreamResponse.statusText,
-			upstreamRequestId: upstreamResponse.headers.get("x-request-id"),
+			upstreamRequestId,
 			response: responseJson,
 		});
 
-		throw new HTTPException(502, {
-			message: "Gateway content filter moderation request failed",
-		});
+		return createFailedOpenAIContentFilterResult(upstreamRequestId);
 	}
 
 	const moderationResponse = parseModerationResponse(responseJson);
 	if (!moderationResponse) {
+		const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
 		logModerationError(context, {
 			status: upstreamResponse.status,
 			statusText: upstreamResponse.statusText,
-			upstreamRequestId: upstreamResponse.headers.get("x-request-id"),
+			upstreamRequestId,
 			response: responseJson,
 		});
 
-		throw new HTTPException(502, {
-			message: "Gateway content filter moderation response was invalid",
-		});
+		return createFailedOpenAIContentFilterResult(upstreamRequestId);
 	}
 
 	const results = moderationResponse.results ?? [];

@@ -355,6 +355,106 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/chat/completions ignores openai content filter fetch failures", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
+		const requestId = "chat-openai-content-filter-fail-open-request-id";
+		const originalFetch = globalThis.fetch;
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === "https://api.openai.com/v1/moderations") {
+					throw new Error("moderation fetch failed");
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			process.env.LLM_CONTENT_FILTER_MODE = "openai";
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "Hello!",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json.choices[0].message.content).toContain("Hello!");
+			expect(fetchSpy).toHaveBeenCalled();
+
+			expect(errorSpy).toHaveBeenCalledWith(
+				"gateway_content_filter_error",
+				expect.objectContaining({
+					mode: "openai",
+					requestId,
+					organizationId: "org-id",
+					projectId: "project-id",
+					apiKeyId: "token-id",
+					error: "moderation fetch failed",
+				}),
+			);
+
+			const logs = await waitForLogs(1);
+			const completedLog = logs.find((log) => log.requestId === requestId);
+
+			expect(completedLog).toBeTruthy();
+			expect(completedLog?.finishReason).toBe("stop");
+		} finally {
+			fetchSpy.mockRestore();
+			errorSpy.mockRestore();
+			if (previousContentFilterMode === undefined) {
+				delete process.env.LLM_CONTENT_FILTER_MODE;
+			} else {
+				process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+			}
+			if (previousOpenAIKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousOpenAIKey;
+			}
+		}
+	});
+
 	test("Reasoning effort error for unsupported model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
