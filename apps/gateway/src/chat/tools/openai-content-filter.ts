@@ -1,6 +1,7 @@
 import { createTimeoutSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
+import { logger } from "@llmgateway/logger";
 
 import { getProviderEnv } from "./get-provider-env.js";
 import { messagesContainImages } from "./messages-contain-images.js";
@@ -185,8 +186,11 @@ function logModerationResult(
 	context: GatewayContentFilterContext,
 	payload: Record<string, unknown>,
 ) {
-	// eslint-disable-next-line no-console
-	console.info("gateway_content_filter", {
+	if (process.env.NODE_ENV === "production") {
+		return;
+	}
+
+	logger.debug("gateway_content_filter", {
 		provider: "openai",
 		mode: "openai",
 		requestId: context.requestId,

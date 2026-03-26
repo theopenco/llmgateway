@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -245,7 +246,7 @@ describe("api", () => {
 		const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
 		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
 		const requestId = "chat-openai-content-filter-request-id";
-		const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+		const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {});
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
 			.mockImplementation(async (input, init) => {
@@ -319,7 +320,7 @@ describe("api", () => {
 			expect(json.usage.total_tokens).toBe(0);
 			expect(fetchSpy).toHaveBeenCalledOnce();
 
-			expect(infoSpy).toHaveBeenCalledWith(
+			expect(debugSpy).toHaveBeenCalledWith(
 				"gateway_content_filter",
 				expect.objectContaining({
 					mode: "openai",
@@ -341,7 +342,7 @@ describe("api", () => {
 			expect(blockedLog?.unifiedFinishReason).toBe("content_filter");
 		} finally {
 			fetchSpy.mockRestore();
-			infoSpy.mockRestore();
+			debugSpy.mockRestore();
 			if (previousContentFilterMode === undefined) {
 				delete process.env.LLM_CONTENT_FILTER_MODE;
 			} else {
