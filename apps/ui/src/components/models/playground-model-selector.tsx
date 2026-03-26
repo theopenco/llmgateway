@@ -511,7 +511,7 @@ export function ModelSelector({
 											: provider
 												? getProviderIcon(provider.id)
 												: null;
-										const entryKey = `${mapping.providerId}-${model.id}-${mapping.modelName}`;
+										const entryKey = `${mapping.providerId}-${model.id}-${mapping.modelName}${mapping.region ? `-${mapping.region}` : ""}`;
 										const isDeprecated =
 											mapping.deprecatedAt &&
 											new Date(mapping.deprecatedAt) <= new Date();

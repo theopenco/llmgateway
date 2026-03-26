@@ -1137,7 +1137,7 @@ export function ModelSelector({
 												const ProviderIcon = provider
 													? getProviderIcon(provider.id)
 													: null;
-												const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
+												const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}${mapping!.region ? `-${mapping!.region}` : ""}`;
 												const providerModelValue = `${mapping!.providerId}/${model.id}`;
 												const disabled =
 													isOptionDisabled?.(providerModelValue) ?? false;
