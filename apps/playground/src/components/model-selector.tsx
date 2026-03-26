@@ -645,7 +645,7 @@ export function ModelSelector({
 					: 0;
 				switch (filters.priceRange) {
 					case "free":
-						return price === 0 && requestPrice === 0;
+						return e.model.free === true && price === 0 && requestPrice === 0;
 					case "low":
 						return price > 0 && price <= 0.000001;
 					case "medium":
