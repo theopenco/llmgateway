@@ -1321,7 +1321,15 @@ chat.openapi(completions, async (c) => {
 				);
 
 				if (availableModelProviders.length > 0) {
-					const modelWithPricing = models.find((m) => m.id === baseModelId);
+					const rawModelForFallback = models.find((m) => m.id === baseModelId);
+					const modelWithPricing = rawModelForFallback
+						? {
+								...rawModelForFallback,
+								providers: expandAllProviderRegions(
+									rawModelForFallback.providers as ProviderModelMapping[],
+								),
+							}
+						: undefined;
 
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
@@ -1401,8 +1409,8 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// For models with multiple provider mappings for the same provider (e.g., routing models
-	// like grok-4-fast with reasoning and non-reasoning variants), select the correct variant
-	// based on request capabilities when a specific provider is already set
+	// like grok-4-fast with reasoning and non-reasoning variants, or regional variants),
+	// select the correct variant based on request capabilities when a specific provider is already set
 	if (
 		usedProvider &&
 		usedProvider !== "llmgateway" &&
@@ -1412,19 +1420,28 @@ chat.openapi(completions, async (c) => {
 			(p) => p.providerId === usedProvider,
 		);
 		if (sameProviderMappings.length > 1) {
-			let selectedMapping;
+			let selectedMapping: ProviderModelMapping | undefined;
 			if (reasoning_effort !== undefined) {
 				selectedMapping = sameProviderMappings.find(
-					(p) => p.reasoning === true,
-				);
+					(p) => (p as ProviderModelMapping).reasoning === true,
+				) as ProviderModelMapping | undefined;
 			} else {
 				selectedMapping = sameProviderMappings.find(
-					(p) => p.reasoning !== true,
-				);
+					(p) => (p as ProviderModelMapping).reasoning !== true,
+				) as ProviderModelMapping | undefined;
 			}
 			if (selectedMapping) {
 				usedModel = selectedMapping.modelName;
+				usedRegion ??= selectedMapping.region;
 			}
+		}
+		// If region still unset (single mapping or no reasoning variant selection),
+		// derive it from the first matching entry
+		if (!usedRegion) {
+			const firstMatch = sameProviderMappings[0] as
+				| ProviderModelMapping
+				| undefined;
+			usedRegion = firstMatch?.region;
 		}
 	}
 
@@ -1549,7 +1566,15 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			const modelWithPricing = models.find((m) => m.id === usedModel);
+			const rawModelWithPricing = models.find((m) => m.id === usedModel);
+			const modelWithPricing = rawModelWithPricing
+				? {
+						...rawModelWithPricing,
+						providers: expandAllProviderRegions(
+							rawModelWithPricing.providers as ProviderModelMapping[],
+						),
+					}
+				: undefined;
 
 			if (modelWithPricing) {
 				// Fetch uptime/latency metrics from last 5 minutes for provider selection

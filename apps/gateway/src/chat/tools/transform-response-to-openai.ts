@@ -370,6 +370,7 @@ export function transformResponseToOpenai(
 						requested_provider: requestedProvider,
 						used_model: baseModelName,
 						used_provider: usedProvider,
+						...(usedRegion && { used_region: usedRegion }),
 						underlying_used_model: usedModel,
 						...(routing && { routing }),
 					},
@@ -396,6 +397,7 @@ export function transformResponseToOpenai(
 						requested_provider: requestedProvider,
 						used_model: baseModelName,
 						used_provider: usedProvider,
+						...(usedRegion && { used_region: usedRegion }),
 						underlying_used_model: usedModel,
 						...(routing && { routing }),
 					};
@@ -499,6 +501,7 @@ export function transformResponseToOpenai(
 						requested_provider: requestedProvider,
 						used_model: baseModelName,
 						used_provider: usedProvider,
+						...(usedRegion && { used_region: usedRegion }),
 						underlying_used_model: usedModel,
 						...(routing && { routing }),
 					};
@@ -586,6 +589,7 @@ export function transformResponseToOpenai(
 						requested_provider: requestedProvider,
 						used_model: baseModelName,
 						used_provider: usedProvider,
+						...(usedRegion && { used_region: usedRegion }),
 						underlying_used_model: usedModel,
 						...(routing && { routing }),
 					};
@@ -673,6 +677,7 @@ export function transformResponseToOpenai(
 						requested_provider: requestedProvider,
 						used_model: baseModelName,
 						used_provider: usedProvider,
+						...(usedRegion && { used_region: usedRegion }),
 						underlying_used_model: usedModel,
 						...(routing && { routing }),
 					};
@@ -761,6 +766,7 @@ export function transformResponseToOpenai(
 						requested_provider: requestedProvider,
 						used_model: baseModelName,
 						used_provider: usedProvider,
+						...(usedRegion && { used_region: usedRegion }),
 						underlying_used_model: usedModel,
 						...(routing && { routing }),
 					};
