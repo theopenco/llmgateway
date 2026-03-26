@@ -24,6 +24,7 @@ import {
 	providers,
 	type ToolChoiceType,
 	type WebSearchTool,
+	stripRegionFromModelName,
 } from "@llmgateway/models";
 
 import { getProviderEnv } from "./get-provider-env.js";
@@ -135,7 +136,12 @@ export async function resolveProviderContext(
 ): Promise<ProviderContext> {
 	const usedProvider = providerMapping.providerId as Provider;
 	const usedModel = providerMapping.modelName;
-	const baseModelName = modelInfo.id || usedModel;
+	// Strip :region suffix for the actual upstream API call
+	const upstreamModelName = stripRegionFromModelName(
+		usedModel,
+		providerMapping.region,
+	);
+	const baseModelName = modelInfo.id || upstreamModelName;
 	const usedModelMapping = usedModel;
 	const usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
@@ -256,7 +262,7 @@ export async function resolveProviderContext(
 	const url = getProviderEndpoint(
 		usedProvider as Provider,
 		providerKey?.baseUrl ?? undefined,
-		usedModel,
+		upstreamModelName,
 		usedProvider === "google-ai-studio" || usedProvider === "google-vertex"
 			? usedToken
 			: undefined,
@@ -347,7 +353,7 @@ export async function resolveProviderContext(
 	// --- Request body preparation ---
 	const requestBody: ProviderRequestBody = await prepareRequestBody(
 		usedProvider as Provider,
-		usedModel,
+		upstreamModelName,
 		options.messages as BaseMessage[],
 		options.effectiveStream,
 		temperature,

@@ -1736,7 +1736,7 @@ chat.openapi(completions, async (c) => {
 	let usedModelMapping = usedModel; // Store the original provider model name
 	let usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
-		baseModelName,
+		usedRegion ? `${baseModelName}:${usedRegion}` : baseModelName,
 		customProviderName,
 	); // Store in LLMGateway format
 

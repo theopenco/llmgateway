@@ -358,6 +358,11 @@ export function LogCard({
 															>
 																<span className="font-mono flex items-center gap-1.5">
 																	{score.providerId}
+																	{score.region && (
+																		<span className="text-muted-foreground">
+																			({score.region})
+																		</span>
+																	)}
 																	{score.failed && (
 																		<span className="inline-flex items-center gap-0.5 text-red-500">
 																			<AlertCircle className="h-3 w-3" />
@@ -425,6 +430,11 @@ export function LogCard({
 																		<AlertCircle className="h-3 w-3" />
 																	)}
 																	{attempt.provider}/{attempt.model}
+																	{attempt.region && (
+																		<span className="text-muted-foreground">
+																			({attempt.region})
+																		</span>
+																	)}
 																</span>
 																<span>
 																	{attempt.status_code}{" "}

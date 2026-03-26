@@ -460,17 +460,26 @@ export function ModelSelector({
 	});
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
 	const raw = value ?? "";
-	const [selectedProviderId, selectedModelId] = raw.includes("/")
+	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
+	// Strip :region suffix for root model lookup, keep raw for mapping match
+	const selectedModelId = selectedModelIdRaw.includes(":")
+		? selectedModelIdRaw.split(":")[0]
+		: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping = selectedModel?.mappings.find(
-		(p) => p.providerId === selectedProviderId,
-	);
+	const selectedMapping =
+		selectedModel?.mappings.find(
+			(p) =>
+				p.providerId === selectedProviderId &&
+				p.modelName === selectedModelIdRaw,
+		) ??
+		selectedModel?.mappings.find((p) => p.providerId === selectedProviderId);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
 			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
@@ -718,13 +727,16 @@ export function ModelSelector({
 		}
 
 		// Prefer provider-specific entry when a provider is selected
+		// Match on modelName to distinguish regional variants
 		let entry =
 			selectedProviderId &&
 			allEntries.find(
 				(e) =>
 					!e.isRoot &&
 					e.model.id === selectedModel.id &&
-					e.mapping?.providerId === selectedProviderId,
+					e.mapping?.providerId === selectedProviderId &&
+					(!selectedMapping ||
+						e.mapping?.modelName === selectedMapping.modelName),
 			);
 
 		// Fallback to root entry for the selected model
@@ -803,6 +815,9 @@ export function ModelSelector({
 													selectedProviderDef ??
 													getProviderForModel(selectedModel, providers)
 												)?.name}
+										{selectedMapping?.region && (
+											<span className="ml-1">({selectedMapping.region})</span>
+										)}
 									</span>
 								</div>
 							</div>
@@ -1137,8 +1152,8 @@ export function ModelSelector({
 												const ProviderIcon = provider
 													? getProviderIcon(provider.id)
 													: null;
-												const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}${mapping!.region ? `-${mapping!.region}` : ""}`;
-												const providerModelValue = `${mapping!.providerId}/${model.id}`;
+												const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
+												const providerModelValue = `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
 												const disabled =
 													isOptionDisabled?.(providerModelValue) ?? false;
 												const disabledReason =

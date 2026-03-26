@@ -535,6 +535,7 @@ export const log = pgTable(
 			selectionReason?: string;
 			providerScores?: Array<{
 				providerId: string;
+				region?: string;
 				score: number;
 				uptime?: number;
 				latency?: number;
@@ -551,6 +552,7 @@ export const log = pgTable(
 			routing?: Array<{
 				provider: string;
 				model: string;
+				region?: string;
 				status_code: number;
 				error_type: string;
 				succeeded: boolean;
@@ -683,6 +685,7 @@ export const videoJob = pgTable(
 			selectionReason?: string;
 			providerScores?: Array<{
 				providerId: string;
+				region?: string;
 				score: number;
 				uptime?: number;
 				latency?: number;
@@ -699,6 +702,7 @@ export const videoJob = pgTable(
 			routing?: Array<{
 				provider: string;
 				model: string;
+				region?: string;
 				status_code: number;
 				error_type: string;
 				succeeded: boolean;

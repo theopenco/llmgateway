@@ -87,17 +87,25 @@ export function ModelSelector({
 	});
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
 	const raw = value ?? "";
-	const [selectedProviderId, selectedModelId] = raw.includes("/")
+	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
+	const selectedModelId = selectedModelIdRaw.includes(":")
+		? selectedModelIdRaw.split(":")[0]
+		: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping = selectedModel?.providers.find(
-		(p) => p.providerId === selectedProviderId,
-	);
+	const selectedMapping =
+		selectedModel?.providers.find(
+			(p) =>
+				p.providerId === selectedProviderId &&
+				p.modelName === selectedModelIdRaw,
+		) ??
+		selectedModel?.providers.find((p) => p.providerId === selectedProviderId);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
 			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
@@ -511,7 +519,7 @@ export function ModelSelector({
 											: provider
 												? getProviderIcon(provider.id)
 												: null;
-										const entryKey = `${mapping.providerId}-${model.id}-${mapping.modelName}${mapping.region ? `-${mapping.region}` : ""}`;
+										const entryKey = `${mapping.providerId}-${model.id}-${mapping.modelName}`;
 										const isDeprecated =
 											mapping.deprecatedAt &&
 											new Date(mapping.deprecatedAt) <= new Date();
@@ -520,7 +528,9 @@ export function ModelSelector({
 												key={entryKey}
 												value={entryKey}
 												onSelect={() => {
-													onValueChange?.(`${mapping.providerId}/${model.id}`);
+													onValueChange?.(
+														`${mapping.providerId}/${mapping.region ? mapping.modelName : model.id}`,
+													);
 													setOpen(false);
 												}}
 												className="p-3 cursor-pointer"

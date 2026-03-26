@@ -1,6 +1,21 @@
 import type { ProviderModelMapping } from "./models.js";
 
 /**
+ * Strips the `:region` suffix from a model name that was expanded by expandProviderRegions.
+ * e.g., "deepseek-v3.2:singapore" → "deepseek-v3.2"
+ * If the model name has no region suffix, returns it unchanged.
+ */
+export function stripRegionFromModelName(
+	modelName: string,
+	region?: string,
+): string {
+	if (region && modelName.endsWith(`:${region}`)) {
+		return modelName.slice(0, -(region.length + 1));
+	}
+	return modelName;
+}
+
+/**
  * Expands a single ProviderModelMapping with `regions` into multiple flat entries,
  * one per region. Each region inherits all properties from the parent mapping
  * and can override pricing and other region-specific properties.
@@ -21,6 +36,10 @@ export function expandProviderRegions(
 			...base,
 			...overrides,
 			region: id,
+			// Append :region to modelName so each region has a unique model identifier
+			// for routing and display. The gateway strips this suffix before sending
+			// the request to the upstream provider API.
+			modelName: `${base.modelName}:${id}`,
 		};
 	});
 }
