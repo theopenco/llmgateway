@@ -1459,7 +1459,6 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				stability: "unstable" as const,
 				modelName: "gpt-5.4-mini",
 				inputPrice: 0.75 / 1e6,
 				outputPrice: 4.5 / 1e6,
@@ -1511,7 +1510,6 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				stability: "unstable" as const,
 				modelName: "gpt-5.4-nano",
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 1.25 / 1e6,
