@@ -964,14 +964,21 @@ export interface paths {
                                     selectionReason?: string;
                                     providerScores?: {
                                         providerId: string;
+                                        region?: string;
                                         score: number;
                                         uptime?: number;
                                         latency?: number;
+                                        throughput?: number;
                                         price?: number;
+                                        priority?: number;
+                                        failed?: boolean;
+                                        status_code?: number;
+                                        error_type?: string;
                                     }[];
                                     routing?: {
                                         provider: string;
                                         model: string;
+                                        region?: string;
                                         status_code: number;
                                         error_type: string;
                                         succeeded: boolean;
@@ -1176,14 +1183,21 @@ export interface paths {
                                     selectionReason?: string;
                                     providerScores?: {
                                         providerId: string;
+                                        region?: string;
                                         score: number;
                                         uptime?: number;
                                         latency?: number;
+                                        throughput?: number;
                                         price?: number;
+                                        priority?: number;
+                                        failed?: boolean;
+                                        status_code?: number;
+                                        error_type?: string;
                                     }[];
                                     routing?: {
                                         provider: string;
                                         model: string;
+                                        region?: string;
                                         status_code: number;
                                         error_type: string;
                                         succeeded: boolean;

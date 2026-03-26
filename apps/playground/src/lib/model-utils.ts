@@ -15,7 +15,9 @@ export function formatPrice(price: number | undefined): string {
 	// For the playground we always want to show an explicit per‑million price (to match the /models UI),
 	// otherwise small numbers like 2e‑6 end up rounded to $0.00/1K.
 	const perMillion = price * 1_000_000;
-	return `$${perMillion.toFixed(2)}/1M tokens`;
+	// Show full precision (up to 4 decimals) without trailing zeros
+	const formatted = parseFloat(perMillion.toFixed(4)).toString();
+	return `$${formatted}/1M tokens`;
 }
 
 export function formatContextSize(size: number | null | undefined): string {

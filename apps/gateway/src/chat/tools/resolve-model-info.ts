@@ -50,16 +50,21 @@ export function resolveModelInfo(
 			],
 		};
 	} else {
+		// Strip :region suffix for model lookup (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
+		const baseRequestedModel = requestedModel.includes(":")
+			? requestedModel.split(":")[0]
+			: requestedModel;
+
 		// First try to find by model ID
 		// When a specific provider is requested, prefer the definition that includes that provider
 		let foundModel = requestedProvider
 			? models.find(
 					(m) =>
-						m.id === requestedModel &&
+						m.id === baseRequestedModel &&
 						m.providers.some((p) => p.providerId === requestedProvider),
 				)
 			: undefined;
-		foundModel ??= models.find((m) => m.id === requestedModel);
+		foundModel ??= models.find((m) => m.id === baseRequestedModel);
 
 		// If not found, search by provider model name
 		// If a specific provider is requested, match both modelName and providerId
@@ -68,13 +73,18 @@ export function resolveModelInfo(
 				foundModel = models.find((m) =>
 					m.providers.find(
 						(p) =>
-							p.modelName === requestedModel &&
+							(p.modelName === requestedModel ||
+								p.modelName === baseRequestedModel) &&
 							p.providerId === requestedProvider,
 					),
 				);
 			} else {
 				foundModel = models.find((m) =>
-					m.providers.find((p) => p.modelName === requestedModel),
+					m.providers.find(
+						(p) =>
+							p.modelName === requestedModel ||
+							p.modelName === baseRequestedModel,
+					),
 				);
 			}
 		}

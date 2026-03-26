@@ -280,24 +280,6 @@ export async function syncProvidersAndModels() {
 						});
 					}
 				}
-
-				// Clean up stale null-region rows for providers that now have region-specific entries.
-				// When a model transitions from no-region to region-based, old null-region rows
-				// remain in the DB and confuse the UI. Delete them.
-				const providersWithRegions = new Set(
-					expandedProviders.filter((m) => m.region).map((m) => m.providerId),
-				);
-				for (const providerId of providersWithRegions) {
-					await database
-						.delete(modelProviderMapping)
-						.where(
-							and(
-								eq(modelProviderMapping.modelId, modelDef.id),
-								eq(modelProviderMapping.providerId, providerId),
-								isNull(modelProviderMapping.region),
-							),
-						);
-				}
 			}
 		}
 

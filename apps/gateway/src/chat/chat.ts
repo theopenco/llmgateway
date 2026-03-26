@@ -873,7 +873,7 @@ chat.openapi(completions, async (c) => {
 
 	let usedProvider = requestedProvider;
 	let usedModel: string = requestedModel;
-	let usedRegion: string | undefined;
+	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
 
 	// Extract retention level for data storage cost calculation
@@ -2030,10 +2030,30 @@ chat.openapi(completions, async (c) => {
 			usedRegion,
 		);
 
+		// If region is still unset but the provider supports regions, resolve the
+		// default region so it appears in logs and metadata.
+		if (!usedRegion) {
+			const providerDef = providers.find((p) => p.id === usedProvider) as
+				| { regionConfig?: { defaultRegion: string } }
+				| undefined;
+			if (providerDef?.regionConfig) {
+				usedRegion = providerDef.regionConfig.defaultRegion;
+			}
+		}
+
+		// Re-compute usedModelFormatted now that region may have been resolved
+		if (usedRegion) {
+			usedModelFormatted = formatUsedModelForDisplay(
+				usedProvider,
+				`${baseModelName}:${usedRegion}`,
+				customProviderName,
+			);
+		}
+
 		logger.info("[region-debug] Request resolved", {
 			provider: usedProvider,
 			model: usedModel,
-			region: usedRegion ?? "default",
+			region: usedRegion ?? "none",
 			endpoint: url,
 			tokenSource: providerKey ? "db-provider-key" : "env-var",
 		});

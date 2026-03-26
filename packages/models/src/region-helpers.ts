@@ -29,19 +29,21 @@ export function expandProviderRegions(
 		return [mapping];
 	}
 
-	return mapping.regions.map(({ id, ...overrides }) => {
-		// Remove the `regions` array from the expanded entry to avoid confusion
-		const { regions: _, ...base } = mapping;
-		return {
-			...base,
-			...overrides,
-			region: id,
-			// Append :region to modelName so each region has a unique model identifier
-			// for routing and display. The gateway strips this suffix before sending
-			// the request to the upstream provider API.
-			modelName: `${base.modelName}:${id}`,
-		};
-	});
+	const { regions: _, ...base } = mapping;
+
+	// Include the base entry (no region) as the provider-level "auto-select region"
+	// option, plus one entry per region with :region suffix in modelName.
+	const regionEntries = mapping.regions.map(({ id, ...overrides }) => ({
+		...base,
+		...overrides,
+		region: id,
+		// Append :region to modelName so each region has a unique model identifier
+		// for routing and display. The gateway strips this suffix before sending
+		// the request to the upstream provider API.
+		modelName: `${base.modelName}:${id}`,
+	}));
+
+	return [base, ...regionEntries];
 }
 
 /**
