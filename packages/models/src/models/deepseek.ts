@@ -76,8 +76,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-v3.1",
 		name: "DeepSeek V3.1",
-		description:
-			"Updated DeepSeek V3 with vision, tools, and improved performance.",
+		description: "Updated DeepSeek V3 with tools and improved performance.",
 		family: "deepseek",
 		releasedAt: new Date("2025-08-21"),
 		providers: [
@@ -93,7 +92,7 @@ export const deepseekModels = [
 				contextSize: 128000,
 				maxOutput: undefined,
 				streaming: true,
-				vision: true,
+				vision: false,
 				tools: true,
 				jsonOutputSchema: false,
 				jsonOutput: true,
@@ -119,8 +118,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-v3.2",
 		name: "DeepSeek V3.2",
-		description:
-			"Latest DeepSeek V3 with vision, tools, and improved performance.",
+		description: "Latest DeepSeek V3 with tools and improved performance.",
 		family: "deepseek",
 		releasedAt: new Date("2025-09-29"),
 		providers: [
@@ -135,7 +133,7 @@ export const deepseekModels = [
 				maxOutput: undefined,
 				jsonOutput: true,
 				streaming: true,
-				vision: true,
+				vision: false,
 				tools: true,
 			},
 			{
@@ -149,7 +147,7 @@ export const deepseekModels = [
 				contextSize: 163800,
 				maxOutput: undefined,
 				streaming: true,
-				vision: true,
+				vision: false,
 				tools: true,
 				jsonOutputSchema: false,
 				jsonOutput: true,
