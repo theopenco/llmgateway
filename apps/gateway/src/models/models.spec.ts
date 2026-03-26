@@ -220,9 +220,6 @@ describe("Models API", () => {
 			const googleVertexProvider = videoModel.providers.find(
 				(provider: any) => provider.providerId === "google-vertex",
 			);
-			const quartzProvider = videoModel.providers.find(
-				(provider: any) => provider.providerId === "quartz",
-			);
 			expect(obsidianProvider?.pricing.per_second).toBeDefined();
 			expect(obsidianProvider?.supportedVideoSizes).toEqual([
 				"1280x720",
@@ -241,17 +238,6 @@ describe("Models API", () => {
 			]);
 			expect(googleVertexProvider?.supportsVideoAudio).toBe(true);
 			expect(googleVertexProvider?.supportsVideoWithoutAudio).toBe(true);
-			expect(quartzProvider?.pricing.per_second).toBeDefined();
-			expect(quartzProvider?.supportedVideoSizes).toEqual([
-				"1280x720",
-				"720x1280",
-				"1920x1080",
-				"1080x1920",
-				"3840x2160",
-				"2160x3840",
-			]);
-			expect(quartzProvider?.supportsVideoAudio).toBe(true);
-			expect(quartzProvider?.supportsVideoWithoutAudio).toBe(true);
 			expect(avalancheProvider?.pricing.per_second).toBeDefined();
 			expect(avalancheProvider?.supportedVideoSizes).toEqual([
 				"1920x1080",
@@ -261,6 +247,40 @@ describe("Models API", () => {
 			]);
 			expect(avalancheProvider?.supportsVideoAudio).toBe(true);
 			expect(avalancheProvider?.supportsVideoWithoutAudio).toBe(false);
+		}
+	});
+
+	test("GET /v1/models should only expose quartz for supported image preview models", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+
+		for (const modelId of [
+			"gemini-3.1-flash-image-preview",
+			"gemini-3-pro-image-preview",
+		]) {
+			const model = json.data.find((item: any) => item.id === modelId);
+			expect(model).toBeDefined();
+			expect(
+				model.providers.some(
+					(provider: any) => provider.providerId === "quartz",
+				),
+			).toBe(true);
+		}
+
+		for (const modelId of [
+			"gemini-2.5-flash-image-preview",
+			"veo-3.1-generate-preview",
+			"veo-3.1-fast-generate-preview",
+		]) {
+			const model = json.data.find((item: any) => item.id === modelId);
+			expect(model).toBeDefined();
+			expect(
+				model.providers.some(
+					(provider: any) => provider.providerId === "quartz",
+				),
+			).toBe(false);
 		}
 	});
 

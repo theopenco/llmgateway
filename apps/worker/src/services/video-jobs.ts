@@ -68,8 +68,8 @@ interface ResolvedVideoProviderContext {
 	token: string;
 }
 
-function isVertexCompatibleVideoProvider(providerId: string): boolean {
-	return providerId === "google-vertex" || providerId === "quartz";
+function isGoogleVertexVideoProvider(providerId: string): boolean {
+	return providerId === "google-vertex";
 }
 
 function getDeterministicHash(seed: string): number {
@@ -103,8 +103,6 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://api.openai.com";
 		case "google-vertex":
 			return "https://us-central1-aiplatform.googleapis.com";
-		case "quartz":
-			return null;
 		default:
 			return null;
 	}
@@ -239,7 +237,7 @@ function getVideoProviderHeaders(
 	job: VideoJobRecord,
 	providerContext: ResolvedVideoProviderContext,
 ): Record<string, string> {
-	if (isVertexCompatibleVideoProvider(job.usedProvider)) {
+	if (isGoogleVertexVideoProvider(job.usedProvider)) {
 		return {};
 	}
 
@@ -1748,7 +1746,7 @@ async function fetchUpstreamStatus(
 			: await fetchAvalancheStatus(job, providerContext);
 	}
 
-	if (isVertexCompatibleVideoProvider(job.usedProvider)) {
+	if (isGoogleVertexVideoProvider(job.usedProvider)) {
 		return await fetchGoogleVertexStatus(job, providerContext);
 	}
 
@@ -1784,7 +1782,7 @@ async function fetchUpstreamContentMetadata(
 ): Promise<Record<string, unknown> | null> {
 	if (
 		job.usedProvider === "avalanche" ||
-		isVertexCompatibleVideoProvider(job.usedProvider)
+		isGoogleVertexVideoProvider(job.usedProvider)
 	) {
 		return null;
 	}

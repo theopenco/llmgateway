@@ -115,9 +115,7 @@ export default function VideoPageClient({
 		() =>
 			selectedModels.some(
 				(modelId) =>
-					modelId.includes("/") &&
-					!modelId.startsWith("google-vertex/") &&
-					!modelId.startsWith("quartz/"),
+					modelId.includes("/") && !modelId.startsWith("google-vertex/"),
 			),
 		[selectedModels],
 	);

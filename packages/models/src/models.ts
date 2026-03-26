@@ -360,11 +360,17 @@ export interface ModelDefinition {
 	releasedAt?: Date;
 }
 
+const quartzSupportedModelIds = new Set([
+	"gemini-3.1-flash-image-preview",
+	"gemini-3-pro-image-preview",
+]);
+
 function addQuartzProviderMappings(
 	modelDefinitions: readonly ModelDefinition[],
 ): ModelDefinition[] {
 	return modelDefinitions.map((model) => {
 		if (
+			!quartzSupportedModelIds.has(model.id) ||
 			!model.providers.some(
 				(provider) => provider.providerId === "google-vertex",
 			)

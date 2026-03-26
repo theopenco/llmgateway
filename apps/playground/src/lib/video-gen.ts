@@ -98,7 +98,6 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		providerId === undefined ||
 		providerId === "obsidian" ||
 		providerId === "google-vertex" ||
-		providerId === "quartz" ||
 		providerId === "avalanche"
 	);
 }
@@ -108,7 +107,7 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
-	if (providerId === "google-vertex" || providerId === "quartz") {
+	if (providerId === "google-vertex") {
 		return rootModelId === "veo-3.1-generate-preview";
 	}
 
@@ -178,7 +177,6 @@ function mappingSupportsVideoRequest(
 	if (
 		inputMode === "frames" &&
 		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "quartz" &&
 		mapping.providerId !== "avalanche" &&
 		mapping.providerId !== "obsidian"
 	) {
@@ -186,10 +184,7 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (inputMode === "reference") {
-		if (
-			mapping.providerId === "google-vertex" ||
-			mapping.providerId === "quartz"
-		) {
+		if (mapping.providerId === "google-vertex") {
 			if (mapping.modelName !== "veo-3.1-generate-preview") {
 				return false;
 			}
