@@ -135,6 +135,11 @@ export function ModelProviderCard({
 							<div className="flex items-center gap-2 mb-1">
 								<h3 className="font-semibold">
 									{provider.providerInfo?.name ?? provider.providerId}
+									{provider.region && (
+										<span className="text-muted-foreground text-sm font-normal ml-1">
+											({provider.region})
+										</span>
+									)}
 								</h3>
 								{shouldShowStabilityWarning(providerStability) && (
 									<AlertTriangle className="h-4 w-4 text-orange-500" />

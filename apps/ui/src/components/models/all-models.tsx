@@ -271,6 +271,11 @@ const ModelTableRow = React.memo(
 							)}
 							<span className="text-sm">
 								{row.providerInfo?.name ?? row.provider.providerId}
+								{row.provider.region && (
+									<span className="text-muted-foreground text-xs ml-1">
+										({row.provider.region})
+									</span>
+								)}
 							</span>
 							{row.provider.deactivatedAt && (
 								<Tooltip>
