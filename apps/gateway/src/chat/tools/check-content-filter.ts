@@ -1,6 +1,6 @@
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 
-export type ContentFilterMode = "disabled" | "monitor" | "enabled";
+export type ContentFilterMode = "disabled" | "monitor" | "enabled" | "openai";
 
 let cachedKeywords: string[] | null = null;
 let cachedEnvValue: string | undefined;
@@ -13,6 +13,7 @@ let cachedModeEnvValue: string | undefined;
  * - "disabled" (default): content filter is off
  * - "monitor": check content filter but don't block; log evaluation entries
  * - "enabled": block requests that match content filter keywords
+ * - "openai": block requests flagged by OpenAI's moderation endpoint
  */
 export function getContentFilterMode(): ContentFilterMode {
 	const envValue = process.env.LLM_CONTENT_FILTER_MODE;
@@ -27,6 +28,8 @@ export function getContentFilterMode(): ContentFilterMode {
 		cachedMode = "monitor";
 	} else if (envValue === "enabled") {
 		cachedMode = "enabled";
+	} else if (envValue === "openai") {
+		cachedMode = "openai";
 	} else {
 		cachedMode = "disabled";
 	}

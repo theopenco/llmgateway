@@ -233,6 +233,128 @@ describe("api", () => {
 		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
 	});
 
+	test("/v1/chat/completions blocks with openai content filter mode", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
+		const requestId = "chat-openai-content-filter-request-id";
+		const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				expect(url).toBe("https://api.openai.com/v1/moderations");
+
+				const headers = new Headers(init?.headers);
+				expect(headers.get("authorization")).toBe("Bearer sk-openai-test");
+				expect(headers.get("x-client-request-id")).toBe(requestId);
+
+				const body = JSON.parse(String(init?.body ?? "{}"));
+				expect(body.model).toBe("omni-moderation-latest");
+				expect(typeof body.input).toBe("string");
+				expect(body.input).toContain("I want to attack someone.");
+
+				return new Response(
+					JSON.stringify({
+						id: "modr-123",
+						model: "omni-moderation-latest",
+						results: [
+							{
+								flagged: true,
+								categories: {
+									violence: true,
+								},
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: {
+							"Content-Type": "application/json",
+							"x-request-id": "upstream-openai-request-id",
+						},
+					},
+				);
+			});
+
+		try {
+			process.env.LLM_CONTENT_FILTER_MODE = "openai";
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					messages: [
+						{
+							role: "user",
+							content: "I want to attack someone.",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json.choices[0].message.content).toBeNull();
+			expect(json.choices[0].finish_reason).toBe("content_filter");
+			expect(json.usage.total_tokens).toBe(0);
+			expect(fetchSpy).toHaveBeenCalledOnce();
+
+			expect(infoSpy).toHaveBeenCalledWith(
+				"gateway_content_filter",
+				expect.objectContaining({
+					mode: "openai",
+					requestId,
+					organizationId: "org-id",
+					projectId: "project-id",
+					apiKeyId: "token-id",
+					flagged: true,
+					model: "omni-moderation-latest",
+					upstreamRequestId: "upstream-openai-request-id",
+				}),
+			);
+
+			const logs = await waitForLogs(1);
+			const blockedLog = logs.find((log) => log.requestId === requestId);
+
+			expect(blockedLog).toBeTruthy();
+			expect(blockedLog?.finishReason).toBe("llmgateway_content_filter");
+			expect(blockedLog?.unifiedFinishReason).toBe("content_filter");
+		} finally {
+			fetchSpy.mockRestore();
+			infoSpy.mockRestore();
+			if (previousContentFilterMode === undefined) {
+				delete process.env.LLM_CONTENT_FILTER_MODE;
+			} else {
+				process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+			}
+			if (previousOpenAIKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousOpenAIKey;
+			}
+		}
+	});
+
 	test("Reasoning effort error for unsupported model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

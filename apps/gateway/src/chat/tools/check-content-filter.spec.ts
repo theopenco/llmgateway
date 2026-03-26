@@ -144,4 +144,9 @@ describe("getContentFilterMode", () => {
 		process.env.LLM_CONTENT_FILTER_MODE = "enabled";
 		expect(getContentFilterMode()).toBe("enabled");
 	});
+
+	it("returns openai when set to openai", () => {
+		process.env.LLM_CONTENT_FILTER_MODE = "openai";
+		expect(getContentFilterMode()).toBe("openai");
+	});
 });

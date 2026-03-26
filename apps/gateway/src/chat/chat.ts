@@ -105,6 +105,7 @@ import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
+import { checkOpenAIContentFilter } from "./tools/openai-content-filter.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
@@ -858,23 +859,40 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Check gateway-level content filter (keyword-based, configured via env var)
+	// Check gateway-level content filter before routing the request upstream.
 	const contentFilterMode = getContentFilterMode();
-	const contentFilterMatch =
-		contentFilterMode !== "disabled"
+	const keywordContentFilterMatch =
+		contentFilterMode === "enabled" || contentFilterMode === "monitor"
 			? checkContentFilter(messages as BaseMessage[])
 			: null;
+	const openAIContentFilterResult =
+		contentFilterMode === "openai"
+			? await checkOpenAIContentFilter(
+					messages as BaseMessage[],
+					{
+						requestId,
+						organizationId: project.organizationId,
+						projectId: project.id,
+						apiKeyId: apiKey.id,
+					},
+					c.req.raw.signal,
+				)
+			: null;
+	const contentFilterBlocked =
+		(contentFilterMode === "enabled" && keywordContentFilterMatch !== null) ||
+		(contentFilterMode === "openai" &&
+			openAIContentFilterResult?.flagged === true);
 
 	// In monitor mode, tag logs with internalContentFilter when the keyword
 	// filter would have blocked the request, so we can compare against upstream.
 	const shouldTagContentFilter =
-		contentFilterMode === "monitor" && contentFilterMatch;
+		contentFilterMode === "monitor" && keywordContentFilterMatch !== null;
 	const insertLog = shouldTagContentFilter
 		? (logData: Parameters<typeof _insertLog>[0]) =>
 				_insertLog({ ...logData, internalContentFilter: true })
 		: _insertLog;
 
-	if (contentFilterMode === "enabled" && contentFilterMatch) {
+	if (contentFilterBlocked) {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
 		const contentFilterCreated = Math.floor(Date.now() / 1000);
 
