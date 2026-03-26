@@ -352,6 +352,7 @@ export const zaiModels = [
 		description: "Free, fast GLM-4.5 model.",
 		family: "glm",
 		free: true,
+		stability: "unstable",
 		releasedAt: new Date("2025-08-13"),
 		providers: [
 			{
@@ -580,6 +581,7 @@ export const zaiModels = [
 		description: "Free, lightweight GLM-4.7 model.",
 		family: "glm",
 		free: true,
+		stability: "unstable",
 		releasedAt: new Date("2025-12-22"),
 		providers: [
 			{
@@ -835,6 +837,7 @@ export const zaiModels = [
 			"Ultra-fast, lightweight vision-language model (9B) for low-latency workloads.",
 		family: "glm",
 		free: true,
+		stability: "unstable",
 		releasedAt: new Date("2025-12-08"),
 		providers: [
 			{
