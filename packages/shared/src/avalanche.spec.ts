@@ -2,13 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import {
 	getAvalancheApiBaseUrl,
+	getAvalancheJobsApiBaseUrl,
 	getAvalancheFileUploadBaseUrl,
 } from "./avalanche.js";
 
 describe("getAvalancheApiBaseUrl", () => {
 	it("normalizes the Veo API base path", () => {
-		expect(getAvalancheApiBaseUrl("https://api.kie.ai")).toBe(
-			"https://api.kie.ai/api/v1/veo",
+		expect(getAvalancheApiBaseUrl("https://api.avalanche.test")).toBe(
+			"https://api.avalanche.test/api/v1/veo",
+		);
+	});
+});
+
+describe("getAvalancheJobsApiBaseUrl", () => {
+	it("normalizes the Avalanche jobs API base path", () => {
+		expect(getAvalancheJobsApiBaseUrl("https://api.avalanche.test")).toBe(
+			"https://api.avalanche.test/api/v1/jobs",
 		);
 	});
 });

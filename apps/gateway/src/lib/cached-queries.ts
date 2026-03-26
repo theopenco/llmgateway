@@ -12,6 +12,7 @@
  */
 import {
 	and,
+	asc,
 	eq,
 	inArray,
 	cdb as db,
@@ -44,6 +45,31 @@ type Project = InferSelectModel<typeof project>;
 type ProviderKey = InferSelectModel<typeof providerKey>;
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
+
+function getDeterministicHash(seed: string): number {
+	let hash = 5381;
+
+	for (const char of seed) {
+		hash = (hash * 33) ^ char.charCodeAt(0);
+	}
+
+	return Math.abs(hash >>> 0);
+}
+
+function selectLoadBalancedItem<T>(
+	items: T[],
+	selectionKey?: string,
+): T | undefined {
+	if (items.length === 0) {
+		return undefined;
+	}
+
+	if (items.length === 1 || !selectionKey) {
+		return items[0];
+	}
+
+	return items[getDeterministicHash(selectionKey) % items.length];
+}
 
 /**
  * Find an API key by token (cacheable)
@@ -126,6 +152,7 @@ export async function findOrganizationById(
 export async function findCustomProviderKey(
 	organizationId: string,
 	customProviderName: string,
+	selectionKey?: string,
 ): Promise<ProviderKey | undefined> {
 	const results = await db
 		.select()
@@ -138,8 +165,8 @@ export async function findCustomProviderKey(
 				eq(providerKeyTable.name, customProviderName),
 			),
 		)
-		.limit(1);
-	return results[0];
+		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
+	return selectLoadBalancedItem(results, selectionKey);
 }
 
 /**
@@ -148,6 +175,7 @@ export async function findCustomProviderKey(
 export async function findProviderKey(
 	organizationId: string,
 	provider: string,
+	selectionKey?: string,
 ): Promise<ProviderKey | undefined> {
 	const results = await db
 		.select()
@@ -159,8 +187,8 @@ export async function findProviderKey(
 				eq(providerKeyTable.provider, provider),
 			),
 		)
-		.limit(1);
-	return results[0];
+		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
+	return selectLoadBalancedItem(results, selectionKey);
 }
 
 /**
@@ -177,7 +205,8 @@ export async function findActiveProviderKeys(
 				eq(providerKeyTable.status, "active"),
 				eq(providerKeyTable.organizationId, organizationId),
 			),
-		);
+		)
+		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
 }
 
 /**
@@ -199,7 +228,8 @@ export async function findProviderKeysByProviders(
 				eq(providerKeyTable.organizationId, organizationId),
 				inArray(providerKeyTable.provider, providers),
 			),
-		);
+		)
+		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
 }
 
 /**

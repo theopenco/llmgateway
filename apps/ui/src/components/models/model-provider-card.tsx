@@ -10,6 +10,7 @@ import {
 	Wrench,
 	MessageSquare,
 	ImagePlus,
+	Video,
 	Braces,
 	Play,
 	Share2,
@@ -561,6 +562,33 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					)}
+					{provider.perSecondPrice &&
+						Object.keys(provider.perSecondPrice).length > 0 && (
+							<div className="mt-3 pt-3 border-t">
+								<div className="text-muted-foreground text-xs mb-2">
+									Video Pricing (per second)
+								</div>
+								<div className="space-y-1">
+									{Object.entries(provider.perSecondPrice).map(
+										([key, price]) => (
+											<div
+												key={key}
+												className="flex justify-between items-center text-xs py-0.5"
+											>
+												<span className="text-muted-foreground">
+													{key.replace(/_/g, " ")}
+												</span>
+												<span className="font-mono">
+													$
+													{typeof price === "number" ? price.toFixed(4) : price}
+													/sec
+												</span>
+											</div>
+										),
+									)}
+								</div>
+							</div>
+						)}
 				</div>
 
 				<div className="border-t pt-4 mb-4">
@@ -642,6 +670,19 @@ export function ModelProviderCard({
 									</TooltipTrigger>
 									<TooltipContent>
 										<p>Supports native image generation</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{modelOutput?.includes("video") && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300 text-xs">
+											<Video className="h-3.5 w-3.5" />
+											<span>Video Generation</span>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>Supports video generation</p>
 									</TooltipContent>
 								</Tooltip>
 							)}

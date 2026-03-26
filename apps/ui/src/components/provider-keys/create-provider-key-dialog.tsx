@@ -35,24 +35,12 @@ interface CreateProviderKeyDialogProps {
 	children: React.ReactNode;
 	selectedOrganization: Organization;
 	preselectedProvider?: string;
-	existingProviderKeys?: {
-		id: string;
-		createdAt: string;
-		updatedAt: string;
-		provider: string;
-		name: string | null;
-		baseUrl: string | null;
-		status: "active" | "inactive" | "deleted" | null;
-		organizationId: string;
-		maskedToken: string;
-	}[];
 }
 
 export function CreateProviderKeyDialog({
 	children,
 	selectedOrganization,
 	preselectedProvider,
-	existingProviderKeys = [],
 }: CreateProviderKeyDialogProps) {
 	const posthog = usePostHog();
 	const [open, setOpen] = useState(false);
@@ -80,26 +68,9 @@ export function CreateProviderKeyDialog({
 
 	const createMutation = api.useMutation("post", "/keys/provider");
 
-	// Filter provider keys by selected organization
-	const organizationProviderKeys = existingProviderKeys.filter(
-		(key) => key.organizationId === selectedOrganization.id,
+	const availableProviders = providers.filter(
+		(provider) => provider.id !== "llmgateway",
 	);
-
-	const availableProviders = providers.filter((provider) => {
-		if (provider.id === "llmgateway") {
-			return false;
-		}
-
-		// If a provider is preselected, always include it even if it has a key
-		if (preselectedProvider && provider.id === preselectedProvider) {
-			return true;
-		}
-
-		const existingKey = organizationProviderKeys.find(
-			(key) => key.provider === provider.id && key.status !== "deleted",
-		);
-		return !existingKey;
-	});
 
 	// Update selectedProvider when preselectedProvider changes or dialog opens
 	React.useEffect(() => {
@@ -423,14 +394,14 @@ export function CreateProviderKeyDialog({
 								<Input
 									id="custom-name"
 									type="text"
-									placeholder="my-provider"
+									placeholder="myprovider"
 									value={customName}
 									onChange={(e) => setCustomName(e.target.value.toLowerCase())}
 									pattern="[a-z]+"
 									required
 								/>
 								<p className="text-sm text-muted-foreground">
-									Used in model names like: {customName || "my-provider"}/gpt-4o
+									Used in model names like: {customName || "myprovider"}/gpt-4o
 								</p>
 							</div>
 							<div className="space-y-2">

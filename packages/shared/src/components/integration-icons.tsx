@@ -85,79 +85,124 @@ export const CodexIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 export const AutohandIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
-	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100" {...props}>
+	<svg
+		fill="none"
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 261 124"
+		{...props}
+	>
 		<circle
-			cx="25"
-			cy="25"
-			r="20"
-			fill="none"
+			cx="163.29"
+			cy="94.3717"
+			r="27.1283"
 			stroke="currentColor"
-			strokeWidth="8"
+			strokeWidth="5"
 		/>
-		<circle cx="25" cy="25" r="8" fill="currentColor" />
 		<circle
-			cx="75"
-			cy="25"
-			r="20"
-			fill="none"
+			cx="163.839"
+			cy="94.9203"
+			r="7.73009"
+			fill="currentColor"
 			stroke="currentColor"
-			strokeWidth="8"
 		/>
-		<circle cx="75" cy="25" r="8" fill="currentColor" />
 		<circle
-			cx="125"
-			cy="25"
-			r="20"
-			fill="none"
+			cx="163.29"
+			cy="29.6283"
+			r="27.1283"
 			stroke="currentColor"
-			strokeWidth="8"
+			strokeWidth="5"
 		/>
-		<circle cx="125" cy="25" r="8" fill="currentColor" />
 		<circle
-			cx="175"
-			cy="25"
-			r="20"
-			fill="none"
+			cx="163.839"
+			cy="30.1769"
+			r="7.73009"
+			fill="currentColor"
 			stroke="currentColor"
-			strokeWidth="8"
 		/>
-		<circle cx="175" cy="25" r="8" fill="currentColor" />
 		<circle
-			cx="25"
-			cy="75"
-			r="20"
-			fill="none"
+			cx="231.326"
+			cy="94.3717"
+			r="27.1283"
 			stroke="currentColor"
-			strokeWidth="8"
+			strokeWidth="5"
 		/>
-		<circle cx="25" cy="75" r="8" fill="currentColor" />
 		<circle
-			cx="75"
-			cy="75"
-			r="20"
-			fill="none"
+			cx="231.875"
+			cy="94.9203"
+			r="7.73009"
+			fill="currentColor"
 			stroke="currentColor"
-			strokeWidth="8"
 		/>
-		<circle cx="75" cy="75" r="8" fill="currentColor" />
 		<circle
-			cx="125"
-			cy="75"
-			r="20"
-			fill="none"
+			cx="231.326"
+			cy="29.6283"
+			r="27.1283"
 			stroke="currentColor"
-			strokeWidth="8"
+			strokeWidth="5"
 		/>
-		<circle cx="125" cy="75" r="8" fill="currentColor" />
 		<circle
-			cx="175"
-			cy="75"
-			r="20"
-			fill="none"
+			cx="231.875"
+			cy="30.1769"
+			r="7.73009"
+			fill="currentColor"
 			stroke="currentColor"
-			strokeWidth="8"
 		/>
-		<circle cx="175" cy="75" r="8" fill="currentColor" />
+		<circle
+			cx="29.6283"
+			cy="94.3717"
+			r="27.1283"
+			stroke="currentColor"
+			strokeWidth="5"
+		/>
+		<circle
+			cx="30.1774"
+			cy="94.9203"
+			r="7.73009"
+			fill="currentColor"
+			stroke="currentColor"
+		/>
+		<circle
+			cx="29.6283"
+			cy="29.6283"
+			r="27.1283"
+			stroke="currentColor"
+			strokeWidth="5"
+		/>
+		<circle
+			cx="30.1774"
+			cy="30.1769"
+			r="7.73009"
+			fill="currentColor"
+			stroke="currentColor"
+		/>
+		<circle
+			cx="97.6635"
+			cy="94.3717"
+			r="27.1283"
+			stroke="currentColor"
+			strokeWidth="5"
+		/>
+		<circle
+			cx="98.2125"
+			cy="94.9203"
+			r="7.73009"
+			fill="currentColor"
+			stroke="currentColor"
+		/>
+		<circle
+			cx="97.6635"
+			cy="29.6283"
+			r="27.1283"
+			stroke="currentColor"
+			strokeWidth="5"
+		/>
+		<circle
+			cx="98.2125"
+			cy="30.1769"
+			r="7.73009"
+			fill="currentColor"
+			stroke="currentColor"
+		/>
 	</svg>
 );
 
