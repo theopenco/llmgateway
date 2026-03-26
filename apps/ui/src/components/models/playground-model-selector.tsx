@@ -178,6 +178,7 @@ export function ModelSelector({
 					model.family,
 					model.id,
 					provider?.name ?? "",
+					...(model.aliases ?? []),
 				];
 				return candidates.some((c) => normalize(c).includes(q));
 			});

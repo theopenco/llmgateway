@@ -49,6 +49,7 @@ const KNOWN_SOURCES = [
 	"open-code",
 	"opencode",
 	"cursor",
+	"autohand",
 ] as const;
 
 const SOURCE_OPTIONS = [
@@ -57,6 +58,7 @@ const SOURCE_OPTIONS = [
 	{ value: "open-code", label: "Open Code" },
 	{ value: "opencode", label: "OpenCode" },
 	{ value: "cursor", label: "Cursor" },
+	{ value: "autohand", label: "Autohand Code" },
 ] as const;
 
 function toUiLog(log: ApiLog): Partial<Log> {
@@ -157,6 +159,8 @@ function formatSourceLabel(source: string): string {
 			return "OpenCode";
 		case "cursor":
 			return "Cursor";
+		case "autohand":
+			return "Autohand Code";
 		case "chatbox":
 			return "Chatbox";
 		case "llmgateway.io/playground":
@@ -285,7 +289,9 @@ export function SessionsView({
 		},
 	);
 
-	const allLogs = data?.pages.flatMap((page) => page?.logs ?? []) ?? [];
+	const allLogs = (
+		data?.pages.flatMap((page) => page?.logs ?? []) ?? []
+	).filter((log) => !log.retriedByLogId);
 
 	// Only include logs from known integration sources
 	const integrationLogs = allLogs.filter(
@@ -336,13 +342,17 @@ export function SessionsView({
 								No sessions yet
 							</h3>
 							<p className="text-sm text-muted-foreground max-w-sm text-center mb-6">
-								Sessions appear when coding tools like Claude Code, OpenCode, or
-								Cursor make API requests through the gateway.
+								Sessions appear when coding tools like Claude Code, Autohand
+								Code, OpenCode, or Cursor make API requests through the gateway.
 							</p>
 							<div className="flex items-center gap-6 text-xs text-muted-foreground/60">
 								<div className="flex items-center gap-1.5">
 									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
 									Claude Code
+								</div>
+								<div className="flex items-center gap-1.5">
+									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+									Autohand Code
 								</div>
 								<div className="flex items-center gap-1.5">
 									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />

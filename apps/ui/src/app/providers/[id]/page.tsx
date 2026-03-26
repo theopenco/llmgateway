@@ -82,6 +82,19 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					jsonOutputSchema: map.jsonOutputSchema ?? null,
 					webSearch: map.webSearch ?? null,
 					webSearchPrice: map.webSearchPrice?.toString() ?? null,
+					supportedVideoSizes: map.supportedVideoSizes ?? null,
+					supportedVideoDurationsSeconds:
+						map.supportedVideoDurationsSeconds ?? null,
+					supportsVideoAudio: map.supportsVideoAudio ?? null,
+					supportsVideoWithoutAudio: map.supportsVideoWithoutAudio ?? null,
+					perSecondPrice: map.perSecondPrice
+						? Object.fromEntries(
+								Object.entries(map.perSecondPrice).map(([k, v]) => [
+									k,
+									v.toString(),
+								]),
+							)
+						: null,
 					discount: map.discount?.toString() ?? null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,

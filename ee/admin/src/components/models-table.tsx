@@ -45,6 +45,7 @@ type ModelSortBy =
 	| "status"
 	| "free"
 	| "logsCount"
+	| "totalCost"
 	| "errorsCount"
 	| "clientErrorsCount"
 	| "gatewayErrorsCount"
@@ -179,6 +180,9 @@ function ModelRow({
 					{formatNumber(model.logsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
+					${model.totalCost.toFixed(4)}
+				</TableCell>
+				<TableCell className="tabular-nums">
 					{formatNumber(model.errorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
@@ -233,7 +237,7 @@ function ModelRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={15} className="p-4">
+					<TableCell colSpan={16} className="p-4">
 						<HistoryChart
 							title={`${model.name !== model.id ? model.name : model.id} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -288,6 +292,7 @@ export function ModelsTable({
 					{sh("Free", "free")}
 					{sh("Providers", "providerCount")}
 					{sh("Requests", "logsCount")}
+					{sh("Cost", "totalCost")}
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
 					{sh("Gateway", "gatewayErrorsCount")}
@@ -303,7 +308,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={15}
+							colSpan={16}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found

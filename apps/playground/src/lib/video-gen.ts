@@ -8,7 +8,7 @@ export type VideoSize =
 	| "3840x2160"
 	| "2160x3840";
 
-export type VideoDuration = 4 | 6 | 8 | 10;
+export type VideoDuration = 4 | 6 | 8 | 10 | 12 | 15;
 
 export interface VideoInputImage {
 	dataUrl: string;
@@ -59,7 +59,7 @@ export interface VideoGalleryItem {
 
 export type VideoInputMode = "none" | "frames" | "reference";
 
-const VIDEO_DURATIONS: VideoDuration[] = [4, 6, 8, 10];
+const VIDEO_DURATIONS: VideoDuration[] = [4, 6, 8, 10, 12, 15];
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
 	"1280x720": "720p Landscape",
@@ -363,12 +363,29 @@ const TERMINAL_STATUSES = new Set([
 ]);
 
 const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_CONSECUTIVE_ERRORS = 10;
+const TRANSIENT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+
+function pollDelay(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise<void>((resolve, reject) => {
+		const timer = setTimeout(resolve, ms);
+		signal?.addEventListener(
+			"abort",
+			() => {
+				clearTimeout(timer);
+				reject(new DOMException("Aborted", "AbortError"));
+			},
+			{ once: true },
+		);
+	});
+}
 
 export async function* pollVideoJob(
 	videoId: string,
 	signal?: AbortSignal,
 ): AsyncGenerator<VideoJob> {
 	const startTime = Date.now();
+	let consecutiveErrors = 0;
 
 	while (true) {
 		if (signal?.aborted) {
@@ -394,13 +411,45 @@ export async function* pollVideoJob(
 			return;
 		}
 
-		const response = await fetch(`/api/video/${videoId}?_t=${Date.now()}`, {
-			signal,
-			cache: "no-store",
-		});
+		let response: Response;
+		try {
+			response = await fetch(`/api/video/${videoId}?_t=${Date.now()}`, {
+				signal,
+				cache: "no-store",
+			});
+		} catch (err) {
+			if (err instanceof DOMException && err.name === "AbortError") {
+				return;
+			}
+			consecutiveErrors++;
+			if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+				throw new Error(
+					`Poll failed after ${consecutiveErrors} consecutive network errors`,
+				);
+			}
+			await pollDelay(Math.min(consecutiveErrors * 2_000, 10_000), signal);
+			continue;
+		}
+
 		if (!response.ok) {
+			if (TRANSIENT_STATUS_CODES.has(response.status)) {
+				consecutiveErrors++;
+<<<<<<< HEAD
+				if (Date.now() - startTime > MAX_POLL_DURATION_MS) {
+=======
+				if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+>>>>>>> 2032f2c0 (feat: misc updates across apps)
+					throw new Error(
+						`Poll failed: ${response.status} (after ${consecutiveErrors} retries)`,
+					);
+				}
+				await pollDelay(Math.min(consecutiveErrors * 2_000, 10_000), signal);
+				continue;
+			}
 			throw new Error(`Poll failed: ${response.status}`);
 		}
+
+		consecutiveErrors = 0;
 
 		const job: VideoJob = await response.json();
 		yield job;
@@ -425,16 +474,6 @@ export async function* pollVideoJob(
 						? 5_000
 						: 10_000;
 
-		await new Promise<void>((resolve, reject) => {
-			const timer = setTimeout(resolve, delay);
-			signal?.addEventListener(
-				"abort",
-				() => {
-					clearTimeout(timer);
-					reject(new DOMException("Aborted", "AbortError"));
-				},
-				{ once: true },
-			);
-		});
+		await pollDelay(delay, signal);
 	}
 }

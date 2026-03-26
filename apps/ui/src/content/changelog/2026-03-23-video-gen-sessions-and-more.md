@@ -5,7 +5,7 @@ date: "2026-03-23"
 title: "Video Generation, Sessions & More"
 summary: "Generate videos via the API, track conversations with sessions, and more — plus new models and providers."
 image:
-  src: "/changelog/video-gen.png"
+  src: "/changelog/video-gen-update.png"
   alt: "Video generation and sessions now available on LLM Gateway"
   width: 1768
   height: 677

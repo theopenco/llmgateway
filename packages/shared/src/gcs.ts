@@ -11,7 +11,8 @@ export interface ParsedGcsUri {
 }
 
 function getStorageClient(): Storage {
-	storageClient ??= new Storage();
+	const projectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
+	storageClient ??= projectId ? new Storage({ projectId }) : new Storage();
 
 	return storageClient;
 }

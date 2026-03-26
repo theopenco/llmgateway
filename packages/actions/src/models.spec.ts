@@ -8,7 +8,10 @@ import {
 	type OpenAIRequestBody,
 } from "@llmgateway/models";
 
-import { getCheapestFromAvailableProviders } from "./get-cheapest-from-available-providers.js";
+import {
+	getCheapestFromAvailableProviders,
+	getProviderSelectionPrice,
+} from "./get-cheapest-from-available-providers.js";
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 
@@ -618,5 +621,15 @@ describe("getCheapestFromAvailableProviders", () => {
 		const testModel = models[0];
 		const result = getCheapestFromAvailableProviders([], testModel);
 		expect(result).toBe(null);
+	});
+
+	it("should prefer request pricing over zero token placeholders", () => {
+		expect(
+			getProviderSelectionPrice({
+				inputPrice: 0,
+				outputPrice: 0,
+				requestPrice: 0.03,
+			}),
+		).toBe(0.03);
 	});
 });
