@@ -354,7 +354,11 @@ export const SyntaxHighlightedPre = ({
 										<span className="table-cell">
 											{line.map((token, key) => {
 												const tokenProps = getTokenProps({ token });
-												if (diffColor) {
+												const isDiffMarkerToken =
+													key === 0 &&
+													(token.content.startsWith("+") ||
+														token.content.startsWith("-"));
+												if (diffColor && isDiffMarkerToken) {
 													tokenProps.style = {
 														...tokenProps.style,
 														color: diffColor,
