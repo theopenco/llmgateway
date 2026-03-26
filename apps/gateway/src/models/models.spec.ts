@@ -250,7 +250,7 @@ describe("Models API", () => {
 		}
 	});
 
-	test("GET /v1/models should only expose quartz for supported image preview models", async () => {
+	test("GET /v1/models should only expose quartz for supported models", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);
 
@@ -258,6 +258,7 @@ describe("Models API", () => {
 
 		for (const modelId of [
 			"gemini-3.1-flash-image-preview",
+			"gemini-3.1-pro-preview",
 			"gemini-3-pro-image-preview",
 		]) {
 			const model = json.data.find((item: any) => item.id === modelId);

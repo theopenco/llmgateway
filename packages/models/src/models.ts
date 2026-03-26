@@ -362,6 +362,7 @@ export interface ModelDefinition {
 
 const quartzSupportedModelIds = new Set([
 	"gemini-3.1-flash-image-preview",
+	"gemini-3.1-pro-preview",
 	"gemini-3-pro-image-preview",
 ]);
 
