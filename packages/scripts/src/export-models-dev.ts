@@ -200,6 +200,29 @@ function getModelFamily(model: ModelDefinition): string {
 	return familyMap[model.family] || model.family;
 }
 
+function isReasoningModel(model: ModelDefinition): boolean {
+	// Check if any provider explicitly has reasoning: true
+	if (model.providers.some((p) => p.reasoning === true)) {
+		return true;
+	}
+
+	// Check if any provider has "reasoning_effort" in supportedParameters
+	if (model.providers.some((p) => p.supportedParameters?.includes("reasoning_effort"))) {
+		return true;
+	}
+
+	// Infer from well-known reasoning model patterns
+	const id = model.id.toLowerCase();
+	const reasoningPatterns = [
+		/^o[134]-/, // o1-*, o3-*, o4-*
+		/^o[134]$/, // o1, o3, o4
+		/deepseek-r1/, // DeepSeek R1 variants
+		/(?<!non-)reasoning/, // models with "reasoning" but not "non-reasoning"
+	];
+
+	return reasoningPatterns.some((p) => p.test(id));
+}
+
 function generateModelToml(model: ModelDefinition): string | null {
 	// Get the first active provider mapping for pricing/capabilities
 	const now = new Date();
@@ -207,8 +230,11 @@ function generateModelToml(model: ModelDefinition): string | null {
 
 	if (!activeProvider) {return null;}
 
+	// Check vision across all providers (use first active as primary)
+	const hasVision = activeProvider.vision || model.providers.some((p) => p.vision === true);
+
 	const inputModalities: string[] = ["text"];
-	if (activeProvider.vision) {
+	if (hasVision) {
 		inputModalities.push("image");
 	}
 
@@ -229,6 +255,16 @@ function generateModelToml(model: ModelDefinition): string | null {
 		status = "beta";
 	}
 
+	// Determine reasoning across all providers
+	const reasoning = isReasoningModel(model);
+
+	// Check tools and structured output across all providers
+	const hasTools = activeProvider.tools === true || model.providers.some((p) => p.tools === true);
+	const hasStructuredOutput =
+		activeProvider.jsonOutputSchema === true ||
+		activeProvider.jsonOutput === true ||
+		model.providers.some((p) => p.jsonOutputSchema === true || p.jsonOutput === true);
+
 	// Calculate costs (convert from per-token to per-million-token)
 	const inputCost = (activeProvider.inputPrice ?? 0) * 1e6;
 	const outputCost = (activeProvider.outputPrice ?? 0) * 1e6;
@@ -239,11 +275,11 @@ function generateModelToml(model: ModelDefinition): string | null {
 		family: getModelFamily(model),
 		release_date: model.releasedAt ? formatDate(model.releasedAt) : "2024-01-01",
 		last_updated: model.releasedAt ? formatDate(model.releasedAt) : "2024-01-01",
-		attachment: activeProvider.vision ?? false,
-		reasoning: activeProvider.reasoning ?? false,
+		attachment: hasVision,
+		reasoning,
 		temperature: true,
-		tool_call: activeProvider.tools ?? false,
-		structured_output: activeProvider.jsonOutputSchema ?? activeProvider.jsonOutput ?? false,
+		tool_call: hasTools,
+		structured_output: hasStructuredOutput,
 		open_weights: isOpenWeights(model.id, model.family),
 		status,
 		cost: {
