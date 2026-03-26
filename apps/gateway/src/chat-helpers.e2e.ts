@@ -29,10 +29,64 @@ export const fullMode = process.env.FULL_MODE;
 export const logMode = process.env.LOG_MODE;
 
 // Parse TEST_MODELS environment variable
+// Supports optional region filter: "alibaba/deepseek-v3.2:cn-beijing"
 export const testModelsEnv = process.env.TEST_MODELS;
 export const specifiedModels = testModelsEnv
 	? testModelsEnv.split(",").map((m) => m.trim())
 	: null;
+
+interface ParsedTestModel {
+	providerId: string;
+	modelId: string;
+	region?: string;
+}
+
+function parseTestModel(spec: string): ParsedTestModel {
+	const [providerModel, region] = spec.split(":");
+	const [providerId, ...modelParts] = providerModel.split("/");
+	return {
+		providerId,
+		modelId: modelParts.join("/"),
+		region,
+	};
+}
+
+const parsedTestModels = specifiedModels?.map(parseTestModel) ?? null;
+
+/**
+ * Check if a provider/model/region matches any TEST_MODELS entry.
+ * "alibaba/model" matches all regions. "alibaba/model:cn-beijing" matches only that region.
+ */
+export function matchesTestModel(
+	providerId: string,
+	modelId: string,
+	region?: string,
+): boolean {
+	if (!parsedTestModels) {
+		return false;
+	}
+	return parsedTestModels.some(
+		(t) =>
+			t.providerId === providerId &&
+			t.modelId === modelId &&
+			(t.region === undefined || t.region === region),
+	);
+}
+
+/**
+ * Check if a model (any provider) matches any TEST_MODELS entry.
+ */
+function modelMatchesAnyTestModel(
+	modelId: string,
+	providers: ProviderModelMapping[],
+): boolean {
+	if (!parsedTestModels) {
+		return false;
+	}
+	return providers.some((p) =>
+		matchesTestModel(p.providerId, modelId, p.region),
+	);
+}
 
 // Parse TEST_PROVIDERS environment variable (filter by provider name)
 export const testProvidersEnv = process.env.TEST_PROVIDERS;
@@ -105,11 +159,9 @@ export const filteredModels = models
 			}
 		}
 		if (specifiedModels) {
-			const modelInTestModels = model.providers.some(
-				(provider: ProviderModelMapping) => {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					return specifiedModels.includes(providerModelId);
-				},
+			const modelInTestModels = modelMatchesAnyTestModel(
+				model.id,
+				model.providers as ProviderModelMapping[],
 			);
 			if (modelInTestModels) {
 				return true;
@@ -149,11 +201,9 @@ export const filteredModels = models
 			}
 		}
 		if (specifiedModels) {
-			const modelInTestModels = model.providers.some(
-				(provider: ProviderModelMapping) => {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					return specifiedModels.includes(providerModelId);
-				},
+			const modelInTestModels = modelMatchesAnyTestModel(
+				model.id,
+				model.providers as ProviderModelMapping[],
 			);
 			if (modelInTestModels) {
 				return true;
@@ -171,8 +221,7 @@ export const filteredModels = models
 			if (specifiedProviders) {
 				return specifiedProviders.includes(provider.providerId);
 			}
-			const providerModelId = `${provider.providerId}/${model.id}`;
-			return specifiedModels!.includes(providerModelId);
+			return matchesTestModel(provider.providerId, model.id, provider.region);
 		});
 	});
 
@@ -222,8 +271,9 @@ export const testModels = filteredModels
 						continue;
 					}
 				} else {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					if (!specifiedModels!.includes(providerModelId)) {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
 						continue;
 					}
 				}
@@ -248,8 +298,9 @@ export const testModels = filteredModels
 							continue;
 						}
 					} else if (specifiedModels) {
-						const providerModelId = `${provider.providerId}/${model.id}`;
-						if (!specifiedModels.includes(providerModelId)) {
+						if (
+							!matchesTestModel(provider.providerId, model.id, provider.region)
+						) {
 							continue;
 						}
 					} else {
@@ -308,8 +359,9 @@ export const providerModels = filteredModels
 						continue;
 					}
 				} else {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					if (!specifiedModels!.includes(providerModelId)) {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
 						continue;
 					}
 				}
