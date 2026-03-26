@@ -323,6 +323,7 @@ describe("api", () => {
 			expect(debugSpy).toHaveBeenCalledWith(
 				"gateway_content_filter",
 				expect.objectContaining({
+					durationMs: expect.any(Number),
 					mode: "openai",
 					requestId,
 					organizationId: "org-id",
@@ -426,6 +427,7 @@ describe("api", () => {
 			expect(errorSpy).toHaveBeenCalledWith(
 				"gateway_content_filter_error",
 				expect.objectContaining({
+					durationMs: expect.any(Number),
 					mode: "openai",
 					requestId,
 					organizationId: "org-id",

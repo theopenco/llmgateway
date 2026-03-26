@@ -234,6 +234,7 @@ export async function checkOpenAIContentFilter(
 	requestSignal?: AbortSignal,
 ): Promise<OpenAIContentFilterCheckResult> {
 	const providerEnv = getProviderEnv("openai");
+	const startTime = Date.now();
 	const requestBody = {
 		model: OPENAI_MODERATION_MODEL,
 		input: buildOpenAIContentFilterInput(messages),
@@ -260,6 +261,7 @@ export async function checkOpenAIContentFilter(
 		upstreamText = await upstreamResponse.text();
 	} catch (error) {
 		logModerationError(context, {
+			durationMs: Date.now() - startTime,
 			error: error instanceof Error ? error.message : String(error),
 			timeout: isTimeoutError(error),
 		});
@@ -279,6 +281,7 @@ export async function checkOpenAIContentFilter(
 	if (!upstreamResponse.ok) {
 		const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
 		logModerationError(context, {
+			durationMs: Date.now() - startTime,
 			status: upstreamResponse.status,
 			statusText: upstreamResponse.statusText,
 			upstreamRequestId,
@@ -292,6 +295,7 @@ export async function checkOpenAIContentFilter(
 	if (!moderationResponse) {
 		const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
 		logModerationError(context, {
+			durationMs: Date.now() - startTime,
 			status: upstreamResponse.status,
 			statusText: upstreamResponse.statusText,
 			upstreamRequestId,
@@ -307,6 +311,7 @@ export async function checkOpenAIContentFilter(
 	const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
 
 	logModerationResult(context, {
+		durationMs: Date.now() - startTime,
 		flagged,
 		model,
 		upstreamRequestId,
