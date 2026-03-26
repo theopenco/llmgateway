@@ -307,6 +307,12 @@ export function ModelSelector({
 												getProviderForModel(selectedModel, providers)
 											)?.name
 										}
+										{(() => {
+											const mapping = selectedModel.providers.find(
+												(p) => p.providerId === selectedProviderId,
+											);
+											return mapping?.region ? ` (${mapping.region})` : null;
+										})()}
 									</span>
 								)}
 							</div>
@@ -544,6 +550,11 @@ export function ModelSelector({
 															{!rootOnly && (
 																<span className="text-xs text-muted-foreground">
 																	{provider?.name}
+																	{mapping.region && (
+																		<span className="ml-1">
+																			({mapping.region})
+																		</span>
+																	)}
 																</span>
 															)}
 														</div>

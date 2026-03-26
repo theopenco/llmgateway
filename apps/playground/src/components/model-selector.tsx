@@ -1212,6 +1212,11 @@ export function ModelSelector({
 																	</div>
 																	<span className="text-xs text-muted-foreground truncate">
 																		{disabledReason ?? provider?.name}
+																		{!disabledReason && mapping?.region && (
+																			<span className="ml-1">
+																				({mapping.region})
+																			</span>
+																		)}
 																	</span>
 																</div>
 															</div>
@@ -1275,6 +1280,11 @@ export function ModelSelector({
 												<div className="text-xs text-muted-foreground truncate">
 													{previewEntry.provider?.name ??
 														"Auto-select provider"}
+													{previewEntry.mapping?.region && (
+														<span className="ml-1">
+															({previewEntry.mapping.region})
+														</span>
+													)}
 												</div>
 												<div className="text-[11px] text-muted-foreground capitalize truncate">
 													{previewEntry.model.family} family
@@ -1798,6 +1808,11 @@ export function ModelSelector({
 										</div>
 										<div className="text-sm text-muted-foreground font-normal">
 											{selectedDetails.provider?.name ?? "Auto-select provider"}
+											{selectedDetails.mapping?.region && (
+												<span className="ml-1">
+													({selectedDetails.mapping.region})
+												</span>
+											)}
 										</div>
 										<div className="text-xs text-muted-foreground font-normal capitalize">
 											{selectedDetails.model.family} family
