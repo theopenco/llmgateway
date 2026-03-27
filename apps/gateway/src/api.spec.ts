@@ -197,6 +197,42 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/images/edits accepts Gemini size and aspect ratio", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-edits",
+			token: "real-token-image-edits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-image-edits",
+			},
+			body: JSON.stringify({
+				model: "invalid-image-model",
+				prompt: "Make it cinematic",
+				images: [
+					{
+						image_url:
+							"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAJFBMVEX///////9MaXH///////////////////////////////////8ZR3RTAAAADHRSTlP+jgB78KRmvTse21aub7wnAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAc0lEQVR42l3PWRIDIQgE0G5Z1fvfN7hMKhO+5BWtgraqU933qWG1BkCg0jfkahcAyt4QQOiFKmJI+oWhezRwI0Zx1rzRZ44C7gRIMws8oKDFiT4QdHvBNMUL1LKu3KAnUu+fCWndp/98Xf6Xm1846+dZ/wNI2AJy5D7oXAAAAABJRU5ErkJggg==",
+					},
+				],
+				size: "4K",
+				aspect_ratio: "16:9",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+
+		const json = await res.json();
+		expect(JSON.stringify(json)).not.toContain("Invalid enum value");
+		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
+	});
+
 	test("Reasoning effort error for unsupported model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
