@@ -21,8 +21,8 @@ export function stripRegionFromModelName(
  * and can override pricing and other region-specific properties.
  *
  * Mappings without `regions` are returned as-is in a single-element array.
- * Mappings with `regions` do not keep a synthetic root entry because routing
- * always resolves to a concrete region-specific endpoint.
+ * Mappings with `regions` keep a synthetic root entry so consumers that expect
+ * a provider-level mapping can still render it alongside the concrete regions.
  */
 export function expandProviderRegions(
 	mapping: ProviderModelMapping,
@@ -43,7 +43,7 @@ export function expandProviderRegions(
 		modelName: `${base.modelName}:${id}`,
 	}));
 
-	return regionEntries;
+	return [base, ...regionEntries];
 }
 
 /**

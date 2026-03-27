@@ -172,12 +172,14 @@ export const deepseekModels = [
 				modelName: "deepseek-v3.2",
 				discount: 0.2,
 				inputPrice: 0.57 / 1e6,
+				cachedInputPrice: 0.114 / 1e6,
 				outputPrice: 1.71 / 1e6,
 				regions: [
 					{ id: "singapore" },
 					{
 						id: "cn-beijing",
 						inputPrice: 0.287 / 1e6,
+						cachedInputPrice: 0.0574 / 1e6,
 						outputPrice: 0.431 / 1e6,
 					},
 				],
