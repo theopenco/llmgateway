@@ -32,6 +32,7 @@ import {
 	getCheapestFromAvailableProviders,
 	getProviderEndpoint,
 	getProviderHeaders,
+	getProviderSelectionPrice,
 	prepareRequestBody,
 	type RoutingMetadata,
 } from "@llmgateway/actions";
@@ -159,6 +160,89 @@ function filterRegionsByAvailableKeys(
 			mapping.providerId as Provider,
 			mapping.region,
 		);
+	});
+}
+
+function resolveRegionFromProviderKey(
+	key: InferSelectModel<typeof tables.providerKey>,
+): string | undefined {
+	const providerDef = providers.find((p) => p.id === key.provider) as
+		| ProviderDefinition
+		| undefined;
+	if (!providerDef?.regionConfig) {
+		return undefined;
+	}
+	const regionKey = providerDef.regionConfig.optionsKey;
+	const explicitRegion = key.options
+		? (key.options as Record<string, string | undefined>)[regionKey]
+		: undefined;
+	return explicitRegion ?? providerDef.regionConfig.defaultRegion;
+}
+
+function filterEligibleModelProviders(
+	availableModelProviders: ProviderModelMapping[],
+	options: {
+		allProviderVariants: ProviderModelMapping[];
+		availableProviders?: string[];
+		providerLockedRegions?: Map<string, string>;
+		webSearchTool?: WebSearchTool;
+		responseFormatType?: string;
+		hasImages: boolean;
+		reasoningEffort?: string;
+	},
+): ProviderModelMapping[] {
+	return availableModelProviders.filter((provider) => {
+		if (
+			options.availableProviders &&
+			!options.availableProviders.includes(provider.providerId)
+		) {
+			return false;
+		}
+
+		const lockedRegion = options.providerLockedRegions?.get(
+			provider.providerId,
+		);
+		if (lockedRegion && provider.region && provider.region !== lockedRegion) {
+			return false;
+		}
+
+		if (options.webSearchTool && provider.webSearch !== true) {
+			return false;
+		}
+
+		if (
+			options.responseFormatType === "json_object" ||
+			options.responseFormatType === "json_schema"
+		) {
+			if (provider.jsonOutput !== true) {
+				return false;
+			}
+		}
+
+		if (
+			options.responseFormatType === "json_schema" &&
+			provider.jsonOutputSchema !== true
+		) {
+			return false;
+		}
+
+		if (options.hasImages && provider.vision !== true) {
+			return false;
+		}
+
+		if (options.reasoningEffort !== undefined) {
+			return provider.reasoning === true;
+		}
+
+		const hasNonReasoningAlternative = options.allProviderVariants.some(
+			(p) => p.providerId === provider.providerId && p.reasoning !== true,
+		);
+
+		if (hasNonReasoningAlternative && provider.reasoning === true) {
+			return false;
+		}
+
+		return true;
 	});
 }
 
@@ -1512,66 +1596,17 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
-			// Filter model providers to only those available
-			// If web search is requested, also filter to providers that support it
-			// If JSON output is requested, also filter to providers that support it
-			const availableModelProviders = iamFilteredModelProviders.filter(
-				(provider) => {
-					if (!availableProviders.includes(provider.providerId)) {
-						return false;
-					}
-					// If the user has a DB key with a locked region, only allow that region
-					const lockedRegion = providerLockedRegions.get(provider.providerId);
-					if (
-						lockedRegion &&
-						provider.region &&
-						provider.region !== lockedRegion
-					) {
-						return false;
-					}
-					// If web search tool is requested, only include providers that support it
-					if (webSearchTool) {
-						if (provider.webSearch !== true) {
-							return false;
-						}
-					}
-					// If JSON output is requested, only include providers that support it
-					if (
-						response_format?.type === "json_object" ||
-						response_format?.type === "json_schema"
-					) {
-						if (provider.jsonOutput !== true) {
-							return false;
-						}
-					}
-					// If JSON schema output is requested, also include providers that support it
-					if (response_format?.type === "json_schema") {
-						if (provider.jsonOutputSchema !== true) {
-							return false;
-						}
-					}
-					// If images are present in messages, only include providers that support vision
-					if (hasImages && provider.vision !== true) {
-						return false;
-					}
-					// If reasoning_effort is specified, only include providers with reasoning support
-					if (reasoning_effort !== undefined) {
-						if (provider.reasoning !== true) {
-							return false;
-						}
-					}
-					// If reasoning_effort is NOT specified, prefer non-reasoning providers
-					// by excluding reasoning providers when a non-reasoning alternative exists for same provider
-					if (reasoning_effort === undefined) {
-						const hasNonReasoningAlternative = modelInfo.providers.some(
-							(p) =>
-								p.providerId === provider.providerId && p.reasoning !== true,
-						);
-						if (hasNonReasoningAlternative && provider.reasoning === true) {
-							return false;
-						}
-					}
-					return true;
+			// Filter model providers to only those eligible for this request
+			const availableModelProviders = filterEligibleModelProviders(
+				iamFilteredModelProviders,
+				{
+					allProviderVariants: modelInfo.providers,
+					availableProviders,
+					providerLockedRegions,
+					webSearchTool,
+					responseFormatType: response_format?.type,
+					hasImages,
+					reasoningEffort: reasoning_effort,
 				},
 			);
 
@@ -1653,13 +1688,52 @@ chat.openapi(completions, async (c) => {
 			selectionReason = "fallback-first-available";
 		}
 
-		// Fetch metrics for all providers (including deactivated) to include in routing metadata
-		// This provides visibility into uptime/latency/throughput for all providers
+		let routingMetadataProviders = allModelProviders;
+
+		if (
+			selectionReason === "direct-provider-specified" &&
+			requestedProvider &&
+			requestedProvider !== "custom"
+		) {
+			let directRegion = usedRegion;
+			if (
+				!directRegion &&
+				(project.mode === "api-keys" || project.mode === "hybrid")
+			) {
+				const providerKey = await findProviderKey(
+					project.organizationId,
+					requestedProvider,
+					requestId,
+				);
+				directRegion = providerKey
+					? resolveRegionFromProviderKey(providerKey)
+					: undefined;
+			}
+
+			const selectedDirectProvider =
+				allModelProviders.find(
+					(provider) =>
+						provider.providerId === requestedProvider &&
+						provider.modelName === usedModel &&
+						provider.region === directRegion,
+				) ??
+				allModelProviders.find(
+					(provider) =>
+						provider.providerId === requestedProvider &&
+						provider.modelName === usedModel,
+				);
+
+			routingMetadataProviders = selectedDirectProvider
+				? [selectedDirectProvider]
+				: [];
+		}
+
+		// Fetch metrics for all eligible providers to include in routing metadata
 		const baseModelId = (modelInfo as ModelDefinition).id;
 		let metricsMap: Map<string, ProviderMetrics> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
-			const metricsCombinations = allModelProviders.map((p) => ({
+			const metricsCombinations = routingMetadataProviders.map((p) => ({
 				modelId: baseModelId,
 				providerId: p.providerId,
 				region: p.region,
@@ -1667,32 +1741,32 @@ chat.openapi(completions, async (c) => {
 			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
 
-		// Even when the provider/region was chosen directly, show the real weighted
-		// scores for all candidates so the routing debug view stays informative.
-		const weightedScores = getCheapestFromAvailableProviders(
-			allModelProviders,
-			modelInfo as ModelDefinition & {
-				id: string;
-				output?: string[];
-			},
-			{
-				metricsMap,
-				isStreaming: stream,
-			},
-		);
+		const weightedScores =
+			selectionReason === "direct-provider-specified"
+				? null
+				: getCheapestFromAvailableProviders(
+						routingMetadataProviders,
+						modelInfo as ModelDefinition & {
+							id: string;
+							output?: string[];
+						},
+						{
+							metricsMap,
+							isStreaming: stream,
+						},
+					);
 
 		const allProviderScores =
 			weightedScores?.metadata.providerScores ??
-			allModelProviders.map((p) => {
+			routingMetadataProviders.map((p) => {
 				const metrics = metricsMap.get(
 					metricsKey(baseModelId, p.providerId, p.region),
 				);
-				const price = (p.inputPrice ?? 0) + (p.outputPrice ?? 0);
 				return {
 					providerId: p.providerId,
 					region: p.region,
-					score: 0,
-					price,
+					score: selectionReason === "direct-provider-specified" ? 1 : 0,
+					price: getProviderSelectionPrice(p),
 					uptime: metrics?.uptime ?? 0,
 					latency: metrics?.averageLatency ?? 0,
 					throughput: metrics?.throughput ?? 0,
@@ -1700,7 +1774,7 @@ chat.openapi(completions, async (c) => {
 			});
 
 		routingMetadata = {
-			availableProviders: allModelProviders.map((p) => p.providerId),
+			availableProviders: routingMetadataProviders.map((p) => p.providerId),
 			selectedProvider: usedProvider,
 			selectionReason,
 			providerScores: allProviderScores,
@@ -1814,23 +1888,6 @@ chat.openapi(completions, async (c) => {
 			message:
 				"Custom providers are not supported in credits mode. Please change your project settings to API keys or hybrid mode.",
 		});
-	}
-
-	// Helper: resolve the locked region from a provider key's options
-	function resolveRegionFromProviderKey(
-		key: InferSelectModel<typeof tables.providerKey>,
-	): string | undefined {
-		const providerDef = providers.find((p) => p.id === key.provider) as
-			| ProviderDefinition
-			| undefined;
-		if (!providerDef?.regionConfig) {
-			return undefined;
-		}
-		const regionKey = providerDef.regionConfig.optionsKey;
-		const explicitRegion = key.options
-			? (key.options as Record<string, string | undefined>)[regionKey]
-			: undefined;
-		return explicitRegion ?? providerDef.regionConfig.defaultRegion;
 	}
 
 	if (project.mode === "api-keys") {

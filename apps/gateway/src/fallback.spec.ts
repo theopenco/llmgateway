@@ -788,7 +788,7 @@ describe("fallback and error status code handling", () => {
 	});
 
 	describe("routing metadata in DB log entries", () => {
-		test("direct provider selection still records weighted regional scores", async () => {
+		test("direct provider selection only records the direct region", async () => {
 			await setupKeys("alibaba");
 			await db
 				.update(tables.providerKey)
@@ -833,22 +833,16 @@ describe("fallback and error status code handling", () => {
 				(score) =>
 					score.providerId === "alibaba" && score.region === "cn-beijing",
 			);
-			const positiveAlibabaScores =
-				logs[0].routingMetadata?.providerScores?.filter(
-					(score) => score.providerId === "alibaba" && score.score > 0,
-				) ?? [];
-
 			expect(logs[0].routingMetadata?.selectionReason).toBe(
 				"direct-provider-specified",
 			);
 			expect(singaporeScore).toBeTruthy();
-			expect(beijingScore).toBeTruthy();
+			expect(beijingScore).toBeFalsy();
 			expect(
 				logs[0].routingMetadata?.providerScores?.some(
 					(score) => score.providerId === "alibaba" && !score.region,
 				),
 			).toBe(false);
-			expect(singaporeScore?.score).not.toBe(1);
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
@@ -858,7 +852,13 @@ describe("fallback and error status code handling", () => {
 					succeeded: true,
 				}),
 			]);
-			expect(positiveAlibabaScores.length).toBeGreaterThan(1);
+			expect(logs[0].routingMetadata?.providerScores).toEqual([
+				expect.objectContaining({
+					providerId: "alibaba",
+					region: "singapore",
+					score: 1,
+				}),
+			]);
 		});
 
 		test("successful request stores routing metadata with selection reason in DB log", async () => {
