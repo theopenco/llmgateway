@@ -68,6 +68,10 @@ interface ResolvedVideoProviderContext {
 	token: string;
 }
 
+function isGoogleVertexVideoProvider(providerId: string): boolean {
+	return providerId === "google-vertex";
+}
+
 function getDeterministicHash(seed: string): number {
 	let hash = 5381;
 
@@ -233,7 +237,7 @@ function getVideoProviderHeaders(
 	job: VideoJobRecord,
 	providerContext: ResolvedVideoProviderContext,
 ): Record<string, string> {
-	if (job.usedProvider === "google-vertex") {
+	if (isGoogleVertexVideoProvider(job.usedProvider)) {
 		return {};
 	}
 
@@ -1742,7 +1746,7 @@ async function fetchUpstreamStatus(
 			: await fetchAvalancheStatus(job, providerContext);
 	}
 
-	if (job.usedProvider === "google-vertex") {
+	if (isGoogleVertexVideoProvider(job.usedProvider)) {
 		return await fetchGoogleVertexStatus(job, providerContext);
 	}
 
@@ -1778,7 +1782,7 @@ async function fetchUpstreamContentMetadata(
 ): Promise<Record<string, unknown> | null> {
 	if (
 		job.usedProvider === "avalanche" ||
-		job.usedProvider === "google-vertex"
+		isGoogleVertexVideoProvider(job.usedProvider)
 	) {
 		return null;
 	}

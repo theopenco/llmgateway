@@ -116,6 +116,47 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
+#### Regions
+
+Some providers expose the same model in multiple regions. In that case, LLMGateway supports two routing modes:
+
+- `provider/model` selects the best eligible region for that provider using the same routing inputs used elsewhere: recent uptime, throughput, latency, and price
+- `provider/model:region` pins the request to one exact region
+
+```bash
+# Let LLMGateway choose the best Alibaba region for DeepSeek V3.2
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "alibaba/deepseek-v3.2",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# Force a specific Alibaba region
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "alibaba/deepseek-v3.2:cn-beijing",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+If your provider key stores an explicit region, that region acts like a lock and LLMGateway will only use that region for provider-specific requests. If no explicit region is configured on the provider key, provider-specific requests can still score all eligible regions for that provider.
+
+Routing metadata reflects this:
+
+- Dynamic provider-region selection shows all eligible regional scores that were considered
+- Explicitly pinned regions show only the pinned region in the score list
+
+<Callout type="info">
+	Region-aware routing only compares regions that are actually available for the
+	current project mode and provider setup. In credits mode, that means only
+	regions backed by configured environment keys. In API keys and hybrid mode, an
+	explicit provider-key region restricts the request to that region.
+</Callout>
+
 #### Low-Uptime Protection
 
 When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (last 5 minutes). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues.

@@ -430,11 +430,11 @@ describe("getCheapestModelForProvider", () => {
 				) {
 					// Calculate expected prices
 					const regularPrice =
-						(regularProvider.inputPrice + (regularProvider.outputPrice || 0)) /
+						(regularProvider.inputPrice + (regularProvider.outputPrice ?? 0)) /
 						2;
 					const discountPrice =
 						((discountProvider.inputPrice +
-							(discountProvider.outputPrice || 0)) /
+							(discountProvider.outputPrice ?? 0)) /
 							2) *
 						(discountProvider as ProviderModelMapping).discount!;
 

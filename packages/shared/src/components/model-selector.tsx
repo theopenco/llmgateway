@@ -134,11 +134,8 @@ function isModelUnstable(
 	mapping: ProviderModelMapping,
 	model: ModelDefinition,
 ): boolean {
-	const providerStability = mapping.stability;
-	const modelStability = model.stability;
-	const effectiveStability = providerStability ?? modelStability;
-	return (
-		effectiveStability === "unstable" || effectiveStability === "experimental"
+	return [mapping.stability, model.stability].some(
+		(stability) => stability === "unstable" || stability === "experimental",
 	);
 }
 
@@ -520,12 +517,11 @@ export function ModelSelector({
 						e.model.stability !== "experimental"
 					);
 				}
-				const providerStability = e.mapping?.stability;
-				const modelStability = e.model.stability;
-				const effectiveStability = providerStability ?? modelStability;
 				return (
-					effectiveStability !== "unstable" &&
-					effectiveStability !== "experimental"
+					e.mapping?.stability !== "unstable" &&
+					e.mapping?.stability !== "experimental" &&
+					e.model.stability !== "unstable" &&
+					e.model.stability !== "experimental"
 				);
 			});
 		}
@@ -557,7 +553,7 @@ export function ModelSelector({
 				const requestPrice = e.mapping.requestPrice ?? 0;
 				switch (filters.priceRange) {
 					case "free":
-						return price === 0 && requestPrice === 0;
+						return e.model.free === true && price === 0 && requestPrice === 0;
 					case "low":
 						return price > 0 && price <= 0.000001;
 					case "medium":

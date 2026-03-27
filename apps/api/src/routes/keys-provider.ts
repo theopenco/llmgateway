@@ -33,6 +33,9 @@ const providerKeySchema = z.object({
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
+			alibaba_region: z
+				.enum(["singapore", "us-virginia", "cn-beijing"])
+				.optional(),
 		})
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -60,6 +63,9 @@ const createProviderKeySchema = z.object({
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
+			alibaba_region: z
+				.enum(["singapore", "us-virginia", "cn-beijing"])
+				.optional(),
 		})
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),

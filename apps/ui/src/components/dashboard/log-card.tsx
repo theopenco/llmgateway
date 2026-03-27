@@ -353,11 +353,16 @@ export function LogCard({
 													<div className="space-y-1">
 														{log.routingMetadata.providerScores.map((score) => (
 															<div
-																key={score.providerId}
+																key={`${score.providerId}-${score.region ?? "default"}`}
 																className="flex justify-between items-center"
 															>
 																<span className="font-mono flex items-center gap-1.5">
 																	{score.providerId}
+																	{score.region && (
+																		<span className="text-muted-foreground">
+																			({score.region})
+																		</span>
+																	)}
 																	{score.failed && (
 																		<span className="inline-flex items-center gap-0.5 text-red-500">
 																			<AlertCircle className="h-3 w-3" />
@@ -372,7 +377,7 @@ export function LogCard({
 																		</span>
 																	)}
 																</span>
-																<span className="text-muted-foreground">
+																<span className="text-muted-foreground font-mono">
 																	{score.score.toFixed(2)}
 																	{score.uptime !== undefined && (
 																		<span className="ml-2">
@@ -391,7 +396,7 @@ export function LogCard({
 																	)}
 																	{score.price !== undefined && (
 																		<span className="ml-2">
-																			${score.price.toFixed(6)}
+																			${score.price.toFixed(10)}
 																		</span>
 																	)}
 																	{score.priority !== undefined &&
@@ -425,6 +430,11 @@ export function LogCard({
 																		<AlertCircle className="h-3 w-3" />
 																	)}
 																	{attempt.provider}/{attempt.model}
+																	{attempt.region && (
+																		<span className="text-muted-foreground">
+																			({attempt.region})
+																		</span>
+																	)}
 																</span>
 																<span>
 																	{attempt.status_code}{" "}

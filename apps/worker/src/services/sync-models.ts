@@ -8,9 +8,14 @@ import {
 	and,
 	sql,
 	isNotNull,
+	isNull,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { providers, models } from "@llmgateway/models";
+import {
+	providers,
+	models,
+	expandAllProviderRegions,
+} from "@llmgateway/models";
 
 export async function syncProvidersAndModels() {
 	logger.info("Starting providers and models sync...");
@@ -93,18 +98,24 @@ export async function syncProvidersAndModels() {
 				});
 
 			if (modelDef.providers && modelDef.providers.length > 0) {
-				for (const mapping of modelDef.providers) {
-					const mappings = await database
-						.select()
-						.from(modelProviderMapping)
-						.where(
-							and(
-								eq(modelProviderMapping.modelId, modelDef.id),
-								eq(modelProviderMapping.providerId, mapping.providerId),
-							),
-						)
-						.limit(1);
-					const existingMapping = mappings[0];
+				const expandedProviders = expandAllProviderRegions(modelDef.providers);
+				for (const mapping of expandedProviders) {
+					const mappingRegion = mapping.region;
+					const existingMapping = (
+						await database
+							.select()
+							.from(modelProviderMapping)
+							.where(
+								and(
+									eq(modelProviderMapping.modelId, modelDef.id),
+									eq(modelProviderMapping.providerId, mapping.providerId),
+									mappingRegion
+										? eq(modelProviderMapping.region, mappingRegion)
+										: isNull(modelProviderMapping.region),
+								),
+							)
+							.limit(1)
+					)[0];
 
 					if (existingMapping) {
 						// Use null (not undefined) for missing fields to ensure DB is updated
@@ -113,6 +124,7 @@ export async function syncProvidersAndModels() {
 							.update(modelProviderMapping)
 							.set({
 								modelName: mapping.modelName,
+								region: mappingRegion ?? null,
 								inputPrice:
 									"inputPrice" in mapping && mapping.inputPrice !== undefined
 										? mapping.inputPrice.toString()
@@ -197,6 +209,7 @@ export async function syncProvidersAndModels() {
 							modelId: modelDef.id,
 							providerId: mapping.providerId,
 							modelName: mapping.modelName,
+							region: mappingRegion ?? undefined,
 							inputPrice:
 								"inputPrice" in mapping && mapping.inputPrice !== undefined
 									? mapping.inputPrice.toString()
@@ -287,6 +300,11 @@ export async function updateTimingAverages() {
 
 	try {
 		const database = db;
+		const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
+		const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 1)`;
+		const usedRegionSql = sql<
+			string | null
+		>`nullif(split_part(${usedModelWithRegionSql}, ':', 2), '')`;
 
 		// Update provider averages
 		const providerAverages = await database
@@ -318,9 +336,7 @@ export async function updateTimingAverages() {
 		// Update model averages
 		const modelAverages = await database
 			.select({
-				modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as(
-					"modelId",
-				),
+				modelId: usedBaseModelSql.as("modelId"),
 				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
 					"avgTimeToFirstToken",
 				),
@@ -331,7 +347,7 @@ export async function updateTimingAverages() {
 			})
 			.from(log)
 			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
-			.groupBy(sql`split_part(${log.usedModel}, '/', 2)`);
+			.groupBy(usedBaseModelSql);
 
 		for (const avg of modelAverages) {
 			await database
@@ -347,10 +363,9 @@ export async function updateTimingAverages() {
 		// Update model-provider mapping averages
 		const mappingAverages = await database
 			.select({
-				modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as(
-					"modelId",
-				),
+				modelId: usedBaseModelSql.as("modelId"),
 				providerId: log.usedProvider,
+				region: usedRegionSql.as("region"),
 				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
 					"avgTimeToFirstToken",
 				),
@@ -361,7 +376,7 @@ export async function updateTimingAverages() {
 			})
 			.from(log)
 			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
-			.groupBy(sql`split_part(${log.usedModel}, '/', 2)`, log.usedProvider);
+			.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql);
 
 		for (const avg of mappingAverages) {
 			await database
@@ -375,6 +390,9 @@ export async function updateTimingAverages() {
 					and(
 						eq(modelProviderMapping.modelId, avg.modelId),
 						eq(modelProviderMapping.providerId, avg.providerId),
+						avg.region
+							? eq(modelProviderMapping.region, avg.region)
+							: isNull(modelProviderMapping.region),
 					),
 				);
 		}

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { db } from "./db.js";
 import { modelProviderMapping } from "./schema.js";
@@ -6,6 +6,7 @@ import { modelProviderMapping } from "./schema.js";
 export interface ProviderMetrics {
 	providerId: string;
 	modelId: string;
+	region?: string;
 	uptime?: number; // Percentage (0-100, undefined = no data)
 	averageLatency?: number; // Milliseconds (undefined = no data)
 	throughput?: number; // Tokens per second (undefined = no data)
@@ -13,11 +14,22 @@ export interface ProviderMetrics {
 }
 
 /**
+ * Build a metrics map key from modelId, providerId, and optional region.
+ */
+export function metricsKey(
+	modelId: string,
+	providerId: string,
+	region?: string | null,
+): string {
+	return `${modelId}:${providerId}:${region ?? ""}`;
+}
+
+/**
  * Fetches pre-computed routing metrics for all model-provider mappings.
  * Metrics are computed by the worker with time-tier weighting
  * (last 1 min = 10x, last 5 min = 3x, last hour = 1x).
  *
- * @returns Map of "modelId:providerId" to metrics
+ * @returns Map of "modelId:providerId:region" to metrics
  */
 export async function getProviderMetrics(): Promise<
 	Map<string, ProviderMetrics>
@@ -26,6 +38,7 @@ export async function getProviderMetrics(): Promise<
 		.select({
 			modelId: modelProviderMapping.modelId,
 			providerId: modelProviderMapping.providerId,
+			region: modelProviderMapping.region,
 			routingUptime: modelProviderMapping.routingUptime,
 			routingLatency: modelProviderMapping.routingLatency,
 			routingThroughput: modelProviderMapping.routingThroughput,
@@ -45,10 +58,11 @@ export async function getProviderMetrics(): Promise<
 			continue;
 		}
 
-		const key = `${row.modelId}:${row.providerId}`;
+		const key = metricsKey(row.modelId, row.providerId, row.region);
 		metricsMap.set(key, {
 			providerId: row.providerId,
 			modelId: row.modelId,
+			region: row.region ?? undefined,
 			uptime: row.routingUptime ?? undefined,
 			averageLatency: row.routingLatency ?? undefined,
 			throughput: row.routingThroughput ?? undefined,
@@ -66,11 +80,15 @@ export async function getProviderMetrics(): Promise<
  * Metrics are computed by the worker with time-tier weighting
  * (last 1 min = 10x, last 5 min = 3x, last hour = 1x).
  *
- * @param combinations - Array of {modelId, providerId} pairs to fetch metrics for
- * @returns Map of "modelId:providerId" to metrics
+ * @param combinations - Array of {modelId, providerId, region?} to fetch metrics for
+ * @returns Map of "modelId:providerId:region" to metrics
  */
 export async function getProviderMetricsForCombinations(
-	combinations: Array<{ modelId: string; providerId: string }>,
+	combinations: Array<{
+		modelId: string;
+		providerId: string;
+		region?: string;
+	}>,
 ): Promise<Map<string, ProviderMetrics>> {
 	if (combinations.length === 0) {
 		return new Map();
@@ -81,6 +99,9 @@ export async function getProviderMetricsForCombinations(
 		and(
 			sql`${modelProviderMapping.modelId} = ${combo.modelId}`,
 			sql`${modelProviderMapping.providerId} = ${combo.providerId}`,
+			combo.region
+				? sql`${modelProviderMapping.region} = ${combo.region}`
+				: isNull(modelProviderMapping.region),
 		),
 	);
 
@@ -88,6 +109,7 @@ export async function getProviderMetricsForCombinations(
 		.select({
 			modelId: modelProviderMapping.modelId,
 			providerId: modelProviderMapping.providerId,
+			region: modelProviderMapping.region,
 			routingUptime: modelProviderMapping.routingUptime,
 			routingLatency: modelProviderMapping.routingLatency,
 			routingThroughput: modelProviderMapping.routingThroughput,
@@ -112,10 +134,11 @@ export async function getProviderMetricsForCombinations(
 			continue;
 		}
 
-		const key = `${row.modelId}:${row.providerId}`;
+		const key = metricsKey(row.modelId, row.providerId, row.region);
 		metricsMap.set(key, {
 			providerId: row.providerId,
 			modelId: row.modelId,
+			region: row.region ?? undefined,
 			uptime: row.routingUptime ?? undefined,
 			averageLatency: row.routingLatency ?? undefined,
 			throughput: row.routingThroughput ?? undefined,

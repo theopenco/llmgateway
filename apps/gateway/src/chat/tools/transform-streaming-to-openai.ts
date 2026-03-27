@@ -302,6 +302,7 @@ export function transformStreamingToOpenai(
 
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian": {
 			const mapFinishReason = (
 				finishReason?: string,

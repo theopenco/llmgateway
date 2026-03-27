@@ -116,10 +116,16 @@ const logSchema = z.object({
 				.array(
 					z.object({
 						providerId: z.string(),
+						region: z.string().optional(),
 						score: z.number(),
 						uptime: z.number().optional(),
 						latency: z.number().optional(),
+						throughput: z.number().optional(),
 						price: z.number().optional(),
+						priority: z.number().optional(),
+						failed: z.boolean().optional(),
+						status_code: z.number().optional(),
+						error_type: z.string().optional(),
 					}),
 				)
 				.optional(),
@@ -128,6 +134,7 @@ const logSchema = z.object({
 					z.object({
 						provider: z.string(),
 						model: z.string(),
+						region: z.string().optional(),
 						status_code: z.number(),
 						error_type: z.string(),
 						succeeded: z.boolean(),

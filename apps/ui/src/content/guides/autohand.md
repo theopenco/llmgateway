@@ -63,7 +63,7 @@ You can use any model from the [models page](https://llmgateway.io/models). Popu
 | `o3`                | Advanced reasoning tasks                    |
 | `gpt-5-mini`        | Cost-effective, quick responses             |
 | `gemini-2.5-flash`  | Fast responses, good for high-volume        |
-| `deepseek-v3.1`     | Open-source with vision and tools           |
+| `deepseek-v3.1`     | Open-source with tool support               |
 
 ## Autohand Code Features with LLM Gateway
 

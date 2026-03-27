@@ -146,11 +146,8 @@ function isModelUnstable(
 	mapping: ApiModelProviderMapping,
 	model: ApiModel,
 ): boolean {
-	const providerStability = mapping.stability;
-	const modelStability = model.stability;
-	const effectiveStability = providerStability ?? modelStability;
-	return (
-		effectiveStability === "unstable" || effectiveStability === "experimental"
+	return [mapping.stability, model.stability].some(
+		(stability) => stability === "unstable" || stability === "experimental",
 	);
 }
 
@@ -460,17 +457,26 @@ export function ModelSelector({
 	});
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
 	const raw = value ?? "";
-	const [selectedProviderId, selectedModelId] = raw.includes("/")
+	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
+	// Strip :region suffix for root model lookup, keep raw for mapping match
+	const selectedModelId = selectedModelIdRaw.includes(":")
+		? selectedModelIdRaw.split(":")[0]
+		: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping = selectedModel?.mappings.find(
-		(p) => p.providerId === selectedProviderId,
-	);
+	const selectedMapping =
+		selectedModel?.mappings.find(
+			(p) =>
+				p.providerId === selectedProviderId &&
+				p.modelName === selectedModelIdRaw,
+		) ??
+		selectedModel?.mappings.find((p) => p.providerId === selectedProviderId);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
 			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
@@ -595,12 +601,11 @@ export function ModelSelector({
 						e.model.stability !== "experimental"
 					);
 				}
-				const providerStability = e.mapping?.stability;
-				const modelStability = e.model.stability;
-				const effectiveStability = providerStability ?? modelStability;
 				return (
-					effectiveStability !== "unstable" &&
-					effectiveStability !== "experimental"
+					e.mapping?.stability !== "unstable" &&
+					e.mapping?.stability !== "experimental" &&
+					e.model.stability !== "unstable" &&
+					e.model.stability !== "experimental"
 				);
 			});
 		}
@@ -636,7 +641,7 @@ export function ModelSelector({
 					: 0;
 				switch (filters.priceRange) {
 					case "free":
-						return price === 0 && requestPrice === 0;
+						return e.model.free === true && price === 0 && requestPrice === 0;
 					case "low":
 						return price > 0 && price <= 0.000001;
 					case "medium":
@@ -718,13 +723,16 @@ export function ModelSelector({
 		}
 
 		// Prefer provider-specific entry when a provider is selected
+		// Match on modelName to distinguish regional variants
 		let entry =
 			selectedProviderId &&
 			allEntries.find(
 				(e) =>
 					!e.isRoot &&
 					e.model.id === selectedModel.id &&
-					e.mapping?.providerId === selectedProviderId,
+					e.mapping?.providerId === selectedProviderId &&
+					(!selectedMapping ||
+						e.mapping?.modelName === selectedMapping.modelName),
 			);
 
 		// Fallback to root entry for the selected model
@@ -803,6 +811,9 @@ export function ModelSelector({
 													selectedProviderDef ??
 													getProviderForModel(selectedModel, providers)
 												)?.name}
+										{selectedMapping?.region && (
+											<span className="ml-1">({selectedMapping.region})</span>
+										)}
 									</span>
 								</div>
 							</div>
@@ -1138,7 +1149,7 @@ export function ModelSelector({
 													? getProviderIcon(provider.id)
 													: null;
 												const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
-												const providerModelValue = `${mapping!.providerId}/${model.id}`;
+												const providerModelValue = `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
 												const disabled =
 													isOptionDisabled?.(providerModelValue) ?? false;
 												const disabledReason =
@@ -1212,6 +1223,11 @@ export function ModelSelector({
 																	</div>
 																	<span className="text-xs text-muted-foreground truncate">
 																		{disabledReason ?? provider?.name}
+																		{!disabledReason && mapping?.region && (
+																			<span className="ml-1">
+																				({mapping.region})
+																			</span>
+																		)}
 																	</span>
 																</div>
 															</div>
@@ -1275,6 +1291,11 @@ export function ModelSelector({
 												<div className="text-xs text-muted-foreground truncate">
 													{previewEntry.provider?.name ??
 														"Auto-select provider"}
+													{previewEntry.mapping?.region && (
+														<span className="ml-1">
+															({previewEntry.mapping.region})
+														</span>
+													)}
 												</div>
 												<div className="text-[11px] text-muted-foreground capitalize truncate">
 													{previewEntry.model.family} family
@@ -1798,6 +1819,11 @@ export function ModelSelector({
 										</div>
 										<div className="text-sm text-muted-foreground font-normal">
 											{selectedDetails.provider?.name ?? "Auto-select provider"}
+											{selectedDetails.mapping?.region && (
+												<span className="ml-1">
+													({selectedDetails.mapping.region})
+												</span>
+											)}
 										</div>
 										<div className="text-xs text-muted-foreground font-normal capitalize">
 											{selectedDetails.model.family} family

@@ -154,10 +154,7 @@ export function ModelSearch({
 						providerName: provider?.name ?? String(mapping.providerId),
 						createdAt,
 						free:
-							(model.free ??
-								(mapping.inputPrice !== null &&
-									mapping.inputPrice !== undefined &&
-									parseFloat(mapping.inputPrice) === 0)) &&
+							model.free === true &&
 							(mapping.requestPrice === undefined ||
 								mapping.requestPrice === null ||
 								parseFloat(mapping.requestPrice) === 0),

@@ -250,6 +250,41 @@ describe("Models API", () => {
 		}
 	});
 
+	test("GET /v1/models should only expose quartz for supported models", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+
+		for (const modelId of [
+			"gemini-3.1-flash-image-preview",
+			"gemini-3.1-pro-preview",
+			"gemini-3-pro-image-preview",
+		]) {
+			const model = json.data.find((item: any) => item.id === modelId);
+			expect(model).toBeDefined();
+			expect(
+				model.providers.some(
+					(provider: any) => provider.providerId === "quartz",
+				),
+			).toBe(true);
+		}
+
+		for (const modelId of [
+			"gemini-2.5-flash-image-preview",
+			"veo-3.1-generate-preview",
+			"veo-3.1-fast-generate-preview",
+		]) {
+			const model = json.data.find((item: any) => item.id === modelId);
+			expect(model).toBeDefined();
+			expect(
+				model.providers.some(
+					(provider: any) => provider.providerId === "quartz",
+				),
+			).toBe(false);
+		}
+	});
+
 	test("GET /v1/models should include stability information for models", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);

@@ -5,9 +5,11 @@ import { getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
+	type ProviderModelMapping,
 	models,
 	type PricingTier,
 	type ToolCall,
+	expandAllProviderRegions,
 } from "@llmgateway/models";
 
 // Define ChatMessage type to match what gpt-tokenizer expects
@@ -102,11 +104,17 @@ export async function calculateCosts(
 	organizationId: string | null = null,
 ) {
 	// Find the model info - try both base model name and provider model name
-	let modelInfo = models.find((m) => m.id === model) as ModelDefinition;
+	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
+	const baseModel = model.includes(":") ? model.split(":")[0] : model;
+	let modelInfo = models.find(
+		(m) => m.id === model || m.id === baseModel,
+	) as ModelDefinition;
 
 	if (!modelInfo) {
 		modelInfo = models.find((m) =>
-			m.providers.some((p) => p.modelName === model),
+			m.providers.some(
+				(p) => p.modelName === model || p.modelName === baseModel,
+			),
 		) as ModelDefinition;
 	}
 
@@ -224,9 +232,18 @@ export async function calculateCosts(
 	calculatedCompletionTokens ??= 0;
 
 	// Find the provider-specific pricing
-	const providerInfo = modelInfo.providers.find(
-		(p) => p.providerId === provider,
+	// Expand region entries so we can match the specific region's pricing
+	const expandedProviders = expandAllProviderRegions(
+		modelInfo.providers as ProviderModelMapping[],
 	);
+	const providerInfo =
+		expandedProviders.find(
+			(p) => p.providerId === provider && p.modelName === model,
+		) ??
+		expandedProviders.find(
+			(p) => p.providerId === provider && p.modelName === baseModel,
+		) ??
+		expandedProviders.find((p) => p.providerId === provider);
 
 	if (!providerInfo) {
 		return {
@@ -328,6 +345,7 @@ export async function calculateCosts(
 	const isGoogleProvider =
 		provider === "google-ai-studio" ||
 		provider === "google-vertex" ||
+		provider === "quartz" ||
 		provider === "obsidian";
 	const totalOutputTokens = isGoogleProvider
 		? calculatedCompletionTokens
@@ -403,6 +421,7 @@ export async function calculateCosts(
 			imageInputTokens &&
 			(provider === "google-ai-studio" ||
 				provider === "google-vertex" ||
+				provider === "quartz" ||
 				provider === "obsidian")
 				? (calculatedPromptTokens || 0) + imageInputTokens
 				: calculatedPromptTokens,

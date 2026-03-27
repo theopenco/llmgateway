@@ -49,6 +49,7 @@ export function extractTokenUsage(
 	switch (provider) {
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian":
 			if (data.usageMetadata) {
 				promptTokens = data.usageMetadata.promptTokenCount ?? null;

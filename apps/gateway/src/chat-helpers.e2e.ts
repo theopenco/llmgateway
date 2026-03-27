@@ -10,6 +10,7 @@ import {
 	providers,
 	getConcurrentTestOptions,
 	getTestOptions,
+	expandAllProviderRegions,
 } from "@llmgateway/models";
 
 import {
@@ -28,10 +29,66 @@ export const fullMode = process.env.FULL_MODE;
 export const logMode = process.env.LOG_MODE;
 
 // Parse TEST_MODELS environment variable
+// Supports optional region filter: "alibaba/deepseek-v3.2:cn-beijing"
 export const testModelsEnv = process.env.TEST_MODELS;
 export const specifiedModels = testModelsEnv
 	? testModelsEnv.split(",").map((m) => m.trim())
 	: null;
+
+interface ParsedTestModel {
+	providerId: string;
+	modelId: string;
+	region?: string;
+}
+
+function parseTestModel(spec: string): ParsedTestModel {
+	const [providerModel, region] = spec.split(":");
+	const [providerId, ...modelParts] = providerModel.split("/");
+	return {
+		providerId,
+		modelId: modelParts.join("/"),
+		region,
+	};
+}
+
+const parsedTestModels = specifiedModels?.map(parseTestModel) ?? null;
+
+/**
+ * Check if a provider/model/region matches any TEST_MODELS entry.
+ * "alibaba/model" matches all regions. "alibaba/model:cn-beijing" matches only that region.
+ */
+export function matchesTestModel(
+	providerId: string,
+	modelId: string,
+	region?: string,
+): boolean {
+	if (!parsedTestModels) {
+		return false;
+	}
+	return parsedTestModels.some(
+		(t) =>
+			t.providerId === providerId &&
+			t.modelId === modelId &&
+			(t.region === undefined || t.region === region),
+	);
+}
+
+/**
+ * Check if a model (any provider) matches any TEST_MODELS entry.
+ */
+function modelMatchesAnyTestModel(
+	modelId: string,
+	providers: ProviderModelMapping[],
+): boolean {
+	if (!parsedTestModels) {
+		return false;
+	}
+	// Expand regions so "alibaba/model:cn-beijing" matches a nested region entry
+	const expanded = expandAllProviderRegions(providers);
+	return expanded.some((p) =>
+		matchesTestModel(p.providerId, modelId, p.region),
+	);
+}
 
 // Parse TEST_PROVIDERS environment variable (filter by provider name)
 export const testProvidersEnv = process.env.TEST_PROVIDERS;
@@ -104,11 +161,9 @@ export const filteredModels = models
 			}
 		}
 		if (specifiedModels) {
-			const modelInTestModels = model.providers.some(
-				(provider: ProviderModelMapping) => {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					return specifiedModels.includes(providerModelId);
-				},
+			const modelInTestModels = modelMatchesAnyTestModel(
+				model.id,
+				model.providers as ProviderModelMapping[],
 			);
 			if (modelInTestModels) {
 				return true;
@@ -148,11 +203,9 @@ export const filteredModels = models
 			}
 		}
 		if (specifiedModels) {
-			const modelInTestModels = model.providers.some(
-				(provider: ProviderModelMapping) => {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					return specifiedModels.includes(providerModelId);
-				},
+			const modelInTestModels = modelMatchesAnyTestModel(
+				model.id,
+				model.providers as ProviderModelMapping[],
 			);
 			if (modelInTestModels) {
 				return true;
@@ -166,12 +219,14 @@ export const filteredModels = models
 		if (!specifiedModels && !specifiedProviders) {
 			return true;
 		}
-		return model.providers.some((provider: ProviderModelMapping) => {
+		const expanded = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		return expanded.some((provider: ProviderModelMapping) => {
 			if (specifiedProviders) {
 				return specifiedProviders.includes(provider.providerId);
 			}
-			const providerModelId = `${provider.providerId}/${model.id}`;
-			return specifiedModels!.includes(providerModelId);
+			return matchesTestModel(provider.providerId, model.id, provider.region);
 		});
 	});
 
@@ -192,14 +247,18 @@ export const testModels = filteredModels
 			// test root model without a specific provider
 			testCases.push({
 				model: model.id,
-				providers: model.providers.filter(
-					(provider: ProviderModelMapping) => provider.test !== "skip",
-				),
+				providers: expandAllProviderRegions(
+					model.providers as ProviderModelMapping[],
+				).filter((provider: ProviderModelMapping) => provider.test !== "skip"),
 			});
 		}
 
 		// Create entries for provider-specific requests using provider/model format
-		for (const provider of model.providers as ProviderModelMapping[]) {
+		// Expand regions so each provider:region combo becomes a separate test case
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
 			// Skip deactivated provider mappings
 			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
 				continue;
@@ -217,8 +276,9 @@ export const testModels = filteredModels
 						continue;
 					}
 				} else {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					if (!specifiedModels!.includes(providerModelId)) {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
 						continue;
 					}
 				}
@@ -243,8 +303,9 @@ export const testModels = filteredModels
 							continue;
 						}
 					} else if (specifiedModels) {
-						const providerModelId = `${provider.providerId}/${model.id}`;
-						if (!specifiedModels.includes(providerModelId)) {
+						if (
+							!matchesTestModel(provider.providerId, model.id, provider.region)
+						) {
 							continue;
 						}
 					} else {
@@ -259,7 +320,7 @@ export const testModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${model.id}`,
+				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
 				providers: [provider],
 				originalModel: model.id, // Keep track of the original model for reference
 			});
@@ -281,7 +342,11 @@ export const providerModels = filteredModels
 	.flatMap((model) => {
 		const testCases = [];
 
-		for (const provider of model.providers as ProviderModelMapping[]) {
+		// Expand regions so each provider:region combo becomes a separate test case
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
 			// Skip deactivated provider mappings
 			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
 				continue;
@@ -299,8 +364,9 @@ export const providerModels = filteredModels
 						continue;
 					}
 				} else {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					if (!specifiedModels!.includes(providerModelId)) {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
 						continue;
 					}
 				}
@@ -330,7 +396,7 @@ export const providerModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${model.id}`,
+				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
 				provider,
 				originalModel: model.id, // Keep track of the original model for reference
 			});

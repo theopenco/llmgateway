@@ -103,3 +103,50 @@ export function validateProviderEnv(provider: Provider): string[] {
 
 	return errors;
 }
+
+/**
+ * Get a region-specific environment variable value.
+ * Checks for `{BASE_ENV_VAR}__{REGION}` first, then falls back to the base env var.
+ * Region is normalized to uppercase with hyphens replaced by underscores.
+ *
+ * Example: getRegionSpecificEnvValue("alibaba", "us-virginia")
+ *   → checks LLM_ALIBABA_API_KEY__US_VIRGINIA, then LLM_ALIBABA_API_KEY
+ */
+export function getRegionSpecificEnvValue(
+	provider: Provider,
+	region: string,
+): string | undefined {
+	const baseEnvVar = getProviderEnvVar(provider);
+	if (!baseEnvVar) {
+		return undefined;
+	}
+	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	return (
+		process.env[`${baseEnvVar}__${regionSuffix}`] ?? process.env[baseEnvVar]
+	);
+}
+
+/**
+ * Check whether an env var exists for a specific region.
+ * Returns true if a region-specific env var (`{BASE_ENV_VAR}__{REGION}`) exists,
+ * OR if the base env var exists and the queried region is the provider's default region.
+ */
+export function hasRegionSpecificEnvKey(
+	provider: Provider,
+	region: string,
+): boolean {
+	const baseEnvVar = getProviderEnvVar(provider);
+	if (!baseEnvVar) {
+		return false;
+	}
+	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	if (process.env[`${baseEnvVar}__${regionSuffix}`]) {
+		return true;
+	}
+	// The base key covers the provider's default region
+	const def = getProviderDefinition(provider);
+	if (def?.regionConfig?.defaultRegion === region && process.env[baseEnvVar]) {
+		return true;
+	}
+	return false;
+}

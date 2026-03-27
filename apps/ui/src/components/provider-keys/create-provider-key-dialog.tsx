@@ -60,6 +60,7 @@ export function CreateProviderKeyDialog({
 	>("ai-foundry");
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
+	const [selectedRegion, setSelectedRegion] = useState("");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -67,6 +68,13 @@ export function CreateProviderKeyDialog({
 	const queryClient = useQueryClient();
 
 	const createMutation = api.useMutation("post", "/keys/provider");
+
+	const selectedProviderDef = providers.find(
+		(p) => p.id === selectedProvider,
+	) as ProviderDefinition | undefined;
+
+	const effectiveRegion =
+		(selectedRegion || selectedProviderDef?.regionConfig?.defaultRegion) ?? "";
 
 	const availableProviders = providers.filter(
 		(provider) => provider.id !== "llmgateway",
@@ -126,13 +134,7 @@ export function CreateProviderKeyDialog({
 			token: string;
 			name?: string;
 			baseUrl?: string;
-			options?: {
-				aws_bedrock_region_prefix?: "us." | "global." | "eu.";
-				azure_resource?: string;
-				azure_api_version?: string;
-				azure_deployment_type?: "openai" | "ai-foundry";
-				azure_validation_model?: string;
-			};
+			options?: Record<string, string | undefined>;
 			organizationId: string;
 		} = {
 			provider: selectedProvider,
@@ -150,6 +152,14 @@ export function CreateProviderKeyDialog({
 				aws_bedrock_region_prefix: awsBedrockRegionPrefix,
 			};
 		}
+		// Include region in options for providers that support it
+		if (selectedProviderDef?.regionConfig && effectiveRegion) {
+			payload.options = {
+				...payload.options,
+				[selectedProviderDef.regionConfig.optionsKey]: effectiveRegion,
+			};
+		}
+
 		if (selectedProvider === "azure") {
 			if (!azureResource) {
 				toast({
@@ -186,6 +196,15 @@ export function CreateProviderKeyDialog({
 					void queryClient.invalidateQueries({ queryKey });
 					setOpen(false);
 				},
+				onError: () => {
+					setIsValidating(false);
+					toast({
+						title: "Validation Failed",
+						description:
+							"Failed to validate the API key. Please check your key and region.",
+						variant: "destructive",
+					});
+				},
 			},
 		);
 	};
@@ -202,6 +221,7 @@ export function CreateProviderKeyDialog({
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
+			setSelectedRegion("");
 		}, 300);
 	};
 
@@ -228,7 +248,10 @@ export function CreateProviderKeyDialog({
 					<div className="space-y-2">
 						<Label htmlFor="provider">Provider</Label>
 						<ProviderSelect
-							onValueChange={setSelectedProvider}
+							onValueChange={(value) => {
+								setSelectedProvider(value);
+								setSelectedRegion("");
+							}}
 							value={selectedProvider}
 							providers={availableProviders}
 							loading={false}
@@ -385,6 +408,28 @@ export function CreateProviderKeyDialog({
 								</p>
 							</div>
 						</>
+					)}
+
+					{selectedProviderDef?.regionConfig && (
+						<div className="space-y-2">
+							<Label htmlFor="provider-region">Region</Label>
+							<Select value={effectiveRegion} onValueChange={setSelectedRegion}>
+								<SelectTrigger id="provider-region">
+									<SelectValue placeholder="Select region" />
+								</SelectTrigger>
+								<SelectContent>
+									{selectedProviderDef.regionConfig.regions.map((r) => (
+										<SelectItem key={r.id} value={r.id}>
+											{r.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="text-sm text-muted-foreground">
+								API keys are region-specific. Make sure your key matches the
+								selected region.
+							</p>
+						</div>
 					)}
 
 					{selectedProvider === "custom" && (

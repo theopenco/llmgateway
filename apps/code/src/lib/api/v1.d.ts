@@ -964,14 +964,21 @@ export interface paths {
                                     selectionReason?: string;
                                     providerScores?: {
                                         providerId: string;
+                                        region?: string;
                                         score: number;
                                         uptime?: number;
                                         latency?: number;
+                                        throughput?: number;
                                         price?: number;
+                                        priority?: number;
+                                        failed?: boolean;
+                                        status_code?: number;
+                                        error_type?: string;
                                     }[];
                                     routing?: {
                                         provider: string;
                                         model: string;
+                                        region?: string;
                                         status_code: number;
                                         error_type: string;
                                         succeeded: boolean;
@@ -1176,14 +1183,21 @@ export interface paths {
                                     selectionReason?: string;
                                     providerScores?: {
                                         providerId: string;
+                                        region?: string;
                                         score: number;
                                         uptime?: number;
                                         latency?: number;
+                                        throughput?: number;
                                         price?: number;
+                                        priority?: number;
+                                        failed?: boolean;
+                                        status_code?: number;
+                                        error_type?: string;
                                     }[];
                                     routing?: {
                                         provider: string;
                                         model: string;
+                                        region?: string;
                                         status_code: number;
                                         error_type: string;
                                         succeeded: boolean;
@@ -2931,6 +2945,7 @@ export interface paths {
                                 id: string;
                                 modelId: string;
                                 modelName: string;
+                                region: string | null;
                                 providerId: string;
                                 providerName: string;
                                 status: string;
@@ -3672,6 +3687,8 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    /** @enum {string} */
+                                    alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -3707,6 +3724,8 @@ export interface paths {
                             /** @enum {string} */
                             azure_deployment_type?: "openai" | "ai-foundry";
                             azure_validation_model?: string;
+                            /** @enum {string} */
+                            alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                         };
                         organizationId: string;
                     };
@@ -3735,6 +3754,8 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    /** @enum {string} */
+                                    alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -3851,6 +3872,8 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    /** @enum {string} */
+                                    alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -6983,6 +7006,7 @@ export interface operations {
                                 modelId: string;
                                 providerId: string;
                                 modelName: string;
+                                region: string | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;
                                 cachedInputPrice: string | null;

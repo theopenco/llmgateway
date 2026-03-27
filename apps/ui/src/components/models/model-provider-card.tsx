@@ -136,6 +136,11 @@ export function ModelProviderCard({
 							<div className="flex items-center gap-2 mb-1">
 								<h3 className="font-semibold">
 									{provider.providerInfo?.name ?? provider.providerId}
+									{provider.region && (
+										<span className="text-muted-foreground text-sm font-normal ml-1">
+											({provider.region})
+										</span>
+									)}
 								</h3>
 								{shouldShowStabilityWarning(providerStability) && (
 									<AlertTriangle className="h-4 w-4 text-orange-500" />
@@ -497,25 +502,63 @@ export function ModelProviderCard({
 							</div>
 						</div>
 					)}
-					{provider.pricingTiers && provider.pricingTiers.length > 1 && (
-						<div className="mt-3 pt-3 border-t">
-							<div className="text-muted-foreground text-xs mb-2">
-								Tiered Pricing
-							</div>
-							<div className="space-y-2">
-								{provider.pricingTiers.map((tier, index) => (
-									<div
-										key={index}
-										className="flex justify-between items-center text-xs"
-									>
-										<span className="text-muted-foreground">
-											{tier.upToTokens === Infinity
-												? `>${(provider.pricingTiers![index - 1]?.upToTokens || 0) / 1000}K tokens`
-												: `≤${tier.upToTokens / 1000}K tokens`}
-										</span>
-										{provider.discount ? (
-											<span className="font-mono">
-												<span className="line-through text-muted-foreground">
+					{(() => {
+						const tiers = provider.pricingTiers;
+						if (!tiers || tiers.length <= 1) {
+							return null;
+						}
+						return (
+							<div className="mt-3 pt-3 border-t">
+								<div className="text-muted-foreground text-xs mb-2">
+									Tiered Pricing
+								</div>
+								<div className="space-y-2">
+									{tiers.map((tier, index) => (
+										<div
+											key={index}
+											className="flex justify-between items-center text-xs"
+										>
+											<span className="text-muted-foreground">
+												{tier.upToTokens === Infinity
+													? `>${(tiers[index - 1]?.upToTokens || 0) / 1000}K tokens`
+													: `≤${tier.upToTokens / 1000}K tokens`}
+											</span>
+											{provider.discount ? (
+												<span className="font-mono">
+													<span className="line-through text-muted-foreground">
+														{formatPrice(tier.inputPrice)} in /{" "}
+														{tier.cachedInputPrice !== null &&
+															tier.cachedInputPrice !== undefined && (
+																<>
+																	{formatPrice(tier.cachedInputPrice)} cached
+																	/{" "}
+																</>
+															)}
+														{formatPrice(tier.outputPrice)} out
+													</span>
+													<span className="text-green-600 font-semibold ml-2">
+														{formatPrice(
+															tier.inputPrice * (1 - provider.discount),
+														)}{" "}
+														in /{" "}
+														{tier.cachedInputPrice !== null &&
+															tier.cachedInputPrice !== undefined && (
+																<>
+																	{formatPrice(
+																		tier.cachedInputPrice *
+																			(1 - provider.discount),
+																	)}{" "}
+																	cached /{" "}
+																</>
+															)}
+														{formatPrice(
+															tier.outputPrice * (1 - provider.discount),
+														)}{" "}
+														out
+													</span>
+												</span>
+											) : (
+												<span className="font-mono">
 													{formatPrice(tier.inputPrice)} in /{" "}
 													{tier.cachedInputPrice !== null &&
 														tier.cachedInputPrice !== undefined && (
@@ -526,42 +569,13 @@ export function ModelProviderCard({
 														)}
 													{formatPrice(tier.outputPrice)} out
 												</span>
-												<span className="text-green-600 font-semibold ml-2">
-													{formatPrice(
-														tier.inputPrice * (1 - provider.discount),
-													)}{" "}
-													in /{" "}
-													{tier.cachedInputPrice !== null &&
-														tier.cachedInputPrice !== undefined && (
-															<>
-																{formatPrice(
-																	tier.cachedInputPrice *
-																		(1 - provider.discount),
-																)}{" "}
-																cached /{" "}
-															</>
-														)}
-													{formatPrice(
-														tier.outputPrice * (1 - provider.discount),
-													)}{" "}
-													out
-												</span>
-											</span>
-										) : (
-											<span className="font-mono">
-												{formatPrice(tier.inputPrice)} in /{" "}
-												{tier.cachedInputPrice !== null &&
-													tier.cachedInputPrice !== undefined && (
-														<>{formatPrice(tier.cachedInputPrice)} cached / </>
-													)}
-												{formatPrice(tier.outputPrice)} out
-											</span>
-										)}
-									</div>
-								))}
+											)}
+										</div>
+									))}
+								</div>
 							</div>
-						</div>
-					)}
+						);
+					})()}
 					{provider.perSecondPrice &&
 						Object.keys(provider.perSecondPrice).length > 0 && (
 							<div className="mt-3 pt-3 border-t">

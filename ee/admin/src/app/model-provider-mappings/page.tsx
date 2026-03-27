@@ -129,6 +129,15 @@ function MappingRow({ mapping }: { mapping: ModelProviderMappingEntry }) {
 				</div>
 			</TableCell>
 			<TableCell>
+				{mapping.region ? (
+					<span className="text-xs text-muted-foreground">
+						{mapping.region}
+					</span>
+				) : (
+					<span className="text-xs text-muted-foreground">—</span>
+				)}
+			</TableCell>
+			<TableCell>
 				<Badge variant={mapping.status === "active" ? "secondary" : "outline"}>
 					{mapping.status}
 				</Badge>
@@ -333,6 +342,7 @@ export default async function ModelProviderMappingsPage({
 						<TableRow>
 							{sh("Provider", "providerId")}
 							{sh("Model", "modelId")}
+							<TableHead>Region</TableHead>
 							<TableHead>Status</TableHead>
 							{sh("Requests", "logsCount")}
 							{sh("Errors", "errorsCount")}
@@ -350,7 +360,7 @@ export default async function ModelProviderMappingsPage({
 						{data.mappings.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={13}
+									colSpan={14}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No mappings found

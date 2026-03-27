@@ -426,6 +426,7 @@ export interface ProviderKeyOptions {
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
+	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
 }
 
 export const providerKey = pgTable(
@@ -534,6 +535,7 @@ export const log = pgTable(
 			selectionReason?: string;
 			providerScores?: Array<{
 				providerId: string;
+				region?: string;
 				score: number;
 				uptime?: number;
 				latency?: number;
@@ -550,6 +552,7 @@ export const log = pgTable(
 			routing?: Array<{
 				provider: string;
 				model: string;
+				region?: string;
 				status_code: number;
 				error_type: string;
 				succeeded: boolean;
@@ -682,6 +685,7 @@ export const videoJob = pgTable(
 			selectionReason?: string;
 			providerScores?: Array<{
 				providerId: string;
+				region?: string;
 				score: number;
 				uptime?: number;
 				latency?: number;
@@ -698,6 +702,7 @@ export const videoJob = pgTable(
 			routing?: Array<{
 				provider: string;
 				model: string;
+				region?: string;
 				status_code: number;
 				error_type: string;
 				succeeded: boolean;
@@ -981,6 +986,7 @@ export const modelProviderMapping = pgTable(
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
 		modelName: text().notNull(),
+		region: text(),
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
@@ -1030,7 +1036,7 @@ export const modelProviderMapping = pgTable(
 		statsUpdatedAt: timestamp(),
 	},
 	(table) => [
-		unique().on(table.modelId, table.providerId),
+		unique().on(table.modelId, table.providerId, table.region),
 		index("model_provider_mapping_status_idx").on(table.status),
 	],
 );

@@ -21,6 +21,7 @@ export function isExpectedUnknownFinishReason(
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "google-vertex" ||
+			provider === "quartz" ||
 			provider === "obsidian") &&
 		finishReason === "OTHER"
 	) {
@@ -76,6 +77,7 @@ export function getUnifiedFinishReason(
 			break;
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian":
 			// Google finish reasons (original format, not mapped to OpenAI)
 			if (finishReason === "STOP") {

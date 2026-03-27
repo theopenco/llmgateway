@@ -34,6 +34,7 @@ const modelProviderMappingSchema = z.object({
 	modelId: z.string(),
 	providerId: z.string(),
 	modelName: z.string(),
+	region: z.string().nullable(),
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
 	cachedInputPrice: z.string().nullable(),
