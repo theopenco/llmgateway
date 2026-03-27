@@ -1,12 +1,36 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UnifiedFinishReason } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
 	isExpectedUnknownFinishReason,
+	insertLog,
 } from "./logs.js";
+
+vi.mock("@llmgateway/cache", () => ({
+	LOG_QUEUE: "log-queue",
+	publishToQueue: vi.fn().mockResolvedValue(undefined),
+	redisClient: {
+		get: vi.fn(),
+		set: vi.fn(),
+		setex: vi.fn(),
+		del: vi.fn(),
+	},
+}));
+
+vi.mock("@llmgateway/instrumentation", () => ({
+	recordChatCompletionMetrics: vi.fn(),
+}));
+
+vi.mock("@llmgateway/logger", () => ({
+	logger: {
+		warn: vi.fn(),
+		error: vi.fn(),
+	},
+}));
 
 describe("getUnifiedFinishReason", () => {
 	it("maps OpenAI finish reasons correctly", () => {
@@ -182,5 +206,48 @@ describe("calculateDataStorageCost", () => {
 	it("handles string token values", () => {
 		const cost = calculateDataStorageCost("500000", "0", "500000", "0");
 		expect(cost).toBe("0.01");
+	});
+});
+
+describe("insertLog", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("warns when the provider response has no original finish reason", async () => {
+		await insertLog({
+			requestId: "req_missing_finish_reason",
+			usedProvider: "alibaba",
+			usedModel: "deepseek-v3.2",
+			finishReason: null,
+			canceled: false,
+			streamed: false,
+			hasError: false,
+		} as any);
+
+		expect(logger.warn).toHaveBeenCalledWith(
+			"Missing original finish reason from provider response",
+			expect.objectContaining({
+				requestId: "req_missing_finish_reason",
+				provider: "alibaba",
+				model: "deepseek-v3.2",
+				streamed: false,
+				hasError: false,
+			}),
+		);
+	});
+
+	it("does not warn when a finish reason is present", async () => {
+		await insertLog({
+			requestId: "req_with_finish_reason",
+			usedProvider: "openai",
+			usedModel: "gpt-5.4",
+			finishReason: "stop",
+			canceled: false,
+			streamed: false,
+			hasError: false,
+		} as any);
+
+		expect(logger.warn).not.toHaveBeenCalled();
 	});
 });

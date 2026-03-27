@@ -205,4 +205,25 @@ describe("parseProviderResponse", () => {
 			expect(result.cachedTokens).toBe(0);
 		});
 	});
+
+	describe("alibaba finish reason handling", () => {
+		it("returns null when Alibaba omits finish_reason in chat completions", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "deepseek-v3.2", json);
+
+			expect(result.finishReason).toBeNull();
+		});
+	});
 });

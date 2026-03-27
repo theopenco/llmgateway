@@ -189,6 +189,17 @@ export async function insertLog(logData: LogInsertData): Promise<unknown> {
 		if (logData.canceled) {
 			logData.unifiedFinishReason = UnifiedFinishReason.CANCELED;
 		} else {
+			if (!logData.finishReason) {
+				logger.warn("Missing original finish reason from provider response", {
+					requestId: logData.requestId,
+					provider: logData.usedProvider,
+					model: logData.usedModel,
+					streamed: logData.streamed,
+					hasError: logData.hasError,
+					errorDetails: logData.errorDetails,
+				});
+			}
+
 			logData.unifiedFinishReason = getUnifiedFinishReason(
 				logData.finishReason,
 				logData.usedProvider,
