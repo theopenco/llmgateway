@@ -7,6 +7,7 @@ import {
 	Wrench,
 	MessageSquare,
 	ImagePlus,
+	Video,
 	Braces,
 } from "lucide-react";
 import Link from "next/link";
@@ -400,6 +401,36 @@ export default async function ModelPage({ params }: PageProps) {
 									image output tokens
 								</div>
 							)}
+							{modelProviders.some(
+								(p) =>
+									p.perSecondPrice && Object.keys(p.perSecondPrice).length > 0,
+							) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										let minPrice: number | undefined;
+										for (const p of modelProviders) {
+											if (!p.perSecondPrice) {
+												continue;
+											}
+											for (const v of Object.values(p.perSecondPrice)) {
+												const n =
+													typeof v === "number" ? v : parseFloat(String(v));
+												if (
+													Number.isFinite(n) &&
+													(minPrice === undefined || n < minPrice)
+												) {
+													minPrice = n;
+												}
+											}
+										}
+										return minPrice !== undefined
+											? `$${minPrice}/sec`
+											: "Unknown";
+									})()}{" "}
+									video generation
+								</div>
+							)}
 						</div>
 
 						{/* Capabilities (using same icons as /models) */}
@@ -418,6 +449,9 @@ export default async function ModelPage({ params }: PageProps) {
 								const hasJsonOutput = modelProviders.some((p) => p.jsonOutput);
 								const hasImageGen = Array.isArray((modelDef as any)?.output)
 									? ((modelDef as any).output as string[]).includes("image")
+									: false;
+								const hasVideoGen = Array.isArray((modelDef as any)?.output)
+									? ((modelDef as any).output as string[]).includes("video")
 									: false;
 
 								if (hasStreaming) {
@@ -466,6 +500,14 @@ export default async function ModelPage({ params }: PageProps) {
 										icon: ImagePlus,
 										label: "Image Generation",
 										color: "text-pink-500",
+									});
+								}
+								if (hasVideoGen) {
+									items.push({
+										key: "video",
+										icon: Video,
+										label: "Video Generation",
+										color: "text-violet-500",
 									});
 								}
 
