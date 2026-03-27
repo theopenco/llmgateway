@@ -52,6 +52,8 @@ export const metaModels = [
 			{
 				providerId: "together.ai",
 				modelName: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+				// Retired from Together.ai serverless API
+				deactivatedAt: new Date("2026-03-27"),
 				inputPrice: 0.06 / 1e6,
 				outputPrice: 0.06 / 1e6,
 				requestPrice: 0,

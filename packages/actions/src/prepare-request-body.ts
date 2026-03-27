@@ -788,7 +788,13 @@ export async function prepareRequestBody(
 	}
 
 	if (tool_choice) {
-		requestBody.tool_choice = tool_choice;
+		const mapping = modelDef?.providers.find(
+			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+		) as ProviderModelMapping | undefined;
+		const supported = mapping?.supportedParameters;
+		const supportsToolChoice =
+			!supported || supported.length === 0 || supported.includes("tool_choice");
+		requestBody.tool_choice = supportsToolChoice ? tool_choice : "auto";
 	}
 
 	const forcesToolUse =

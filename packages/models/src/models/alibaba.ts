@@ -810,6 +810,8 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: ["tools"],
 			},
 			{
 				providerId: "novita",
@@ -824,6 +826,8 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: ["tools"],
 			},
 		],
 	},
@@ -947,6 +951,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Embercloud bug: tool_choice other than "auto" breaks streaming tool calls for this model
 				supportedParameters: [
 					"messages",
 					"model",
@@ -960,7 +965,6 @@ export const alibabaModels = [
 					"stop",
 					"response_format",
 					"tools",
-					"tool_choice",
 					"parallel_tool_calls",
 				],
 			},
@@ -1113,6 +1117,8 @@ export const alibabaModels = [
 				webSearch: true,
 				webSearchPrice: 0.01,
 				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: ["tools"],
 			},
 			{
 				providerId: "novita",
@@ -1127,6 +1133,8 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: ["tools"],
 			},
 		],
 	},

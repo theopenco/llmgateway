@@ -145,6 +145,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Embercloud bug: tool_choice other than "auto" breaks streaming tool calls for this model
 				supportedParameters: [
 					"messages",
 					"model",
@@ -160,7 +161,6 @@ export const zaiModels = [
 					"logprobs",
 					"top_logprobs",
 					"tools",
-					"tool_choice",
 					"parallel_tool_calls",
 				],
 			},
