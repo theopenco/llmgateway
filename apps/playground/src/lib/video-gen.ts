@@ -434,11 +434,6 @@ export async function* pollVideoJob(
 		if (!response.ok) {
 			if (TRANSIENT_STATUS_CODES.has(response.status)) {
 				consecutiveErrors++;
-				if (Date.now() - startTime > MAX_POLL_DURATION_MS) {
-					throw new Error(
-						`Poll failed: ${response.status} (after ${consecutiveErrors} retries)`,
-					);
-				}
 				if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
 					throw new Error(
 						`Poll failed: ${response.status} (after ${consecutiveErrors} retries)`,
