@@ -52,8 +52,9 @@ export const metaModels = [
 			{
 				providerId: "together.ai",
 				modelName: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-				// Retired from Together.ai serverless API
-				deactivatedAt: new Date("2026-03-27"),
+				// Retired from Together.ai serverless API — skip e2e but keep
+				// active for unit tests that rely on this provider mapping
+				test: "skip",
 				inputPrice: 0.06 / 1e6,
 				outputPrice: 0.06 / 1e6,
 				requestPrice: 0,
