@@ -787,6 +787,9 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// Resolve tool_choice: fall back to "auto" when the provider mapping
+	// explicitly lists supportedParameters but omits "tool_choice".
+	let resolvedToolChoice = tool_choice;
 	if (tool_choice) {
 		const mapping = modelDef?.providers.find(
 			(p) => p.modelName === usedModel && p.providerId === usedProvider,
@@ -794,7 +797,8 @@ export async function prepareRequestBody(
 		const supported = mapping?.supportedParameters;
 		const supportsToolChoice =
 			!supported || supported.length === 0 || supported.includes("tool_choice");
-		requestBody.tool_choice = supportsToolChoice ? tool_choice : "auto";
+		resolvedToolChoice = supportsToolChoice ? tool_choice : "auto";
+		requestBody.tool_choice = resolvedToolChoice;
 	}
 
 	const forcesToolUse =
@@ -905,8 +909,8 @@ export async function prepareRequestBody(
 					}
 					responsesBody.tools.push(webSearch);
 				}
-				if (tool_choice) {
-					responsesBody.tool_choice = tool_choice;
+				if (resolvedToolChoice) {
+					responsesBody.tool_choice = resolvedToolChoice;
 				}
 
 				// Add optional parameters if they are provided
