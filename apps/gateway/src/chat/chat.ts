@@ -885,15 +885,26 @@ chat.openapi(completions, async (c) => {
 		openAIContentFilterResult?.flagged === true;
 	const contentFilterBlocked =
 		contentFilterMode === "enabled" && contentFilterMatched;
+	const gatewayContentFilter = {
+		mode: contentFilterMode,
+		method: contentFilterMethod,
+	} as const;
 
 	// In monitor mode, tag logs with internalContentFilter when the selected
 	// filter method would have blocked the request.
 	const shouldTagContentFilter =
 		contentFilterMode === "monitor" && contentFilterMatched;
-	const insertLog = shouldTagContentFilter
-		? (logData: Parameters<typeof _insertLog>[0]) =>
-				_insertLog({ ...logData, internalContentFilter: true })
-		: _insertLog;
+	const insertLog = (logData: Parameters<typeof _insertLog>[0]) =>
+		_insertLog({
+			...logData,
+			params: {
+				...(logData.params ?? {}),
+				gateway_content_filter: gatewayContentFilter,
+			},
+			internalContentFilter: shouldTagContentFilter
+				? true
+				: logData.internalContentFilter,
+		});
 
 	if (contentFilterBlocked) {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;

@@ -519,6 +519,14 @@ describe("api", () => {
 			expect(blockedLog).toBeTruthy();
 			expect(blockedLog?.finishReason).toBe("llmgateway_content_filter");
 			expect(blockedLog?.unifiedFinishReason).toBe("content_filter");
+			expect(blockedLog?.params).toEqual(
+				expect.objectContaining({
+					gateway_content_filter: {
+						mode: "enabled",
+						method: "openai",
+					},
+				}),
+			);
 		} finally {
 			fetchSpy.mockRestore();
 			debugSpy.mockRestore();
@@ -646,6 +654,14 @@ describe("api", () => {
 			expect(completedLog).toBeTruthy();
 			expect(completedLog?.finishReason).toBe("stop");
 			expect(completedLog?.internalContentFilter).toBe(true);
+			expect(completedLog?.params).toEqual(
+				expect.objectContaining({
+					gateway_content_filter: {
+						mode: "monitor",
+						method: "openai",
+					},
+				}),
+			);
 		} finally {
 			fetchSpy.mockRestore();
 			debugSpy.mockRestore();
@@ -754,6 +770,14 @@ describe("api", () => {
 
 			expect(completedLog).toBeTruthy();
 			expect(completedLog?.finishReason).toBe("stop");
+			expect(completedLog?.params).toEqual(
+				expect.objectContaining({
+					gateway_content_filter: {
+						mode: "enabled",
+						method: "openai",
+					},
+				}),
+			);
 		} finally {
 			fetchSpy.mockRestore();
 			errorSpy.mockRestore();

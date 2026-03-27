@@ -571,6 +571,10 @@ export const log = pgTable(
 				aspect_ratio?: string;
 				image_size?: string;
 			};
+			gateway_content_filter?: {
+				mode?: "disabled" | "monitor" | "enabled";
+				method?: "keywords" | "openai";
+			};
 		}>(),
 		userAgent: text(),
 		plugins: json().$type<string[]>(),
