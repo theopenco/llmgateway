@@ -84,7 +84,7 @@ export function ReplyForm({
 
 		setSending(true);
 		try {
-			const { data, error, response } = await fetchClient.POST(
+			const { data, error } = await fetchClient.POST(
 				"/admin/contact-submissions/{id}/reply",
 				{
 					params: { path: { id: submissionId } },
@@ -96,7 +96,7 @@ export function ReplyForm({
 				const msg =
 					typeof error === "object" && "message" in error
 						? (error as { message: string }).message
-						: `Request failed (${response.status})`;
+						: "Failed to send reply";
 				toast.error(msg);
 				return;
 			}
