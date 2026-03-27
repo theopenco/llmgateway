@@ -179,6 +179,21 @@ function resolveRegionFromProviderKey(
 	return explicitRegion ?? providerDef.regionConfig.defaultRegion;
 }
 
+function resolveExplicitRegionFromProviderKey(
+	key: InferSelectModel<typeof tables.providerKey>,
+): string | undefined {
+	const providerDef = providers.find((p) => p.id === key.provider) as
+		| ProviderDefinition
+		| undefined;
+	if (!providerDef?.regionConfig) {
+		return undefined;
+	}
+	const regionKey = providerDef.regionConfig.optionsKey;
+	return key.options
+		? (key.options as Record<string, string | undefined>)[regionKey]
+		: undefined;
+}
+
 function filterEligibleModelProviders(
 	availableModelProviders: ProviderModelMapping[],
 	options: {
@@ -1328,6 +1343,95 @@ chat.openapi(completions, async (c) => {
 		usedModel = "custom";
 	}
 
+	// When a specific provider is requested and it has multiple mappings (for example,
+	// regional variants), pick the best eligible mapping up front so the request and
+	// any low-uptime fallback logic operate on the concrete provider-region pair.
+	if (
+		usedProvider &&
+		usedProvider !== "llmgateway" &&
+		usedProvider !== "custom"
+	) {
+		const sameProviderMappings = modelInfo.providers.filter(
+			(p) => p.providerId === usedProvider,
+		);
+
+		if (sameProviderMappings.length > 1) {
+			let lockedRegion = usedRegion;
+
+			if (
+				!lockedRegion &&
+				(project.mode === "api-keys" || project.mode === "hybrid")
+			) {
+				const providerKey = await findProviderKey(
+					project.organizationId,
+					usedProvider,
+					requestId,
+				);
+				lockedRegion = providerKey
+					? resolveExplicitRegionFromProviderKey(providerKey)
+					: undefined;
+			}
+
+			const providerLockedRegions = lockedRegion
+				? new Map([[usedProvider, lockedRegion]])
+				: undefined;
+			const eligibleMappings = filterEligibleModelProviders(
+				sameProviderMappings,
+				{
+					allProviderVariants: modelInfo.providers,
+					providerLockedRegions,
+					webSearchTool,
+					responseFormatType: response_format?.type,
+					hasImages,
+					reasoningEffort: reasoning_effort,
+				},
+			);
+
+			if (eligibleMappings.length > 0) {
+				let selectedMapping = eligibleMappings[0];
+
+				if (eligibleMappings.length > 1) {
+					const metricsCombinations = eligibleMappings.map((provider) => ({
+						modelId: modelInfo.id,
+						providerId: provider.providerId,
+						region: provider.region,
+					}));
+					const metricsMap =
+						await getProviderMetricsForCombinations(metricsCombinations);
+					const bestRegionResult = getCheapestFromAvailableProviders(
+						eligibleMappings,
+						modelInfo as ModelDefinition & {
+							id: string;
+							output?: string[];
+						},
+						{
+							metricsMap,
+							isStreaming: stream,
+						},
+					);
+
+					selectedMapping = bestRegionResult?.provider ?? eligibleMappings[0];
+				}
+
+				usedModel = selectedMapping.modelName;
+				usedRegion = selectedMapping.region;
+			}
+		} else if (sameProviderMappings.length === 1) {
+			usedModel = sameProviderMappings[0].modelName;
+			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
+		}
+
+		if (!usedRegion) {
+			const firstRegionalMatch = sameProviderMappings.find(
+				(p) => (p as ProviderModelMapping).region,
+			) as ProviderModelMapping | undefined;
+			if (firstRegionalMatch) {
+				usedRegion = firstRegionalMatch.region;
+				usedModel = firstRegionalMatch.modelName;
+			}
+		}
+	}
+
 	// Check uptime for specifically requested providers (not llmgateway or custom)
 	// If uptime is below 80%, route to an alternative provider instead
 	// Skip this fallback if X-No-Fallback header is set
@@ -1506,51 +1610,6 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// For models with multiple provider mappings for the same provider (e.g., routing models
-	// like grok-4-fast with reasoning and non-reasoning variants, or regional variants),
-	// select the correct variant based on request capabilities when a specific provider is already set
-	if (
-		usedProvider &&
-		usedProvider !== "llmgateway" &&
-		usedProvider !== "custom"
-	) {
-		const sameProviderMappings = modelInfo.providers.filter(
-			(p) => p.providerId === usedProvider,
-		);
-		if (sameProviderMappings.length > 1) {
-			let selectedMapping: ProviderModelMapping | undefined;
-			if (reasoning_effort !== undefined) {
-				selectedMapping = sameProviderMappings.find(
-					(p) => (p as ProviderModelMapping).reasoning === true,
-				) as ProviderModelMapping | undefined;
-			} else {
-				selectedMapping = sameProviderMappings.find(
-					(p) => (p as ProviderModelMapping).reasoning !== true,
-				) as ProviderModelMapping | undefined;
-			}
-			if (selectedMapping) {
-				usedModel = selectedMapping.modelName;
-				usedRegion ??= selectedMapping.region;
-			}
-		} else if (sameProviderMappings.length === 1) {
-			// Single matching entry — use its modelName (may include :region suffix)
-			usedModel = sameProviderMappings[0].modelName;
-			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
-		}
-		// If region still unset, derive it from the first regional entry.
-		// This handles the case where the user selects "Alibaba Cloud" (no region)
-		// for a model that only exists in specific regions (e.g., cn-beijing only).
-		if (!usedRegion) {
-			const firstRegionalMatch = sameProviderMappings.find(
-				(p) => (p as ProviderModelMapping).region,
-			) as ProviderModelMapping | undefined;
-			if (firstRegionalMatch) {
-				usedRegion = firstRegionalMatch.region;
-				usedModel = firstRegionalMatch.modelName;
-			}
-		}
-	}
-
 	if (!usedProvider) {
 		if (iamFilteredModelProviders.length === 0) {
 			throw new HTTPException(403, {
@@ -1689,15 +1748,16 @@ chat.openapi(completions, async (c) => {
 		}
 
 		let routingMetadataProviders = allModelProviders;
+		let directProviderRegionWasExplicit = false;
 
 		if (
 			selectionReason === "direct-provider-specified" &&
 			requestedProvider &&
 			requestedProvider !== "custom"
 		) {
-			let directRegion = usedRegion;
+			let explicitDirectRegion = requestedRegion;
 			if (
-				!directRegion &&
+				!explicitDirectRegion &&
 				(project.mode === "api-keys" || project.mode === "hybrid")
 			) {
 				const providerKey = await findProviderKey(
@@ -1705,27 +1765,44 @@ chat.openapi(completions, async (c) => {
 					requestedProvider,
 					requestId,
 				);
-				directRegion = providerKey
-					? resolveRegionFromProviderKey(providerKey)
+				explicitDirectRegion = providerKey
+					? resolveExplicitRegionFromProviderKey(providerKey)
 					: undefined;
 			}
 
-			const selectedDirectProvider =
-				allModelProviders.find(
-					(provider) =>
-						provider.providerId === requestedProvider &&
-						provider.modelName === usedModel &&
-						provider.region === directRegion,
-				) ??
-				allModelProviders.find(
-					(provider) =>
-						provider.providerId === requestedProvider &&
-						provider.modelName === usedModel,
-				);
+			directProviderRegionWasExplicit = Boolean(explicitDirectRegion);
+			const providerLockedRegions = explicitDirectRegion
+				? new Map([[requestedProvider, explicitDirectRegion]])
+				: undefined;
+			routingMetadataProviders = filterEligibleModelProviders(
+				allModelProviders.filter(
+					(provider) => provider.providerId === requestedProvider,
+				),
+				{
+					allProviderVariants: modelInfo.providers,
+					providerLockedRegions,
+					webSearchTool,
+					responseFormatType: response_format?.type,
+					hasImages,
+					reasoningEffort: reasoning_effort,
+				},
+			);
 
-			routingMetadataProviders = selectedDirectProvider
-				? [selectedDirectProvider]
-				: [];
+			if (directProviderRegionWasExplicit) {
+				const selectedDirectProvider =
+					routingMetadataProviders.find(
+						(provider) =>
+							provider.modelName === usedModel &&
+							provider.region === usedRegion,
+					) ??
+					routingMetadataProviders.find(
+						(provider) => provider.modelName === usedModel,
+					);
+
+				routingMetadataProviders = selectedDirectProvider
+					? [selectedDirectProvider]
+					: [];
+			}
 		}
 
 		// Fetch metrics for all eligible providers to include in routing metadata
@@ -1742,7 +1819,8 @@ chat.openapi(completions, async (c) => {
 		}
 
 		const weightedScores =
-			selectionReason === "direct-provider-specified"
+			selectionReason === "direct-provider-specified" &&
+			directProviderRegionWasExplicit
 				? null
 				: getCheapestFromAvailableProviders(
 						routingMetadataProviders,
@@ -1765,7 +1843,11 @@ chat.openapi(completions, async (c) => {
 				return {
 					providerId: p.providerId,
 					region: p.region,
-					score: selectionReason === "direct-provider-specified" ? 1 : 0,
+					score:
+						selectionReason === "direct-provider-specified" &&
+						directProviderRegionWasExplicit
+							? 1
+							: 0,
 					price: getProviderSelectionPrice(p),
 					uptime: metrics?.uptime ?? 0,
 					latency: metrics?.averageLatency ?? 0,
