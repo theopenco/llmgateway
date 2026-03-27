@@ -189,6 +189,37 @@ describe("fallback and error status code handling", () => {
 			.where(and(...conditions));
 	}
 
+	/** Ensure a regional modelProviderMapping row exists for routing tests. */
+	async function ensureRegionalMapping(
+		modelId: string,
+		providerId: string,
+		region: string,
+	) {
+		const id = `${modelId}::${providerId}::${region}`;
+		// Ensure the parent model row exists (seed may not include it)
+		await db
+			.insert(tables.model)
+			.values({
+				id: modelId,
+				name: modelId,
+				description: modelId,
+				family: "test",
+				status: "active",
+			})
+			.onConflictDoNothing();
+		await db
+			.insert(tables.modelProviderMapping)
+			.values({
+				id,
+				modelId,
+				providerId,
+				modelName: `${modelId}:${region}`,
+				region,
+				status: "active",
+			})
+			.onConflictDoNothing();
+	}
+
 	async function insertIamRules(
 		rules: Array<{
 			id: string;
@@ -790,6 +821,9 @@ describe("fallback and error status code handling", () => {
 	describe("routing metadata in DB log entries", () => {
 		test("direct provider selection picks the best available region", async () => {
 			await setupKeys("alibaba");
+
+			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "singapore");
+			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "cn-beijing");
 
 			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
 				region: "singapore",
