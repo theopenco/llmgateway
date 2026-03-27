@@ -288,42 +288,90 @@ export default async function ContactSubmissionsPage({
 							</TableRow>
 						) : (
 							data.submissions.map((submission) => (
-								<TableRow key={submission.id}>
+								<TableRow
+									key={submission.id}
+									className="cursor-pointer hover:bg-muted/50"
+								>
 									<TableCell className="text-muted-foreground">
-										{formatDate(submission.createdAt)}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block"
+										>
+											{formatDate(submission.createdAt)}
+										</Link>
 									</TableCell>
 									<TableCell className="font-medium">
-										{submission.name}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block"
+										>
+											{submission.name}
+										</Link>
 									</TableCell>
 									<TableCell className="text-muted-foreground">
-										{submission.email}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block"
+										>
+											{submission.email}
+										</Link>
 									</TableCell>
 									<TableCell className="text-muted-foreground">
-										{submission.country}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block"
+										>
+											{submission.country}
+										</Link>
 									</TableCell>
 									<TableCell className="text-muted-foreground">
-										{submission.size}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block"
+										>
+											{submission.size}
+										</Link>
 									</TableCell>
 									<TableCell
 										className="max-w-xs truncate text-muted-foreground"
 										title={submission.message}
 									>
-										{submission.message}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block"
+										>
+											{submission.message}
+										</Link>
 									</TableCell>
 									<TableCell>
-										<Badge
-											variant={getStatusBadgeVariant(
-												submission.spamFilterStatus,
-											)}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block"
 										>
-											{getStatusLabel(submission.spamFilterStatus)}
-										</Badge>
+											<Badge
+												variant={getStatusBadgeVariant(
+													submission.spamFilterStatus,
+												)}
+											>
+												{getStatusLabel(submission.spamFilterStatus)}
+											</Badge>
+										</Link>
 									</TableCell>
 									<TableCell className="text-xs text-muted-foreground">
-										{submission.rejectionReason ?? "—"}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block"
+										>
+											{submission.rejectionReason ?? "—"}
+										</Link>
 									</TableCell>
 									<TableCell className="text-xs text-muted-foreground">
-										{submission.ipAddress ?? "—"}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block"
+										>
+											{submission.ipAddress ?? "—"}
+										</Link>
 									</TableCell>
 								</TableRow>
 							))

@@ -4800,4 +4800,133 @@ admin.openapi(getContactSubmissions, async (c) => {
 	});
 });
 
+// ── Single Contact Submission ───────────────────────────────────────────────
+
+const getContactSubmission = createRoute({
+	method: "get",
+	path: "/contact-submissions/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: contactSubmissionSchema.openapi({}),
+				},
+			},
+			description: "Single enterprise contact submission.",
+		},
+	},
+});
+
+admin.openapi(getContactSubmission, async (c) => {
+	const { id } = c.req.valid("param");
+	const t = tables.enterpriseContactSubmission;
+
+	const rows = await db
+		.select({
+			id: t.id,
+			createdAt: t.createdAt,
+			name: t.name,
+			email: t.email,
+			country: t.country,
+			size: t.size,
+			message: t.message,
+			ipAddress: t.ipAddress,
+			userAgent: t.userAgent,
+			spamFilterStatus: t.spamFilterStatus,
+			rejectionReason: t.rejectionReason,
+		})
+		.from(t)
+		.where(eq(t.id, id))
+		.limit(1);
+
+	const submission = rows[0];
+	if (!submission) {
+		throw new HTTPException(404, { message: "Submission not found" });
+	}
+
+	return c.json({
+		...submission,
+		createdAt: submission.createdAt.toISOString(),
+	});
+});
+
+// ── Reply to Contact Submission ─────────────────────────────────────────────
+
+const replyContactSubmission = createRoute({
+	method: "post",
+	path: "/contact-submissions/{id}/reply",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						subject: z.string().min(1),
+						body: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({ success: z.boolean(), message: z.string() })
+						.openapi({}),
+				},
+			},
+			description: "Reply sent or failed.",
+		},
+	},
+});
+
+admin.openapi(replyContactSubmission, async (c) => {
+	const { id } = c.req.valid("param");
+	const { subject, body: emailBody } = c.req.valid("json");
+	const t = tables.enterpriseContactSubmission;
+
+	const rows = await db
+		.select({ email: t.email })
+		.from(t)
+		.where(eq(t.id, id))
+		.limit(1);
+
+	const submission = rows[0];
+	if (!submission) {
+		throw new HTTPException(404, { message: "Submission not found" });
+	}
+
+	const { getResendClient } = await import("@llmgateway/shared/email");
+
+	const resend = getResendClient();
+	if (!resend) {
+		return c.json(
+			{ success: false, message: "Email service is not configured." },
+			200,
+		);
+	}
+
+	const { error } = await resend.emails.send({
+		from: "LLM Gateway <contact@llmgateway.io>",
+		to: [submission.email],
+		replyTo: "contact@llmgateway.io",
+		subject,
+		text: emailBody,
+	});
+
+	if (error) {
+		return c.json(
+			{ success: false, message: `Failed to send: ${error.message}` },
+			200,
+		);
+	}
+
+	return c.json({ success: true, message: "Reply sent successfully." });
+});
+
 export default admin;
