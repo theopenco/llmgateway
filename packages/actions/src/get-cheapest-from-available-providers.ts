@@ -1,11 +1,10 @@
+import { type ProviderMetrics, metricsKey } from "@llmgateway/db";
 import {
 	getProviderDefinition,
-	type ProviderModelMapping,
 	type AvailableModelProvider,
 	type ModelWithPricing,
+	type ProviderModelMapping,
 } from "@llmgateway/models";
-
-import type { ProviderMetrics } from "@llmgateway/db";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -64,6 +63,7 @@ export interface RoutingMetadata {
 	selectionReason: string;
 	providerScores: Array<{
 		providerId: string;
+		region?: string;
 		score: number;
 		uptime?: number;
 		latency?: number;
@@ -98,6 +98,87 @@ export interface ProviderSelectionResult<T extends AvailableModelProvider> {
 export interface ProviderSelectionOptions {
 	metricsMap?: Map<string, ProviderMetrics>;
 	isStreaming?: boolean;
+	videoPricing?: VideoPricingContext;
+}
+
+export interface VideoPricingContext {
+	durationSeconds: number;
+	includeAudio: boolean;
+	resolution: "default" | "hd" | "1080p" | "4k";
+}
+
+function getPerSecondBillingKeys(
+	videoPricing: VideoPricingContext,
+): Array<keyof NonNullable<ProviderModelMapping["perSecondPrice"]>> {
+	if (videoPricing.resolution === "4k") {
+		return videoPricing.includeAudio
+			? ["4k_audio", "default_audio", "4k", "default"]
+			: ["4k_video", "default_video", "4k", "default"];
+	}
+
+	if (videoPricing.resolution === "hd") {
+		return videoPricing.includeAudio
+			? ["hd_audio", "default_audio", "hd", "default"]
+			: ["hd_video", "default_video", "hd", "default"];
+	}
+
+	if (videoPricing.resolution === "1080p") {
+		return videoPricing.includeAudio
+			? ["1080p_audio", "hd_audio", "default_audio", "1080p", "hd", "default"]
+			: ["1080p_video", "hd_video", "default_video", "1080p", "hd", "default"];
+	}
+
+	return videoPricing.includeAudio
+		? ["default_audio", "default"]
+		: ["default_video", "default"];
+}
+
+export function getProviderSelectionPrice(
+	providerInfo:
+		| Pick<
+				ProviderModelMapping,
+				| "discount"
+				| "inputPrice"
+				| "outputPrice"
+				| "perSecondPrice"
+				| "requestPrice"
+		  >
+		| undefined,
+	videoPricing?: VideoPricingContext,
+): number {
+	const discount = providerInfo?.discount ?? 0;
+	const discountMultiplier = 1 - discount;
+	const inputPrice = providerInfo?.inputPrice;
+	const outputPrice = providerInfo?.outputPrice;
+	const requestPrice = providerInfo?.requestPrice;
+	const hasAnyTokenPrice =
+		inputPrice !== undefined || outputPrice !== undefined;
+	const hasPositiveTokenPrice = (inputPrice ?? 0) > 0 || (outputPrice ?? 0) > 0;
+
+	if (providerInfo?.perSecondPrice && videoPricing) {
+		for (const billingKey of getPerSecondBillingKeys(videoPricing)) {
+			const perSecondPrice = providerInfo.perSecondPrice[billingKey];
+			if (perSecondPrice !== undefined) {
+				return (
+					perSecondPrice * videoPricing.durationSeconds * discountMultiplier
+				);
+			}
+		}
+	}
+
+	if (hasPositiveTokenPrice) {
+		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
+	}
+
+	if (requestPrice !== undefined && !hasPositiveTokenPrice) {
+		return requestPrice * discountMultiplier;
+	}
+
+	if (hasAnyTokenPrice) {
+		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
+	}
+
+	return 0;
 }
 
 /**
@@ -118,6 +199,7 @@ export function getCheapestFromAvailableProviders<
 ): ProviderSelectionResult<T> | null {
 	const metricsMap = options?.metricsMap;
 	const isStreaming = options?.isStreaming ?? false;
+	const videoPricing = options?.videoPricing;
 	// Use higher price weight for image generation models
 	const isImageModel = modelWithPricing.output?.includes("image") ?? false;
 	const effectivePriceWeight = isImageModel ? IMAGE_PRICE_WEIGHT : PRICE_WEIGHT;
@@ -128,12 +210,10 @@ export function getCheapestFromAvailableProviders<
 	// Filter out unstable and experimental providers
 	const stableProviders = availableModelProviders.filter((provider) => {
 		const providerInfo = modelWithPricing.providers.find(
-			(p) => p.providerId === provider.providerId,
+			(p) =>
+				p.providerId === provider.providerId && p.region === provider.region,
 		);
-		const providerStability =
-			providerInfo && "stability" in providerInfo
-				? (providerInfo as ProviderModelMapping).stability
-				: undefined;
+		const providerStability = providerInfo?.stability;
 		const modelStability =
 			"stability" in modelWithPricing
 				? (modelWithPricing as { stability?: string }).stability
@@ -168,7 +248,7 @@ export function getCheapestFromAvailableProviders<
 
 	// If no metrics provided, fall back to price-only selection
 	if (!metricsMap || metricsMap.size === 0) {
-		return selectByPriceOnly(stableProviders, modelWithPricing);
+		return selectByPriceOnly(stableProviders, modelWithPricing, videoPricing);
 	}
 
 	// Calculate scores for each provider
@@ -176,17 +256,17 @@ export function getCheapestFromAvailableProviders<
 
 	for (const provider of stableProviders) {
 		const providerInfo = modelWithPricing.providers.find(
-			(p) => p.providerId === provider.providerId,
+			(p) =>
+				p.providerId === provider.providerId && p.region === provider.region,
 		);
-		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
-		const discountMultiplier = 1 - discount;
-		const price =
-			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
-				2) *
-			discountMultiplier;
+		const price = getProviderSelectionPrice(providerInfo, videoPricing);
 
-		const metricsKey = `${modelWithPricing.id}:${provider.providerId}`;
-		const metrics = metricsMap.get(metricsKey);
+		const mKey = metricsKey(
+			modelWithPricing.id,
+			provider.providerId,
+			provider.region,
+		);
+		const metrics = metricsMap.get(mKey);
 
 		providerScores.push({
 			provider,
@@ -299,6 +379,7 @@ export function getCheapestFromAvailableProviders<
 			const priority = providerDef?.priority ?? 1;
 			return {
 				providerId: p.provider.providerId,
+				region: p.provider.region,
 				score: Number(p.score.toFixed(3)),
 				uptime: p.uptime,
 				latency: p.latency,
@@ -321,12 +402,14 @@ export function getCheapestFromAvailableProviders<
 function selectByPriceOnly<T extends AvailableModelProvider>(
 	stableProviders: T[],
 	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
+	videoPricing?: VideoPricingContext,
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestEffectivePrice = Number.MAX_VALUE;
 
 	const providerPrices: Array<{
 		providerId: string;
+		region?: string;
 		price: number;
 		effectivePrice: number;
 		priority: number;
@@ -334,14 +417,10 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 
 	for (const provider of stableProviders) {
 		const providerInfo = modelWithPricing.providers.find(
-			(p) => p.providerId === provider.providerId,
+			(p) =>
+				p.providerId === provider.providerId && p.region === provider.region,
 		);
-		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
-		const discountMultiplier = 1 - discount;
-		const totalPrice =
-			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
-				2) *
-			discountMultiplier;
+		const totalPrice = getProviderSelectionPrice(providerInfo, videoPricing);
 
 		// Apply provider priority: lower priority = effectively higher price
 		const providerDef = getProviderDefinition(provider.providerId);
@@ -350,6 +429,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 
 		providerPrices.push({
 			providerId: provider.providerId,
+			region: provider.region,
 			price: totalPrice,
 			effectivePrice,
 			priority,
@@ -367,6 +447,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		selectionReason: "price-only-no-metrics",
 		providerScores: providerPrices.map((p) => ({
 			providerId: p.providerId,
+			region: p.region,
 			score: 0,
 			price: p.price,
 			priority: p.priority,

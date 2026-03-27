@@ -550,9 +550,11 @@ function renderRowValue(
 			const summary =
 				getProviderPricingSummary(selectedProvider, "inputPrice") ??
 				detail.aggregated.inputPrice;
+			const tiers = selectedProvider
+				? selectedProvider.pricingTiers
+				: undefined;
 			const hasTiered = selectedProvider
-				? selectedProvider.pricingTiers &&
-					selectedProvider.pricingTiers.length > 1
+				? tiers && tiers.length > 1
 				: detail.aggregated.hasTieredPricing;
 			return <PricingCell summary={summary} hasTieredPricing={hasTiered} />;
 		}
@@ -560,9 +562,11 @@ function renderRowValue(
 			const summary =
 				getProviderPricingSummary(selectedProvider, "outputPrice") ??
 				detail.aggregated.outputPrice;
+			const tiers = selectedProvider
+				? selectedProvider.pricingTiers
+				: undefined;
 			const hasTiered = selectedProvider
-				? selectedProvider.pricingTiers &&
-					selectedProvider.pricingTiers.length > 1
+				? tiers && tiers.length > 1
 				: detail.aggregated.hasTieredPricing;
 			return <PricingCell summary={summary} hasTieredPricing={hasTiered} />;
 		}

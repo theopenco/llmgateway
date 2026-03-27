@@ -277,6 +277,14 @@ function stripUnsupportedSchemaProperties(
 	return cleaned;
 }
 
+function mapGoogleImageSize(imageSize: string): string {
+	if (imageSize === "0.5K") {
+		return "512";
+	}
+
+	return imageSize;
+}
+
 /**
  * Recursively sanitizes tool input schemas for AWS Bedrock Converse.
  * Bedrock is stricter than Anthropic's direct API and rejects several JSON Schema
@@ -803,16 +811,7 @@ export async function prepareRequestBody(
 	}
 
 	if (forcesToolUse && usedProvider === "moonshot") {
-		const providerMapping = modelDef?.providers.find(
-			(p) => p.modelName === usedModel && p.providerId === usedProvider,
-		);
-		const isExplicitThinkingModel =
-			providerMapping &&
-			"reasoning" in providerMapping &&
-			providerMapping.reasoning === true;
-		if (!isExplicitThinkingModel) {
-			requestBody.thinking = { enabled: false };
-		}
+		requestBody.thinking = { enabled: false };
 	}
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
@@ -1593,6 +1592,7 @@ export async function prepareRequestBody(
 		}
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
@@ -1729,7 +1729,7 @@ export async function prepareRequestBody(
 				}
 				if (image_config.image_size !== undefined) {
 					requestBody.generationConfig.imageConfig.imageSize =
-						image_config.image_size;
+						mapGoogleImageSize(image_config.image_size);
 				}
 			}
 

@@ -7,6 +7,7 @@ export function extractContent(data: any, provider: Provider): string {
 	switch (provider) {
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian": {
 			const parts = data.candidates?.[0]?.content?.parts ?? [];
 			const contentParts = parts.filter((part: any) => !part.thought);

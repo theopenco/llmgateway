@@ -45,7 +45,11 @@ type ModelSortBy =
 	| "status"
 	| "free"
 	| "logsCount"
+	| "totalCost"
 	| "errorsCount"
+	| "clientErrorsCount"
+	| "gatewayErrorsCount"
+	| "upstreamErrorsCount"
 	| "cachedCount"
 	| "avgTimeToFirstToken"
 	| "providerCount"
@@ -60,6 +64,7 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	pageWindow,
+	projectId,
 }: {
 	label: string;
 	sortKey: ModelSortBy;
@@ -67,13 +72,17 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	pageWindow?: PageWindow;
+	projectId?: string;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}`;
+	const projectIdParam = projectId
+		? `&projectId=${encodeURIComponent(projectId)}`
+		: "";
+	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${projectIdParam}`;
 
 	return (
 		<Link
@@ -171,7 +180,19 @@ function ModelRow({
 					{formatNumber(model.logsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
+					${model.totalCost.toFixed(4)}
+				</TableCell>
+				<TableCell className="tabular-nums">
 					{formatNumber(model.errorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(model.clientErrorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(model.gatewayErrorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(model.upstreamErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -216,7 +237,7 @@ function ModelRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={12} className="p-4">
+					<TableCell colSpan={16} className="p-4">
 						<HistoryChart
 							title={`${model.name !== model.id ? model.name : model.id} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -236,12 +257,14 @@ export function ModelsTable({
 	sortOrder = "desc",
 	search = "",
 	pageWindow,
+	projectId,
 }: {
 	models: ModelStats[];
 	sortBy?: ModelSortBy;
 	sortOrder?: SortOrder;
 	search?: string;
 	pageWindow?: PageWindow;
+	projectId?: string;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -254,6 +277,7 @@ export function ModelsTable({
 				currentSortOrder={sortOrder}
 				search={search}
 				pageWindow={pageWindow}
+				projectId={projectId}
 			/>
 		</TableHead>
 	);
@@ -268,7 +292,11 @@ export function ModelsTable({
 					{sh("Free", "free")}
 					{sh("Providers", "providerCount")}
 					{sh("Requests", "logsCount")}
+					{sh("Cost", "totalCost")}
 					{sh("Errors", "errorsCount")}
+					{sh("Client", "clientErrorsCount")}
+					{sh("Gateway", "gatewayErrorsCount")}
+					{sh("Upstream", "upstreamErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
@@ -280,7 +308,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={12}
+							colSpan={16}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found

@@ -76,8 +76,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-v3.1",
 		name: "DeepSeek V3.1",
-		description:
-			"Updated DeepSeek V3 with vision, tools, and improved performance.",
+		description: "Updated DeepSeek V3 with tools and improved performance.",
 		family: "deepseek",
 		releasedAt: new Date("2025-08-21"),
 		providers: [
@@ -93,7 +92,7 @@ export const deepseekModels = [
 				contextSize: 128000,
 				maxOutput: undefined,
 				streaming: true,
-				vision: true,
+				vision: false,
 				tools: true,
 				jsonOutputSchema: false,
 				jsonOutput: true,
@@ -119,8 +118,7 @@ export const deepseekModels = [
 	{
 		id: "deepseek-v3.2",
 		name: "DeepSeek V3.2",
-		description:
-			"Latest DeepSeek V3 with vision, tools, and improved performance.",
+		description: "Latest DeepSeek V3 with tools and improved performance.",
 		family: "deepseek",
 		releasedAt: new Date("2025-09-29"),
 		providers: [
@@ -135,7 +133,7 @@ export const deepseekModels = [
 				maxOutput: undefined,
 				jsonOutput: true,
 				streaming: true,
-				vision: true,
+				vision: false,
 				tools: true,
 			},
 			{
@@ -149,9 +147,47 @@ export const deepseekModels = [
 				contextSize: 163800,
 				maxOutput: undefined,
 				streaming: true,
-				vision: true,
+				vision: false,
 				tools: true,
 				jsonOutputSchema: false,
+				jsonOutput: true,
+			},
+			{
+				providerId: "novita",
+				modelName: "deepseek/deepseek-v3.2",
+				inputPrice: 0.269 / 1e6,
+				cachedInputPrice: 0.1345 / 1e6,
+				outputPrice: 0.4 / 1e6,
+				requestPrice: 0,
+				contextSize: 163840,
+				maxOutput: 65536,
+				reasoning: false,
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "alibaba",
+				modelName: "deepseek-v3.2",
+				discount: 0.2,
+				inputPrice: 0.57 / 1e6,
+				outputPrice: 1.71 / 1e6,
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "cn-beijing",
+						inputPrice: 0.287 / 1e6,
+						outputPrice: 0.431 / 1e6,
+					},
+				],
+				requestPrice: 0,
+				contextSize: 131072,
+				maxOutput: 65536,
+				reasoning: false,
+				streaming: true,
+				vision: false,
+				tools: true,
 				jsonOutput: true,
 			},
 			{

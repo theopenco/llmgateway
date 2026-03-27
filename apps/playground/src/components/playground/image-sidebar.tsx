@@ -1,6 +1,6 @@
 "use client";
 
-import { ImageIcon, LogOutIcon, MessageSquare } from "lucide-react";
+import { Film, ImageIcon, LogOutIcon, MessageSquare, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -24,18 +24,21 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import type { GalleryItem } from "@/lib/image-gen";
 import type { Organization } from "@/lib/types";
 
 interface ImageSidebarProps {
-	recentPrompts: string[];
-	onPromptClick: (prompt: string) => void;
+	galleryItems: GalleryItem[];
+	onNewChat: () => void;
+	onItemClick: (itemId: string) => void;
 	selectedOrganization: Organization | null;
 	className?: string;
 }
 
 export function ImageSidebar({
-	recentPrompts,
-	onPromptClick,
+	galleryItems,
+	onNewChat,
+	onItemClick,
 	selectedOrganization,
 	className,
 }: ImageSidebarProps) {
@@ -134,46 +137,91 @@ export function ImageSidebar({
 						<h1 className="text-xl font-semibold">LLM Gateway</h1>
 						<Badge>Image</Badge>
 					</Link>
+					<Button
+						variant="outline"
+						className="w-full flex items-center gap-2"
+						onClick={onNewChat}
+					>
+						<Plus className="h-4 w-4" />
+						New Chat
+					</Button>
+					<Button
+						variant="ghost"
+						className="w-full flex items-center gap-2"
+						asChild
+					>
+						<Link href="/">
+							<MessageSquare className="h-4 w-4" />
+							Chat
+						</Link>
+					</Button>
+					<Button
+						variant="ghost"
+						className="w-full flex items-center gap-2"
+						asChild
+					>
+						<Link href="/video">
+							<Film className="h-4 w-4" />
+							Video Studio
+						</Link>
+					</Button>
 				</div>
 			</SidebarHeader>
 
 			<SidebarContent className="px-2 py-4">
 				<SidebarMenu>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild>
-							<Link href="/">
-								<MessageSquare className="h-4 w-4" />
-								Chat
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton isActive>
-							<ImageIcon className="h-4 w-4" />
-							Image Studio
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-				</SidebarMenu>
-
-				{recentPrompts.length > 0 && (
-					<div className="mt-6">
-						<div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-							Recent prompts
-						</div>
-						<SidebarMenu>
-							{recentPrompts.map((prompt, i) => (
-								<SidebarMenuItem key={i}>
+					{galleryItems.length > 0 && (
+						<div>
+							<div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+								History
+							</div>
+							{galleryItems.map((item) => (
+								<SidebarMenuItem key={item.id}>
 									<SidebarMenuButton
-										onClick={() => onPromptClick(prompt)}
-										className="text-left"
+										onClick={() => onItemClick(item.id)}
+										className="text-left py-3 h-auto"
 									>
-										<span className="truncate text-sm">{prompt}</span>
+										<div className="flex items-start gap-2 min-w-0 w-full">
+											{item.inputImages && item.inputImages.length > 0 && (
+												<div className="flex gap-0.5 shrink-0 mt-0.5">
+													{item.inputImages.map((img, i) => (
+														<img
+															key={i}
+															src={img.dataUrl}
+															alt=""
+															className="h-5 w-5 rounded border object-cover"
+														/>
+													))}
+												</div>
+											)}
+											<div className="flex-1 min-w-0">
+												<div className="truncate text-sm">{item.prompt}</div>
+												<div className="text-xs text-muted-foreground">
+													{new Date(item.timestamp).toLocaleTimeString([], {
+														hour: "numeric",
+														minute: "2-digit",
+													})}
+												</div>
+											</div>
+										</div>
 									</SidebarMenuButton>
 								</SidebarMenuItem>
 							))}
-						</SidebarMenu>
-					</div>
-				)}
+						</div>
+					)}
+
+					{galleryItems.length === 0 && (
+						<div className="flex flex-col items-center justify-center py-8 text-center">
+							<ImageIcon className="h-12 w-12 text-muted-foreground/50 mb-4" />
+							<p className="text-sm text-muted-foreground mb-2">
+								No generation history
+							</p>
+							<p className="text-xs text-muted-foreground">
+								Generate an image to see it here
+							</p>
+						</div>
+					)}
+				</SidebarMenu>
 			</SidebarContent>
 
 			<SidebarFooter className="border-t">

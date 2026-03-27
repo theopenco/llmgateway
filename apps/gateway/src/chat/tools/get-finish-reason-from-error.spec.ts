@@ -46,6 +46,21 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(500, azureError)).toBe("upstream_error");
 	});
 
+	it("returns content_filter for ByteDance SensitiveContentDetected", () => {
+		const bytedanceError = JSON.stringify({
+			error: {
+				code: "SensitiveContentDetected",
+				message:
+					"The request failed because the input text may contain sensitive information.",
+				param: "",
+				type: "BadRequest",
+			},
+		});
+		expect(getFinishReasonFromError(400, bytedanceError)).toBe(
+			"content_filter",
+		);
+	});
+
 	it("returns client_error for zai content filter", () => {
 		expect(
 			getFinishReasonFromError(

@@ -184,7 +184,9 @@ export function LogCard({
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
 						<div className="flex items-center gap-1">
 							<Package className="h-3.5 w-3.5 shrink-0" />
-							<span className="truncate">{log.usedModel}</span>
+							<span className="truncate">
+								{log.usedModel === "" ? "—" : log.usedModel}
+							</span>
 						</div>
 						<div className="flex items-center gap-1">
 							<Zap className="h-3.5 w-3.5 shrink-0" />
@@ -304,7 +306,7 @@ export function LogCard({
 								</div>
 								<div className="text-muted-foreground">Used Model</div>
 								<div className="font-mono text-xs break-all">
-									{log.usedModel}
+									{log.usedModel === "" ? "—" : log.usedModel}
 								</div>
 								{log.usedModelMapping && (
 									<>
@@ -351,11 +353,16 @@ export function LogCard({
 													<div className="space-y-1">
 														{log.routingMetadata.providerScores.map((score) => (
 															<div
-																key={score.providerId}
+																key={`${score.providerId}-${score.region ?? "default"}`}
 																className="flex justify-between items-center"
 															>
 																<span className="font-mono flex items-center gap-1.5">
 																	{score.providerId}
+																	{score.region && (
+																		<span className="text-muted-foreground">
+																			({score.region})
+																		</span>
+																	)}
 																	{score.failed && (
 																		<span className="inline-flex items-center gap-0.5 text-red-500">
 																			<AlertCircle className="h-3 w-3" />
@@ -370,7 +377,7 @@ export function LogCard({
 																		</span>
 																	)}
 																</span>
-																<span className="text-muted-foreground">
+																<span className="text-muted-foreground font-mono">
 																	{score.score.toFixed(2)}
 																	{score.uptime !== undefined && (
 																		<span className="ml-2">
@@ -389,7 +396,7 @@ export function LogCard({
 																	)}
 																	{score.price !== undefined && (
 																		<span className="ml-2">
-																			${score.price.toFixed(6)}
+																			${score.price.toFixed(10)}
 																		</span>
 																	)}
 																	{score.priority !== undefined &&
@@ -423,6 +430,11 @@ export function LogCard({
 																		<AlertCircle className="h-3 w-3" />
 																	)}
 																	{attempt.provider}/{attempt.model}
+																	{attempt.region && (
+																		<span className="text-muted-foreground">
+																			({attempt.region})
+																		</span>
+																	)}
 																</span>
 																<span>
 																	{attempt.status_code}{" "}
@@ -607,6 +619,13 @@ export function LogCard({
 												<>
 													<div>Image Output Cost</div>
 													<div>{`$${Number(log.imageOutputCost).toFixed(8)}`}</div>
+												</>
+											)}
+										{!!log.videoOutputCost &&
+											Number(log.videoOutputCost) > 0 && (
+												<>
+													<div>Video Output Cost</div>
+													<div>{`$${Number(log.videoOutputCost).toFixed(8)}`}</div>
 												</>
 											)}
 										<div>Inference Total</div>

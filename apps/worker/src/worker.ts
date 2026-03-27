@@ -38,6 +38,10 @@ import {
 	calculateMinutelyHistory,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
+import {
+	processPendingVideoJobs,
+	processPendingWebhookDeliveries,
+} from "./services/video-jobs.js";
 
 // Configuration for current minute history calculation interval (defaults to 5 seconds)
 const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
@@ -68,6 +72,10 @@ const LOCK_DURATION_MINUTES = 5;
 const BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
+const VIDEO_JOB_POLL_INTERVAL_SECONDS =
+	Number(process.env.VIDEO_JOB_POLL_INTERVAL_SECONDS) || 5;
+const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
+	Number(process.env.VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS) || 5;
 
 const schema = z.object({
 	id: z.string(),
@@ -1065,6 +1073,76 @@ async function runCurrentMinuteHistoryLoop() {
 	}
 }
 
+async function runVideoJobsLoop() {
+	activeLoops++;
+	const interval = VIDEO_JOB_POLL_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting video jobs loop (interval: ${VIDEO_JOB_POLL_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!shouldStop) {
+			try {
+				await processPendingVideoJobs();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in video jobs loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Video jobs loop stopped");
+	}
+}
+
+async function runVideoWebhookLoop() {
+	activeLoops++;
+	const interval = VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting video webhook loop (interval: ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!shouldStop) {
+			try {
+				await processPendingWebhookDeliveries();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in video webhook loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Video webhook loop stopped");
+	}
+}
+
 async function runAggregatedStatsLoop() {
 	activeLoops++;
 	logger.info(
@@ -1242,6 +1320,12 @@ export async function startWorker() {
 		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
 	);
 	logger.info(
+		`- Video jobs: runs every ${VIDEO_JOB_POLL_INTERVAL_SECONDS} seconds for async video status polling`,
+	);
+	logger.info(
+		`- Video webhooks: runs every ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds for callback delivery`,
+	);
+	logger.info(
 		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
 	);
 	logger.info(
@@ -1253,6 +1337,8 @@ export async function startWorker() {
 
 	void runMinutelyHistoryLoop();
 	void runCurrentMinuteHistoryLoop();
+	void runVideoJobsLoop();
+	void runVideoWebhookLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runLogQueueLoop();

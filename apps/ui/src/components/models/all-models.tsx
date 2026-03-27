@@ -20,6 +20,7 @@ import {
 	ArrowUpDown,
 	ArrowUp,
 	ArrowDown,
+	Video,
 	ImagePlus,
 	ExternalLink,
 	Percent,
@@ -187,6 +188,13 @@ function computeCapabilities(
 			color: "text-pink-500",
 		});
 	}
+	if (model?.output?.includes("video")) {
+		capabilities.push({
+			icon: Video,
+			label: "Video Generation",
+			color: "text-violet-500",
+		});
+	}
 	if (provider.webSearch) {
 		capabilities.push({
 			icon: Globe,
@@ -263,6 +271,11 @@ const ModelTableRow = React.memo(
 							)}
 							<span className="text-sm">
 								{row.providerInfo?.name ?? row.provider.providerId}
+								{row.provider.region && (
+									<span className="text-muted-foreground text-xs ml-1">
+										({row.provider.region})
+									</span>
+								)}
 							</span>
 							{row.provider.deactivatedAt && (
 								<Tooltip>
@@ -328,12 +341,58 @@ const ModelTableRow = React.memo(
 
 					{/* Input Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{formatPrice(row.provider.inputPrice, row.provider.discount)}
+						{row.provider.perSecondPrice && !row.provider.inputPrice ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-violet-500 cursor-help">
+										{(() => {
+											const prices = row.provider.perSecondPrice;
+											const values = Object.values(prices)
+												.map(Number)
+												.filter(Number.isFinite);
+											if (values.length === 0) {
+												return "—";
+											}
+											const min = Math.min(...values);
+											return `$${min}/sec`;
+										})()}
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">Video per-second pricing</p>
+								</TooltipContent>
+							</Tooltip>
+						) : (
+							formatPrice(row.provider.inputPrice, row.provider.discount)
+						)}
 					</TableCell>
 
 					{/* Output Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{formatPrice(row.provider.outputPrice, row.provider.discount)}
+						{row.provider.perSecondPrice && !row.provider.outputPrice ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-violet-500 cursor-help">
+										{(() => {
+											const prices = row.provider.perSecondPrice;
+											const values = Object.values(prices)
+												.map(Number)
+												.filter(Number.isFinite);
+											if (values.length === 0) {
+												return "—";
+											}
+											const max = Math.max(...values);
+											return `$${max}/sec`;
+										})()}
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">Video per-second pricing</p>
+								</TooltipContent>
+							</Tooltip>
+						) : (
+							formatPrice(row.provider.outputPrice, row.provider.discount)
+						)}
 					</TableCell>
 
 					{/* Cache Read Price Column */}
@@ -384,6 +443,30 @@ const ModelTableRow = React.memo(
 											>
 												Per Request $
 												{parseFloat(row.provider.requestPrice).toFixed(3)}
+											</Badge>
+										)}
+									{row.provider.perSecondPrice &&
+										Object.keys(row.provider.perSecondPrice).length > 0 && (
+											<Badge
+												variant="outline"
+												className="text-sm px-3 py-1.5 bg-background"
+											>
+												<Video className="h-4 w-4 mr-2 text-violet-500" />
+												Video{" "}
+												{(() => {
+													const prices = row.provider.perSecondPrice!;
+													const defaultVideo = prices["default_video"];
+													const defaultAudio = prices["default_audio"];
+													const defaultPrice = prices["default"];
+													if (defaultVideo && defaultAudio) {
+														return `$${defaultVideo} – $${defaultAudio}/sec`;
+													}
+													if (defaultPrice) {
+														return `$${defaultPrice}/sec`;
+													}
+													const firstValue = Object.values(prices)[0];
+													return firstValue ? `$${firstValue}/sec` : "";
+												})()}
 											</Badge>
 										)}
 								</div>
@@ -480,6 +563,7 @@ export function AllModels({
 			jsonOutput: searchParams.get("jsonOutput") === "true",
 			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
+			videoGeneration: searchParams.get("videoGeneration") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -736,6 +820,12 @@ export function AllModels({
 				return false;
 			}
 			if (
+				filters.capabilities.videoGeneration &&
+				!model.output?.includes("video")
+			) {
+				return false;
+			}
+			if (
 				filters.capabilities.webSearch &&
 				!model.providerDetails.some((p) => p.provider.webSearch)
 			) {
@@ -961,7 +1051,9 @@ export function AllModels({
 					provider.webSearch ??
 					(provider.requestPrice !== null &&
 						provider.requestPrice !== undefined &&
-						parseFloat(provider.requestPrice) > 0);
+						parseFloat(provider.requestPrice) > 0) ??
+					(provider.perSecondPrice !== null &&
+						provider.perSecondPrice !== undefined);
 
 				rows.push({
 					model,
@@ -1209,6 +1301,13 @@ export function AllModels({
 				color: "text-pink-500",
 			});
 		}
+		if (model?.output?.includes("video")) {
+			capabilities.push({
+				icon: Video,
+				label: "Video Generation",
+				color: "text-violet-500",
+			});
+		}
 		if (provider.webSearch) {
 			capabilities.push({
 				icon: Globe,
@@ -1232,6 +1331,7 @@ export function AllModels({
 				jsonOutput: false,
 				jsonOutputSchema: false,
 				imageGeneration: false,
+				videoGeneration: false,
 				webSearch: false,
 				free: false,
 				discounted: false,
@@ -1255,6 +1355,7 @@ export function AllModels({
 			jsonOutput: undefined,
 			jsonOutputSchema: undefined,
 			imageGeneration: undefined,
+			videoGeneration: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
@@ -1403,6 +1504,12 @@ export function AllModels({
 									label: "Image Gen",
 									icon: ImagePlus,
 									color: "text-pink-500",
+								},
+								{
+									key: "videoGeneration",
+									label: "Video Gen",
+									icon: Video,
+									color: "text-violet-500",
 								},
 								{
 									key: "webSearch",
@@ -1684,7 +1791,7 @@ export function AllModels({
 		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 			{modelsWithProviders.map((model) => (
 				<ModelCard
-					key={`${model.id}-${model.providerDetails[0].provider.providerId}`}
+					key={`${model.id}-${model.providerDetails[0].provider.providerId}-${model.providerDetails[0].provider.region ?? ""}`}
 					shouldShowStabilityWarning={shouldShowStabilityWarning}
 					getCapabilityIcons={getCapabilityIcons}
 					model={model}

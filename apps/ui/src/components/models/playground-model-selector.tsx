@@ -87,17 +87,25 @@ export function ModelSelector({
 	});
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
 	const raw = value ?? "";
-	const [selectedProviderId, selectedModelId] = raw.includes("/")
+	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
+	const selectedModelId = selectedModelIdRaw.includes(":")
+		? selectedModelIdRaw.split(":")[0]
+		: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping = selectedModel?.providers.find(
-		(p) => p.providerId === selectedProviderId,
-	);
+	const selectedMapping =
+		selectedModel?.providers.find(
+			(p) =>
+				p.providerId === selectedProviderId &&
+				p.modelName === selectedModelIdRaw,
+		) ??
+		selectedModel?.providers.find((p) => p.providerId === selectedProviderId);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
 			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
@@ -178,6 +186,7 @@ export function ModelSelector({
 					model.family,
 					model.id,
 					provider?.name ?? "",
+					...(model.aliases ?? []),
 				];
 				return candidates.some((c) => normalize(c).includes(q));
 			});
@@ -307,6 +316,12 @@ export function ModelSelector({
 												getProviderForModel(selectedModel, providers)
 											)?.name
 										}
+										{(() => {
+											const mapping = selectedModel.providers.find(
+												(p) => p.providerId === selectedProviderId,
+											);
+											return mapping?.region ? ` (${mapping.region})` : null;
+										})()}
 									</span>
 								)}
 							</div>
@@ -514,7 +529,9 @@ export function ModelSelector({
 												key={entryKey}
 												value={entryKey}
 												onSelect={() => {
-													onValueChange?.(`${mapping.providerId}/${model.id}`);
+													onValueChange?.(
+														`${mapping.providerId}/${mapping.region ? mapping.modelName : model.id}`,
+													);
 													setOpen(false);
 												}}
 												className="p-3 cursor-pointer"
@@ -544,6 +561,11 @@ export function ModelSelector({
 															{!rootOnly && (
 																<span className="text-xs text-muted-foreground">
 																	{provider?.name}
+																	{mapping.region && (
+																		<span className="ml-1">
+																			({mapping.region})
+																		</span>
+																	)}
 																</span>
 															)}
 														</div>

@@ -47,4 +47,24 @@ describe("LLMGateway Logger", () => {
 		expect(childLogger).toBeDefined();
 		expect(typeof childLogger.info).toBe("function");
 	});
+
+	it("should serialize Error instances passed to warn", () => {
+		const customLogger = createLogger({
+			name: "test-logger",
+			level: "warn",
+			prettyPrint: false,
+		}) as any;
+
+		const warnSpy = vi.fn();
+		customLogger.logger = { warn: warnSpy };
+
+		const error = new Error("stream terminated");
+		customLogger.warn("Error reading stream", error);
+
+		expect(warnSpy).toHaveBeenCalledTimes(1);
+		expect(warnSpy.mock.calls[0][0]).toMatchObject({
+			err: error,
+		});
+		expect(warnSpy.mock.calls[0][1]).toBe("Error reading stream");
+	});
 });

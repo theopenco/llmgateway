@@ -35,10 +35,11 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 
 interface LogDetailClientProps {
-	initialData: { log: Log } | null;
+	initialData: LogDetailData | null;
 	orgId: string;
 	projectId: string;
 	logId: string;
@@ -168,21 +169,7 @@ export function LogDetailClient({
 		"/logs/{id}",
 		{ params: { path: { id: logId } } },
 		{
-			initialData: initialData
-				? {
-						log: {
-							...initialData.log,
-							createdAt:
-								initialData.log.createdAt instanceof Date
-									? initialData.log.createdAt.toISOString()
-									: initialData.log.createdAt,
-							updatedAt:
-								initialData.log.updatedAt instanceof Date
-									? initialData.log.updatedAt.toISOString()
-									: initialData.log.updatedAt,
-						},
-					}
-				: undefined,
+			initialData: initialData ?? undefined,
 			refetchOnWindowFocus: false,
 			staleTime: 5 * 60 * 1000,
 		},
@@ -206,6 +193,10 @@ export function LogDetailClient({
 		...data.log,
 		createdAt: new Date(data.log.createdAt),
 		updatedAt: new Date(data.log.updatedAt),
+		lastVideoDownloadedAt: data.log.lastVideoDownloadedAt
+			? new Date(data.log.lastVideoDownloadedAt)
+			: null,
+		videoDownloadCount: data.log.videoDownloadCount ?? 0,
 	} as Log;
 
 	const retentionEnabled =
@@ -234,7 +225,7 @@ export function LogDetailClient({
 						<div className="space-y-2">
 							<div className="flex items-center gap-3">
 								<h1 className="text-2xl font-bold tracking-tight">
-									{log.usedModel}
+									{log.usedModel === "" ? "—" : log.usedModel}
 								</h1>
 								<StatusIndicator log={log} />
 								{log.retried && (
@@ -349,7 +340,11 @@ export function LogDetailClient({
 									value={log.requestedModel}
 									mono
 								/>
-								<Field label="Used Model" value={log.usedModel} mono />
+								<Field
+									label="Used Model"
+									value={log.usedModel === "" ? "—" : log.usedModel}
+									mono
+								/>
 								{log.usedModelMapping && (
 									<Field
 										label="Model Mapping"
@@ -423,11 +418,16 @@ export function LogDetailClient({
 												<div className="space-y-1.5">
 													{log.routingMetadata.providerScores.map((score) => (
 														<div
-															key={score.providerId}
+															key={`${score.providerId}-${score.region ?? "default"}`}
 															className="flex items-center justify-between text-xs font-mono"
 														>
 															<span className="flex items-center gap-1.5">
 																{score.providerId}
+																{score.region && (
+																	<span className="text-muted-foreground">
+																		({score.region})
+																	</span>
+																)}
 																{score.failed && (
 																	<span className="inline-flex items-center gap-0.5 text-red-500">
 																		<AlertCircle className="h-3 w-3" />
@@ -442,16 +442,26 @@ export function LogDetailClient({
 																	</span>
 																)}
 															</span>
-															<span className="text-muted-foreground">
+															<span className="text-muted-foreground font-mono">
 																{score.score.toFixed(2)}
 																{score.uptime !== undefined && (
 																	<span className="ml-2">
 																		{score.uptime?.toFixed(0)}% up
 																	</span>
 																)}
+																{score.throughput !== undefined && (
+																	<span className="ml-2">
+																		{score.throughput?.toFixed(0)}t/s
+																	</span>
+																)}
 																{score.latency !== undefined && (
 																	<span className="ml-2">
 																		{score.latency?.toFixed(0)}ms
+																	</span>
+																)}
+																{score.price !== undefined && (
+																	<span className="ml-2">
+																		${score.price.toFixed(10)}
 																	</span>
 																)}
 															</span>
@@ -479,6 +489,11 @@ export function LogDetailClient({
 																	<AlertCircle className="h-3 w-3" />
 																)}
 																{attempt.provider}/{attempt.model}
+																{attempt.region && (
+																	<span className="text-muted-foreground">
+																		({attempt.region})
+																	</span>
+																)}
 															</span>
 															<span>
 																{attempt.status_code}{" "}
@@ -552,6 +567,14 @@ export function LogDetailClient({
 												<Field
 													label="Image Output Cost"
 													value={`$${Number(log.imageOutputCost).toFixed(8)}`}
+													muted
+												/>
+											)}
+										{!!log.videoOutputCost &&
+											Number(log.videoOutputCost) > 0 && (
+												<Field
+													label="Video Output Cost"
+													value={`$${Number(log.videoOutputCost).toFixed(8)}`}
 													muted
 												/>
 											)}

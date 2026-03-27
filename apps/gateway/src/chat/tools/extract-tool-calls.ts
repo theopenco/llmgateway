@@ -45,6 +45,7 @@ export function extractToolCalls(
 			return null;
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian": {
 			// Google AI Studio tool calls in streaming
 			// Include thoughtSignature if present (required for Gemini 3 multi-turn conversations)

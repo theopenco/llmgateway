@@ -1,5 +1,5 @@
 ---
-id: "37"
+id: "38"
 slug: "dev-plans-web-search-minimax"
 date: "2026-01-29"
 title: "Dev Plans, Native Web Search, and MiniMax Provider"

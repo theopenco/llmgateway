@@ -3,6 +3,7 @@ export const MAX_RETRIES = 2;
 export interface RoutingAttempt {
 	provider: string;
 	model: string;
+	region?: string;
 	status_code: number;
 	error_type: string;
 	succeeded: boolean;
@@ -57,22 +58,40 @@ export function shouldRetryRequest(opts: {
 }
 
 /**
+ * Build a composite key for identifying a provider+region combination.
+ * Used by the retry system to track which provider-region pairs have been tried.
+ */
+export function providerRetryKey(providerId: string, region?: string): string {
+	return region ? `${providerId}:${region}` : providerId;
+}
+
+/**
  * Selects the next-best provider from the scored provider list,
  * excluding any providers that have already been tried and failed.
  * Returns the provider mapping with providerId and modelName, or null if none available.
+ * When region is present on scores, uses composite providerId:region keys for deduplication.
  */
 export function selectNextProvider(
-	providerScores: Array<{ providerId: string; score: number }>,
+	providerScores: Array<{
+		providerId: string;
+		score: number;
+		region?: string;
+	}>,
 	failedProviders: Set<string>,
-	modelProviders: Array<{ providerId: string; modelName: string }>,
-): { providerId: string; modelName: string } | null {
+	modelProviders: Array<{
+		providerId: string;
+		modelName: string;
+		region?: string;
+	}>,
+): { providerId: string; modelName: string; region?: string } | null {
 	const sorted = [...providerScores].sort((a, b) => a.score - b.score);
 	for (const score of sorted) {
-		if (failedProviders.has(score.providerId)) {
+		const key = providerRetryKey(score.providerId, score.region);
+		if (failedProviders.has(key)) {
 			continue;
 		}
 		const mapping = modelProviders.find(
-			(p) => p.providerId === score.providerId,
+			(p) => p.providerId === score.providerId && p.region === score.region,
 		);
 		if (mapping) {
 			return mapping;

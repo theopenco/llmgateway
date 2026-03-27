@@ -14,6 +14,8 @@ LLMGateway supports image generation through two APIs:
 2. **`/v1/images/edits`** — OpenAI-compatible image editing endpoint
 3. **`/v1/chat/completions`** — Chat completions with image generation models (for conversational image generation and editing)
 
+For asynchronous video generation, see [Video Generation](/features/video-generation).
+
 ## Available Models
 
 You can find all available image generation models on our [models page](https://llmgateway.io/models?filters=1&imageGeneration=true).
@@ -120,7 +122,8 @@ The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subs
 | `output_format`      | enum                     | no       | `png`, `jpeg`, or `webp`                                           |
 | `output_compression` | integer                  | no       | Compression level for `jpeg`/`webp`                                |
 | `quality`            | enum                     | no       | `low`, `medium`, `high`, or `auto`                                 |
-| `size`               | enum                     | no       | `auto`, `1024x1024`, `1536x1024`, `1024x1536`                      |
+| `size`               | string                   | no       | Output size. Examples: `1024x1024`, `1536x1024`, `1K`, `2K`, `4K`  |
+| `aspect_ratio`       | string                   | no       | Aspect ratio override. Examples: `1:1`, `16:9`, `4:3`, `5:4`       |
 
 <Callout type="warning">
 	`mask` is not supported yet on `/v1/images/edits`.
@@ -140,8 +143,9 @@ curl -X POST "https://api.llmgateway.io/v1/images/edits" \
     ],
     "prompt": "Add a watercolor effect to this image",
     "model": "gemini-3-pro-image-preview",
+    "aspect_ratio": "16:9",
     "quality": "high",
-    "size": "1024x1024"
+    "size": "4K"
   }'
 ```
 

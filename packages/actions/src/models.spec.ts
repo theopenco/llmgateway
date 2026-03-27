@@ -8,7 +8,10 @@ import {
 	type OpenAIRequestBody,
 } from "@llmgateway/models";
 
-import { getCheapestFromAvailableProviders } from "./get-cheapest-from-available-providers.js";
+import {
+	getCheapestFromAvailableProviders,
+	getProviderSelectionPrice,
+} from "./get-cheapest-from-available-providers.js";
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 
@@ -36,13 +39,15 @@ describe("Models", () => {
 	});
 
 	it("should have free: true when provider mapping has zero pricing", () => {
-		// Filter models that have zero input/output pricing AND no request price
-		// Models with requestPrice > 0 are not free even if input/output are zero
+		// Filter models that have zero input/output pricing AND no request or per-second price
 		const modelsWithZeroPricing = models.filter((model) =>
 			model.providers.some(
 				(provider) =>
 					(provider.inputPrice === 0 || provider.outputPrice === 0) &&
-					!(provider as ProviderModelMapping).requestPrice,
+					!(provider as ProviderModelMapping).requestPrice &&
+					!Object.values(
+						(provider as ProviderModelMapping).perSecondPrice ?? {},
+					).some((price) => price > 0),
 			),
 		);
 
@@ -55,7 +60,10 @@ describe("Models", () => {
 				const zeroPricedProviders = model.providers.filter(
 					(p) =>
 						(p.inputPrice === 0 || p.outputPrice === 0) &&
-						!(p as ProviderModelMapping).requestPrice,
+						!(p as ProviderModelMapping).requestPrice &&
+						!Object.values(
+							(p as ProviderModelMapping).perSecondPrice ?? {},
+						).some((price) => price > 0),
 				);
 				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.modelName} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
 			});
@@ -422,11 +430,11 @@ describe("getCheapestModelForProvider", () => {
 				) {
 					// Calculate expected prices
 					const regularPrice =
-						(regularProvider.inputPrice + (regularProvider.outputPrice || 0)) /
+						(regularProvider.inputPrice + (regularProvider.outputPrice ?? 0)) /
 						2;
 					const discountPrice =
 						((discountProvider.inputPrice +
-							(discountProvider.outputPrice || 0)) /
+							(discountProvider.outputPrice ?? 0)) /
 							2) *
 						(discountProvider as ProviderModelMapping).discount!;
 
@@ -570,9 +578,58 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
+	it("should use per-second pricing for video providers", () => {
+		const videoModel = models.find(
+			(model) => model.id === "veo-3.1-generate-preview",
+		);
+
+		expect(videoModel).toBeDefined();
+
+		const availableProviders =
+			videoModel?.providers.filter(
+				(provider) =>
+					provider.providerId === "google-vertex" ||
+					provider.providerId === "avalanche",
+			) ?? [];
+
+		const cheapestProvider = getCheapestFromAvailableProviders(
+			availableProviders,
+			videoModel!,
+			{
+				videoPricing: {
+					durationSeconds: 8,
+					includeAudio: true,
+					resolution: "default",
+				},
+			},
+		);
+
+		expect(cheapestProvider?.provider.providerId).toBe("avalanche");
+
+		const vertexScore = cheapestProvider?.metadata.providerScores.find(
+			(provider) => provider.providerId === "google-vertex",
+		);
+		const avalancheScore = cheapestProvider?.metadata.providerScores.find(
+			(provider) => provider.providerId === "avalanche",
+		);
+
+		expect(vertexScore?.price).toBeCloseTo(3.2);
+		expect(avalancheScore?.price).toBeCloseTo(2.56);
+	});
+
 	it("should return null for empty provider list", () => {
 		const testModel = models[0];
 		const result = getCheapestFromAvailableProviders([], testModel);
 		expect(result).toBe(null);
+	});
+
+	it("should prefer request pricing over zero token placeholders", () => {
+		expect(
+			getProviderSelectionPrice({
+				inputPrice: 0,
+				outputPrice: 0,
+				requestPrice: 0.03,
+			}),
+		).toBe(0.03);
 	});
 });

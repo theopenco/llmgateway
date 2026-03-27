@@ -1,88 +1,19 @@
-import {
-	afterAll,
-	beforeEach,
-	beforeAll,
-	describe,
-	expect,
-	test,
-	vi,
-} from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
 import { app } from "./app.js";
-import {
-	startMockServer,
-	stopMockServer,
-} from "./test-utils/mock-openai-server.js";
-import { clearCache, waitForLogs, readAll } from "./test-utils/test-helpers.js";
+import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+import { readAll, waitForLogs } from "./test-utils/test-helpers.js";
 
-describe("test", () => {
-	let mockServerUrl: string;
+describe("api", () => {
+	const harness = createGatewayApiTestHarness({
+		mockServerPort: 3001,
+	});
+	let mockServerUrl = "";
 
-	// Start the mock OpenAI server and mock log insertion before all tests
 	beforeAll(() => {
-		// Start the mock OpenAI server
-		mockServerUrl = startMockServer(3001);
-	});
-
-	// Stop the mock server and restore mocks after all tests
-	afterAll(() => {
-		console.log("Stopping mock server...");
-		stopMockServer();
-	});
-
-	beforeEach(async () => {
-		await clearCache();
-
-		await Promise.all([
-			db.delete(tables.log),
-			db.delete(tables.apiKey),
-			db.delete(tables.providerKey),
-		]);
-
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-			db.delete(tables.session),
-			db.delete(tables.verification),
-		]);
-	});
-
-	beforeEach(async () => {
-		await db.insert(tables.user).values({
-			id: "user-id",
-			name: "user",
-			email: "user",
-		});
-
-		await db.insert(tables.organization).values({
-			id: "org-id",
-			name: "Test Organization",
-			billingEmail: "user",
-			plan: "pro",
-			retentionLevel: "retain",
-			credits: "100.00", // Add credits for retention storage costs
-		});
-
-		await db.insert(tables.userOrganization).values({
-			id: "user-org-id",
-			userId: "user-id",
-			organizationId: "org-id",
-		});
-
-		await db.insert(tables.project).values({
-			id: "project-id",
-			name: "Test Project",
-			organizationId: "org-id",
-			mode: "api-keys",
-		});
+		mockServerUrl = harness.mockServerUrl;
 	});
 
 	test("/", async () => {
@@ -141,6 +72,165 @@ describe("test", () => {
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBe(1);
 		expect(logs[0].finishReason).toBe("stop");
+	});
+
+	test("/v1/moderations e2e success", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = "moderation-request-id";
+		const res = await app.request("/v1/moderations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				input: "I want to attack someone.",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(json).toHaveProperty("id", "modr-123");
+		expect(json).toHaveProperty("model", "omni-moderation-latest");
+		expect(json.results[0].flagged).toBe(true);
+
+		const logs = await waitForLogs(1);
+		const moderationLog = logs.find((log) => log.requestId === requestId);
+
+		expect(moderationLog).toBeTruthy();
+		expect(moderationLog?.usedModel).toBe("openai-moderation");
+		expect(moderationLog?.requestedModel).toBe("openai-moderation");
+		expect(moderationLog?.usedModelMapping).toBe("omni-moderation-latest");
+		expect(moderationLog?.usedProvider).toBe("openai");
+		expect(moderationLog?.cost).toBe(0);
+		expect(moderationLog?.inputCost).toBe(0);
+		expect(moderationLog?.outputCost).toBe(0);
+		expect(moderationLog?.requestCost).toBe(0);
+		expect(moderationLog?.streamed).toBe(false);
+		expect(moderationLog?.finishReason).toBe("stop");
+		expect(moderationLog?.messages).toEqual([
+			{
+				role: "user",
+				content: "I want to attack someone.",
+			},
+		]);
+		expect(moderationLog?.content).toContain('"flagged":true');
+	});
+
+	test("/v1/moderations e2e timeout error", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const previousTimeout = process.env.AI_TIMEOUT_MS;
+		process.env.AI_TIMEOUT_MS = "25";
+
+		try {
+			const requestId = "moderation-timeout-request-id";
+			const res = await app.request("/v1/moderations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					input: "TRIGGER_TIMEOUT_100 moderation timeout",
+				}),
+			});
+
+			expect(res.status).toBe(504);
+
+			const json = await res.json();
+			expect(json).toEqual({
+				error: {
+					message: expect.stringContaining("Upstream provider timeout"),
+					type: "upstream_timeout",
+					param: null,
+					code: "timeout",
+				},
+			});
+
+			const logs = await waitForLogs(1);
+			const moderationLog = logs.find((log) => log.requestId === requestId);
+
+			expect(moderationLog).toBeTruthy();
+			expect(moderationLog?.finishReason).toBe("upstream_error");
+			expect(moderationLog?.hasError).toBe(true);
+			expect(moderationLog?.canceled).toBe(false);
+			expect(moderationLog?.content).toBeNull();
+		} finally {
+			if (previousTimeout === undefined) {
+				delete process.env.AI_TIMEOUT_MS;
+			} else {
+				process.env.AI_TIMEOUT_MS = previousTimeout;
+			}
+		}
+	});
+
+	test("/v1/images/edits accepts Gemini size and aspect ratio", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-edits",
+			token: "real-token-image-edits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-image-edits",
+			},
+			body: JSON.stringify({
+				model: "invalid-image-model",
+				prompt: "Make it cinematic",
+				images: [
+					{
+						image_url:
+							"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAJFBMVEX///////9MaXH///////////////////////////////////8ZR3RTAAAADHRSTlP+jgB78KRmvTse21aub7wnAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAc0lEQVR42l3PWRIDIQgE0G5Z1fvfN7hMKhO+5BWtgraqU933qWG1BkCg0jfkahcAyt4QQOiFKmJI+oWhezRwI0Zx1rzRZ44C7gRIMws8oKDFiT4QdHvBNMUL1LKu3KAnUu+fCWndp/98Xf6Xm1846+dZ/wNI2AJy5D7oXAAAAABJRU5ErkJggg==",
+					},
+				],
+				size: "4K",
+				aspect_ratio: "16:9",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+
+		const json = await res.json();
+		expect(JSON.stringify(json)).not.toContain("Invalid enum value");
+		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
 	});
 
 	test("Reasoning effort error for unsupported model", async () => {

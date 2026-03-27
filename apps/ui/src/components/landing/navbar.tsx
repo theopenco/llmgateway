@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 
 import { ThemeToggle } from "./theme-toggle";
 
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Route } from "next";
 import type { ReactNode } from "react";
 
@@ -86,9 +87,13 @@ function ListItem({
 export const Navbar = ({
 	children,
 	sticky = true,
+	models,
+	providers,
 }: {
 	children?: React.ReactNode;
 	sticky?: boolean;
+	models?: ApiModel[];
+	providers?: ApiProvider[];
 }) => {
 	const config = useAppConfig();
 
@@ -338,7 +343,7 @@ export const Navbar = ({
 						{/* Desktop center nav */}
 						<div className="m-auto hidden items-center gap-2 nav:flex min-w-0">
 							<div className="w-[140px] lg:w-[160px]">
-								<ModelSearch />
+								<ModelSearch models={models} providers={providers} />
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
 								<NavigationMenuList className="flex gap-1 text-sm">
@@ -575,7 +580,7 @@ export const Navbar = ({
 							{/* Mobile nav */}
 							<div className="nav:hidden">
 								<div className="mb-6">
-									<ModelSearch />
+									<ModelSearch models={models} providers={providers} />
 								</div>
 								<ul className="space-y-6 text-base">
 									<li>

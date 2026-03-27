@@ -286,19 +286,20 @@ export function ImageControls({
 					onChange={handleFileSelect}
 				/>
 				<div className="flex flex-wrap items-center gap-2">
-					{isEditModel && (
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={() => fileInputRef.current?.click()}
-							disabled={isGenerating || inputImages.length >= 1}
-						>
-							<ImagePlus className="h-4 w-4 mr-1.5" />
-							{inputImages.length === 0
-								? "Add image"
-								: `${inputImages.length}/1`}
-						</Button>
-					)}
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => fileInputRef.current?.click()}
+						disabled={isGenerating || !isEditModel || inputImages.length >= 1}
+						title={
+							!isEditModel
+								? "Image input not supported by selected model"
+								: undefined
+						}
+					>
+						<ImagePlus className="h-4 w-4 mr-1.5" />
+						{inputImages.length === 0 ? "Add image" : `${inputImages.length}/1`}
+					</Button>
 					{!config.usesPixelDimensions && (
 						<>
 							<Select

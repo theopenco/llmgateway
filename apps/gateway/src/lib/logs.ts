@@ -21,6 +21,7 @@ export function isExpectedUnknownFinishReason(
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "google-vertex" ||
+			provider === "quartz" ||
 			provider === "obsidian") &&
 		finishReason === "OTHER"
 	) {
@@ -55,6 +56,9 @@ export function getUnifiedFinishReason(
 	if (finishReason === "client_error") {
 		return UnifiedFinishReason.CLIENT_ERROR;
 	}
+	if (finishReason === "llmgateway_content_filter") {
+		return UnifiedFinishReason.CONTENT_FILTER;
+	}
 
 	switch (provider) {
 		case "anthropic":
@@ -73,6 +77,7 @@ export function getUnifiedFinishReason(
 			break;
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian":
 			// Google finish reasons (original format, not mapped to OpenAI)
 			if (finishReason === "STOP") {
@@ -144,7 +149,9 @@ function getErrorTypeFromUnifiedFinishReason(
 
 /**
  * Calculate data storage cost based on token usage
- * $0.01 per 1M tokens (total tokens = input + cached + output + reasoning)
+ * $0.01 per 1M tokens (total tokens = input + output + reasoning)
+ * promptTokens is the canonical total input count and already includes cached
+ * input tokens for providers that report them separately.
  * Returns "0" if retention level is "none" since no data is stored
  */
 export function calculateDataStorageCost(
@@ -160,11 +167,10 @@ export function calculateDataStorageCost(
 	}
 
 	const prompt = Number(promptTokens) || 0;
-	const cached = Number(cachedTokens) || 0;
 	const completion = Number(completionTokens) || 0;
 	const reasoning = Number(reasoningTokens) || 0;
 
-	const totalTokens = prompt + cached + completion + reasoning;
+	const totalTokens = prompt + completion + reasoning;
 
 	// $0.01 per 1M tokens
 	const cost = (totalTokens / 1_000_000) * 0.01;

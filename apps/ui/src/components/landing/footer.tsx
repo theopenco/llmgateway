@@ -3,6 +3,7 @@ import { DiscordLogoIcon } from "@radix-ui/react-icons";
 import { GithubIcon } from "lucide-react";
 import Link from "next/link";
 
+import Newsletter from "@/components/landing/newsletter";
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { XIcon } from "@/lib/icons/XIcon";
@@ -21,6 +22,8 @@ export default function Footer() {
 			<div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
 
 			<div className="container mx-auto px-4">
+				<Newsletter />
+
 				<div className="flex flex-col md:flex-row md:justify-between md:items-start">
 					<div className="mb-6 md:mb-0">
 						<div className="flex items-center space-x-2">

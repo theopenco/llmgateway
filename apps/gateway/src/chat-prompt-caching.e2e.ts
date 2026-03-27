@@ -10,6 +10,7 @@ import {
 	getTestOptions,
 	hasOnlyModels,
 	logMode,
+	matchesTestModel,
 	specifiedModels,
 	validateLogByRequestId,
 	validateResponse,
@@ -51,10 +52,9 @@ const promptCachingModels = filteredModels
 				continue;
 			}
 
-			// Filter by TEST_MODELS if specified
+			// Filter by TEST_MODELS if specified (supports region: "alibaba/model:cn-beijing")
 			if (specifiedModels) {
-				const providerModelId = `${provider.providerId}/${model.id}`;
-				if (!specifiedModels.includes(providerModelId)) {
+				if (!matchesTestModel(provider.providerId, model.id, provider.region)) {
 					continue;
 				}
 				// TEST_MODELS takes precedence over test: "skip", so don't skip if model is in TEST_MODELS
@@ -71,7 +71,7 @@ const promptCachingModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${model.id}`,
+				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
 				provider,
 				originalModel: model.id,
 				minCacheableTokens: provider.minCacheableTokens ?? 1024,

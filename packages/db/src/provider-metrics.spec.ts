@@ -5,6 +5,7 @@ import { db } from "./db.js";
 import {
 	getProviderMetrics,
 	getProviderMetricsForCombinations,
+	metricsKey,
 } from "./provider-metrics.js";
 import { provider, model, modelProviderMapping } from "./schema.js";
 
@@ -90,7 +91,7 @@ describe("provider-metrics", () => {
 			const metrics = await getProviderMetrics();
 
 			expect(metrics.size).toBe(1);
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(metricsKey("gpt-4", "openai"));
 			expect(metric).toBeDefined();
 			expect(metric?.modelId).toBe("gpt-4");
 			expect(metric?.providerId).toBe("openai");
@@ -125,12 +126,14 @@ describe("provider-metrics", () => {
 
 			expect(metrics.size).toBe(2);
 
-			const gptMetric = metrics.get("gpt-4:openai");
+			const gptMetric = metrics.get(metricsKey("gpt-4", "openai"));
 			expect(gptMetric?.uptime).toBe(80);
 			expect(gptMetric?.averageLatency).toBe(1000);
 			expect(gptMetric?.totalRequests).toBe(100);
 
-			const claudeMetric = metrics.get("claude-3-5-sonnet:anthropic");
+			const claudeMetric = metrics.get(
+				metricsKey("claude-3-5-sonnet", "anthropic"),
+			);
 			expect(claudeMetric?.uptime).toBe(95);
 			expect(claudeMetric?.averageLatency).toBe(2000);
 			expect(claudeMetric?.totalRequests).toBe(200);
@@ -151,8 +154,10 @@ describe("provider-metrics", () => {
 
 			const metrics = await getProviderMetrics();
 			expect(metrics.size).toBe(1);
-			expect(metrics.has("claude-3-5-sonnet:anthropic")).toBe(true);
-			expect(metrics.has("gpt-4:openai")).toBe(false);
+			expect(metrics.has(metricsKey("claude-3-5-sonnet", "anthropic"))).toBe(
+				true,
+			);
+			expect(metrics.has(metricsKey("gpt-4", "openai"))).toBe(false);
 		});
 
 		it("should skip mappings with zero total requests", async () => {
@@ -182,7 +187,7 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(metricsKey("gpt-4", "openai"));
 			expect(metric?.uptime).toBe(100);
 		});
 
@@ -198,7 +203,7 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(metricsKey("gpt-4", "openai"));
 			expect(metric?.uptime).toBe(0);
 		});
 
@@ -214,7 +219,7 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(metricsKey("gpt-4", "openai"));
 			expect(metric).toBeDefined();
 			expect(metric?.uptime).toBe(95);
 			expect(metric?.averageLatency).toBeUndefined();
@@ -234,7 +239,7 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(metricsKey("gpt-4", "openai"));
 			expect(metric).toBeDefined();
 			expect(metric?.uptime).toBeUndefined();
 			expect(metric?.averageLatency).toBe(500);
@@ -275,8 +280,10 @@ describe("provider-metrics", () => {
 			]);
 
 			expect(metrics.size).toBe(1);
-			expect(metrics.has("gpt-4:openai")).toBe(true);
-			expect(metrics.has("claude-3-5-sonnet:anthropic")).toBe(false);
+			expect(metrics.has(metricsKey("gpt-4", "openai"))).toBe(true);
+			expect(metrics.has(metricsKey("claude-3-5-sonnet", "anthropic"))).toBe(
+				false,
+			);
 		});
 
 		it("should return metrics for multiple combinations", async () => {
@@ -306,10 +313,13 @@ describe("provider-metrics", () => {
 			]);
 
 			expect(metrics.size).toBe(2);
-			expect(metrics.get("gpt-4:openai")?.totalRequests).toBe(100);
-			expect(metrics.get("claude-3-5-sonnet:anthropic")?.totalRequests).toBe(
-				200,
+			expect(metrics.get(metricsKey("gpt-4", "openai"))?.totalRequests).toBe(
+				100,
 			);
+			expect(
+				metrics.get(metricsKey("claude-3-5-sonnet", "anthropic"))
+					?.totalRequests,
+			).toBe(200);
 		});
 
 		it("should only return combinations that have routing data", async () => {
@@ -330,8 +340,10 @@ describe("provider-metrics", () => {
 			]);
 
 			expect(metrics.size).toBe(1);
-			expect(metrics.has("gpt-4:openai")).toBe(true);
-			expect(metrics.has("claude-3-5-sonnet:anthropic")).toBe(false);
+			expect(metrics.has(metricsKey("gpt-4", "openai"))).toBe(true);
+			expect(metrics.has(metricsKey("claude-3-5-sonnet", "anthropic"))).toBe(
+				false,
+			);
 		});
 
 		it("should skip combinations with zero total requests", async () => {
@@ -368,7 +380,7 @@ describe("provider-metrics", () => {
 			]);
 
 			expect(metrics.size).toBe(1);
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(metricsKey("gpt-4", "openai"));
 			expect(metric?.modelId).toBe("gpt-4");
 			expect(metric?.providerId).toBe("openai");
 			expect(metric?.uptime).toBe(75);

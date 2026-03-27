@@ -21,6 +21,36 @@ You can use LLM Gateway in two ways:
 - **Hosted Version**: For immediate use without setup, visit [llmgateway.io](https://llmgateway.io) to create an account and get an API key.
 - **Self-Hosted**: Deploy LLM Gateway on your own infrastructure for complete control over your data and configuration.
 
+### Self-Hosted With Docker
+
+Use Docker-managed volumes for the unified image. Do not bind-mount a host directory directly to `/var/lib/postgresql/data`, because PostgreSQL initialization inside the container needs to set permissions on that directory and that can fail depending on the host filesystem and ownership.
+
+```bash
+export LLM_GATEWAY_SECRET="$(openssl rand -base64 32 | tr -d '\n')"
+./scripts/run-unified-container.sh
+```
+
+If you prefer a one-off `docker run`, use named volumes instead of `~/some-host-dir`:
+
+```bash
+docker volume create llmgateway_postgres
+docker volume create llmgateway_redis
+
+docker run -d \
+  --name llmgateway \
+  --restart unless-stopped \
+  -p 3002:3002 \
+  -p 3003:3003 \
+  -p 3005:3005 \
+  -p 3006:3006 \
+  -p 4001:4001 \
+  -p 4002:4002 \
+  -v llmgateway_postgres:/var/lib/postgresql/data \
+  -v llmgateway_redis:/var/lib/redis \
+  -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
+  ghcr.io/theopenco/llmgateway-unified:latest
+```
+
 ### Using LLM Gateway API
 
 ```bash

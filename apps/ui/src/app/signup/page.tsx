@@ -13,6 +13,7 @@ import { z } from "zod";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { Button } from "@/lib/components/button";
+import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Form,
 	FormControl,
@@ -42,6 +43,7 @@ const createFormSchema = (isHosted: boolean) =>
 		password: z.string().min(8, {
 			message: "Password must be at least 8 characters",
 		}),
+		newsletter: z.boolean(),
 	});
 
 export default function Signup() {
@@ -71,6 +73,7 @@ export default function Signup() {
 		defaultValues: {
 			email: "",
 			password: "",
+			newsletter: true,
 		},
 	});
 
@@ -84,7 +87,7 @@ export default function Signup() {
 				password: values.password,
 			},
 			{
-				onSuccess: (ctx) => {
+				onSuccess: async (ctx) => {
 					queryClient.clear();
 					posthog.identify(ctx.data.user.id, {
 						email: ctx.data.user.email,
@@ -92,7 +95,17 @@ export default function Signup() {
 					});
 					posthog.capture("user_signed_up", {
 						email: values.email,
+						newsletter: values.newsletter,
 					});
+
+					if (values.newsletter) {
+						fetch(`${config.apiUrl}/public/newsletter/subscribe`, {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ email: values.email }),
+						}).catch(() => {});
+					}
+
 					toast({
 						title: "Account created",
 						description:
@@ -279,6 +292,25 @@ export default function Signup() {
 										Minimum 8 characters
 									</p>
 									<FormMessage />
+								</FormItem>
+							)}
+						/>
+						<FormField
+							control={form.control}
+							name="newsletter"
+							render={({ field }) => (
+								<FormItem>
+									<div className="flex items-center gap-3">
+										<FormControl>
+											<Checkbox
+												checked={field.value}
+												onCheckedChange={field.onChange}
+											/>
+										</FormControl>
+										<FormLabel className="text-sm font-normal text-muted-foreground cursor-pointer">
+											Subscribe to product updates
+										</FormLabel>
+									</div>
 								</FormItem>
 							)}
 						/>

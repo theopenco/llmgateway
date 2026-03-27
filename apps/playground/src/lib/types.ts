@@ -48,6 +48,8 @@ export interface ComboboxModel {
 	vision?: boolean;
 	tools?: boolean;
 	imageGen?: boolean;
+	supportsVideoAudio?: boolean;
+	supportsVideoWithoutAudio?: boolean;
 }
 
 export interface Project {
