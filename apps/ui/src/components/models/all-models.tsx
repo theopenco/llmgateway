@@ -1044,9 +1044,17 @@ export function AllModels({
 	// Pre-compute capabilities and provider icons for performance
 	const flattenedRows: FlattenedModelRow[] = useMemo(() => {
 		const rows: FlattenedModelRow[] = [];
+		const providerFilter =
+			filters.selectedProvider && filters.selectedProvider !== "all"
+				? filters.selectedProvider
+				: null;
 
 		for (const model of modelsWithProviders) {
 			for (const { provider, providerInfo } of model.providerDetails) {
+				if (providerFilter && provider.providerId !== providerFilter) {
+					continue;
+				}
+
 				const hasAdditionalPricing =
 					provider.webSearch ??
 					(provider.requestPrice !== null &&
@@ -1147,7 +1155,7 @@ export function AllModels({
 			}
 			return 0;
 		});
-	}, [modelsWithProviders, sortField, sortDirection]);
+	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
 
 	// Toggle expanded row
 	const toggleRowExpanded = useCallback((rowKey: string) => {
