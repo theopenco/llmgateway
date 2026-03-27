@@ -19,6 +19,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
@@ -123,6 +124,8 @@ export default async function ContactSubmissionsPage({
 		sortOrder?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const params = await searchParams;
 	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
 	const search = params?.search ?? "";

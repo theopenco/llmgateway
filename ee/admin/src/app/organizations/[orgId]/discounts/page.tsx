@@ -19,6 +19,7 @@ import {
 	getDiscountOptions,
 	getOrganizationDiscounts,
 } from "@/lib/admin-discounts";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 function formatDate(dateString: string) {
@@ -59,6 +60,8 @@ export default async function OrganizationDiscountsPage({
 }: {
 	params: Promise<{ orgId: string }>;
 }) {
+	await requireSession();
+
 	const { orgId } = await params;
 
 	const $api = await createServerApiClient();

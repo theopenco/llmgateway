@@ -7,6 +7,7 @@ import { ModelsTable } from "@/components/models-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { Button } from "@/components/ui/button";
 import { parsePageWindow, windowToFromTo } from "@/lib/page-window";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 import type { paths } from "@/lib/api/v1";
@@ -67,6 +68,8 @@ export default async function ModelsPage({
 		projectId?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const params = await searchParams;
 	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
 	const search = params?.search ?? "";

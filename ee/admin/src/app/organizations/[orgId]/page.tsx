@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { giftCreditsToOrganization } from "@/lib/admin-organizations";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 import { GiftCreditsDialog } from "./gift-credits-dialog";
@@ -125,6 +126,8 @@ export default async function OrganizationPage({
 		tab?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
 	const txPage = Math.max(1, parseInt(searchParamsData?.txPage ?? "1", 10));

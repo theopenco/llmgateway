@@ -10,7 +10,6 @@ import {
 	UserCheck,
 	Users,
 } from "lucide-react";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -19,6 +18,7 @@ import { DateRangePicker } from "@/components/date-range-picker";
 import { RevenueChart } from "@/components/revenue-chart";
 import { SignupsChart } from "@/components/signups-chart";
 import { Button } from "@/components/ui/button";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
@@ -104,14 +104,7 @@ export default async function Page({
 }: {
 	searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-	const cookieStore = await cookies();
-	const hasSession =
-		cookieStore.has("better-auth.session_token") ||
-		cookieStore.has("__Secure-better-auth.session_token");
-
-	if (!hasSession) {
-		return <SignInPrompt />;
-	}
+	await requireSession();
 
 	const params = await searchParams;
 	const from = typeof params.from === "string" ? params.from : undefined;

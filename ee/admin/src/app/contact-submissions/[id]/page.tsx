@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 import { ReplyForm } from "./reply-form";
@@ -44,6 +45,8 @@ export default async function ContactSubmissionDetailPage({
 }: {
 	params: Promise<{ id: string }>;
 }) {
+	await requireSession();
+
 	const { id } = await params;
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/contact-submissions/{id}", {
