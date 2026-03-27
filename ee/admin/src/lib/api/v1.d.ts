@@ -1241,6 +1241,7 @@ export interface paths {
                     to?: string;
                     projectId?: string;
                     apiKeyId?: string;
+                    timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
                 };
                 header?: never;
                 path?: never;
@@ -1248,7 +1249,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Activity data grouped by day */
+                /** @description Activity data grouped by day or hour */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -1292,6 +1293,8 @@ export interface paths {
                                     cost: number;
                                 }[];
                             }[];
+                            /** @enum {string} */
+                            granularity?: "hourly" | "daily";
                         };
                     };
                 };
