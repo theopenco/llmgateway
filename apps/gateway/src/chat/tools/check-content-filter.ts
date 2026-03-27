@@ -1,6 +1,7 @@
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 
-export type ContentFilterMode = "disabled" | "monitor" | "enabled" | "openai";
+export type ContentFilterMode = "disabled" | "monitor" | "enabled";
+export type ContentFilterMethod = "keywords" | "openai";
 
 let cachedKeywords: string[] | null = null;
 let cachedEnvValue: string | undefined;
@@ -8,12 +9,17 @@ let cachedEnvValue: string | undefined;
 let cachedMode: ContentFilterMode | null = null;
 let cachedModeEnvValue: string | undefined;
 
+let cachedMethod: ContentFilterMethod | null = null;
+let cachedMethodEnvValue: string | undefined;
+
 /**
  * Returns the content filter mode from LLM_CONTENT_FILTER_MODE env var.
  * - "disabled" (default): content filter is off
  * - "monitor": check content filter but don't block; log evaluation entries
  * - "enabled": block requests that match content filter keywords
- * - "openai": block requests flagged by OpenAI's moderation endpoint
+ *
+ * Legacy compatibility:
+ * - "openai": treated as enabled mode with openai method
  */
 export function getContentFilterMode(): ContentFilterMode {
 	const envValue = process.env.LLM_CONTENT_FILTER_MODE;
@@ -29,12 +35,40 @@ export function getContentFilterMode(): ContentFilterMode {
 	} else if (envValue === "enabled") {
 		cachedMode = "enabled";
 	} else if (envValue === "openai") {
-		cachedMode = "openai";
+		cachedMode = "enabled";
 	} else {
 		cachedMode = "disabled";
 	}
 
 	return cachedMode;
+}
+
+/**
+ * Returns the content filter method from LLM_CONTENT_FILTER_METHOD env var.
+ * - "keywords" (default): use the configured keyword list
+ * - "openai": use OpenAI's moderation endpoint
+ *
+ * Legacy compatibility:
+ * - LLM_CONTENT_FILTER_MODE=openai implies method=openai
+ */
+export function getContentFilterMethod(): ContentFilterMethod {
+	const envValue = process.env.LLM_CONTENT_FILTER_METHOD;
+	const legacyModeEnvValue = process.env.LLM_CONTENT_FILTER_MODE;
+	const cacheKey = `${envValue ?? ""}::${legacyModeEnvValue ?? ""}`;
+
+	if (cacheKey === cachedMethodEnvValue && cachedMethod !== null) {
+		return cachedMethod;
+	}
+
+	cachedMethodEnvValue = cacheKey;
+
+	if (envValue === "openai" || legacyModeEnvValue === "openai") {
+		cachedMethod = "openai";
+	} else {
+		cachedMethod = "keywords";
+	}
+
+	return cachedMethod;
 }
 
 /**

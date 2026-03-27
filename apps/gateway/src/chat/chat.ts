@@ -81,6 +81,7 @@ import {
 import { completionsRequestSchema } from "./schemas/completions.js";
 import {
 	checkContentFilter,
+	getContentFilterMethod,
 	getContentFilterMode,
 } from "./tools/check-content-filter.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
@@ -861,12 +862,13 @@ chat.openapi(completions, async (c) => {
 
 	// Check gateway-level content filter before routing the request upstream.
 	const contentFilterMode = getContentFilterMode();
+	const contentFilterMethod = getContentFilterMethod();
 	const keywordContentFilterMatch =
-		contentFilterMode === "enabled" || contentFilterMode === "monitor"
+		contentFilterMode !== "disabled" && contentFilterMethod === "keywords"
 			? checkContentFilter(messages as BaseMessage[])
 			: null;
 	const openAIContentFilterResult =
-		contentFilterMode === "openai"
+		contentFilterMode !== "disabled" && contentFilterMethod === "openai"
 			? await checkOpenAIContentFilter(
 					messages as BaseMessage[],
 					{
@@ -878,15 +880,16 @@ chat.openapi(completions, async (c) => {
 					c.req.raw.signal,
 				)
 			: null;
+	const contentFilterMatched =
+		keywordContentFilterMatch !== null ||
+		openAIContentFilterResult?.flagged === true;
 	const contentFilterBlocked =
-		(contentFilterMode === "enabled" && keywordContentFilterMatch !== null) ||
-		(contentFilterMode === "openai" &&
-			openAIContentFilterResult?.flagged === true);
+		contentFilterMode === "enabled" && contentFilterMatched;
 
-	// In monitor mode, tag logs with internalContentFilter when the keyword
-	// filter would have blocked the request, so we can compare against upstream.
+	// In monitor mode, tag logs with internalContentFilter when the selected
+	// filter method would have blocked the request.
 	const shouldTagContentFilter =
-		contentFilterMode === "monitor" && keywordContentFilterMatch !== null;
+		contentFilterMode === "monitor" && contentFilterMatched;
 	const insertLog = shouldTagContentFilter
 		? (logData: Parameters<typeof _insertLog>[0]) =>
 				_insertLog({ ...logData, internalContentFilter: true })

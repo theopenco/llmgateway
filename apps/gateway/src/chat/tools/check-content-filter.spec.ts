@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 
 import {
 	checkContentFilter,
+	getContentFilterMethod,
 	getContentFilterMode,
 } from "./check-content-filter.js";
 
@@ -111,12 +112,19 @@ describe("checkContentFilter", () => {
 
 describe("getContentFilterMode", () => {
 	const originalEnv = process.env.LLM_CONTENT_FILTER_MODE;
+	const originalMethodEnv = process.env.LLM_CONTENT_FILTER_METHOD;
 
 	afterEach(() => {
 		if (originalEnv === undefined) {
 			delete process.env.LLM_CONTENT_FILTER_MODE;
 		} else {
 			process.env.LLM_CONTENT_FILTER_MODE = originalEnv;
+		}
+
+		if (originalMethodEnv === undefined) {
+			delete process.env.LLM_CONTENT_FILTER_METHOD;
+		} else {
+			process.env.LLM_CONTENT_FILTER_METHOD = originalMethodEnv;
 		}
 	});
 
@@ -145,8 +153,49 @@ describe("getContentFilterMode", () => {
 		expect(getContentFilterMode()).toBe("enabled");
 	});
 
-	it("returns openai when set to openai", () => {
+	it("returns enabled for legacy openai mode", () => {
 		process.env.LLM_CONTENT_FILTER_MODE = "openai";
-		expect(getContentFilterMode()).toBe("openai");
+		expect(getContentFilterMode()).toBe("enabled");
+	});
+});
+
+describe("getContentFilterMethod", () => {
+	const originalModeEnv = process.env.LLM_CONTENT_FILTER_MODE;
+	const originalMethodEnv = process.env.LLM_CONTENT_FILTER_METHOD;
+
+	afterEach(() => {
+		if (originalModeEnv === undefined) {
+			delete process.env.LLM_CONTENT_FILTER_MODE;
+		} else {
+			process.env.LLM_CONTENT_FILTER_MODE = originalModeEnv;
+		}
+
+		if (originalMethodEnv === undefined) {
+			delete process.env.LLM_CONTENT_FILTER_METHOD;
+		} else {
+			process.env.LLM_CONTENT_FILTER_METHOD = originalMethodEnv;
+		}
+	});
+
+	it("returns keywords by default when env var is not set", () => {
+		delete process.env.LLM_CONTENT_FILTER_MODE;
+		delete process.env.LLM_CONTENT_FILTER_METHOD;
+		expect(getContentFilterMethod()).toBe("keywords");
+	});
+
+	it("returns keywords for unknown values", () => {
+		process.env.LLM_CONTENT_FILTER_METHOD = "something";
+		expect(getContentFilterMethod()).toBe("keywords");
+	});
+
+	it("returns openai when method is set to openai", () => {
+		process.env.LLM_CONTENT_FILTER_METHOD = "openai";
+		expect(getContentFilterMethod()).toBe("openai");
+	});
+
+	it("returns openai for legacy openai mode", () => {
+		process.env.LLM_CONTENT_FILTER_MODE = "openai";
+		delete process.env.LLM_CONTENT_FILTER_METHOD;
+		expect(getContentFilterMethod()).toBe("openai");
 	});
 });

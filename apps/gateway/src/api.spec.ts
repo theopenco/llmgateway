@@ -420,6 +420,7 @@ describe("api", () => {
 		});
 
 		const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+		const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
 		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
 		const requestId = "chat-openai-content-filter-request-id";
 		const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {});
@@ -467,7 +468,8 @@ describe("api", () => {
 			});
 
 		try {
-			process.env.LLM_CONTENT_FILTER_MODE = "openai";
+			process.env.LLM_CONTENT_FILTER_MODE = "enabled";
+			process.env.LLM_CONTENT_FILTER_METHOD = "openai";
 			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 
 			const res = await app.request("/v1/chat/completions", {
@@ -525,6 +527,138 @@ describe("api", () => {
 			} else {
 				process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
 			}
+			if (previousContentFilterMethod === undefined) {
+				delete process.env.LLM_CONTENT_FILTER_METHOD;
+			} else {
+				process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
+			}
+			if (previousOpenAIKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousOpenAIKey;
+			}
+		}
+	});
+
+	test("/v1/chat/completions monitors with openai content filter method", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+		const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
+		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
+		const requestId = "chat-openai-content-filter-monitor-request-id";
+		const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {});
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === "https://api.openai.com/v1/moderations") {
+					return new Response(
+						JSON.stringify({
+							id: "modr-123",
+							model: "omni-moderation-latest",
+							results: [
+								{
+									flagged: true,
+									categories: {
+										violence: true,
+									},
+								},
+							],
+						}),
+						{
+							status: 200,
+							headers: {
+								"Content-Type": "application/json",
+								"x-request-id": "upstream-openai-request-id",
+							},
+						},
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			process.env.LLM_CONTENT_FILTER_MODE = "monitor";
+			process.env.LLM_CONTENT_FILTER_METHOD = "openai";
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "I want to attack someone.",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json.choices[0].message.content).toContain(
+				"I want to attack someone.",
+			);
+
+			expect(debugSpy).toHaveBeenCalledWith(
+				"gateway_content_filter",
+				expect.objectContaining({
+					durationMs: expect.any(Number),
+					mode: "openai",
+					requestId,
+					flagged: true,
+				}),
+			);
+
+			const logs = await waitForLogs(1);
+			const completedLog = logs.find((log) => log.requestId === requestId);
+
+			expect(completedLog).toBeTruthy();
+			expect(completedLog?.finishReason).toBe("stop");
+			expect(completedLog?.internalContentFilter).toBe(true);
+		} finally {
+			fetchSpy.mockRestore();
+			debugSpy.mockRestore();
+			if (previousContentFilterMode === undefined) {
+				delete process.env.LLM_CONTENT_FILTER_MODE;
+			} else {
+				process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+			}
+			if (previousContentFilterMethod === undefined) {
+				delete process.env.LLM_CONTENT_FILTER_METHOD;
+			} else {
+				process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
+			}
 			if (previousOpenAIKey === undefined) {
 				delete process.env.LLM_OPENAI_API_KEY;
 			} else {
@@ -551,6 +685,7 @@ describe("api", () => {
 		});
 
 		const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+		const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
 		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
 		const requestId = "chat-openai-content-filter-fail-open-request-id";
 		const originalFetch = globalThis.fetch;
@@ -573,7 +708,8 @@ describe("api", () => {
 			});
 
 		try {
-			process.env.LLM_CONTENT_FILTER_MODE = "openai";
+			process.env.LLM_CONTENT_FILTER_MODE = "enabled";
+			process.env.LLM_CONTENT_FILTER_METHOD = "openai";
 			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 
 			const res = await app.request("/v1/chat/completions", {
@@ -625,6 +761,11 @@ describe("api", () => {
 				delete process.env.LLM_CONTENT_FILTER_MODE;
 			} else {
 				process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+			}
+			if (previousContentFilterMethod === undefined) {
+				delete process.env.LLM_CONTENT_FILTER_METHOD;
+			} else {
+				process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
 			}
 			if (previousOpenAIKey === undefined) {
 				delete process.env.LLM_OPENAI_API_KEY;
