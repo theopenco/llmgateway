@@ -30,6 +30,7 @@ export function ReplyForm({
 	const [subject, setSubject] = useState("");
 	const [body, setBody] = useState("");
 	const [apiKey, setApiKey] = useState("");
+	const [context, setContext] = useState("");
 	const [sending, setSending] = useState(false);
 	const [generating, setGenerating] = useState(false);
 	const fetchClient = useFetchClient();
@@ -52,6 +53,8 @@ export function ReplyForm({
 					country,
 					size,
 					message,
+					type: "enterprise",
+					context: context || undefined,
 				}),
 			});
 
@@ -81,13 +84,22 @@ export function ReplyForm({
 
 		setSending(true);
 		try {
-			const { data } = await fetchClient.POST(
+			const { data, error, response } = await fetchClient.POST(
 				"/admin/contact-submissions/{id}/reply",
 				{
 					params: { path: { id: submissionId } },
 					body: { subject, body },
 				},
 			);
+
+			if (error) {
+				const msg =
+					typeof error === "object" && "message" in error
+						? (error as { message: string }).message
+						: `Request failed (${response.status})`;
+				toast.error(msg);
+				return;
+			}
 
 			if (data?.success) {
 				toast.success("Reply sent successfully");
@@ -96,8 +108,8 @@ export function ReplyForm({
 			} else {
 				toast.error(data?.message ?? "Failed to send reply");
 			}
-		} catch {
-			toast.error("Failed to send reply");
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to send reply");
 		} finally {
 			setSending(false);
 		}
@@ -124,6 +136,17 @@ export function ReplyForm({
 					<p className="mt-1 text-xs text-muted-foreground">
 						Required for AI-generated drafts
 					</p>
+				</div>
+
+				<div>
+					<Label htmlFor="context">Additional Context (optional)</Label>
+					<Input
+						id="context"
+						placeholder="e.g. They already use OpenAI directly..."
+						value={context}
+						onChange={(e) => setContext(e.target.value)}
+						className="mt-1"
+					/>
 				</div>
 
 				<Button

@@ -4901,7 +4901,9 @@ admin.openapi(replyContactSubmission, async (c) => {
 		throw new HTTPException(404, { message: "Submission not found" });
 	}
 
-	const { getResendClient } = await import("@llmgateway/shared/email");
+	const { getResendClient, fromEmail, replyToEmail } = await import(
+		"@llmgateway/shared/email"
+	);
 
 	const resend = getResendClient();
 	if (!resend) {
@@ -4912,9 +4914,9 @@ admin.openapi(replyContactSubmission, async (c) => {
 	}
 
 	const { error } = await resend.emails.send({
-		from: "LLM Gateway <contact@llmgateway.io>",
+		from: fromEmail,
 		to: [submission.email],
-		replyTo: "contact@llmgateway.io",
+		replyTo: replyToEmail,
 		subject,
 		text: emailBody,
 	});
@@ -4927,6 +4929,71 @@ admin.openapi(replyContactSubmission, async (c) => {
 	}
 
 	return c.json({ success: true, message: "Reply sent successfully." });
+});
+
+// ── Send Email to Any User ──────────────────────────────────────────────────
+
+const sendEmail = createRoute({
+	method: "post",
+	path: "/send-email",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						to: z.string().email(),
+						subject: z.string().min(1),
+						body: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({ success: z.boolean(), message: z.string() })
+						.openapi({}),
+				},
+			},
+			description: "Email sent or failed.",
+		},
+	},
+});
+
+admin.openapi(sendEmail, async (c) => {
+	const { to, subject, body: emailBody } = c.req.valid("json");
+
+	const { getResendClient, fromEmail, replyToEmail } = await import(
+		"@llmgateway/shared/email"
+	);
+
+	const resend = getResendClient();
+	if (!resend) {
+		return c.json(
+			{ success: false, message: "Email service is not configured." },
+			200,
+		);
+	}
+
+	const { error } = await resend.emails.send({
+		from: fromEmail,
+		to: [to],
+		replyTo: replyToEmail,
+		subject,
+		text: emailBody,
+	});
+
+	if (error) {
+		return c.json(
+			{ success: false, message: `Failed to send: ${error.message}` },
+			200,
+		);
+	}
+
+	return c.json({ success: true, message: "Email sent successfully." });
 });
 
 export default admin;

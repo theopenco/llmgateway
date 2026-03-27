@@ -326,7 +326,12 @@ const ModelTableRow = React.memo(
 								{row.model.id}
 							</Link>
 							<button
-								onClick={(e) => onCopy(row.model.id, row.rowKey, e)}
+								onClick={(e) => {
+									const fullId = row.provider.region
+										? `${row.provider.providerId}/${row.model.id}:${row.provider.region}`
+										: `${row.provider.providerId}/${row.model.id}`;
+									onCopy(fullId, row.rowKey, e);
+								}}
 								className="p-1 hover:bg-muted rounded transition-colors"
 								title={copiedModel === row.rowKey ? "Copied!" : "Copy model ID"}
 							>
@@ -1068,7 +1073,7 @@ export function AllModels({
 					provider,
 					providerInfo,
 					hasAdditionalPricing,
-					rowKey: `${provider.providerId}-${model.id}`,
+					rowKey: `${provider.providerId}-${model.id}-${provider.region ?? ""}`,
 					capabilities: computeCapabilities(provider, model),
 					ProviderIcon: getProviderIcon(provider.providerId),
 				});
