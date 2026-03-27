@@ -53,9 +53,9 @@ function timeRangeToDateRange(timeRange: TimeRangeValue) {
 		case "24h":
 			return { from: subDays(now, 1), to: now };
 		case "7d":
-			return { from: subDays(now, 6), to: now };
+			return { from: subDays(now, 7), to: now };
 		case "30d":
-			return { from: subDays(now, 29), to: now };
+			return { from: subDays(now, 30), to: now };
 	}
 }
 

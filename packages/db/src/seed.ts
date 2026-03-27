@@ -1407,7 +1407,7 @@ async function seed() {
 	await upsert(tables.enterpriseContactSubmission, {
 		id: "ecs_seed_1",
 		name: "Sarah Chen",
-		email: "sarah.chen@acmecorp.com",
+		email: "sarah.chen@example.com",
 		country: "United States",
 		size: "201-500",
 		message:

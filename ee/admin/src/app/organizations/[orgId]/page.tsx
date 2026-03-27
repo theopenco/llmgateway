@@ -570,7 +570,9 @@ export default async function OrganizationPage({
 										<TableHead>Verified</TableHead>
 										<TableHead>Role</TableHead>
 										<TableHead>Joined</TableHead>
-										<TableHead className="w-10" />
+										<TableHead className="w-10">
+											<span className="sr-only">Actions</span>
+										</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>

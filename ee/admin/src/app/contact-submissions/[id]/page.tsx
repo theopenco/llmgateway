@@ -40,6 +40,18 @@ function getStatusLabel(status: string) {
 	}
 }
 
+function BackToSubmissions() {
+	return (
+		<Link
+			href="/contact-submissions"
+			className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+		>
+			<ArrowLeft className="h-4 w-4" />
+			Back to submissions
+		</Link>
+	);
+}
+
 export default async function ContactSubmissionDetailPage({
 	params,
 }: {
@@ -49,34 +61,27 @@ export default async function ContactSubmissionDetailPage({
 
 	const { id } = await params;
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/contact-submissions/{id}", {
+	const { data, response } = await $api.GET("/admin/contact-submissions/{id}", {
 		params: { path: { id } },
 	});
 
 	if (!data || "error" in data) {
+		const isNotFound = response.status === 404;
 		return (
 			<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
-				<Link
-					href="/contact-submissions"
-					className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-				>
-					<ArrowLeft className="h-4 w-4" />
-					Back to submissions
-				</Link>
-				<p className="text-muted-foreground">Submission not found.</p>
+				<BackToSubmissions />
+				<p className="text-muted-foreground">
+					{isNotFound
+						? "Submission not found."
+						: "Failed to load submission. Please try again later."}
+				</p>
 			</div>
 		);
 	}
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
-			<Link
-				href="/contact-submissions"
-				className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-			>
-				<ArrowLeft className="h-4 w-4" />
-				Back to submissions
-			</Link>
+			<BackToSubmissions />
 
 			<header className="flex flex-col gap-2">
 				<div className="flex items-center gap-3">

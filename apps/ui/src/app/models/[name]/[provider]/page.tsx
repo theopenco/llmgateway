@@ -309,12 +309,12 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								]}
 							/>
 
-							<a href={`${config.appUrl}/signup`}>
-								<Button variant="default" size="sm" className="gap-2">
+							<Button variant="default" size="sm" className="gap-2" asChild>
+								<a href={`${config.appUrl}/signup`}>
 									Get Started
 									<ArrowRight className="h-3 w-3" />
-								</Button>
-							</a>
+								</a>
+							</Button>
 						</div>
 
 						{/* Capabilities */}
@@ -367,8 +367,8 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										color: "text-cyan-500",
 									});
 								}
-								const hasImageGen = Array.isArray((modelDef as any)?.output)
-									? ((modelDef as any).output as string[]).includes("image")
+								const hasImageGen = Array.isArray(modelDef.output)
+									? modelDef.output.includes("image")
 									: false;
 								if (hasImageGen) {
 									items.push({

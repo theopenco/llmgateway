@@ -67,13 +67,7 @@ function PriceCell({
 				{label}
 			</div>
 			<div className="font-semibold text-foreground text-sm tabular-nums">
-				{typeof formatted === "string" ? (
-					<>{formatted}</>
-				) : (
-					<span className="inline-flex items-baseline gap-0.5">
-						{formatted}
-					</span>
-				)}
+				{formatted}
 			</div>
 			<div className="text-[10px] text-muted-foreground/50">{unit}</div>
 		</div>
@@ -209,12 +203,22 @@ export function ModelCard({
 		return max;
 	}, [model.providerDetails]);
 
-	// Get capabilities from the first provider (they're typically the same across providers)
+	// Get capabilities as union across all providers
 	const capabilities = useMemo(() => {
 		if (model.providerDetails.length === 0) {
 			return [];
 		}
-		return getCapabilityIcons(model.providerDetails[0].provider, model);
+		const seen = new Set<string>();
+		const result: ReturnType<typeof getCapabilityIcons> = [];
+		for (const { provider } of model.providerDetails) {
+			for (const cap of getCapabilityIcons(provider, model)) {
+				if (!seen.has(cap.label)) {
+					seen.add(cap.label);
+					result.push(cap);
+				}
+			}
+		}
+		return result;
 	}, [model, getCapabilityIcons]);
 
 	return (

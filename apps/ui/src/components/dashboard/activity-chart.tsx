@@ -371,14 +371,14 @@ export function ActivityChart({
 			now.getHours(),
 		);
 		const startHour = addHours(endHour, -totalHours);
-		for (let i = 0; i <= totalHours; i++) {
+		for (let i = 0; i < totalHours; i++) {
 			const hour = addHours(startHour, i);
 			slots.push(format(hour, "yyyy-MM-dd'T'HH:mm:ss"));
 		}
 	} else if (timeRange) {
 		const totalDays = getTimeRangeHours(timeRange) / 24;
 		const now = new Date();
-		for (let i = totalDays; i >= 0; i--) {
+		for (let i = totalDays - 1; i >= 0; i--) {
 			const d = addDays(now, -i);
 			slots.push(format(d, "yyyy-MM-dd"));
 		}

@@ -306,12 +306,12 @@ export default async function ModelPage({ params }: PageProps) {
 								}))}
 							/>
 
-							<a href={`${config.appUrl}/signup`}>
-								<Button variant="default" size="sm" className="gap-2">
+							<Button variant="default" size="sm" className="gap-2" asChild>
+								<a href={`${config.appUrl}/signup`}>
 									Get Started
 									<ArrowRight className="h-3 w-3" />
-								</Button>
-							</a>
+								</a>
+							</Button>
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
@@ -448,11 +448,11 @@ export default async function ModelPage({ params }: PageProps) {
 								const hasTools = modelProviders.some((p) => p.tools);
 								const hasReasoning = modelProviders.some((p) => p.reasoning);
 								const hasJsonOutput = modelProviders.some((p) => p.jsonOutput);
-								const hasImageGen = Array.isArray((modelDef as any)?.output)
-									? ((modelDef as any).output as string[]).includes("image")
+								const hasImageGen = Array.isArray(modelDef.output)
+									? modelDef.output.includes("image")
 									: false;
-								const hasVideoGen = Array.isArray((modelDef as any)?.output)
-									? ((modelDef as any).output as string[]).includes("video")
+								const hasVideoGen = Array.isArray(modelDef.output)
+									? modelDef.output.includes("video")
 									: false;
 
 								if (hasStreaming) {

@@ -57,6 +57,8 @@ export function TimeRangePicker({ value, onChange }: TimeRangePickerProps) {
 							<TooltipTrigger asChild>
 								<button
 									type="button"
+									disabled
+									aria-disabled="true"
 									className="px-3 py-1 text-sm font-medium rounded-sm text-muted-foreground/40 cursor-not-allowed inline-flex items-center gap-1"
 								>
 									{range.label}
