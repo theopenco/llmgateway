@@ -2,8 +2,10 @@ import { describe, it, expect, afterEach } from "vitest";
 
 import {
 	checkContentFilter,
+	getContentFilterModels,
 	getContentFilterMethod,
 	getContentFilterMode,
+	shouldApplyContentFilterToModel,
 } from "./check-content-filter.js";
 
 describe("checkContentFilter", () => {
@@ -197,5 +199,70 @@ describe("getContentFilterMethod", () => {
 		process.env.LLM_CONTENT_FILTER_MODE = "openai";
 		delete process.env.LLM_CONTENT_FILTER_METHOD;
 		expect(getContentFilterMethod()).toBe("openai");
+	});
+});
+
+describe("getContentFilterModels", () => {
+	const originalEnv = process.env.LLM_CONTENT_FILTER_MODELS;
+
+	afterEach(() => {
+		if (originalEnv === undefined) {
+			delete process.env.LLM_CONTENT_FILTER_MODELS;
+		} else {
+			process.env.LLM_CONTENT_FILTER_MODELS = originalEnv;
+		}
+	});
+
+	it("returns null by default when env var is not set", () => {
+		delete process.env.LLM_CONTENT_FILTER_MODELS;
+		expect(getContentFilterModels()).toBeNull();
+	});
+
+	it("returns null for empty string", () => {
+		process.env.LLM_CONTENT_FILTER_MODELS = "";
+		expect(getContentFilterModels()).toBeNull();
+	});
+
+	it("returns normalized model ids when configured", () => {
+		process.env.LLM_CONTENT_FILTER_MODELS =
+			" gemini-3-pro-image-preview, gemini-3.1-flash-image-preview ";
+		expect(getContentFilterModels()).toEqual([
+			"gemini-3-pro-image-preview",
+			"gemini-3.1-flash-image-preview",
+		]);
+	});
+});
+
+describe("shouldApplyContentFilterToModel", () => {
+	const originalEnv = process.env.LLM_CONTENT_FILTER_MODELS;
+
+	afterEach(() => {
+		if (originalEnv === undefined) {
+			delete process.env.LLM_CONTENT_FILTER_MODELS;
+		} else {
+			process.env.LLM_CONTENT_FILTER_MODELS = originalEnv;
+		}
+	});
+
+	it("returns true when no model filter is configured", () => {
+		delete process.env.LLM_CONTENT_FILTER_MODELS;
+		expect(shouldApplyContentFilterToModel("gpt-4o-mini")).toBe(true);
+	});
+
+	it("returns true for configured canonical model names", () => {
+		process.env.LLM_CONTENT_FILTER_MODELS =
+			"gemini-3-pro-image-preview,gemini-3.1-flash-image-preview";
+		expect(shouldApplyContentFilterToModel("gemini-3-pro-image-preview")).toBe(
+			true,
+		);
+		expect(
+			shouldApplyContentFilterToModel("gemini-3.1-flash-image-preview"),
+		).toBe(true);
+	});
+
+	it("returns false for models outside the configured list", () => {
+		process.env.LLM_CONTENT_FILTER_MODELS =
+			"gemini-3-pro-image-preview,gemini-3.1-flash-image-preview";
+		expect(shouldApplyContentFilterToModel("gpt-4o-mini")).toBe(false);
 	});
 });

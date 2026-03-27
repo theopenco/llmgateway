@@ -83,6 +83,7 @@ import {
 	checkContentFilter,
 	getContentFilterMethod,
 	getContentFilterMode,
+	shouldApplyContentFilterToModel,
 } from "./tools/check-content-filter.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
@@ -863,12 +864,15 @@ chat.openapi(completions, async (c) => {
 	// Check gateway-level content filter before routing the request upstream.
 	const contentFilterMode = getContentFilterMode();
 	const contentFilterMethod = getContentFilterMethod();
+	const shouldApplyGatewayContentFilter =
+		contentFilterMode !== "disabled" &&
+		shouldApplyContentFilterToModel(requestedModel);
 	const keywordContentFilterMatch =
-		contentFilterMode !== "disabled" && contentFilterMethod === "keywords"
+		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
 			? checkContentFilter(messages as BaseMessage[])
 			: null;
 	const openAIContentFilterResult =
-		contentFilterMode !== "disabled" && contentFilterMethod === "openai"
+		shouldApplyGatewayContentFilter && contentFilterMethod === "openai"
 			? await checkOpenAIContentFilter(
 					messages as BaseMessage[],
 					{
@@ -885,10 +889,6 @@ chat.openapi(completions, async (c) => {
 		openAIContentFilterResult?.flagged === true;
 	const contentFilterBlocked =
 		contentFilterMode === "enabled" && contentFilterMatched;
-	const gatewayContentFilter = {
-		mode: contentFilterMode,
-		method: contentFilterMethod,
-	} as const;
 
 	// In monitor mode, tag logs with internalContentFilter when the selected
 	// filter method would have blocked the request.
@@ -897,10 +897,6 @@ chat.openapi(completions, async (c) => {
 	const insertLog = (logData: Parameters<typeof _insertLog>[0]) =>
 		_insertLog({
 			...logData,
-			params: {
-				...(logData.params ?? {}),
-				gateway_content_filter: gatewayContentFilter,
-			},
 			internalContentFilter: shouldTagContentFilter
 				? true
 				: logData.internalContentFilter,

@@ -12,6 +12,9 @@ let cachedModeEnvValue: string | undefined;
 let cachedMethod: ContentFilterMethod | null = null;
 let cachedMethodEnvValue: string | undefined;
 
+let cachedModels: string[] | null = null;
+let cachedModelsEnvValue: string | undefined;
+
 /**
  * Returns the content filter mode from LLM_CONTENT_FILTER_MODE env var.
  * - "disabled" (default): content filter is off
@@ -69,6 +72,46 @@ export function getContentFilterMethod(): ContentFilterMethod {
 	}
 
 	return cachedMethod;
+}
+
+/**
+ * Returns the list of canonical model names that should have content filtering
+ * applied from LLM_CONTENT_FILTER_MODELS.
+ *
+ * If unset or empty, filtering applies to all models.
+ */
+export function getContentFilterModels(): string[] | null {
+	const envValue = process.env.LLM_CONTENT_FILTER_MODELS;
+
+	if (envValue === cachedModelsEnvValue && cachedModels !== null) {
+		return cachedModels;
+	}
+
+	cachedModelsEnvValue = envValue;
+
+	if (!envValue || envValue.trim() === "") {
+		cachedModels = [];
+		return null;
+	}
+
+	cachedModels = envValue
+		.split(",")
+		.map((model) => model.trim().toLowerCase())
+		.filter((model) => model.length > 0);
+
+	return cachedModels.length > 0 ? cachedModels : null;
+}
+
+export function shouldApplyContentFilterToModel(
+	requestedModel: string,
+): boolean {
+	const filterModels = getContentFilterModels();
+
+	if (filterModels === null) {
+		return true;
+	}
+
+	return filterModels.includes(requestedModel.trim().toLowerCase());
 }
 
 /**
