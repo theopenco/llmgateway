@@ -252,6 +252,13 @@ async function extractImagesFromChatResponse(
 	}
 
 	if (imageObjects.length === 0) {
+		if (chatResponse.choices?.[0]?.finish_reason === "content_filter") {
+			logger.warn("Images API - content filtered response", {
+				model,
+			});
+			return [];
+		}
+
 		logger.warn("Images API - no images found in chat completions response", {
 			model,
 			hasContent: !!chatResponse.choices?.[0]?.message?.content,

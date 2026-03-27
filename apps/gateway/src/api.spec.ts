@@ -234,6 +234,182 @@ describe("api", () => {
 		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
 	});
 
+	test("/v1/images/generations returns empty data for content filter", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-generation-content-filter",
+			token: "real-token-image-generation-content-filter",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-image-generation-content-filter",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-content-filter",
+							object: "chat.completion",
+							created: 1774549411,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: {
+										role: "assistant",
+										content: null,
+									},
+									finish_reason: "content_filter",
+								},
+							],
+							usage: {
+								prompt_tokens: 0,
+								completion_tokens: 0,
+								total_tokens: 0,
+							},
+						}),
+						{
+							status: 200,
+							headers: {
+								"Content-Type": "application/json",
+							},
+						},
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-image-generation-content-filter",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					prompt: "Generate disallowed content",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json.data).toEqual([]);
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/images/edits returns empty data for content filter", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-edits-content-filter",
+			token: "real-token-image-edits-content-filter",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-image-edits-content-filter",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-content-filter-edits",
+							object: "chat.completion",
+							created: 1774549411,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: {
+										role: "assistant",
+										content: null,
+									},
+									finish_reason: "content_filter",
+								},
+							],
+							usage: {
+								prompt_tokens: 0,
+								completion_tokens: 0,
+								total_tokens: 0,
+							},
+						}),
+						{
+							status: 200,
+							headers: {
+								"Content-Type": "application/json",
+							},
+						},
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-image-edits-content-filter",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					prompt: "Edit into disallowed content",
+					images: [
+						{
+							image_url:
+								"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAJFBMVEX///////9MaXH///////////////////////////////////8ZR3RTAAAADHRSTlP+jgB78KRmvTse21aub7wnAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAc0lEQVR42l3PWRIDIQgE0G5Z1fvfN7hMKhO+5BWtgraqU933qWG1BkCg0jfkahcAyt4QQOiFKmJI+oWhezRwI0Zx1rzRZ44C7gRIMws8oKDFiT4QdHvBNMUL1LKu3KAnUu+fCWndp/98Xf6Xm1846+dZ/wNI2AJy5D7oXAAAAABJRU5ErkJggg==",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json.data).toEqual([]);
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
 	test("/v1/chat/completions blocks with openai content filter mode", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
