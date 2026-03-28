@@ -4022,6 +4022,8 @@ chat.openapi(completions, async (c) => {
 				let webSearchCount = 0; // Track web search calls for cost calculation
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
 				let doneSent = false; // Track if [DONE] has been sent
+				let sawUpstreamDoneSentinel = false;
+				let handledTerminalProviderEvent = false;
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 				let rawUpstreamData = ""; // Raw data received from upstream provider
@@ -4351,6 +4353,7 @@ chat.openapi(completions, async (c) => {
 							}
 
 							if (eventData === "[DONE]") {
+								sawUpstreamDoneSentinel = true;
 								// Set default finish_reason if not provided by the stream
 								// Some providers (like Novita) don't send finish_reason in streaming chunks
 								if (finishReason === null) {
@@ -4595,6 +4598,7 @@ chat.openapi(completions, async (c) => {
 											billingProvider: usedProvider,
 											responseModel: data.model ?? usedModel,
 										});
+										handledTerminalProviderEvent = true;
 									} else {
 										streamingError = {
 											message: errorMessage,
@@ -5325,7 +5329,10 @@ chat.openapi(completions, async (c) => {
 					}
 
 					const streamEndedWithoutTerminalEvent =
-						!streamingError && !canceled && finishReason === null;
+						!streamingError &&
+						!canceled &&
+						!handledTerminalProviderEvent &&
+						(!sawUpstreamDoneSentinel || finishReason === null);
 					if (streamEndedWithoutTerminalEvent) {
 						const responseText =
 							buffer.trim().length > 0
