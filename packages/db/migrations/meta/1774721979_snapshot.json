@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "d8ced273-d00c-4629-a7be-22099edc6265",
+  "id": "6810f822-e336-4f4e-bdc2-eb4c08c4084a",
   "prevId": "6b54214e-73e8-49e1-9713-82c42efed32d",
   "ddl": [
     {
@@ -11598,13 +11598,6 @@
         },
         {
           "value": "coalesce(\"model\", '__all_models__')",
-          "isExpression": true,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "case\n\t\t\t\twhen \"max_rpm\" is not null then 'rpm'\n\t\t\t\twhen \"max_rpd\" is not null then 'rpd'\n\t\t\t\telse '__unset__'\n\t\t\tend",
           "isExpression": true,
           "asc": true,
           "nullsFirst": false,

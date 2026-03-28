@@ -1470,19 +1470,13 @@ export const rateLimit = pgTable(
 		reason: text(),
 	},
 	(table) => [
-		// Postgres treats nulls as distinct in plain unique constraints, so normalize
-		// null scopes to sentinels and encode the limit type in the expression so the
-		// same provider/model can have both RPM and RPD caps without duplicates.
+		// One row per org/provider/model combo with both RPM and RPD on the same row.
+		// Coalesce nulls to sentinels so Postgres treats them as equal.
 		uniqueIndex("rate_limit_org_provider_model_unique").using(
 			"btree",
 			sql`coalesce(${table.organizationId}, '__global__')`,
 			sql`coalesce(${table.provider}, '__all_providers__')`,
 			sql`coalesce(${table.model}, '__all_models__')`,
-			sql`case
-				when ${table.maxRpm} is not null then 'rpm'
-				when ${table.maxRpd} is not null then 'rpd'
-				else '__unset__'
-			end`,
 		),
 		index("rate_limit_organization_id_idx").on(table.organizationId),
 		index("rate_limit_provider_idx").on(table.provider),
