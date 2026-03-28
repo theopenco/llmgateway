@@ -115,6 +115,8 @@ describe("worker", () => {
 
 	describe("processAutoTopUp", () => {
 		test("should disable auto top-up after 7 days of payment failures", async () => {
+			const eightDaysMs = 8 * 24 * 60 * 60 * 1000;
+
 			await db.insert(tables.organization).values({
 				id: "org-disable-auto-topup",
 				name: "Disable Auto Top-up",
@@ -125,7 +127,7 @@ describe("worker", () => {
 				autoTopUpAmount: "10",
 				paymentFailureCount: 8,
 				lastPaymentFailureAt: new Date(),
-				paymentFailureStartedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+				paymentFailureStartedAt: new Date(Date.now() - eightDaysMs),
 			});
 
 			await processAutoTopUp();
@@ -154,6 +156,8 @@ describe("worker", () => {
 		});
 
 		test("should keep auto top-up enabled when failures are newer than 7 days", async () => {
+			const sixDaysMs = 6 * 24 * 60 * 60 * 1000;
+
 			await db.insert(tables.organization).values({
 				id: "org-keep-auto-topup",
 				name: "Keep Auto Top-up",
@@ -164,7 +168,7 @@ describe("worker", () => {
 				autoTopUpAmount: "10",
 				paymentFailureCount: 3,
 				lastPaymentFailureAt: new Date(),
-				paymentFailureStartedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000),
+				paymentFailureStartedAt: new Date(Date.now() - sixDaysMs),
 			});
 
 			await processAutoTopUp();
