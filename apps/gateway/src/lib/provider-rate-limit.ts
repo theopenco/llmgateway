@@ -129,12 +129,10 @@ export async function checkProviderRateLimit(
 		if (currentCount >= limit) {
 			// Rate limited — calculate retry after
 			const oldestEntry = await redisClient.zrange(key, 0, 0, "WITHSCORES");
+			const windowMs = WINDOW_SECONDS * 1000;
 			const retryAfter =
 				oldestEntry.length > 1
-					? Math.ceil(
-							(parseInt(oldestEntry[1], 10) + WINDOW_SECONDS * 1000 - now) /
-								1000,
-						)
+					? Math.ceil((parseInt(oldestEntry[1], 10) + windowMs - now) / 1000)
 					: WINDOW_SECONDS;
 
 			logger.info(`Provider rate limit exceeded`, {

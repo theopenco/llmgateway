@@ -545,9 +545,11 @@ export const log = pgTable(
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
+				rate_limited?: boolean;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;
+			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
 			routing?: Array<{
 				provider: string;
@@ -695,9 +697,11 @@ export const videoJob = pgTable(
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
+				rate_limited?: boolean;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;
+			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
 			routing?: Array<{
 				provider: string;

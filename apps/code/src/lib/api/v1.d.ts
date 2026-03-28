@@ -974,6 +974,7 @@ export interface paths {
                                         failed?: boolean;
                                         status_code?: number;
                                         error_type?: string;
+                                        rate_limited?: boolean;
                                     }[];
                                     routing?: {
                                         provider: string;
@@ -1193,6 +1194,7 @@ export interface paths {
                                         failed?: boolean;
                                         status_code?: number;
                                         error_type?: string;
+                                        rate_limited?: boolean;
                                     }[];
                                     routing?: {
                                         provider: string;
