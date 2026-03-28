@@ -2611,6 +2611,7 @@ chat.openapi(completions, async (c) => {
 				? true
 				: logData.internalContentFilter,
 		});
+	let requestBody: ProviderRequestBody | undefined;
 
 	try {
 		if (contentFilterBlocked) {
@@ -3355,7 +3356,7 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
-		let requestBody: ProviderRequestBody = await prepareRequestBody(
+		requestBody = await prepareRequestBody(
 			usedProvider,
 			upstreamModelName,
 			messages as BaseMessage[],
