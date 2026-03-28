@@ -908,6 +908,236 @@ describe("fallback and error status code handling", () => {
 				),
 			).toBe(false);
 		});
+
+		test("auto routing ignores synthetic root region mappings", async () => {
+			await db.insert(tables.providerKey).values([
+				{
+					id: "provider-key-zai",
+					token: "sk-zai-key",
+					provider: "zai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-alibaba",
+					token: "sk-alibaba-key",
+					provider: "alibaba",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-novita",
+					token: "sk-novita-key",
+					provider: "novita",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+			]);
+
+			await db
+				.insert(tables.model)
+				.values({
+					id: "glm-4.6",
+					name: "GLM-4.6",
+					family: "glm",
+					releasedAt: new Date("2025-09-30"),
+				})
+				.onConflictDoNothing();
+
+			await db
+				.insert(tables.modelProviderMapping)
+				.values([
+					{
+						id: "glm-4-6-zai-auto-root",
+						modelId: "glm-4.6",
+						providerId: "zai",
+						modelName: "glm-4.6",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-auto-root",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-auto-cn-beijing",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6:cn-beijing",
+						region: "cn-beijing",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-novita-auto-root",
+						modelId: "glm-4.6",
+						providerId: "novita",
+						modelName: "zai-org/glm-4.6",
+						streaming: true,
+					},
+				])
+				.onConflictDoNothing();
+
+			await setRoutingMetrics("glm-4.6", "zai", 100, {
+				routingLatency: 250,
+				routingThroughput: 90,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				routingLatency: 1,
+				routingThroughput: 1000,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 20,
+				routingThroughput: 400,
+			});
+			await setRoutingMetrics("glm-4.6", "novita", 100, {
+				routingLatency: 1200,
+				routingThroughput: 30,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "glm-4.6",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			const log =
+				logs.find((entry) => entry.requestedModel === "glm-4.6") ?? logs.at(-1);
+			expect(log).toBeTruthy();
+			expect(log?.usedProvider).toBe("alibaba");
+			expect(log?.usedModel).toBe("alibaba/glm-4.6:cn-beijing");
+			expect(
+				log?.routingMetadata?.providerScores?.some(
+					(score) => score.providerId === "alibaba" && !score.region,
+				),
+			).toBe(false);
+			expect(
+				log?.routingMetadata?.providerScores?.some(
+					(score) =>
+						score.providerId === "alibaba" && score.region === "singapore",
+				),
+			).toBe(false);
+		});
+
+		test("routing excludes providers whose maxOutput is below max_tokens", async () => {
+			await db.insert(tables.providerKey).values([
+				{
+					id: "provider-key-zai",
+					token: "sk-zai-key",
+					provider: "zai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-alibaba",
+					token: "sk-alibaba-key",
+					provider: "alibaba",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-novita",
+					token: "sk-novita-key",
+					provider: "novita",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+			]);
+
+			await db
+				.insert(tables.model)
+				.values({
+					id: "glm-4.6",
+					name: "GLM-4.6",
+					family: "glm",
+					releasedAt: new Date("2025-09-30"),
+				})
+				.onConflictDoNothing();
+
+			await db
+				.insert(tables.modelProviderMapping)
+				.values([
+					{
+						id: "glm-4-6-zai-root-max-tokens",
+						modelId: "glm-4.6",
+						providerId: "zai",
+						modelName: "glm-4.6",
+						maxOutput: 32768,
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-cn-beijing-max-tokens",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6:cn-beijing",
+						region: "cn-beijing",
+						maxOutput: 16384,
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-novita-root-max-tokens",
+						modelId: "glm-4.6",
+						providerId: "novita",
+						modelName: "zai-org/glm-4.6",
+						maxOutput: 32768,
+						streaming: true,
+					},
+				])
+				.onConflictDoNothing();
+
+			await setRoutingMetrics("glm-4.6", "zai", 100, {
+				routingLatency: 20,
+				routingThroughput: 500,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 5,
+				routingThroughput: 1000,
+			});
+			await setRoutingMetrics("glm-4.6", "novita", 70, {
+				routingLatency: 1200,
+				routingThroughput: 20,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "zai/glm-4.6",
+					max_tokens: 20000,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).not.toBe(400);
+
+			const logs = await waitForLogs(1);
+			const log =
+				logs.find((entry) => entry.requestedModel === "glm-4.6") ?? logs.at(-1);
+			expect(log).toBeTruthy();
+			expect(log?.usedProvider).not.toBe("alibaba");
+			expect(log?.usedModel).not.toBe("alibaba/glm-4.6:cn-beijing");
+			expect(log?.routingMetadata?.providerScores).not.toContainEqual(
+				expect.objectContaining({
+					providerId: "alibaba",
+					region: "cn-beijing",
+				}),
+			);
+		});
 	});
 
 	describe("routing metadata in DB log entries", () => {
@@ -1075,15 +1305,17 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(200);
 
 			const logs = await waitForLogs(1);
-			expect(logs[0].routingMetadata?.providerScores).toEqual([
+			expect(logs[0].routingMetadata?.providerScores).toContainEqual(
 				expect.objectContaining({
 					providerId: "alibaba",
+					region: "cn-beijing",
 					score: expect.any(Number),
 				}),
-			]);
+			);
 			expect(
 				logs[0].routingMetadata?.providerScores?.some(
-					(score) => score.providerId === "alibaba" && Boolean(score.region),
+					(score) =>
+						score.providerId === "alibaba" && score.region === "singapore",
 				),
 			).toBe(false);
 		});
