@@ -181,6 +181,40 @@ function preferConcreteRegionalMappings(
 	);
 }
 
+function collapseProvidersToBestRegionPerProvider(
+	candidates: ProviderModelMapping[],
+	model: ModelDefinition & {
+		id: string;
+		output?: string[];
+	},
+	options: {
+		metricsMap: Map<string, ProviderMetrics>;
+		isStreaming: boolean;
+	},
+): ProviderModelMapping[] {
+	const providersById = new Map<string, ProviderModelMapping[]>();
+
+	for (const candidate of candidates) {
+		const providerCandidates = providersById.get(candidate.providerId) ?? [];
+		providerCandidates.push(candidate);
+		providersById.set(candidate.providerId, providerCandidates);
+	}
+
+	return Array.from(providersById.values()).map((providerCandidates) => {
+		if (providerCandidates.length === 1) {
+			return providerCandidates[0];
+		}
+
+		const bestCandidate = getCheapestFromAvailableProviders(
+			providerCandidates,
+			model,
+			options,
+		);
+
+		return bestCandidate?.provider ?? providerCandidates[0];
+	});
+}
+
 function resolveRegionFromProviderKey(
 	key: InferSelectModel<typeof tables.providerKey>,
 ): string | undefined {
@@ -221,6 +255,7 @@ function filterEligibleModelProviders(
 		webSearchTool?: WebSearchTool;
 		responseFormatType?: string;
 		hasImages: boolean;
+		maxTokens?: number;
 		reasoningEffort?: string;
 	},
 ): ProviderModelMapping[] {
@@ -260,6 +295,14 @@ function filterEligibleModelProviders(
 		}
 
 		if (options.hasImages && provider.vision !== true) {
+			return false;
+		}
+
+		if (
+			options.maxTokens !== undefined &&
+			provider.maxOutput !== undefined &&
+			options.maxTokens > provider.maxOutput
+		) {
 			return false;
 		}
 
@@ -925,6 +968,11 @@ chat.openapi(completions, async (c) => {
 				iamAllowedProviders.includes(p.providerId),
 			)
 		: modelInfo.providers;
+	let expandedIamFilteredModelProviders = iamAllowedProviders
+		? expandedActiveModelProviders.filter((p) =>
+				iamAllowedProviders.includes(p.providerId),
+			)
+		: expandedActiveModelProviders;
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
@@ -1050,14 +1098,17 @@ chat.openapi(completions, async (c) => {
 			}
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
-			// Use the root mappings for provider-agnostic routing. Region-specific
-			// expansion is only needed when a provider is explicitly requested.
-			const candidateProviders =
+			const candidateProviders = preferConcreteRegionalMappings(
 				project.mode === "credits"
 					? filterRegionsByAvailableKeys(
-							modelDef.providers as ProviderModelMapping[],
+							expandAllProviderRegions(
+								modelDef.providers as ProviderModelMapping[],
+							),
 						)
-					: (modelDef.providers as ProviderModelMapping[]);
+					: expandAllProviderRegions(
+							modelDef.providers as ProviderModelMapping[],
+						),
+			);
 			// Check if any of the model's providers are available
 			const availableModelProviders = candidateProviders.filter(
 				(provider) =>
@@ -1130,6 +1181,14 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				if (
+					max_tokens !== undefined &&
+					provider.maxOutput !== undefined &&
+					max_tokens > provider.maxOutput
+				) {
+					return false;
+				}
+
 				return contextSizeMet;
 			});
 
@@ -1148,6 +1207,8 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
+		let providerAgnosticSelectedProviders = selectedProviders;
+
 		// If we found a suitable model, use the cheapest provider from it
 		if (selectedModel && selectedProviders.length > 0) {
 			// Fetch uptime/latency metrics from last 5 minutes for provider selection
@@ -1158,9 +1219,18 @@ chat.openapi(completions, async (c) => {
 			}));
 			const metricsMap =
 				await getProviderMetricsForCombinations(metricsCombinations);
+			providerAgnosticSelectedProviders =
+				collapseProvidersToBestRegionPerProvider(
+					selectedProviders,
+					selectedModel,
+					{
+						metricsMap,
+						isStreaming: stream,
+					},
+				);
 
 			const cheapestResult = getCheapestFromAvailableProviders(
-				selectedProviders,
+				providerAgnosticSelectedProviders,
 				selectedModel,
 				{ metricsMap, isStreaming: stream },
 			);
@@ -1202,7 +1272,7 @@ chat.openapi(completions, async (c) => {
 		if (selectedModel) {
 			modelInfo = {
 				...selectedModel,
-				providers: selectedProviders,
+				providers: providerAgnosticSelectedProviders,
 			};
 		} else {
 			// Fallback case: look up the default model definition
@@ -1237,6 +1307,11 @@ chat.openapi(completions, async (c) => {
 					allowedProviders.includes(p.providerId),
 				)
 			: modelInfo.providers;
+		expandedIamFilteredModelProviders = allowedProviders
+			? expandAllProviderRegions(modelInfo.providers).filter((p) =>
+					allowedProviders.includes(p.providerId),
+				)
+			: expandAllProviderRegions(modelInfo.providers);
 	} else if (
 		(usedProvider === "llmgateway" && usedModel === "custom") ||
 		usedModel === "custom"
@@ -1292,6 +1367,7 @@ chat.openapi(completions, async (c) => {
 					webSearchTool,
 					responseFormatType: response_format?.type,
 					hasImages,
+					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
 			);
@@ -1391,45 +1467,24 @@ chat.openapi(completions, async (c) => {
 				// Filter model providers to only those available (excluding the low-uptime one)
 				// If web search is requested, also filter to providers that support it
 				// If JSON output is requested, also filter to providers that support it
-				const availableModelProviders = preferConcreteRegionalMappings(
-					iamFilteredModelProviders,
-				).filter((provider) => {
-					if (!availableProviders.includes(provider.providerId)) {
-						return false;
-					}
-					if (
-						provider.providerId === usedProvider &&
-						provider.region === usedRegion
-					) {
-						return false;
-					}
-					// If web search tool is requested, only include providers that support it
-					if (webSearchTool) {
-						if (provider.webSearch !== true) {
-							return false;
-						}
-					}
-					// If JSON output is requested, only include providers that support it
-					if (
-						response_format?.type === "json_object" ||
-						response_format?.type === "json_schema"
-					) {
-						if (provider.jsonOutput !== true) {
-							return false;
-						}
-					}
-					// If JSON schema output is requested, only include providers that support it
-					if (response_format?.type === "json_schema") {
-						if (provider.jsonOutputSchema !== true) {
-							return false;
-						}
-					}
-					// If images are present in messages, only include providers that support vision
-					if (hasImages && provider.vision !== true) {
-						return false;
-					}
-					return true;
-				});
+				const availableModelProviders = filterEligibleModelProviders(
+					preferConcreteRegionalMappings(expandedIamFilteredModelProviders),
+					{
+						allProviderVariants: modelInfo.providers,
+						availableProviders,
+						webSearchTool,
+						responseFormatType: response_format?.type,
+						hasImages,
+						maxTokens: max_tokens,
+						reasoningEffort: reasoning_effort,
+					},
+				).filter(
+					(provider) =>
+						!(
+							provider.providerId === usedProvider &&
+							provider.region === usedRegion
+						),
+				);
 
 				if (availableModelProviders.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
@@ -1451,10 +1506,16 @@ chat.openapi(completions, async (c) => {
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
+						const providerAgnosticCandidates =
+							collapseProvidersToBestRegionPerProvider(
+								availableModelProviders,
+								modelWithPricing,
+								{ metricsMap: allMetricsMap, isStreaming: stream },
+							);
 
 						// Filter to only providers with better uptime than the original
 						// to avoid falling back to worse providers
-						const betterUptimeProviders = availableModelProviders.filter(
+						const betterUptimeProviders = providerAgnosticCandidates.filter(
 							(p) => {
 								const providerMetrics = allMetricsMap.get(
 									metricsKey(modelWithPricing.id, p.providerId, p.region),
@@ -1566,7 +1627,7 @@ chat.openapi(completions, async (c) => {
 
 			// Filter model providers to only those eligible for this request
 			const availableModelProviders = filterEligibleModelProviders(
-				preferConcreteRegionalMappings(iamFilteredModelProviders),
+				preferConcreteRegionalMappings(expandedIamFilteredModelProviders),
 				{
 					allProviderVariants: modelInfo.providers,
 					availableProviders,
@@ -1574,6 +1635,7 @@ chat.openapi(completions, async (c) => {
 					webSearchTool,
 					responseFormatType: response_format?.type,
 					hasImages,
+					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
 			);
@@ -1610,9 +1672,15 @@ chat.openapi(completions, async (c) => {
 				}));
 				const metricsMap =
 					await getProviderMetricsForCombinations(metricsCombinations);
+				const providerAgnosticCandidates =
+					collapseProvidersToBestRegionPerProvider(
+						availableModelProviders,
+						modelWithPricing,
+						{ metricsMap, isStreaming: stream },
+					);
 
 				const cheapestResult = getCheapestFromAvailableProviders(
-					availableModelProviders,
+					providerAgnosticCandidates,
 					modelWithPricing,
 					{ metricsMap, isStreaming: stream },
 				);
@@ -1699,6 +1767,7 @@ chat.openapi(completions, async (c) => {
 					webSearchTool,
 					responseFormatType: response_format?.type,
 					hasImages,
+					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
 			);
