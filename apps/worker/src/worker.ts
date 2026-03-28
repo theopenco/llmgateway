@@ -26,7 +26,7 @@ import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import { calculateFees } from "@llmgateway/shared";
 
-import { notifyProviderErrorDiscord } from "./provider-error-discord.js";
+import { notifyLogErrorDiscord } from "./log-error-discord.js";
 import { runFollowUpEmailsLoop } from "./services/follow-up-emails.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
@@ -852,7 +852,11 @@ export async function processLogQueue(): Promise<void> {
 							traceId: insertedLog.traceId,
 						});
 
-						await notifyProviderErrorDiscord(insertedLog);
+						await notifyLogErrorDiscord({
+							log: insertedLog,
+							webhookEnvVar: "PROVIDER_ERROR_DISCORD_URL",
+							errorKind: "Provider Error",
+						});
 					}),
 				);
 

@@ -1,6 +1,6 @@
 import { logger } from "@llmgateway/logger";
 
-interface ProviderErrorLogNotification {
+interface LogErrorNotification {
 	id: string;
 	requestId: string;
 	createdAt: Date;
@@ -21,6 +21,12 @@ interface ProviderErrorLogNotification {
 	} | null;
 	traceId: string | null;
 	retried: boolean | null;
+}
+
+interface LogErrorDiscordOptions {
+	log: LogErrorNotification;
+	webhookEnvVar: string;
+	errorKind: string;
 }
 
 interface DiscordEmbedField {
@@ -60,7 +66,7 @@ function toCodeBlock(value: string, maxLength = 900): string {
 	return `\`\`\`\n${truncate(sanitized, maxLength)}\n\`\`\``;
 }
 
-function buildActivityLogUrl(log: ProviderErrorLogNotification): string {
+function buildActivityLogUrl(log: LogErrorNotification): string {
 	const configuredAppUrl = process.env.APP_URL?.trim();
 	const appUrl =
 		configuredAppUrl && configuredAppUrl.length > 0
@@ -72,7 +78,7 @@ function buildActivityLogUrl(log: ProviderErrorLogNotification): string {
 	).toString();
 }
 
-function buildGoogleCloudLogsUrl(log: ProviderErrorLogNotification): string {
+function buildGoogleCloudLogsUrl(log: LogErrorNotification): string {
 	const configuredProjectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
 	const projectId =
 		configuredProjectId && configuredProjectId.length > 0
@@ -86,7 +92,7 @@ function buildGoogleCloudLogsUrl(log: ProviderErrorLogNotification): string {
 	return `https://console.cloud.google.com/logs/query;query=${encodeURIComponent(query)};timeRange=PT24H?project=${encodeURIComponent(projectId)}`;
 }
 
-function buildFields(log: ProviderErrorLogNotification): DiscordEmbedField[] {
+function buildFields(log: LogErrorNotification): DiscordEmbedField[] {
 	const statusCode = log.errorDetails?.statusCode ?? 0;
 	const statusText = log.errorDetails?.statusText ?? "unknown";
 	const fields: DiscordEmbedField[] = [
@@ -176,7 +182,7 @@ function buildFields(log: ProviderErrorLogNotification): DiscordEmbedField[] {
 	}
 
 	fields.push({
-		name: "Provider Response",
+		name: "Error Response",
 		value: toCodeBlock(log.errorDetails?.responseText ?? ""),
 		inline: false,
 	});
@@ -184,18 +190,19 @@ function buildFields(log: ProviderErrorLogNotification): DiscordEmbedField[] {
 	return fields;
 }
 
-function buildPayload(
-	log: ProviderErrorLogNotification,
-): DiscordWebhookPayload {
+function buildPayload({
+	log,
+	errorKind,
+}: LogErrorDiscordOptions): DiscordWebhookPayload {
 	return {
 		embeds: [
 			{
 				title: truncate(
-					`Provider Error: ${log.usedProvider}/${log.usedModel}`,
+					`${errorKind}: ${log.usedProvider}/${log.usedModel}`,
 					256,
 				),
 				description: truncate(
-					`A provider error log was persisted for project ${log.projectId}.`,
+					`An error log was persisted for project ${log.projectId}.`,
 					512,
 				),
 				color: 0xef4444,
@@ -206,10 +213,12 @@ function buildPayload(
 	};
 }
 
-export async function notifyProviderErrorDiscord(
-	log: ProviderErrorLogNotification,
-): Promise<void> {
-	const webhookUrl = process.env.PROVIDER_ERROR_DISCORD_URL?.trim();
+export async function notifyLogErrorDiscord({
+	log,
+	webhookEnvVar,
+	errorKind,
+}: LogErrorDiscordOptions): Promise<void> {
+	const webhookUrl = process.env[webhookEnvVar]?.trim();
 	if (!webhookUrl) {
 		return;
 	}
@@ -220,7 +229,13 @@ export async function notifyProviderErrorDiscord(
 			headers: {
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify(buildPayload(log)),
+			body: JSON.stringify(
+				buildPayload({
+					log,
+					webhookEnvVar,
+					errorKind,
+				}),
+			),
 			signal: AbortSignal.timeout(10_000),
 		});
 
@@ -231,9 +246,11 @@ export async function notifyProviderErrorDiscord(
 		}
 	} catch (error) {
 		logger.error(
-			"Failed to send provider error Discord notification",
+			"Failed to send log error Discord notification",
 			error instanceof Error ? error : new Error(String(error)),
 			{
+				errorKind,
+				webhookEnvVar,
 				logId: log.id,
 				requestId: log.requestId,
 				usedProvider: log.usedProvider,
