@@ -5150,6 +5150,76 @@ chat.openapi(completions, async (c) => {
 								estimateTokensFromContent(fullReasoningContent);
 						}
 					}
+
+					const streamEndedWithoutTerminalEvent =
+						!streamingError && !canceled && finishReason === null;
+					if (streamEndedWithoutTerminalEvent) {
+						const responseText =
+							buffer.trim().length > 0
+								? buffer.substring(0, 5000)
+								: "Stream ended before a terminal finish reason or [DONE] event";
+						const errorMessage =
+							"Upstream stream terminated unexpectedly before completion";
+
+						logger.warn("[streaming] Stream ended without terminal event", {
+							provider: usedProvider,
+							model: usedModel,
+							bufferLength: buffer.length,
+							fullContentLength: fullContent.length,
+							hasToolCalls:
+								!!streamingToolCalls && streamingToolCalls.length > 0,
+							unifiedFinishReason: getUnifiedFinishReason(
+								"upstream_error",
+								usedProvider,
+							),
+						});
+
+						streamingError = {
+							message: errorMessage,
+							type: "upstream_error",
+							code: "stream_truncated",
+							details: {
+								statusCode: 502,
+								statusText: "Upstream Stream Terminated",
+								responseText,
+								timestamp: new Date().toISOString(),
+								provider: usedProvider,
+								model: usedModel,
+								bufferLength: buffer.length,
+							},
+						};
+						finishReason = "upstream_error";
+
+						try {
+							await writeSSEAndCache({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: errorMessage,
+										type: "upstream_error",
+										code: "stream_truncated",
+										param: null,
+										responseText,
+									},
+								}),
+								id: String(eventId++),
+							});
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							doneSent = true;
+						} catch (sseError) {
+							logger.error(
+								"Failed to send truncated stream error SSE",
+								sseError instanceof Error
+									? sseError
+									: new Error(String(sseError)),
+							);
+						}
+					}
+
 					// Check if the response finished successfully but has no content, tokens, or tool calls
 					// This indicates an empty response which should be marked as an error
 					// Do this check BEFORE sending usage chunks to ensure proper event ordering
@@ -5232,7 +5302,7 @@ chat.openapi(completions, async (c) => {
 									: new Error(String(sseError)),
 							);
 						}
-					} else {
+					} else if (!streamingError) {
 						// Calculate costs before sending usage chunk so we can include cost data
 						const billCancelledRequestsEarly = shouldBillCancelledRequests();
 						streamingCostsEarly =

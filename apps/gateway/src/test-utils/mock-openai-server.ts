@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 
 // Create a mock OpenAI API server
 export const mockOpenAIServer = new Hono();
@@ -537,6 +538,91 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		(msg: any) => msg.role === "user" && msg.content.includes("ZERO_TOKENS"),
 	);
 
+	const shouldTruncateStream = body.messages.some(
+		(msg: any) =>
+			msg.role === "user" && msg.content.includes("TRIGGER_TRUNCATED_STREAM"),
+	);
+
+	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
+
+	if (body.stream === true) {
+		return streamSSE(c, async (stream) => {
+			let eventId = 0;
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					id: "chatcmpl-123",
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: body.model ?? "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					id: "chatcmpl-123",
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: body.model ?? "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							delta: {
+								content: assistantContent,
+							},
+							finish_reason: null,
+						},
+					],
+				}),
+				id: String(eventId++),
+			});
+
+			if (shouldTruncateStream) {
+				return;
+			}
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					id: "chatcmpl-123",
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: body.model ?? "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: "stop",
+						},
+					],
+					usage: shouldReturnZeroTokens
+						? {
+								prompt_tokens: 0,
+								completion_tokens: 20,
+								total_tokens: 20,
+							}
+						: sampleChatCompletionResponse.usage,
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				event: "done",
+				data: "[DONE]",
+				id: String(eventId++),
+			});
+		});
+	}
+
 	// Create a custom response that includes the user's message
 	const response = {
 		...sampleChatCompletionResponse,
@@ -545,7 +631,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				...sampleChatCompletionResponse.choices[0],
 				message: {
 					role: "assistant",
-					content: `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`,
+					content: assistantContent,
 				},
 			},
 		],
