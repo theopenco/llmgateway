@@ -218,6 +218,12 @@ describe("getContentFilterModels", () => {
 		expect(getContentFilterModels()).toBeNull();
 	});
 
+	it("keeps returning null on repeated calls when env var is not set", () => {
+		delete process.env.LLM_CONTENT_FILTER_MODELS;
+		expect(getContentFilterModels()).toBeNull();
+		expect(getContentFilterModels()).toBeNull();
+	});
+
 	it("returns null for empty string", () => {
 		process.env.LLM_CONTENT_FILTER_MODELS = "";
 		expect(getContentFilterModels()).toBeNull();

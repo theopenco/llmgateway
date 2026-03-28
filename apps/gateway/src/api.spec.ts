@@ -796,6 +796,102 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/chat/completions ignores missing openai moderation credentials", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+		const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
+		const previousContentFilterModels = process.env.LLM_CONTENT_FILTER_MODELS;
+		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
+		const requestId = "chat-openai-content-filter-missing-key-request-id";
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		try {
+			process.env.LLM_CONTENT_FILTER_MODE = "enabled";
+			process.env.LLM_CONTENT_FILTER_METHOD = "openai";
+			process.env.LLM_CONTENT_FILTER_MODELS = "custom";
+			delete process.env.LLM_OPENAI_API_KEY;
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "Hello!",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json.choices[0].message.content).toContain("Hello!");
+
+			expect(errorSpy).toHaveBeenCalledWith(
+				"gateway_content_filter_error",
+				expect.objectContaining({
+					durationMs: expect.any(Number),
+					mode: "openai",
+					requestId,
+					organizationId: "org-id",
+					projectId: "project-id",
+					apiKeyId: "token-id",
+					error: expect.stringContaining("openai"),
+				}),
+			);
+
+			const logs = await waitForLogs(1);
+			const completedLog = logs.find((log) => log.requestId === requestId);
+
+			expect(completedLog).toBeTruthy();
+			expect(completedLog?.finishReason).toBe("stop");
+		} finally {
+			errorSpy.mockRestore();
+			if (previousContentFilterMode === undefined) {
+				delete process.env.LLM_CONTENT_FILTER_MODE;
+			} else {
+				process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+			}
+			if (previousContentFilterMethod === undefined) {
+				delete process.env.LLM_CONTENT_FILTER_METHOD;
+			} else {
+				process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
+			}
+			if (previousContentFilterModels === undefined) {
+				delete process.env.LLM_CONTENT_FILTER_MODELS;
+			} else {
+				process.env.LLM_CONTENT_FILTER_MODELS = previousContentFilterModels;
+			}
+			if (previousOpenAIKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousOpenAIKey;
+			}
+		}
+	});
+
 	test("/v1/chat/completions skips openai content filter for non-targeted models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

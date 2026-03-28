@@ -83,14 +83,14 @@ export function getContentFilterMethod(): ContentFilterMethod {
 export function getContentFilterModels(): string[] | null {
 	const envValue = process.env.LLM_CONTENT_FILTER_MODELS;
 
-	if (envValue === cachedModelsEnvValue && cachedModels !== null) {
+	if (envValue === cachedModelsEnvValue) {
 		return cachedModels;
 	}
 
 	cachedModelsEnvValue = envValue;
 
 	if (!envValue || envValue.trim() === "") {
-		cachedModels = [];
+		cachedModels = null;
 		return null;
 	}
 

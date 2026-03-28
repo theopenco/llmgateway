@@ -1,4 +1,4 @@
-import { createTimeoutSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
@@ -53,6 +53,7 @@ export interface OpenAIContentFilterCheckResult {
 
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
+const OPENAI_MODERATION_TIMEOUT_MS = 5_000;
 
 function buildTextSummary(message: BaseMessage): string | null {
 	const segments: string[] = [];
@@ -233,7 +234,6 @@ export async function checkOpenAIContentFilter(
 	context: GatewayContentFilterContext,
 	requestSignal?: AbortSignal,
 ): Promise<OpenAIContentFilterCheckResult> {
-	const providerEnv = getProviderEnv("openai");
 	const startTime = Date.now();
 	const requestBody = {
 		model: OPENAI_MODERATION_MODEL,
@@ -241,13 +241,18 @@ export async function checkOpenAIContentFilter(
 	};
 
 	const signal = requestSignal
-		? AbortSignal.any([createTimeoutSignal(), requestSignal])
-		: createTimeoutSignal();
+		? AbortSignal.any([
+				AbortSignal.timeout(OPENAI_MODERATION_TIMEOUT_MS),
+				requestSignal,
+			])
+		: AbortSignal.timeout(OPENAI_MODERATION_TIMEOUT_MS);
 
 	let upstreamResponse: Response;
 	let upstreamText: string;
 
 	try {
+		const providerEnv = getProviderEnv("openai");
+
 		upstreamResponse = await fetch(OPENAI_MODERATION_URL, {
 			method: "POST",
 			headers: {
