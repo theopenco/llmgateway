@@ -3661,6 +3661,7 @@ const getModelDetail = createRoute({
 		params: z.object({ modelId: z.string() }),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			projectId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -3677,7 +3678,7 @@ admin.openapi(getModelDetail, async (c) => {
 	const { modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
-	const projectId = c.req.query("projectId");
+	const projectId = query.projectId;
 	const startDate = getHistoryStartDate(window);
 
 	const model = await db.query.model.findFirst({
@@ -4183,6 +4184,7 @@ const getModelHistory = createRoute({
 		params: z.object({ modelId: z.string() }),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			projectId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -4199,8 +4201,8 @@ admin.openapi(getModelHistory, async (c) => {
 	const { modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const projectId = query.projectId;
 	const startDate = getHistoryStartDate(window);
-	const projectId = c.req.query("projectId");
 
 	if (projectId) {
 		const hourStartDate = new Date(startDate);
@@ -4294,6 +4296,7 @@ const getMappingHistory = createRoute({
 		}),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			projectId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -4310,8 +4313,8 @@ admin.openapi(getMappingHistory, async (c) => {
 	const { providerId, modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const projectId = query.projectId;
 	const startDate = getHistoryStartDate(window);
-	const projectId = c.req.query("projectId");
 	const hourStartDate = new Date(startDate);
 	hourStartDate.setMinutes(0, 0, 0);
 
@@ -4821,7 +4824,8 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 		endDate = new Date(to + "T00:00:00");
 		endDate.setUTCHours(23, 59, 59, 999);
 	} else {
-		startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+		const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+		startDate = new Date(Date.now() - sevenDaysMs);
 	}
 
 	const searchClause = search
