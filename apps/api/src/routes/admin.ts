@@ -2792,7 +2792,7 @@ admin.openapi(getModelStats, async (c) => {
 			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
 		}
 
-		const modelStatsSub = db
+		const modelAggSub = db
 			.select({
 				modelId: modelHistory.modelId,
 				logsCount: sql<number>`COALESCE(SUM(${modelHistory.logsCount}), 0)`.as(
@@ -2822,20 +2822,6 @@ admin.openapi(getModelStats, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${modelHistory.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-			})
-			.from(modelHistory)
-			.where(
-				and(
-					gte(modelHistory.minuteTimestamp, startDate),
-					lt(modelHistory.minuteTimestamp, endDateExclusive),
-				),
-			)
-			.groupBy(modelHistory.modelId)
-			.as("model_stats_sub");
-
-		const modelCostSub = db
-			.select({
-				modelId: modelHistory.modelId,
 				totalCost: sql<number>`COALESCE(SUM(${modelHistory.totalCost}), 0)`.as(
 					"totalCost",
 				),
@@ -2848,7 +2834,7 @@ admin.openapi(getModelStats, async (c) => {
 				),
 			)
 			.groupBy(modelHistory.modelId)
-			.as("model_cost_sub");
+			.as("model_agg_sub");
 
 		const providerCountSub = db
 			.select({
@@ -2865,13 +2851,13 @@ admin.openapi(getModelStats, async (c) => {
 			family: tables.model.family,
 			status: tables.model.status,
 			free: tables.model.free,
-			logsCount: sql`COALESCE(${modelStatsSub.logsCount}, 0)`,
-			totalCost: sql`COALESCE(${modelCostSub.totalCost}, 0)`,
-			errorsCount: sql`COALESCE(${modelStatsSub.errorsCount}, 0)`,
-			clientErrorsCount: sql`COALESCE(${modelStatsSub.clientErrorsCount}, 0)`,
-			gatewayErrorsCount: sql`COALESCE(${modelStatsSub.gatewayErrorsCount}, 0)`,
-			upstreamErrorsCount: sql`COALESCE(${modelStatsSub.upstreamErrorsCount}, 0)`,
-			cachedCount: sql`COALESCE(${modelStatsSub.cachedCount}, 0)`,
+			logsCount: sql`COALESCE(${modelAggSub.logsCount}, 0)`,
+			totalCost: sql`COALESCE(${modelAggSub.totalCost}, 0)`,
+			errorsCount: sql`COALESCE(${modelAggSub.errorsCount}, 0)`,
+			clientErrorsCount: sql`COALESCE(${modelAggSub.clientErrorsCount}, 0)`,
+			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
+			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
+			cachedCount: sql`COALESCE(${modelAggSub.cachedCount}, 0)`,
 			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
@@ -2887,17 +2873,16 @@ admin.openapi(getModelStats, async (c) => {
 		const totalsQuery = db
 			.select({
 				totalTokens:
-					sql<number>`COALESCE(SUM(COALESCE(${modelStatsSub.totalTokens}, 0)), 0)`.as(
+					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalTokens}, 0)), 0)`.as(
 						"totalTokens",
 					),
 				totalCost:
-					sql<number>`COALESCE(SUM(COALESCE(${modelCostSub.totalCost}, 0)), 0)`.as(
+					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalCost}, 0)), 0)`.as(
 						"totalCost",
 					),
 			})
 			.from(tables.model)
-			.leftJoin(modelStatsSub, eq(tables.model.id, modelStatsSub.modelId))
-			.leftJoin(modelCostSub, eq(tables.model.id, modelCostSub.modelId))
+			.leftJoin(modelAggSub, eq(tables.model.id, modelAggSub.modelId))
 			.where(whereClause);
 
 		const rowsBase = db
@@ -2908,35 +2893,35 @@ admin.openapi(getModelStats, async (c) => {
 				free: tables.model.free,
 				stability: tables.model.stability,
 				status: tables.model.status,
-				logsCount: sql<number>`COALESCE(${modelStatsSub.logsCount}, 0)`.as(
+				logsCount: sql<number>`COALESCE(${modelAggSub.logsCount}, 0)`.as(
 					"logsCount",
 				),
-				errorsCount: sql<number>`COALESCE(${modelStatsSub.errorsCount}, 0)`.as(
+				errorsCount: sql<number>`COALESCE(${modelAggSub.errorsCount}, 0)`.as(
 					"errorsCount",
 				),
 				clientErrorsCount:
-					sql<number>`COALESCE(${modelStatsSub.clientErrorsCount}, 0)`.as(
+					sql<number>`COALESCE(${modelAggSub.clientErrorsCount}, 0)`.as(
 						"clientErrorsCount",
 					),
 				gatewayErrorsCount:
-					sql<number>`COALESCE(${modelStatsSub.gatewayErrorsCount}, 0)`.as(
+					sql<number>`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`.as(
 						"gatewayErrorsCount",
 					),
 				upstreamErrorsCount:
-					sql<number>`COALESCE(${modelStatsSub.upstreamErrorsCount}, 0)`.as(
+					sql<number>`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`.as(
 						"upstreamErrorsCount",
 					),
-				cachedCount: sql<number>`COALESCE(${modelStatsSub.cachedCount}, 0)`.as(
+				cachedCount: sql<number>`COALESCE(${modelAggSub.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
 				avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 					"providerCount",
 				),
-				totalTokens: sql<number>`COALESCE(${modelStatsSub.totalTokens}, 0)`.as(
+				totalTokens: sql<number>`COALESCE(${modelAggSub.totalTokens}, 0)`.as(
 					"totalTokens",
 				),
-				totalCost: sql<number>`COALESCE(${modelCostSub.totalCost}, 0)`.as(
+				totalCost: sql<number>`COALESCE(${modelAggSub.totalCost}, 0)`.as(
 					"totalCost",
 				),
 				updatedAt: tables.model.updatedAt,
@@ -2944,15 +2929,14 @@ admin.openapi(getModelStats, async (c) => {
 			.from(tables.model);
 
 		const rowsWithStatsJoin = rowsBase.leftJoin(
-			modelStatsSub,
-			eq(tables.model.id, modelStatsSub.modelId),
+			modelAggSub,
+			eq(tables.model.id, modelAggSub.modelId),
 		);
 
 		const [[countResult], [totalsResult], rows] = await Promise.all([
 			countQuery,
 			totalsQuery,
 			rowsWithStatsJoin
-				.leftJoin(modelCostSub, eq(tables.model.id, modelCostSub.modelId))
 				.leftJoin(
 					providerCountSub,
 					eq(tables.model.id, providerCountSub.modelId),

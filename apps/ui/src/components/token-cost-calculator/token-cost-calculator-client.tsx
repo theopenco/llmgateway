@@ -77,15 +77,14 @@ function getProviderName(providerId: string): string {
 function getOfficialProvider(
 	model: ModelDefinition,
 ): ProviderModelMapping | undefined {
-	return (
-		model.providers.find((p) => p.providerId === model.family) ??
-		model.providers[0]
-	);
+	return model.providers.find((p) => p.providerId === model.family);
 }
 
-/** Get the cheapest active provider for a model (considering discounts) */
+/** Get the cheapest active provider for a model weighted by actual token usage */
 function getCheapestProvider(
 	model: ModelDefinition,
+	inputTokens: number,
+	outputTokens: number,
 ): ProviderModelMapping | undefined {
 	const activeProviders = model.providers.filter(
 		(p) => !p.deactivatedAt || new Date(p.deactivatedAt) > now,
@@ -94,20 +93,17 @@ function getCheapestProvider(
 		return undefined;
 	}
 
-	return activeProviders.reduce((cheapest, current) => {
-		const cheapestInput =
-			(cheapest.inputPrice ?? 0) * (1 - (cheapest.discount ?? 0));
-		const cheapestOutput =
-			(cheapest.outputPrice ?? 0) * (1 - (cheapest.discount ?? 0));
-		const currentInput =
-			(current.inputPrice ?? 0) * (1 - (current.discount ?? 0));
-		const currentOutput =
-			(current.outputPrice ?? 0) * (1 - (current.discount ?? 0));
-		// Compare by combined input+output cost weight
-		const cheapestTotal = cheapestInput + cheapestOutput;
-		const currentTotal = currentInput + currentOutput;
-		return currentTotal < cheapestTotal ? current : cheapest;
-	});
+	function weightedCost(p: ProviderModelMapping): number {
+		const inPrice = (p.inputPrice ?? 0) * (1 - (p.discount ?? 0));
+		const outPrice = (p.outputPrice ?? 0) * (1 - (p.discount ?? 0));
+		const inCost = inPrice * inputTokens;
+		const outCost = outPrice * outputTokens;
+		return inCost + outCost;
+	}
+
+	return activeProviders.reduce((cheapest, current) =>
+		weightedCost(current) < weightedCost(cheapest) ? current : cheapest,
+	);
 }
 
 function parseModelFromSelector(selectorValue: string): {
@@ -248,7 +244,8 @@ export function TokenCostCalculatorClient() {
 			}
 
 			const officialMapping = getOfficialProvider(model) ?? null;
-			const cheapestMapping = getCheapestProvider(model) ?? null;
+			const cheapestMapping =
+				getCheapestProvider(model, row.inputTokens, row.outputTokens) ?? null;
 
 			const officialInputPrice = officialMapping?.inputPrice ?? 0;
 			const officialOutputPrice = officialMapping?.outputPrice ?? 0;
@@ -409,7 +406,9 @@ function ModelRowCard({
 	const parsed = parseModelFromSelector(row.selectorValue);
 	const model = parsed ? getModelById(parsed.modelId) : null;
 	const officialMapping = model ? getOfficialProvider(model) : null;
-	const cheapestMapping = model ? getCheapestProvider(model) : null;
+	const cheapestMapping = model
+		? (getCheapestProvider(model, row.inputTokens, row.outputTokens) ?? null)
+		: null;
 
 	const handlePreset = (preset: (typeof TOKEN_PRESETS)[number]) => {
 		onUpdate(row.id, {
@@ -424,7 +423,7 @@ function ModelRowCard({
 				<button
 					type="button"
 					onClick={() => onRemove(row.id)}
-					className="absolute top-3 right-3 p-1.5 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100"
+					className="absolute top-3 right-3 p-1.5 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10 focus-visible:opacity-100 focus-visible:text-red-500 focus-visible:bg-red-500/10 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
 					aria-label="Remove model"
 				>
 					<X className="h-4 w-4" />
@@ -626,7 +625,10 @@ function ResultsPanel({
 		savingsPercent,
 	]);
 
-	const pageUrl = "https://llmgateway.io/token-cost-calculator";
+	const pageUrl =
+		typeof window !== "undefined"
+			? `${window.location.origin}/token-cost-calculator`
+			: "https://llmgateway.io/token-cost-calculator";
 
 	const handleCopy = async () => {
 		await navigator.clipboard.writeText(`${shareText}\n${pageUrl}`);

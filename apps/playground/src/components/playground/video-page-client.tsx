@@ -32,6 +32,16 @@ import type {
 	VideoSize,
 } from "@/lib/video-gen";
 
+const VIDEO_GALLERY_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const VIDEO_GALLERY_KEY = "video-gallery-items";
+
+function filterRecentGalleryItems(
+	items: VideoGalleryItem[],
+): VideoGalleryItem[] {
+	const now = Date.now();
+	return items.filter((item) => now - item.timestamp < VIDEO_GALLERY_TTL_MS);
+}
+
 interface VideoPageClientProps {
 	models: ApiModel[];
 	providers: ApiProvider[];
@@ -85,14 +95,11 @@ export default function VideoPageClient({
 			return [];
 		}
 		try {
-			const stored = localStorage.getItem("video-gallery-items");
+			const stored = localStorage.getItem(VIDEO_GALLERY_KEY);
 			if (!stored) {
 				return [];
 			}
-			const parsed = JSON.parse(stored) as VideoGalleryItem[];
-			const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-			const now = Date.now();
-			return parsed.filter((item) => now - item.timestamp < threeDaysMs);
+			return filterRecentGalleryItems(JSON.parse(stored) as VideoGalleryItem[]);
 		} catch {
 			return [];
 		}
@@ -100,18 +107,21 @@ export default function VideoPageClient({
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
 
-	// Persist video gallery items to localStorage (3-day retention)
 	useEffect(() => {
-		if (galleryItems.length === 0) {
-			localStorage.removeItem("video-gallery-items");
-			return;
+		try {
+			if (galleryItems.length === 0) {
+				localStorage.removeItem(VIDEO_GALLERY_KEY);
+				return;
+			}
+			const fresh = filterRecentGalleryItems(galleryItems);
+			if (fresh.length === 0) {
+				localStorage.removeItem(VIDEO_GALLERY_KEY);
+			} else {
+				localStorage.setItem(VIDEO_GALLERY_KEY, JSON.stringify(fresh));
+			}
+		} catch {
+			// Ignore quota/private-mode errors
 		}
-		const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-		const now = Date.now();
-		const fresh = galleryItems.filter(
-			(item) => now - item.timestamp < threeDaysMs,
-		);
-		localStorage.setItem("video-gallery-items", JSON.stringify(fresh));
 	}, [galleryItems]);
 
 	const [videoSize, setVideoSize] = useState<VideoSize>("1280x720");

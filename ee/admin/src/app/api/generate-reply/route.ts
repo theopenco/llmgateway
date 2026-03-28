@@ -109,7 +109,22 @@ async function getApiKey(): Promise<{
 }
 
 export async function POST(req: Request) {
-	const data: GenerateReplyRequest = await req.json();
+	let data: GenerateReplyRequest;
+	try {
+		data = await req.json();
+	} catch {
+		return Response.json(
+			{ error: "Invalid JSON in request body" },
+			{ status: 400 },
+		);
+	}
+
+	if (!data.name || !data.email || !data.type) {
+		return Response.json(
+			{ error: "Missing required fields: name, email, type" },
+			{ status: 400 },
+		);
+	}
 
 	const keyResult = await getApiKey();
 	if (!keyResult) {
