@@ -57,7 +57,7 @@ const DEFAULT_THROUGHPUT = 50; // Assume 50 tokens/second if no data
 // Epsilon-greedy exploration: 1% chance to randomly explore
 const EXPLORATION_RATE = 0.01;
 
-function isTestProcess() {
+function isTestProcess(): boolean {
 	if (process.env.NODE_ENV === "test" || Boolean(process.env.VITEST)) {
 		return true;
 	}

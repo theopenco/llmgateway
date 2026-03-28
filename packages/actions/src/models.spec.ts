@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { metricsKey } from "@llmgateway/db";
 import {
 	getProviderDefinition,
 	models,
@@ -652,7 +653,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				{
 					metricsMap: new Map([
 						[
-							"veo-3.1-generate-preview:avalanche:",
+							metricsKey("veo-3.1-generate-preview", "avalanche"),
 							{
 								modelId: "veo-3.1-generate-preview",
 								providerId: "avalanche",
@@ -663,7 +664,7 @@ describe("getCheapestFromAvailableProviders", () => {
 							},
 						],
 						[
-							"veo-3.1-generate-preview:google-vertex:",
+							metricsKey("veo-3.1-generate-preview", "google-vertex"),
 							{
 								modelId: "veo-3.1-generate-preview",
 								providerId: "google-vertex",
