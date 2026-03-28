@@ -1,7 +1,13 @@
 import { generateText, Output } from "ai";
+import { cookies } from "next/headers";
 import { z } from "zod";
 
+import { getConfig } from "@/lib/config-server";
+import { getUser } from "@/lib/getUser";
+
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+
+const COOKIE_NAME = "llmgateway_admin_key";
 
 const emailSchema = z.object({
 	subject: z.string().describe("A concise, professional email subject line"),
@@ -9,7 +15,6 @@ const emailSchema = z.object({
 });
 
 interface GenerateReplyRequest {
-	apiKey: string;
 	name: string;
 	email: string;
 	context?: string;
@@ -21,23 +26,113 @@ interface GenerateReplyRequest {
 	orgName?: string;
 }
 
+async function getApiKey(): Promise<{
+	token: string;
+	setCookie?: { name: string; value: string };
+} | null> {
+	const user = await getUser();
+	if (!user) {
+		return null;
+	}
+
+	const cookieStore = await cookies();
+	const existing = cookieStore.get(COOKIE_NAME)?.value;
+	if (existing) {
+		return { token: existing };
+	}
+
+	const config = getConfig();
+	const key = "better-auth.session_token";
+	const sessionCookie = cookieStore.get(`${key}`);
+	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
+	const cookieHeader = secureSessionCookie
+		? `__Secure-${key}=${secureSessionCookie.value}`
+		: sessionCookie
+			? `${key}=${sessionCookie.value}`
+			: "";
+
+	// Get user's first org
+	const orgsRes = await fetch(`${config.apiBackendUrl}/orgs`, {
+		headers: { Cookie: cookieHeader },
+	});
+	if (!orgsRes.ok) {
+		return null;
+	}
+	const orgsData = (await orgsRes.json()) as {
+		organizations: { id: string }[];
+	};
+	const org = orgsData.organizations?.[0];
+	if (!org) {
+		return null;
+	}
+
+	// Get first project
+	const projectsRes = await fetch(
+		`${config.apiBackendUrl}/orgs/${org.id}/projects`,
+		{ headers: { Cookie: cookieHeader } },
+	);
+	if (!projectsRes.ok) {
+		return null;
+	}
+	const projectsData = (await projectsRes.json()) as {
+		projects: { id: string }[];
+	};
+	const project = projectsData.projects?.[0];
+	if (!project) {
+		return null;
+	}
+
+	// Ensure a key exists for this project
+	const ensureRes = await fetch(
+		`${config.apiBackendUrl}/playground/ensure-key`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: cookieHeader },
+			body: JSON.stringify({ projectId: project.id }),
+		},
+	);
+	if (!ensureRes.ok) {
+		return null;
+	}
+	const ensureData = (await ensureRes.json()) as {
+		ok: boolean;
+		token?: string;
+	};
+	if (!ensureData.token) {
+		return null;
+	}
+
+	return {
+		token: ensureData.token,
+		setCookie: { name: COOKIE_NAME, value: ensureData.token },
+	};
+}
+
 export async function POST(req: Request) {
 	const data: GenerateReplyRequest = await req.json();
 
-	if (!data.apiKey) {
+	const keyResult = await getApiKey();
+	if (!keyResult) {
 		return Response.json(
-			{ error: "Missing LLM Gateway API key" },
-			{ status: 400 },
+			{ error: "Could not obtain API key. Please ensure you are logged in." },
+			{ status: 401 },
 		);
 	}
 
+	const gatewayUrl =
+		process.env.GATEWAY_URL ??
+		(process.env.NODE_ENV === "development"
+			? "http://localhost:4001/v1"
+			: "https://api.llmgateway.io/v1");
+
 	const llmgateway = createLLMGateway({
-		apiKey: data.apiKey,
+		apiKey: keyResult.token,
+		baseURL: gatewayUrl,
 	});
 
 	try {
 		const leadResearch = await generateText({
-			model: llmgateway("openai/gpt-4o-mini"),
+			model: llmgateway("auto"),
 			system: `You are a lead research agent. Given a person's name or email address, research them thoroughly using your built-in web search capabilities.
 
 Produce a structured summary with the following sections:
@@ -71,7 +166,7 @@ User details:
 - Plan: ${data.plan ?? "free"}`;
 
 		const emailDraft = await generateText({
-			model: llmgateway("openai/gpt-4o-mini"),
+			model: llmgateway("auto"),
 			output: Output.object({ schema: emailSchema }),
 			system: `You are an email drafting assistant for LLM Gateway, an AI/LLM API gateway service that provides access to 300+ AI models through a single OpenAI-compatible API.
 
@@ -98,7 +193,17 @@ ${leadResearch.text}`,
 			);
 		}
 
-		return Response.json(emailDraft.output);
+		const response = Response.json(emailDraft.output);
+
+		// Cache the API key in a cookie for future requests
+		if (keyResult.setCookie) {
+			response.headers.append(
+				"Set-Cookie",
+				`${keyResult.setCookie.name}=${keyResult.setCookie.value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 30}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
+			);
+		}
+
+		return response;
 	} catch (err) {
 		const message =
 			err instanceof Error ? err.message : "Failed to generate reply";
