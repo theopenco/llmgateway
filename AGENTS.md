@@ -161,7 +161,8 @@ When creating a new package in `packages/`, include these config files. Copy the
 
 ### Testing and Quality Assurance
 
-- Run `pnpm test:unit` and `pnpm test:e2e` after adding features
+- Run `pnpm test:unit` after adding features
+- NEVER RUN THE FULL E2E suite, instead run specific tests related to your changes. Use `TEST_MODELS` to limit the models tested for faster feedback.
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
 
