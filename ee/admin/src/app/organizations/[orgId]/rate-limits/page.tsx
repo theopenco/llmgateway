@@ -242,8 +242,8 @@ export default async function OrganizationRateLimitsPage({
 						providers and models
 					</li>
 					<li>
-						When a rate limit is hit, requests receive a 429 Too Many Requests
-						response
+						When a rate limit is hit, the gateway falls back to other providers
+						when possible; otherwise it returns 429 Too Many Requests
 					</li>
 				</ul>
 			</div>

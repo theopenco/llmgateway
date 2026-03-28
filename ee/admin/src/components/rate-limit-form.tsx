@@ -26,11 +26,11 @@ import {
 
 import { getProviderIcon } from "@llmgateway/shared";
 
-import type { ProviderModelMapping } from "@/lib/types";
+import type { RateLimitModelMapping } from "@/lib/types";
 
 interface RateLimitFormProps {
 	providers: Array<{ id: string; name: string }>;
-	mappings: ProviderModelMapping[];
+	mappings: RateLimitModelMapping[];
 	onSubmit: (data: {
 		provider: string | null;
 		model: string | null;

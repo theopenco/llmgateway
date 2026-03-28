@@ -11,6 +11,7 @@ import {
 	text,
 	timestamp,
 	unique,
+	uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
@@ -1467,11 +1468,13 @@ export const rateLimit = pgTable(
 		reason: text(),
 	},
 	(table) => [
-		// Unique constraint: one rate limit per org+provider+model combo
-		unique("rate_limit_org_provider_model_unique").on(
-			table.organizationId,
-			table.provider,
-			table.model,
+		// Postgres treats nulls as distinct in plain unique constraints, so normalize
+		// null scopes to sentinels to prevent duplicate global/all-provider entries.
+		uniqueIndex("rate_limit_org_provider_model_unique").using(
+			"btree",
+			sql`coalesce(${table.organizationId}, '__global__')`,
+			sql`coalesce(${table.provider}, '__all_providers__')`,
+			sql`coalesce(${table.model}, '__all_models__')`,
 		),
 		index("rate_limit_organization_id_idx").on(table.organizationId),
 		index("rate_limit_provider_idx").on(table.provider),

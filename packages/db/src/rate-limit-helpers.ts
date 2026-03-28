@@ -2,7 +2,7 @@ import { and, eq, isNull, or } from "drizzle-orm";
 
 import { logger } from "@llmgateway/logger";
 
-import { cdb } from "./cdb.js";
+import { db } from "./db.js";
 import { rateLimit as rateLimitTable } from "./schema.js";
 
 /**
@@ -26,7 +26,7 @@ export interface EffectiveRateLimit {
 
 /**
  * Get the effective rate limit for a given organization, provider, and model.
- * Uses the cached database client (cdb) which has Drizzle's cache layer.
+ * Uses the uncached database client so admin changes take effect immediately.
  *
  * Precedence (highest to lowest):
  * 1. Org + Provider + Model rate limit (checks both root model ID and provider model name)
@@ -56,7 +56,7 @@ export async function getEffectiveRateLimit(
 		}
 
 		// Query all potentially matching rate limits
-		const rateLimits = await cdb
+		const rateLimits = await db
 			.select({
 				id: rateLimitTable.id,
 				organizationId: rateLimitTable.organizationId,

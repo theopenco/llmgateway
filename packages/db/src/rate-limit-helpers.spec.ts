@@ -7,13 +7,13 @@ vi.mock("@llmgateway/logger", () => ({
 	},
 }));
 
-vi.mock("./cdb.js", () => ({
-	cdb: {
+vi.mock("./db.js", () => ({
+	db: {
 		select: vi.fn(),
 	},
 }));
 
-const mockCdb = await import("./cdb.js");
+const mockDb = await import("./db.js");
 
 // Chainable query builder mock
 function createQueryMock(results: Array<Record<string, unknown>>) {
@@ -22,7 +22,7 @@ function createQueryMock(results: Array<Record<string, unknown>>) {
 		from: vi.fn().mockReturnThis(),
 		where: vi.fn().mockResolvedValue(results),
 	};
-	vi.mocked(mockCdb.cdb.select).mockReturnValue(chain as never);
+	vi.mocked(mockDb.db.select).mockReturnValue(chain as never);
 	return chain;
 }
 
@@ -184,7 +184,7 @@ describe("getEffectiveRateLimit", () => {
 	});
 
 	it("should return none on database error (fail-open)", async () => {
-		vi.mocked(mockCdb.cdb.select).mockImplementation(() => {
+		vi.mocked(mockDb.db.select).mockImplementation(() => {
 			throw new Error("DB error");
 		});
 

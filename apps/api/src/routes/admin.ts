@@ -2633,30 +2633,6 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 		throw new HTTPException(400, { message: validation.error });
 	}
 
-	// Check for existing rate limit
-	const existing = await db
-		.select({ id: tables.rateLimit.id })
-		.from(tables.rateLimit)
-		.where(
-			and(
-				isNull(tables.rateLimit.organizationId),
-				provider
-					? eq(tables.rateLimit.provider, provider)
-					: isNull(tables.rateLimit.provider),
-				model
-					? eq(tables.rateLimit.model, model)
-					: isNull(tables.rateLimit.model),
-			),
-		)
-		.limit(1);
-
-	if (existing.length > 0) {
-		throw new HTTPException(409, {
-			message:
-				"A rate limit already exists for this provider/model combination",
-		});
-	}
-
 	const [created] = await db
 		.insert(tables.rateLimit)
 		.values({
@@ -2666,7 +2642,15 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			maxRpm: body.maxRpm,
 			reason: body.reason ?? null,
 		})
+		.onConflictDoNothing()
 		.returning();
+
+	if (!created) {
+		throw new HTTPException(409, {
+			message:
+				"A rate limit already exists for this provider/model combination",
+		});
+	}
 
 	return c.json(formatRateLimit(created), 201);
 });
@@ -2738,30 +2722,6 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 		throw new HTTPException(400, { message: validation.error });
 	}
 
-	// Check for existing rate limit
-	const existing = await db
-		.select({ id: tables.rateLimit.id })
-		.from(tables.rateLimit)
-		.where(
-			and(
-				eq(tables.rateLimit.organizationId, orgId),
-				provider
-					? eq(tables.rateLimit.provider, provider)
-					: isNull(tables.rateLimit.provider),
-				model
-					? eq(tables.rateLimit.model, model)
-					: isNull(tables.rateLimit.model),
-			),
-		)
-		.limit(1);
-
-	if (existing.length > 0) {
-		throw new HTTPException(409, {
-			message:
-				"A rate limit already exists for this provider/model combination",
-		});
-	}
-
 	const [created] = await db
 		.insert(tables.rateLimit)
 		.values({
@@ -2771,7 +2731,15 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			maxRpm: body.maxRpm,
 			reason: body.reason ?? null,
 		})
+		.onConflictDoNothing()
 		.returning();
+
+	if (!created) {
+		throw new HTTPException(409, {
+			message:
+				"A rate limit already exists for this provider/model combination",
+		});
+	}
 
 	return c.json(formatRateLimit(created), 201);
 });
@@ -2854,7 +2822,7 @@ admin.openapi(getAvailableRateLimitOptions, async (c) => {
 				mappings.push({
 					providerId: mapping.providerId,
 					providerName: provider.name,
-					modelId: mapping.modelName,
+					modelId: model.id,
 					modelName: mapping.modelName,
 					rootModelId: model.id,
 					rootModelName: (model as { name?: string }).name ?? model.id,

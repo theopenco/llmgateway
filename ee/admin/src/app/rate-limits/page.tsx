@@ -218,6 +218,10 @@ export default async function GlobalRateLimitsPage() {
 						Rate limits are enforced per organization - each org gets their own
 						counter
 					</li>
+					<li>
+						When a cap is hit, the gateway prefers other eligible providers
+						before returning 429
+					</li>
 				</ul>
 			</div>
 		</div>
