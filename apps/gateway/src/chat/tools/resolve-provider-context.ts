@@ -10,7 +10,6 @@ import {
 	getProviderHeaders,
 	prepareRequestBody,
 } from "@llmgateway/actions";
-import { logger } from "@llmgateway/logger";
 import {
 	type BaseMessage,
 	getRegionSpecificEnvValue,
@@ -276,16 +275,6 @@ export async function resolveProviderContext(
 		isImageGeneration,
 		usedRegion,
 	);
-
-	logger.info("[region-debug] Provider context resolved", {
-		provider: usedProvider,
-		model: usedModel,
-		region: usedRegion ?? "none",
-		endpoint: url ?? "unresolved",
-		tokenSource: providerKey ? "db-provider-key" : "env-var",
-		tokenEnvVar: envVarName,
-		projectMode: project.mode,
-	});
 
 	if (!url) {
 		throw new HTTPException(400, {
