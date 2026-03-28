@@ -1,6 +1,9 @@
 import { HTTPException } from "hono/http-exception";
 
-import { getRoundRobinValue } from "@/lib/round-robin-env.js";
+import {
+	getRoundRobinValue,
+	peekRoundRobinValue,
+} from "@/lib/round-robin-env.js";
 
 import {
 	getProviderEnvVar,
@@ -14,13 +17,20 @@ export interface ProviderEnvResult {
 	envVarName: string;
 }
 
+interface GetProviderEnvOptions {
+	advanceRoundRobin?: boolean;
+}
+
 /**
  * Get provider token from environment variables with round-robin support
  * Supports comma-separated values in environment variables for load balancing
  * @param usedProvider The provider to get the token for
  * @returns Object containing the token and the config index used
  */
-export function getProviderEnv(usedProvider: Provider): ProviderEnvResult {
+export function getProviderEnv(
+	usedProvider: Provider,
+	options: GetProviderEnvOptions = {},
+): ProviderEnvResult {
 	const envVar = getProviderEnvVar(usedProvider);
 	if (!envVar) {
 		throw new HTTPException(500, {
@@ -49,8 +59,10 @@ export function getProviderEnv(usedProvider: Provider): ProviderEnvResult {
 		}
 	}
 
-	// Get the next token using round-robin
-	const result = getRoundRobinValue(envVar, envValue);
+	const advanceRoundRobin = options.advanceRoundRobin ?? true;
+	const result = advanceRoundRobin
+		? getRoundRobinValue(envVar, envValue)
+		: peekRoundRobinValue(envVar, envValue);
 
 	return { token: result.value, configIndex: result.index, envVarName: envVar };
 }

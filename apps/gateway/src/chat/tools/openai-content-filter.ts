@@ -251,7 +251,9 @@ export async function checkOpenAIContentFilter(
 	let upstreamText: string;
 
 	try {
-		const providerEnv = getProviderEnv("openai");
+		const providerEnv = getProviderEnv("openai", {
+			advanceRoundRobin: false,
+		});
 
 		upstreamResponse = await fetch(OPENAI_MODERATION_URL, {
 			method: "POST",
