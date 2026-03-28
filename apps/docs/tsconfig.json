@@ -23,11 +23,18 @@
 		"isolatedModules": true
 	},
 	"include": [
-		"**/*.ts",
-		"**/*.tsx",
-		".next/types/**/*.ts",
 		"next-env.d.ts",
+		"*.ts",
+		"*.tsx",
+		"app/**/*.ts",
+		"app/**/*.tsx",
+		"components/**/*.ts",
+		"components/**/*.tsx",
+		"lib/**/*.ts",
+		"lib/**/*.tsx",
+		"scripts/**/*.ts",
+		".next/types/**/*.ts",
 		"out/types/**/*.ts"
 	],
-	"exclude": ["node_modules", ".next-dev"]
+	"exclude": ["node_modules", ".next", ".next-dev"]
 }
