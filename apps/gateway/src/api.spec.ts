@@ -897,6 +897,7 @@ describe("api", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer real-token`,
+					"x-debug": "true",
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -1097,6 +1098,11 @@ describe("api", () => {
 			expect(logs[0].hasError).toBe(false);
 			expect(logs[0].errorDetails).toBeNull();
 			expect(logs[0].completionTokens).toBeNull();
+			expect(typeof logs[0].rawResponse).toBe("string");
+			expect(logs[0].rawResponse).toContain("data_inspection_failed");
+			expect(logs[0].rawResponse).toContain('"finish_reason":"content_filter"');
+			expect(typeof logs[0].upstreamResponse).toBe("string");
+			expect(logs[0].upstreamResponse).toContain("data_inspection_failed");
 		});
 
 		test("request with short delay under timeout succeeds", async () => {

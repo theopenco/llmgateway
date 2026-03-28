@@ -4477,6 +4477,19 @@ chat.openapi(completions, async (c) => {
 										: null;
 								if (openAiCompatibleStreamError) {
 									const errorResponseText = JSON.stringify(data);
+									if (
+										debugMode &&
+										streamingRawResponseData.length < MAX_RAW_DATA_SIZE
+									) {
+										const rawProviderSseEvent = `data: ${errorResponseText}\n\n`;
+										streamingRawResponseData += rawProviderSseEvent.substring(
+											0,
+											Math.max(
+												0,
+												MAX_RAW_DATA_SIZE - streamingRawResponseData.length,
+											),
+										);
+									}
 									const inferredStatusCode =
 										typeof openAiCompatibleStreamError.status_code === "number"
 											? openAiCompatibleStreamError.status_code
