@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { metricsKey } from "@llmgateway/db";
 import {
 	getProviderDefinition,
 	models,
@@ -615,6 +616,89 @@ describe("getCheapestFromAvailableProviders", () => {
 
 		expect(vertexScore?.price).toBeCloseTo(3.2);
 		expect(avalancheScore?.price).toBeCloseTo(2.56);
+	});
+
+	it("should disable random exploration for vitest processes", () => {
+		const videoModel = models.find(
+			(model) => model.id === "veo-3.1-generate-preview",
+		);
+
+		expect(videoModel).toBeDefined();
+
+		const avalancheProvider = videoModel?.providers.find(
+			(provider) => provider.providerId === "avalanche",
+		);
+		const vertexProvider = videoModel?.providers.find(
+			(provider) => provider.providerId === "google-vertex",
+		);
+
+		expect(avalancheProvider).toBeDefined();
+		expect(vertexProvider).toBeDefined();
+		if (!videoModel || !avalancheProvider || !vertexProvider) {
+			throw new Error("Missing Veo provider test fixtures");
+		}
+
+		const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+		const originalArgv = process.argv;
+		const originalNodeEnv = process.env.NODE_ENV;
+		const originalVitest = process.env.VITEST;
+		delete process.env.NODE_ENV;
+		delete process.env.VITEST;
+		process.argv = ["node", "/tmp/vitest.mjs"];
+
+		try {
+			const result = getCheapestFromAvailableProviders(
+				[avalancheProvider, vertexProvider],
+				videoModel,
+				{
+					metricsMap: new Map([
+						[
+							metricsKey("veo-3.1-generate-preview", "avalanche"),
+							{
+								modelId: "veo-3.1-generate-preview",
+								providerId: "avalanche",
+								uptime: 70,
+								averageLatency: 300,
+								throughput: 50,
+								totalRequests: 100,
+							},
+						],
+						[
+							metricsKey("veo-3.1-generate-preview", "google-vertex"),
+							{
+								modelId: "veo-3.1-generate-preview",
+								providerId: "google-vertex",
+								uptime: 99.5,
+								averageLatency: 100,
+								throughput: 150,
+								totalRequests: 100,
+							},
+						],
+					]),
+					videoPricing: {
+						durationSeconds: 8,
+						includeAudio: true,
+						resolution: "default",
+					},
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("google-vertex");
+			expect(result?.metadata.selectionReason).toBe("weighted-score");
+		} finally {
+			randomSpy.mockRestore();
+			process.argv = originalArgv;
+			if (originalNodeEnv !== undefined) {
+				process.env.NODE_ENV = originalNodeEnv;
+			} else {
+				delete process.env.NODE_ENV;
+			}
+			if (originalVitest !== undefined) {
+				process.env.VITEST = originalVitest;
+			} else {
+				delete process.env.VITEST;
+			}
+		}
 	});
 
 	it("should return null for empty provider list", () => {
