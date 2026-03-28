@@ -80,9 +80,39 @@ export default function VideoPageClient({
 		() => searchParams.get("compare") === "1",
 	);
 	const [prompt, setPrompt] = useState("");
-	const [galleryItems, setGalleryItems] = useState<VideoGalleryItem[]>([]);
+	const [galleryItems, setGalleryItems] = useState<VideoGalleryItem[]>(() => {
+		if (typeof window === "undefined") {
+			return [];
+		}
+		try {
+			const stored = localStorage.getItem("video-gallery-items");
+			if (!stored) {
+				return [];
+			}
+			const parsed = JSON.parse(stored) as VideoGalleryItem[];
+			const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+			const now = Date.now();
+			return parsed.filter((item) => now - item.timestamp < threeDaysMs);
+		} catch {
+			return [];
+		}
+	});
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
+
+	// Persist video gallery items to localStorage (3-day retention)
+	useEffect(() => {
+		if (galleryItems.length === 0) {
+			localStorage.removeItem("video-gallery-items");
+			return;
+		}
+		const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+		const now = Date.now();
+		const fresh = galleryItems.filter(
+			(item) => now - item.timestamp < threeDaysMs,
+		);
+		localStorage.setItem("video-gallery-items", JSON.stringify(fresh));
+	}, [galleryItems]);
 
 	const [videoSize, setVideoSize] = useState<VideoSize>("1280x720");
 	const [videoDuration, setVideoDuration] = useState<VideoDuration>(8);

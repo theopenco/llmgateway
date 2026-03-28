@@ -340,7 +340,7 @@ export function ModelSelector({
 				<div className="flex">
 					{/* Main content */}
 					<div className="flex-1">
-						<Command>
+						<Command shouldFilter={false}>
 							<div className="flex items-center border-b px-3 w-full">
 								<CommandInput
 									placeholder="Search models..."

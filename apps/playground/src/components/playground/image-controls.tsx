@@ -106,7 +106,7 @@ export function ImageControls({
 			const reader = new FileReader();
 			reader.onload = () => {
 				setInputImages((prev) => {
-					if (prev.length >= 1) {
+					if (prev.length >= 4) {
 						return prev;
 					}
 					return [
@@ -132,7 +132,7 @@ export function ImageControls({
 	const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const files = Array.from(e.target.files ?? []);
 		for (const file of files) {
-			if (inputImages.length >= 1) {
+			if (inputImages.length >= 4) {
 				break;
 			}
 			addImageFile(file);
@@ -144,7 +144,7 @@ export function ImageControls({
 	// Paste handler for images
 	const handlePaste = useCallback(
 		(e: React.ClipboardEvent) => {
-			if (!isEditModel || inputImages.length >= 1) {
+			if (!isEditModel || inputImages.length >= 4) {
 				return;
 			}
 			const items = Array.from(e.clipboardData.items);
@@ -191,7 +191,7 @@ export function ImageControls({
 			e.preventDefault();
 			e.stopPropagation();
 			setIsDragging(false);
-			if (!isEditModel || inputImages.length >= 1) {
+			if (!isEditModel || inputImages.length >= 4) {
 				return;
 			}
 			const files = Array.from(e.dataTransfer.files);
@@ -282,6 +282,7 @@ export function ImageControls({
 					ref={fileInputRef}
 					type="file"
 					accept="image/*"
+					multiple
 					className="hidden"
 					onChange={handleFileSelect}
 				/>
@@ -290,7 +291,7 @@ export function ImageControls({
 						variant="outline"
 						size="sm"
 						onClick={() => fileInputRef.current?.click()}
-						disabled={isGenerating || !isEditModel || inputImages.length >= 1}
+						disabled={isGenerating || !isEditModel || inputImages.length >= 4}
 						title={
 							!isEditModel
 								? "Image input not supported by selected model"
@@ -298,7 +299,7 @@ export function ImageControls({
 						}
 					>
 						<ImagePlus className="h-4 w-4 mr-1.5" />
-						{inputImages.length === 0 ? "Add image" : `${inputImages.length}/1`}
+						{inputImages.length === 0 ? "Add image" : `${inputImages.length}/4`}
 					</Button>
 					{!config.usesPixelDimensions && (
 						<>
