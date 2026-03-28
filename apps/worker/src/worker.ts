@@ -553,6 +553,41 @@ export async function batchProcessLogs(): Promise<void> {
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
 
+				// Log each processed log with JSON format
+				logger.info("processing log", {
+					kind: "log-process",
+					status: row.hasError ? "error" : row.cached ? "cached" : "success",
+					logId: row.id,
+					requestId: row.request_id,
+					organizationId: row.organization_id,
+					projectId: row.project_id,
+					cost: row.cost,
+					inputCost: row.input_cost,
+					outputCost: row.output_cost,
+					cachedInputCost: row.cached_input_cost,
+					estimatedCost: row.estimated_cost,
+					error: !!row.hasError,
+					cached: row.cached,
+					apiKeyId: row.api_key_id,
+					projectMode: row.project_mode,
+					usedMode: row.used_mode,
+					duration: row.duration,
+					requestedModel: row.requested_model,
+					requestedProvider: row.requested_provider,
+					usedModel: row.used_model,
+					usedModelMapping: row.used_model_mapping,
+					usedProvider: row.used_provider,
+					responseSize: row.response_size,
+					promptTokens: row.prompt_tokens,
+					completionTokens: row.completion_tokens,
+					totalTokens: row.total_tokens,
+					reasoningTokens: row.reasoning_tokens,
+					cachedTokens: row.cached_tokens,
+					errorDetails: row.error_details,
+					traceId: row.trace_id,
+					unifiedFinishReason: row.unified_finish_reason,
+				});
+
 				if (row.cost && row.cost > 0 && !row.cached) {
 					// Always update API key usage for non-cached logs with cost
 					const currentApiKeyCost =
