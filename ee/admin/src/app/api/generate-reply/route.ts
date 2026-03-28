@@ -30,15 +30,15 @@ async function getApiKey(): Promise<{
 	token: string;
 	setCookie?: { name: string; value: string };
 } | null> {
+	const user = await getUser();
+	if (!user) {
+		return null;
+	}
+
 	const cookieStore = await cookies();
 	const existing = cookieStore.get(COOKIE_NAME)?.value;
 	if (existing) {
 		return { token: existing };
-	}
-
-	const user = await getUser();
-	if (!user) {
-		return null;
 	}
 
 	const config = getConfig();
