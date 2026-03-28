@@ -5,11 +5,16 @@ CREATE TABLE "rate_limit" (
 	"organization_id" text,
 	"provider" text,
 	"model" text,
-	"max_rpm" integer NOT NULL,
+	"max_rpm" integer,
+	"max_rpd" integer,
 	"reason" text
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX "rate_limit_org_provider_model_unique" ON "rate_limit" (coalesce("organization_id", '__global__'),coalesce("provider", '__all_providers__'),coalesce("model", '__all_models__'));--> statement-breakpoint
+CREATE UNIQUE INDEX "rate_limit_org_provider_model_unique" ON "rate_limit" (coalesce("organization_id", '__global__'),coalesce("provider", '__all_providers__'),coalesce("model", '__all_models__'),case
+				when "max_rpm" is not null then 'rpm'
+				when "max_rpd" is not null then 'rpd'
+				else '__unset__'
+			end);--> statement-breakpoint
 CREATE INDEX "rate_limit_organization_id_idx" ON "rate_limit" ("organization_id");--> statement-breakpoint
 CREATE INDEX "rate_limit_provider_idx" ON "rate_limit" ("provider");--> statement-breakpoint
 CREATE INDEX "rate_limit_model_idx" ON "rate_limit" ("model");--> statement-breakpoint
