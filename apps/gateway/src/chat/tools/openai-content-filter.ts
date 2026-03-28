@@ -213,10 +213,6 @@ function logModerationResult(
 	context: GatewayContentFilterContext,
 	payload: Record<string, unknown>,
 ) {
-	if (process.env.NODE_ENV === "production") {
-		return;
-	}
-
 	logger.debug("gateway_content_filter", {
 		provider: "openai",
 		mode: "openai",
