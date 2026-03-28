@@ -190,7 +190,10 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 
 		const event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
 
-		logger.info(JSON.stringify({ kind: "stripe-event", payload: event }));
+		logger.info("Stripe webhook received", {
+			eventId: event.id,
+			eventType: event.type,
+		});
 
 		switch (event.type) {
 			case "payment_intent.succeeded":

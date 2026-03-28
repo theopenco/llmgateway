@@ -168,14 +168,6 @@ export async function validateProviderKey(
 				? providerKeyOptions.azure_validation_model
 				: modelId;
 
-		logger.info("[region-debug] Validation endpoint configuration", {
-			provider,
-			model: validationModel,
-			modelId,
-			effectiveModelId,
-			providerKeyOptions,
-		});
-
 		// Resolve region from provider key options for region-aware providers
 		const providerDef = providers.find((p) => p.id === provider) as
 			| ProviderDefinition
@@ -204,12 +196,6 @@ export async function validateProviderKey(
 			undefined, // imageGenerations
 			validationRegion,
 		);
-
-		logger.info("[region-debug] Validation request", {
-			endpoint,
-			validationRegion,
-			validationModel,
-		});
 
 		// Check if max_tokens is supported
 		const providerMapping = modelDef?.providers.find(
