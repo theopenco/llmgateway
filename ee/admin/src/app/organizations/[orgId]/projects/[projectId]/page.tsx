@@ -1,4 +1,4 @@
-import { ArrowLeft, FolderOpen } from "lucide-react";
+import { ArrowLeft, FolderOpen, LayoutGrid } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -98,6 +98,17 @@ export default async function ProjectDetailPage({
 			</header>
 
 			<ProjectMetricsSection orgId={orgId} projectId={projectId} />
+
+			<div>
+				<Button variant="outline" size="sm" asChild>
+					<Link
+						href={`/organizations/${orgId}/projects/${projectId}/model-provider-mappings`}
+					>
+						<LayoutGrid className="mr-2 h-4 w-4" />
+						Model-Provider Mappings
+					</Link>
+				</Button>
+			</div>
 
 			<ProjectLogsSection orgId={orgId} projectId={projectId} />
 		</div>

@@ -252,13 +252,6 @@ async function extractImagesFromChatResponse(
 	}
 
 	if (imageObjects.length === 0) {
-		if (chatResponse.choices?.[0]?.finish_reason === "content_filter") {
-			logger.warn("Images API - content filtered response", {
-				model,
-			});
-			return [];
-		}
-
 		logger.warn("Images API - no images found in chat completions response", {
 			model,
 			hasContent: !!chatResponse.choices?.[0]?.message?.content,
@@ -401,14 +394,17 @@ images.openapi(generations, async (c) => {
 		request.model,
 	);
 
+	// Truncate to the requested number of images
+	const truncatedImages = imageObjects.slice(0, request.n);
+
 	// Build the OpenAI-compatible images response
 	const imagesResponse = {
 		created: Math.floor(Date.now() / 1000),
-		data: imageObjects,
+		data: truncatedImages,
 	};
 
 	logger.debug("Images API - returning response", {
-		imageCount: imageObjects.length,
+		imageCount: truncatedImages.length,
 		model: request.model,
 	});
 
