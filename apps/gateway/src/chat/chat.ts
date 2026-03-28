@@ -2935,6 +2935,7 @@ chat.openapi(completions, async (c) => {
 				let eventId = 0;
 				let canceled = false;
 				let streamingError: unknown = null;
+				let doneSent = false; // Track if [DONE] has been sent downstream
 
 				// Raw logging variables
 				let streamingRawResponseData = ""; // Raw SSE data sent back to the client
@@ -4021,8 +4022,8 @@ chat.openapi(completions, async (c) => {
 				let outputImageCount = 0; // Track number of output images for cost calculation
 				let webSearchCount = 0; // Track web search calls for cost calculation
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
-				let doneSent = false; // Track if [DONE] has been sent
 				let sawUpstreamDoneSentinel = false;
+				let sawProviderTerminalEvent = false;
 				let handledTerminalProviderEvent = false;
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
@@ -4632,12 +4633,14 @@ chat.openapi(completions, async (c) => {
 										});
 									}
 
-									await writeSSEAndCache({
-										event: "done",
-										data: "[DONE]",
-										id: String(eventId++),
-									});
-									doneSent = true;
+									if (!doneSent) {
+										await writeSSEAndCache({
+											event: "done",
+											data: "[DONE]",
+											id: String(eventId++),
+										});
+										doneSent = true;
+									}
 									shouldTerminateStream = true;
 									processedLength = eventEnd;
 									searchStart = eventEnd;
@@ -5036,8 +5039,10 @@ chat.openapi(completions, async (c) => {
 										// Preserve original Google finish reason for logging
 										if (data.promptFeedback?.blockReason) {
 											finishReason = data.promptFeedback.blockReason;
+											sawProviderTerminalEvent = true;
 										} else if (data.candidates?.[0]?.finishReason) {
 											finishReason = data.candidates[0].finishReason;
+											sawProviderTerminalEvent = true;
 										}
 										break;
 									case "anthropic":
@@ -5046,13 +5051,16 @@ chat.openapi(completions, async (c) => {
 											data.delta?.stop_reason
 										) {
 											finishReason = data.delta.stop_reason;
+											sawProviderTerminalEvent = true;
 										} else if (
 											data.type === "message_stop" ||
 											data.stop_reason
 										) {
 											finishReason = data.stop_reason ?? "end_turn";
+											sawProviderTerminalEvent = true;
 										} else if (data.delta?.stop_reason) {
 											finishReason = data.delta.stop_reason;
+											sawProviderTerminalEvent = true;
 										}
 										break;
 									default: // OpenAI format
@@ -5328,16 +5336,19 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
+					const streamHasVerifiedTerminalEvent =
+						sawUpstreamDoneSentinel ||
+						sawProviderTerminalEvent ||
+						handledTerminalProviderEvent;
 					const streamEndedWithoutTerminalEvent =
 						!streamingError &&
 						!canceled &&
-						!handledTerminalProviderEvent &&
-						(!sawUpstreamDoneSentinel || finishReason === null);
+						(!streamHasVerifiedTerminalEvent || finishReason === null);
 					if (streamEndedWithoutTerminalEvent) {
-						const responseText =
-							buffer.trim().length > 0
-								? buffer.substring(0, 5000)
-								: "Stream ended before a terminal finish reason or [DONE] event";
+						const hasBufferedNonWhitespace = /\S/u.test(buffer);
+						const responseText = hasBufferedNonWhitespace
+							? buffer.slice(0, 5000)
+							: "Stream ended before a terminal finish reason or [DONE] event";
 						const errorMessage =
 							"Upstream stream terminated unexpectedly before completion";
 

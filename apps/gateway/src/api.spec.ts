@@ -1151,6 +1151,9 @@ describe("api", () => {
 				),
 			).toBe(true);
 			expect(streamResult.hasUsage).toBe(true);
+			expect(
+				(streamResult.fullContent?.match(/data: \[DONE\]/g) ?? []).length,
+			).toBe(1);
 
 			const logs = await waitForLogs(1);
 			expect(logs.length).toBe(1);
