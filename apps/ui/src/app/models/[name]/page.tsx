@@ -25,7 +25,6 @@ import {
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
-import { ShareButtons } from "@/components/models/share-buttons";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
@@ -313,10 +312,6 @@ export default async function ModelPage({ params }: PageProps) {
 									<ArrowRight className="h-3 w-3" />
 								</a>
 							</Button>
-							<ShareButtons
-								url={`https://llmgateway.io/models/${encodeURIComponent(decodedName)}`}
-								title={`${modelDef.name ?? decodedName} on LLM Gateway`}
-							/>
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">

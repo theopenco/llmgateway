@@ -9,6 +9,7 @@ import {
 	ChevronUp,
 	ArrowRight,
 	Globe,
+	Share2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -456,6 +457,24 @@ export function ProviderSection({
 					)}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-6 w-6 p-0 text-muted-foreground/60 hover:text-foreground hover:bg-transparent"
+						onClick={(e) => {
+							e.stopPropagation();
+							const url = `${window.location.origin}/models/${encodeURIComponent(modelId)}/${encodeURIComponent(providerId)}`;
+							void navigator.clipboard.writeText(url);
+							copyToClipboard(`share:${providerModelId}`);
+						}}
+						title="Share provider link"
+					>
+						{copiedModel === `share:${providerModelId}` ? (
+							<Check className="h-3 w-3 text-emerald-400" />
+						) : (
+							<Share2 className="h-3 w-3" />
+						)}
+					</Button>
 					<Button
 						variant="ghost"
 						size="sm"

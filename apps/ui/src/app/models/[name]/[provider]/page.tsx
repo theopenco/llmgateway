@@ -23,7 +23,6 @@ import {
 } from "@/components/models/global-discount-banner";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
-import { ShareButtons } from "@/components/models/share-buttons";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
@@ -316,10 +315,6 @@ export default async function ModelProviderPage({ params }: PageProps) {
 									<ArrowRight className="h-3 w-3" />
 								</a>
 							</Button>
-							<ShareButtons
-								url={`https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}`}
-								title={`${modelDef.name ?? decodedName} on ${providerInfo?.name ?? decodedProvider} – LLM Gateway`}
-							/>
 						</div>
 
 						{/* Capabilities */}
