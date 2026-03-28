@@ -26,6 +26,7 @@ import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import { calculateFees } from "@llmgateway/shared";
 
+import { notifyProviderErrorDiscord } from "./provider-error-discord.js";
 import { runFollowUpEmailsLoop } from "./services/follow-up-emails.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
@@ -809,8 +810,52 @@ export async function processLogQueue(): Promise<void> {
 		let lastError: Error | undefined;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
-				await db.insert(log).values(processedLogData as LogInsertData[]);
+				const insertedLogs = await db
+					.insert(log)
+					.values(processedLogData as LogInsertData[])
+					.returning({
+						id: log.id,
+						requestId: log.requestId,
+						createdAt: log.createdAt,
+						organizationId: log.organizationId,
+						projectId: log.projectId,
+						apiKeyId: log.apiKeyId,
+						requestedModel: log.requestedModel,
+						requestedProvider: log.requestedProvider,
+						usedModel: log.usedModel,
+						usedProvider: log.usedProvider,
+						unifiedFinishReason: log.unifiedFinishReason,
+						finishReason: log.finishReason,
+						errorDetails: log.errorDetails,
+						traceId: log.traceId,
+						retried: log.retried,
+					});
+
+				const providerErrorLogs = insertedLogs.filter(
+					(insertedLog) =>
+						insertedLog.unifiedFinishReason === "upstream_error" &&
+						insertedLog.errorDetails !== null,
+				);
+
+				await Promise.allSettled(
+					providerErrorLogs.map(async (insertedLog) => {
+						logger.warn("Provider error log persisted", {
+							logId: insertedLog.id,
+							requestId: insertedLog.requestId,
+							organizationId: insertedLog.organizationId,
+							projectId: insertedLog.projectId,
+							apiKeyId: insertedLog.apiKeyId,
+							usedProvider: insertedLog.usedProvider,
+							usedModel: insertedLog.usedModel,
+							statusCode: insertedLog.errorDetails?.statusCode,
+							statusText: insertedLog.errorDetails?.statusText,
+							traceId: insertedLog.traceId,
+						});
+
+						await notifyProviderErrorDiscord(insertedLog);
+					}),
+				);
+
 				return; // Success, exit function
 			} catch (insertError) {
 				lastError =

@@ -276,8 +276,15 @@ interface MockWebhookDelivery {
 	body: unknown;
 }
 
+export interface MockDiscordDelivery {
+	name: string;
+	headers: Record<string, string>;
+	body: unknown;
+}
+
 const videoJobs = new Map<string, MockVideoJobState>();
 const webhookDeliveries: MockWebhookDelivery[] = [];
+const discordDeliveries: MockDiscordDelivery[] = [];
 const webhookStatuses = new Map<string, number>();
 
 function getMockVideoSizeMetadata(size: unknown): {
@@ -401,6 +408,7 @@ export function resetMockVideoState() {
 	videoCounter = 0;
 	videoJobs.clear();
 	webhookDeliveries.length = 0;
+	discordDeliveries.length = 0;
 	webhookStatuses.clear();
 }
 
@@ -454,6 +462,12 @@ export function setMockWebhookStatus(name: string, status: number) {
 
 export function getMockWebhookDeliveries(name?: string): MockWebhookDelivery[] {
 	return webhookDeliveries.filter((delivery) =>
+		name ? delivery.name === name : true,
+	);
+}
+
+export function getMockDiscordDeliveries(name?: string): MockDiscordDelivery[] {
+	return discordDeliveries.filter((delivery) =>
 		name ? delivery.name === name : true,
 	);
 }
@@ -1508,6 +1522,20 @@ mockOpenAIServer.post("/mock-callback/:name", async (c) => {
 	return c.json({
 		ok: status >= 200 && status < 300,
 	});
+});
+
+mockOpenAIServer.post("/mock-discord/:name", async (c) => {
+	const name = c.req.param("name");
+	const headers = Object.fromEntries(c.req.raw.headers.entries());
+	const body = await c.req.json();
+
+	discordDeliveries.push({
+		name,
+		headers,
+		body,
+	});
+
+	return c.body(null, 204);
 });
 
 // Handle Google Vertex AI generateContent endpoint (Gemini models via Vertex)

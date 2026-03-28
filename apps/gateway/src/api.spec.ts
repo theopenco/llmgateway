@@ -1473,57 +1473,129 @@ describe("api", () => {
 
 	// test for provider error response and error logging
 	test("/v1/chat/completions with provider error response", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
+		const originalProviderErrorDiscordUrl =
+			process.env.PROVIDER_ERROR_DISCORD_URL;
+		const originalAppUrl = process.env.APP_URL;
+		const originalGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
 
-		// Create provider key with mock server URL as baseUrl
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "llmgateway",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
+		process.env.PROVIDER_ERROR_DISCORD_URL = `${mockServerUrl}/mock-discord/provider-error`;
+		process.env.APP_URL = "https://llmgateway.io";
+		process.env.GOOGLE_CLOUD_PROJECT = "llmgatewayio";
 
-		// Send a request that will trigger an error in the mock server
-		const res = await app.request("/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer real-token`,
-			},
-			body: JSON.stringify({
-				model: "llmgateway/custom",
-				messages: [
-					{
-						role: "user",
-						content: "This message will TRIGGER_ERROR in the mock server",
-					},
-				],
-			}),
-		});
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
 
-		// Verify the response status is 500
-		expect(res.status).toBe(500);
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
 
-		// Verify the response body contains the error message
-		const errorResponse = await res.json();
-		expect(errorResponse).toHaveProperty("error");
-		expect(errorResponse.error).toHaveProperty("message");
-		expect(errorResponse.error).toHaveProperty("type", "upstream_error");
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "This message will TRIGGER_ERROR in the mock server",
+						},
+					],
+				}),
+			});
 
-		// Wait for the worker to process the log and check that the error was logged in the database
-		const logs = await waitForLogs(1);
-		expect(logs.length).toBe(1);
+			expect(res.status).toBe(500);
 
-		// Verify the log has the correct error fields
-		const errorLog = logs[0];
-		expect(errorLog.finishReason).toBe("upstream_error");
+			const errorResponse = await res.json();
+			expect(errorResponse).toHaveProperty("error");
+			expect(errorResponse.error).toHaveProperty("message");
+			expect(errorResponse.error).toHaveProperty("type", "upstream_error");
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+
+			const errorLog = logs[0];
+			expect(errorLog.finishReason).toBe("upstream_error");
+
+			const discordDeliveries =
+				harness.getMockDiscordDeliveries("provider-error");
+			expect(discordDeliveries).toHaveLength(1);
+
+			const discordPayload = discordDeliveries[0].body;
+			expect(discordPayload).toEqual(
+				expect.objectContaining({
+					embeds: expect.any(Array),
+				}),
+			);
+
+			const embeds = (
+				discordPayload as {
+					embeds: Array<{
+						fields: Array<{ name: string; value: string }>;
+					}>;
+				}
+			).embeds;
+			expect(embeds).toHaveLength(1);
+			expect(embeds[0].fields).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: "Log ID",
+						value: `\`${errorLog.id}\``,
+					}),
+					expect.objectContaining({
+						name: "Request ID",
+						value: `\`${errorLog.requestId}\``,
+					}),
+					expect.objectContaining({
+						name: "Links",
+						value: expect.stringContaining(
+							`/dashboard/${errorLog.organizationId}/${errorLog.projectId}/activity/${errorLog.id}`,
+						),
+					}),
+					expect.objectContaining({
+						name: "Links",
+						value: expect.stringContaining(
+							"console.cloud.google.com/logs/query",
+						),
+					}),
+					expect.objectContaining({
+						name: "Provider Response",
+						value: expect.stringContaining("The server had an error"),
+					}),
+				]),
+			);
+		} finally {
+			if (originalProviderErrorDiscordUrl === undefined) {
+				delete process.env.PROVIDER_ERROR_DISCORD_URL;
+			} else {
+				process.env.PROVIDER_ERROR_DISCORD_URL =
+					originalProviderErrorDiscordUrl;
+			}
+
+			if (originalAppUrl === undefined) {
+				delete process.env.APP_URL;
+			} else {
+				process.env.APP_URL = originalAppUrl;
+			}
+
+			if (originalGoogleCloudProject === undefined) {
+				delete process.env.GOOGLE_CLOUD_PROJECT;
+			} else {
+				process.env.GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			}
+		}
 	});
 
 	// test for inference.net provider

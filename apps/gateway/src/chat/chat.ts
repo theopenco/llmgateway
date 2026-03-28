@@ -3733,6 +3733,7 @@ chat.openapi(completions, async (c) => {
 							finishReason !== "content_filter"
 						) {
 							logger.warn("Provider error", {
+								requestId,
 								status: res.status,
 								errorText: errorResponseText,
 								usedProvider,
@@ -6650,6 +6651,7 @@ chat.openapi(completions, async (c) => {
 				finishReason !== "content_filter"
 			) {
 				logger.warn("Provider error", {
+					requestId,
 					status: res.status,
 					errorText: errorResponseText,
 					usedProvider,

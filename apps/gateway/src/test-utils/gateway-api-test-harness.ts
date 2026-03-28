@@ -5,6 +5,7 @@ import { getProviderDefinition, models } from "@llmgateway/models";
 import { verifyVideoContentAccessToken } from "@llmgateway/shared/video-access";
 
 import {
+	getMockDiscordDeliveries,
 	resetMockVideoState,
 	startMockServer,
 	stopMockServer,
@@ -165,6 +166,9 @@ export function createGatewayApiTestHarness(
 	return {
 		get mockServerUrl() {
 			return mockServerUrl;
+		},
+		getMockDiscordDeliveries(name?: string) {
+			return getMockDiscordDeliveries(name);
 		},
 		async setProjectMode(mode: ProjectMode) {
 			await db
