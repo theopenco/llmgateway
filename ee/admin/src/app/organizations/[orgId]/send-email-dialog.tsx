@@ -34,25 +34,18 @@ export function SendEmailDialog({
 	const [open, setOpen] = useState(false);
 	const [subject, setSubject] = useState("");
 	const [body, setBody] = useState("");
-	const [apiKey, setApiKey] = useState("");
 	const [context, setContext] = useState("");
 	const [sending, setSending] = useState(false);
 	const [generating, setGenerating] = useState(false);
 	const fetchClient = useFetchClient();
 
 	const handleGenerate = async () => {
-		if (!apiKey.trim()) {
-			toast.error("Please enter your LLM Gateway API key first");
-			return;
-		}
-
 		setGenerating(true);
 		try {
 			const res = await fetch("/api/generate-reply", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					apiKey,
 					name: userName,
 					email: userEmail,
 					orgName,
@@ -123,18 +116,6 @@ export function SendEmailDialog({
 				</DialogHeader>
 
 				<div className="flex flex-col gap-4">
-					<div>
-						<Label htmlFor="apiKey">LLM Gateway API Key</Label>
-						<Input
-							id="apiKey"
-							type="password"
-							placeholder="sk-..."
-							value={apiKey}
-							onChange={(e) => setApiKey(e.target.value)}
-							className="mt-1"
-						/>
-					</div>
-
 					<div>
 						<Label htmlFor="context">Additional Context (optional)</Label>
 						<Input
