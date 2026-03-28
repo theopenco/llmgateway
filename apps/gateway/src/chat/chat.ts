@@ -895,16 +895,6 @@ chat.openapi(completions, async (c) => {
 		allModelProviders = filterHybridRegions(allModelProviders);
 	}
 
-	const regionCandidates = modelInfo.providers
-		.filter((p) => p.region)
-		.map((p) => `${p.providerId}:${p.region}`);
-	if (regionCandidates.length > 0) {
-		logger.info("[region-debug] Region candidates after filtering", {
-			projectMode: project.mode,
-			regionCandidates,
-		});
-	}
-
 	// Fetch organization for coding model restriction check and credit validation
 	const organization = await findOrganizationById(project.organizationId);
 
@@ -2137,11 +2127,6 @@ chat.openapi(completions, async (c) => {
 					usedToken = regionToken;
 				}
 			}
-			logger.info("[region-debug] Hybrid mode: DB key found", {
-				provider: usedProvider,
-				resolvedRegion: usedRegion ?? "none",
-				keyOptions: providerKey.options,
-			});
 		} else {
 			// No API key available, fall back to credits
 			// Check both regular credits AND dev plan credits
@@ -2872,7 +2857,6 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 		}
-
 		// Check if streaming is requested and if the model/provider combination supports it
 		// For image generation models, we'll fake streaming by converting the response
 		const fakeStreamingForImageGen = stream && isImageGeneration;
