@@ -3728,28 +3728,6 @@ chat.openapi(completions, async (c) => {
 							errorResponseText,
 						);
 
-						if (
-							finishReason !== "client_error" &&
-							finishReason !== "content_filter"
-						) {
-							logger.warn("Provider error", {
-								requestId,
-								status: res.status,
-								errorText: errorResponseText,
-								usedProvider,
-								requestedProvider,
-								usedModel,
-								initialRequestedModel,
-								organizationId: project.organizationId,
-								projectId: apiKey.projectId,
-								apiKeyId: apiKey.id,
-								unifiedFinishReason: getUnifiedFinishReason(
-									finishReason,
-									usedProvider,
-								),
-							});
-						}
-
 						// Log the request in the database
 						// Extract plugin IDs for logging
 						const streamingErrorPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -6645,28 +6623,6 @@ chat.openapi(completions, async (c) => {
 				res.status,
 				errorResponseText,
 			);
-
-			if (
-				finishReason !== "client_error" &&
-				finishReason !== "content_filter"
-			) {
-				logger.warn("Provider error", {
-					requestId,
-					status: res.status,
-					errorText: errorResponseText,
-					usedProvider,
-					requestedProvider,
-					usedModel,
-					initialRequestedModel,
-					organizationId: project.organizationId,
-					projectId: apiKey.projectId,
-					apiKeyId: apiKey.id,
-					unifiedFinishReason: getUnifiedFinishReason(
-						finishReason,
-						usedProvider,
-					),
-				});
-			}
 
 			// Log the request in the database
 			// Extract plugin IDs for logging

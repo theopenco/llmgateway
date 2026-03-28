@@ -21,12 +21,17 @@ import {
 	organization,
 	sql,
 	tables,
+	UnifiedFinishReason,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import { calculateFees } from "@llmgateway/shared";
 
-import { notifyLogErrorDiscord } from "./log-error-discord.js";
+import {
+	buildLogErrorContext,
+	getLogErrorHandling,
+	notifyLogErrorDiscord,
+} from "./log-error-notifier.js";
 import { runFollowUpEmailsLoop } from "./services/follow-up-emails.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
@@ -117,6 +122,20 @@ const schema = z.object({
 	trace_id: z.string().nullable(),
 	unified_finish_reason: z.string().nullable(),
 });
+
+function hasPersistedLogError(
+	insertedLog: Pick<LogInsertData, "errorDetails" | "unifiedFinishReason">,
+): boolean {
+	const { unifiedFinishReason } = insertedLog;
+
+	return (
+		insertedLog.errorDetails !== null &&
+		(unifiedFinishReason === UnifiedFinishReason.CLIENT_ERROR ||
+			unifiedFinishReason === UnifiedFinishReason.CONTENT_FILTER ||
+			unifiedFinishReason === UnifiedFinishReason.GATEWAY_ERROR ||
+			unifiedFinishReason === UnifiedFinishReason.UPSTREAM_ERROR)
+	);
+}
 
 export async function acquireLock(key: string): Promise<boolean> {
 	// eslint-disable-next-line no-mixed-operators
@@ -831,31 +850,31 @@ export async function processLogQueue(): Promise<void> {
 						retried: log.retried,
 					});
 
-				const providerErrorLogs = insertedLogs.filter(
-					(insertedLog) =>
-						insertedLog.unifiedFinishReason === "upstream_error" &&
-						insertedLog.errorDetails !== null,
-				);
+				const persistedErrorLogs = insertedLogs.filter(hasPersistedLogError);
 
 				await Promise.allSettled(
-					providerErrorLogs.map(async (insertedLog) => {
-						logger.warn("Provider error log persisted", {
-							logId: insertedLog.id,
-							requestId: insertedLog.requestId,
-							organizationId: insertedLog.organizationId,
-							projectId: insertedLog.projectId,
-							apiKeyId: insertedLog.apiKeyId,
-							usedProvider: insertedLog.usedProvider,
-							usedModel: insertedLog.usedModel,
-							statusCode: insertedLog.errorDetails?.statusCode,
-							statusText: insertedLog.errorDetails?.statusText,
-							traceId: insertedLog.traceId,
-						});
+					persistedErrorLogs.map(async (insertedLog) => {
+						const handling = getLogErrorHandling(insertedLog);
+						const logMessage = `Persisted ${handling.errorKind.toLowerCase()} log`;
+						const logContext = buildLogErrorContext(
+							insertedLog,
+							handling.errorKind,
+						);
+
+						if (handling.logLevel === "warn") {
+							logger.warn(logMessage, logContext);
+						} else {
+							logger.info(logMessage, logContext);
+						}
+
+						if (!handling.shouldNotifyDiscord) {
+							return;
+						}
 
 						await notifyLogErrorDiscord({
 							log: insertedLog,
 							webhookEnvVar: "PROVIDER_ERROR_DISCORD_URL",
-							errorKind: "Provider Error",
+							errorKind: handling.errorKind,
 						});
 					}),
 				);

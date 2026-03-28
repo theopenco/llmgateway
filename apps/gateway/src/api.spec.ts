@@ -1477,6 +1477,7 @@ describe("api", () => {
 			process.env.PROVIDER_ERROR_DISCORD_URL;
 		const originalAppUrl = process.env.APP_URL;
 		const originalGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
+		const requestId = "provider-error-request-id";
 
 		process.env.PROVIDER_ERROR_DISCORD_URL = `${mockServerUrl}/mock-discord/provider-error`;
 		process.env.APP_URL = "https://llmgateway.io";
@@ -1504,6 +1505,7 @@ describe("api", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer real-token`,
+					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -1528,6 +1530,7 @@ describe("api", () => {
 
 			const errorLog = logs[0];
 			expect(errorLog.finishReason).toBe("upstream_error");
+			expect(errorLog.requestId).toBe(requestId);
 
 			const discordDeliveries =
 				harness.getMockDiscordDeliveries("provider-error");
@@ -1559,6 +1562,9 @@ describe("api", () => {
 						value: `\`${errorLog.requestId}\``,
 					}),
 					expect.objectContaining({
+						name: "Trace ID",
+					}),
+					expect.objectContaining({
 						name: "Links",
 						value: expect.stringContaining(
 							`/dashboard/${errorLog.organizationId}/${errorLog.projectId}/activity/${errorLog.id}`,
@@ -1571,7 +1577,7 @@ describe("api", () => {
 						),
 					}),
 					expect.objectContaining({
-						name: "Provider Response",
+						name: "Error Response",
 						value: expect.stringContaining("The server had an error"),
 					}),
 				]),
@@ -1594,6 +1600,76 @@ describe("api", () => {
 				delete process.env.GOOGLE_CLOUD_PROJECT;
 			} else {
 				process.env.GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			}
+		}
+	});
+
+	test("/v1/chat/completions with client error response does not notify Discord", async () => {
+		const originalProviderErrorDiscordUrl =
+			process.env.PROVIDER_ERROR_DISCORD_URL;
+		const requestId = "client-error-request-id";
+
+		process.env.PROVIDER_ERROR_DISCORD_URL = `${mockServerUrl}/mock-discord/provider-error`;
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content:
+								"This message will TRIGGER_STATUS_400 in the mock server",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+
+			const errorResponse = await res.json();
+			expect(errorResponse).toHaveProperty("error");
+			expect(errorResponse.error).toHaveProperty(
+				"type",
+				"invalid_request_error",
+			);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].requestId).toBe(requestId);
+			expect(logs[0].finishReason).toBe("client_error");
+
+			expect(harness.getMockDiscordDeliveries("provider-error")).toHaveLength(
+				0,
+			);
+		} finally {
+			if (originalProviderErrorDiscordUrl === undefined) {
+				delete process.env.PROVIDER_ERROR_DISCORD_URL;
+			} else {
+				process.env.PROVIDER_ERROR_DISCORD_URL =
+					originalProviderErrorDiscordUrl;
 			}
 		}
 	});

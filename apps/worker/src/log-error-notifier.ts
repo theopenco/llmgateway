@@ -1,6 +1,7 @@
+import { UnifiedFinishReason } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-interface LogErrorNotification {
+export interface LogErrorNotification {
 	id: string;
 	requestId: string;
 	createdAt: Date;
@@ -29,6 +30,12 @@ interface LogErrorDiscordOptions {
 	errorKind: string;
 }
 
+export interface LogErrorHandling {
+	errorKind: string;
+	logLevel: "info" | "warn";
+	shouldNotifyDiscord: boolean;
+}
+
 interface DiscordEmbedField {
 	name: string;
 	value: string;
@@ -48,6 +55,67 @@ interface DiscordWebhookPayload {
 const DEFAULT_APP_URL = "https://llmgateway.io";
 const DEFAULT_GOOGLE_CLOUD_PROJECT = "llmgatewayio";
 const DISCORD_FIELD_LIMIT = 1024;
+
+export function getLogErrorHandling(
+	log: Pick<LogErrorNotification, "unifiedFinishReason">,
+): LogErrorHandling {
+	switch (log.unifiedFinishReason) {
+		case UnifiedFinishReason.CLIENT_ERROR:
+			return {
+				errorKind: "Client Error",
+				logLevel: "info",
+				shouldNotifyDiscord: false,
+			};
+		case UnifiedFinishReason.CONTENT_FILTER:
+			return {
+				errorKind: "Content Filter",
+				logLevel: "info",
+				shouldNotifyDiscord: false,
+			};
+		case UnifiedFinishReason.GATEWAY_ERROR:
+			return {
+				errorKind: "Gateway Error",
+				logLevel: "warn",
+				shouldNotifyDiscord: true,
+			};
+		case UnifiedFinishReason.UPSTREAM_ERROR:
+			return {
+				errorKind: "Provider Error",
+				logLevel: "warn",
+				shouldNotifyDiscord: true,
+			};
+		default:
+			return {
+				errorKind: "Log Error",
+				logLevel: "warn",
+				shouldNotifyDiscord: false,
+			};
+	}
+}
+
+export function buildLogErrorContext(
+	log: LogErrorNotification,
+	errorKind: string,
+): Record<string, string | number | boolean | null | undefined> {
+	return {
+		errorKind,
+		logId: log.id,
+		requestId: log.requestId,
+		traceId: log.traceId,
+		organizationId: log.organizationId,
+		projectId: log.projectId,
+		apiKeyId: log.apiKeyId,
+		usedProvider: log.usedProvider,
+		usedModel: log.usedModel,
+		requestedProvider: log.requestedProvider,
+		requestedModel: log.requestedModel,
+		statusCode: log.errorDetails?.statusCode,
+		statusText: log.errorDetails?.statusText,
+		unifiedFinishReason: log.unifiedFinishReason,
+		finishReason: log.finishReason,
+		retried: log.retried,
+	};
+}
 
 function truncate(value: string, maxLength: number): string {
 	if (value.length <= maxLength) {
@@ -202,7 +270,7 @@ function buildPayload({
 					256,
 				),
 				description: truncate(
-					`An error log was persisted for project ${log.projectId}.`,
+					`A ${errorKind.toLowerCase()} log was persisted for project ${log.projectId}.`,
 					512,
 				),
 				color: 0xef4444,
@@ -253,6 +321,7 @@ export async function notifyLogErrorDiscord({
 				webhookEnvVar,
 				logId: log.id,
 				requestId: log.requestId,
+				traceId: log.traceId,
 				usedProvider: log.usedProvider,
 				usedModel: log.usedModel,
 			},
