@@ -4498,6 +4498,17 @@ chat.openapi(completions, async (c) => {
 												? openAiCompatibleStreamError.type
 												: errorType;
 
+									logger.info("[streaming] Provider SSE error received", {
+										requestId,
+										provider: usedProvider,
+										model: usedModel,
+										errorType,
+										errorCode,
+										inferredStatusCode,
+										errorMessage,
+										errorPayload: errorResponseText.substring(0, 5000),
+									});
+
 									finishReason = errorType;
 
 									if (errorType === "content_filter") {
