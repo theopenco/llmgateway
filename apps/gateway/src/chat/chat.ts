@@ -861,161 +861,6 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Check gateway-level content filter before routing the request upstream.
-	const contentFilterMode = getContentFilterMode();
-	const contentFilterMethod = getContentFilterMethod();
-	const shouldApplyGatewayContentFilter =
-		contentFilterMode !== "disabled" &&
-		shouldApplyContentFilterToModel(requestedModel);
-	const keywordContentFilterMatch =
-		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
-			? checkContentFilter(messages as BaseMessage[])
-			: null;
-	const openAIContentFilterResult =
-		shouldApplyGatewayContentFilter && contentFilterMethod === "openai"
-			? await checkOpenAIContentFilter(
-					messages as BaseMessage[],
-					{
-						requestId,
-						organizationId: project.organizationId,
-						projectId: project.id,
-						apiKeyId: apiKey.id,
-					},
-					c.req.raw.signal,
-				)
-			: null;
-	const contentFilterMatched =
-		keywordContentFilterMatch !== null ||
-		openAIContentFilterResult?.flagged === true;
-	const contentFilterBlocked =
-		contentFilterMode === "enabled" && contentFilterMatched;
-
-	// In monitor mode, tag logs with internalContentFilter when the selected
-	// filter method would have blocked the request.
-	const shouldTagContentFilter =
-		contentFilterMode === "monitor" && contentFilterMatched;
-	const insertLog = (logData: Parameters<typeof _insertLog>[0]) =>
-		_insertLog({
-			...logData,
-			internalContentFilter: shouldTagContentFilter
-				? true
-				: logData.internalContentFilter,
-		});
-
-	if (contentFilterBlocked) {
-		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
-		const contentFilterCreated = Math.floor(Date.now() / 1000);
-
-		// Log the filtered request
-		try {
-			await insertLog({
-				...createLogEntry(
-					requestId,
-					project,
-					apiKey,
-					undefined,
-					"",
-					undefined,
-					"llmgateway",
-					requestedModel,
-					requestedProvider,
-					messages as any[],
-					temperature,
-					max_tokens,
-					top_p,
-					frequency_penalty,
-					presence_penalty,
-					undefined,
-					undefined,
-					effort as "low" | "medium" | "high" | undefined,
-					response_format,
-					tools,
-					tool_choice,
-					source,
-					customHeaders,
-					c.req.header("x-debug") === "true",
-					c.req.header("user-agent"),
-				),
-				content: null,
-				responseSize: 0,
-				finishReason: "llmgateway_content_filter",
-				unifiedFinishReason: "content_filter",
-				promptTokens: null,
-				completionTokens: null,
-				totalTokens: null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: !!stream,
-				canceled: false,
-				errorDetails: null,
-				duration: 0,
-				timeToFirstToken: null,
-				inputCost: 0,
-				outputCost: 0,
-				cachedInputCost: 0,
-				requestCost: 0,
-				webSearchCost: 0,
-				imageInputTokens: null,
-				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				cost: 0,
-				estimatedCost: false,
-				discount: null,
-				pricingTier: null,
-				dataStorageCost: "0",
-			});
-		} catch {
-			// Silently ignore logging failures
-		}
-
-		if (stream) {
-			return streamSSE(c, async (sseStream) => {
-				const chunk = {
-					id: contentFilterResponseId,
-					object: "chat.completion.chunk",
-					created: contentFilterCreated,
-					model: requestedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {},
-							finish_reason: "content_filter",
-						},
-					],
-				};
-				await sseStream.writeSSE({
-					data: JSON.stringify(chunk),
-					id: "0",
-				});
-				await sseStream.writeSSE({ data: "[DONE]" });
-			});
-		}
-
-		return c.json({
-			id: contentFilterResponseId,
-			object: "chat.completion",
-			created: contentFilterCreated,
-			model: requestedModel,
-			choices: [
-				{
-					index: 0,
-					message: {
-						role: "assistant",
-						content: null,
-					},
-					finish_reason: "content_filter",
-				},
-			],
-			usage: {
-				prompt_tokens: 0,
-				completion_tokens: 0,
-				total_tokens: 0,
-			},
-		});
-	}
-
 	// Validate coding model restriction for dev plan personal orgs
 	// This check must happen BEFORE capability checks to give the right error message
 	if (
@@ -2253,6 +2098,161 @@ chat.openapi(completions, async (c) => {
 	if (!usedToken) {
 		throw new HTTPException(500, {
 			message: `No token`,
+		});
+	}
+
+	// Check gateway-level content filter before routing the request upstream.
+	const contentFilterMode = getContentFilterMode();
+	const contentFilterMethod = getContentFilterMethod();
+	const shouldApplyGatewayContentFilter =
+		contentFilterMode !== "disabled" &&
+		shouldApplyContentFilterToModel(requestedModel);
+	const keywordContentFilterMatch =
+		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
+			? checkContentFilter(messages as BaseMessage[])
+			: null;
+	const openAIContentFilterResult =
+		shouldApplyGatewayContentFilter && contentFilterMethod === "openai"
+			? await checkOpenAIContentFilter(
+					messages as BaseMessage[],
+					{
+						requestId,
+						organizationId: project.organizationId,
+						projectId: project.id,
+						apiKeyId: apiKey.id,
+					},
+					c.req.raw.signal,
+				)
+			: null;
+	const contentFilterMatched =
+		keywordContentFilterMatch !== null ||
+		openAIContentFilterResult?.flagged === true;
+	const contentFilterBlocked =
+		contentFilterMode === "enabled" && contentFilterMatched;
+
+	// In monitor mode, tag logs with internalContentFilter when the selected
+	// filter method would have blocked the request.
+	const shouldTagContentFilter =
+		contentFilterMode === "monitor" && contentFilterMatched;
+	const insertLog = (logData: Parameters<typeof _insertLog>[0]) =>
+		_insertLog({
+			...logData,
+			internalContentFilter: shouldTagContentFilter
+				? true
+				: logData.internalContentFilter,
+		});
+
+	if (contentFilterBlocked) {
+		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
+		const contentFilterCreated = Math.floor(Date.now() / 1000);
+
+		// Log the filtered request
+		try {
+			await insertLog({
+				...createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					undefined,
+					"",
+					undefined,
+					"llmgateway",
+					requestedModel,
+					requestedProvider,
+					messages as any[],
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					undefined,
+					undefined,
+					effort as "low" | "medium" | "high" | undefined,
+					response_format,
+					tools,
+					tool_choice,
+					source,
+					customHeaders,
+					c.req.header("x-debug") === "true",
+					c.req.header("user-agent"),
+				),
+				content: null,
+				responseSize: 0,
+				finishReason: "llmgateway_content_filter",
+				unifiedFinishReason: "content_filter",
+				promptTokens: null,
+				completionTokens: null,
+				totalTokens: null,
+				reasoningTokens: null,
+				cachedTokens: null,
+				hasError: false,
+				streamed: !!stream,
+				canceled: false,
+				errorDetails: null,
+				duration: 0,
+				timeToFirstToken: null,
+				inputCost: 0,
+				outputCost: 0,
+				cachedInputCost: 0,
+				requestCost: 0,
+				webSearchCost: 0,
+				imageInputTokens: null,
+				imageOutputTokens: null,
+				imageInputCost: null,
+				imageOutputCost: null,
+				cost: 0,
+				estimatedCost: false,
+				discount: null,
+				pricingTier: null,
+				dataStorageCost: "0",
+			});
+		} catch {
+			// Silently ignore logging failures
+		}
+
+		if (stream) {
+			return streamSSE(c, async (sseStream) => {
+				const chunk = {
+					id: contentFilterResponseId,
+					object: "chat.completion.chunk",
+					created: contentFilterCreated,
+					model: requestedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: "content_filter",
+						},
+					],
+				};
+				await sseStream.writeSSE({
+					data: JSON.stringify(chunk),
+					id: "0",
+				});
+				await sseStream.writeSSE({ data: "[DONE]" });
+			});
+		}
+
+		return c.json({
+			id: contentFilterResponseId,
+			object: "chat.completion",
+			created: contentFilterCreated,
+			model: requestedModel,
+			choices: [
+				{
+					index: 0,
+					message: {
+						role: "assistant",
+						content: null,
+					},
+					finish_reason: "content_filter",
+				},
+			],
+			usage: {
+				prompt_tokens: 0,
+				completion_tokens: 0,
+				total_tokens: 0,
+			},
 		});
 	}
 

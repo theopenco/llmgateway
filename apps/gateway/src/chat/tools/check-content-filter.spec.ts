@@ -237,6 +237,12 @@ describe("getContentFilterModels", () => {
 			"gemini-3.1-flash-image-preview",
 		]);
 	});
+
+	it("returns null for all-empty configured model lists", () => {
+		process.env.LLM_CONTENT_FILTER_MODELS = " , , ";
+		expect(getContentFilterModels()).toBeNull();
+		expect(getContentFilterModels()).toBeNull();
+	});
 });
 
 describe("shouldApplyContentFilterToModel", () => {
@@ -270,5 +276,11 @@ describe("shouldApplyContentFilterToModel", () => {
 		process.env.LLM_CONTENT_FILTER_MODELS =
 			"gemini-3-pro-image-preview,gemini-3.1-flash-image-preview";
 		expect(shouldApplyContentFilterToModel("gpt-4o-mini")).toBe(false);
+	});
+
+	it("returns true for all models when configured list only contains empties", () => {
+		process.env.LLM_CONTENT_FILTER_MODELS = " , , ";
+		expect(shouldApplyContentFilterToModel("gpt-4o-mini")).toBe(true);
+		expect(shouldApplyContentFilterToModel("custom")).toBe(true);
 	});
 });

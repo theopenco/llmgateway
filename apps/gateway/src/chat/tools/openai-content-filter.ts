@@ -1,4 +1,4 @@
-import { isTimeoutError } from "@/lib/timeout-config.js";
+import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
@@ -265,6 +265,10 @@ export async function checkOpenAIContentFilter(
 		});
 		upstreamText = await upstreamResponse.text();
 	} catch (error) {
+		if (requestSignal?.aborted || isCancellationError(error)) {
+			throw error;
+		}
+
 		logModerationError(context, {
 			durationMs: Date.now() - startTime,
 			error: error instanceof Error ? error.message : String(error),

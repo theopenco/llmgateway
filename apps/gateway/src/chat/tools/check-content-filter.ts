@@ -99,7 +99,12 @@ export function getContentFilterModels(): string[] | null {
 		.map((model) => model.trim().toLowerCase())
 		.filter((model) => model.length > 0);
 
-	return cachedModels.length > 0 ? cachedModels : null;
+	if (cachedModels.length === 0) {
+		cachedModels = null;
+		return null;
+	}
+
+	return cachedModels;
 }
 
 export function shouldApplyContentFilterToModel(
