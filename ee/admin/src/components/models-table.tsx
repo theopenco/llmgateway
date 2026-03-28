@@ -115,6 +115,31 @@ function formatDate(dateString: string) {
 	});
 }
 
+function formatPrice(price: string | null) {
+	if (!price) {
+		return "\u2014";
+	}
+	const num = parseFloat(price);
+	if (num === 0) {
+		return "Free";
+	}
+	if (num < 0.001) {
+		return `$${(num * 1_000_000).toFixed(2)}/M`;
+	}
+	return `$${num.toFixed(4)}`;
+}
+
+function formatDiscount(discount: string | null) {
+	if (!discount) {
+		return null;
+	}
+	const num = parseFloat(discount);
+	if (num <= 0) {
+		return null;
+	}
+	return `${(num * 100).toFixed(0)}%`;
+}
+
 function ModelRow({
 	model,
 	externalWindow,
@@ -134,6 +159,9 @@ function ModelRow({
 		},
 		[model.id],
 	);
+
+	const hasTokenPricing = model.inputPrice && parseFloat(model.inputPrice) > 0;
+	const discountLabel = formatDiscount(model.discount);
 
 	return (
 		<>
@@ -177,17 +205,30 @@ function ModelRow({
 				<TableCell className="tabular-nums">
 					${model.totalCost.toFixed(4)}
 				</TableCell>
+				<TableCell className="tabular-nums text-xs">
+					{hasTokenPricing ? (
+						<>
+							{formatPrice(model.inputPrice)} / {formatPrice(model.outputPrice)}
+						</>
+					) : model.requestPrice && parseFloat(model.requestPrice) > 0 ? (
+						<span className="text-amber-500">
+							{formatPrice(model.requestPrice)}/req
+						</span>
+					) : (
+						<span className="text-muted-foreground">{"\u2014"}</span>
+					)}
+				</TableCell>
+				<TableCell className="tabular-nums text-xs">
+					{discountLabel ? (
+						<Badge variant="secondary" className="text-xs">
+							{discountLabel} off
+						</Badge>
+					) : (
+						<span className="text-muted-foreground">{"\u2014"}</span>
+					)}
+				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(model.errorsCount)}
-				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(model.clientErrorsCount)}
-				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(model.gatewayErrorsCount)}
-				</TableCell>
-				<TableCell className="tabular-nums">
-					{formatNumber(model.upstreamErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -232,7 +273,7 @@ function ModelRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={16} className="p-4">
+					<TableCell colSpan={15} className="p-4">
 						<HistoryChart
 							title={`${model.name !== model.id ? model.name : model.id} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -285,10 +326,9 @@ export function ModelsTable({
 					{sh("Providers", "providerCount")}
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "totalCost")}
+					<TableHead>Pricing</TableHead>
+					<TableHead>Discount</TableHead>
 					{sh("Errors", "errorsCount")}
-					{sh("Client", "clientErrorsCount")}
-					{sh("Gateway", "gatewayErrorsCount")}
-					{sh("Upstream", "upstreamErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
@@ -300,7 +340,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={16}
+							colSpan={15}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found

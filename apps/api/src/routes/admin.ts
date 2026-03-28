@@ -3163,6 +3163,10 @@ const modelStatsSchema = z.object({
 	providerCount: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	inputPrice: z.string().nullable(),
+	outputPrice: z.string().nullable(),
+	requestPrice: z.string().nullable(),
+	discount: z.string().nullable(),
 	updatedAt: z.string(),
 });
 
@@ -3294,6 +3298,30 @@ admin.openapi(getModelStats, async (c) => {
 			.groupBy(tables.modelProviderMapping.modelId)
 			.as("provider_count_sub");
 
+		const pricingSub = db
+			.select({
+				modelId: tables.modelProviderMapping.modelId,
+				inputPrice:
+					sql<string>`MIN(${tables.modelProviderMapping.inputPrice})`.as(
+						"input_price",
+					),
+				outputPrice:
+					sql<string>`MIN(${tables.modelProviderMapping.outputPrice})`.as(
+						"output_price",
+					),
+				requestPrice:
+					sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
+						"request_price",
+					),
+				discount: sql<string>`MAX(${tables.modelProviderMapping.discount})`.as(
+					"discount",
+				),
+			})
+			.from(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.status, "active"))
+			.groupBy(tables.modelProviderMapping.modelId)
+			.as("pricing_sub");
+
 		const orderFn = sortOrderVal === "asc" ? asc : desc;
 		const sortColumnMap = {
 			name: tables.model.name,
@@ -3373,6 +3401,10 @@ admin.openapi(getModelStats, async (c) => {
 				totalCost: sql<number>`COALESCE(${modelAggSub.totalCost}, 0)`.as(
 					"totalCost",
 				),
+				inputPrice: pricingSub.inputPrice,
+				outputPrice: pricingSub.outputPrice,
+				requestPrice: pricingSub.requestPrice,
+				discount: pricingSub.discount,
 				updatedAt: tables.model.updatedAt,
 			})
 			.from(tables.model);
@@ -3390,6 +3422,7 @@ admin.openapi(getModelStats, async (c) => {
 					providerCountSub,
 					eq(tables.model.id, providerCountSub.modelId),
 				)
+				.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 				.where(whereClause)
 				.orderBy(orderFn(sortColumn))
 				.limit(limit)
@@ -3418,6 +3451,10 @@ admin.openapi(getModelStats, async (c) => {
 				providerCount: Number(r.providerCount ?? 0),
 				totalTokens: Number(r.totalTokens ?? 0),
 				totalCost: Number(r.totalCost ?? 0),
+				inputPrice: r.inputPrice ?? null,
+				outputPrice: r.outputPrice ?? null,
+				requestPrice: r.requestPrice ?? null,
+				discount: r.discount ?? null,
 				updatedAt: r.updatedAt.toISOString(),
 			})),
 			total,
@@ -3436,6 +3473,30 @@ admin.openapi(getModelStats, async (c) => {
 		.from(tables.modelProviderMapping)
 		.groupBy(tables.modelProviderMapping.modelId)
 		.as("provider_count_sub");
+
+	const pricingSub = db
+		.select({
+			modelId: tables.modelProviderMapping.modelId,
+			inputPrice:
+				sql<string>`MIN(${tables.modelProviderMapping.inputPrice})`.as(
+					"input_price",
+				),
+			outputPrice:
+				sql<string>`MIN(${tables.modelProviderMapping.outputPrice})`.as(
+					"output_price",
+				),
+			requestPrice:
+				sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
+					"request_price",
+				),
+			discount: sql<string>`MAX(${tables.modelProviderMapping.discount})`.as(
+				"discount",
+			),
+		})
+		.from(tables.modelProviderMapping)
+		.where(eq(tables.modelProviderMapping.status, "active"))
+		.groupBy(tables.modelProviderMapping.modelId)
+		.as("pricing_sub");
 
 	const [countResult] = await db
 		.select({ count: sql<number>`COUNT(*)`.as("count") })
@@ -3483,10 +3544,15 @@ admin.openapi(getModelStats, async (c) => {
 			providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 				"providerCount",
 			),
+			inputPrice: pricingSub.inputPrice,
+			outputPrice: pricingSub.outputPrice,
+			requestPrice: pricingSub.requestPrice,
+			discount: pricingSub.discount,
 			updatedAt: tables.model.updatedAt,
 		})
 		.from(tables.model)
 		.leftJoin(providerCountSub, eq(tables.model.id, providerCountSub.modelId))
+		.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 		.where(whereClause)
 		.orderBy(orderFn(sortColumn))
 		.limit(limit)
@@ -3510,6 +3576,10 @@ admin.openapi(getModelStats, async (c) => {
 			providerCount: Number(r.providerCount),
 			totalTokens: 0,
 			totalCost: 0,
+			inputPrice: r.inputPrice ?? null,
+			outputPrice: r.outputPrice ?? null,
+			requestPrice: r.requestPrice ?? null,
+			discount: r.discount ?? null,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total,
