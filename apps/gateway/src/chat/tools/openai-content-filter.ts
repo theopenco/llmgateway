@@ -269,6 +269,8 @@ export async function checkOpenAIContentFilter(
 			throw error;
 		}
 
+		// Fail open for moderation outages so upstream OpenAI moderation issues do
+		// not fail customer requests at the gateway layer.
 		logModerationError(context, {
 			durationMs: Date.now() - startTime,
 			error: error instanceof Error ? error.message : String(error),
