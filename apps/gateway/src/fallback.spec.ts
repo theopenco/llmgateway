@@ -1073,6 +1073,7 @@ describe("fallback and error status code handling", () => {
 						modelId: "glm-4.6",
 						providerId: "zai",
 						modelName: "glm-4.6",
+						maxOutput: 32768,
 						streaming: true,
 					},
 					{
@@ -1081,6 +1082,7 @@ describe("fallback and error status code handling", () => {
 						providerId: "alibaba",
 						modelName: "glm-4.6:cn-beijing",
 						region: "cn-beijing",
+						maxOutput: 16384,
 						streaming: true,
 					},
 					{
@@ -1088,6 +1090,7 @@ describe("fallback and error status code handling", () => {
 						modelId: "glm-4.6",
 						providerId: "novita",
 						modelName: "zai-org/glm-4.6",
+						maxOutput: 32768,
 						streaming: true,
 					},
 				])
