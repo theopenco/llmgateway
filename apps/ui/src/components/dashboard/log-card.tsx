@@ -376,6 +376,12 @@ export function LogCard({
 																			</span>
 																		</span>
 																	)}
+																	{score.rate_limited && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Clock className="h-3 w-3" />
+																			<span>rpm capped</span>
+																		</span>
+																	)}
 																</span>
 																<span className="text-muted-foreground font-mono">
 																	{score.score.toFixed(2)}

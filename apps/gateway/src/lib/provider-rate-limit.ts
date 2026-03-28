@@ -21,6 +21,75 @@ function getProviderRateLimitKey(
  * Check configurable provider/model RPM caps stored in the database.
  * Uses a Redis sliding window approach identical to free model rate limiting.
  */
+/**
+ * Read-only check of provider/model RPM caps — does NOT consume a slot.
+ * Used during routing to filter out rate-limited providers.
+ */
+export async function peekProviderRateLimit(
+	organizationId: string,
+	provider: string,
+	model: string,
+	providerModelName?: string,
+): Promise<{ rateLimited: boolean; limit: number; currentCount: number }> {
+	try {
+		const result = await getEffectiveRateLimit(
+			organizationId,
+			provider,
+			model,
+			providerModelName,
+		);
+
+		if (result.maxRpm === 0) {
+			return { rateLimited: false, limit: 0, currentCount: 0 };
+		}
+
+		const limit = result.maxRpm;
+		const key = getProviderRateLimitKey(organizationId, provider, model);
+
+		const now = Date.now();
+		// eslint-disable-next-line no-mixed-operators
+		const windowStart = now - WINDOW_SECONDS * 1000;
+
+		await redisClient.zremrangebyscore(key, "-inf", windowStart);
+		const currentCount = await redisClient.zcard(key);
+
+		return { rateLimited: currentCount >= limit, limit, currentCount };
+	} catch (error) {
+		logger.error("Error peeking provider rate limit:", error as Error);
+		return { rateLimited: false, limit: 0, currentCount: 0 };
+	}
+}
+
+/**
+ * Batch check which providers are rate-limited (read-only, no slot consumed).
+ * Returns a Set of rate-limited provider IDs.
+ */
+export async function filterRateLimitedProviders(
+	organizationId: string,
+	candidates: Array<{
+		providerId: string;
+		model: string;
+		providerModelName?: string;
+	}>,
+): Promise<Set<string>> {
+	const results = await Promise.all(
+		candidates.map(async (c) => ({
+			providerId: c.providerId,
+			...(await peekProviderRateLimit(
+				organizationId,
+				c.providerId,
+				c.model,
+				c.providerModelName,
+			)),
+		})),
+	);
+	return new Set(results.filter((r) => r.rateLimited).map((r) => r.providerId));
+}
+
+/**
+ * Check configurable provider/model RPM caps stored in the database.
+ * Uses a Redis sliding window approach identical to free model rate limiting.
+ */
 export async function checkProviderRateLimit(
 	organizationId: string,
 	provider: string,

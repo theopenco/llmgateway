@@ -49,6 +49,7 @@ interface RoutingMetadata {
 		failed?: boolean;
 		status_code?: number;
 		error_type?: string;
+		rate_limited?: boolean;
 	}>;
 	routing?: Array<{
 		provider: string;
@@ -384,6 +385,12 @@ export function LogCard({ log }: { log: ProjectLogEntry }) {
 																					</span>
 																				)}
 																			</span>
+																		</span>
+																	)}
+																	{score.rate_limited && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Clock className="h-3 w-3" />
+																			<span>rpm capped</span>
 																		</span>
 																	)}
 																</span>

@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { checkProviderRateLimit } from "./provider-rate-limit.js";
+import {
+	checkProviderRateLimit,
+	filterRateLimitedProviders,
+	peekProviderRateLimit,
+} from "./provider-rate-limit.js";
 
 // Mock dependencies
 vi.mock("@llmgateway/cache", () => ({
@@ -31,7 +35,7 @@ const redis = mockCache.redisClient;
 
 describe("checkProviderRateLimit", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
+		vi.resetAllMocks();
 	});
 
 	it("should allow requests when no rate limit is configured", async () => {
@@ -157,5 +161,111 @@ describe("checkProviderRateLimit", () => {
 			"gpt-4o",
 			"gpt-4o-2024-08-06",
 		);
+	});
+});
+
+describe("peekProviderRateLimit", () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+	});
+
+	it("should return not rate-limited when no limit is configured", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+			maxRpm: 0,
+			source: "none",
+		});
+
+		const result = await peekProviderRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result.rateLimited).toBe(false);
+		expect(result.limit).toBe(0);
+		expect(redis.zremrangebyscore).not.toHaveBeenCalled();
+	});
+
+	it("should return not rate-limited when under the limit", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+			maxRpm: 100,
+			source: "global_provider_model",
+			rateLimitId: "rl-1",
+		});
+		vi.mocked(redis.zcard).mockResolvedValue(50);
+
+		const result = await peekProviderRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result.rateLimited).toBe(false);
+		expect(result.limit).toBe(100);
+		expect(result.currentCount).toBe(50);
+		// Must NOT consume a slot
+		expect(redis.zadd).not.toHaveBeenCalled();
+	});
+
+	it("should return rate-limited when at the limit", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+			maxRpm: 10,
+			source: "global_provider",
+			rateLimitId: "rl-2",
+		});
+		vi.mocked(redis.zcard).mockResolvedValue(10);
+
+		const result = await peekProviderRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result.rateLimited).toBe(true);
+		expect(result.limit).toBe(10);
+		// Must NOT consume a slot
+		expect(redis.zadd).not.toHaveBeenCalled();
+	});
+
+	it("should fail-open on error", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit).mockRejectedValue(
+			new Error("DB error"),
+		);
+
+		const result = await peekProviderRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result.rateLimited).toBe(false);
+	});
+});
+
+describe("filterRateLimitedProviders", () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+	});
+
+	it("should return set of rate-limited provider IDs", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit)
+			.mockResolvedValueOnce({
+				maxRpm: 10,
+				source: "global_provider",
+				rateLimitId: "rl-1",
+			})
+			.mockResolvedValueOnce({
+				maxRpm: 100,
+				source: "global_provider",
+				rateLimitId: "rl-2",
+			});
+		vi.mocked(redis.zcard)
+			.mockResolvedValueOnce(10) // openai at limit
+			.mockResolvedValueOnce(5); // anthropic under limit
+
+		const result = await filterRateLimitedProviders("org-1", [
+			{ providerId: "openai", model: "gpt-4o" },
+			{ providerId: "anthropic", model: "claude-3-5-sonnet" },
+		]);
+
+		expect(result.has("openai")).toBe(true);
+		expect(result.has("anthropic")).toBe(false);
+	});
+
+	it("should return empty set when no limits configured", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+			maxRpm: 0,
+			source: "none",
+		});
+
+		const result = await filterRateLimitedProviders("org-1", [
+			{ providerId: "openai", model: "gpt-4o" },
+		]);
+
+		expect(result.size).toBe(0);
 	});
 });
