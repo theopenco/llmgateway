@@ -42,16 +42,10 @@ const textModelDefs = (models as unknown as ModelDefinition[]).filter((m) => {
 	if (m.id === "custom" || m.id === "auto") {
 		return false;
 	}
-	// Exclude models that ONLY produce image/video (no text token pricing)
-	const outputs = m.output ?? ["text"];
-	if (!outputs.includes("text")) {
+	if (m.output?.includes("image")) {
 		return false;
 	}
-	// Exclude models with no token pricing at all
-	const hasTokenPricing = m.providers.some(
-		(p) => (p.inputPrice ?? 0) > 0 || (p.outputPrice ?? 0) > 0,
-	);
-	if (!hasTokenPricing) {
+	if (m.output?.includes("video")) {
 		return false;
 	}
 	const hasActiveProvider = m.providers.some(
@@ -93,7 +87,20 @@ function getCheapestProvider(
 		return undefined;
 	}
 
+	function hasPricing(p: ProviderModelMapping): boolean {
+		if (inputTokens > 0 && p.inputPrice === undefined) {
+			return false;
+		}
+		if (outputTokens > 0 && p.outputPrice === undefined) {
+			return false;
+		}
+		return true;
+	}
+
 	function weightedCost(p: ProviderModelMapping): number {
+		if (!hasPricing(p)) {
+			return Infinity;
+		}
 		const inPrice = (p.inputPrice ?? 0) * (1 - (p.discount ?? 0));
 		const outPrice = (p.outputPrice ?? 0) * (1 - (p.discount ?? 0));
 		const inCost = inPrice * inputTokens;
@@ -101,7 +108,12 @@ function getCheapestProvider(
 		return inCost + outCost;
 	}
 
-	return activeProviders.reduce((cheapest, current) =>
+	const pricedProviders = activeProviders.filter(hasPricing);
+	if (pricedProviders.length === 0) {
+		return activeProviders[0];
+	}
+
+	return pricedProviders.reduce((cheapest, current) =>
 		weightedCost(current) < weightedCost(cheapest) ? current : cheapest,
 	);
 }
@@ -442,7 +454,10 @@ function ModelRowCard({
 			<div className="grid gap-4 sm:grid-cols-[1fr_1fr_1fr] items-end">
 				{/* Model selector */}
 				<div>
-					<label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+					<label
+						htmlFor={`model-${row.id}`}
+						className="text-xs font-medium text-muted-foreground mb-1.5 block"
+					>
 						Model
 					</label>
 					<ModelSelector
@@ -452,15 +467,20 @@ function ModelRowCard({
 						onValueChange={(val) => onUpdate(row.id, { selectorValue: val })}
 						placeholder="Select model..."
 						rootOnly
+						id={`model-${row.id}`}
 					/>
 				</div>
 
 				{/* Input tokens */}
 				<div>
-					<label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+					<label
+						htmlFor={`inputTokens-${row.id}`}
+						className="text-xs font-medium text-muted-foreground mb-1.5 block"
+					>
 						Input tokens
 					</label>
 					<Input
+						id={`inputTokens-${row.id}`}
 						type="number"
 						min={0}
 						step={1000}
@@ -476,10 +496,14 @@ function ModelRowCard({
 
 				{/* Output tokens */}
 				<div>
-					<label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+					<label
+						htmlFor={`outputTokens-${row.id}`}
+						className="text-xs font-medium text-muted-foreground mb-1.5 block"
+					>
 						Output tokens
 					</label>
 					<Input
+						id={`outputTokens-${row.id}`}
 						type="number"
 						min={0}
 						step={1000}
@@ -828,11 +852,7 @@ function ResultsPanel({
 						{savingsPercent}% less than official provider pricing
 					</p>
 					<p className="text-sm text-muted-foreground mt-4">
-						That&apos;s{" "}
-						<span className="font-semibold text-green-600 dark:text-green-400">
-							{formatUsd(savings * 12)}
-						</span>{" "}
-						saved annually at this volume
+						Based on the token volumes entered above
 					</p>
 				</Card>
 			)}

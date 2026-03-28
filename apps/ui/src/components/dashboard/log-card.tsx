@@ -1096,7 +1096,7 @@ export function LogCard({
 											if (
 												typeof value === "string" &&
 												value.length > 200 &&
-												/[A-Za-z0-9+/]{200,}/.test(value)
+												BASE64_PATTERN.test(value)
 											) {
 												return "[base64 image data truncated]";
 											}

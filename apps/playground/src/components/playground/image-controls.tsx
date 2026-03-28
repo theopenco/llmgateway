@@ -227,7 +227,6 @@ export function ImageControls({
 					onDragOver={handleDragOver}
 					onDragLeave={handleDragLeave}
 					onDrop={handleDrop}
-					onPaste={handlePaste}
 					className={`rounded-md border-input border dark:bg-input/30 shadow-xs focus-within:ring-1 focus-within:ring-ring transition-colors ${
 						isDragging ? "border-primary bg-primary/5 ring-1 ring-primary" : ""
 					}`}
