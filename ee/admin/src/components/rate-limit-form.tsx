@@ -28,13 +28,16 @@ import { getProviderIcon } from "@llmgateway/shared";
 
 import type { RateLimitModelMapping } from "@/lib/types";
 
+type RateLimitType = "rpm" | "rpd";
+
 interface RateLimitFormProps {
 	providers: Array<{ id: string; name: string }>;
 	mappings: RateLimitModelMapping[];
 	onSubmit: (data: {
 		provider: string | null;
 		model: string | null;
-		maxRpm: number;
+		limitType: RateLimitType;
+		maxRequests: number;
 		reason: string | null;
 	}) => Promise<{ success: boolean; error?: string }>;
 }
@@ -51,7 +54,8 @@ export function RateLimitForm({
 
 	const [provider, setProvider] = useState<string>("__all__");
 	const [model, setModel] = useState<string>("__all__");
-	const [maxRpm, setMaxRpm] = useState("");
+	const [limitType, setLimitType] = useState<RateLimitType>("rpm");
+	const [maxRequests, setMaxRequests] = useState("");
 	const [reason, setReason] = useState("");
 
 	// Filter mappings by selected provider
@@ -113,9 +117,9 @@ export function RateLimitForm({
 		setError(null);
 		setLoading(true);
 
-		const rpm = parseInt(maxRpm, 10);
-		if (isNaN(rpm) || rpm < 1) {
-			setError("Max RPM must be a positive integer");
+		const parsedLimit = parseInt(maxRequests, 10);
+		if (isNaN(parsedLimit) || parsedLimit < 1) {
+			setError(`Max ${limitType.toUpperCase()} must be a positive integer`);
 			setLoading(false);
 			return;
 		}
@@ -129,7 +133,8 @@ export function RateLimitForm({
 		const result = await onSubmit({
 			provider: provider === "__all__" ? null : provider,
 			model: model === "__all__" ? null : model,
-			maxRpm: rpm,
+			limitType,
+			maxRequests: parsedLimit,
 			reason: reason || null,
 		});
 
@@ -139,7 +144,8 @@ export function RateLimitForm({
 			setOpen(false);
 			setProvider("__all__");
 			setModel("__all__");
-			setMaxRpm("");
+			setLimitType("rpm");
+			setMaxRequests("");
 			setReason("");
 			router.refresh();
 		} else {
@@ -159,11 +165,27 @@ export function RateLimitForm({
 				<DialogHeader>
 					<DialogTitle>Add Rate Limit</DialogTitle>
 					<DialogDescription>
-						Set a maximum requests per minute cap for a provider, model, or
-						combination.
+						Set a maximum requests per minute or per day cap for a provider,
+						model, or combination.
 					</DialogDescription>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="space-y-4">
+					<div className="space-y-2">
+						<Label htmlFor="limitType">Limit Type</Label>
+						<Select
+							value={limitType}
+							onValueChange={(value) => setLimitType(value as RateLimitType)}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="rpm">RPM</SelectItem>
+								<SelectItem value="rpd">RPD</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
 					<div className="space-y-2">
 						<Label htmlFor="provider">Provider</Label>
 						<Select value={provider} onValueChange={handleProviderChange}>
@@ -231,19 +253,21 @@ export function RateLimitForm({
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="maxRpm">Max RPM</Label>
+						<Label htmlFor="maxRequests">Max {limitType.toUpperCase()}</Label>
 						<Input
-							id="maxRpm"
+							id="maxRequests"
 							type="number"
 							min="1"
 							step="1"
-							placeholder="e.g., 60"
-							value={maxRpm}
-							onChange={(e) => setMaxRpm(e.target.value)}
+							placeholder={limitType === "rpm" ? "e.g., 60" : "e.g., 5000"}
+							value={maxRequests}
+							onChange={(e) => setMaxRequests(e.target.value)}
 							required
 						/>
 						<p className="text-xs text-muted-foreground">
-							Maximum requests per minute allowed
+							{limitType === "rpm"
+								? "Maximum requests per minute allowed"
+								: "Maximum requests per day allowed"}
 						</p>
 					</div>
 

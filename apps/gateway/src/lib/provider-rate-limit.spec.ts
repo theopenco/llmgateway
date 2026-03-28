@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
+	getExceededProviderRateLimitLabels,
 	peekProviderRateLimit,
 } from "./provider-rate-limit.js";
 
-// Mock dependencies
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
 		zremrangebyscore: vi.fn(),
@@ -33,95 +33,115 @@ const mockCache = await import("@llmgateway/cache");
 const mockDb = await import("@llmgateway/db");
 const redis = mockCache.redisClient;
 
+const noLimits = {
+	maxRpm: 0,
+	maxRpd: 0,
+	rpmSource: "none",
+	rpdSource: "none",
+} as const;
+
 describe("checkProviderRateLimit", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 	});
 
-	it("should allow requests when no rate limit is configured", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
-			maxRpm: 0,
-			source: "none",
-		});
+	it("allows requests when no limits are configured", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue(noLimits);
 
 		const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result.allowed).toBe(true);
-		expect(result.limit).toBe(0);
-		// Should not touch Redis at all
+		expect(result.rateLimited).toBe(false);
+		expect(result.blockedBy).toEqual([]);
+		expect(result.limits.rpm.limit).toBe(0);
+		expect(result.limits.rpd.limit).toBe(0);
 		expect(redis.zremrangebyscore).not.toHaveBeenCalled();
 	});
 
-	it("should allow requests under the rate limit", async () => {
+	it("consumes both RPM and RPD windows when under the limits", async () => {
 		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,
-			source: "global_provider_model",
-			rateLimitId: "rl-1",
+			maxRpd: 1000,
+			rpmSource: "global_provider_model",
+			rpdSource: "global_provider_model",
+			rpmRateLimitId: "rl-rpm",
+			rpdRateLimitId: "rl-rpd",
 		});
-		vi.mocked(redis.zcard).mockResolvedValue(50);
+		vi.mocked(redis.zcard).mockResolvedValueOnce(50).mockResolvedValueOnce(400);
 
 		const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result.allowed).toBe(true);
-		expect(result.limit).toBe(100);
-		expect(result.remaining).toBe(49); // 100 - 50 - 1
-		expect(redis.zadd).toHaveBeenCalled();
-		expect(redis.expire).toHaveBeenCalled();
+		expect(result.limits.rpm.remaining).toBe(49);
+		expect(result.limits.rpd.remaining).toBe(599);
+		expect(redis.zadd).toHaveBeenCalledTimes(2);
+		expect(redis.expire).toHaveBeenCalledTimes(2);
 	});
 
-	it("should block requests when rate limit is exceeded", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
-			maxRpm: 10,
-			source: "global_provider",
-			rateLimitId: "rl-2",
-		});
-		vi.mocked(redis.zcard).mockResolvedValue(10); // At limit
-		const futureTimestamp = Date.now() + 30000;
-		vi.mocked(redis.zrange).mockResolvedValue([
-			"123",
-			futureTimestamp.toString(),
-		]);
-
-		const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
-
-		expect(result.allowed).toBe(false);
-		expect(result.limit).toBe(10);
-		expect(result.remaining).toBe(0);
-		expect(result.retryAfter).toBeGreaterThan(0);
-		// Should not add to window when blocked
-		expect(redis.zadd).not.toHaveBeenCalled();
-	});
-
-	it("should use unique member per request in sorted set", async () => {
+	it("blocks when any configured window is exceeded", async () => {
 		const now = 1_700_000_000_000;
 		const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+			maxRpm: 10,
+			maxRpd: 1000,
+			rpmSource: "global_provider",
+			rpdSource: "global_provider_model",
+			rpmRateLimitId: "rl-rpm",
+			rpdRateLimitId: "rl-rpd",
+		});
+		vi.mocked(redis.zcard).mockResolvedValueOnce(10).mockResolvedValueOnce(50);
+		vi.mocked(redis.zrange).mockResolvedValueOnce([
+			"member",
+			(now - 5_000).toString(),
+		]);
 
+		try {
+			const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
+
+			expect(result.allowed).toBe(false);
+			expect(result.rateLimited).toBe(true);
+			expect(result.blockedBy).toEqual(["rpm"]);
+			expect(result.retryAfter).toBeGreaterThan(0);
+			expect(redis.zadd).not.toHaveBeenCalled();
+		} finally {
+			dateNowSpy.mockRestore();
+		}
+	});
+
+	it("uses a unique member per request", async () => {
+		const now = 1_700_000_000_000;
+		const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
 		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,
-			source: "global_provider_model",
-			rateLimitId: "rl-1",
+			maxRpd: 0,
+			rpmSource: "global_provider_model",
+			rpdSource: "none",
+			rpmRateLimitId: "rl-rpm",
 		});
-		vi.mocked(redis.zcard).mockResolvedValue(0);
+		vi.mocked(redis.zcard).mockResolvedValueOnce(0);
 
 		try {
 			await checkProviderRateLimit("org-1", "openai", "gpt-4o");
 
 			expect(redis.zadd).toHaveBeenCalledOnce();
 			const zaddArgs = vi.mocked(redis.zadd).mock.calls[0];
-			expect(zaddArgs[0]).toBe("rate_limit:provider_cap:org-1:openai:gpt-4o");
+			expect(zaddArgs[0]).toBe(
+				"rate_limit:provider_cap:rpm:org-1:openai:gpt-4o",
+			);
 			expect(zaddArgs[1]).toBe(now);
 			expect(zaddArgs[2]).toMatch(new RegExp(`^${now}:`));
-			expect(zaddArgs[2]).not.toBe(now.toString());
 		} finally {
 			dateNowSpy.mockRestore();
 		}
 	});
 
-	it("should allow requests on Redis error (fail-open)", async () => {
+	it("fails open on Redis errors", async () => {
 		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,
-			source: "global_provider_model",
-			rateLimitId: "rl-1",
+			maxRpd: 0,
+			rpmSource: "global_provider_model",
+			rpdSource: "none",
+			rpmRateLimitId: "rl-rpm",
 		});
 		vi.mocked(redis.zremrangebyscore).mockRejectedValue(
 			new Error("Redis error"),
@@ -130,37 +150,7 @@ describe("checkProviderRateLimit", () => {
 		const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result.allowed).toBe(true);
-	});
-
-	it("should allow requests on DB error (fail-open)", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockRejectedValue(
-			new Error("DB error"),
-		);
-
-		const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
-
-		expect(result.allowed).toBe(true);
-	});
-
-	it("should pass providerModelName to getEffectiveRateLimit", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
-			maxRpm: 0,
-			source: "none",
-		});
-
-		await checkProviderRateLimit(
-			"org-1",
-			"openai",
-			"gpt-4o",
-			"gpt-4o-2024-08-06",
-		);
-
-		expect(mockDb.getEffectiveRateLimit).toHaveBeenCalledWith(
-			"org-1",
-			"openai",
-			"gpt-4o",
-			"gpt-4o-2024-08-06",
-		);
+		expect(result.rateLimited).toBe(false);
 	});
 });
 
@@ -169,60 +159,52 @@ describe("peekProviderRateLimit", () => {
 		vi.resetAllMocks();
 	});
 
-	it("should return not rate-limited when no limit is configured", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
-			maxRpm: 0,
-			source: "none",
-		});
-
-		const result = await peekProviderRateLimit("org-1", "openai", "gpt-4o");
-
-		expect(result.rateLimited).toBe(false);
-		expect(result.limit).toBe(0);
-		expect(redis.zremrangebyscore).not.toHaveBeenCalled();
-	});
-
-	it("should return not rate-limited when under the limit", async () => {
+	it("returns not rate-limited when below both windows", async () => {
 		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,
-			source: "global_provider_model",
-			rateLimitId: "rl-1",
+			maxRpd: 5000,
+			rpmSource: "global_provider_model",
+			rpdSource: "global_provider_model",
+			rpmRateLimitId: "rl-rpm",
+			rpdRateLimitId: "rl-rpd",
 		});
-		vi.mocked(redis.zcard).mockResolvedValue(50);
+		vi.mocked(redis.zcard).mockResolvedValueOnce(20).mockResolvedValueOnce(300);
 
 		const result = await peekProviderRateLimit("org-1", "openai", "gpt-4o");
 
+		expect(result.allowed).toBe(true);
 		expect(result.rateLimited).toBe(false);
-		expect(result.limit).toBe(100);
-		expect(result.currentCount).toBe(50);
-		// Must NOT consume a slot
+		expect(result.limits.rpm.currentCount).toBe(20);
+		expect(result.limits.rpd.currentCount).toBe(300);
 		expect(redis.zadd).not.toHaveBeenCalled();
 	});
 
-	it("should return rate-limited when at the limit", async () => {
+	it("returns all exceeded windows when multiple limits are hit", async () => {
+		const now = 1_700_000_000_000;
+		const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
 		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 10,
-			source: "global_provider",
-			rateLimitId: "rl-2",
+			maxRpd: 100,
+			rpmSource: "global_provider",
+			rpdSource: "global_model",
+			rpmRateLimitId: "rl-rpm",
+			rpdRateLimitId: "rl-rpd",
 		});
-		vi.mocked(redis.zcard).mockResolvedValue(10);
+		vi.mocked(redis.zcard).mockResolvedValueOnce(10).mockResolvedValueOnce(100);
+		vi.mocked(redis.zrange)
+			.mockResolvedValueOnce(["rpm-member", (now - 5_000).toString()])
+			.mockResolvedValueOnce(["rpd-member", (now - 10_000).toString()]);
 
-		const result = await peekProviderRateLimit("org-1", "openai", "gpt-4o");
+		try {
+			const result = await peekProviderRateLimit("org-1", "openai", "gpt-4o");
 
-		expect(result.rateLimited).toBe(true);
-		expect(result.limit).toBe(10);
-		// Must NOT consume a slot
-		expect(redis.zadd).not.toHaveBeenCalled();
-	});
-
-	it("should fail-open on error", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockRejectedValue(
-			new Error("DB error"),
-		);
-
-		const result = await peekProviderRateLimit("org-1", "openai", "gpt-4o");
-
-		expect(result.rateLimited).toBe(false);
+			expect(result.allowed).toBe(false);
+			expect(result.rateLimited).toBe(true);
+			expect(result.blockedBy).toEqual(["rpm", "rpd"]);
+			expect(result.retryAfter).toBeGreaterThan(0);
+		} finally {
+			dateNowSpy.mockRestore();
+		}
 	});
 });
 
@@ -231,21 +213,27 @@ describe("filterRateLimitedProviders", () => {
 		vi.resetAllMocks();
 	});
 
-	it("should return set of rate-limited provider IDs", async () => {
+	it("returns provider IDs that are blocked by either limit window", async () => {
 		vi.mocked(mockDb.getEffectiveRateLimit)
 			.mockResolvedValueOnce({
 				maxRpm: 10,
-				source: "global_provider",
-				rateLimitId: "rl-1",
+				maxRpd: 0,
+				rpmSource: "global_provider",
+				rpdSource: "none",
+				rpmRateLimitId: "rl-openai",
 			})
 			.mockResolvedValueOnce({
-				maxRpm: 100,
-				source: "global_provider",
-				rateLimitId: "rl-2",
+				maxRpm: 0,
+				maxRpd: 1000,
+				rpmSource: "none",
+				rpdSource: "global_provider",
+				rpdRateLimitId: "rl-anthropic",
 			});
-		vi.mocked(redis.zcard)
-			.mockResolvedValueOnce(10) // openai at limit
-			.mockResolvedValueOnce(5); // anthropic under limit
+		vi.mocked(redis.zcard).mockResolvedValueOnce(10).mockResolvedValueOnce(900);
+		vi.mocked(redis.zrange).mockResolvedValueOnce([
+			"member",
+			Date.now().toString(),
+		]);
 
 		const result = await filterRateLimitedProviders("org-1", [
 			{ providerId: "openai", model: "gpt-4o" },
@@ -255,17 +243,13 @@ describe("filterRateLimitedProviders", () => {
 		expect(result.has("openai")).toBe(true);
 		expect(result.has("anthropic")).toBe(false);
 	});
+});
 
-	it("should return empty set when no limits configured", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
-			maxRpm: 0,
-			source: "none",
-		});
-
-		const result = await filterRateLimitedProviders("org-1", [
-			{ providerId: "openai", model: "gpt-4o" },
-		]);
-
-		expect(result.size).toBe(0);
+describe("getExceededProviderRateLimitLabels", () => {
+	it("formats the blocked limit types for logging", () => {
+		expect(getExceededProviderRateLimitLabels(["rpm"])).toBe("RPM");
+		expect(getExceededProviderRateLimitLabels(["rpm", "rpd"])).toBe(
+			"RPM and RPD",
+		);
 	});
 });

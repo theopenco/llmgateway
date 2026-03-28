@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock dependencies before importing the module under test
 vi.mock("@llmgateway/logger", () => ({
 	logger: {
 		error: vi.fn(),
@@ -15,7 +14,6 @@ vi.mock("./db.js", () => ({
 
 const mockDb = await import("./db.js");
 
-// Chainable query builder mock
 function createQueryMock(results: Array<Record<string, unknown>>) {
 	const chain = {
 		select: vi.fn().mockReturnThis(),
@@ -33,25 +31,28 @@ describe("getEffectiveRateLimit", () => {
 		vi.clearAllMocks();
 	});
 
-	it("should return none when no rate limits exist", async () => {
+	it("returns no limits when no matches exist", async () => {
 		createQueryMock([]);
 
 		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result).toEqual({
 			maxRpm: 0,
-			source: "none",
+			maxRpd: 0,
+			rpmSource: "none",
+			rpdSource: "none",
 		});
 	});
 
-	it("should return global provider+model rate limit", async () => {
+	it("returns the matching global provider/model RPM limit", async () => {
 		createQueryMock([
 			{
-				id: "rl-1",
+				id: "rl-rpm",
 				organizationId: null,
 				provider: "openai",
 				model: "gpt-4o",
 				maxRpm: 100,
+				maxRpd: null,
 			},
 		]);
 
@@ -59,113 +60,70 @@ describe("getEffectiveRateLimit", () => {
 
 		expect(result).toEqual({
 			maxRpm: 100,
-			source: "global_provider_model",
-			rateLimitId: "rl-1",
+			maxRpd: 0,
+			rpmSource: "global_provider_model",
+			rpdSource: "none",
+			rpmRateLimitId: "rl-rpm",
 		});
 	});
 
-	it("should return global provider rate limit (all models)", async () => {
+	it("resolves RPM and RPD independently by precedence", async () => {
 		createQueryMock([
 			{
-				id: "rl-2",
+				id: "global-rpm",
 				organizationId: null,
 				provider: "openai",
-				model: null,
-				maxRpm: 200,
+				model: "gpt-4o",
+				maxRpm: 100,
+				maxRpd: null,
 			},
-		]);
-
-		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
-
-		expect(result).toEqual({
-			maxRpm: 200,
-			source: "global_provider",
-			rateLimitId: "rl-2",
-		});
-	});
-
-	it("should return global model rate limit (all providers)", async () => {
-		createQueryMock([
 			{
-				id: "rl-3",
+				id: "org-rpm",
+				organizationId: "org-1",
+				provider: "openai",
+				model: null,
+				maxRpm: 250,
+				maxRpd: null,
+			},
+			{
+				id: "global-rpd",
 				organizationId: null,
 				provider: null,
 				model: "gpt-4o",
-				maxRpm: 50,
+				maxRpm: null,
+				maxRpd: 5000,
+			},
+			{
+				id: "org-rpd",
+				organizationId: "org-1",
+				provider: "openai",
+				model: "gpt-4o",
+				maxRpm: null,
+				maxRpd: 9000,
 			},
 		]);
 
 		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result).toEqual({
-			maxRpm: 50,
-			source: "global_model",
-			rateLimitId: "rl-3",
+			maxRpm: 250,
+			maxRpd: 9000,
+			rpmSource: "org_provider",
+			rpdSource: "org_provider_model",
+			rpmRateLimitId: "org-rpm",
+			rpdRateLimitId: "org-rpd",
 		});
 	});
 
-	it("should prefer org-specific over global rate limits", async () => {
+	it("matches provider-specific model names", async () => {
 		createQueryMock([
 			{
-				id: "rl-global",
-				organizationId: null,
-				provider: "openai",
-				model: "gpt-4o",
-				maxRpm: 100,
-			},
-			{
-				id: "rl-org",
-				organizationId: "org-1",
-				provider: "openai",
-				model: "gpt-4o",
-				maxRpm: 500,
-			},
-		]);
-
-		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
-
-		expect(result).toEqual({
-			maxRpm: 500,
-			source: "org_provider_model",
-			rateLimitId: "rl-org",
-		});
-	});
-
-	it("should prefer org+provider+model over org+provider", async () => {
-		createQueryMock([
-			{
-				id: "rl-org-provider",
-				organizationId: "org-1",
-				provider: "openai",
-				model: null,
-				maxRpm: 200,
-			},
-			{
-				id: "rl-org-provider-model",
-				organizationId: "org-1",
-				provider: "openai",
-				model: "gpt-4o",
-				maxRpm: 50,
-			},
-		]);
-
-		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
-
-		expect(result).toEqual({
-			maxRpm: 50,
-			source: "org_provider_model",
-			rateLimitId: "rl-org-provider-model",
-		});
-	});
-
-	it("should match by provider model name", async () => {
-		createQueryMock([
-			{
-				id: "rl-1",
+				id: "rl-rpd",
 				organizationId: null,
 				provider: "openai",
 				model: "gpt-4o-2024-08-06",
-				maxRpm: 100,
+				maxRpm: null,
+				maxRpd: 1200,
 			},
 		]);
 
@@ -177,13 +135,46 @@ describe("getEffectiveRateLimit", () => {
 		);
 
 		expect(result).toEqual({
-			maxRpm: 100,
-			source: "global_provider_model",
-			rateLimitId: "rl-1",
+			maxRpm: 0,
+			maxRpd: 1200,
+			rpmSource: "none",
+			rpdSource: "global_provider_model",
+			rpdRateLimitId: "rl-rpd",
 		});
 	});
 
-	it("should return none on database error (fail-open)", async () => {
+	it("only evaluates global rows when organizationId is null", async () => {
+		createQueryMock([
+			{
+				id: "global-rpd",
+				organizationId: null,
+				provider: "openai",
+				model: null,
+				maxRpm: null,
+				maxRpd: 3000,
+			},
+			{
+				id: "org-rpm",
+				organizationId: "org-1",
+				provider: "openai",
+				model: null,
+				maxRpm: 999,
+				maxRpd: null,
+			},
+		]);
+
+		const result = await getEffectiveRateLimit(null, "openai", "gpt-4o");
+
+		expect(result).toEqual({
+			maxRpm: 0,
+			maxRpd: 3000,
+			rpmSource: "none",
+			rpdSource: "global_provider",
+			rpdRateLimitId: "global-rpd",
+		});
+	});
+
+	it("fails open on database errors", async () => {
 		vi.mocked(mockDb.db.select).mockImplementation(() => {
 			throw new Error("DB error");
 		});
@@ -192,27 +183,9 @@ describe("getEffectiveRateLimit", () => {
 
 		expect(result).toEqual({
 			maxRpm: 0,
-			source: "none",
-		});
-	});
-
-	it("should handle null organizationId (global only lookup)", async () => {
-		createQueryMock([
-			{
-				id: "rl-1",
-				organizationId: null,
-				provider: "openai",
-				model: null,
-				maxRpm: 300,
-			},
-		]);
-
-		const result = await getEffectiveRateLimit(null, "openai", "gpt-4o");
-
-		expect(result).toEqual({
-			maxRpm: 300,
-			source: "global_provider",
-			rateLimitId: "rl-1",
+			maxRpd: 0,
+			rpmSource: "none",
+			rpdSource: "none",
 		});
 	});
 });

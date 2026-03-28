@@ -1442,7 +1442,7 @@ export const discount = pgTable(
 	],
 );
 
-// Rate Limit - Admin-configurable RPM caps for providers/models
+// Rate Limit - Admin-configurable provider/model caps
 // Can be global (organizationId = null) or org-specific
 export const rateLimit = pgTable(
 	"rate_limit",
@@ -1463,18 +1463,26 @@ export const rateLimit = pgTable(
 		// null model = applies to all models (of provider if specified)
 		model: text(),
 		// Maximum requests per minute
-		maxRpm: integer().notNull(),
+		maxRpm: integer(),
+		// Maximum requests per day
+		maxRpd: integer(),
 		// Optional metadata
 		reason: text(),
 	},
 	(table) => [
 		// Postgres treats nulls as distinct in plain unique constraints, so normalize
-		// null scopes to sentinels to prevent duplicate global/all-provider entries.
+		// null scopes to sentinels and encode the limit type in the expression so the
+		// same provider/model can have both RPM and RPD caps without duplicates.
 		uniqueIndex("rate_limit_org_provider_model_unique").using(
 			"btree",
 			sql`coalesce(${table.organizationId}, '__global__')`,
 			sql`coalesce(${table.provider}, '__all_providers__')`,
 			sql`coalesce(${table.model}, '__all_models__')`,
+			sql`case
+				when ${table.maxRpm} is not null then 'rpm'
+				when ${table.maxRpd} is not null then 'rpd'
+				else '__unset__'
+			end`,
 		),
 		index("rate_limit_organization_id_idx").on(table.organizationId),
 		index("rate_limit_provider_idx").on(table.provider),

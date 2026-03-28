@@ -1,28 +1,211 @@
 import { randomUUID } from "node:crypto";
 
 import { redisClient } from "@llmgateway/cache";
-import { getEffectiveRateLimit } from "@llmgateway/db";
+import { getEffectiveRateLimit, type RateLimitSource } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-const WINDOW_SECONDS = 60; // 1 minute for RPM
+export const providerRateLimitWindows = {
+	rpm: {
+		headerSuffix: "RPM",
+		label: "requests per minute",
+		redisSuffix: "rpm",
+		seconds: 60,
+	},
+	rpd: {
+		headerSuffix: "RPD",
+		label: "requests per day",
+		redisSuffix: "rpd",
+		seconds: 60 * 60 * 24,
+	},
+} as const;
 
-/**
- * Generate Redis key for provider/model rate limiting
- */
+export type ProviderRateLimitWindow = keyof typeof providerRateLimitWindows;
+
+export interface ProviderRateLimitWindowState {
+	currentCount: number;
+	limit: number;
+	remaining: number;
+	rateLimited: boolean;
+	retryAfter?: number;
+	source: RateLimitSource;
+}
+
+export interface ProviderRateLimitResult {
+	allowed: boolean;
+	rateLimited: boolean;
+	blockedBy: ProviderRateLimitWindow[];
+	retryAfter?: number;
+	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>;
+}
+
 function getProviderRateLimitKey(
 	organizationId: string,
 	provider: string,
 	model: string,
+	window: ProviderRateLimitWindow,
 ): string {
-	return `rate_limit:provider_cap:${organizationId}:${provider}:${model}`;
+	return `rate_limit:provider_cap:${providerRateLimitWindows[window].redisSuffix}:${organizationId}:${provider}:${model}`;
+}
+
+async function readWindowState(
+	key: string,
+	window: ProviderRateLimitWindow,
+	limit: number,
+	now: number,
+	source: RateLimitSource,
+): Promise<ProviderRateLimitWindowState> {
+	if (limit === 0) {
+		return {
+			currentCount: 0,
+			limit: 0,
+			remaining: 0,
+			rateLimited: false,
+			source,
+		};
+	}
+
+	const windowSeconds = providerRateLimitWindows[window].seconds;
+	const windowDurationMs = windowSeconds * 1000;
+	const windowStart = now - windowDurationMs;
+
+	await redisClient.zremrangebyscore(key, "-inf", windowStart);
+	const currentCount = await redisClient.zcard(key);
+
+	if (currentCount >= limit) {
+		const oldestEntry = await redisClient.zrange(key, 0, 0, "WITHSCORES");
+		const retryAfter =
+			oldestEntry.length > 1
+				? Math.max(
+						1,
+						Math.ceil(
+							(parseInt(oldestEntry[1], 10) + windowDurationMs - now) / 1000,
+						),
+					)
+				: windowSeconds;
+
+		return {
+			currentCount,
+			limit,
+			remaining: 0,
+			rateLimited: true,
+			retryAfter,
+			source,
+		};
+	}
+
+	return {
+		currentCount,
+		limit,
+		remaining: Math.max(0, limit - currentCount),
+		rateLimited: false,
+		source,
+	};
+}
+
+async function addWindowEntry(
+	key: string,
+	window: ProviderRateLimitWindow,
+	now: number,
+	member: string,
+): Promise<void> {
+	await redisClient.zadd(key, now, member);
+	await redisClient.expire(key, providerRateLimitWindows[window].seconds * 2);
+}
+
+function getCombinedRetryAfter(
+	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>,
+	blockedBy: ProviderRateLimitWindow[],
+): number | undefined {
+	if (blockedBy.length === 0) {
+		return undefined;
+	}
+
+	return blockedBy.reduce<number | undefined>((maxRetryAfter, window) => {
+		const retryAfter = limits[window].retryAfter;
+		if (retryAfter === undefined) {
+			return maxRetryAfter;
+		}
+		return maxRetryAfter === undefined
+			? retryAfter
+			: Math.max(maxRetryAfter, retryAfter);
+	}, undefined);
+}
+
+function buildFallbackResult(): ProviderRateLimitResult {
+	return {
+		allowed: true,
+		rateLimited: false,
+		blockedBy: [],
+		limits: {
+			rpm: {
+				currentCount: 0,
+				limit: 0,
+				remaining: 0,
+				rateLimited: false,
+				source: "none",
+			},
+			rpd: {
+				currentCount: 0,
+				limit: 0,
+				remaining: 0,
+				rateLimited: false,
+				source: "none",
+			},
+		},
+	};
+}
+
+async function getProviderRateLimitStates(
+	organizationId: string,
+	provider: string,
+	model: string,
+	providerModelName?: string,
+): Promise<{
+	keys: Record<ProviderRateLimitWindow, string>;
+	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>;
+}> {
+	const effectiveRateLimit = await getEffectiveRateLimit(
+		organizationId,
+		provider,
+		model,
+		providerModelName,
+	);
+	const now = Date.now();
+
+	const keys = {
+		rpm: getProviderRateLimitKey(organizationId, provider, model, "rpm"),
+		rpd: getProviderRateLimitKey(organizationId, provider, model, "rpd"),
+	};
+	const limits = {
+		rpm: await readWindowState(
+			keys.rpm,
+			"rpm",
+			effectiveRateLimit.maxRpm,
+			now,
+			effectiveRateLimit.rpmSource,
+		),
+		rpd: await readWindowState(
+			keys.rpd,
+			"rpd",
+			effectiveRateLimit.maxRpd,
+			now,
+			effectiveRateLimit.rpdSource,
+		),
+	};
+
+	return { keys, limits };
+}
+
+export function getExceededProviderRateLimitLabels(
+	blockedBy: ProviderRateLimitWindow[],
+): string {
+	return blockedBy
+		.map((window) => providerRateLimitWindows[window].headerSuffix)
+		.join(" and ");
 }
 
 /**
- * Check configurable provider/model RPM caps stored in the database.
- * Uses a Redis sliding window approach identical to free model rate limiting.
- */
-/**
- * Read-only check of provider/model RPM caps — does NOT consume a slot.
+ * Read-only check of provider/model caps — does NOT consume a slot.
  * Used during routing to filter out rate-limited providers.
  */
 export async function peekProviderRateLimit(
@@ -30,33 +213,32 @@ export async function peekProviderRateLimit(
 	provider: string,
 	model: string,
 	providerModelName?: string,
-): Promise<{ rateLimited: boolean; limit: number; currentCount: number }> {
+): Promise<ProviderRateLimitResult> {
 	try {
-		const result = await getEffectiveRateLimit(
+		const { limits } = await getProviderRateLimitStates(
 			organizationId,
 			provider,
 			model,
 			providerModelName,
 		);
+		const blockedBy = (
+			Object.entries(limits) as Array<
+				[ProviderRateLimitWindow, ProviderRateLimitWindowState]
+			>
+		)
+			.filter(([, limit]) => limit.rateLimited)
+			.map(([window]) => window);
 
-		if (result.maxRpm === 0) {
-			return { rateLimited: false, limit: 0, currentCount: 0 };
-		}
-
-		const limit = result.maxRpm;
-		const key = getProviderRateLimitKey(organizationId, provider, model);
-
-		const now = Date.now();
-		// eslint-disable-next-line no-mixed-operators
-		const windowStart = now - WINDOW_SECONDS * 1000;
-
-		await redisClient.zremrangebyscore(key, "-inf", windowStart);
-		const currentCount = await redisClient.zcard(key);
-
-		return { rateLimited: currentCount >= limit, limit, currentCount };
+		return {
+			allowed: blockedBy.length === 0,
+			rateLimited: blockedBy.length > 0,
+			blockedBy,
+			retryAfter: getCombinedRetryAfter(limits, blockedBy),
+			limits,
+		};
 	} catch (error) {
 		logger.error("Error peeking provider rate limit:", error as Error);
-		return { rateLimited: false, limit: 0, currentCount: 0 };
+		return buildFallbackResult();
 	}
 }
 
@@ -73,21 +255,26 @@ export async function filterRateLimitedProviders(
 	}>,
 ): Promise<Set<string>> {
 	const results = await Promise.all(
-		candidates.map(async (c) => ({
-			providerId: c.providerId,
+		candidates.map(async (candidate) => ({
+			providerId: candidate.providerId,
 			...(await peekProviderRateLimit(
 				organizationId,
-				c.providerId,
-				c.model,
-				c.providerModelName,
+				candidate.providerId,
+				candidate.model,
+				candidate.providerModelName,
 			)),
 		})),
 	);
-	return new Set(results.filter((r) => r.rateLimited).map((r) => r.providerId));
+
+	return new Set(
+		results
+			.filter((result) => result.rateLimited)
+			.map((result) => result.providerId),
+	);
 }
 
 /**
- * Check configurable provider/model RPM caps stored in the database.
+ * Check configurable provider/model caps stored in the database.
  * Uses a Redis sliding window approach identical to free model rate limiting.
  */
 export async function checkProviderRateLimit(
@@ -95,83 +282,89 @@ export async function checkProviderRateLimit(
 	provider: string,
 	model: string,
 	providerModelName?: string,
-): Promise<{
-	allowed: boolean;
-	retryAfter?: number;
-	remaining: number;
-	limit: number;
-}> {
+): Promise<ProviderRateLimitResult> {
 	try {
-		const result = await getEffectiveRateLimit(
+		const { keys, limits } = await getProviderRateLimitStates(
 			organizationId,
 			provider,
 			model,
 			providerModelName,
 		);
+		const blockedBy = (
+			Object.entries(limits) as Array<
+				[ProviderRateLimitWindow, ProviderRateLimitWindowState]
+			>
+		)
+			.filter(([, limit]) => limit.rateLimited)
+			.map(([window]) => window);
 
-		// No rate limit configured — allow the request
-		if (result.maxRpm === 0) {
-			return { allowed: true, remaining: 0, limit: 0 };
-		}
-
-		const limit = result.maxRpm;
-		const key = getProviderRateLimitKey(organizationId, provider, model);
-
-		// Sliding window approach with Redis sorted sets
-		const now = Date.now();
-		// eslint-disable-next-line no-mixed-operators
-		const windowStart = now - WINDOW_SECONDS * 1000;
-
-		// Remove old entries and count current requests in window
-		await redisClient.zremrangebyscore(key, "-inf", windowStart);
-		const currentCount = await redisClient.zcard(key);
-
-		if (currentCount >= limit) {
-			// Rate limited — calculate retry after
-			const oldestEntry = await redisClient.zrange(key, 0, 0, "WITHSCORES");
-			const windowMs = WINDOW_SECONDS * 1000;
-			const retryAfter =
-				oldestEntry.length > 1
-					? Math.ceil((parseInt(oldestEntry[1], 10) + windowMs - now) / 1000)
-					: WINDOW_SECONDS;
+		if (blockedBy.length > 0) {
+			const retryAfter = getCombinedRetryAfter(limits, blockedBy);
 
 			logger.info(`Provider rate limit exceeded`, {
 				organizationId,
 				provider,
 				model,
 				providerModelName,
-				currentCount,
-				limit,
-				source: result.source,
+				blockedBy,
+				limits,
 				retryAfter,
 			});
 
-			return { allowed: false, retryAfter, remaining: 0, limit };
+			return {
+				allowed: false,
+				rateLimited: true,
+				blockedBy,
+				retryAfter,
+				limits,
+			};
 		}
 
-		// Add current request to sliding window with a unique member
+		const now = Date.now();
 		const member = `${now}:${randomUUID()}`;
-		await redisClient.zadd(key, now, member);
-		await redisClient.expire(key, WINDOW_SECONDS * 2); // 2x window for cleanup
+		const configuredWindows = (
+			Object.entries(limits) as Array<
+				[ProviderRateLimitWindow, ProviderRateLimitWindowState]
+			>
+		).filter(([, limit]) => limit.limit > 0);
+
+		await Promise.all(
+			configuredWindows.map(([window]) =>
+				addWindowEntry(keys[window], window, now, member),
+			),
+		);
+
+		const updatedLimits = configuredWindows.reduce(
+			(acc, [window, limit]) => {
+				acc[window] = {
+					...limit,
+					currentCount: limit.currentCount + 1,
+					remaining: Math.max(0, limit.limit - limit.currentCount - 1),
+				};
+				return acc;
+			},
+			{
+				rpm: limits.rpm,
+				rpd: limits.rpd,
+			},
+		);
 
 		logger.debug(`Provider rate limit check passed`, {
 			organizationId,
 			provider,
 			model,
 			providerModelName,
-			currentCount: currentCount + 1,
-			limit,
-			source: result.source,
+			limits: updatedLimits,
 		});
 
 		return {
 			allowed: true,
-			remaining: Math.max(0, limit - currentCount - 1),
-			limit,
+			rateLimited: false,
+			blockedBy: [],
+			limits: updatedLimits,
 		};
 	} catch (error) {
 		logger.error("Error checking provider rate limit:", error as Error);
-		// Fail-open: allow request on error to avoid blocking users due to Redis issues
-		return { allowed: true, remaining: 0, limit: 0 };
+		return buildFallbackResult();
 	}
 }

@@ -84,7 +84,8 @@ export default async function OrganizationRateLimitsPage({
 	async function handleCreateRateLimit(data: {
 		provider: string | null;
 		model: string | null;
-		maxRpm: number;
+		limitType: "rpm" | "rpd";
+		maxRequests: number;
 		reason: string | null;
 	}): Promise<{ success: boolean; error?: string }> {
 		"use server";
@@ -93,7 +94,8 @@ export default async function OrganizationRateLimitsPage({
 			const result = await createOrganizationRateLimit(orgId, {
 				provider: data.provider,
 				model: data.model,
-				maxRpm: data.maxRpm,
+				limitType: data.limitType,
+				maxRequests: data.maxRequests,
 				reason: data.reason,
 			});
 
@@ -164,7 +166,7 @@ export default async function OrganizationRateLimitsPage({
 						<TableRow>
 							<TableHead>Provider</TableHead>
 							<TableHead>Model</TableHead>
-							<TableHead>Max RPM</TableHead>
+							<TableHead>Limit</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
 							<TableHead className="w-[50px]" />
@@ -181,7 +183,7 @@ export default async function OrganizationRateLimitsPage({
 										<Tag className="h-8 w-8 text-muted-foreground/50" />
 										<p>No rate limits configured for this organization</p>
 										<p className="text-xs">
-											Add a rate limit to cap RPM for this organization
+											Add an RPM or RPD cap for this organization
 										</p>
 									</div>
 								</TableCell>
@@ -205,7 +207,8 @@ export default async function OrganizationRateLimitsPage({
 									</TableCell>
 									<TableCell>
 										<span className="font-medium">
-											{rateLimit.maxRpm.toLocaleString()} RPM
+											{rateLimit.maxRequests.toLocaleString()}{" "}
+											{rateLimit.limitType.toUpperCase()}
 										</span>
 									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">
@@ -238,8 +241,8 @@ export default async function OrganizationRateLimitsPage({
 						broader ones
 					</li>
 					<li>
-						Rate limits cap the maximum requests per minute (RPM) for matching
-						providers and models
+						Rate limits cap the maximum requests per minute (RPM) or per day
+						(RPD) for matching providers and models
 					</li>
 					<li>
 						When a rate limit is hit, the gateway falls back to other providers

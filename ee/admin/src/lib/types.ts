@@ -67,6 +67,8 @@ export type DiscountOptions = GetJsonResponse<"/admin/discounts/options">;
 export type ProviderModelMapping = DiscountOptions["mappings"][number];
 export type RateLimitOptions = GetJsonResponse<"/admin/rate-limits/options">;
 export type RateLimitModelMapping = RateLimitOptions["mappings"][number];
+export type RateLimitsListResponse = GetJsonResponse<"/admin/rate-limits">;
+export type RateLimitEntry = RateLimitsListResponse["rateLimits"][number];
 
 // Providers
 export type ProvidersListResponse = GetJsonResponse<"/admin/providers">;

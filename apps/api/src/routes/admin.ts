@@ -2405,7 +2405,8 @@ const rateLimitSchema = z.object({
 	organizationId: z.string().nullable(),
 	provider: z.string().nullable(),
 	model: z.string().nullable(),
-	maxRpm: z.number(),
+	limitType: z.enum(["rpm", "rpd"]),
+	maxRequests: z.number(),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -2419,10 +2420,11 @@ const rateLimitsListSchema = z.object({
 const createRateLimitBodySchema = z.object({
 	provider: z.string().nullable().optional(),
 	model: z.string().nullable().optional(),
-	maxRpm: z.coerce
+	limitType: z.enum(["rpm", "rpd"]),
+	maxRequests: z.coerce
 		.number()
-		.int("RPM must be a whole number")
-		.min(1, "RPM must be at least 1"),
+		.int("Limit must be a whole number")
+		.min(1, "Limit must be at least 1"),
 	reason: z.string().nullable().optional(),
 });
 
@@ -2470,7 +2472,7 @@ const createGlobalRateLimit = createRoute({
 		},
 		409: {
 			description:
-				"Rate limit already exists for this provider/model combination.",
+				"Rate limit already exists for this provider/model/limit type combination.",
 		},
 	},
 });
@@ -2555,7 +2557,7 @@ const createOrganizationRateLimit = createRoute({
 		},
 		409: {
 			description:
-				"Rate limit already exists for this provider/model combination.",
+				"Rate limit already exists for this provider/model/limit type combination.",
 		},
 	},
 });
@@ -2590,17 +2592,22 @@ function formatRateLimit(r: {
 	organizationId: string | null;
 	provider: string | null;
 	model: string | null;
-	maxRpm: number;
+	maxRpm: number | null;
+	maxRpd: number | null;
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 }) {
+	const limitType: "rpm" | "rpd" = r.maxRpd !== null ? "rpd" : "rpm";
+	const maxRequests = r.maxRpd ?? r.maxRpm ?? 0;
+
 	return {
 		id: r.id,
 		organizationId: r.organizationId,
 		provider: r.provider,
 		model: r.model,
-		maxRpm: r.maxRpm,
+		limitType,
+		maxRequests,
 		reason: r.reason,
 		createdAt: r.createdAt.toISOString(),
 		updatedAt: r.updatedAt.toISOString(),
@@ -2639,7 +2646,8 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			organizationId: null,
 			provider,
 			model,
-			maxRpm: body.maxRpm,
+			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
+			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()
@@ -2648,7 +2656,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 	if (!created) {
 		throw new HTTPException(409, {
 			message:
-				"A rate limit already exists for this provider/model combination",
+				"A rate limit already exists for this provider/model/limit type combination",
 		});
 	}
 
@@ -2728,7 +2736,8 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 			organizationId: orgId,
 			provider,
 			model,
-			maxRpm: body.maxRpm,
+			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
+			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()
@@ -2737,7 +2746,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 	if (!created) {
 		throw new HTTPException(409, {
 			message:
-				"A rate limit already exists for this provider/model combination",
+				"A rate limit already exists for this provider/model/limit type combination",
 		});
 	}
 

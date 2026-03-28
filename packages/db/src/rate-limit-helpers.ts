@@ -5,27 +5,122 @@ import { logger } from "@llmgateway/logger";
 import { db } from "./db.js";
 import { rateLimit as rateLimitTable } from "./schema.js";
 
-/**
- * Result of rate limit lookup with precedence information
- */
-export interface EffectiveRateLimit {
-	/** The max RPM value */
-	maxRpm: number;
-	/** Source of the rate limit for debugging */
-	source:
-		| "org_provider_model"
-		| "org_provider"
-		| "org_model"
-		| "global_provider_model"
-		| "global_provider"
-		| "global_model"
-		| "none";
-	/** The rate limit record ID if from database */
-	rateLimitId?: string;
+export type RateLimitSource =
+	| "org_provider_model"
+	| "org_provider"
+	| "org_model"
+	| "global_provider_model"
+	| "global_provider"
+	| "global_model"
+	| "none";
+
+interface RateLimitMatch {
+	id: string;
+	organizationId: string | null;
+	provider: string | null;
+	model: string | null;
+	maxRpm: number | null;
+	maxRpd: number | null;
 }
 
 /**
- * Get the effective rate limit for a given organization, provider, and model.
+ * Result of rate limit lookup with precedence information.
+ */
+export interface EffectiveRateLimit {
+	maxRpm: number;
+	maxRpd: number;
+	rpmSource: RateLimitSource;
+	rpdSource: RateLimitSource;
+	rpmRateLimitId?: string;
+	rpdRateLimitId?: string;
+}
+
+const rateLimitPrecedence: Array<{
+	source: Exclude<RateLimitSource, "none">;
+	matches: (
+		rateLimit: RateLimitMatch,
+		organizationId: string | null,
+		provider: string,
+		modelMatches: (rateLimitModel: string | null) => boolean,
+	) => boolean;
+}> = [
+	{
+		source: "org_provider_model",
+		matches: (rateLimit, organizationId, provider, modelMatches) =>
+			organizationId !== null &&
+			rateLimit.organizationId === organizationId &&
+			rateLimit.provider === provider &&
+			modelMatches(rateLimit.model),
+	},
+	{
+		source: "org_provider",
+		matches: (rateLimit, organizationId, provider) =>
+			organizationId !== null &&
+			rateLimit.organizationId === organizationId &&
+			rateLimit.provider === provider &&
+			rateLimit.model === null,
+	},
+	{
+		source: "org_model",
+		matches: (rateLimit, organizationId, _provider, modelMatches) =>
+			organizationId !== null &&
+			rateLimit.organizationId === organizationId &&
+			rateLimit.provider === null &&
+			modelMatches(rateLimit.model),
+	},
+	{
+		source: "global_provider_model",
+		matches: (rateLimit, _organizationId, provider, modelMatches) =>
+			rateLimit.organizationId === null &&
+			rateLimit.provider === provider &&
+			modelMatches(rateLimit.model),
+	},
+	{
+		source: "global_provider",
+		matches: (rateLimit, _organizationId, provider) =>
+			rateLimit.organizationId === null &&
+			rateLimit.provider === provider &&
+			rateLimit.model === null,
+	},
+	{
+		source: "global_model",
+		matches: (rateLimit, _organizationId, _provider, modelMatches) =>
+			rateLimit.organizationId === null &&
+			rateLimit.provider === null &&
+			modelMatches(rateLimit.model),
+	},
+];
+
+function pickRateLimitByPrecedence(
+	rateLimits: RateLimitMatch[],
+	organizationId: string | null,
+	provider: string,
+	modelMatches: (rateLimitModel: string | null) => boolean,
+	getLimitValue: (rateLimit: RateLimitMatch) => number | null,
+): { limit: number; source: RateLimitSource; rateLimitId?: string } {
+	for (const precedence of rateLimitPrecedence) {
+		const match = rateLimits.find(
+			(rateLimit) =>
+				getLimitValue(rateLimit) !== null &&
+				precedence.matches(rateLimit, organizationId, provider, modelMatches),
+		);
+		if (match) {
+			return {
+				limit: getLimitValue(match) ?? 0,
+				source: precedence.source,
+				rateLimitId: match.id,
+			};
+		}
+	}
+
+	return {
+		limit: 0,
+		source: "none",
+	};
+}
+
+/**
+ * Get the effective rate limits for a given organization, provider, and model.
  * Uses the uncached database client so admin changes take effect immediately.
  *
  * Precedence (highest to lowest):
@@ -35,12 +130,6 @@ export interface EffectiveRateLimit {
  * 4. Global + Provider + Model rate limit (checks both root model ID and provider model name)
  * 5. Global + Provider rate limit
  * 6. Global + Model rate limit
- *
- * @param organizationId - The organization ID (null for global only)
- * @param provider - The provider ID
- * @param model - The root model ID (e.g., "gpt-4o-mini")
- * @param providerModelName - The provider-specific model name (e.g., "gpt-4o-mini-2024-07-18")
- * @returns The effective rate limit to apply, or null if none
  */
 export async function getEffectiveRateLimit(
 	organizationId: string | null,
@@ -49,13 +138,11 @@ export async function getEffectiveRateLimit(
 	providerModelName?: string,
 ): Promise<EffectiveRateLimit> {
 	try {
-		// Build model matching condition - match either root model ID or provider model name
 		const modelConditions = [eq(rateLimitTable.model, model)];
 		if (providerModelName && providerModelName !== model) {
 			modelConditions.push(eq(rateLimitTable.model, providerModelName));
 		}
 
-		// Query all potentially matching rate limits
 		const rateLimits = await db
 			.select({
 				id: rateLimitTable.id,
@@ -63,28 +150,25 @@ export async function getEffectiveRateLimit(
 				provider: rateLimitTable.provider,
 				model: rateLimitTable.model,
 				maxRpm: rateLimitTable.maxRpm,
+				maxRpd: rateLimitTable.maxRpd,
 			})
 			.from(rateLimitTable)
 			.where(
 				and(
-					// Either global (null org) or specific org
 					or(
 						isNull(rateLimitTable.organizationId),
 						organizationId
 							? eq(rateLimitTable.organizationId, organizationId)
 							: isNull(rateLimitTable.organizationId),
 					),
-					// Either matches provider or is null (all providers)
 					or(
 						eq(rateLimitTable.provider, provider),
 						isNull(rateLimitTable.provider),
 					),
-					// Either matches model (root ID or provider model name) or is null (all models)
 					or(...modelConditions, isNull(rateLimitTable.model)),
 				),
 			);
 
-		// Helper to check if a rate limit's model matches
 		const modelMatches = (rateLimitModel: string | null): boolean => {
 			if (rateLimitModel === null) {
 				return false;
@@ -92,114 +176,41 @@ export async function getEffectiveRateLimit(
 			if (rateLimitModel === model) {
 				return true;
 			}
-			if (providerModelName && rateLimitModel === providerModelName) {
-				return true;
-			}
-			return false;
+			return (
+				providerModelName !== undefined && rateLimitModel === providerModelName
+			);
 		};
 
-		// Find highest precedence rate limit
-		// 1. Org + Provider + Model
-		if (organizationId) {
-			const orgProviderModel = rateLimits.find(
-				(r) =>
-					r.organizationId === organizationId &&
-					r.provider === provider &&
-					modelMatches(r.model),
-			);
-			if (orgProviderModel) {
-				return {
-					maxRpm: orgProviderModel.maxRpm,
-					source: "org_provider_model",
-					rateLimitId: orgProviderModel.id,
-				};
-			}
-
-			// 2. Org + Provider (any model)
-			const orgProvider = rateLimits.find(
-				(r) =>
-					r.organizationId === organizationId &&
-					r.provider === provider &&
-					r.model === null,
-			);
-			if (orgProvider) {
-				return {
-					maxRpm: orgProvider.maxRpm,
-					source: "org_provider",
-					rateLimitId: orgProvider.id,
-				};
-			}
-
-			// 3. Org + Model (any provider)
-			const orgModel = rateLimits.find(
-				(r) =>
-					r.organizationId === organizationId &&
-					r.provider === null &&
-					modelMatches(r.model),
-			);
-			if (orgModel) {
-				return {
-					maxRpm: orgModel.maxRpm,
-					source: "org_model",
-					rateLimitId: orgModel.id,
-				};
-			}
-		}
-
-		// 4. Global + Provider + Model
-		const globalProviderModel = rateLimits.find(
-			(r) =>
-				r.organizationId === null &&
-				r.provider === provider &&
-				modelMatches(r.model),
+		const rpm = pickRateLimitByPrecedence(
+			rateLimits,
+			organizationId,
+			provider,
+			modelMatches,
+			(rateLimit) => rateLimit.maxRpm,
 		);
-		if (globalProviderModel) {
-			return {
-				maxRpm: globalProviderModel.maxRpm,
-				source: "global_provider_model",
-				rateLimitId: globalProviderModel.id,
-			};
-		}
-
-		// 5. Global + Provider (any model)
-		const globalProvider = rateLimits.find(
-			(r) =>
-				r.organizationId === null &&
-				r.provider === provider &&
-				r.model === null,
+		const rpd = pickRateLimitByPrecedence(
+			rateLimits,
+			organizationId,
+			provider,
+			modelMatches,
+			(rateLimit) => rateLimit.maxRpd,
 		);
-		if (globalProvider) {
-			return {
-				maxRpm: globalProvider.maxRpm,
-				source: "global_provider",
-				rateLimitId: globalProvider.id,
-			};
-		}
-
-		// 6. Global + Model (any provider)
-		const globalModel = rateLimits.find(
-			(r) =>
-				r.organizationId === null &&
-				r.provider === null &&
-				modelMatches(r.model),
-		);
-		if (globalModel) {
-			return {
-				maxRpm: globalModel.maxRpm,
-				source: "global_model",
-				rateLimitId: globalModel.id,
-			};
-		}
 
 		return {
-			maxRpm: 0,
-			source: "none",
+			maxRpm: rpm.limit,
+			maxRpd: rpd.limit,
+			rpmSource: rpm.source,
+			rpdSource: rpd.source,
+			rpmRateLimitId: rpm.rateLimitId,
+			rpdRateLimitId: rpd.rateLimitId,
 		};
 	} catch (error) {
 		logger.error("Error fetching effective rate limit:", error as Error);
 		return {
 			maxRpm: 0,
-			source: "none",
+			maxRpd: 0,
+			rpmSource: "none",
+			rpdSource: "none",
 		};
 	}
 }

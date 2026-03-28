@@ -25,7 +25,9 @@ import {
 import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
+	getExceededProviderRateLimitLabels,
 	peekProviderRateLimit,
+	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import {
 	createCombinedSignal,
@@ -1437,8 +1439,15 @@ chat.openapi(completions, async (c) => {
 
 		if (rateLimitPeek.rateLimited) {
 			if (noFallback) {
+				const blockedLimits = rateLimitPeek.blockedBy
+					.map(
+						(window) =>
+							`${rateLimitPeek.limits[window].limit} ${providerRateLimitWindows[window].label}`,
+					)
+					.join(" and ");
+
 				throw new HTTPException(429, {
-					message: `Rate limit exceeded: maximum ${rateLimitPeek.limit} requests per minute for ${requestedProvider}/${baseModelId}. Please try again later.`,
+					message: `Rate limit exceeded: maximum ${blockedLimits} for ${requestedProvider}/${baseModelId}. Please try again later.`,
 				});
 			}
 
@@ -2356,14 +2365,41 @@ chat.openapi(completions, async (c) => {
 			usedModel,
 		);
 
-		if (providerRateLimitResult.limit > 0) {
+		const providerRateLimitEntries = Object.entries(
+			providerRateLimitResult.limits,
+		) as Array<
+			[
+				keyof typeof providerRateLimitWindows,
+				(typeof providerRateLimitResult.limits)[keyof typeof providerRateLimitResult.limits],
+			]
+		>;
+		const primaryProviderRateLimit = providerRateLimitEntries.find(
+			([, limit]) => limit.limit > 0,
+		);
+
+		if (primaryProviderRateLimit) {
 			c.header(
 				"X-RateLimit-Limit-Provider",
-				providerRateLimitResult.limit.toString(),
+				primaryProviderRateLimit[1].limit.toString(),
 			);
 			c.header(
 				"X-RateLimit-Remaining-Provider",
-				providerRateLimitResult.remaining.toString(),
+				primaryProviderRateLimit[1].remaining.toString(),
+			);
+		}
+
+		for (const [window, limit] of providerRateLimitEntries) {
+			if (limit.limit === 0) {
+				continue;
+			}
+
+			c.header(
+				`X-RateLimit-Limit-Provider-${providerRateLimitWindows[window].headerSuffix}`,
+				limit.limit.toString(),
+			);
+			c.header(
+				`X-RateLimit-Remaining-Provider-${providerRateLimitWindows[window].headerSuffix}`,
+				limit.remaining.toString(),
 			);
 		}
 
@@ -2378,8 +2414,15 @@ chat.openapi(completions, async (c) => {
 					c.header("X-RateLimit-Reset", resetTime.toString());
 				}
 
+				const blockedLimits = providerRateLimitResult.blockedBy
+					.map(
+						(window) =>
+							`${providerRateLimitResult.limits[window].limit} ${providerRateLimitWindows[window].label}`,
+					)
+					.join(" and ");
+
 				throw new HTTPException(429, {
-					message: `Rate limit exceeded: maximum ${providerRateLimitResult.limit} requests per minute for this provider/model. Please try again later.`,
+					message: `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`,
 				});
 			}
 			// Otherwise proceed — the provider was the best available option from routing
@@ -2389,6 +2432,9 @@ chat.openapi(completions, async (c) => {
 					organizationId: project.organizationId,
 					provider: usedProvider,
 					model: modelInfo.id,
+					blockedBy: getExceededProviderRateLimitLabels(
+						providerRateLimitResult.blockedBy,
+					),
 				},
 			);
 		}

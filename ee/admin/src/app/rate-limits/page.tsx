@@ -66,7 +66,8 @@ export default async function GlobalRateLimitsPage() {
 	async function handleCreateRateLimit(data: {
 		provider: string | null;
 		model: string | null;
-		maxRpm: number;
+		limitType: "rpm" | "rpd";
+		maxRequests: number;
 		reason: string | null;
 	}): Promise<{ success: boolean; error?: string }> {
 		"use server";
@@ -75,7 +76,8 @@ export default async function GlobalRateLimitsPage() {
 			const result = await createGlobalRateLimit({
 				provider: data.provider,
 				model: data.model,
-				maxRpm: data.maxRpm,
+				limitType: data.limitType,
+				maxRequests: data.maxRequests,
 				reason: data.reason,
 			});
 
@@ -139,7 +141,7 @@ export default async function GlobalRateLimitsPage() {
 						<TableRow>
 							<TableHead>Provider</TableHead>
 							<TableHead>Model</TableHead>
-							<TableHead>Max RPM</TableHead>
+							<TableHead>Limit</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
 							<TableHead className="w-[50px]" />
@@ -156,8 +158,8 @@ export default async function GlobalRateLimitsPage() {
 										<Tag className="h-8 w-8 text-muted-foreground/50" />
 										<p>No global rate limits configured</p>
 										<p className="text-xs">
-											Global rate limits cap the maximum requests per minute for
-											specific providers/models
+											Global rate limits cap the maximum requests per minute or
+											per day for specific providers/models
 										</p>
 									</div>
 								</TableCell>
@@ -181,7 +183,8 @@ export default async function GlobalRateLimitsPage() {
 									</TableCell>
 									<TableCell>
 										<span className="font-medium">
-											{rateLimit.maxRpm.toLocaleString()} RPM
+											{rateLimit.maxRequests.toLocaleString()}{" "}
+											{rateLimit.limitType.toUpperCase()}
 										</span>
 									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">
@@ -217,6 +220,9 @@ export default async function GlobalRateLimitsPage() {
 					<li>
 						Rate limits are enforced per organization - each org gets their own
 						counter
+					</li>
+					<li>
+						Caps can be defined as requests per minute (RPM) or per day (RPD)
 					</li>
 					<li>
 						When a cap is hit, the gateway prefers other eligible providers

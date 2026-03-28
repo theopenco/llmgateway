@@ -2390,7 +2390,9 @@ export interface paths {
                                 organizationId: string | null;
                                 provider: string | null;
                                 model: string | null;
-                                maxRpm: number;
+                                /** @enum {string} */
+                                limitType: "rpm" | "rpd";
+                                maxRequests: number;
                                 reason: string | null;
                                 createdAt: string;
                                 updatedAt: string;
@@ -2414,7 +2416,9 @@ export interface paths {
                     "application/json": {
                         provider?: string | null;
                         model?: string | null;
-                        maxRpm: number;
+                        /** @enum {string} */
+                        limitType: "rpm" | "rpd";
+                        maxRequests: number;
                         reason?: string | null;
                     };
                 };
@@ -2431,7 +2435,9 @@ export interface paths {
                             organizationId: string | null;
                             provider: string | null;
                             model: string | null;
-                            maxRpm: number;
+                            /** @enum {string} */
+                            limitType: "rpm" | "rpd";
+                            maxRequests: number;
                             reason: string | null;
                             createdAt: string;
                             updatedAt: string;
@@ -2445,7 +2451,7 @@ export interface paths {
                     };
                     content?: never;
                 };
-                /** @description Rate limit already exists for this provider/model combination. */
+                /** @description Rate limit already exists for this provider/model/limit type combination. */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -2536,7 +2542,9 @@ export interface paths {
                                 organizationId: string | null;
                                 provider: string | null;
                                 model: string | null;
-                                maxRpm: number;
+                                /** @enum {string} */
+                                limitType: "rpm" | "rpd";
+                                maxRequests: number;
                                 reason: string | null;
                                 createdAt: string;
                                 updatedAt: string;
@@ -2569,7 +2577,9 @@ export interface paths {
                     "application/json": {
                         provider?: string | null;
                         model?: string | null;
-                        maxRpm: number;
+                        /** @enum {string} */
+                        limitType: "rpm" | "rpd";
+                        maxRequests: number;
                         reason?: string | null;
                     };
                 };
@@ -2586,7 +2596,9 @@ export interface paths {
                             organizationId: string | null;
                             provider: string | null;
                             model: string | null;
-                            maxRpm: number;
+                            /** @enum {string} */
+                            limitType: "rpm" | "rpd";
+                            maxRequests: number;
                             reason: string | null;
                             createdAt: string;
                             updatedAt: string;
@@ -2607,7 +2619,7 @@ export interface paths {
                     };
                     content?: never;
                 };
-                /** @description Rate limit already exists for this provider/model combination. */
+                /** @description Rate limit already exists for this provider/model/limit type combination. */
                 409: {
                     headers: {
                         [name: string]: unknown;
