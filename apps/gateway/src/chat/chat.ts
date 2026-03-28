@@ -683,6 +683,7 @@ chat.openapi(completions, async (c) => {
 	const expandedAllModelProviders = expandAllProviderRegions(
 		modelInfoResult.allModelProviders,
 	);
+	let routingExpandedModelProviders = expandedActiveModelProviders;
 	let modelInfo = {
 		...modelInfoResult.modelInfo,
 		providers: useExpandedRoutingProviders
@@ -791,6 +792,9 @@ chat.openapi(completions, async (c) => {
 			...modelInfo,
 			providers: filterRegionsByAvailableKeys(modelInfo.providers),
 		};
+		routingExpandedModelProviders = filterRegionsByAvailableKeys(
+			routingExpandedModelProviders,
+		);
 		allModelProviders = filterRegionsByAvailableKeys(allModelProviders);
 	} else if (project.mode === "hybrid") {
 		const dbProviderKeys = await findActiveProviderKeys(project.organizationId);
@@ -825,6 +829,9 @@ chat.openapi(completions, async (c) => {
 			...modelInfo,
 			providers: filterHybridRegions(modelInfo.providers),
 		};
+		routingExpandedModelProviders = filterHybridRegions(
+			routingExpandedModelProviders,
+		);
 		allModelProviders = filterHybridRegions(allModelProviders);
 	}
 
@@ -969,10 +976,10 @@ chat.openapi(completions, async (c) => {
 			)
 		: modelInfo.providers;
 	let expandedIamFilteredModelProviders = iamAllowedProviders
-		? expandedActiveModelProviders.filter((p) =>
+		? routingExpandedModelProviders.filter((p) =>
 				iamAllowedProviders.includes(p.providerId),
 			)
-		: expandedActiveModelProviders;
+		: routingExpandedModelProviders;
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
