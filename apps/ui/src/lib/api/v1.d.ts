@@ -2837,6 +2837,10 @@ export interface paths {
                                 providerCount: number;
                                 totalTokens: number;
                                 totalCost: number;
+                                inputPrice: string | null;
+                                outputPrice: string | null;
+                                requestPrice: string | null;
+                                discount: string | null;
                                 updatedAt: string;
                             }[];
                             total: number;
@@ -2868,6 +2872,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                    projectId?: string;
                 };
                 header?: never;
                 path: {
@@ -3085,6 +3090,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                    projectId?: string;
                 };
                 header?: never;
                 path: {
@@ -3135,6 +3141,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                    projectId?: string;
                 };
                 header?: never;
                 path: {
@@ -3271,6 +3278,67 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects/{projectId}/model-provider-stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    search?: string;
+                    sortBy?: "logsCount" | "errorsCount" | "cost" | "modelId" | "providerId";
+                    sortOrder?: "asc" | "desc";
+                    limit?: number | null;
+                    offset?: number | null;
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project model-provider stats. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            mappings: {
+                                modelId: string;
+                                providerId: string;
+                                providerName: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                cost: number;
+                                totalTokens: number;
+                            }[];
+                            total: number;
+                            totalRequests: number;
+                            totalTokens: number;
+                            totalCost: number;
+                        };
+                    };
                 };
             };
         };
