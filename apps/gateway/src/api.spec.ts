@@ -1089,6 +1089,11 @@ describe("api", () => {
 					(chunk) => chunk.choices?.[0]?.finish_reason === "content_filter",
 				),
 			).toBe(true);
+			expect(
+				streamResult.chunks.some(
+					(chunk) => (chunk.usage?.prompt_tokens ?? 0) > 0,
+				),
+			).toBe(true);
 			expect(streamResult.hasUsage).toBe(true);
 
 			const logs = await waitForLogs(1);
@@ -1097,6 +1102,7 @@ describe("api", () => {
 			expect(logs[0].unifiedFinishReason).toBe("content_filter");
 			expect(logs[0].hasError).toBe(false);
 			expect(logs[0].errorDetails).toBeNull();
+			expect(logs[0].promptTokens).not.toBeNull();
 			expect(logs[0].completionTokens).toBeNull();
 			expect(typeof logs[0].rawResponse).toBe("string");
 			expect(logs[0].rawResponse).toContain("data_inspection_failed");

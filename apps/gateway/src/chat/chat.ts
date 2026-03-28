@@ -2992,6 +2992,103 @@ chat.openapi(completions, async (c) => {
 					}
 				};
 
+				const writeStreamingContentFilterResponse = async ({
+					billingModel,
+					billingProvider,
+					responseModel,
+					metadata,
+				}: {
+					billingModel: string;
+					billingProvider: Provider;
+					responseModel: string;
+					metadata?: Record<string, unknown>;
+				}) => {
+					const { calculatedPromptTokens } = estimateTokens(
+						billingProvider,
+						messages,
+						null,
+						null,
+						0,
+					);
+					const promptTokenCount = Math.max(
+						1,
+						Math.round(calculatedPromptTokens ?? 1),
+					);
+					const streamingCosts = await calculateCosts(
+						billingModel,
+						billingProvider,
+						promptTokenCount,
+						0,
+						null,
+						{
+							prompt: messages
+								.map((m) => messageContentToString(m.content))
+								.join("\n"),
+							completion: "",
+						},
+						null,
+						0,
+						image_config?.image_size,
+						inputImageCount,
+						0,
+						project.organizationId,
+					);
+
+					await writeSSEAndCache({
+						data: JSON.stringify({
+							id: `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: responseModel,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: "content_filter",
+								},
+							],
+							...(metadata && { metadata }),
+						}),
+						id: String(eventId++),
+					});
+
+					await writeSSEAndCache({
+						data: JSON.stringify({
+							id: `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: responseModel,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: null,
+								},
+							],
+							usage: {
+								prompt_tokens: promptTokenCount,
+								completion_tokens: 0,
+								total_tokens: promptTokenCount,
+								cost_usd_total: streamingCosts.totalCost,
+								cost_usd_input: streamingCosts.inputCost,
+								cost_usd_output: streamingCosts.outputCost,
+								cost_usd_cached_input: streamingCosts.cachedInputCost,
+								cost_usd_request: streamingCosts.requestCost,
+								cost_usd_image_input: streamingCosts.imageInputCost,
+								cost_usd_image_output: streamingCosts.imageOutputCost,
+							},
+						}),
+						id: String(eventId++),
+					});
+
+					await writeSSEAndCache({
+						event: "done",
+						data: "[DONE]",
+						id: String(eventId++),
+					});
+					doneSent = true;
+				};
+
 				// Set up cancellation handling
 				const controller = new AbortController();
 				// Set up a listener for the request being aborted
@@ -3685,9 +3782,21 @@ chat.openapi(completions, async (c) => {
 							content: null,
 							reasoningContent: null,
 							finishReason,
-							promptTokens: null,
+							promptTokens:
+								finishReason === "content_filter"
+									? (
+											estimateTokens(usedProvider, messages, null, null, 0)
+												.calculatedPromptTokens ?? null
+										)?.toString()
+									: null,
 							completionTokens: null,
-							totalTokens: null,
+							totalTokens:
+								finishReason === "content_filter"
+									? (
+											estimateTokens(usedProvider, messages, null, null, 0)
+												.calculatedPromptTokens ?? null
+										)?.toString()
+									: null,
 							reasoningTokens: null,
 							cachedTokens: null,
 							hasError: finishReason !== "content_filter", // content_filter is not an error
@@ -3743,18 +3852,10 @@ chat.openapi(completions, async (c) => {
 						// For content_filter, return a proper completion chunk (not an error)
 						// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
 						if (finishReason === "content_filter") {
-							const contentFilterChunk = {
-								id: `chatcmpl-${Date.now()}`,
-								object: "chat.completion.chunk",
-								created: Math.floor(Date.now() / 1000),
-								model: `${usedProvider}/${baseModelName}`,
-								choices: [
-									{
-										index: 0,
-										delta: {},
-										finish_reason: "content_filter",
-									},
-								],
+							await writeStreamingContentFilterResponse({
+								billingModel: usedModel,
+								billingProvider: usedProvider,
+								responseModel: `${usedProvider}/${baseModelName}`,
 								metadata: {
 									requested_model: initialRequestedModel,
 									requested_provider: requestedProvider,
@@ -3763,42 +3864,6 @@ chat.openapi(completions, async (c) => {
 									...(usedRegion && { used_region: usedRegion }),
 									underlying_used_model: usedModel,
 								},
-							};
-
-							await writeSSEAndCache({
-								data: JSON.stringify(contentFilterChunk),
-								id: String(eventId++),
-							});
-
-							// Send a usage chunk for SDK compatibility (stream_options: { include_usage: true })
-							const contentFilterUsageChunk = {
-								id: `chatcmpl-${Date.now()}`,
-								object: "chat.completion.chunk",
-								created: Math.floor(Date.now() / 1000),
-								model: `${usedProvider}/${baseModelName}`,
-								choices: [
-									{
-										index: 0,
-										delta: {},
-										finish_reason: null,
-									},
-								],
-								usage: {
-									prompt_tokens: 0,
-									completion_tokens: 0,
-									total_tokens: 0,
-								},
-							};
-
-							await writeSSEAndCache({
-								data: JSON.stringify(contentFilterUsageChunk),
-								id: String(eventId++),
-							});
-
-							await writeSSEAndCache({
-								event: "done",
-								data: "[DONE]",
-								id: String(eventId++),
 							});
 						} else {
 							// For client errors, return the original provider error response
@@ -4525,42 +4590,10 @@ chat.openapi(completions, async (c) => {
 									finishReason = errorType;
 
 									if (errorType === "content_filter") {
-										await writeSSEAndCache({
-											data: JSON.stringify({
-												id: data.id ?? `chatcmpl-${Date.now()}`,
-												object: "chat.completion.chunk",
-												created: data.created ?? Math.floor(Date.now() / 1000),
-												model: data.model ?? usedModel,
-												choices: [
-													{
-														index: 0,
-														delta: {},
-														finish_reason: "content_filter",
-													},
-												],
-											}),
-											id: String(eventId++),
-										});
-										await writeSSEAndCache({
-											data: JSON.stringify({
-												id: `chatcmpl-${Date.now()}`,
-												object: "chat.completion.chunk",
-												created: Math.floor(Date.now() / 1000),
-												model: data.model ?? usedModel,
-												choices: [
-													{
-														index: 0,
-														delta: {},
-														finish_reason: null,
-													},
-												],
-												usage: {
-													prompt_tokens: 0,
-													completion_tokens: 0,
-													total_tokens: 0,
-												},
-											}),
-											id: String(eventId++),
+										await writeStreamingContentFilterResponse({
+											billingModel: usedModel,
+											billingProvider: usedProvider,
+											responseModel: data.model ?? usedModel,
 										});
 									} else {
 										streamingError = {
