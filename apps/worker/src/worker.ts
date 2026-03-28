@@ -67,6 +67,9 @@ const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const LOCK_DURATION_MINUTES = 5;
+const AUTO_TOPUP_DISABLE_AFTER_DAYS = 7;
+const AUTO_TOPUP_DISABLE_AFTER_MS =
+	AUTO_TOPUP_DISABLE_AFTER_DAYS * 24 * 60 * 60 * 1000;
 
 // Configuration for batch processing
 const BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
@@ -161,7 +164,7 @@ async function releaseLock(key: string): Promise<void> {
 	await db.delete(tables.lock).where(eq(tables.lock.key, key));
 }
 
-async function processAutoTopUp(): Promise<void> {
+export async function processAutoTopUp(): Promise<void> {
 	const lockAcquired = await acquireLock(AUTO_TOPUP_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
@@ -213,6 +216,27 @@ async function processAutoTopUp(): Promise<void> {
 						);
 						continue;
 					}
+				}
+
+				if (
+					org.paymentFailureStartedAt &&
+					Date.now() - org.paymentFailureStartedAt.getTime() >=
+						AUTO_TOPUP_DISABLE_AFTER_MS
+				) {
+					await db
+						.update(tables.organization)
+						.set({
+							autoTopUpEnabled: false,
+							paymentFailureCount: 0,
+							lastPaymentFailureAt: null,
+							paymentFailureStartedAt: null,
+						})
+						.where(eq(tables.organization.id, org.id));
+
+					logger.warn(
+						`Disabled auto top-up for organization ${org.id} after ${AUTO_TOPUP_DISABLE_AFTER_DAYS} days of payment failures`,
+					);
+					continue;
 				}
 
 				// Check for exponential backoff based on payment failure count

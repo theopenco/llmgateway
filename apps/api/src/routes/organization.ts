@@ -433,6 +433,11 @@ organization.openapi(updateOrganization, async (c) => {
 	}
 	if (autoTopUpEnabled !== undefined) {
 		updateData.autoTopUpEnabled = autoTopUpEnabled;
+		if (autoTopUpEnabled && !userOrganization.organization?.autoTopUpEnabled) {
+			updateData.paymentFailureCount = 0;
+			updateData.lastPaymentFailureAt = null;
+			updateData.paymentFailureStartedAt = null;
+		}
 	}
 	if (autoTopUpThreshold !== undefined) {
 		updateData.autoTopUpThreshold = autoTopUpThreshold.toString();

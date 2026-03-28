@@ -2,16 +2,20 @@ import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
-import { acquireLock } from "./worker.js";
+import { acquireLock, processAutoTopUp } from "./worker.js";
 
 describe("worker", () => {
 	beforeEach(async () => {
-		// Clean up lock table before each test
+		await db.delete(tables.transaction);
+		await db.delete(tables.paymentMethod);
+		await db.delete(tables.organization);
 		await db.delete(tables.lock);
 	});
 
 	afterAll(async () => {
-		// Clean up after all tests
+		await db.delete(tables.transaction);
+		await db.delete(tables.paymentMethod);
+		await db.delete(tables.organization);
 		await db.delete(tables.lock);
 	});
 
@@ -106,6 +110,76 @@ describe("worker", () => {
 
 			const lockKeys = locks.map((lock) => lock.key).sort();
 			expect(lockKeys).toEqual([lockKey1, lockKey2].sort());
+		});
+	});
+
+	describe("processAutoTopUp", () => {
+		test("should disable auto top-up after 7 days of payment failures", async () => {
+			await db.insert(tables.organization).values({
+				id: "org-disable-auto-topup",
+				name: "Disable Auto Top-up",
+				billingEmail: "billing@example.com",
+				credits: "0",
+				autoTopUpEnabled: true,
+				autoTopUpThreshold: "10",
+				autoTopUpAmount: "10",
+				paymentFailureCount: 8,
+				lastPaymentFailureAt: new Date(),
+				paymentFailureStartedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+			});
+
+			await processAutoTopUp();
+
+			const organization = await db.query.organization.findFirst({
+				where: {
+					id: {
+						eq: "org-disable-auto-topup",
+					},
+				},
+			});
+
+			expect(organization?.autoTopUpEnabled).toBe(false);
+			expect(organization?.paymentFailureCount).toBe(0);
+			expect(organization?.lastPaymentFailureAt).toBeNull();
+			expect(organization?.paymentFailureStartedAt).toBeNull();
+
+			const transactions = await db.query.transaction.findMany({
+				where: {
+					organizationId: {
+						eq: "org-disable-auto-topup",
+					},
+				},
+			});
+			expect(transactions).toHaveLength(0);
+		});
+
+		test("should keep auto top-up enabled when failures are newer than 7 days", async () => {
+			await db.insert(tables.organization).values({
+				id: "org-keep-auto-topup",
+				name: "Keep Auto Top-up",
+				billingEmail: "billing@example.com",
+				credits: "0",
+				autoTopUpEnabled: true,
+				autoTopUpThreshold: "10",
+				autoTopUpAmount: "10",
+				paymentFailureCount: 3,
+				lastPaymentFailureAt: new Date(),
+				paymentFailureStartedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000),
+			});
+
+			await processAutoTopUp();
+
+			const organization = await db.query.organization.findFirst({
+				where: {
+					id: {
+						eq: "org-keep-auto-topup",
+					},
+				},
+			});
+
+			expect(organization?.autoTopUpEnabled).toBe(true);
+			expect(organization?.paymentFailureCount).toBe(3);
+			expect(organization?.paymentFailureStartedAt).not.toBeNull();
 		});
 	});
 });
