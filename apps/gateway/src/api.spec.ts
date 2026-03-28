@@ -897,6 +897,7 @@ describe("api", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer real-token`,
+					"x-debug": "true",
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -984,6 +985,190 @@ describe("api", () => {
 			expect(logs[0].errorDetails).toBeTruthy();
 			expect(logs[0].errorDetails?.statusText).toBe("TimeoutError");
 		}, 15000);
+
+		test("streaming request surfaces truncated upstream streams", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_TRUNCATED_STREAM",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+
+			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(true);
+			expect(streamResult.errorEvents.length).toBeGreaterThan(0);
+			expect(streamResult.errorEvents[0].error.type).toBe("upstream_error");
+			expect(streamResult.errorEvents[0].error.code).toBe("stream_truncated");
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].unifiedFinishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			expect(logs[0].errorDetails?.statusCode).toBe(502);
+			expect(logs[0].errorDetails?.statusText).toBe(
+				"Upstream Stream Terminated",
+			);
+		});
+
+		test("streaming request surfaces missing upstream done sentinel", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_FINISH_WITHOUT_DONE",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+
+			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(true);
+			expect(streamResult.errorEvents.length).toBeGreaterThan(0);
+			expect(streamResult.errorEvents[0].error.type).toBe("upstream_error");
+			expect(streamResult.errorEvents[0].error.code).toBe("stream_truncated");
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].unifiedFinishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			expect(logs[0].errorDetails?.statusCode).toBe(502);
+			expect(logs[0].errorDetails?.statusText).toBe(
+				"Upstream Stream Terminated",
+			);
+		});
+
+		test("streaming request surfaces inline provider SSE errors", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_STREAM_PROVIDER_ERROR",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.errorEvents).toHaveLength(0);
+			expect(streamResult.chunks.some((chunk) => chunk.error)).toBe(false);
+			expect(
+				streamResult.chunks.some(
+					(chunk) => chunk.choices?.[0]?.finish_reason === "content_filter",
+				),
+			).toBe(true);
+			expect(
+				streamResult.chunks.some(
+					(chunk) => (chunk.usage?.prompt_tokens ?? 0) > 0,
+				),
+			).toBe(true);
+			expect(streamResult.hasUsage).toBe(true);
+			expect(
+				(streamResult.fullContent?.match(/data: \[DONE\]/g) ?? []).length,
+			).toBe(1);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("content_filter");
+			expect(logs[0].unifiedFinishReason).toBe("content_filter");
+			expect(logs[0].hasError).toBe(false);
+			expect(logs[0].errorDetails).toBeNull();
+			expect(logs[0].promptTokens).not.toBeNull();
+			expect(logs[0].completionTokens).toBeNull();
+			expect(typeof logs[0].rawResponse).toBe("string");
+			expect(logs[0].rawResponse).toContain("data_inspection_failed");
+			expect(logs[0].rawResponse).toContain('"finish_reason":"content_filter"');
+			expect(typeof logs[0].upstreamResponse).toBe("string");
+			expect(logs[0].upstreamResponse).toContain("data_inspection_failed");
+		});
 
 		test("request with short delay under timeout succeeds", async () => {
 			await db.insert(tables.apiKey).values({

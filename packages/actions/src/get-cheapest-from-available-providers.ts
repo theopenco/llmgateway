@@ -57,6 +57,14 @@ const DEFAULT_THROUGHPUT = 50; // Assume 50 tokens/second if no data
 // Epsilon-greedy exploration: 1% chance to randomly explore
 const EXPLORATION_RATE = 0.01;
 
+function isTestProcess(): boolean {
+	if (process.env.NODE_ENV === "test" || Boolean(process.env.VITEST)) {
+		return true;
+	}
+
+	return process.argv.some((arg) => arg.toLowerCase().includes("vitest"));
+}
+
 export interface RoutingMetadata {
 	availableProviders: string[];
 	selectedProvider: string;
@@ -231,8 +239,7 @@ export function getCheapestFromAvailableProviders<
 	// Epsilon-greedy exploration: randomly select a provider 1% of the time
 	// This ensures all providers get periodic traffic and build up metrics
 	// Skip during tests to keep behavior deterministic
-	const isTest = process.env.NODE_ENV === "test" || process.env.VITEST;
-	if (!isTest && Math.random() < EXPLORATION_RATE) {
+	if (!isTestProcess() && Math.random() < EXPLORATION_RATE) {
 		const randomProvider =
 			stableProviders[Math.floor(Math.random() * stableProviders.length)];
 		return {

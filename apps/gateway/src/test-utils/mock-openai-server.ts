@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 
 // Create a mock OpenAI API server
 export const mockOpenAIServer = new Hono();
@@ -190,6 +191,35 @@ async function extractMockVideoFileImage(file: File): Promise<{
 		bytesBase64Encoded: Buffer.from(bytes).toString("base64"),
 		mimeType: file.type || "image/png",
 	};
+}
+
+interface MockChatMessage {
+	role: string;
+	content: string;
+}
+
+function isMockChatMessage(value: unknown): value is MockChatMessage {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+
+	const message = value as Record<string, unknown>;
+	return (
+		typeof message.role === "string" && typeof message.content === "string"
+	);
+}
+
+function getMockChatMessages(messages: unknown): MockChatMessage[] {
+	return Array.isArray(messages) ? messages.filter(isMockChatMessage) : [];
+}
+
+function hasUserMessageTrigger(
+	messages: MockChatMessage[],
+	trigger: string,
+): boolean {
+	return messages.some(
+		(message) => message.role === "user" && message.content.includes(trigger),
+	);
 }
 
 // Counter for TRIGGER_FAIL_ONCE - tracks how many times a request with this
@@ -486,11 +516,10 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 // Handle chat completions endpoint
 mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	const body = await c.req.json();
+	const chatMessages = getMockChatMessages(body.messages);
 
 	// Check if this request should trigger an error response
-	const shouldError = body.messages.some(
-		(msg: any) => msg.role === "user" && msg.content.includes("TRIGGER_ERROR"),
-	);
+	const shouldError = hasUserMessageTrigger(chatMessages, "TRIGGER_ERROR");
 
 	if (shouldError) {
 		c.status(500);
@@ -499,7 +528,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 
 	// Get the user's message to include in the response
 	const userMessage =
-		body.messages.find((msg: any) => msg.role === "user")?.content ?? "";
+		chatMessages.find((message) => message.role === "user")?.content ?? "";
 
 	// Check if this request should trigger a specific HTTP status code error
 	const statusTrigger = extractStatusCodeTrigger(userMessage);
@@ -533,9 +562,123 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	}
 
 	// Check if this request should trigger zero tokens response
-	const shouldReturnZeroTokens = body.messages.some(
-		(msg: any) => msg.role === "user" && msg.content.includes("ZERO_TOKENS"),
+	const shouldReturnZeroTokens = hasUserMessageTrigger(
+		chatMessages,
+		"ZERO_TOKENS",
 	);
+	const shouldTruncateStream = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_TRUNCATED_STREAM",
+	);
+	const shouldFinishWithoutDone = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_FINISH_WITHOUT_DONE",
+	);
+	const shouldReturnStreamedProviderError = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_PROVIDER_ERROR",
+	);
+
+	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
+
+	if (body.stream === true) {
+		return streamSSE(c, async (stream) => {
+			let eventId = 0;
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					id: "chatcmpl-123",
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: body.model ?? "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+				}),
+				id: String(eventId++),
+			});
+
+			if (shouldReturnStreamedProviderError) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-err-123",
+						error: {
+							code: "data_inspection_failed",
+							message:
+								"Input data may contain inappropriate content. Please ensure that your input complies with the usage policy of DashScope LLM.",
+							param: null,
+							type: "data_inspection_failed",
+						},
+					}),
+					id: String(eventId++),
+				});
+				return;
+			}
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					id: "chatcmpl-123",
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: body.model ?? "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							delta: {
+								content: assistantContent,
+							},
+							finish_reason: null,
+						},
+					],
+				}),
+				id: String(eventId++),
+			});
+
+			if (shouldTruncateStream) {
+				return;
+			}
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					id: "chatcmpl-123",
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: body.model ?? "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: "stop",
+						},
+					],
+					usage: shouldReturnZeroTokens
+						? {
+								prompt_tokens: 0,
+								completion_tokens: 20,
+								total_tokens: 20,
+							}
+						: sampleChatCompletionResponse.usage,
+				}),
+				id: String(eventId++),
+			});
+
+			if (shouldFinishWithoutDone) {
+				return;
+			}
+
+			await stream.writeSSE({
+				event: "done",
+				data: "[DONE]",
+				id: String(eventId++),
+			});
+		});
+	}
 
 	// Create a custom response that includes the user's message
 	const response = {
@@ -545,7 +688,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				...sampleChatCompletionResponse.choices[0],
 				message: {
 					role: "assistant",
-					content: `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`,
+					content: assistantContent,
 				},
 			},
 		],
