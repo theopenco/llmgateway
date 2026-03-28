@@ -18,6 +18,7 @@ import {
 	getDiscountOptions,
 	getGlobalDiscounts,
 } from "@/lib/admin-discounts";
+import { requireSession } from "@/lib/require-session";
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
@@ -53,6 +54,8 @@ function SignInPrompt() {
 }
 
 export default async function GlobalDiscountsPage() {
+	await requireSession();
+
 	const [discountsData, options] = await Promise.all([
 		getGlobalDiscounts(),
 		getDiscountOptions(),

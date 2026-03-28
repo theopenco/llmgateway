@@ -77,6 +77,8 @@ jobs:
           LLM_BYTEDANCE_API_KEY: ${{ secrets.LLM_BYTEDANCE_API_KEY }}
           LLM_MINIMAX_API_KEY: ${{ secrets.LLM_MINIMAX_API_KEY }}
           LLM_EMBERCLOUD_API_KEY: ${{ secrets.LLM_EMBERCLOUD_API_KEY }}
+          LLM_ALIBABA_API_KEY__US_VIRGINIA: ${{ secrets.LLM_ALIBABA_API_KEY__US_VIRGINIA }}
+          LLM_ALIBABA_API_KEY__CN_BEIJING: ${{ secrets.LLM_ALIBABA_API_KEY__CN_BEIJING }}
 
       - name: Upload shard results
         if: always()

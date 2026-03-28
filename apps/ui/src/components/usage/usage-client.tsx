@@ -1,10 +1,13 @@
 "use client";
 
-import { subDays, format } from "date-fns";
+import { subDays, subHours, format } from "date-fns";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
-import { DateRangePicker } from "@/components/date-range-picker";
+import {
+	TimeRangePicker,
+	type TimeRangeValue,
+} from "@/components/time-range-picker";
 import { CacheRateChart } from "@/components/usage/cache-rate-chart";
 import { CostBreakdownChart } from "@/components/usage/cost-breakdown-chart";
 import { ErrorRateChart } from "@/components/usage/error-rate-chart";
@@ -40,6 +43,22 @@ interface UsageClientProps {
 	projectId: string | undefined;
 }
 
+function timeRangeToDateRange(timeRange: TimeRangeValue) {
+	const now = new Date();
+	switch (timeRange) {
+		case "1h":
+			return { from: subHours(now, 1), to: now };
+		case "4h":
+			return { from: subHours(now, 4), to: now };
+		case "24h":
+			return { from: subDays(now, 1), to: now };
+		case "7d":
+			return { from: subDays(now, 7), to: now };
+		case "30d":
+			return { from: subDays(now, 30), to: now };
+	}
+}
+
 export function UsageClient({
 	initialActivityData,
 	projectId,
@@ -68,20 +87,24 @@ export function UsageClient({
 	const apiKeys =
 		apiKeysData?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 
-	// Get apiKeyId from URL
+	// Get apiKeyId and timeRange from URL
 	const apiKeyId = searchParams.get("apiKeyId") ?? undefined;
+	const timeRange = (searchParams.get("timeRange") as TimeRangeValue) ?? "7d";
 
-	// If no from/to params, redirect to add them
+	// If no from/to params, set them based on timeRange
 	useEffect(() => {
 		if (!searchParams.get("from") || !searchParams.get("to")) {
+			const { from, to } = timeRangeToDateRange(timeRange);
 			const params = new URLSearchParams(searchParams);
 			params.delete("days");
-			const today = new Date();
-			params.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params.set("to", format(today, "yyyy-MM-dd"));
+			params.set("from", format(from, "yyyy-MM-dd"));
+			params.set("to", format(to, "yyyy-MM-dd"));
+			if (!params.has("timeRange")) {
+				params.set("timeRange", timeRange);
+			}
 			router.replace(`${buildUrl("usage")}?${params.toString()}`);
 		}
-	}, [searchParams, router, buildUrl]);
+	}, [searchParams, router, buildUrl, timeRange]);
 
 	// Function to update apiKeyId in URL
 	const updateApiKeyIdInUrl = (newApiKeyId: string | undefined) => {
@@ -91,6 +114,17 @@ export function UsageClient({
 		} else {
 			params.delete("apiKeyId");
 		}
+		router.push(`${buildUrl("usage")}?${params.toString()}`);
+	};
+
+	// Function to update timeRange in URL
+	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
+		const { from, to } = timeRangeToDateRange(newTimeRange);
+		const params = new URLSearchParams(searchParams);
+		params.set("timeRange", newTimeRange);
+		params.set("from", format(from, "yyyy-MM-dd"));
+		params.set("to", format(to, "yyyy-MM-dd"));
+		params.delete("days");
 		router.push(`${buildUrl("usage")}?${params.toString()}`);
 	};
 
@@ -118,7 +152,7 @@ export function UsageClient({
 								))}
 							</SelectContent>
 						</Select>
-						<DateRangePicker buildUrl={buildUrl} path="usage" />
+						<TimeRangePicker value={timeRange} onChange={updateTimeRange} />
 					</div>
 				</div>
 				<Tabs defaultValue="requests" className="space-y-4">

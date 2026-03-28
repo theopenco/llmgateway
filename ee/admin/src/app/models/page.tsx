@@ -7,6 +7,7 @@ import { ModelsTable } from "@/components/models-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { Button } from "@/components/ui/button";
 import { parsePageWindow, windowToFromTo } from "@/lib/page-window";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 import type { paths } from "@/lib/api/v1";
@@ -64,9 +65,10 @@ export default async function ModelsPage({
 		sortBy?: string;
 		sortOrder?: string;
 		window?: string;
-		projectId?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const params = await searchParams;
 	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
 	const search = params?.search ?? "";
@@ -74,7 +76,6 @@ export default async function ModelsPage({
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
 	const pageWindow = parsePageWindow(params?.window);
 	const { from, to } = windowToFromTo(pageWindow);
-	const projectId = params?.projectId ?? "";
 	const limit = 50;
 	const offset = (page - 1) * limit;
 
@@ -89,7 +90,6 @@ export default async function ModelsPage({
 				sortOrder,
 				from,
 				to,
-				...(projectId ? { projectId } : {}),
 			},
 		},
 	});
@@ -106,18 +106,12 @@ export default async function ModelsPage({
 		const sortByValue = formData.get("sortBy") as string;
 		const sortOrderValue = formData.get("sortOrder") as string;
 		const windowValue = formData.get("window") as string;
-		const projectIdValue = formData.get("projectId") as string;
 		const searchParam = searchValue
 			? `&search=${encodeURIComponent(searchValue)}`
 			: "";
 		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
 		const windowParam = windowValue ? `&window=${windowValue}` : "";
-		const projectIdParam = projectIdValue
-			? `&projectId=${encodeURIComponent(projectIdValue)}`
-			: "";
-		redirect(
-			`/models?page=1${searchParam}${sortParam}${windowParam}${projectIdParam}`,
-		);
+		redirect(`/models?page=1${searchParam}${sortParam}${windowParam}`);
 	}
 
 	return (
@@ -144,13 +138,6 @@ export default async function ModelsPage({
 								className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
 							/>
 						</div>
-						<input
-							type="text"
-							name="projectId"
-							placeholder="Filter by project ID..."
-							defaultValue={projectId}
-							className="h-9 w-52 rounded-md border border-border bg-background px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-						/>
 						<Button type="submit" size="sm">
 							Search
 						</Button>
@@ -193,7 +180,6 @@ export default async function ModelsPage({
 					sortOrder={sortOrder}
 					search={search}
 					pageWindow={pageWindow}
-					projectId={projectId}
 				/>
 			</div>
 
@@ -206,7 +192,7 @@ export default async function ModelsPage({
 					<div className="flex items-center gap-2">
 						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
 							<Link
-								href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ""}`}
+								href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}`}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
 								<ChevronLeft className="h-4 w-4" />
@@ -223,7 +209,7 @@ export default async function ModelsPage({
 							disabled={page >= totalPages}
 						>
 							<Link
-								href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ""}`}
+								href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}`}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""
 								}

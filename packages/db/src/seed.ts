@@ -1404,6 +1404,20 @@ async function seed() {
 	const seedModelHistory = generateSeedModelHistory();
 	await bulkInsert(tables.modelHistory, seedModelHistory);
 
+	await upsert(tables.enterpriseContactSubmission, {
+		id: "ecs_seed_1",
+		name: "Sarah Chen",
+		email: "sarah.chen@example.com",
+		country: "United States",
+		size: "201-500",
+		message:
+			"Hi, we're evaluating LLM Gateway for our engineering team of ~300 developers. We currently use a mix of OpenAI and Anthropic APIs directly and are looking for a unified gateway with usage tracking, cost controls, and SSO integration. Could we schedule a call to discuss enterprise pricing and onboarding?",
+		spamFilterStatus: "delivered",
+		ipAddress: "203.0.113.42",
+		userAgent:
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+	});
+
 	await closeDatabase();
 	await redisClient.quit();
 }

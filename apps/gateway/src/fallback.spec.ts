@@ -816,6 +816,129 @@ describe("fallback and error status code handling", () => {
 				"low-uptime-fallback",
 			);
 		});
+
+		test("low-uptime fallback ignores synthetic root region mappings", async () => {
+			await db.insert(tables.providerKey).values([
+				{
+					id: "provider-key-zai",
+					token: "sk-zai-key",
+					provider: "zai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-alibaba",
+					token: "sk-alibaba-key",
+					provider: "alibaba",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-novita",
+					token: "sk-novita-key",
+					provider: "novita",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+			]);
+
+			await db
+				.insert(tables.model)
+				.values({
+					id: "glm-4.6",
+					name: "GLM-4.6",
+					family: "glm",
+					releasedAt: new Date("2025-09-30"),
+				})
+				.onConflictDoNothing();
+
+			await db
+				.insert(tables.modelProviderMapping)
+				.values([
+					{
+						id: "glm-4-6-zai-root",
+						modelId: "glm-4.6",
+						providerId: "zai",
+						modelName: "glm-4.6",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-root",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-cn-beijing",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6:cn-beijing",
+						region: "cn-beijing",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-novita-root",
+						modelId: "glm-4.6",
+						providerId: "novita",
+						modelName: "zai-org/glm-4.6",
+						streaming: true,
+					},
+				])
+				.onConflictDoNothing();
+
+			await setRoutingMetrics("glm-4.6", "zai", 55, {
+				routingLatency: 238,
+				routingThroughput: 65,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				routingLatency: 10,
+				routingThroughput: 1000,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 400,
+				routingThroughput: 80,
+			});
+			await setRoutingMetrics("glm-4.6", "novita", 100, {
+				routingLatency: 1200,
+				routingThroughput: 30,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "zai/glm-4.6",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("alibaba");
+			expect(logs[0].usedModel).toBe("alibaba/glm-4.6:cn-beijing");
+			expect(logs[0].routingMetadata?.selectedProvider).toBe("alibaba");
+			expect(logs[0].routingMetadata?.selectionReason).toBe(
+				"low-uptime-fallback",
+			);
+			expect(
+				logs[0].routingMetadata?.providerScores?.some(
+					(score) => score.providerId === "alibaba" && !score.region,
+				),
+			).toBe(false);
+			expect(
+				logs[0].routingMetadata?.providerScores?.some(
+					(score) =>
+						score.providerId === "alibaba" && score.region === "singapore",
+				),
+			).toBe(false);
+		});
 	});
 
 	describe("routing metadata in DB log entries", () => {
@@ -951,6 +1074,52 @@ describe("fallback and error status code handling", () => {
 					score: 1,
 				}),
 			]);
+		});
+
+		test("provider-agnostic routing keeps regional mappings aggregated", async () => {
+			await setupKeys("alibaba");
+
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 99, {
+				routingLatency: 950,
+				routingThroughput: 15,
+			});
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "singapore",
+				routingLatency: 1200,
+				routingThroughput: 10,
+			});
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 900,
+				routingThroughput: 20,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "deepseek-v3.2",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			expect(logs[0].routingMetadata?.providerScores).toEqual([
+				expect.objectContaining({
+					providerId: "alibaba",
+					score: expect.any(Number),
+				}),
+			]);
+			expect(
+				logs[0].routingMetadata?.providerScores?.some(
+					(score) => score.providerId === "alibaba" && Boolean(score.region),
+				),
+			).toBe(false);
 		});
 
 		test("successful request stores routing metadata with selection reason in DB log", async () => {

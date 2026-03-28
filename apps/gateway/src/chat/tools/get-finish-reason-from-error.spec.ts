@@ -61,6 +61,19 @@ describe("getFinishReasonFromError", () => {
 		);
 	});
 
+	it("returns content_filter for Alibaba data inspection errors", () => {
+		const alibabaError = JSON.stringify({
+			error: {
+				code: "data_inspection_failed",
+				message:
+					"Input data may contain inappropriate content. Please ensure that your input complies with the usage policy of DashScope LLM.",
+				param: null,
+				type: "data_inspection_failed",
+			},
+		});
+		expect(getFinishReasonFromError(400, alibabaError)).toBe("content_filter");
+	});
+
 	it("returns client_error for zai content filter", () => {
 		expect(
 			getFinishReasonFromError(

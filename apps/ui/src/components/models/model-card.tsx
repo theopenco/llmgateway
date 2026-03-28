@@ -5,12 +5,12 @@ import {
 	AlertCircle,
 	Copy,
 	Check,
-	Play,
 	ChevronDown,
 	ChevronUp,
-	Info,
+	ArrowRight,
+	Globe,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ModelCodeExampleDialog } from "@/components/models/model-code-example-dialog";
 import { ModelStatusBadge } from "@/components/models/model-status-badge";
@@ -25,6 +25,7 @@ import {
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
 import { formatContextSize, formatDeprecationDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -41,6 +42,61 @@ interface ModelWithProviders extends ApiModel {
 		provider: ApiModelProviderMapping;
 		providerInfo: ApiProvider;
 	}>;
+}
+
+function PriceCell({
+	label,
+	price,
+	discount,
+	unit,
+	formatPrice,
+}: {
+	label: string;
+	price: string | null | undefined;
+	discount?: string | null;
+	unit: string;
+	formatPrice: (
+		price: string | null | undefined,
+		discount?: string | null,
+	) => string | React.JSX.Element;
+}) {
+	const formatted = formatPrice(price, discount);
+	return (
+		<div className="text-center">
+			<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-1">
+				{label}
+			</div>
+			<div className="font-semibold text-foreground text-sm tabular-nums">
+				{formatted}
+			</div>
+			<div className="text-[10px] text-muted-foreground/50">{unit}</div>
+		</div>
+	);
+}
+
+function StabilityDot({ stability }: { stability: string | null | undefined }) {
+	const level = stability ?? "stable";
+	const colorClass =
+		level === "stable"
+			? "bg-emerald-500"
+			: level === "beta"
+				? "bg-amber-500"
+				: "bg-red-500";
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span
+					className={cn(
+						"inline-block h-2 w-2 rounded-full shrink-0",
+						colorClass,
+					)}
+				/>
+			</TooltipTrigger>
+			<TooltipContent side="top" className="text-xs">
+				{level.charAt(0).toUpperCase() + level.slice(1)}
+			</TooltipContent>
+		</Tooltip>
+	);
 }
 
 export function ModelCard({
@@ -109,35 +165,105 @@ export function ModelCard({
 		);
 	};
 
+	// Group provider details by providerId to handle regional pricing
+	const groupedByProvider = useMemo(() => {
+		const map = new Map<
+			string,
+			{
+				providerInfo: ApiProvider;
+				providerId: string;
+				mappings: ApiModelProviderMapping[];
+			}
+		>();
+		for (const { provider, providerInfo } of model.providerDetails) {
+			const key = provider.providerId;
+			if (!map.has(key)) {
+				map.set(key, {
+					providerInfo,
+					providerId: key,
+					mappings: [],
+				});
+			}
+			map.get(key)!.mappings.push(provider);
+		}
+		return Array.from(map.values());
+	}, [model.providerDetails]);
+
+	// Determine the best discount across all providers for the header badge
+	const bestDiscount = useMemo(() => {
+		let max = 0;
+		for (const { provider } of model.providerDetails) {
+			if (provider.discount) {
+				const d = parseFloat(provider.discount);
+				if (d > max) {
+					max = d;
+				}
+			}
+		}
+		return max;
+	}, [model.providerDetails]);
+
+	// Get capabilities as union across all providers
+	const capabilities = useMemo(() => {
+		if (model.providerDetails.length === 0) {
+			return [];
+		}
+		const seen = new Set<string>();
+		const result: ReturnType<typeof getCapabilityIcons> = [];
+		for (const { provider } of model.providerDetails) {
+			for (const cap of getCapabilityIcons(provider, model)) {
+				if (!seen.has(cap.label)) {
+					seen.add(cap.label);
+					result.push(cap);
+				}
+			}
+		}
+		return result;
+	}, [model, getCapabilityIcons]);
+
 	return (
 		<TooltipProvider>
 			<Card
-				className="group relative overflow-hidden border bg-background hover:bg-muted/50 transition-all duration-300 py-0.5"
+				className="group relative overflow-hidden border border-border/50 bg-background hover:border-border transition-all duration-200 cursor-pointer py-0"
 				onClick={goToModel}
 			>
-				<div className="p-4 space-y-4">
-					<div className="space-y-3">
-						<div className="flex items-start justify-between gap-4">
-							<h3 className="text-2xl font-bold text-foreground tracking-tight">
-								{model.name ?? model.id}
-							</h3>
-							<div
-								onClick={(e) => e.stopPropagation()}
-								onMouseDown={(e) => e.stopPropagation()}
-							>
-								<ModelCodeExampleDialog modelId={model.id} />
+				{/* Subtle top accent line */}
+				<div className="h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+
+				<div className="p-5">
+					{/* Header: Model name + meta */}
+					<div className="mb-4">
+						<div className="flex items-start justify-between gap-3 mb-2">
+							<div className="min-w-0 flex-1">
+								<h3 className="text-lg font-bold text-foreground tracking-tight truncate">
+									{model.name ?? model.id}
+								</h3>
 							</div>
-							{shouldShowStabilityWarning(model.stability) && (
-								<AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
-							)}
+							<div className="flex items-center gap-1.5 shrink-0">
+								{shouldShowStabilityWarning(model.stability) && (
+									<AlertTriangle className="h-4 w-4 text-amber-400" />
+								)}
+								<div
+									onClick={(e) => e.stopPropagation()}
+									onMouseDown={(e) => e.stopPropagation()}
+								>
+									<ModelCodeExampleDialog modelId={model.id} />
+								</div>
+							</div>
 						</div>
-						<div className="flex flex-wrap items-center gap-2">
+
+						<div className="flex flex-wrap items-center gap-1.5">
 							<Badge
 								variant="secondary"
-								className="text-xs font-medium bg-muted text-muted-foreground border hover:bg-muted/80"
+								className="text-[10px] font-medium bg-muted/80 text-muted-foreground border-0 px-2 py-0.5"
 							>
 								{model.family}
 							</Badge>
+							{bestDiscount > 0 && (
+								<Badge className="text-[10px] px-2 py-0.5 font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+									{Math.round(bestDiscount * 100)}% off
+								</Badge>
+							)}
 							{allHaveDeactivatedAt && (
 								<ModelStatusBadge
 									status="deactivated"
@@ -153,406 +279,86 @@ export function ModelCard({
 						</div>
 					</div>
 
-					<div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted border">
-						<code className="text-sm font-mono text-muted-foreground flex-1 truncate">
+					{/* Model ID bar */}
+					<div className="flex items-center gap-1.5 px-2.5 py-2 rounded-md bg-muted/50 border border-border/50 mb-4">
+						<code className="text-xs font-mono text-muted-foreground flex-1 truncate">
 							{model.id}
 						</code>
-						<div className="flex items-center gap-1">
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-8 w-8 p-0 shrink-0 hover:bg-muted text-muted-foreground hover:text-foreground"
-								onClick={(e) => {
-									e.stopPropagation();
-									copyToClipboard(model.id);
-								}}
-								title="Copy root model ID"
-							>
-								{copiedModel === model.id ? (
-									<Check className="h-4 w-4 text-green-400" />
-								) : (
-									<Copy className="h-4 w-4" />
-								)}
-							</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-6 w-6 p-0 shrink-0 text-muted-foreground/60 hover:text-foreground hover:bg-transparent"
+							onClick={(e) => {
+								e.stopPropagation();
+								copyToClipboard(model.id);
+							}}
+							title="Copy model ID"
+						>
+							{copiedModel === model.id ? (
+								<Check className="h-3.5 w-3.5 text-emerald-400" />
+							) : (
+								<Copy className="h-3.5 w-3.5" />
+							)}
+						</Button>
+					</div>
+
+					{/* Capabilities row */}
+					{capabilities.length > 0 && (
+						<div className="flex flex-wrap gap-1.5 mb-4">
+							{capabilities.map(({ icon: Icon, label, color }) => (
+								<Tooltip key={label}>
+									<TooltipTrigger asChild>
+										<div
+											className={cn(
+												"inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium cursor-help transition-colors",
+												"bg-muted/50 text-muted-foreground hover:bg-muted border border-transparent hover:border-border/50",
+											)}
+										>
+											<Icon size={12} className={color} />
+											{label}
+										</div>
+									</TooltipTrigger>
+									<TooltipContent side="top" className="text-xs">
+										Supports {label.toLowerCase()}
+									</TooltipContent>
+								</Tooltip>
+							))}
 						</div>
-					</div>
+					)}
 
-					{/* Info about root model auto-selection */}
-					<div className="mt-1">
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<button
-									type="button"
-									className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground cursor-help"
-									onClick={(e) => e.stopPropagation()}
-									title="Auto provider selection"
-								>
-									<Info className="h-3.5 w-3.5" />
-									<span>Using root model ID</span>
-								</button>
-							</TooltipTrigger>
-							<TooltipContent side="bottom" className="max-w-xs">
-								<p className="text-xs">
-									Using this model ID routes to the best provider based on
-									stability, uptime, and price.
-								</p>
-							</TooltipContent>
-						</Tooltip>
-					</div>
-
-					<div className="space-y-4">
-						<h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-							Providers
-						</h4>
-
+					{/* Providers section */}
+					<div className="space-y-3">
 						{(showAllProviders
-							? model.providerDetails
-							: model.providerDetails.slice(0, 1)
-						).map(({ provider, providerInfo }) => {
-							const providerModelId = `${provider.providerId}/${model.id}`;
-							const ProviderIcon = getProviderIcon(provider.providerId);
+							? groupedByProvider
+							: groupedByProvider.slice(0, 1)
+						).map(({ providerInfo, providerId, mappings }) => {
+							const ProviderIcon = getProviderIcon(providerId);
+							// Determine if this provider has multiple regions
+							const hasRegions =
+								mappings.length > 1 ||
+								(mappings.length === 1 && !!mappings[0].region);
 
 							return (
-								<div
-									key={`${provider.providerId}-${provider.modelName}-${model.id}`}
-									className="p-3 rounded-lg bg-muted/50 border space-y-3"
-								>
-									<div className="flex items-center gap-2">
-										<div className="w-6 h-6 rounded flex items-center justify-center shrink-0 bg-background">
-											{ProviderIcon ? (
-												<ProviderIcon className="h-5 w-5" />
-											) : (
-												<span className="text-xs font-bold">
-													{(providerInfo?.name ?? provider.providerId)
-														.charAt(0)
-														.toUpperCase()}
-												</span>
-											)}
-										</div>
-										<span className="text-base font-semibold text-foreground">
-											{providerInfo?.name ?? provider.providerId}
-										</span>
-										{hasProviderStabilityWarning(provider) && (
-											<AlertTriangle className="h-4 w-4 text-amber-400" />
-										)}
-									</div>
-
-									<div className="flex items-center gap-2 p-2 rounded-md bg-muted border">
-										<code className="text-xs font-mono text-muted-foreground flex-1 truncate">
-											{providerModelId}
-										</code>
-										<div className="flex items-center gap-1">
-											<Button
-												variant="ghost"
-												size="sm"
-												className="h-7 w-7 p-0 shrink-0 hover:bg-muted text-muted-foreground hover:text-foreground"
-												onClick={(e) => {
-													e.stopPropagation();
-													copyToClipboard(providerModelId);
-												}}
-												title="Copy provider model ID"
-											>
-												{copiedModel === providerModelId ? (
-													<Check className="h-3.5 w-3.5 text-green-400" />
-												) : (
-													<Copy className="h-3.5 w-3.5" />
-												)}
-											</Button>
-											<div
-												onClick={(e) => e.stopPropagation()}
-												onMouseDown={(e) => e.stopPropagation()}
-											>
-												<ModelCodeExampleDialog modelId={providerModelId} />
-											</div>
-										</div>
-									</div>
-
-									<div className="grid grid-cols-2 gap-4">
-										<div>
-											<div className="text-xs text-muted-foreground mb-1">
-												Context Size
-											</div>
-											<div className="text-lg font-bold text-foreground">
-												{provider.contextSize
-													? formatContextSize(provider.contextSize)
-													: "—"}
-											</div>
-										</div>
-
-										<div>
-											<div className="text-xs text-muted-foreground mb-1">
-												Stability
-											</div>
-											<Badge className="text-xs px-2 py-0.5 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-												{provider.stability ?? "STABLE"}
-											</Badge>
-										</div>
-									</div>
-
-									{(provider.deprecatedAt ?? provider.deactivatedAt) && (
-										<div className="flex flex-wrap gap-2">
-											{provider.deprecatedAt && (
-												<Badge
-													variant="outline"
-													className="text-xs px-2.5 py-1 gap-1.5 bg-amber-50 dark:bg-amber-500/5 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
-												>
-													<AlertTriangle className="h-3 w-3" />
-													{formatDeprecationDate(
-														provider.deprecatedAt,
-														"deprecated",
-													)}
-												</Badge>
-											)}
-											{provider.deactivatedAt && (
-												<Badge
-													variant="outline"
-													className="text-xs px-2.5 py-1 gap-1.5 bg-red-50 dark:bg-red-500/5 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20"
-												>
-													<AlertCircle className="h-3 w-3" />
-													{formatDeprecationDate(
-														provider.deactivatedAt,
-														"deactivated",
-													)}
-												</Badge>
-											)}
-										</div>
-									)}
-
-									<div>
-										<div className="flex items-center gap-2 mb-2">
-											<div className="text-xs text-muted-foreground">
-												Pricing
-											</div>
-											{provider.discount &&
-												parseFloat(provider.discount) > 0 && (
-													<Badge className="text-[10px] px-1.5 py-0 h-4 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-														{Math.round(parseFloat(provider.discount) * 100)}%
-														off
-													</Badge>
-												)}
-										</div>
-										{provider.perSecondPrice &&
-										Object.keys(provider.perSecondPrice).length > 0 ? (
-											<div className="space-y-1">
-												<div className="text-xs text-muted-foreground">
-													Video Per Second
-												</div>
-												<div className="font-semibold text-foreground text-sm">
-													{(() => {
-														const prices = provider.perSecondPrice!;
-														const defaultVideo = prices["default_video"];
-														const defaultAudio = prices["default_audio"];
-														if (defaultVideo && defaultAudio) {
-															return (
-																<>
-																	${defaultVideo} – ${defaultAudio}
-																	<span className="text-muted-foreground text-xs ml-1">
-																		/sec
-																	</span>
-																</>
-															);
-														}
-														const defaultPrice = prices["default"];
-														if (defaultPrice) {
-															return (
-																<>
-																	${defaultPrice}
-																	<span className="text-muted-foreground text-xs ml-1">
-																		/sec
-																	</span>
-																</>
-															);
-														}
-														const entries = Object.entries(prices);
-														return (
-															<div className="space-y-0.5">
-																{entries.map(([key, value]) => (
-																	<div
-																		key={key}
-																		className="flex justify-between text-xs"
-																	>
-																		<span className="text-muted-foreground">
-																			{key}
-																		</span>
-																		<span className="font-mono">
-																			${value}/sec
-																		</span>
-																	</div>
-																))}
-															</div>
-														);
-													})()}
-												</div>
-											</div>
-										) : (
-											<div className="grid grid-cols-3 gap-3">
-												<div className="space-y-1">
-													<div className="text-xs text-muted-foreground">
-														Input
-													</div>
-													<div className="font-semibold text-foreground text-sm">
-														{typeof formatPrice(
-															provider.inputPrice,
-															provider.discount,
-														) === "string" ? (
-															<>
-																{formatPrice(
-																	provider.inputPrice,
-																	provider.discount,
-																)}
-																<span className="text-muted-foreground text-xs ml-1">
-																	/M
-																</span>
-															</>
-														) : (
-															<span className="inline-flex items-baseline gap-1">
-																{formatPrice(
-																	provider.inputPrice,
-																	provider.discount,
-																)}
-																<span className="text-muted-foreground text-xs">
-																	/M
-																</span>
-															</span>
-														)}
-													</div>
-												</div>
-												<div className="space-y-1">
-													<div className="text-xs text-muted-foreground">
-														Cached
-													</div>
-													<div className="font-semibold text-foreground text-sm">
-														{typeof formatPrice(
-															provider.cachedInputPrice,
-															provider.discount,
-														) === "string" ? (
-															<>
-																{formatPrice(
-																	provider.cachedInputPrice,
-																	provider.discount,
-																)}
-																<span className="text-muted-foreground text-xs ml-1">
-																	/M
-																</span>
-															</>
-														) : (
-															<span className="inline-flex items-baseline gap-1">
-																{formatPrice(
-																	provider.cachedInputPrice,
-																	provider.discount,
-																)}
-																<span className="text-muted-foreground text-xs">
-																	/M
-																</span>
-															</span>
-														)}
-													</div>
-												</div>
-												<div className="space-y-1">
-													<div className="text-xs text-muted-foreground">
-														Output
-													</div>
-													<div className="font-semibold text-foreground text-sm">
-														{typeof formatPrice(
-															provider.outputPrice,
-															provider.discount,
-														) === "string" ? (
-															<>
-																{formatPrice(
-																	provider.outputPrice,
-																	provider.discount,
-																)}
-																<span className="text-muted-foreground text-xs ml-1">
-																	/M
-																</span>
-															</>
-														) : (
-															<span className="inline-flex items-baseline gap-1">
-																{formatPrice(
-																	provider.outputPrice,
-																	provider.discount,
-																)}
-																<span className="text-muted-foreground text-xs">
-																	/M
-																</span>
-															</span>
-														)}
-													</div>
-												</div>
-												{provider.requestPrice !== null &&
-													provider.requestPrice !== undefined &&
-													parseFloat(provider.requestPrice) > 0 && (
-														<div className="space-y-1">
-															<div className="text-xs text-muted-foreground">
-																Per Request
-															</div>
-															<div className="font-semibold text-foreground text-sm">
-																${parseFloat(provider.requestPrice).toFixed(3)}
-																<span className="text-muted-foreground text-xs ml-1">
-																	/req
-																</span>
-															</div>
-														</div>
-													)}
-											</div>
-										)}
-									</div>
-
-									<div>
-										<div className="text-xs text-muted-foreground mb-2">
-											Capabilities
-										</div>
-										<div className="flex flex-wrap gap-2">
-											{getCapabilityIcons(provider, model).map(
-												({ icon: Icon, label }) => (
-													<Tooltip key={label}>
-														<TooltipTrigger asChild>
-															<div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted/70 border hover:bg-muted transition-colors cursor-help">
-																<Icon size={14} />
-																<span className="text-xs font-medium">
-																	{label}
-																</span>
-															</div>
-														</TooltipTrigger>
-														<TooltipContent
-															side="top"
-															className="bg-background text-foreground"
-														>
-															<p className="text-xs">
-																Supports {label.toLowerCase()}
-															</p>
-														</TooltipContent>
-													</Tooltip>
-												),
-											)}
-										</div>
-									</div>
-
-									<Button
-										variant="default"
-										size="default"
-										className="w-full gap-2 font-semibold"
-										onClick={(e) => e.stopPropagation()}
-										asChild
-									>
-										<a
-											href={`${config.playgroundUrl}?model=${encodeURIComponent(providerModelId)}`}
-											target="_blank"
-											rel="noopener noreferrer"
-										>
-											<Play className="h-4 w-4" />
-											Try in Playground
-										</a>
-									</Button>
-								</div>
+								<ProviderSection
+									key={providerId}
+									modelId={model.id}
+									providerInfo={providerInfo}
+									providerId={providerId}
+									ProviderIcon={ProviderIcon}
+									mappings={mappings}
+									hasRegions={hasRegions}
+									hasProviderStabilityWarning={hasProviderStabilityWarning}
+									formatPrice={formatPrice}
+									copyToClipboard={copyToClipboard}
+									copiedModel={copiedModel}
+								/>
 							);
 						})}
 
-						{model.providerDetails.length > 1 && (
-							<Button
-								variant="ghost"
-								size="sm"
-								className="w-full gap-2 text-muted-foreground hover:text-foreground hover:bg-muted"
+						{groupedByProvider.length > 1 && (
+							<button
+								type="button"
+								className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
 								onClick={(e) => {
 									e.stopPropagation();
 									setShowAllProviders((v) => !v);
@@ -560,19 +366,287 @@ export function ModelCard({
 							>
 								{showAllProviders ? (
 									<>
-										<ChevronUp className="h-4 w-4" /> Show fewer providers
+										<ChevronUp className="h-3.5 w-3.5" />
+										Fewer providers
 									</>
 								) : (
 									<>
-										<ChevronDown className="h-4 w-4" /> Show{" "}
-										{model.providerDetails.length - 1} more
+										<ChevronDown className="h-3.5 w-3.5" />
+										{groupedByProvider.length - 1} more provider
+										{groupedByProvider.length - 1 > 1 ? "s" : ""}
 									</>
 								)}
-							</Button>
+							</button>
 						)}
+					</div>
+
+					{/* CTA */}
+					<div className="mt-4 pt-4 border-t border-border/30">
+						<Button
+							variant="default"
+							size="default"
+							className="w-full gap-2 font-semibold group/cta"
+							onClick={(e) => e.stopPropagation()}
+							asChild
+						>
+							<a href={`${config.appUrl}/signup`}>
+								Get Started
+								<ArrowRight className="h-4 w-4 transition-transform group-hover/cta:translate-x-0.5" />
+							</a>
+						</Button>
 					</div>
 				</div>
 			</Card>
 		</TooltipProvider>
+	);
+}
+
+export function ProviderSection({
+	modelId,
+	providerInfo,
+	providerId,
+	ProviderIcon,
+	mappings,
+	hasRegions,
+	hasProviderStabilityWarning,
+	formatPrice,
+	copyToClipboard,
+	copiedModel,
+}: {
+	modelId: string;
+	providerInfo: ApiProvider;
+	providerId: string;
+	ProviderIcon: React.ComponentType<{ className?: string }> | null;
+	mappings: ApiModelProviderMapping[];
+	hasRegions: boolean;
+	hasProviderStabilityWarning: (provider: ApiModelProviderMapping) => boolean;
+	formatPrice: (
+		price: string | null | undefined,
+		discount?: string | null,
+	) => string | React.JSX.Element;
+	copyToClipboard: (text: string) => void;
+	copiedModel: string | null;
+}) {
+	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
+	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const providerModelId = activeMapping.region
+		? `${providerId}/${modelId}:${activeMapping.region}`
+		: `${providerId}/${modelId}`;
+
+	return (
+		<div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
+			{/* Provider header */}
+			<div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border/30">
+				<div className="flex items-center gap-2 min-w-0">
+					<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
+						{ProviderIcon ? (
+							<ProviderIcon className="h-4 w-4" />
+						) : (
+							<span className="text-[10px] font-bold text-muted-foreground">
+								{(providerInfo?.name ?? providerId).charAt(0).toUpperCase()}
+							</span>
+						)}
+					</div>
+					<span className="text-sm font-semibold text-foreground truncate">
+						{providerInfo?.name ?? providerId}
+					</span>
+					<StabilityDot stability={activeMapping.stability} />
+					{hasProviderStabilityWarning(activeMapping) && (
+						<AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+					)}
+				</div>
+				<div className="flex items-center gap-1 shrink-0">
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-6 w-6 p-0 text-muted-foreground/60 hover:text-foreground hover:bg-transparent"
+						onClick={(e) => {
+							e.stopPropagation();
+							copyToClipboard(providerModelId);
+						}}
+						title="Copy provider/model ID"
+					>
+						{copiedModel === providerModelId ? (
+							<Check className="h-3 w-3 text-emerald-400" />
+						) : (
+							<Copy className="h-3 w-3" />
+						)}
+					</Button>
+					<div
+						onClick={(e) => e.stopPropagation()}
+						onMouseDown={(e) => e.stopPropagation()}
+					>
+						<ModelCodeExampleDialog modelId={providerModelId} />
+					</div>
+				</div>
+			</div>
+
+			{/* Region tabs (if applicable) */}
+			{hasRegions && mappings.length > 1 && (
+				<div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/30 bg-muted/30 overflow-x-auto">
+					<Globe className="h-3 w-3 text-muted-foreground/50 shrink-0 mr-1" />
+					{mappings.map((mapping, idx) => (
+						<button
+							key={`${mapping.providerId}-${mapping.region ?? "default"}-${idx}`}
+							type="button"
+							onClick={(e) => {
+								e.stopPropagation();
+								setActiveRegionIdx(idx);
+							}}
+							className={cn(
+								"px-2 py-1 rounded text-[10px] font-medium transition-colors whitespace-nowrap",
+								activeRegionIdx === idx
+									? "bg-background text-foreground shadow-sm border border-border/50"
+									: "text-muted-foreground hover:text-foreground",
+							)}
+						>
+							{mapping.region ?? "Default"}
+						</button>
+					))}
+				</div>
+			)}
+
+			{/* Content */}
+			<div className="px-3 py-3 space-y-3">
+				{/* Context + deprecation info */}
+				<div className="flex items-center justify-between text-xs">
+					<span className="text-muted-foreground">
+						Context:{" "}
+						<span className="text-foreground font-medium">
+							{activeMapping.contextSize
+								? formatContextSize(activeMapping.contextSize)
+								: "—"}
+						</span>
+					</span>
+					{activeMapping.discount && parseFloat(activeMapping.discount) > 0 && (
+						<Badge className="text-[10px] px-1.5 py-0 h-4 font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+							{Math.round(parseFloat(activeMapping.discount) * 100)}% off
+						</Badge>
+					)}
+				</div>
+
+				{/* Deprecation/deactivation warnings */}
+				{(activeMapping.deprecatedAt ?? activeMapping.deactivatedAt) && (
+					<div className="flex flex-wrap gap-1.5">
+						{activeMapping.deprecatedAt && (
+							<Badge
+								variant="outline"
+								className="text-[10px] px-2 py-0.5 gap-1 bg-amber-500/5 text-amber-600 dark:text-amber-400 border-amber-500/20"
+							>
+								<AlertTriangle className="h-2.5 w-2.5" />
+								{formatDeprecationDate(
+									activeMapping.deprecatedAt,
+									"deprecated",
+								)}
+							</Badge>
+						)}
+						{activeMapping.deactivatedAt && (
+							<Badge
+								variant="outline"
+								className="text-[10px] px-2 py-0.5 gap-1 bg-red-500/5 text-red-600 dark:text-red-400 border-red-500/20"
+							>
+								<AlertCircle className="h-2.5 w-2.5" />
+								{formatDeprecationDate(
+									activeMapping.deactivatedAt,
+									"deactivated",
+								)}
+							</Badge>
+						)}
+					</div>
+				)}
+
+				{/* Pricing */}
+				{activeMapping.perSecondPrice &&
+				Object.keys(activeMapping.perSecondPrice).length > 0 ? (
+					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+							Per Second Pricing
+						</div>
+						<div className="space-y-1">
+							{(() => {
+								const prices = activeMapping.perSecondPrice!;
+								const defaultVideo = prices["default_video"];
+								const defaultAudio = prices["default_audio"];
+								if (defaultVideo && defaultAudio) {
+									return (
+										<div className="flex justify-between text-sm">
+											<span className="text-muted-foreground">
+												Video / Audio
+											</span>
+											<span className="font-semibold tabular-nums">
+												${defaultVideo} – ${defaultAudio}
+												<span className="text-muted-foreground/60 text-xs ml-0.5">
+													/sec
+												</span>
+											</span>
+										</div>
+									);
+								}
+								const defaultPrice = prices["default"];
+								if (defaultPrice) {
+									return (
+										<div className="flex justify-between text-sm">
+											<span className="text-muted-foreground">Default</span>
+											<span className="font-semibold tabular-nums">
+												${defaultPrice}
+												<span className="text-muted-foreground/60 text-xs ml-0.5">
+													/sec
+												</span>
+											</span>
+										</div>
+									);
+								}
+								return Object.entries(prices).map(([key, value]) => (
+									<div key={key} className="flex justify-between text-xs">
+										<span className="text-muted-foreground">{key}</span>
+										<span className="font-mono tabular-nums">${value}/sec</span>
+									</div>
+								));
+							})()}
+						</div>
+					</div>
+				) : (
+					<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
+						<div className="bg-background p-2">
+							<PriceCell
+								label="Input"
+								price={activeMapping.inputPrice}
+								discount={activeMapping.discount}
+								unit="/M tokens"
+								formatPrice={formatPrice}
+							/>
+						</div>
+						<div className="bg-background p-2">
+							<PriceCell
+								label="Cached"
+								price={activeMapping.cachedInputPrice}
+								discount={activeMapping.discount}
+								unit="/M tokens"
+								formatPrice={formatPrice}
+							/>
+						</div>
+						<div className="bg-background p-2">
+							<PriceCell
+								label="Output"
+								price={activeMapping.outputPrice}
+								discount={activeMapping.discount}
+								unit="/M tokens"
+								formatPrice={formatPrice}
+							/>
+						</div>
+					</div>
+				)}
+
+				{/* Per-request price (if applicable) */}
+				{activeMapping.requestPrice !== null &&
+					activeMapping.requestPrice !== undefined &&
+					parseFloat(activeMapping.requestPrice) > 0 && (
+						<div className="text-xs text-muted-foreground text-center">
+							+ ${parseFloat(activeMapping.requestPrice).toFixed(3)}
+							<span className="text-muted-foreground/60"> per request</span>
+						</div>
+					)}
+			</div>
+		</div>
 	);
 }

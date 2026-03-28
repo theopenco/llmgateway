@@ -23,11 +23,13 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { giftCreditsToOrganization } from "@/lib/admin-organizations";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 import { GiftCreditsDialog } from "./gift-credits-dialog";
 import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgMetricsSection } from "./org-metrics";
+import { SendEmailDialog } from "./send-email-dialog";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -125,6 +127,8 @@ export default async function OrganizationPage({
 		tab?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
 	const txPage = Math.max(1, parseInt(searchParamsData?.txPage ?? "1", 10));
@@ -566,13 +570,16 @@ export default async function OrganizationPage({
 										<TableHead>Verified</TableHead>
 										<TableHead>Role</TableHead>
 										<TableHead>Joined</TableHead>
+										<TableHead className="w-10">
+											<span className="sr-only">Actions</span>
+										</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{members.length === 0 ? (
 										<TableRow>
 											<TableCell
-												colSpan={5}
+												colSpan={6}
 												className="h-24 text-center text-muted-foreground"
 											>
 												No members found
@@ -613,6 +620,14 @@ export default async function OrganizationPage({
 												</TableCell>
 												<TableCell className="text-muted-foreground">
 													{formatDate(member.createdAt)}
+												</TableCell>
+												<TableCell>
+													<SendEmailDialog
+														userName={member.user.name ?? ""}
+														userEmail={member.user.email}
+														orgName={org.name}
+														plan={org.plan}
+													/>
 												</TableCell>
 											</TableRow>
 										))

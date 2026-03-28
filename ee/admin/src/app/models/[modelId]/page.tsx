@@ -4,6 +4,7 @@ import { Suspense } from "react";
 
 import { ModelDetailClient } from "@/components/model-detail-client";
 import { Button } from "@/components/ui/button";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 export default async function ModelDetailPage({
@@ -11,6 +12,8 @@ export default async function ModelDetailPage({
 }: {
 	params: Promise<{ modelId: string }>;
 }) {
+	await requireSession();
+
 	const { modelId } = await params;
 	const decodedModelId = decodeURIComponent(modelId);
 

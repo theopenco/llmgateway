@@ -163,6 +163,21 @@ function filterRegionsByAvailableKeys(
 	});
 }
 
+function preferConcreteRegionalMappings(
+	providers: ProviderModelMapping[],
+): ProviderModelMapping[] {
+	const providersWithRegions = new Set(
+		providers
+			.filter((mapping) => mapping.region)
+			.map((mapping) => mapping.providerId),
+	);
+
+	return providers.filter(
+		(mapping) =>
+			!providersWithRegions.has(mapping.providerId) || Boolean(mapping.region),
+	);
+}
+
 function resolveRegionFromProviderKey(
 	key: InferSelectModel<typeof tables.providerKey>,
 ): string | undefined {
@@ -612,28 +627,41 @@ chat.openapi(completions, async (c) => {
 		requestedModel,
 		parseResult.requestedProvider,
 	);
-	let modelInfo = {
-		...modelInfoResult.modelInfo,
-		providers: expandAllProviderRegions(modelInfoResult.modelInfo.providers),
-	};
-	let allModelProviders = expandAllProviderRegions(
+	const useExpandedRoutingProviders =
+		Boolean(modelInfoResult.requestedProvider) &&
+		modelInfoResult.requestedProvider !== "llmgateway" &&
+		modelInfoResult.requestedProvider !== "custom";
+	const expandedActiveModelProviders = expandAllProviderRegions(
+		modelInfoResult.modelInfo.providers,
+	);
+	const expandedAllModelProviders = expandAllProviderRegions(
 		modelInfoResult.allModelProviders,
 	);
+	let modelInfo = {
+		...modelInfoResult.modelInfo,
+		providers: useExpandedRoutingProviders
+			? expandedActiveModelProviders
+			: modelInfoResult.modelInfo.providers,
+	};
+	let allModelProviders = useExpandedRoutingProviders
+		? expandedAllModelProviders
+		: modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
 
 	// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
 	// filter providers to only those matching the requested region
 	if (requestedRegion) {
-		modelInfo = {
-			...modelInfo,
-			providers: modelInfo.providers.filter(
-				(p) => p.region === requestedRegion,
-			),
-		};
-		allModelProviders = allModelProviders.filter(
+		const regionProviders = expandedActiveModelProviders.filter(
 			(p) => p.region === requestedRegion,
 		);
-		if (modelInfo.providers.length === 0) {
+		modelInfo = {
+			...modelInfo,
+			providers: regionProviders,
+		};
+		allModelProviders = expandedAllModelProviders.filter(
+			(p) => p.region === requestedRegion,
+		);
+		if (regionProviders.length === 0) {
 			throw new HTTPException(400, {
 				message: `Region '${requestedRegion}' is not available for model ${requestedModel}`,
 			});
@@ -1149,15 +1177,16 @@ chat.openapi(completions, async (c) => {
 			}
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
-			// Expand region entries into separate candidates for scoring
-			const expandedCandidateProviders =
+			// Use the root mappings for provider-agnostic routing. Region-specific
+			// expansion is only needed when a provider is explicitly requested.
+			const candidateProviders =
 				project.mode === "credits"
 					? filterRegionsByAvailableKeys(
-							expandAllProviderRegions(modelDef.providers),
+							modelDef.providers as ProviderModelMapping[],
 						)
-					: expandAllProviderRegions(modelDef.providers);
+					: (modelDef.providers as ProviderModelMapping[]);
 			// Check if any of the model's providers are available
-			const availableModelProviders = expandedCandidateProviders.filter(
+			const availableModelProviders = candidateProviders.filter(
 				(provider) =>
 					availableProviders.includes(provider.providerId) &&
 					(!candidateAllowedProviders ||
@@ -1308,7 +1337,7 @@ chat.openapi(completions, async (c) => {
 			if (fallbackModelDef) {
 				modelInfo = {
 					...fallbackModelDef,
-					providers: expandAllProviderRegions(fallbackModelDef.providers),
+					providers: fallbackModelDef.providers,
 				};
 			}
 		}
@@ -1354,6 +1383,13 @@ chat.openapi(completions, async (c) => {
 		const sameProviderMappings = modelInfo.providers.filter(
 			(p) => p.providerId === usedProvider,
 		);
+		const sameProviderRegionalMappings = sameProviderMappings.filter(
+			(p) => p.region,
+		);
+		const sameProviderRoutingMappings =
+			sameProviderRegionalMappings.length > 0
+				? sameProviderRegionalMappings
+				: sameProviderMappings;
 
 		if (sameProviderMappings.length > 1) {
 			let lockedRegion = usedRegion;
@@ -1376,7 +1412,7 @@ chat.openapi(completions, async (c) => {
 				? new Map([[usedProvider, lockedRegion]])
 				: undefined;
 			const eligibleMappings = filterEligibleModelProviders(
-				sameProviderMappings,
+				sameProviderRoutingMappings,
 				{
 					allProviderVariants: modelInfo.providers,
 					providerLockedRegions,
@@ -1422,7 +1458,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		if (!usedRegion) {
-			const firstRegionalMatch = sameProviderMappings.find(
+			const firstRegionalMatch = sameProviderRoutingMappings.find(
 				(p) => (p as ProviderModelMapping).region,
 			) as ProviderModelMapping | undefined;
 			if (firstRegionalMatch) {
@@ -1482,45 +1518,45 @@ chat.openapi(completions, async (c) => {
 				// Filter model providers to only those available (excluding the low-uptime one)
 				// If web search is requested, also filter to providers that support it
 				// If JSON output is requested, also filter to providers that support it
-				const availableModelProviders = iamFilteredModelProviders.filter(
-					(provider) => {
-						if (!availableProviders.includes(provider.providerId)) {
+				const availableModelProviders = preferConcreteRegionalMappings(
+					iamFilteredModelProviders,
+				).filter((provider) => {
+					if (!availableProviders.includes(provider.providerId)) {
+						return false;
+					}
+					if (
+						provider.providerId === usedProvider &&
+						provider.region === usedRegion
+					) {
+						return false;
+					}
+					// If web search tool is requested, only include providers that support it
+					if (webSearchTool) {
+						if (provider.webSearch !== true) {
 							return false;
 						}
-						if (
-							provider.providerId === usedProvider &&
-							provider.region === usedRegion
-						) {
+					}
+					// If JSON output is requested, only include providers that support it
+					if (
+						response_format?.type === "json_object" ||
+						response_format?.type === "json_schema"
+					) {
+						if (provider.jsonOutput !== true) {
 							return false;
 						}
-						// If web search tool is requested, only include providers that support it
-						if (webSearchTool) {
-							if (provider.webSearch !== true) {
-								return false;
-							}
-						}
-						// If JSON output is requested, only include providers that support it
-						if (
-							response_format?.type === "json_object" ||
-							response_format?.type === "json_schema"
-						) {
-							if (provider.jsonOutput !== true) {
-								return false;
-							}
-						}
-						// If JSON schema output is requested, only include providers that support it
-						if (response_format?.type === "json_schema") {
-							if (provider.jsonOutputSchema !== true) {
-								return false;
-							}
-						}
-						// If images are present in messages, only include providers that support vision
-						if (hasImages && provider.vision !== true) {
+					}
+					// If JSON schema output is requested, only include providers that support it
+					if (response_format?.type === "json_schema") {
+						if (provider.jsonOutputSchema !== true) {
 							return false;
 						}
-						return true;
-					},
-				);
+					}
+					// If images are present in messages, only include providers that support vision
+					if (hasImages && provider.vision !== true) {
+						return false;
+					}
+					return true;
+				});
 
 				if (availableModelProviders.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
@@ -1657,7 +1693,7 @@ chat.openapi(completions, async (c) => {
 
 			// Filter model providers to only those eligible for this request
 			const availableModelProviders = filterEligibleModelProviders(
-				iamFilteredModelProviders,
+				preferConcreteRegionalMappings(iamFilteredModelProviders),
 				{
 					allProviderVariants: modelInfo.providers,
 					availableProviders,
@@ -1774,10 +1810,16 @@ chat.openapi(completions, async (c) => {
 			const providerLockedRegions = explicitDirectRegion
 				? new Map([[requestedProvider, explicitDirectRegion]])
 				: undefined;
+			const directProviderMappings = allModelProviders.filter(
+				(provider) => provider.providerId === requestedProvider,
+			);
+			const directProviderRegionalMappings = directProviderMappings.filter(
+				(provider) => provider.region,
+			);
 			routingMetadataProviders = filterEligibleModelProviders(
-				allModelProviders.filter(
-					(provider) => provider.providerId === requestedProvider,
-				),
+				directProviderRegionalMappings.length > 0
+					? directProviderRegionalMappings
+					: directProviderMappings,
 				{
 					allProviderVariants: modelInfo.providers,
 					providerLockedRegions,
@@ -1867,6 +1909,12 @@ chat.openapi(completions, async (c) => {
 	// Update baseModelName to match the final usedModel after routing
 	// Find the model definition that corresponds to the final usedModel
 	let finalModelInfo: ModelDefinition | undefined;
+	usedRegion ??= (
+		modelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		) as ProviderModelMapping | undefined
+	)?.region;
+
 	if (usedProvider === "custom") {
 		finalModelInfo = {
 			id: usedModel,
@@ -2887,6 +2935,7 @@ chat.openapi(completions, async (c) => {
 				let eventId = 0;
 				let canceled = false;
 				let streamingError: unknown = null;
+				let doneSent = false; // Track if [DONE] has been sent downstream
 
 				// Raw logging variables
 				let streamingRawResponseData = ""; // Raw SSE data sent back to the client
@@ -2942,6 +2991,103 @@ chat.openapi(completions, async (c) => {
 							timestamp: Date.now() - streamStartTime,
 						});
 					}
+				};
+
+				const writeStreamingContentFilterResponse = async ({
+					billingModel,
+					billingProvider,
+					responseModel,
+					metadata,
+				}: {
+					billingModel: string;
+					billingProvider: Provider;
+					responseModel: string;
+					metadata?: Record<string, unknown>;
+				}) => {
+					const { calculatedPromptTokens } = estimateTokens(
+						billingProvider,
+						messages,
+						null,
+						null,
+						0,
+					);
+					const promptTokenCount = Math.max(
+						1,
+						Math.round(calculatedPromptTokens ?? 1),
+					);
+					const streamingCosts = await calculateCosts(
+						billingModel,
+						billingProvider,
+						promptTokenCount,
+						0,
+						null,
+						{
+							prompt: messages
+								.map((m) => messageContentToString(m.content))
+								.join("\n"),
+							completion: "",
+						},
+						null,
+						0,
+						image_config?.image_size,
+						inputImageCount,
+						0,
+						project.organizationId,
+					);
+
+					await writeSSEAndCache({
+						data: JSON.stringify({
+							id: `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: responseModel,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: "content_filter",
+								},
+							],
+							...(metadata && { metadata }),
+						}),
+						id: String(eventId++),
+					});
+
+					await writeSSEAndCache({
+						data: JSON.stringify({
+							id: `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: responseModel,
+							choices: [
+								{
+									index: 0,
+									delta: {},
+									finish_reason: null,
+								},
+							],
+							usage: {
+								prompt_tokens: promptTokenCount,
+								completion_tokens: 0,
+								total_tokens: promptTokenCount,
+								cost_usd_total: streamingCosts.totalCost,
+								cost_usd_input: streamingCosts.inputCost,
+								cost_usd_output: streamingCosts.outputCost,
+								cost_usd_cached_input: streamingCosts.cachedInputCost,
+								cost_usd_request: streamingCosts.requestCost,
+								cost_usd_image_input: streamingCosts.imageInputCost,
+								cost_usd_image_output: streamingCosts.imageOutputCost,
+							},
+						}),
+						id: String(eventId++),
+					});
+
+					await writeSSEAndCache({
+						event: "done",
+						data: "[DONE]",
+						id: String(eventId++),
+					});
+					doneSent = true;
 				};
 
 				// Set up cancellation handling
@@ -3637,9 +3783,21 @@ chat.openapi(completions, async (c) => {
 							content: null,
 							reasoningContent: null,
 							finishReason,
-							promptTokens: null,
+							promptTokens:
+								finishReason === "content_filter"
+									? (
+											estimateTokens(usedProvider, messages, null, null, 0)
+												.calculatedPromptTokens ?? null
+										)?.toString()
+									: null,
 							completionTokens: null,
-							totalTokens: null,
+							totalTokens:
+								finishReason === "content_filter"
+									? (
+											estimateTokens(usedProvider, messages, null, null, 0)
+												.calculatedPromptTokens ?? null
+										)?.toString()
+									: null,
 							reasoningTokens: null,
 							cachedTokens: null,
 							hasError: finishReason !== "content_filter", // content_filter is not an error
@@ -3695,18 +3853,10 @@ chat.openapi(completions, async (c) => {
 						// For content_filter, return a proper completion chunk (not an error)
 						// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
 						if (finishReason === "content_filter") {
-							const contentFilterChunk = {
-								id: `chatcmpl-${Date.now()}`,
-								object: "chat.completion.chunk",
-								created: Math.floor(Date.now() / 1000),
-								model: `${usedProvider}/${baseModelName}`,
-								choices: [
-									{
-										index: 0,
-										delta: {},
-										finish_reason: "content_filter",
-									},
-								],
+							await writeStreamingContentFilterResponse({
+								billingModel: usedModel,
+								billingProvider: usedProvider,
+								responseModel: `${usedProvider}/${baseModelName}`,
 								metadata: {
 									requested_model: initialRequestedModel,
 									requested_provider: requestedProvider,
@@ -3715,42 +3865,6 @@ chat.openapi(completions, async (c) => {
 									...(usedRegion && { used_region: usedRegion }),
 									underlying_used_model: usedModel,
 								},
-							};
-
-							await writeSSEAndCache({
-								data: JSON.stringify(contentFilterChunk),
-								id: String(eventId++),
-							});
-
-							// Send a usage chunk for SDK compatibility (stream_options: { include_usage: true })
-							const contentFilterUsageChunk = {
-								id: `chatcmpl-${Date.now()}`,
-								object: "chat.completion.chunk",
-								created: Math.floor(Date.now() / 1000),
-								model: `${usedProvider}/${baseModelName}`,
-								choices: [
-									{
-										index: 0,
-										delta: {},
-										finish_reason: null,
-									},
-								],
-								usage: {
-									prompt_tokens: 0,
-									completion_tokens: 0,
-									total_tokens: 0,
-								},
-							};
-
-							await writeSSEAndCache({
-								data: JSON.stringify(contentFilterUsageChunk),
-								id: String(eventId++),
-							});
-
-							await writeSSEAndCache({
-								event: "done",
-								data: "[DONE]",
-								id: String(eventId++),
 							});
 						} else {
 							// For client errors, return the original provider error response
@@ -3908,7 +4022,9 @@ chat.openapi(completions, async (c) => {
 				let outputImageCount = 0; // Track number of output images for cost calculation
 				let webSearchCount = 0; // Track web search calls for cost calculation
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
-				let doneSent = false; // Track if [DONE] has been sent
+				let sawUpstreamDoneSentinel = false;
+				let sawProviderTerminalEvent = false;
+				let handledTerminalProviderEvent = false;
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 				let rawUpstreamData = ""; // Raw data received from upstream provider
@@ -4238,6 +4354,7 @@ chat.openapi(completions, async (c) => {
 							}
 
 							if (eventData === "[DONE]") {
+								sawUpstreamDoneSentinel = true;
 								// Set default finish_reason if not provided by the stream
 								// Some providers (like Novita) don't send finish_reason in streaming chunks
 								if (finishReason === null) {
@@ -4418,6 +4535,117 @@ chat.openapi(completions, async (c) => {
 									usedProvider === "aws-bedrock"
 										? extractAwsBedrockStreamError(data)
 										: null;
+								const openAiCompatibleStreamError =
+									!awsBedrockStreamError &&
+									data &&
+									typeof data === "object" &&
+									"error" in data &&
+									data.error &&
+									typeof data.error === "object"
+										? (data.error as Record<string, unknown>)
+										: null;
+								if (openAiCompatibleStreamError) {
+									const errorResponseText = JSON.stringify(data);
+									if (
+										debugMode &&
+										streamingRawResponseData.length < MAX_RAW_DATA_SIZE
+									) {
+										const rawProviderSseEvent = `data: ${errorResponseText}\n\n`;
+										streamingRawResponseData += rawProviderSseEvent.substring(
+											0,
+											Math.max(
+												0,
+												MAX_RAW_DATA_SIZE - streamingRawResponseData.length,
+											),
+										);
+									}
+									const inferredStatusCode =
+										typeof openAiCompatibleStreamError.status_code === "number"
+											? openAiCompatibleStreamError.status_code
+											: typeof openAiCompatibleStreamError.status === "number"
+												? openAiCompatibleStreamError.status
+												: 400;
+									const errorType = getFinishReasonFromError(
+										inferredStatusCode,
+										errorResponseText,
+									);
+									const errorMessage =
+										typeof openAiCompatibleStreamError.message === "string"
+											? openAiCompatibleStreamError.message
+											: "Upstream provider returned a streaming error";
+									const errorCode =
+										typeof openAiCompatibleStreamError.code === "string"
+											? openAiCompatibleStreamError.code
+											: typeof openAiCompatibleStreamError.type === "string"
+												? openAiCompatibleStreamError.type
+												: errorType;
+
+									logger.info("[streaming] Provider SSE error received", {
+										requestId,
+										provider: usedProvider,
+										model: usedModel,
+										errorType,
+										errorCode,
+										inferredStatusCode,
+										errorMessage,
+										errorPayload: errorResponseText.substring(0, 5000),
+									});
+
+									finishReason = errorType;
+
+									if (errorType === "content_filter") {
+										await writeStreamingContentFilterResponse({
+											billingModel: usedModel,
+											billingProvider: usedProvider,
+											responseModel: data.model ?? usedModel,
+										});
+										handledTerminalProviderEvent = true;
+									} else {
+										streamingError = {
+											message: errorMessage,
+											type: errorType,
+											code: errorCode,
+											details: {
+												statusCode: inferredStatusCode,
+												statusText:
+													typeof openAiCompatibleStreamError.type === "string"
+														? openAiCompatibleStreamError.type
+														: "stream_error",
+												responseText: errorResponseText,
+											},
+										};
+
+										await writeSSEAndCache({
+											event: "error",
+											data: JSON.stringify({
+												error: {
+													message: errorMessage,
+													type: errorType,
+													code: errorCode,
+													param:
+														"param" in openAiCompatibleStreamError
+															? (openAiCompatibleStreamError.param ?? null)
+															: null,
+													responseText: errorResponseText,
+												},
+											}),
+											id: String(eventId++),
+										});
+									}
+
+									if (!doneSent) {
+										await writeSSEAndCache({
+											event: "done",
+											data: "[DONE]",
+											id: String(eventId++),
+										});
+										doneSent = true;
+									}
+									shouldTerminateStream = true;
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									break;
+								}
 								if (awsBedrockStreamError) {
 									const errorType = getFinishReasonFromError(
 										awsBedrockStreamError.statusCode,
@@ -4811,8 +5039,10 @@ chat.openapi(completions, async (c) => {
 										// Preserve original Google finish reason for logging
 										if (data.promptFeedback?.blockReason) {
 											finishReason = data.promptFeedback.blockReason;
+											sawProviderTerminalEvent = true;
 										} else if (data.candidates?.[0]?.finishReason) {
 											finishReason = data.candidates[0].finishReason;
+											sawProviderTerminalEvent = true;
 										}
 										break;
 									case "anthropic":
@@ -4821,13 +5051,16 @@ chat.openapi(completions, async (c) => {
 											data.delta?.stop_reason
 										) {
 											finishReason = data.delta.stop_reason;
+											sawProviderTerminalEvent = true;
 										} else if (
 											data.type === "message_stop" ||
 											data.stop_reason
 										) {
 											finishReason = data.stop_reason ?? "end_turn";
+											sawProviderTerminalEvent = true;
 										} else if (data.delta?.stop_reason) {
 											finishReason = data.delta.stop_reason;
+											sawProviderTerminalEvent = true;
 										}
 										break;
 									default: // OpenAI format
@@ -5102,6 +5335,82 @@ chat.openapi(completions, async (c) => {
 								estimateTokensFromContent(fullReasoningContent);
 						}
 					}
+
+					const streamHasVerifiedTerminalEvent =
+						sawUpstreamDoneSentinel ||
+						sawProviderTerminalEvent ||
+						handledTerminalProviderEvent;
+					const streamEndedWithoutTerminalEvent =
+						!streamingError &&
+						!canceled &&
+						(!streamHasVerifiedTerminalEvent || finishReason === null);
+					if (streamEndedWithoutTerminalEvent) {
+						const hasBufferedNonWhitespace = /\S/u.test(buffer);
+						const responseText = hasBufferedNonWhitespace
+							? buffer.slice(0, 5000)
+							: "Stream ended before a terminal finish reason or [DONE] event";
+						const errorMessage =
+							"Upstream stream terminated unexpectedly before completion";
+
+						logger.warn("[streaming] Stream ended without terminal event", {
+							provider: usedProvider,
+							model: usedModel,
+							bufferLength: buffer.length,
+							fullContentLength: fullContent.length,
+							hasToolCalls:
+								!!streamingToolCalls && streamingToolCalls.length > 0,
+							unifiedFinishReason: getUnifiedFinishReason(
+								"upstream_error",
+								usedProvider,
+							),
+						});
+
+						streamingError = {
+							message: errorMessage,
+							type: "upstream_error",
+							code: "stream_truncated",
+							details: {
+								statusCode: 502,
+								statusText: "Upstream Stream Terminated",
+								responseText,
+								timestamp: new Date().toISOString(),
+								provider: usedProvider,
+								model: usedModel,
+								bufferLength: buffer.length,
+							},
+						};
+						finishReason = "upstream_error";
+
+						try {
+							await writeSSEAndCache({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: errorMessage,
+										type: "upstream_error",
+										code: "stream_truncated",
+										param: null,
+										responseText,
+									},
+								}),
+								id: String(eventId++),
+							});
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							doneSent = true;
+						} catch (sseError) {
+							logger.error(
+								"Failed to send truncated stream error SSE",
+								sseError instanceof Error
+									? sseError
+									: new Error(String(sseError)),
+							);
+						}
+					}
+
 					// Check if the response finished successfully but has no content, tokens, or tool calls
 					// This indicates an empty response which should be marked as an error
 					// Do this check BEFORE sending usage chunks to ensure proper event ordering
@@ -5184,7 +5493,7 @@ chat.openapi(completions, async (c) => {
 									: new Error(String(sseError)),
 							);
 						}
-					} else {
+					} else if (!streamingError && !doneSent) {
 						// Calculate costs before sending usage chunk so we can include cost data
 						const billCancelledRequestsEarly = shouldBillCancelledRequests();
 						streamingCostsEarly =

@@ -17,6 +17,7 @@
 	},
 	"dependencies": {
 		"@hookform/resolvers": "5.2.2",
+		"@llmgateway/ai-sdk-provider": "3.5.0",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
 		"@radix-ui/react-avatar": "1.1.11",
@@ -39,6 +40,7 @@
 		"@stripe/react-stripe-js": "5.2.0",
 		"@stripe/stripe-js": "8.1.0",
 		"@tanstack/react-query": "^5.90.5",
+		"ai": "6.0.27",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
 		"better-auth": "1.5.5",

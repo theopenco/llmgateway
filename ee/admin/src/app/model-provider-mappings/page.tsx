@@ -15,6 +15,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { parsePageWindow, windowToFromTo } from "@/lib/page-window";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
@@ -207,6 +208,8 @@ export default async function ModelProviderMappingsPage({
 		window?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const params = await searchParams;
 	const search = params?.search ?? "";
 	const sortBy = (params?.sortBy as MappingSortBy) ?? "logsCount";
