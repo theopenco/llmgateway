@@ -2398,6 +2398,455 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 	});
 });
 
+// ==================== Rate Limit Management ====================
+
+const rateLimitSchema = z.object({
+	id: z.string(),
+	organizationId: z.string().nullable(),
+	provider: z.string().nullable(),
+	model: z.string().nullable(),
+	limitType: z.enum(["rpm", "rpd"]),
+	maxRequests: z.number(),
+	reason: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const rateLimitsListSchema = z.object({
+	rateLimits: z.array(rateLimitSchema),
+	total: z.number(),
+});
+
+const createRateLimitBodySchema = z.object({
+	provider: z.string().nullable().optional(),
+	model: z.string().nullable().optional(),
+	limitType: z.enum(["rpm", "rpd"]),
+	maxRequests: z.coerce
+		.number()
+		.int("Limit must be a whole number")
+		.min(1, "Limit must be at least 1"),
+	reason: z.string().nullable().optional(),
+});
+
+// --- Global Rate Limits ---
+
+const getGlobalRateLimits = createRoute({
+	method: "get",
+	path: "/rate-limits",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: rateLimitsListSchema.openapi({}),
+				},
+			},
+			description: "List of global rate limits.",
+		},
+	},
+});
+
+const createGlobalRateLimit = createRoute({
+	method: "post",
+	path: "/rate-limits",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createRateLimitBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: rateLimitSchema.openapi({}),
+				},
+			},
+			description: "Created global rate limit.",
+		},
+		400: {
+			description: "Invalid rate limit data.",
+		},
+		409: {
+			description:
+				"Rate limit already exists for this provider/model/limit type combination.",
+		},
+	},
+});
+
+const deleteGlobalRateLimit = createRoute({
+	method: "delete",
+	path: "/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			rateLimitId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Rate limit deleted.",
+		},
+		404: {
+			description: "Rate limit not found.",
+		},
+	},
+});
+
+// --- Organization Rate Limits ---
+
+const getOrganizationRateLimits = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/rate-limits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: rateLimitsListSchema.openapi({}),
+				},
+			},
+			description: "List of organization rate limits.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const createOrganizationRateLimit = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/rate-limits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createRateLimitBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: rateLimitSchema.openapi({}),
+				},
+			},
+			description: "Created organization rate limit.",
+		},
+		400: {
+			description: "Invalid rate limit data.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+		409: {
+			description:
+				"Rate limit already exists for this provider/model/limit type combination.",
+		},
+	},
+});
+
+const deleteOrganizationRateLimit = createRoute({
+	method: "delete",
+	path: "/organizations/{orgId}/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			rateLimitId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Rate limit deleted.",
+		},
+		404: {
+			description: "Rate limit not found.",
+		},
+	},
+});
+
+// Helper to format rate limit for response
+function formatRateLimit(r: {
+	id: string;
+	organizationId: string | null;
+	provider: string | null;
+	model: string | null;
+	maxRpm: number | null;
+	maxRpd: number | null;
+	reason: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+}) {
+	const limitType: "rpm" | "rpd" = r.maxRpd !== null ? "rpd" : "rpm";
+	const maxRequests = r.maxRpd ?? r.maxRpm ?? 0;
+
+	return {
+		id: r.id,
+		organizationId: r.organizationId,
+		provider: r.provider,
+		model: r.model,
+		limitType,
+		maxRequests,
+		reason: r.reason,
+		createdAt: r.createdAt.toISOString(),
+		updatedAt: r.updatedAt.toISOString(),
+	};
+}
+
+// --- Global Rate Limit Handlers ---
+
+admin.openapi(getGlobalRateLimits, async (c) => {
+	const rateLimits = await db
+		.select()
+		.from(tables.rateLimit)
+		.where(isNull(tables.rateLimit.organizationId))
+		.orderBy(desc(tables.rateLimit.createdAt));
+
+	return c.json({
+		rateLimits: rateLimits.map(formatRateLimit),
+		total: rateLimits.length,
+	});
+});
+
+admin.openapi(createGlobalRateLimit, async (c) => {
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	// Validate provider/model
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const [created] = await db
+		.insert(tables.rateLimit)
+		.values({
+			organizationId: null,
+			provider,
+			model,
+			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
+			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			reason: body.reason ?? null,
+		})
+		.onConflictDoNothing()
+		.returning();
+
+	if (!created) {
+		throw new HTTPException(409, {
+			message:
+				"A rate limit already exists for this provider/model/limit type combination",
+		});
+	}
+
+	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(deleteGlobalRateLimit, async (c) => {
+	const { rateLimitId } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.rateLimit)
+		.where(
+			and(
+				eq(tables.rateLimit.id, rateLimitId),
+				isNull(tables.rateLimit.organizationId),
+			),
+		)
+		.returning({ id: tables.rateLimit.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Rate limit not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+// --- Organization Rate Limit Handlers ---
+
+admin.openapi(getOrganizationRateLimits, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	// Verify organization exists
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const rateLimits = await db
+		.select()
+		.from(tables.rateLimit)
+		.where(eq(tables.rateLimit.organizationId, orgId))
+		.orderBy(desc(tables.rateLimit.createdAt));
+
+	return c.json({
+		rateLimits: rateLimits.map(formatRateLimit),
+		total: rateLimits.length,
+	});
+});
+
+admin.openapi(createOrganizationRateLimit, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	// Verify organization exists
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	// Validate provider/model
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const [created] = await db
+		.insert(tables.rateLimit)
+		.values({
+			organizationId: orgId,
+			provider,
+			model,
+			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
+			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			reason: body.reason ?? null,
+		})
+		.onConflictDoNothing()
+		.returning();
+
+	if (!created) {
+		throw new HTTPException(409, {
+			message:
+				"A rate limit already exists for this provider/model/limit type combination",
+		});
+	}
+
+	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(deleteOrganizationRateLimit, async (c) => {
+	const { orgId, rateLimitId } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.rateLimit)
+		.where(
+			and(
+				eq(tables.rateLimit.id, rateLimitId),
+				eq(tables.rateLimit.organizationId, orgId),
+			),
+		)
+		.returning({ id: tables.rateLimit.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Rate limit not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+// --- Available Options for Rate Limit Selection ---
+
+const getAvailableRateLimitOptions = createRoute({
+	method: "get",
+	path: "/rate-limits/options",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							providers: z.array(
+								z.object({
+									id: z.string(),
+									name: z.string(),
+								}),
+							),
+							mappings: z.array(
+								z.object({
+									providerId: z.string(),
+									providerName: z.string(),
+									modelId: z.string(),
+									modelName: z.string(),
+									rootModelId: z.string(),
+									rootModelName: z.string(),
+									family: z.string(),
+								}),
+							),
+						})
+						.openapi({}),
+				},
+			},
+			description:
+				"Available providers and provider/model mappings for rate limit selection.",
+		},
+	},
+});
+
+admin.openapi(getAvailableRateLimitOptions, async (c) => {
+	// Build mappings from all models and their providers
+	const mappings: Array<{
+		providerId: string;
+		providerName: string;
+		modelId: string;
+		modelName: string;
+		rootModelId: string;
+		rootModelName: string;
+		family: string;
+	}> = [];
+
+	for (const model of models) {
+		for (const mapping of model.providers) {
+			const provider = providers.find((p) => p.id === mapping.providerId);
+			if (provider) {
+				mappings.push({
+					providerId: mapping.providerId,
+					providerName: provider.name,
+					modelId: model.id,
+					modelName: mapping.modelName,
+					rootModelId: model.id,
+					rootModelName: (model as { name?: string }).name ?? model.id,
+					family: model.family,
+				});
+			}
+		}
+	}
+
+	return c.json({
+		providers: providers.map((p) => ({ id: p.id, name: p.name })),
+		mappings,
+	});
+});
+
 // ==================== Provider & Model Stats ====================
 
 const providerSortBySchema = z.enum([
@@ -2792,7 +3241,7 @@ admin.openapi(getModelStats, async (c) => {
 			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
 		}
 
-		const modelStatsSub = db
+		const modelAggSub = db
 			.select({
 				modelId: modelHistory.modelId,
 				logsCount: sql<number>`COALESCE(SUM(${modelHistory.logsCount}), 0)`.as(
@@ -2822,20 +3271,6 @@ admin.openapi(getModelStats, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${modelHistory.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-			})
-			.from(modelHistory)
-			.where(
-				and(
-					gte(modelHistory.minuteTimestamp, startDate),
-					lt(modelHistory.minuteTimestamp, endDateExclusive),
-				),
-			)
-			.groupBy(modelHistory.modelId)
-			.as("model_stats_sub");
-
-		const modelCostSub = db
-			.select({
-				modelId: modelHistory.modelId,
 				totalCost: sql<number>`COALESCE(SUM(${modelHistory.totalCost}), 0)`.as(
 					"totalCost",
 				),
@@ -2848,7 +3283,7 @@ admin.openapi(getModelStats, async (c) => {
 				),
 			)
 			.groupBy(modelHistory.modelId)
-			.as("model_cost_sub");
+			.as("model_agg_sub");
 
 		const providerCountSub = db
 			.select({
@@ -2865,13 +3300,13 @@ admin.openapi(getModelStats, async (c) => {
 			family: tables.model.family,
 			status: tables.model.status,
 			free: tables.model.free,
-			logsCount: sql`COALESCE(${modelStatsSub.logsCount}, 0)`,
-			totalCost: sql`COALESCE(${modelCostSub.totalCost}, 0)`,
-			errorsCount: sql`COALESCE(${modelStatsSub.errorsCount}, 0)`,
-			clientErrorsCount: sql`COALESCE(${modelStatsSub.clientErrorsCount}, 0)`,
-			gatewayErrorsCount: sql`COALESCE(${modelStatsSub.gatewayErrorsCount}, 0)`,
-			upstreamErrorsCount: sql`COALESCE(${modelStatsSub.upstreamErrorsCount}, 0)`,
-			cachedCount: sql`COALESCE(${modelStatsSub.cachedCount}, 0)`,
+			logsCount: sql`COALESCE(${modelAggSub.logsCount}, 0)`,
+			totalCost: sql`COALESCE(${modelAggSub.totalCost}, 0)`,
+			errorsCount: sql`COALESCE(${modelAggSub.errorsCount}, 0)`,
+			clientErrorsCount: sql`COALESCE(${modelAggSub.clientErrorsCount}, 0)`,
+			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
+			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
+			cachedCount: sql`COALESCE(${modelAggSub.cachedCount}, 0)`,
 			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
@@ -2887,17 +3322,16 @@ admin.openapi(getModelStats, async (c) => {
 		const totalsQuery = db
 			.select({
 				totalTokens:
-					sql<number>`COALESCE(SUM(COALESCE(${modelStatsSub.totalTokens}, 0)), 0)`.as(
+					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalTokens}, 0)), 0)`.as(
 						"totalTokens",
 					),
 				totalCost:
-					sql<number>`COALESCE(SUM(COALESCE(${modelCostSub.totalCost}, 0)), 0)`.as(
+					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalCost}, 0)), 0)`.as(
 						"totalCost",
 					),
 			})
 			.from(tables.model)
-			.leftJoin(modelStatsSub, eq(tables.model.id, modelStatsSub.modelId))
-			.leftJoin(modelCostSub, eq(tables.model.id, modelCostSub.modelId))
+			.leftJoin(modelAggSub, eq(tables.model.id, modelAggSub.modelId))
 			.where(whereClause);
 
 		const rowsBase = db
@@ -2908,35 +3342,35 @@ admin.openapi(getModelStats, async (c) => {
 				free: tables.model.free,
 				stability: tables.model.stability,
 				status: tables.model.status,
-				logsCount: sql<number>`COALESCE(${modelStatsSub.logsCount}, 0)`.as(
+				logsCount: sql<number>`COALESCE(${modelAggSub.logsCount}, 0)`.as(
 					"logsCount",
 				),
-				errorsCount: sql<number>`COALESCE(${modelStatsSub.errorsCount}, 0)`.as(
+				errorsCount: sql<number>`COALESCE(${modelAggSub.errorsCount}, 0)`.as(
 					"errorsCount",
 				),
 				clientErrorsCount:
-					sql<number>`COALESCE(${modelStatsSub.clientErrorsCount}, 0)`.as(
+					sql<number>`COALESCE(${modelAggSub.clientErrorsCount}, 0)`.as(
 						"clientErrorsCount",
 					),
 				gatewayErrorsCount:
-					sql<number>`COALESCE(${modelStatsSub.gatewayErrorsCount}, 0)`.as(
+					sql<number>`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`.as(
 						"gatewayErrorsCount",
 					),
 				upstreamErrorsCount:
-					sql<number>`COALESCE(${modelStatsSub.upstreamErrorsCount}, 0)`.as(
+					sql<number>`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`.as(
 						"upstreamErrorsCount",
 					),
-				cachedCount: sql<number>`COALESCE(${modelStatsSub.cachedCount}, 0)`.as(
+				cachedCount: sql<number>`COALESCE(${modelAggSub.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
 				avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 					"providerCount",
 				),
-				totalTokens: sql<number>`COALESCE(${modelStatsSub.totalTokens}, 0)`.as(
+				totalTokens: sql<number>`COALESCE(${modelAggSub.totalTokens}, 0)`.as(
 					"totalTokens",
 				),
-				totalCost: sql<number>`COALESCE(${modelCostSub.totalCost}, 0)`.as(
+				totalCost: sql<number>`COALESCE(${modelAggSub.totalCost}, 0)`.as(
 					"totalCost",
 				),
 				updatedAt: tables.model.updatedAt,
@@ -2944,15 +3378,14 @@ admin.openapi(getModelStats, async (c) => {
 			.from(tables.model);
 
 		const rowsWithStatsJoin = rowsBase.leftJoin(
-			modelStatsSub,
-			eq(tables.model.id, modelStatsSub.modelId),
+			modelAggSub,
+			eq(tables.model.id, modelAggSub.modelId),
 		);
 
 		const [[countResult], [totalsResult], rows] = await Promise.all([
 			countQuery,
 			totalsQuery,
 			rowsWithStatsJoin
-				.leftJoin(modelCostSub, eq(tables.model.id, modelCostSub.modelId))
 				.leftJoin(
 					providerCountSub,
 					eq(tables.model.id, providerCountSub.modelId),

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	Building2,
 	Cpu,
+	Gauge,
 	GitMerge,
 	LayoutDashboard,
 	LogOut,
@@ -81,6 +82,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
 	const isDiscounts = pathname === "/discounts";
+	const isRateLimits = pathname === "/rate-limits";
 	const isProviders = pathname === "/providers";
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
@@ -143,6 +145,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isDiscounts} size="lg">
 										<Percent className="h-4 w-4" />
 										<span>Global Discounts</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/rate-limits" className="block">
+									<SidebarMenuButton isActive={isRateLimits} size="lg">
+										<Gauge className="h-4 w-4" />
+										<span>Global Rate Limits</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

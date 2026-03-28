@@ -144,7 +144,7 @@ export function Hero({
 								<div className="mb-10 lg:mb-12 flex justify-center">
 									<AnimatedGroup variants={transitionVariants}>
 										<Link
-											href="/cost-simulator"
+											href="/token-cost-calculator"
 											className="hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
 										>
 											<span className="text-foreground text-sm">

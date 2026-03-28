@@ -244,6 +244,11 @@ export default async function OrganizationPage({
 							Manage Discounts
 						</Link>
 					</Button>
+					<Button variant="outline" size="sm" asChild>
+						<Link href={`/organizations/${orgId}/rate-limits`}>
+							Manage Rate Limits
+						</Link>
+					</Button>
 				</div>
 			</header>
 

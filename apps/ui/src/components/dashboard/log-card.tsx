@@ -35,6 +35,15 @@ import {
 
 import type { Log } from "@llmgateway/db";
 
+const BASE64_PATTERN = /[A-Za-z0-9+/]{200,}/;
+
+function isLikelyBase64Image(value: string | null | undefined): boolean {
+	if (!value || value.length <= 500) {
+		return false;
+	}
+	return value.includes("base64,") || BASE64_PATTERN.test(value);
+}
+
 export function LogCard({
 	log,
 	orgId,
@@ -131,12 +140,30 @@ export function LogCard({
 					<div className="flex items-start justify-between gap-4">
 						<div className="flex items-center gap-2 flex-1 min-w-0">
 							<p className="font-medium break-words max-w-none line-clamp-2">
-								{log.content ??
+								{isLikelyBase64Image(log.content) ? (
+									orgId && projectId && log.id ? (
+										<Link
+											href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
+											className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+											prefetch={false}
+										>
+											<Sparkles className="h-3.5 w-3.5" />
+											Image generated — view details
+										</Link>
+									) : (
+										<span className="text-muted-foreground inline-flex items-center gap-1">
+											<Sparkles className="h-3.5 w-3.5" />
+											Image generated
+										</span>
+									)
+								) : (
+									(log.content ??
 									(log.unifiedFinishReason === "tool_calls" && log.toolResults
 										? Array.isArray(log.toolResults)
 											? `Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
 											: "Tool calls executed"
-										: "---")}
+										: "---"))
+								)}
 							</p>
 							{!log.content &&
 								log.unifiedFinishReason !== "tool_calls" &&
@@ -374,6 +401,12 @@ export function LogCard({
 																					</span>
 																				)}
 																			</span>
+																		</span>
+																	)}
+																	{score.rate_limited && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Clock className="h-3 w-3" />
+																			<span>rpm capped</span>
 																		</span>
 																	)}
 																</span>
@@ -1063,7 +1096,20 @@ export function LogCard({
 						<div className="rounded-md border p-3">
 							{log.messages ? (
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
-									{JSON.stringify(log.messages, null, 2)}
+									{JSON.stringify(
+										log.messages,
+										(_key, value) => {
+											if (
+												typeof value === "string" &&
+												value.length > 200 &&
+												BASE64_PATTERN.test(value)
+											) {
+												return "[base64 image data truncated]";
+											}
+											return value;
+										},
+										2,
+									)}
 								</pre>
 							) : !retentionEnabled ? (
 								<p className="text-sm text-muted-foreground italic">
@@ -1102,7 +1148,21 @@ export function LogCard({
 					<div className="space-y-2">
 						<h4 className="text-sm font-medium">Response</h4>
 						<div className="rounded-md border p-3">
-							{log.content ? (
+							{isLikelyBase64Image(log.content) ? (
+								<div className="flex items-center gap-2 text-sm text-muted-foreground">
+									<Sparkles className="h-4 w-4" />
+									<span>Image data ({prettyBytes(log.content!.length)}).</span>
+									{orgId && projectId && log.id && (
+										<Link
+											href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
+											className="text-blue-600 dark:text-blue-400 hover:underline"
+											prefetch={false}
+										>
+											View full response
+										</Link>
+									)}
+								</div>
+							) : log.content ? (
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
 									{log.content}
 								</pre>

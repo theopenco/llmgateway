@@ -974,6 +974,7 @@ export interface paths {
                                         failed?: boolean;
                                         status_code?: number;
                                         error_type?: string;
+                                        rate_limited?: boolean;
                                     }[];
                                     routing?: {
                                         provider: string;
@@ -1193,6 +1194,7 @@ export interface paths {
                                         failed?: boolean;
                                         status_code?: number;
                                         error_type?: string;
+                                        rate_limited?: boolean;
                                     }[];
                                     routing?: {
                                         provider: string;
@@ -2328,6 +2330,374 @@ export interface paths {
             requestBody?: never;
             responses: {
                 /** @description Available providers and provider/model mappings for discount selection. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providers: {
+                                id: string;
+                                name: string;
+                            }[];
+                            mappings: {
+                                providerId: string;
+                                providerName: string;
+                                modelId: string;
+                                modelName: string;
+                                rootModelId: string;
+                                rootModelName: string;
+                                family: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/rate-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of global rate limits. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rateLimits: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                /** @enum {string} */
+                                limitType: "rpm" | "rpd";
+                                maxRequests: number;
+                                reason: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        provider?: string | null;
+                        model?: string | null;
+                        /** @enum {string} */
+                        limitType: "rpm" | "rpd";
+                        maxRequests: number;
+                        reason?: string | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created global rate limit. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string | null;
+                            provider: string | null;
+                            model: string | null;
+                            /** @enum {string} */
+                            limitType: "rpm" | "rpd";
+                            maxRequests: number;
+                            reason: string | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+                /** @description Invalid rate limit data. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limit already exists for this provider/model/limit type combination. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/rate-limits/{rateLimitId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    rateLimitId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Rate limit deleted. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Rate limit not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/rate-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of organization rate limits. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rateLimits: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                /** @enum {string} */
+                                limitType: "rpm" | "rpd";
+                                maxRequests: number;
+                                reason: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        provider?: string | null;
+                        model?: string | null;
+                        /** @enum {string} */
+                        limitType: "rpm" | "rpd";
+                        maxRequests: number;
+                        reason?: string | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created organization rate limit. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string | null;
+                            provider: string | null;
+                            model: string | null;
+                            /** @enum {string} */
+                            limitType: "rpm" | "rpd";
+                            maxRequests: number;
+                            reason: string | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+                /** @description Invalid rate limit data. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limit already exists for this provider/model/limit type combination. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/rate-limits/{rateLimitId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                    rateLimitId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Rate limit deleted. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Rate limit not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/rate-limits/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Available providers and provider/model mappings for rate limit selection. */
                 200: {
                     headers: {
                         [name: string]: unknown;

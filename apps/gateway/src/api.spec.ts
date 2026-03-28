@@ -463,6 +463,9 @@ describe("api", () => {
 								categories: {
 									violence: true,
 								},
+								category_scores: {
+									violence: 0.95,
+								},
 							},
 						],
 					}),
@@ -599,6 +602,9 @@ describe("api", () => {
 									flagged: true,
 									categories: {
 										violence: true,
+									},
+									category_scores: {
+										violence: 0.95,
 									},
 								},
 							],

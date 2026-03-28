@@ -56,6 +56,11 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/cost-simulator",
+				destination: "/token-cost-calculator",
+				permanent: true,
+			},
+			{
 				source: "/terms",
 				destination: "/legal/terms",
 				permanent: true,

@@ -126,6 +126,7 @@ const logSchema = z.object({
 						failed: z.boolean().optional(),
 						status_code: z.number().optional(),
 						error_type: z.string().optional(),
+						rate_limited: z.boolean().optional(),
 					}),
 				)
 				.optional(),

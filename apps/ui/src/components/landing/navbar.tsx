@@ -190,9 +190,9 @@ export const Navbar = ({
 			description: "Compare models side by side.",
 		},
 		{
-			title: "Cost Simulator",
-			href: "/cost-simulator",
-			description: "Calculate your LLM cost savings instantly.",
+			title: "Token Cost Calculator",
+			href: "/token-cost-calculator",
+			description: "Calculate your LLM token costs and savings instantly.",
 		},
 		{
 			title: "Referral Program",
