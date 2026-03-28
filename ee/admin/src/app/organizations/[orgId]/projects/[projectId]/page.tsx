@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 import { ProjectLogsSection } from "./project-logs";
@@ -42,6 +43,8 @@ export default async function ProjectDetailPage({
 }: {
 	params: Promise<{ orgId: string; projectId: string }>;
 }) {
+	await requireSession();
+
 	const { orgId, projectId } = await params;
 
 	const $api = await createServerApiClient();

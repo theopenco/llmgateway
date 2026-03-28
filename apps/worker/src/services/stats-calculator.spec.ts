@@ -290,6 +290,13 @@ describe("stats-calculator", () => {
 
 			await db.insert(modelProviderMapping).values([
 				{
+					id: "mapping-aggregate",
+					modelId: "deepseek-v3.2",
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2",
+					status: "active",
+				},
+				{
 					id: "mapping-3",
 					modelId: "deepseek-v3.2",
 					providerId: "alibaba",
@@ -367,12 +374,21 @@ describe("stats-calculator", () => {
 			expect(deepseekHistory?.totalCost).toBeCloseTo(0.33);
 
 			const regionHistory = await db.select().from(modelProviderMappingHistory);
+			const aggregateHistory = regionHistory.find(
+				(record) => record.modelProviderMappingId === "mapping-aggregate",
+			);
 			const singaporeHistory = regionHistory.find(
 				(record) => record.modelProviderMappingId === "mapping-3",
 			);
 			const beijingHistory = regionHistory.find(
 				(record) => record.modelProviderMappingId === "mapping-4",
 			);
+
+			expect(aggregateHistory).toBeTruthy();
+			expect(aggregateHistory?.logsCount).toBe(2);
+			expect(aggregateHistory?.totalInputTokens).toBe(220);
+			expect(aggregateHistory?.totalOutputTokens).toBe(170);
+			expect(aggregateHistory?.totalCost).toBeCloseTo(0.33);
 
 			expect(singaporeHistory).toBeTruthy();
 			expect(singaporeHistory?.logsCount).toBe(1);

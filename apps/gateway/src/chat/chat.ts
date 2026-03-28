@@ -164,6 +164,21 @@ function filterRegionsByAvailableKeys(
 	});
 }
 
+function preferConcreteRegionalMappings(
+	providers: ProviderModelMapping[],
+): ProviderModelMapping[] {
+	const providersWithRegions = new Set(
+		providers
+			.filter((mapping) => mapping.region)
+			.map((mapping) => mapping.providerId),
+	);
+
+	return providers.filter(
+		(mapping) =>
+			!providersWithRegions.has(mapping.providerId) || Boolean(mapping.region),
+	);
+}
+
 function resolveRegionFromProviderKey(
 	key: InferSelectModel<typeof tables.providerKey>,
 ): string | undefined {
@@ -613,28 +628,41 @@ chat.openapi(completions, async (c) => {
 		requestedModel,
 		parseResult.requestedProvider,
 	);
-	let modelInfo = {
-		...modelInfoResult.modelInfo,
-		providers: expandAllProviderRegions(modelInfoResult.modelInfo.providers),
-	};
-	let allModelProviders = expandAllProviderRegions(
+	const useExpandedRoutingProviders =
+		Boolean(modelInfoResult.requestedProvider) &&
+		modelInfoResult.requestedProvider !== "llmgateway" &&
+		modelInfoResult.requestedProvider !== "custom";
+	const expandedActiveModelProviders = expandAllProviderRegions(
+		modelInfoResult.modelInfo.providers,
+	);
+	const expandedAllModelProviders = expandAllProviderRegions(
 		modelInfoResult.allModelProviders,
 	);
+	let modelInfo = {
+		...modelInfoResult.modelInfo,
+		providers: useExpandedRoutingProviders
+			? expandedActiveModelProviders
+			: modelInfoResult.modelInfo.providers,
+	};
+	let allModelProviders = useExpandedRoutingProviders
+		? expandedAllModelProviders
+		: modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
 
 	// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
 	// filter providers to only those matching the requested region
 	if (requestedRegion) {
-		modelInfo = {
-			...modelInfo,
-			providers: modelInfo.providers.filter(
-				(p) => p.region === requestedRegion,
-			),
-		};
-		allModelProviders = allModelProviders.filter(
+		const regionProviders = expandedActiveModelProviders.filter(
 			(p) => p.region === requestedRegion,
 		);
-		if (modelInfo.providers.length === 0) {
+		modelInfo = {
+			...modelInfo,
+			providers: regionProviders,
+		};
+		allModelProviders = expandedAllModelProviders.filter(
+			(p) => p.region === requestedRegion,
+		);
+		if (regionProviders.length === 0) {
 			throw new HTTPException(400, {
 				message: `Region '${requestedRegion}' is not available for model ${requestedModel}`,
 			});
@@ -1150,15 +1178,16 @@ chat.openapi(completions, async (c) => {
 			}
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
-			// Expand region entries into separate candidates for scoring
-			const expandedCandidateProviders =
+			// Use the root mappings for provider-agnostic routing. Region-specific
+			// expansion is only needed when a provider is explicitly requested.
+			const candidateProviders =
 				project.mode === "credits"
 					? filterRegionsByAvailableKeys(
-							expandAllProviderRegions(modelDef.providers),
+							modelDef.providers as ProviderModelMapping[],
 						)
-					: expandAllProviderRegions(modelDef.providers);
+					: (modelDef.providers as ProviderModelMapping[]);
 			// Check if any of the model's providers are available
-			const availableModelProviders = expandedCandidateProviders.filter(
+			const availableModelProviders = candidateProviders.filter(
 				(provider) =>
 					availableProviders.includes(provider.providerId) &&
 					(!candidateAllowedProviders ||
@@ -1309,7 +1338,7 @@ chat.openapi(completions, async (c) => {
 			if (fallbackModelDef) {
 				modelInfo = {
 					...fallbackModelDef,
-					providers: expandAllProviderRegions(fallbackModelDef.providers),
+					providers: fallbackModelDef.providers,
 				};
 			}
 		}
@@ -1355,6 +1384,13 @@ chat.openapi(completions, async (c) => {
 		const sameProviderMappings = modelInfo.providers.filter(
 			(p) => p.providerId === usedProvider,
 		);
+		const sameProviderRegionalMappings = sameProviderMappings.filter(
+			(p) => p.region,
+		);
+		const sameProviderRoutingMappings =
+			sameProviderRegionalMappings.length > 0
+				? sameProviderRegionalMappings
+				: sameProviderMappings;
 
 		if (sameProviderMappings.length > 1) {
 			let lockedRegion = usedRegion;
@@ -1377,7 +1413,7 @@ chat.openapi(completions, async (c) => {
 				? new Map([[usedProvider, lockedRegion]])
 				: undefined;
 			const eligibleMappings = filterEligibleModelProviders(
-				sameProviderMappings,
+				sameProviderRoutingMappings,
 				{
 					allProviderVariants: modelInfo.providers,
 					providerLockedRegions,
@@ -1423,7 +1459,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		if (!usedRegion) {
-			const firstRegionalMatch = sameProviderMappings.find(
+			const firstRegionalMatch = sameProviderRoutingMappings.find(
 				(p) => (p as ProviderModelMapping).region,
 			) as ProviderModelMapping | undefined;
 			if (firstRegionalMatch) {
@@ -1483,45 +1519,45 @@ chat.openapi(completions, async (c) => {
 				// Filter model providers to only those available (excluding the low-uptime one)
 				// If web search is requested, also filter to providers that support it
 				// If JSON output is requested, also filter to providers that support it
-				const availableModelProviders = iamFilteredModelProviders.filter(
-					(provider) => {
-						if (!availableProviders.includes(provider.providerId)) {
+				const availableModelProviders = preferConcreteRegionalMappings(
+					iamFilteredModelProviders,
+				).filter((provider) => {
+					if (!availableProviders.includes(provider.providerId)) {
+						return false;
+					}
+					if (
+						provider.providerId === usedProvider &&
+						provider.region === usedRegion
+					) {
+						return false;
+					}
+					// If web search tool is requested, only include providers that support it
+					if (webSearchTool) {
+						if (provider.webSearch !== true) {
 							return false;
 						}
-						if (
-							provider.providerId === usedProvider &&
-							provider.region === usedRegion
-						) {
+					}
+					// If JSON output is requested, only include providers that support it
+					if (
+						response_format?.type === "json_object" ||
+						response_format?.type === "json_schema"
+					) {
+						if (provider.jsonOutput !== true) {
 							return false;
 						}
-						// If web search tool is requested, only include providers that support it
-						if (webSearchTool) {
-							if (provider.webSearch !== true) {
-								return false;
-							}
-						}
-						// If JSON output is requested, only include providers that support it
-						if (
-							response_format?.type === "json_object" ||
-							response_format?.type === "json_schema"
-						) {
-							if (provider.jsonOutput !== true) {
-								return false;
-							}
-						}
-						// If JSON schema output is requested, only include providers that support it
-						if (response_format?.type === "json_schema") {
-							if (provider.jsonOutputSchema !== true) {
-								return false;
-							}
-						}
-						// If images are present in messages, only include providers that support vision
-						if (hasImages && provider.vision !== true) {
+					}
+					// If JSON schema output is requested, only include providers that support it
+					if (response_format?.type === "json_schema") {
+						if (provider.jsonOutputSchema !== true) {
 							return false;
 						}
-						return true;
-					},
-				);
+					}
+					// If images are present in messages, only include providers that support vision
+					if (hasImages && provider.vision !== true) {
+						return false;
+					}
+					return true;
+				});
 
 				if (availableModelProviders.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
@@ -1658,7 +1694,7 @@ chat.openapi(completions, async (c) => {
 
 			// Filter model providers to only those eligible for this request
 			const availableModelProviders = filterEligibleModelProviders(
-				iamFilteredModelProviders,
+				preferConcreteRegionalMappings(iamFilteredModelProviders),
 				{
 					allProviderVariants: modelInfo.providers,
 					availableProviders,
@@ -1775,10 +1811,16 @@ chat.openapi(completions, async (c) => {
 			const providerLockedRegions = explicitDirectRegion
 				? new Map([[requestedProvider, explicitDirectRegion]])
 				: undefined;
+			const directProviderMappings = allModelProviders.filter(
+				(provider) => provider.providerId === requestedProvider,
+			);
+			const directProviderRegionalMappings = directProviderMappings.filter(
+				(provider) => provider.region,
+			);
 			routingMetadataProviders = filterEligibleModelProviders(
-				allModelProviders.filter(
-					(provider) => provider.providerId === requestedProvider,
-				),
+				directProviderRegionalMappings.length > 0
+					? directProviderRegionalMappings
+					: directProviderMappings,
 				{
 					allProviderVariants: modelInfo.providers,
 					providerLockedRegions,
@@ -1868,6 +1910,12 @@ chat.openapi(completions, async (c) => {
 	// Update baseModelName to match the final usedModel after routing
 	// Find the model definition that corresponds to the final usedModel
 	let finalModelInfo: ModelDefinition | undefined;
+	usedRegion ??= (
+		modelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+		) as ProviderModelMapping | undefined
+	)?.region;
+
 	if (usedProvider === "custom") {
 		finalModelInfo = {
 			id: usedModel,

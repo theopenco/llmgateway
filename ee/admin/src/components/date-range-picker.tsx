@@ -192,7 +192,7 @@ export function getDateRangeFromParams(searchParams: URLSearchParams) {
 
 	const today = new Date();
 	return {
-		from: subDays(today, 29),
+		from: subDays(today, 30),
 		to: today,
 	};
 }

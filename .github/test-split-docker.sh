@@ -25,9 +25,7 @@ APP_ENDPOINTS["admin"]="http://localhost:3006"
 # Health check routes for each app (optional)
 declare -A HEALTH_ROUTES
 HEALTH_ROUTES["docs"]="/v1_chat_completions"
-# Add more health check routes for other apps as needed
-# HEALTH_ROUTES["api"]="/health"
-# HEALTH_ROUTES["gateway"]="/health"
+HEALTH_ROUTES["admin"]="/api/health"
 
 # Array to store test results
 declare -A RESULTS
@@ -130,7 +128,7 @@ test_service() {
   # Test endpoint
   local response_code=$(curl -s -o /dev/null -w "%{http_code}" "$endpoint" || echo "000")
 
-  if [ "$response_code" = "200" ] || [ "$response_code" = "301" ] || [ "$response_code" = "302" ]; then
+  if [ "$response_code" = "200" ] || [ "$response_code" = "301" ] || [ "$response_code" = "302" ] || [ "$response_code" = "307" ]; then
     echo -e "${GREEN}✓ $app endpoint test passed (HTTP $response_code)${NC}"
     RESULTS["$app"]="PASS"
     return 0
@@ -172,6 +170,10 @@ services:
 
   docs:
     image: $IMAGE_PREFIX-docs:$IMAGE_TAG
+    build: null
+
+  admin:
+    image: $IMAGE_PREFIX-admin:$IMAGE_TAG
     build: null
 EOF
 

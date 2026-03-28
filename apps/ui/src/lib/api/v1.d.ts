@@ -1241,6 +1241,7 @@ export interface paths {
                     to?: string;
                     projectId?: string;
                     apiKeyId?: string;
+                    timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
                 };
                 header?: never;
                 path?: never;
@@ -1248,7 +1249,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Activity data grouped by day */
+                /** @description Activity data grouped by day or hour */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -1292,6 +1293,8 @@ export interface paths {
                                     cost: number;
                                 }[];
                             }[];
+                            /** @enum {string} */
+                            granularity?: "hourly" | "daily";
                         };
                     };
                 };
@@ -3385,6 +3388,149 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/contact-submissions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Single enterprise contact submission. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            createdAt: string;
+                            name: string;
+                            email: string;
+                            country: string;
+                            size: string;
+                            message: string;
+                            ipAddress: string | null;
+                            userAgent: string | null;
+                            spamFilterStatus: string;
+                            rejectionReason: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/contact-submissions/{id}/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        subject: string;
+                        body: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Reply sent or failed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/send-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        to: string;
+                        subject: string;
+                        body: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Email sent or failed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;

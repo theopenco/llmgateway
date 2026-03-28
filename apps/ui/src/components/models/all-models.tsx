@@ -326,7 +326,12 @@ const ModelTableRow = React.memo(
 								{row.model.id}
 							</Link>
 							<button
-								onClick={(e) => onCopy(row.model.id, row.rowKey, e)}
+								onClick={(e) => {
+									const fullId = row.provider.region
+										? `${row.provider.providerId}/${row.model.id}:${row.provider.region}`
+										: `${row.provider.providerId}/${row.model.id}`;
+									onCopy(fullId, row.rowKey, e);
+								}}
 								className="p-1 hover:bg-muted rounded transition-colors"
 								title={copiedModel === row.rowKey ? "Copied!" : "Copy model ID"}
 							>
@@ -1044,9 +1049,17 @@ export function AllModels({
 	// Pre-compute capabilities and provider icons for performance
 	const flattenedRows: FlattenedModelRow[] = useMemo(() => {
 		const rows: FlattenedModelRow[] = [];
+		const providerFilter =
+			filters.selectedProvider && filters.selectedProvider !== "all"
+				? filters.selectedProvider
+				: null;
 
 		for (const model of modelsWithProviders) {
 			for (const { provider, providerInfo } of model.providerDetails) {
+				if (providerFilter && provider.providerId !== providerFilter) {
+					continue;
+				}
+
 				const hasAdditionalPricing =
 					provider.webSearch ??
 					(provider.requestPrice !== null &&
@@ -1060,7 +1073,7 @@ export function AllModels({
 					provider,
 					providerInfo,
 					hasAdditionalPricing,
-					rowKey: `${provider.providerId}-${model.id}`,
+					rowKey: `${provider.providerId}-${model.id}-${provider.region ?? ""}`,
 					capabilities: computeCapabilities(provider, model),
 					ProviderIcon: getProviderIcon(provider.providerId),
 				});
@@ -1147,7 +1160,7 @@ export function AllModels({
 			}
 			return 0;
 		});
-	}, [modelsWithProviders, sortField, sortDirection]);
+	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
 
 	// Toggle expanded row
 	const toggleRowExpanded = useCallback((rowKey: string) => {
