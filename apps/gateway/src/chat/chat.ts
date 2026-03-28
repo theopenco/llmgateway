@@ -248,6 +248,15 @@ function resolveExplicitRegionFromProviderKey(
 		: undefined;
 }
 
+function getSafeEndpointForLog(url: string): string | undefined {
+	if (!URL.canParse(url)) {
+		return undefined;
+	}
+
+	const parsedUrl = new URL(url);
+	return `${parsedUrl.origin}${parsedUrl.pathname}`;
+}
+
 async function logGatewayHttpException(options: {
 	insertLog: typeof _insertLog;
 	baseLogEntry: ReturnType<typeof createLogEntry>;
@@ -2438,13 +2447,15 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 
-			logger.info("[region-debug] Request resolved", {
-				provider: usedProvider,
-				model: usedModel,
-				region: usedRegion ?? "none",
-				endpoint: url,
-				tokenSource: providerKey ? "db-provider-key" : "env-var",
-			});
+			if (debugMode) {
+				logger.debug("[region-debug] Request resolved", {
+					provider: usedProvider,
+					model: usedModel,
+					region: usedRegion ?? "none",
+					endpoint: getSafeEndpointForLog(url),
+					tokenSource: providerKey ? "db-provider-key" : "env-var",
+				});
+			}
 		} catch (error) {
 			if (usedProvider === "llmgateway" && usedModel !== "custom") {
 				throw new HTTPException(400, {
