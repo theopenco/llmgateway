@@ -72,7 +72,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					requestPrice: map.requestPrice?.toString() ?? null,
 					contextSize: map.contextSize ?? null,
 					maxOutput: map.maxOutput ?? null,
-					streaming: map.streaming ?? true,
+					streaming: map.streaming === "only" ? true : (map.streaming ?? true),
 					vision: map.vision ?? null,
 					reasoning: map.reasoning ?? null,
 					reasoningOutput: map.reasoningOutput ?? null,

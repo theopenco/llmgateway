@@ -50,7 +50,7 @@ export function adaptProviderMapping(
 			requestPrice: toStr(p.requestPrice),
 			contextSize: p.contextSize ?? null,
 			maxOutput: p.maxOutput ?? null,
-			streaming: p.streaming,
+			streaming: p.streaming === "only" ? true : p.streaming,
 			vision: p.vision ?? null,
 			reasoning: p.reasoning ?? null,
 			reasoningOutput: p.reasoningOutput ?? null,
