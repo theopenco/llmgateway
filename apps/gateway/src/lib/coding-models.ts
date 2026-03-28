@@ -35,8 +35,8 @@ export function isCodingModel(model: ModelDefinition): boolean {
 		// Must have tool calling
 		const hasTools = p.tools === true;
 
-		// Must have streaming
-		const hasStreaming = p.streaming === true;
+		// Must have streaming (true or "only")
+		const hasStreaming = p.streaming !== false;
 
 		// Must have cached input pricing
 		const hasCachedInputPrice =

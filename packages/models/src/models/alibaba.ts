@@ -1471,6 +1471,7 @@ export const alibabaModels = [
 						id: "cn-beijing",
 						inputPrice: 0.23 / 1e6,
 						outputPrice: 0.574 / 1e6,
+						streaming: "only",
 					},
 				],
 				requestPrice: 0,
