@@ -762,156 +762,171 @@ chat.openapi(completions, async (c) => {
 		: modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
 
-	// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
-	// filter providers to only those matching the requested region
-	if (requestedRegion) {
-		const regionProviders = expandedActiveModelProviders.filter(
-			(p) => p.region === requestedRegion,
-		);
-		modelInfo = {
-			...modelInfo,
-			providers: regionProviders,
-		};
-		allModelProviders = expandedAllModelProviders.filter(
-			(p) => p.region === requestedRegion,
-		);
-		if (regionProviders.length === 0) {
-			throw new HTTPException(400, {
-				message: `Region '${requestedRegion}' is not available for model ${requestedModel}`,
-			});
-		}
-	}
-
-	// Validate that models requiring image input have at least one image in the request
-	if (
-		modelInfo.imageInputRequired &&
-		!hasImages &&
-		countInputImages(messages) === 0
-	) {
-		throw new HTTPException(400, {
-			message: `Model ${requestedModel} requires at least one image input. Please include an image in your request.`,
-		});
-	}
-
-	// === Early API key and organization validation for coding model restriction ===
-	// We need to fetch these early to check coding model restrictions before capability checks
-	const auth = c.req.header("Authorization");
-	const xApiKey = c.req.header("x-api-key");
-
-	let token: string | undefined;
-
-	if (auth) {
-		const split = auth.split("Bearer ");
-		if (split.length === 2 && split[1]) {
-			token = split[1];
-		}
-	}
-
-	if (!token && xApiKey) {
-		token = xApiKey;
-	}
-
-	if (!token) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
-		});
-	}
-
-	const apiKey = await findApiKeyByToken(token);
-
-	if (!apiKey || apiKey.status !== "active") {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
-		throw new HTTPException(401, {
-			message: "Unauthorized: LLMGateway API key reached its usage limit.",
-		});
-	}
-
-	// Get the project to determine mode for routing decisions
-	const project = await findProjectById(apiKey.projectId);
-
-	if (!project) {
-		throw new HTTPException(500, {
-			message: "Could not find project",
-		});
-	}
-
-	// Check if project is deleted (archived)
-	if (project.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Project has been archived and is no longer accessible",
-		});
-	}
-
-	// Filter region candidates based on available keys.
-	// - credits mode: only keep regions with env keys (base key → default region only)
-	// - hybrid mode: providers with a DB key keep all regions (user chose their region);
-	//   providers without a DB key are filtered like credits mode
-	// - api-keys mode: no filtering (all regions available, user picks via DB key)
-	if (project.mode === "credits") {
-		modelInfo = {
-			...modelInfo,
-			providers: filterRegionsByAvailableKeys(modelInfo.providers),
-		};
-		routingExpandedModelProviders = filterRegionsByAvailableKeys(
-			routingExpandedModelProviders,
-		);
-		allModelProviders = filterRegionsByAvailableKeys(allModelProviders);
-	} else if (project.mode === "hybrid") {
-		const dbProviderKeys = await findActiveProviderKeys(project.organizationId);
-		const providersWithDbKeys = new Set(dbProviderKeys.map((k) => k.provider));
-		const filterHybridRegions = (
-			expanded: ProviderModelMapping[],
-		): ProviderModelMapping[] =>
-			expanded.filter((mapping) => {
-				// Providers with a DB key: keep all regions
-				if (providersWithDbKeys.has(mapping.providerId)) {
-					return true;
-				}
-				// Providers without a DB key: filter like credits mode
-				if (!mapping.region) {
-					return true;
-				}
-				const providerDef = providers.find(
-					(p) => p.id === mapping.providerId,
-				) as ProviderDefinition | undefined;
-				if (!providerDef?.regionConfig) {
-					return true;
-				}
-				if (mapping.region === providerDef.regionConfig.defaultRegion) {
-					return true;
-				}
-				return hasRegionSpecificEnvKey(
-					mapping.providerId as Provider,
-					mapping.region,
-				);
-			});
-		modelInfo = {
-			...modelInfo,
-			providers: filterHybridRegions(modelInfo.providers),
-		};
-		routingExpandedModelProviders = filterHybridRegions(
-			routingExpandedModelProviders,
-		);
-		allModelProviders = filterHybridRegions(allModelProviders);
-	}
-
-	// Fetch organization for coding model restriction check and credit validation
-	const organization = await findOrganizationById(project.organizationId);
-
-	if (!organization) {
-		throw new HTTPException(500, {
-			message: "Could not find organization",
-		});
-	}
+	let apiKey: Awaited<ReturnType<typeof findApiKeyByToken>>;
+	let project: Awaited<ReturnType<typeof findProjectById>>;
+	let organization: Awaited<ReturnType<typeof findOrganizationById>>;
+	let usedProvider = requestedProvider;
+	let usedModel: string = requestedModel;
+	let usedRegion: string | undefined = requestedRegion;
+	let routingMetadata: RoutingMetadata | undefined;
 
 	try {
+		// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
+		// filter providers to only those matching the requested region
+		if (requestedRegion) {
+			const regionProviders = expandedActiveModelProviders.filter(
+				(p) => p.region === requestedRegion,
+			);
+			modelInfo = {
+				...modelInfo,
+				providers: regionProviders,
+			};
+			allModelProviders = expandedAllModelProviders.filter(
+				(p) => p.region === requestedRegion,
+			);
+			if (regionProviders.length === 0) {
+				throw new HTTPException(400, {
+					message: `Region '${requestedRegion}' is not available for model ${requestedModel}`,
+				});
+			}
+		}
+
+		// Validate that models requiring image input have at least one image in the request
+		if (
+			modelInfo.imageInputRequired &&
+			!hasImages &&
+			countInputImages(messages) === 0
+		) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} requires at least one image input. Please include an image in your request.`,
+			});
+		}
+
+		// === Early API key and organization validation for coding model restriction ===
+		// We need to fetch these early to check coding model restrictions before capability checks
+		const auth = c.req.header("Authorization");
+		const xApiKey = c.req.header("x-api-key");
+
+		let token: string | undefined;
+
+		if (auth) {
+			const split = auth.split("Bearer ");
+			if (split.length === 2 && split[1]) {
+				token = split[1];
+			}
+		}
+
+		if (!token && xApiKey) {
+			token = xApiKey;
+		}
+
+		if (!token) {
+			throw new HTTPException(401, {
+				message:
+					"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
+			});
+		}
+
+		apiKey = await findApiKeyByToken(token);
+
+		if (!apiKey || apiKey.status !== "active") {
+			throw new HTTPException(401, {
+				message:
+					"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+			});
+		}
+
+		// Get the project to determine mode for routing decisions
+		project = await findProjectById(apiKey.projectId);
+
+		if (!project) {
+			throw new HTTPException(500, {
+				message: "Could not find project",
+			});
+		}
+
+		if (
+			apiKey.usageLimit &&
+			Number(apiKey.usage) >= Number(apiKey.usageLimit)
+		) {
+			throw new HTTPException(401, {
+				message: "Unauthorized: LLMGateway API key reached its usage limit.",
+			});
+		}
+
+		// Check if project is deleted (archived)
+		if (project.status === "deleted") {
+			throw new HTTPException(410, {
+				message: "Project has been archived and is no longer accessible",
+			});
+		}
+
+		// Filter region candidates based on available keys.
+		// - credits mode: only keep regions with env keys (base key → default region only)
+		// - hybrid mode: providers with a DB key keep all regions (user chose their region);
+		//   providers without a DB key are filtered like credits mode
+		// - api-keys mode: no filtering (all regions available, user picks via DB key)
+		if (project.mode === "credits") {
+			modelInfo = {
+				...modelInfo,
+				providers: filterRegionsByAvailableKeys(modelInfo.providers),
+			};
+			routingExpandedModelProviders = filterRegionsByAvailableKeys(
+				routingExpandedModelProviders,
+			);
+			allModelProviders = filterRegionsByAvailableKeys(allModelProviders);
+		} else if (project.mode === "hybrid") {
+			const dbProviderKeys = await findActiveProviderKeys(
+				project.organizationId,
+			);
+			const providersWithDbKeys = new Set(
+				dbProviderKeys.map((k) => k.provider),
+			);
+			const filterHybridRegions = (
+				expanded: ProviderModelMapping[],
+			): ProviderModelMapping[] =>
+				expanded.filter((mapping) => {
+					// Providers with a DB key: keep all regions
+					if (providersWithDbKeys.has(mapping.providerId)) {
+						return true;
+					}
+					// Providers without a DB key: filter like credits mode
+					if (!mapping.region) {
+						return true;
+					}
+					const providerDef = providers.find(
+						(p) => p.id === mapping.providerId,
+					) as ProviderDefinition | undefined;
+					if (!providerDef?.regionConfig) {
+						return true;
+					}
+					if (mapping.region === providerDef.regionConfig.defaultRegion) {
+						return true;
+					}
+					return hasRegionSpecificEnvKey(
+						mapping.providerId as Provider,
+						mapping.region,
+					);
+				});
+			modelInfo = {
+				...modelInfo,
+				providers: filterHybridRegions(modelInfo.providers),
+			};
+			routingExpandedModelProviders = filterHybridRegions(
+				routingExpandedModelProviders,
+			);
+			allModelProviders = filterHybridRegions(allModelProviders);
+		}
+
+		// Fetch organization for coding model restriction check and credit validation
+		organization = await findOrganizationById(project.organizationId);
+
+		if (!organization) {
+			throw new HTTPException(500, {
+				message: "Could not find organization",
+			});
+		}
+
 		// Run guardrails check for enterprise organizations
 		let guardrailResult:
 			| Awaited<ReturnType<typeof checkGuardrails>>
@@ -998,7 +1013,9 @@ chat.openapi(completions, async (c) => {
 		if (
 			error instanceof HTTPException &&
 			error.status >= 400 &&
-			error.status < 500
+			error.status < 500 &&
+			apiKey &&
+			project
 		) {
 			await logGatewayHttpException({
 				insertLog: _insertLog,
@@ -1006,8 +1023,8 @@ chat.openapi(completions, async (c) => {
 					requestId,
 					project,
 					apiKey,
-					usedModel: requestedModel,
-					usedProvider: requestedProvider ?? "llmgateway",
+					usedModel,
+					usedProvider: usedProvider ?? "llmgateway",
 					requestedModel: initialRequestedModel,
 					requestedProvider,
 					messages,
@@ -1027,6 +1044,7 @@ chat.openapi(completions, async (c) => {
 					debugMode,
 					userAgent,
 					imageConfig: image_config,
+					routingMetadata,
 					rawRequest: rawBody,
 				}),
 				status: error.status,
@@ -1037,11 +1055,6 @@ chat.openapi(completions, async (c) => {
 
 		throw error;
 	}
-
-	let usedProvider = requestedProvider;
-	let usedModel: string = requestedModel;
-	let usedRegion: string | undefined = requestedRegion;
-	let routingMetadata: RoutingMetadata | undefined;
 
 	// Extract retention level for data storage cost calculation
 	const retentionLevel = organization?.retentionLevel ?? "none";
