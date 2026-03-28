@@ -542,6 +542,11 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		(msg: any) =>
 			msg.role === "user" && msg.content.includes("TRIGGER_TRUNCATED_STREAM"),
 	);
+	const shouldReturnStreamedProviderError = body.messages.some(
+		(msg: any) =>
+			msg.role === "user" &&
+			msg.content.includes("TRIGGER_STREAM_PROVIDER_ERROR"),
+	);
 
 	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
 
@@ -567,6 +572,23 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				}),
 				id: String(eventId++),
 			});
+
+			if (shouldReturnStreamedProviderError) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-err-123",
+						error: {
+							code: "data_inspection_failed",
+							message:
+								"Input data may contain inappropriate content. Please ensure that your input complies with the usage policy of DashScope LLM.",
+							param: null,
+							type: "data_inspection_failed",
+						},
+					}),
+					id: String(eventId++),
+				});
+				return;
+			}
 
 			await stream.writeSSE({
 				data: JSON.stringify({

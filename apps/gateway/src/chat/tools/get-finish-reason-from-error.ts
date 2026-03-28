@@ -39,6 +39,14 @@ export function getFinishReasonFromError(
 		return "content_filter";
 	}
 
+	// Alibaba / DashScope moderation block
+	if (
+		errorText?.includes("data_inspection_failed") ||
+		errorText?.includes("Input data may contain inappropriate content")
+	) {
+		return "content_filter";
+	}
+
 	// xAI (Grok) content safety violations (e.g. SAFETY_CHECK_TYPE_CSAM, usage guidelines)
 	if (
 		statusCode === 403 &&

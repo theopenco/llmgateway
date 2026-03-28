@@ -4466,6 +4466,122 @@ chat.openapi(completions, async (c) => {
 									usedProvider === "aws-bedrock"
 										? extractAwsBedrockStreamError(data)
 										: null;
+								const openAiCompatibleStreamError =
+									!awsBedrockStreamError &&
+									data &&
+									typeof data === "object" &&
+									"error" in data &&
+									data.error &&
+									typeof data.error === "object"
+										? (data.error as Record<string, unknown>)
+										: null;
+								if (openAiCompatibleStreamError) {
+									const errorResponseText = JSON.stringify(data);
+									const inferredStatusCode =
+										typeof openAiCompatibleStreamError.status_code === "number"
+											? openAiCompatibleStreamError.status_code
+											: typeof openAiCompatibleStreamError.status === "number"
+												? openAiCompatibleStreamError.status
+												: 400;
+									const errorType = getFinishReasonFromError(
+										inferredStatusCode,
+										errorResponseText,
+									);
+									const errorMessage =
+										typeof openAiCompatibleStreamError.message === "string"
+											? openAiCompatibleStreamError.message
+											: "Upstream provider returned a streaming error";
+									const errorCode =
+										typeof openAiCompatibleStreamError.code === "string"
+											? openAiCompatibleStreamError.code
+											: typeof openAiCompatibleStreamError.type === "string"
+												? openAiCompatibleStreamError.type
+												: errorType;
+
+									finishReason = errorType;
+
+									if (errorType === "content_filter") {
+										await writeSSEAndCache({
+											data: JSON.stringify({
+												id: data.id ?? `chatcmpl-${Date.now()}`,
+												object: "chat.completion.chunk",
+												created: data.created ?? Math.floor(Date.now() / 1000),
+												model: data.model ?? usedModel,
+												choices: [
+													{
+														index: 0,
+														delta: {},
+														finish_reason: "content_filter",
+													},
+												],
+											}),
+											id: String(eventId++),
+										});
+										await writeSSEAndCache({
+											data: JSON.stringify({
+												id: `chatcmpl-${Date.now()}`,
+												object: "chat.completion.chunk",
+												created: Math.floor(Date.now() / 1000),
+												model: data.model ?? usedModel,
+												choices: [
+													{
+														index: 0,
+														delta: {},
+														finish_reason: null,
+													},
+												],
+												usage: {
+													prompt_tokens: 0,
+													completion_tokens: 0,
+													total_tokens: 0,
+												},
+											}),
+											id: String(eventId++),
+										});
+									} else {
+										streamingError = {
+											message: errorMessage,
+											type: errorType,
+											code: errorCode,
+											details: {
+												statusCode: inferredStatusCode,
+												statusText:
+													typeof openAiCompatibleStreamError.type === "string"
+														? openAiCompatibleStreamError.type
+														: "stream_error",
+												responseText: errorResponseText,
+											},
+										};
+
+										await writeSSEAndCache({
+											event: "error",
+											data: JSON.stringify({
+												error: {
+													message: errorMessage,
+													type: errorType,
+													code: errorCode,
+													param:
+														"param" in openAiCompatibleStreamError
+															? (openAiCompatibleStreamError.param ?? null)
+															: null,
+													responseText: errorResponseText,
+												},
+											}),
+											id: String(eventId++),
+										});
+									}
+
+									await writeSSEAndCache({
+										event: "done",
+										data: "[DONE]",
+										id: String(eventId++),
+									});
+									doneSent = true;
+									shouldTerminateStream = true;
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									break;
+								}
 								if (awsBedrockStreamError) {
 									const errorType = getFinishReasonFromError(
 										awsBedrockStreamError.statusCode,
@@ -5302,7 +5418,7 @@ chat.openapi(completions, async (c) => {
 									: new Error(String(sseError)),
 							);
 						}
-					} else if (!streamingError) {
+					} else if (!streamingError && !doneSent) {
 						// Calculate costs before sending usage chunk so we can include cost data
 						const billCancelledRequestsEarly = shouldBillCancelledRequests();
 						streamingCostsEarly =
