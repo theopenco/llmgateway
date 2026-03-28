@@ -41,6 +41,9 @@ import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-a
 const MAX_WEBHOOK_ATTEMPTS = 8;
 const WEBHOOK_BASE_DELAY_MS = 30_000;
 const WEBHOOK_MAX_DELAY_MS = 60 * 60 * 1000;
+const VIDEO_JOB_TIMEOUT_SECONDS =
+	Number(process.env.VIDEO_JOB_TIMEOUT_SECONDS) || 60 * 60;
+const VIDEO_JOB_TIMEOUT_MS = VIDEO_JOB_TIMEOUT_SECONDS * 1000;
 const VIDEO_JOB_POLL_CLAIM_TTL_MS = 30_000;
 const VIDEO_JOB_ERROR_BASE_DELAY_MS = 10_000;
 const VIDEO_JOB_ERROR_MAX_DELAY_MS = 5 * 60 * 1000;
@@ -63,14 +66,6 @@ type WebhookDeliveryRecord = InferSelectModel<typeof tables.webhookDeliveryLog>;
 interface ResolvedVideoProviderContext {
 	baseUrl: string;
 	token: string;
-}
-
-function getVideoJobTimeoutSeconds(): number {
-	return Number(process.env.VIDEO_JOB_TIMEOUT_SECONDS) || 60 * 60;
-}
-
-function getVideoJobTimeoutMs(): number {
-	return getVideoJobTimeoutSeconds() * 1000;
 }
 
 function isGoogleVertexVideoProvider(providerId: string): boolean {
@@ -466,7 +461,7 @@ function toUnixTimestamp(value: Date | null): number | null {
 }
 
 function hasVideoJobTimedOut(job: VideoJobRecord, now: Date): boolean {
-	return now.getTime() - job.createdAt.getTime() >= getVideoJobTimeoutMs();
+	return now.getTime() - job.createdAt.getTime() >= VIDEO_JOB_TIMEOUT_MS;
 }
 
 function getVideoJobPollErrorCount(job: VideoJobRecord): number {
@@ -512,10 +507,10 @@ function buildVideoJobTimeoutResponse(
 		completed_at: now.toISOString(),
 		error: {
 			code: "timeout",
-			message: `Video generation timed out after ${getVideoJobTimeoutSeconds()} seconds without reaching a terminal state`,
+			message: `Video generation timed out after ${VIDEO_JOB_TIMEOUT_SECONDS} seconds without reaching a terminal state`,
 			details: {
 				reason: "video_job_timeout",
-				timeout_seconds: getVideoJobTimeoutSeconds(),
+				timeout_seconds: VIDEO_JOB_TIMEOUT_SECONDS,
 				last_upstream_status:
 					upstreamStatus && typeof upstreamStatus.status === "string"
 						? upstreamStatus.status

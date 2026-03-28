@@ -15,6 +15,10 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
+// Environment variable for backfill duration in seconds (defaults to 300 seconds = 5 minutes)
+const BACKFILL_DURATION_SECONDS =
+	Number(process.env.BACKFILL_DURATION_SECONDS) || 300;
+
 const ONE_MINUTE_MS = 60 * 1000;
 const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
 const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 1)`;
@@ -41,10 +45,6 @@ interface MappingMinuteStats {
 	totalTimeToFirstToken: number;
 	totalTimeToFirstReasoningToken: number;
 	totalCost: number;
-}
-
-function getBackfillDurationSeconds(): number {
-	return Number(process.env.BACKFILL_DURATION_SECONDS) || 300;
 }
 
 function createEmptyMappingMinuteStats(
@@ -588,8 +588,7 @@ export async function backfillHistoryIfNeeded() {
 
 		if (!lastMinute) {
 			// No history exists, start from configured backfill duration ago
-			const backfillDurationSeconds = getBackfillDurationSeconds();
-			const backfillMs = backfillDurationSeconds * 1000;
+			const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
 			const backfillStart = new Date(Date.now() - backfillMs);
 			const backfillStartRounded = roundToMinuteStart(backfillStart);
 
@@ -601,7 +600,7 @@ export async function backfillHistoryIfNeeded() {
 			let iterationCount = 0;
 			// Dynamic safety limit based on backfill duration (with max of 1440 for 24 hours)
 			const maxIterations = Math.min(
-				Math.ceil(backfillDurationSeconds / 60),
+				Math.ceil(BACKFILL_DURATION_SECONDS / 60),
 				1440,
 			);
 

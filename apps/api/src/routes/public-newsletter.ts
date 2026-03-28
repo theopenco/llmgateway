@@ -13,6 +13,9 @@ const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
 const RESEND_TIMEOUT_MS = 10_000;
 
+const resendApiKey = process.env.RESEND_API_KEY;
+const resendNewsletterTopicId = process.env.RESEND_NEWSLETTER_TOPIC_ID;
+
 function extractClientIP(c: {
 	req: { header: (name: string) => string | undefined };
 }): string | null {
@@ -100,8 +103,6 @@ const subscribeRoute = createRoute({
 publicNewsletter.openapi(subscribeRoute, async (c) => {
 	const { email } = c.req.valid("json");
 	const ipAddress = extractClientIP(c);
-	const resendApiKey = process.env.RESEND_API_KEY;
-	const resendNewsletterTopicId = process.env.RESEND_NEWSLETTER_TOPIC_ID;
 
 	const rateLimitKey = ipAddress ?? `email:${email}`;
 	const canSubmit = await checkRateLimit(rateLimitKey);

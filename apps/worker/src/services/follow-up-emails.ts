@@ -11,24 +11,20 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	fromEmail,
 	getResendClient,
-	getFromEmail,
-	getReplyToEmail,
+	replyToEmail,
 } from "@llmgateway/shared/email";
 
 type FollowUpEmailType = "no_purchase" | "low_usage" | "no_repurchase";
 
+const FOLLOW_UP_MAX_AGE_DAYS = Number(
+	process.env.FOLLOW_UP_MAX_AGE_DAYS ?? "30",
+);
 const HIGH_SPEND_THRESHOLD = 1000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function getFollowUpMaxAgeDays(): number {
-	return Number(process.env.FOLLOW_UP_MAX_AGE_DAYS ?? "30");
-}
-
-function getMaxAgeAgo(): Date {
-	const maxAgeMs = getFollowUpMaxAgeDays() * MS_PER_DAY;
-	return new Date(Date.now() - maxAgeMs);
-}
+const maxAgeMs = FOLLOW_UP_MAX_AGE_DAYS * MS_PER_DAY;
+const maxAgeAgo = new Date(Date.now() - maxAgeMs);
 
 // ─── Email Sending ──────────────────────────────────────────────────────────
 
@@ -47,9 +43,6 @@ async function sendFollowUpEmail(opts: {
 		);
 		return;
 	}
-
-	const fromEmail = getFromEmail();
-	const replyToEmail = getReplyToEmail();
 
 	const { data, error } = await client.emails.send({
 		from: fromEmail,
@@ -213,7 +206,6 @@ async function sendAndRecord(
 
 async function processNoPurchaseEmails(): Promise<void> {
 	const twentyFourHoursAgo = new Date(Date.now() - MS_PER_DAY);
-	const maxAgeAgo = getMaxAgeAgo();
 
 	const eligibleOrgs = await db
 		.select({
@@ -264,7 +256,6 @@ async function processNoPurchaseEmails(): Promise<void> {
 async function processLowUsageEmails(): Promise<void> {
 	const threeDaysMs = 3 * MS_PER_DAY;
 	const threeDaysAgo = new Date(Date.now() - threeDaysMs);
-	const maxAgeAgo = getMaxAgeAgo();
 
 	const rows = await db.execute<{
 		organization_id: string;
@@ -338,7 +329,6 @@ async function processLowUsageEmails(): Promise<void> {
 async function processNoRepurchaseEmails(): Promise<void> {
 	const twoWeeksMs = 14 * MS_PER_DAY;
 	const twoWeeksAgo = new Date(Date.now() - twoWeeksMs);
-	const maxAgeAgo = getMaxAgeAgo();
 
 	const rows = await db.execute<{
 		organization_id: string;

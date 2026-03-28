@@ -5073,7 +5073,7 @@ admin.openapi(replyContactSubmission, async (c) => {
 		throw new HTTPException(404, { message: "Submission not found" });
 	}
 
-	const { getResendClient, getFromEmail, getReplyToEmail } = await import(
+	const { getResendClient, fromEmail, replyToEmail } = await import(
 		"@llmgateway/shared/email"
 	);
 
@@ -5084,9 +5084,6 @@ admin.openapi(replyContactSubmission, async (c) => {
 			200,
 		);
 	}
-
-	const fromEmail = getFromEmail();
-	const replyToEmail = getReplyToEmail();
 
 	const { error } = await resend.emails.send({
 		from: fromEmail,
@@ -5141,7 +5138,7 @@ const sendEmail = createRoute({
 admin.openapi(sendEmail, async (c) => {
 	const { to, subject, body: emailBody } = c.req.valid("json");
 
-	const { getResendClient, getFromEmail, getReplyToEmail } = await import(
+	const { getResendClient, fromEmail, replyToEmail } = await import(
 		"@llmgateway/shared/email"
 	);
 
@@ -5152,9 +5149,6 @@ admin.openapi(sendEmail, async (c) => {
 			200,
 		);
 	}
-
-	const fromEmail = getFromEmail();
-	const replyToEmail = getReplyToEmail();
 
 	const { error } = await resend.emails.send({
 		from: fromEmail,

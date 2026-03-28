@@ -6,9 +6,9 @@ import { redisClient } from "@/auth/config.js";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	fromEmail,
 	getResendClient,
-	getFromEmail,
-	getReplyToEmail,
+	replyToEmail,
 } from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";
@@ -293,9 +293,6 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 			500,
 		);
 	}
-
-	const fromEmail = getFromEmail();
-	const replyToEmail = getReplyToEmail();
 
 	const htmlContent = `
 		<html>

@@ -14,16 +14,12 @@ import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 import type { Server } from "node:http";
 
-function getPort(): number {
-	return Number(process.env.PORT) || 4001;
-}
+const port = Number(process.env.PORT) || 4001;
 
 // GCP Load Balancer has a fixed 600s keepalive timeout. Node.js default is 5s.
 // If Node closes the connection first, the LB sends requests on stale connections → 502.
 // Default to 620s (above GCP's 600s) to ensure the LB closes first.
-function getKeepAliveTimeoutSeconds(): number {
-	return Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
-}
+const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 
 let sdk: NodeSDK | null = null;
 
@@ -39,10 +35,10 @@ async function startServer() {
 		// Continue without tracing
 	}
 
-	logger.info("Server starting", { port: getPort() });
+	logger.info("Server starting", { port });
 
 	return serve({
-		port: getPort(),
+		port,
 		fetch: app.fetch,
 	});
 }
@@ -50,9 +46,8 @@ async function startServer() {
 let isShuttingDown = false;
 
 // Grace period for in-flight requests to complete before force closing (default 120s)
-function getShutdownGracePeriodMs(): number {
-	return Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 120000;
-}
+const shutdownGracePeriodMs =
+	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 120000;
 
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
@@ -80,11 +75,11 @@ const closeServer = (server: ServerType): Promise<void> => {
 		const timeout = setTimeout(() => {
 			logger.warn(
 				"Graceful shutdown timeout reached, forcing close of remaining connections",
-				{ gracePeriodMs: getShutdownGracePeriodMs() },
+				{ gracePeriodMs: shutdownGracePeriodMs },
 			);
 			clearInterval(drainInterval);
 			httpServer.closeAllConnections();
-		}, getShutdownGracePeriodMs());
+		}, shutdownGracePeriodMs);
 	});
 };
 
@@ -131,11 +126,10 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 // Start the server
 startServer()
 	.then((server) => {
-		const keepAliveTimeoutSeconds = getKeepAliveTimeoutSeconds();
-		(server as Server).keepAliveTimeout = keepAliveTimeoutSeconds * 1000;
+		(server as Server).keepAliveTimeout = keepAliveTimeoutS * 1000;
 		// headersTimeout must be greater than keepAliveTimeout
 		// Using +5s margin to account for processing time and avoid race conditions
-		(server as Server).headersTimeout = (keepAliveTimeoutSeconds + 5) * 1000;
+		(server as Server).headersTimeout = (keepAliveTimeoutS + 5) * 1000;
 
 		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));

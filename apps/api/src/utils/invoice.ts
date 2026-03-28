@@ -4,9 +4,7 @@ import { logger } from "@llmgateway/logger";
 
 import { sendTransactionalEmail } from "./email.js";
 
-function getInvoiceFrom(): string {
-	return process.env.INVOICE_FROM ?? "Fake Company\\nUnited States";
-}
+const invoiceFrom = process.env.INVOICE_FROM ?? "Fake Company\\nUnited States";
 
 function escapeHtml(unsafe: string): string {
 	return unsafe
@@ -80,7 +78,7 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 	doc.setFontSize(10);
 	doc.setFont("helvetica", "normal");
 
-	const fromLines = getInvoiceFrom().replace(/\\n/g, "\n").split("\n");
+	const fromLines = invoiceFrom.replace(/\\n/g, "\n").split("\n");
 	for (const line of fromLines) {
 		doc.text(line, 20, yPos);
 		yPos += 6;

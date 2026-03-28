@@ -3,6 +3,9 @@ import { z } from "zod";
 
 import type { ServerTypes } from "@/vars.js";
 
+const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
+const isProduction = process.env.NODE_ENV === "production";
+
 export const referral = new OpenAPIHono<ServerTypes>();
 
 const REFERRAL_COOKIE_NAME = "llmgateway_referral";
@@ -38,8 +41,6 @@ const referralRoute = createRoute({
 
 referral.openapi(referralRoute, async (c) => {
 	const { ref } = c.req.valid("json");
-	const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
-	const isProduction = process.env.NODE_ENV === "production";
 
 	const expires = new Date();
 	expires.setDate(expires.getDate() + REFERRAL_COOKIE_DAYS);
