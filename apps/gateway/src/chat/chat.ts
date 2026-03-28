@@ -913,17 +913,55 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Run guardrails check for enterprise organizations
-	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
-	if (organization.plan === "enterprise") {
-		guardrailResult = await checkGuardrails({
-			organizationId: project.organizationId,
-			messages: messages as Parameters<typeof checkGuardrails>[0]["messages"],
-		});
+	try {
+		// Run guardrails check for enterprise organizations
+		let guardrailResult:
+			| Awaited<ReturnType<typeof checkGuardrails>>
+			| undefined;
+		if (organization.plan === "enterprise") {
+			guardrailResult = await checkGuardrails({
+				organizationId: project.organizationId,
+				messages: messages as Parameters<typeof checkGuardrails>[0]["messages"],
+			});
 
-		if (guardrailResult.blocked) {
-			// Log violations (don't let logging failures affect the request)
-			for (const violation of guardrailResult.violations) {
+			if (guardrailResult.blocked) {
+				// Log violations (don't let logging failures affect the request)
+				for (const violation of guardrailResult.violations) {
+					try {
+						await logViolation(project.organizationId, violation, {
+							apiKeyId: apiKey.id,
+							model: requestedModel,
+						});
+					} catch {
+						// Silently ignore logging failures
+					}
+				}
+
+				throw new HTTPException(400, {
+					message: "Request blocked by content policy",
+					cause: {
+						type: "guardrail_violation",
+						code: "content_policy_violation",
+						violations: guardrailResult.violations.map((v) => ({
+							rule: v.ruleName,
+							category: v.category,
+						})),
+					},
+				});
+			}
+
+			// Apply redactions if any
+			if (guardrailResult.redactions.length > 0) {
+				messages = applyRedactions(
+					messages as Parameters<typeof applyRedactions>[0],
+					guardrailResult.redactions,
+				) as typeof messages;
+			}
+
+			// Log non-blocking violations (redact/warn)
+			for (const violation of guardrailResult.violations.filter(
+				(v) => v.action !== "block",
+			)) {
 				try {
 					await logViolation(project.organizationId, violation, {
 						apiKeyId: apiKey.id,
@@ -933,66 +971,74 @@ chat.openapi(completions, async (c) => {
 					// Silently ignore logging failures
 				}
 			}
-
-			throw new HTTPException(400, {
-				message: "Request blocked by content policy",
-				cause: {
-					type: "guardrail_violation",
-					code: "content_policy_violation",
-					violations: guardrailResult.violations.map((v) => ({
-						rule: v.ruleName,
-						category: v.category,
-					})),
-				},
-			});
 		}
 
-		// Apply redactions if any
-		if (guardrailResult.redactions.length > 0) {
-			messages = applyRedactions(
-				messages as Parameters<typeof applyRedactions>[0],
-				guardrailResult.redactions,
-			) as typeof messages;
-		}
-
-		// Log non-blocking violations (redact/warn)
-		for (const violation of guardrailResult.violations.filter(
-			(v) => v.action !== "block",
-		)) {
-			try {
-				await logViolation(project.organizationId, violation, {
-					apiKeyId: apiKey.id,
-					model: requestedModel,
+		// Validate coding model restriction for dev plan personal orgs
+		// This check must happen BEFORE capability checks to give the right error message
+		if (
+			organization?.isPersonal &&
+			organization.devPlan !== "none" &&
+			!organization.devPlanAllowAllModels
+		) {
+			if (!isCodingModel(modelInfo)) {
+				throw new HTTPException(403, {
+					message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
 				});
-			} catch {
-				// Silently ignore logging failures
 			}
 		}
-	}
 
-	// Validate coding model restriction for dev plan personal orgs
-	// This check must happen BEFORE capability checks to give the right error message
-	if (
-		organization?.isPersonal &&
-		organization.devPlan !== "none" &&
-		!organization.devPlanAllowAllModels
-	) {
-		if (!isCodingModel(modelInfo)) {
-			throw new HTTPException(403, {
-				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+		// Validate model capabilities (JSON output, reasoning, tools, web search)
+		validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
+			response_format,
+			reasoning_effort,
+			reasoning_max_tokens,
+			tools,
+			tool_choice,
+			webSearchTool,
+		});
+	} catch (error) {
+		if (
+			error instanceof HTTPException &&
+			error.status >= 400 &&
+			error.status < 500
+		) {
+			await logGatewayHttpException({
+				insertLog: _insertLog,
+				baseLogEntry: createLogEntry({
+					requestId,
+					project,
+					apiKey,
+					usedModel: requestedModel,
+					usedProvider: requestedProvider ?? "llmgateway",
+					requestedModel: initialRequestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					reasoningEffort: reasoning_effort,
+					reasoningMaxTokens: reasoning_max_tokens,
+					effort,
+					responseFormat: response_format,
+					tools,
+					toolChoice: tool_choice,
+					source,
+					customHeaders,
+					debugMode,
+					userAgent,
+					imageConfig: image_config,
+					rawRequest: rawBody,
+				}),
+				status: error.status,
+				message: error.message,
+				streamed: Boolean(stream),
 			});
 		}
-	}
 
-	// Validate model capabilities (JSON output, reasoning, tools, web search)
-	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
-		response_format,
-		reasoning_effort,
-		reasoning_max_tokens,
-		tools,
-		tool_choice,
-		webSearchTool,
-	});
+		throw error;
+	}
 
 	let usedProvider = requestedProvider;
 	let usedModel: string = requestedModel;
