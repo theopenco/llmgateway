@@ -4,7 +4,11 @@ import { z } from "zod";
 
 import { db, eq, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
+import {
+	getDevPlanCreditsLimit,
+	isCreditTopUpAmountInRange,
+	type DevPlanTier,
+} from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
@@ -651,9 +655,11 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		return;
 	}
 
-	const creditAmount = parseFloat(metadata?.baseAmount ?? "0");
-	if (!creditAmount) {
-		logger.error("Missing baseAmount in credit top-up checkout metadata");
+	const creditAmount = Number(metadata?.baseAmount);
+	if (!isCreditTopUpAmountInRange(creditAmount)) {
+		logger.error("Invalid baseAmount in credit top-up checkout metadata", {
+			baseAmount: metadata?.baseAmount,
+		});
 		return;
 	}
 
@@ -747,8 +753,12 @@ async function handlePaymentIntentSucceeded(
 	const { metadata, amount } = paymentIntent;
 
 	// Get the credit amount (base amount without fees) from metadata
-	const creditAmount = parseFloat(paymentIntent.metadata.baseAmount);
-	if (!creditAmount) {
+	const creditAmount = Number(paymentIntent.metadata.baseAmount);
+	if (!isCreditTopUpAmountInRange(creditAmount)) {
+		logger.error("Invalid baseAmount in payment intent metadata", {
+			baseAmount: paymentIntent.metadata.baseAmount,
+			paymentIntentId: paymentIntent.id,
+		});
 		return;
 	}
 

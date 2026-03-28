@@ -24,7 +24,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees } from "@llmgateway/shared";
+import { calculateFees, isCreditTopUpAmountInRange } from "@llmgateway/shared";
 
 import { runFollowUpEmailsLoop } from "./services/follow-up-emails.js";
 import {
@@ -257,6 +257,13 @@ async function processAutoTopUp(): Promise<void> {
 				}
 
 				const topUpAmount = Number(org.autoTopUpAmount ?? "10");
+
+				if (!isCreditTopUpAmountInRange(topUpAmount)) {
+					logger.error(
+						`Skipping auto top-up for organization ${org.id}: invalid amount ${org.autoTopUpAmount}`,
+					);
+					continue;
+				}
 
 				// Get the first user associated with this organization for email metadata
 				const orgUser = await db.query.userOrganization.findFirst({
