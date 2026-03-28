@@ -10,7 +10,9 @@ export const redisClient = new Redis({
 
 redisClient.on("error", (err) => logger.error("Redis Client Error", err));
 
-export const LOG_QUEUE = "log_queue_" + process.env.NODE_ENV;
+export function getLogQueueName(): string {
+	return "log_queue_" + (process.env.NODE_ENV ?? "development");
+}
 
 export async function publishToQueue(
 	queue: string,

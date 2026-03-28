@@ -3,18 +3,6 @@ import type { BaseMessage, MessageContent } from "@llmgateway/models";
 export type ContentFilterMode = "disabled" | "monitor" | "enabled";
 export type ContentFilterMethod = "keywords" | "openai";
 
-let cachedKeywords: string[] | null = null;
-let cachedEnvValue: string | undefined;
-
-let cachedMode: ContentFilterMode | null = null;
-let cachedModeEnvValue: string | undefined;
-
-let cachedMethod: ContentFilterMethod | null = null;
-let cachedMethodEnvValue: string | undefined;
-
-let cachedModels: string[] | null = null;
-let cachedModelsEnvValue: string | undefined;
-
 /**
  * Returns the content filter mode from LLM_CONTENT_FILTER_MODE env var.
  * - "disabled" (default): content filter is off
@@ -27,23 +15,15 @@ let cachedModelsEnvValue: string | undefined;
 export function getContentFilterMode(): ContentFilterMode {
 	const envValue = process.env.LLM_CONTENT_FILTER_MODE;
 
-	if (envValue === cachedModeEnvValue && cachedMode !== null) {
-		return cachedMode;
-	}
-
-	cachedModeEnvValue = envValue;
-
 	if (envValue === "monitor") {
-		cachedMode = "monitor";
-	} else if (envValue === "enabled") {
-		cachedMode = "enabled";
-	} else if (envValue === "openai") {
-		cachedMode = "enabled";
-	} else {
-		cachedMode = "disabled";
+		return "monitor";
 	}
 
-	return cachedMode;
+	if (envValue === "enabled" || envValue === "openai") {
+		return "enabled";
+	}
+
+	return "disabled";
 }
 
 /**
@@ -57,21 +37,12 @@ export function getContentFilterMode(): ContentFilterMode {
 export function getContentFilterMethod(): ContentFilterMethod {
 	const envValue = process.env.LLM_CONTENT_FILTER_METHOD;
 	const legacyModeEnvValue = process.env.LLM_CONTENT_FILTER_MODE;
-	const cacheKey = `${envValue ?? ""}::${legacyModeEnvValue ?? ""}`;
-
-	if (cacheKey === cachedMethodEnvValue && cachedMethod !== null) {
-		return cachedMethod;
-	}
-
-	cachedMethodEnvValue = cacheKey;
 
 	if (envValue === "openai" || legacyModeEnvValue === "openai") {
-		cachedMethod = "openai";
-	} else {
-		cachedMethod = "keywords";
+		return "openai";
 	}
 
-	return cachedMethod;
+	return "keywords";
 }
 
 /**
@@ -83,28 +54,20 @@ export function getContentFilterMethod(): ContentFilterMethod {
 export function getContentFilterModels(): string[] | null {
 	const envValue = process.env.LLM_CONTENT_FILTER_MODELS;
 
-	if (envValue === cachedModelsEnvValue) {
-		return cachedModels;
-	}
-
-	cachedModelsEnvValue = envValue;
-
 	if (!envValue || envValue.trim() === "") {
-		cachedModels = null;
 		return null;
 	}
 
-	cachedModels = envValue
+	const models = envValue
 		.split(",")
 		.map((model) => model.trim().toLowerCase())
 		.filter((model) => model.length > 0);
 
-	if (cachedModels.length === 0) {
-		cachedModels = null;
+	if (models.length === 0) {
 		return null;
 	}
 
-	return cachedModels;
+	return models;
 }
 
 export function shouldApplyContentFilterToModel(
@@ -122,28 +85,18 @@ export function shouldApplyContentFilterToModel(
 /**
  * Returns the list of blocked keywords from LLM_CONTENT_FILTER_KEYWORDS env var.
  * Keywords are comma-separated and lowercased for case-insensitive matching.
- * Results are cached until the env var value changes.
  */
 function getFilterKeywords(): string[] {
 	const envValue = process.env.LLM_CONTENT_FILTER_KEYWORDS;
 
-	if (envValue === cachedEnvValue && cachedKeywords !== null) {
-		return cachedKeywords;
-	}
-
-	cachedEnvValue = envValue;
-
 	if (!envValue || envValue.trim() === "") {
-		cachedKeywords = [];
-		return cachedKeywords;
+		return [];
 	}
 
-	cachedKeywords = envValue
+	return envValue
 		.split(",")
 		.map((k) => k.trim().toLowerCase())
 		.filter((k) => k.length > 0);
-
-	return cachedKeywords;
 }
 
 function extractTextFromContent(

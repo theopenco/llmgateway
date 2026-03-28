@@ -17,8 +17,6 @@ import { readFileSync } from "fs";
 import { Resend } from "resend";
 import { z } from "zod";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const EmailRowSchema = z.object({
 	email: z.string().email(),
 	first_name: z.string(),
@@ -39,6 +37,8 @@ async function sendWithRetry(
 	row: EmailRow,
 	maxRetries = 5,
 ): Promise<{ success: boolean; id?: string; error?: unknown }> {
+	const resend = new Resend(process.env.RESEND_API_KEY);
+
 	for (let attempt = 0; attempt < maxRetries; attempt++) {
 		const { data, error } = await resend.emails.send({
 			from: "Luca from LLMGateway <contact@mail.llmgateway.io>",

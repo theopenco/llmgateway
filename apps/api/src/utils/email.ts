@@ -1,8 +1,8 @@
 import { logger } from "@llmgateway/logger";
 import {
-	fromEmail,
 	getResendClient,
-	replyToEmail,
+	getFromEmail,
+	getReplyToEmail,
 } from "@llmgateway/shared/email";
 
 /**
@@ -39,6 +39,9 @@ export async function sendTransactionalEmail({
 	text,
 	attachments,
 }: TransactionalEmailOptions): Promise<void> {
+	const fromEmail = getFromEmail();
+	const replyToEmail = getReplyToEmail();
+
 	// In non-production environments, just log the email content
 	if (process.env.NODE_ENV !== "production") {
 		logger.info("Email content (not sent in non-production)", {

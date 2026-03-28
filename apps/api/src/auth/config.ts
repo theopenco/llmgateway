@@ -11,15 +11,30 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
+import { getResendAudienceId, getResendClient } from "@llmgateway/shared/email";
 
-const apiUrl = process.env.API_URL ?? "http://localhost:4002";
-const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
-const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
-const originUrls =
-	process.env.ORIGIN_URLS ??
-	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
-const isHosted = process.env.HOSTED === "true";
+function getApiUrl(): string {
+	return process.env.API_URL ?? "http://localhost:4002";
+}
+
+function getCookieDomain(): string {
+	return process.env.COOKIE_DOMAIN ?? "localhost";
+}
+
+function getUiUrl(): string {
+	return process.env.UI_URL ?? "http://localhost:3002";
+}
+
+function getOriginUrls(): string {
+	return (
+		process.env.ORIGIN_URLS ??
+		"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006"
+	);
+}
+
+function getIsHosted(): boolean {
+	return process.env.HOSTED === "true";
+}
 
 export const redisClient = new Redis({
 	host: process.env.REDIS_HOST ?? "localhost",
@@ -364,7 +379,7 @@ async function createResendContact(
 		});
 
 		const { data, error } = await client.contacts.create({
-			audienceId: resendAudienceId,
+			audienceId: getResendAudienceId(),
 			email,
 			firstName: firstName ?? undefined,
 			lastName: lastName ?? undefined,
@@ -424,7 +439,7 @@ export async function updateResendContact(
 		});
 
 		const { data, error } = await client.contacts.update({
-			audienceId: resendAudienceId,
+			audienceId: getResendAudienceId(),
 			email,
 			...(firstName && { firstName }),
 			...(lastName && { lastName }),
@@ -463,10 +478,10 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			advanced: {
 				crossSubDomainCookies: {
 					enabled: true,
-					domain: cookieDomain,
+					domain: getCookieDomain(),
 				},
 				defaultCookieAttributes: {
-					domain: cookieDomain,
+					domain: getCookieDomain(),
 				},
 			},
 			session: {
@@ -478,18 +493,18 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				updateAge: 60 * 60 * 24, // 1 day (every 1 day the session expiration is updated)
 			},
 			basePath: "/auth",
-			trustedOrigins: originUrls.split(","),
+			trustedOrigins: getOriginUrls().split(","),
 			plugins: [
 				passkey({
 					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
 					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
-					origin: uiUrl,
+					origin: getUiUrl(),
 				}),
 			],
 			emailAndPassword: {
 				enabled: true,
 			},
-			baseURL: apiUrl || "http://localhost:4002",
+			baseURL: getApiUrl(),
 			secret: process.env.AUTH_SECRET ?? "dev-secret-key-must-be-32-chars!",
 			database: drizzleAdapter(db, {
 				provider: "pg",
@@ -515,7 +530,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					},
 				}),
 			},
-			emailVerification: isHosted
+			emailVerification: getIsHosted()
 				? {
 						sendOnSignUp: true,
 						autoSignInAfterVerification: true,
@@ -551,7 +566,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 							user: { email: string; name?: string | null };
 							token: string;
 						}) => {
-							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
+							const url = `${getApiUrl()}/auth/verify-email?token=${token}&callbackURL=${getUiUrl()}/dashboard?emailVerified=true`;
 
 							const text = `Hey${user.name ? ` ${user.name}` : ""}!
 
@@ -655,7 +670,7 @@ The LLM Gateway Team`.trim();
 						}
 
 						// Validate email for blocked domains and + sign (only in HOSTED mode)
-						if (isHosted) {
+						if (getIsHosted()) {
 							const body = ctx.body as { email?: string } | undefined;
 							if (body?.email) {
 								const emailValidation = validateEmail(body.email);
@@ -715,7 +730,7 @@ The LLM Gateway Team`.trim();
 					// Perform all DB operations in a single transaction for atomicity
 					await db.transaction(async (tx) => {
 						// For self-hosted installations, automatically verify the user's email
-						if (!isHosted) {
+						if (!getIsHosted()) {
 							await tx
 								.update(tables.user)
 								.set({ emailVerified: true })
@@ -797,7 +812,7 @@ The LLM Gateway Team`.trim();
 
 					// Check if this is a social login by querying the account table
 					// For OAuth signups, we need to send notifications and create Resend contacts
-					if (isHosted) {
+					if (getIsHosted()) {
 						const account = await db.query.account.findFirst({
 							where: {
 								userId: {

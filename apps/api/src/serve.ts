@@ -20,7 +20,9 @@ import type { Server } from "node:http";
 
 // Increase keepAliveTimeout from Node.js default of 5s to reduce 502 errors
 // from GCP Load Balancer reusing stale connections.
-const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 60;
+function getKeepAliveTimeoutSeconds(): number {
+	return Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 60;
+}
 
 let sdk: NodeSDK | null = null;
 
@@ -69,8 +71,9 @@ async function startServer() {
 let isShuttingDown = false;
 
 // Grace period for in-flight requests to complete before force closing (default 120s)
-const shutdownGracePeriodMs =
-	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 120000;
+function getShutdownGracePeriodMs(): number {
+	return Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 120000;
+}
 
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
@@ -98,11 +101,11 @@ const closeServer = (server: ServerType): Promise<void> => {
 		const timeout = setTimeout(() => {
 			logger.warn(
 				"Graceful shutdown timeout reached, forcing close of remaining connections",
-				{ gracePeriodMs: shutdownGracePeriodMs },
+				{ gracePeriodMs: getShutdownGracePeriodMs() },
 			);
 			clearInterval(drainInterval);
 			httpServer.closeAllConnections();
-		}, shutdownGracePeriodMs);
+		}, getShutdownGracePeriodMs());
 	});
 };
 
@@ -150,8 +153,9 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 // Start the server
 startServer()
 	.then((server) => {
-		(server as Server).keepAliveTimeout = keepAliveTimeoutS * 1000;
-		(server as Server).headersTimeout = (keepAliveTimeoutS + 1) * 1000;
+		const keepAliveTimeoutSeconds = getKeepAliveTimeoutSeconds();
+		(server as Server).keepAliveTimeout = keepAliveTimeoutSeconds * 1000;
+		(server as Server).headersTimeout = (keepAliveTimeoutSeconds + 1) * 1000;
 
 		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));

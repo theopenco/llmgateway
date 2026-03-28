@@ -1,4 +1,4 @@
-import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
+import { getLogQueueName, publishToQueue } from "@llmgateway/cache";
 import { UnifiedFinishReason, type LogInsertData } from "@llmgateway/db";
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
@@ -239,6 +239,6 @@ export async function insertLog(logData: LogInsertData): Promise<unknown> {
 		errorType,
 	});
 
-	await publishToQueue(LOG_QUEUE, logData);
+	await publishToQueue(getLogQueueName(), logData);
 	return 1; // Return 1 to match test expectations
 }

@@ -11,9 +11,9 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-// Configuration for project stats refresh interval (defaults to 60 seconds)
-export const PROJECT_STATS_REFRESH_INTERVAL_SECONDS =
-	Number(process.env.PROJECT_STATS_REFRESH_INTERVAL_SECONDS) || 60;
+export function getProjectStatsRefreshIntervalSeconds(): number {
+	return Number(process.env.PROJECT_STATS_REFRESH_INTERVAL_SECONDS) || 60;
+}
 
 /**
  * Format a JS Date as a UTC timestamp string (YYYY-MM-DD HH:MM:SS).
@@ -378,19 +378,31 @@ async function recalculateApiKeyHourlyModelStats(
 }
 
 // Batch size per run (shared by both phases)
-const STATS_BATCH_SIZE = Number(process.env.STATS_BATCH_SIZE) || 100;
+function getStatsBatchSize(): number {
+	return Number(process.env.STATS_BATCH_SIZE) || 100;
+}
 
 // Phase 1: Backfill — process hours with no stats rows yet
 // STATS_BACKFILL_ENABLED: "true" or "false" (default)
 // STATS_BACKFILL_DAYS: how far back to look (default: 30, 0 = unlimited)
-const STATS_BACKFILL_ENABLED = process.env.STATS_BACKFILL_ENABLED === "true";
-const STATS_BACKFILL_DAYS = Number(process.env.STATS_BACKFILL_DAYS) || 30;
+function isStatsBackfillEnabled(): boolean {
+	return process.env.STATS_BACKFILL_ENABLED === "true";
+}
+
+function getStatsBackfillDays(): number {
+	return Number(process.env.STATS_BACKFILL_DAYS) || 30;
+}
 
 // Phase 2: Stale detection — re-process hours where new logs arrived after aggregation
 // STATS_STALE_ENABLED: "true" (default) or "false"
 // STATS_STALE_DAYS: how far back to check for stale buckets (default: 7, 0 = unlimited)
-const STATS_STALE_ENABLED = process.env.STATS_STALE_ENABLED !== "false";
-const STATS_STALE_DAYS = Number(process.env.STATS_STALE_DAYS) || 7;
+function isStatsStaleEnabled(): boolean {
+	return process.env.STATS_STALE_ENABLED !== "false";
+}
+
+function getStatsStaleDays(): number {
+	return Number(process.env.STATS_STALE_DAYS) || 7;
+}
 
 /**
  * Re-aggregate stale buckets (where new logs arrived after the last aggregation)
@@ -408,12 +420,13 @@ export async function aggregateHistoricalStats() {
 		// Iterates over the small project_hourly_stats table and uses a correlated
 		// subquery to check if any log in that bucket is newer than updatedAt.
 		// This leverages the (project_id, created_at) index for fast lookups.
-		if (STATS_STALE_ENABLED) {
+		if (isStatsStaleEnabled()) {
+			const statsStaleDays = getStatsStaleDays();
 			const staleStart =
-				STATS_STALE_DAYS > 0
+				statsStaleDays > 0
 					? formatUTCTimestamp(
 							// eslint-disable-next-line no-mixed-operators
-							new Date(Date.now() - STATS_STALE_DAYS * 24 * 60 * 60 * 1000),
+							new Date(Date.now() - statsStaleDays * 24 * 60 * 60 * 1000),
 						)
 					: undefined;
 
@@ -446,7 +459,7 @@ export async function aggregateHistoricalStats() {
 					),
 				)
 				.orderBy(projectHourlyStats.hourTimestamp)
-				.limit(STATS_BATCH_SIZE);
+				.limit(getStatsBatchSize());
 
 			if (staleBuckets.length > 0) {
 				logger.info(
@@ -480,9 +493,9 @@ export async function aggregateHistoricalStats() {
 
 				totalBucketsProcessed += staleBuckets.length;
 
-				if (staleBuckets.length === STATS_BATCH_SIZE) {
+				if (staleBuckets.length === getStatsBatchSize()) {
 					logger.info(
-						`[stale] Batch limit reached (${STATS_BATCH_SIZE}), more stale buckets may remain — will continue in next run`,
+						`[stale] Batch limit reached (${getStatsBatchSize()}), more stale buckets may remain — will continue in next run`,
 					);
 				}
 			} else {
@@ -492,12 +505,13 @@ export async function aggregateHistoricalStats() {
 
 		// Phase 2: Backfill - find project-hour buckets that have NO stats rows yet.
 		// This runs after stale detection so that live data is always prioritised.
-		if (STATS_BACKFILL_ENABLED) {
+		if (isStatsBackfillEnabled()) {
+			const statsBackfillDays = getStatsBackfillDays();
 			const backfillStart =
-				STATS_BACKFILL_DAYS > 0
+				statsBackfillDays > 0
 					? formatUTCTimestamp(
 							// eslint-disable-next-line no-mixed-operators
-							new Date(Date.now() - STATS_BACKFILL_DAYS * 24 * 60 * 60 * 1000),
+							new Date(Date.now() - statsBackfillDays * 24 * 60 * 60 * 1000),
 						)
 					: undefined;
 
@@ -532,7 +546,7 @@ export async function aggregateHistoricalStats() {
 				)
 				.groupBy(log.projectId, sql`date_trunc('hour', ${log.createdAt})`)
 				.orderBy(sql`date_trunc('hour', ${log.createdAt}) ASC`)
-				.limit(STATS_BATCH_SIZE);
+				.limit(getStatsBatchSize());
 
 			if (backfillBuckets.length > 0) {
 				logger.info(
@@ -566,9 +580,9 @@ export async function aggregateHistoricalStats() {
 
 				totalBucketsProcessed += backfillBuckets.length;
 
-				if (backfillBuckets.length === STATS_BATCH_SIZE) {
+				if (backfillBuckets.length === getStatsBatchSize()) {
 					logger.info(
-						`[backfill] Batch limit reached (${STATS_BATCH_SIZE}), more unprocessed buckets may remain — will continue in next run`,
+						`[backfill] Batch limit reached (${getStatsBatchSize()}), more unprocessed buckets may remain — will continue in next run`,
 					);
 				} else {
 					logger.info(

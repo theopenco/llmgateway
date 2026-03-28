@@ -10,11 +10,44 @@ function nonEmpty(value: string | undefined): string | undefined {
 	return value;
 }
 
-const posthogKey = nonEmpty(process.env.POSTHOG_KEY);
-const posthogHost = nonEmpty(process.env.POSTHOG_HOST);
-const posthogDisabled = !posthogKey || !posthogHost;
+function getPostHogConfig() {
+	const posthogKey = nonEmpty(process.env.POSTHOG_KEY);
+	const posthogHost = nonEmpty(process.env.POSTHOG_HOST);
 
-export const posthog = new PostHog(posthogKey ?? "phc_placeholder", {
-	host: posthogHost ?? "https://localhost",
-	disabled: posthogDisabled,
-});
+	return {
+		posthogKey,
+		posthogHost,
+		posthogDisabled: !posthogKey || !posthogHost,
+	};
+}
+
+let posthogClient: PostHog | null = null;
+let posthogClientSignature: string | null = null;
+
+function getPostHogClient(): PostHog {
+	const { posthogKey, posthogHost, posthogDisabled } = getPostHogConfig();
+	const signature = JSON.stringify({
+		posthogKey,
+		posthogHost,
+		posthogDisabled,
+	});
+
+	if (!posthogClient || posthogClientSignature !== signature) {
+		posthogClient = new PostHog(posthogKey ?? "phc_placeholder", {
+			host: posthogHost ?? "https://localhost",
+			disabled: posthogDisabled,
+		});
+		posthogClientSignature = signature;
+	}
+
+	return posthogClient;
+}
+
+export const posthog = {
+	capture(...args: Parameters<PostHog["capture"]>) {
+		return getPostHogClient().capture(...args);
+	},
+	groupIdentify(...args: Parameters<PostHog["groupIdentify"]>) {
+		return getPostHogClient().groupIdentify(...args);
+	},
+};

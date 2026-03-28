@@ -159,6 +159,14 @@ describe("getContentFilterMode", () => {
 		process.env.LLM_CONTENT_FILTER_MODE = "openai";
 		expect(getContentFilterMode()).toBe("enabled");
 	});
+
+	it("reflects env changes between calls", () => {
+		process.env.LLM_CONTENT_FILTER_MODE = "enabled";
+		expect(getContentFilterMode()).toBe("enabled");
+
+		process.env.LLM_CONTENT_FILTER_MODE = "monitor";
+		expect(getContentFilterMode()).toBe("monitor");
+	});
 });
 
 describe("getContentFilterMethod", () => {
@@ -218,12 +226,6 @@ describe("getContentFilterModels", () => {
 		expect(getContentFilterModels()).toBeNull();
 	});
 
-	it("keeps returning null on repeated calls when env var is not set", () => {
-		delete process.env.LLM_CONTENT_FILTER_MODELS;
-		expect(getContentFilterModels()).toBeNull();
-		expect(getContentFilterModels()).toBeNull();
-	});
-
 	it("returns null for empty string", () => {
 		process.env.LLM_CONTENT_FILTER_MODELS = "";
 		expect(getContentFilterModels()).toBeNull();
@@ -241,7 +243,14 @@ describe("getContentFilterModels", () => {
 	it("returns null for all-empty configured model lists", () => {
 		process.env.LLM_CONTENT_FILTER_MODELS = " , , ";
 		expect(getContentFilterModels()).toBeNull();
-		expect(getContentFilterModels()).toBeNull();
+	});
+
+	it("reflects model env changes between calls", () => {
+		process.env.LLM_CONTENT_FILTER_MODELS = "gpt-4o-mini";
+		expect(getContentFilterModels()).toEqual(["gpt-4o-mini"]);
+
+		process.env.LLM_CONTENT_FILTER_MODELS = "claude-3-5-sonnet";
+		expect(getContentFilterModels()).toEqual(["claude-3-5-sonnet"]);
 	});
 });
 

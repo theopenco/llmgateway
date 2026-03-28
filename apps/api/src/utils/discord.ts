@@ -1,7 +1,5 @@
 import { logger } from "@llmgateway/logger";
 
-const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
-
 interface DiscordEmbed {
 	title: string;
 	description?: string;
@@ -22,6 +20,7 @@ interface DiscordWebhookPayload {
 async function sendDiscordNotification(
 	payload: DiscordWebhookPayload,
 ): Promise<void> {
+	const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
 	if (!discordWebhookUrl) {
 		logger.debug(
 			"DISCORD_NOTIFICATION_URL not configured, skipping notification",

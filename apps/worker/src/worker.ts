@@ -5,7 +5,7 @@ import { z } from "zod";
 import {
 	closeRedisClient,
 	consumeFromQueue,
-	LOG_QUEUE,
+	getLogQueueName,
 	publishToQueue,
 } from "@llmgateway/cache";
 import {
@@ -28,7 +28,7 @@ import { calculateFees } from "@llmgateway/shared";
 
 import { runFollowUpEmailsLoop } from "./services/follow-up-emails.js";
 import {
-	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
+	getProjectStatsRefreshIntervalSeconds,
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
 import {
@@ -43,9 +43,9 @@ import {
 	processPendingWebhookDeliveries,
 } from "./services/video-jobs.js";
 
-// Configuration for current minute history calculation interval (defaults to 5 seconds)
-const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
-	Number(process.env.CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS) || 5;
+function getCurrentMinuteHistoryIntervalSeconds(): number {
+	return Number(process.env.CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS) || 5;
+}
 
 let _stripe: Stripe | null = null;
 
@@ -68,14 +68,21 @@ const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const LOCK_DURATION_MINUTES = 5;
 
-// Configuration for batch processing
-const BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
-const BATCH_PROCESSING_INTERVAL_SECONDS =
-	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
-const VIDEO_JOB_POLL_INTERVAL_SECONDS =
-	Number(process.env.VIDEO_JOB_POLL_INTERVAL_SECONDS) || 5;
-const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
-	Number(process.env.VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS) || 5;
+function getBatchSize(): number {
+	return Number(process.env.CREDIT_BATCH_SIZE) || 100;
+}
+
+function getBatchProcessingIntervalSeconds(): number {
+	return Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
+}
+
+function getVideoJobPollIntervalSeconds(): number {
+	return Number(process.env.VIDEO_JOB_POLL_INTERVAL_SECONDS) || 5;
+}
+
+function getVideoWebhookPollIntervalSeconds(): number {
+	return Number(process.env.VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS) || 5;
+}
 
 const schema = z.object({
 	id: z.string(),
@@ -532,7 +539,7 @@ export async function batchProcessLogs(): Promise<void> {
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
 				.where(sql`${log.processedAt} IS NULL`)
 				.orderBy(sql`${log.createdAt} ASC`)
-				.limit(BATCH_SIZE)
+				.limit(getBatchSize())
 				.for("update", { of: [log], skipLocked: true });
 			const unprocessedLogs = { rows };
 
@@ -764,7 +771,7 @@ export async function batchProcessLogs(): Promise<void> {
 }
 
 export async function processLogQueue(): Promise<void> {
-	const message = await consumeFromQueue(LOG_QUEUE);
+	const message = await consumeFromQueue(getLogQueueName());
 
 	if (!message) {
 		return;
@@ -839,7 +846,7 @@ export async function processLogQueue(): Promise<void> {
 
 		// Re-add messages to queue
 		for (const msg of message) {
-			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
+			await publishToQueue(getLogQueueName(), JSON.parse(msg));
 		}
 	} catch (error) {
 		logger.error(
@@ -850,7 +857,7 @@ export async function processLogQueue(): Promise<void> {
 		// Re-add messages to queue on unexpected errors
 		try {
 			for (const msg of message) {
-				await publishToQueue(LOG_QUEUE, JSON.parse(msg));
+				await publishToQueue(getLogQueueName(), JSON.parse(msg));
 			}
 		} catch (requeueError) {
 			logger.error(
@@ -953,9 +960,10 @@ async function runAutoTopUpLoop() {
 
 async function runBatchProcessLoop() {
 	activeLoops++;
-	const interval = BATCH_PROCESSING_INTERVAL_SECONDS * 1000;
+	const batchProcessingIntervalSeconds = getBatchProcessingIntervalSeconds();
+	const interval = batchProcessingIntervalSeconds * 1000;
 	logger.info(
-		`Starting batch process loop (interval: ${BATCH_PROCESSING_INTERVAL_SECONDS} seconds)...`,
+		`Starting batch process loop (interval: ${batchProcessingIntervalSeconds} seconds)...`,
 	);
 
 	try {
@@ -1040,9 +1048,11 @@ async function runMinutelyHistoryLoop() {
 
 async function runCurrentMinuteHistoryLoop() {
 	activeLoops++;
-	const interval = CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS * 1000;
+	const currentMinuteHistoryIntervalSeconds =
+		getCurrentMinuteHistoryIntervalSeconds();
+	const interval = currentMinuteHistoryIntervalSeconds * 1000;
 	logger.info(
-		`Starting current minute history loop (interval: ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds)...`,
+		`Starting current minute history loop (interval: ${currentMinuteHistoryIntervalSeconds} seconds)...`,
 	);
 
 	try {
@@ -1075,9 +1085,10 @@ async function runCurrentMinuteHistoryLoop() {
 
 async function runVideoJobsLoop() {
 	activeLoops++;
-	const interval = VIDEO_JOB_POLL_INTERVAL_SECONDS * 1000;
+	const videoJobPollIntervalSeconds = getVideoJobPollIntervalSeconds();
+	const interval = videoJobPollIntervalSeconds * 1000;
 	logger.info(
-		`Starting video jobs loop (interval: ${VIDEO_JOB_POLL_INTERVAL_SECONDS} seconds)...`,
+		`Starting video jobs loop (interval: ${videoJobPollIntervalSeconds} seconds)...`,
 	);
 
 	try {
@@ -1110,9 +1121,10 @@ async function runVideoJobsLoop() {
 
 async function runVideoWebhookLoop() {
 	activeLoops++;
-	const interval = VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS * 1000;
+	const videoWebhookPollIntervalSeconds = getVideoWebhookPollIntervalSeconds();
+	const interval = videoWebhookPollIntervalSeconds * 1000;
 	logger.info(
-		`Starting video webhook loop (interval: ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds)...`,
+		`Starting video webhook loop (interval: ${videoWebhookPollIntervalSeconds} seconds)...`,
 	);
 
 	try {
@@ -1199,9 +1211,11 @@ async function runAggregatedStatsLoop() {
 
 async function runProjectStatsLoop() {
 	activeLoops++;
-	const interval = PROJECT_STATS_REFRESH_INTERVAL_SECONDS * 1000;
+	const projectStatsRefreshIntervalSeconds =
+		getProjectStatsRefreshIntervalSeconds();
+	const interval = projectStatsRefreshIntervalSeconds * 1000;
 	logger.info(
-		`Starting project stats loop (interval: ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds)...`,
+		`Starting project stats loop (interval: ${projectStatsRefreshIntervalSeconds} seconds)...`,
 	);
 
 	try {
@@ -1317,19 +1331,19 @@ export async function startWorker() {
 	logger.info("Starting worker loops...");
 	logger.info("- Minutely history: runs at the first second of every minute");
 	logger.info(
-		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
+		`- Current minute history: runs every ${getCurrentMinuteHistoryIntervalSeconds()} seconds for real-time metrics`,
 	);
 	logger.info(
-		`- Video jobs: runs every ${VIDEO_JOB_POLL_INTERVAL_SECONDS} seconds for async video status polling`,
+		`- Video jobs: runs every ${getVideoJobPollIntervalSeconds()} seconds for async video status polling`,
 	);
 	logger.info(
-		`- Video webhooks: runs every ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds for callback delivery`,
+		`- Video webhooks: runs every ${getVideoWebhookPollIntervalSeconds()} seconds for callback delivery`,
 	);
 	logger.info(
 		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
 	);
 	logger.info(
-		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,
+		`- Project hourly stats: runs every ${getProjectStatsRefreshIntervalSeconds()} seconds for dashboard aggregations`,
 	);
 	logger.info(
 		"- Follow-up emails: runs every hour to check for lifecycle emails",
