@@ -212,6 +212,64 @@ function resolveExplicitRegionFromProviderKey(
 		: undefined;
 }
 
+async function logGatewayHttpException(options: {
+	insertLog: typeof _insertLog;
+	baseLogEntry: ReturnType<typeof createLogEntry>;
+	status: number;
+	message: string;
+	streamed: boolean;
+}) {
+	const finishReason = options.status >= 500 ? "gateway_error" : "client_error";
+	const statusText = new Response(null, { status: options.status }).statusText;
+
+	try {
+		await options.insertLog({
+			...options.baseLogEntry,
+			duration: 0,
+			timeToFirstToken: null,
+			timeToFirstReasoningToken: null,
+			responseSize: options.message.length,
+			content: null,
+			reasoningContent: null,
+			finishReason,
+			promptTokens: null,
+			completionTokens: null,
+			totalTokens: null,
+			reasoningTokens: null,
+			cachedTokens: null,
+			hasError: true,
+			streamed: options.streamed,
+			canceled: false,
+			errorDetails: {
+				statusCode: options.status,
+				statusText: statusText === "" ? "Error" : statusText,
+				responseText: options.message,
+			},
+			inputCost: null,
+			outputCost: null,
+			cachedInputCost: null,
+			requestCost: null,
+			webSearchCost: null,
+			imageInputTokens: null,
+			imageOutputTokens: null,
+			imageInputCost: null,
+			imageOutputCost: null,
+			cost: null,
+			estimatedCost: false,
+			discount: null,
+			dataStorageCost: "0",
+			cached: false,
+			toolResults: null,
+		});
+	} catch (error) {
+		logger.warn("Failed to persist gateway HTTPException log", {
+			requestId: options.baseLogEntry.requestId,
+			status: options.status,
+			logError: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
 function filterEligibleModelProviders(
 	availableModelProviders: ProviderModelMapping[],
 	options: {
@@ -2724,8 +2782,45 @@ chat.openapi(completions, async (c) => {
 			providerMapping.maxOutput !== undefined
 		) {
 			if (max_tokens > providerMapping.maxOutput) {
+				const message = `The requested max_tokens (${max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`;
+				await logGatewayHttpException({
+					insertLog,
+					baseLogEntry: createLogEntry({
+						requestId,
+						project,
+						apiKey,
+						providerKeyId: providerKey?.id,
+						usedModel: usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
+						requestedModel: initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoningEffort: reasoning_effort,
+						reasoningMaxTokens: reasoning_max_tokens,
+						effort,
+						responseFormat: response_format,
+						tools,
+						toolChoice: tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						imageConfig: image_config,
+						routingMetadata,
+						rawRequest: rawBody,
+					}),
+					status: 400,
+					message,
+					streamed: Boolean(stream),
+				});
 				throw new HTTPException(400, {
-					message: `The requested max_tokens (${max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
+					message,
 				});
 			}
 		}
@@ -2935,8 +3030,46 @@ chat.openapi(completions, async (c) => {
 			providerMapping.maxOutput !== undefined
 		) {
 			if (requestBody.max_tokens > providerMapping.maxOutput) {
+				const message = `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`;
+				await logGatewayHttpException({
+					insertLog,
+					baseLogEntry: createLogEntry({
+						requestId,
+						project,
+						apiKey,
+						providerKeyId: providerKey?.id,
+						usedModel: usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
+						requestedModel: initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoningEffort: reasoning_effort,
+						reasoningMaxTokens: reasoning_max_tokens,
+						effort,
+						responseFormat: response_format,
+						tools,
+						toolChoice: tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						imageConfig: image_config,
+						routingMetadata,
+						rawRequest: rawBody,
+						upstreamRequest: requestBody,
+					}),
+					status: 400,
+					message,
+					streamed: Boolean(stream),
+				});
 				throw new HTTPException(400, {
-					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
+					message,
 				});
 			}
 		}

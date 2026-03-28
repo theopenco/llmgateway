@@ -1188,6 +1188,18 @@ describe("api", () => {
 		expect(json.message).toContain("exceeds the maximum output tokens allowed");
 		expect(json.message).toContain("10000");
 		expect(json.message).toContain("8192");
+
+		const logs = await waitForLogs(1);
+		expect(logs).toHaveLength(1);
+		expect(logs[0].finishReason).toBe("client_error");
+		expect(logs[0].unifiedFinishReason).toBe("client_error");
+		expect(logs[0].hasError).toBe(true);
+		expect(logs[0].errorDetails?.statusCode).toBe(400);
+		expect(logs[0].errorDetails?.responseText).toContain(
+			"The requested max_tokens (10000) exceeds the maximum output tokens allowed",
+		);
+		expect(logs[0].usedModel).toBe("openai/gpt-4");
+		expect(logs[0].usedProvider).toBe("openai");
 	});
 
 	test("Max tokens validation allows valid token count", async () => {
