@@ -53,7 +53,7 @@ export interface OpenAIContentFilterCheckResult {
 
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
-const OPENAI_MODERATION_TIMEOUT_MS = 5_000;
+const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
 
 function buildTextSummary(message: BaseMessage): string | null {
 	const segments: string[] = [];
