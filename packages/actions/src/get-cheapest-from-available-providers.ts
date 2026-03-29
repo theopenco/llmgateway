@@ -84,6 +84,10 @@ export interface RoutingMetadata {
 		error_type?: string;
 		// Set when this provider was excluded due to RPM cap
 		rate_limited?: boolean;
+		// Set when the provider is marked as content-filtered in the provider catalog
+		contentFilterProvider?: boolean;
+		// Set when the provider was excluded because the gateway content filter matched
+		excludedByContentFilter?: boolean;
 	}>;
 	// Optional fields for low-uptime fallback routing
 	originalProvider?: string;
@@ -92,6 +96,12 @@ export interface RoutingMetadata {
 	originalProviderRateLimited?: boolean;
 	// Whether fallback was disabled via X-No-Fallback header
 	noFallback?: boolean;
+	// Whether the gateway content filter matched for the request before upstream routing
+	contentFilterMatched?: boolean;
+	// Whether routing excluded content-filter providers in favor of alternatives
+	contentFilterRerouted?: boolean;
+	// Providers excluded because they are marked as content-filter providers
+	contentFilterExcludedProviders?: string[];
 	// All provider attempts from retry fallback mechanism (including successful)
 	routing?: Array<{
 		provider: string;

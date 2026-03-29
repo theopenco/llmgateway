@@ -10,6 +10,7 @@ import {
 } from "vitest";
 
 import { and, db, eq, tables, type Log } from "@llmgateway/db";
+import { getProviderDefinition } from "@llmgateway/models";
 
 import { app } from "./app.js";
 import {
@@ -1401,6 +1402,96 @@ describe("fallback and error status code handling", () => {
 			const log = logs[0];
 			expect(log.routingMetadata).toBeTruthy();
 			expect(log.routingMetadata).toHaveProperty("noFallback", true);
+		});
+
+		test("content filter hit reroutes away from content-filter providers and records it in routing metadata", async () => {
+			await setupMultiProviderKeys();
+
+			const togetherProvider = getProviderDefinition("together.ai");
+			expect(togetherProvider).toBeDefined();
+			if (!togetherProvider) {
+				throw new Error("Missing together.ai provider fixture");
+			}
+
+			const originalContentFilterFlag = togetherProvider.contentFilter;
+			const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+			const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
+			const previousContentFilterModels = process.env.LLM_CONTENT_FILTER_MODELS;
+			const previousContentFilterKeywords =
+				process.env.LLM_CONTENT_FILTER_KEYWORDS;
+
+			togetherProvider.contentFilter = true;
+			process.env.LLM_CONTENT_FILTER_MODE = "enabled";
+			process.env.LLM_CONTENT_FILTER_METHOD = "keywords";
+			process.env.LLM_CONTENT_FILTER_MODELS = "llama-3.1-8b-instruct";
+			process.env.LLM_CONTENT_FILTER_KEYWORDS = "blocked";
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "llama-3.1-8b-instruct",
+						messages: [{ role: "user", content: "this request is blocked" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+
+				const log = logs[0];
+				expect(log.usedProvider).toBe("cerebras");
+				expect(log.internalContentFilter).toBe(true);
+				expect(log.routingMetadata).toMatchObject({
+					selectedProvider: "cerebras",
+					contentFilterMatched: true,
+					contentFilterRerouted: true,
+					contentFilterExcludedProviders: ["together.ai"],
+				});
+				expect(log.routingMetadata?.providerScores).toContainEqual(
+					expect.objectContaining({
+						providerId: "together.ai",
+						contentFilterProvider: true,
+						excludedByContentFilter: true,
+					}),
+				);
+			} finally {
+				if (originalContentFilterFlag === undefined) {
+					delete togetherProvider.contentFilter;
+				} else {
+					togetherProvider.contentFilter = originalContentFilterFlag;
+				}
+
+				if (previousContentFilterMode === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODE;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+				}
+
+				if (previousContentFilterMethod === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_METHOD;
+				} else {
+					process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
+				}
+
+				if (previousContentFilterModels === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODELS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODELS = previousContentFilterModels;
+				}
+
+				if (previousContentFilterKeywords === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_KEYWORDS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_KEYWORDS =
+						previousContentFilterKeywords;
+				}
+			}
 		});
 	});
 
