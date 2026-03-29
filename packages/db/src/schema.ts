@@ -549,11 +549,16 @@ export const log = pgTable(
 				status_code?: number;
 				error_type?: string;
 				rate_limited?: boolean;
+				contentFilterProvider?: boolean;
+				excludedByContentFilter?: boolean;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;
 			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
+			contentFilterMatched?: boolean;
+			contentFilterRerouted?: boolean;
+			contentFilterExcludedProviders?: string[];
 			routing?: Array<{
 				provider: string;
 				model: string;
@@ -703,11 +708,16 @@ export const videoJob = pgTable(
 				status_code?: number;
 				error_type?: string;
 				rate_limited?: boolean;
+				contentFilterProvider?: boolean;
+				excludedByContentFilter?: boolean;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;
 			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
+			contentFilterMatched?: boolean;
+			contentFilterRerouted?: boolean;
+			contentFilterExcludedProviders?: string[];
 			routing?: Array<{
 				provider: string;
 				model: string;
