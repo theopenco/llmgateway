@@ -179,6 +179,8 @@ export const metaModels = [
 			{
 				providerId: "groq",
 				modelName: "meta-llama/llama-guard-4-12b",
+				// Decommissioned by Groq
+				deactivatedAt: new Date("2026-03-29"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.2 / 1e6,
 				requestPrice: 0,
