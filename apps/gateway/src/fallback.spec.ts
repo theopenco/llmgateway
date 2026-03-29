@@ -1493,6 +1493,97 @@ describe("fallback and error status code handling", () => {
 				}
 			}
 		});
+
+		test("content filter monitor mode does not reroute away from content-filter providers", async () => {
+			await setupMultiProviderKeys();
+
+			const togetherProvider = getProviderDefinition("together.ai");
+			expect(togetherProvider).toBeDefined();
+			if (!togetherProvider) {
+				throw new Error("Missing together.ai provider fixture");
+			}
+
+			const originalContentFilterFlag = togetherProvider.contentFilter;
+			const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+			const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
+			const previousContentFilterModels = process.env.LLM_CONTENT_FILTER_MODELS;
+			const previousContentFilterKeywords =
+				process.env.LLM_CONTENT_FILTER_KEYWORDS;
+
+			togetherProvider.contentFilter = true;
+			process.env.LLM_CONTENT_FILTER_MODE = "monitor";
+			process.env.LLM_CONTENT_FILTER_METHOD = "keywords";
+			process.env.LLM_CONTENT_FILTER_MODELS = "llama-3.1-8b-instruct";
+			process.env.LLM_CONTENT_FILTER_KEYWORDS = "blocked";
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "llama-3.1-8b-instruct",
+						messages: [{ role: "user", content: "this request is blocked" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+
+				const log = logs[0];
+				expect(log.usedProvider).toBe("together.ai");
+				expect(log.internalContentFilter).toBe(true);
+				expect(log.routingMetadata).toMatchObject({
+					selectedProvider: "together.ai",
+					contentFilterMatched: true,
+					contentFilterRerouted: false,
+				});
+				expect(
+					log.routingMetadata?.contentFilterExcludedProviders,
+				).toBeUndefined();
+				expect(log.routingMetadata?.providerScores).not.toContainEqual(
+					expect.objectContaining({
+						providerId: "together.ai",
+						excludedByContentFilter: true,
+					}),
+				);
+			} finally {
+				if (originalContentFilterFlag === undefined) {
+					delete togetherProvider.contentFilter;
+				} else {
+					togetherProvider.contentFilter = originalContentFilterFlag;
+				}
+
+				if (previousContentFilterMode === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODE;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+				}
+
+				if (previousContentFilterMethod === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_METHOD;
+				} else {
+					process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
+				}
+
+				if (previousContentFilterModels === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODELS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODELS = previousContentFilterModels;
+				}
+
+				if (previousContentFilterKeywords === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_KEYWORDS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_KEYWORDS =
+						previousContentFilterKeywords;
+				}
+			}
+		});
 	});
 
 	describe("unified finish reason in DB log entries", () => {

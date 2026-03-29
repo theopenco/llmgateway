@@ -1551,6 +1551,8 @@ chat.openapi(completions, async (c) => {
 	const contentFilterMatched =
 		keywordContentFilterMatch !== null ||
 		openAIContentFilterResult?.flagged === true;
+	const shouldRerouteContentFilter =
+		contentFilterMode === "enabled" && contentFilterMatched;
 	let contentFilterRoutingExcludedProviders: ProviderModelMapping[] = [];
 	let contentFilterRoutingApplied = false;
 
@@ -1961,7 +1963,7 @@ chat.openapi(completions, async (c) => {
 
 			const contentFilterRoutingDecision = getContentFilterRoutingDecision(
 				availableModelProviders,
-				contentFilterMatched,
+				shouldRerouteContentFilter,
 			);
 			const contentFilterPreferredProviders =
 				contentFilterRoutingDecision.candidates;
