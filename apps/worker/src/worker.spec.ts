@@ -6,16 +6,22 @@ import { acquireLock, processAutoTopUp } from "./worker.js";
 
 describe("worker", () => {
 	beforeEach(async () => {
+		await db.delete(tables.auditLog);
 		await db.delete(tables.transaction);
 		await db.delete(tables.paymentMethod);
+		await db.delete(tables.userOrganization);
 		await db.delete(tables.organization);
+		await db.delete(tables.user);
 		await db.delete(tables.lock);
 	});
 
 	afterAll(async () => {
+		await db.delete(tables.auditLog);
 		await db.delete(tables.transaction);
 		await db.delete(tables.paymentMethod);
+		await db.delete(tables.userOrganization);
 		await db.delete(tables.organization);
+		await db.delete(tables.user);
 		await db.delete(tables.lock);
 	});
 
@@ -117,6 +123,11 @@ describe("worker", () => {
 		test("should disable auto top-up after 7 days of payment failures", async () => {
 			const eightDaysMs = 8 * 24 * 60 * 60 * 1000;
 
+			await db.insert(tables.user).values({
+				id: "worker-test-user",
+				email: "worker@example.com",
+			});
+
 			await db.insert(tables.organization).values({
 				id: "org-disable-auto-topup",
 				name: "Disable Auto Top-up",
@@ -128,6 +139,12 @@ describe("worker", () => {
 				paymentFailureCount: 8,
 				lastPaymentFailureAt: new Date(),
 				paymentFailureStartedAt: new Date(Date.now() - eightDaysMs),
+			});
+
+			await db.insert(tables.userOrganization).values({
+				userId: "worker-test-user",
+				organizationId: "org-disable-auto-topup",
+				role: "owner",
 			});
 
 			await processAutoTopUp();
@@ -153,6 +170,30 @@ describe("worker", () => {
 				},
 			});
 			expect(transactions).toHaveLength(0);
+
+			const auditLogs = await db.query.auditLog.findMany({
+				where: {
+					organizationId: {
+						eq: "org-disable-auto-topup",
+					},
+					action: {
+						eq: "payment.auto_topup.disable",
+					},
+				},
+			});
+			expect(auditLogs).toHaveLength(1);
+			expect(auditLogs[0]?.userId).toBe("worker-test-user");
+			expect(auditLogs[0]?.metadata).toMatchObject({
+				automatic: true,
+				reason: "payment_failures_exceeded_7_days",
+				changes: {
+					autoTopUpEnabled: {
+						old: true,
+						new: false,
+					},
+				},
+				paymentFailureCount: 8,
+			});
 		});
 
 		test("should keep auto top-up enabled when failures are newer than 7 days", async () => {

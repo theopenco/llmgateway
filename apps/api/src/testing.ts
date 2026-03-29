@@ -22,6 +22,7 @@ export async function deleteAll() {
 
 	await Promise.all([
 		db.delete(tables.log),
+		db.delete(tables.auditLog),
 		db.delete(tables.apiKey),
 		db.delete(tables.providerKey),
 		db.delete(projectHourlyStats),

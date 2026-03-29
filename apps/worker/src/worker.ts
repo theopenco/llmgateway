@@ -223,6 +223,29 @@ export async function processAutoTopUp(): Promise<void> {
 					Date.now() - org.paymentFailureStartedAt.getTime() >=
 						AUTO_TOPUP_DISABLE_AFTER_MS
 				) {
+					const auditActor =
+						(await db.query.userOrganization.findFirst({
+							where: {
+								organizationId: {
+									eq: org.id,
+								},
+								role: {
+									eq: "owner",
+								},
+							},
+						})) ??
+						(await db.query.userOrganization.findFirst({
+							where: {
+								organizationId: {
+									eq: org.id,
+								},
+							},
+						}));
+
+					const previousFailureStartedAt = org.paymentFailureStartedAt;
+					const previousLastPaymentFailureAt = org.lastPaymentFailureAt;
+					const previousFailureCount = org.paymentFailureCount ?? 0;
+
 					await db
 						.update(tables.organization)
 						.set({
@@ -232,6 +255,30 @@ export async function processAutoTopUp(): Promise<void> {
 							paymentFailureStartedAt: null,
 						})
 						.where(eq(tables.organization.id, org.id));
+
+					if (auditActor) {
+						await db.insert(tables.auditLog).values({
+							organizationId: org.id,
+							userId: auditActor.userId,
+							action: "payment.auto_topup.disable",
+							resourceType: "organization",
+							resourceId: org.id,
+							metadata: {
+								automatic: true,
+								reason: "payment_failures_exceeded_7_days",
+								changes: {
+									autoTopUpEnabled: {
+										old: true,
+										new: false,
+									},
+								},
+								paymentFailureCount: previousFailureCount,
+								paymentFailureStartedAt: previousFailureStartedAt.toISOString(),
+								lastPaymentFailureAt:
+									previousLastPaymentFailureAt?.toISOString() ?? null,
+							},
+						});
+					}
 
 					logger.warn(
 						`Disabled auto top-up for organization ${org.id} after ${AUTO_TOPUP_DISABLE_AFTER_DAYS} days of payment failures`,
