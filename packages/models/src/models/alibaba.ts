@@ -775,6 +775,18 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				providerId: "novita",
@@ -860,6 +872,18 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 		],
 	},
@@ -883,6 +907,18 @@ export const alibabaModels = [
 				tools: true,
 				reasoning: true,
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 		],
 	},
@@ -1115,7 +1151,8 @@ export const alibabaModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// Embercloud leaks reasoning tags into JSON output, breaking json_object mode
+				jsonOutput: false,
 				// Embercloud bug: tool_choice other than "auto" breaks streaming tool calls for this model
 				supportedParameters: [
 					"messages",

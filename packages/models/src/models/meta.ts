@@ -212,6 +212,18 @@ export const metaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				// Cerebras: FP16
