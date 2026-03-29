@@ -5,6 +5,7 @@
 	"license": "SEE LICENSE IN ../../LICENSE",
 	"type": "module",
 	"scripts": {
+		"analyze-content-filter": "tsx src/analyze-content-filter.ts",
 		"api-ping": "tsx src/api-ping.ts",
 		"export-models-dev": "tsx src/export-models-dev.ts",
 		"generate-test-logs": "tsx src/generate-test-logs.ts",
