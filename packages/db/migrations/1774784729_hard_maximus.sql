@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "payment_failure_started_at" timestamp;

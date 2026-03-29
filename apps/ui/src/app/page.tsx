@@ -13,6 +13,11 @@ const CodeExample = dynamic(() =>
 const Faq = dynamic(() =>
 	import("@/components/landing/faq").then((mod) => mod.Faq),
 );
+const EnterpriseCTA = dynamic(() =>
+	import("@/components/landing/enterprise-cta").then(
+		(mod) => mod.EnterpriseCTA,
+	),
+);
 const CallToAction = dynamic(() => import("@/components/landing/cta"));
 const Footer = dynamic(() => import("@/components/landing/footer"));
 
@@ -25,6 +30,7 @@ export default function Home() {
 			<CodeExample />
 			<Testimonials />
 			<Faq />
+			<EnterpriseCTA />
 			<CallToAction />
 			<Footer />
 		</>

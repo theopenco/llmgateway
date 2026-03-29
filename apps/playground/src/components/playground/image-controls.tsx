@@ -24,6 +24,8 @@ import { getModelImageConfig } from "@/lib/image-gen";
 
 import type { AspectRatio } from "@/lib/image-gen";
 
+const MAX_INPUT_IMAGES = 4;
+
 interface InputImage {
 	dataUrl: string;
 	mediaType: string;
@@ -106,7 +108,7 @@ export function ImageControls({
 			const reader = new FileReader();
 			reader.onload = () => {
 				setInputImages((prev) => {
-					if (prev.length >= 1) {
+					if (prev.length >= MAX_INPUT_IMAGES) {
 						return prev;
 					}
 					return [
@@ -132,7 +134,7 @@ export function ImageControls({
 	const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const files = Array.from(e.target.files ?? []);
 		for (const file of files) {
-			if (inputImages.length >= 1) {
+			if (inputImages.length >= MAX_INPUT_IMAGES) {
 				break;
 			}
 			addImageFile(file);
@@ -144,7 +146,7 @@ export function ImageControls({
 	// Paste handler for images
 	const handlePaste = useCallback(
 		(e: React.ClipboardEvent) => {
-			if (!isEditModel || inputImages.length >= 1) {
+			if (!isEditModel || inputImages.length >= MAX_INPUT_IMAGES) {
 				return;
 			}
 			const items = Array.from(e.clipboardData.items);
@@ -167,7 +169,7 @@ export function ImageControls({
 		(e: React.DragEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
-			if (isEditModel && inputImages.length < 1) {
+			if (isEditModel && inputImages.length < MAX_INPUT_IMAGES) {
 				setIsDragging(true);
 			}
 		},
@@ -191,14 +193,13 @@ export function ImageControls({
 			e.preventDefault();
 			e.stopPropagation();
 			setIsDragging(false);
-			if (!isEditModel || inputImages.length >= 1) {
+			if (!isEditModel || inputImages.length >= MAX_INPUT_IMAGES) {
 				return;
 			}
 			const files = Array.from(e.dataTransfer.files);
 			for (const file of files) {
 				if (file.type.startsWith("image/")) {
 					addImageFile(file);
-					break;
 				}
 			}
 		},
@@ -226,17 +227,18 @@ export function ImageControls({
 					onDragOver={handleDragOver}
 					onDragLeave={handleDragLeave}
 					onDrop={handleDrop}
-					onPaste={handlePaste}
 					className={`rounded-md border-input border dark:bg-input/30 shadow-xs focus-within:ring-1 focus-within:ring-ring transition-colors ${
 						isDragging ? "border-primary bg-primary/5 ring-1 ring-primary" : ""
 					}`}
 				>
-					{isDragging && isEditModel && inputImages.length < 1 && (
-						<div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
-							<ImagePlus className="h-4 w-4 mr-2" />
-							Drop image here
-						</div>
-					)}
+					{isDragging &&
+						isEditModel &&
+						inputImages.length < MAX_INPUT_IMAGES && (
+							<div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
+								<ImagePlus className="h-4 w-4 mr-2" />
+								Drop image here
+							</div>
+						)}
 					{isEditModel && inputImages.length > 0 && (
 						<div className="flex flex-wrap gap-2 px-3 pt-3">
 							{inputImages.map((img, i) => (
@@ -282,6 +284,7 @@ export function ImageControls({
 					ref={fileInputRef}
 					type="file"
 					accept="image/*"
+					multiple
 					className="hidden"
 					onChange={handleFileSelect}
 				/>
@@ -290,7 +293,11 @@ export function ImageControls({
 						variant="outline"
 						size="sm"
 						onClick={() => fileInputRef.current?.click()}
-						disabled={isGenerating || !isEditModel || inputImages.length >= 1}
+						disabled={
+							isGenerating ||
+							!isEditModel ||
+							inputImages.length >= MAX_INPUT_IMAGES
+						}
 						title={
 							!isEditModel
 								? "Image input not supported by selected model"
@@ -298,7 +305,9 @@ export function ImageControls({
 						}
 					>
 						<ImagePlus className="h-4 w-4 mr-1.5" />
-						{inputImages.length === 0 ? "Add image" : `${inputImages.length}/1`}
+						{inputImages.length === 0
+							? "Add image"
+							: `${inputImages.length}/${MAX_INPUT_IMAGES}`}
 					</Button>
 					{!config.usesPixelDimensions && (
 						<>

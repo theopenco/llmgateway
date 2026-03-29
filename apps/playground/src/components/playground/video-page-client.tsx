@@ -32,6 +32,16 @@ import type {
 	VideoSize,
 } from "@/lib/video-gen";
 
+const VIDEO_GALLERY_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const VIDEO_GALLERY_KEY = "video-gallery-items";
+
+function filterRecentGalleryItems(
+	items: VideoGalleryItem[],
+): VideoGalleryItem[] {
+	const now = Date.now();
+	return items.filter((item) => now - item.timestamp < VIDEO_GALLERY_TTL_MS);
+}
+
 interface VideoPageClientProps {
 	models: ApiModel[];
 	providers: ApiProvider[];
@@ -80,9 +90,39 @@ export default function VideoPageClient({
 		() => searchParams.get("compare") === "1",
 	);
 	const [prompt, setPrompt] = useState("");
-	const [galleryItems, setGalleryItems] = useState<VideoGalleryItem[]>([]);
+	const [galleryItems, setGalleryItems] = useState<VideoGalleryItem[]>(() => {
+		if (typeof window === "undefined") {
+			return [];
+		}
+		try {
+			const stored = localStorage.getItem(VIDEO_GALLERY_KEY);
+			if (!stored) {
+				return [];
+			}
+			return filterRecentGalleryItems(JSON.parse(stored) as VideoGalleryItem[]);
+		} catch {
+			return [];
+		}
+	});
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
+
+	useEffect(() => {
+		try {
+			if (galleryItems.length === 0) {
+				localStorage.removeItem(VIDEO_GALLERY_KEY);
+				return;
+			}
+			const fresh = filterRecentGalleryItems(galleryItems);
+			if (fresh.length === 0) {
+				localStorage.removeItem(VIDEO_GALLERY_KEY);
+			} else {
+				localStorage.setItem(VIDEO_GALLERY_KEY, JSON.stringify(fresh));
+			}
+		} catch {
+			// Ignore quota/private-mode errors
+		}
+	}, [galleryItems]);
 
 	const [videoSize, setVideoSize] = useState<VideoSize>("1280x720");
 	const [videoDuration, setVideoDuration] = useState<VideoDuration>(8);

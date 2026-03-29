@@ -2398,6 +2398,455 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 	});
 });
 
+// ==================== Rate Limit Management ====================
+
+const rateLimitSchema = z.object({
+	id: z.string(),
+	organizationId: z.string().nullable(),
+	provider: z.string().nullable(),
+	model: z.string().nullable(),
+	limitType: z.enum(["rpm", "rpd"]),
+	maxRequests: z.number(),
+	reason: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const rateLimitsListSchema = z.object({
+	rateLimits: z.array(rateLimitSchema),
+	total: z.number(),
+});
+
+const createRateLimitBodySchema = z.object({
+	provider: z.string().nullable().optional(),
+	model: z.string().nullable().optional(),
+	limitType: z.enum(["rpm", "rpd"]),
+	maxRequests: z.coerce
+		.number()
+		.int("Limit must be a whole number")
+		.min(1, "Limit must be at least 1"),
+	reason: z.string().nullable().optional(),
+});
+
+// --- Global Rate Limits ---
+
+const getGlobalRateLimits = createRoute({
+	method: "get",
+	path: "/rate-limits",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: rateLimitsListSchema.openapi({}),
+				},
+			},
+			description: "List of global rate limits.",
+		},
+	},
+});
+
+const createGlobalRateLimit = createRoute({
+	method: "post",
+	path: "/rate-limits",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createRateLimitBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: rateLimitSchema.openapi({}),
+				},
+			},
+			description: "Created global rate limit.",
+		},
+		400: {
+			description: "Invalid rate limit data.",
+		},
+		409: {
+			description:
+				"Rate limit already exists for this provider/model/limit type combination.",
+		},
+	},
+});
+
+const deleteGlobalRateLimit = createRoute({
+	method: "delete",
+	path: "/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			rateLimitId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Rate limit deleted.",
+		},
+		404: {
+			description: "Rate limit not found.",
+		},
+	},
+});
+
+// --- Organization Rate Limits ---
+
+const getOrganizationRateLimits = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/rate-limits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: rateLimitsListSchema.openapi({}),
+				},
+			},
+			description: "List of organization rate limits.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const createOrganizationRateLimit = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/rate-limits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createRateLimitBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: rateLimitSchema.openapi({}),
+				},
+			},
+			description: "Created organization rate limit.",
+		},
+		400: {
+			description: "Invalid rate limit data.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+		409: {
+			description:
+				"Rate limit already exists for this provider/model/limit type combination.",
+		},
+	},
+});
+
+const deleteOrganizationRateLimit = createRoute({
+	method: "delete",
+	path: "/organizations/{orgId}/rate-limits/{rateLimitId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			rateLimitId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Rate limit deleted.",
+		},
+		404: {
+			description: "Rate limit not found.",
+		},
+	},
+});
+
+// Helper to format rate limit for response
+function formatRateLimit(r: {
+	id: string;
+	organizationId: string | null;
+	provider: string | null;
+	model: string | null;
+	maxRpm: number | null;
+	maxRpd: number | null;
+	reason: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+}) {
+	const limitType: "rpm" | "rpd" = r.maxRpd !== null ? "rpd" : "rpm";
+	const maxRequests = r.maxRpd ?? r.maxRpm ?? 0;
+
+	return {
+		id: r.id,
+		organizationId: r.organizationId,
+		provider: r.provider,
+		model: r.model,
+		limitType,
+		maxRequests,
+		reason: r.reason,
+		createdAt: r.createdAt.toISOString(),
+		updatedAt: r.updatedAt.toISOString(),
+	};
+}
+
+// --- Global Rate Limit Handlers ---
+
+admin.openapi(getGlobalRateLimits, async (c) => {
+	const rateLimits = await db
+		.select()
+		.from(tables.rateLimit)
+		.where(isNull(tables.rateLimit.organizationId))
+		.orderBy(desc(tables.rateLimit.createdAt));
+
+	return c.json({
+		rateLimits: rateLimits.map(formatRateLimit),
+		total: rateLimits.length,
+	});
+});
+
+admin.openapi(createGlobalRateLimit, async (c) => {
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	// Validate provider/model
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const [created] = await db
+		.insert(tables.rateLimit)
+		.values({
+			organizationId: null,
+			provider,
+			model,
+			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
+			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			reason: body.reason ?? null,
+		})
+		.onConflictDoNothing()
+		.returning();
+
+	if (!created) {
+		throw new HTTPException(409, {
+			message:
+				"A rate limit already exists for this provider/model/limit type combination",
+		});
+	}
+
+	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(deleteGlobalRateLimit, async (c) => {
+	const { rateLimitId } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.rateLimit)
+		.where(
+			and(
+				eq(tables.rateLimit.id, rateLimitId),
+				isNull(tables.rateLimit.organizationId),
+			),
+		)
+		.returning({ id: tables.rateLimit.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Rate limit not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+// --- Organization Rate Limit Handlers ---
+
+admin.openapi(getOrganizationRateLimits, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	// Verify organization exists
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const rateLimits = await db
+		.select()
+		.from(tables.rateLimit)
+		.where(eq(tables.rateLimit.organizationId, orgId))
+		.orderBy(desc(tables.rateLimit.createdAt));
+
+	return c.json({
+		rateLimits: rateLimits.map(formatRateLimit),
+		total: rateLimits.length,
+	});
+});
+
+admin.openapi(createOrganizationRateLimit, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	// Verify organization exists
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	// Validate provider/model
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const [created] = await db
+		.insert(tables.rateLimit)
+		.values({
+			organizationId: orgId,
+			provider,
+			model,
+			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
+			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			reason: body.reason ?? null,
+		})
+		.onConflictDoNothing()
+		.returning();
+
+	if (!created) {
+		throw new HTTPException(409, {
+			message:
+				"A rate limit already exists for this provider/model/limit type combination",
+		});
+	}
+
+	return c.json(formatRateLimit(created), 201);
+});
+
+admin.openapi(deleteOrganizationRateLimit, async (c) => {
+	const { orgId, rateLimitId } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.rateLimit)
+		.where(
+			and(
+				eq(tables.rateLimit.id, rateLimitId),
+				eq(tables.rateLimit.organizationId, orgId),
+			),
+		)
+		.returning({ id: tables.rateLimit.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Rate limit not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+// --- Available Options for Rate Limit Selection ---
+
+const getAvailableRateLimitOptions = createRoute({
+	method: "get",
+	path: "/rate-limits/options",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							providers: z.array(
+								z.object({
+									id: z.string(),
+									name: z.string(),
+								}),
+							),
+							mappings: z.array(
+								z.object({
+									providerId: z.string(),
+									providerName: z.string(),
+									modelId: z.string(),
+									modelName: z.string(),
+									rootModelId: z.string(),
+									rootModelName: z.string(),
+									family: z.string(),
+								}),
+							),
+						})
+						.openapi({}),
+				},
+			},
+			description:
+				"Available providers and provider/model mappings for rate limit selection.",
+		},
+	},
+});
+
+admin.openapi(getAvailableRateLimitOptions, async (c) => {
+	// Build mappings from all models and their providers
+	const mappings: Array<{
+		providerId: string;
+		providerName: string;
+		modelId: string;
+		modelName: string;
+		rootModelId: string;
+		rootModelName: string;
+		family: string;
+	}> = [];
+
+	for (const model of models) {
+		for (const mapping of model.providers) {
+			const provider = providers.find((p) => p.id === mapping.providerId);
+			if (provider) {
+				mappings.push({
+					providerId: mapping.providerId,
+					providerName: provider.name,
+					modelId: model.id,
+					modelName: mapping.modelName,
+					rootModelId: model.id,
+					rootModelName: (model as { name?: string }).name ?? model.id,
+					family: model.family,
+				});
+			}
+		}
+	}
+
+	return c.json({
+		providers: providers.map((p) => ({ id: p.id, name: p.name })),
+		mappings,
+	});
+});
+
 // ==================== Provider & Model Stats ====================
 
 const providerSortBySchema = z.enum([
@@ -2714,6 +3163,10 @@ const modelStatsSchema = z.object({
 	providerCount: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	inputPrice: z.string().nullable(),
+	outputPrice: z.string().nullable(),
+	requestPrice: z.string().nullable(),
+	discount: z.string().nullable(),
 	updatedAt: z.string(),
 });
 
@@ -2792,7 +3245,7 @@ admin.openapi(getModelStats, async (c) => {
 			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
 		}
 
-		const modelStatsSub = db
+		const modelAggSub = db
 			.select({
 				modelId: modelHistory.modelId,
 				logsCount: sql<number>`COALESCE(SUM(${modelHistory.logsCount}), 0)`.as(
@@ -2822,20 +3275,6 @@ admin.openapi(getModelStats, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${modelHistory.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-			})
-			.from(modelHistory)
-			.where(
-				and(
-					gte(modelHistory.minuteTimestamp, startDate),
-					lt(modelHistory.minuteTimestamp, endDateExclusive),
-				),
-			)
-			.groupBy(modelHistory.modelId)
-			.as("model_stats_sub");
-
-		const modelCostSub = db
-			.select({
-				modelId: modelHistory.modelId,
 				totalCost: sql<number>`COALESCE(SUM(${modelHistory.totalCost}), 0)`.as(
 					"totalCost",
 				),
@@ -2848,7 +3287,7 @@ admin.openapi(getModelStats, async (c) => {
 				),
 			)
 			.groupBy(modelHistory.modelId)
-			.as("model_cost_sub");
+			.as("model_agg_sub");
 
 		const providerCountSub = db
 			.select({
@@ -2859,19 +3298,43 @@ admin.openapi(getModelStats, async (c) => {
 			.groupBy(tables.modelProviderMapping.modelId)
 			.as("provider_count_sub");
 
+		const pricingSub = db
+			.select({
+				modelId: tables.modelProviderMapping.modelId,
+				inputPrice:
+					sql<string>`MIN(${tables.modelProviderMapping.inputPrice})`.as(
+						"input_price",
+					),
+				outputPrice:
+					sql<string>`MIN(${tables.modelProviderMapping.outputPrice})`.as(
+						"output_price",
+					),
+				requestPrice:
+					sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
+						"request_price",
+					),
+				discount: sql<string>`MAX(${tables.modelProviderMapping.discount})`.as(
+					"discount",
+				),
+			})
+			.from(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.status, "active"))
+			.groupBy(tables.modelProviderMapping.modelId)
+			.as("pricing_sub");
+
 		const orderFn = sortOrderVal === "asc" ? asc : desc;
 		const sortColumnMap = {
 			name: tables.model.name,
 			family: tables.model.family,
 			status: tables.model.status,
 			free: tables.model.free,
-			logsCount: sql`COALESCE(${modelStatsSub.logsCount}, 0)`,
-			totalCost: sql`COALESCE(${modelCostSub.totalCost}, 0)`,
-			errorsCount: sql`COALESCE(${modelStatsSub.errorsCount}, 0)`,
-			clientErrorsCount: sql`COALESCE(${modelStatsSub.clientErrorsCount}, 0)`,
-			gatewayErrorsCount: sql`COALESCE(${modelStatsSub.gatewayErrorsCount}, 0)`,
-			upstreamErrorsCount: sql`COALESCE(${modelStatsSub.upstreamErrorsCount}, 0)`,
-			cachedCount: sql`COALESCE(${modelStatsSub.cachedCount}, 0)`,
+			logsCount: sql`COALESCE(${modelAggSub.logsCount}, 0)`,
+			totalCost: sql`COALESCE(${modelAggSub.totalCost}, 0)`,
+			errorsCount: sql`COALESCE(${modelAggSub.errorsCount}, 0)`,
+			clientErrorsCount: sql`COALESCE(${modelAggSub.clientErrorsCount}, 0)`,
+			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
+			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
+			cachedCount: sql`COALESCE(${modelAggSub.cachedCount}, 0)`,
 			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
@@ -2887,17 +3350,16 @@ admin.openapi(getModelStats, async (c) => {
 		const totalsQuery = db
 			.select({
 				totalTokens:
-					sql<number>`COALESCE(SUM(COALESCE(${modelStatsSub.totalTokens}, 0)), 0)`.as(
+					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalTokens}, 0)), 0)`.as(
 						"totalTokens",
 					),
 				totalCost:
-					sql<number>`COALESCE(SUM(COALESCE(${modelCostSub.totalCost}, 0)), 0)`.as(
+					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalCost}, 0)), 0)`.as(
 						"totalCost",
 					),
 			})
 			.from(tables.model)
-			.leftJoin(modelStatsSub, eq(tables.model.id, modelStatsSub.modelId))
-			.leftJoin(modelCostSub, eq(tables.model.id, modelCostSub.modelId))
+			.leftJoin(modelAggSub, eq(tables.model.id, modelAggSub.modelId))
 			.where(whereClause);
 
 		const rowsBase = db
@@ -2908,55 +3370,59 @@ admin.openapi(getModelStats, async (c) => {
 				free: tables.model.free,
 				stability: tables.model.stability,
 				status: tables.model.status,
-				logsCount: sql<number>`COALESCE(${modelStatsSub.logsCount}, 0)`.as(
+				logsCount: sql<number>`COALESCE(${modelAggSub.logsCount}, 0)`.as(
 					"logsCount",
 				),
-				errorsCount: sql<number>`COALESCE(${modelStatsSub.errorsCount}, 0)`.as(
+				errorsCount: sql<number>`COALESCE(${modelAggSub.errorsCount}, 0)`.as(
 					"errorsCount",
 				),
 				clientErrorsCount:
-					sql<number>`COALESCE(${modelStatsSub.clientErrorsCount}, 0)`.as(
+					sql<number>`COALESCE(${modelAggSub.clientErrorsCount}, 0)`.as(
 						"clientErrorsCount",
 					),
 				gatewayErrorsCount:
-					sql<number>`COALESCE(${modelStatsSub.gatewayErrorsCount}, 0)`.as(
+					sql<number>`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`.as(
 						"gatewayErrorsCount",
 					),
 				upstreamErrorsCount:
-					sql<number>`COALESCE(${modelStatsSub.upstreamErrorsCount}, 0)`.as(
+					sql<number>`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`.as(
 						"upstreamErrorsCount",
 					),
-				cachedCount: sql<number>`COALESCE(${modelStatsSub.cachedCount}, 0)`.as(
+				cachedCount: sql<number>`COALESCE(${modelAggSub.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
 				avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 					"providerCount",
 				),
-				totalTokens: sql<number>`COALESCE(${modelStatsSub.totalTokens}, 0)`.as(
+				totalTokens: sql<number>`COALESCE(${modelAggSub.totalTokens}, 0)`.as(
 					"totalTokens",
 				),
-				totalCost: sql<number>`COALESCE(${modelCostSub.totalCost}, 0)`.as(
+				totalCost: sql<number>`COALESCE(${modelAggSub.totalCost}, 0)`.as(
 					"totalCost",
 				),
+				inputPrice: pricingSub.inputPrice,
+				outputPrice: pricingSub.outputPrice,
+				requestPrice: pricingSub.requestPrice,
+				discount: pricingSub.discount,
 				updatedAt: tables.model.updatedAt,
 			})
 			.from(tables.model);
 
 		const rowsWithStatsJoin = rowsBase.leftJoin(
-			modelStatsSub,
-			eq(tables.model.id, modelStatsSub.modelId),
+			modelAggSub,
+			eq(tables.model.id, modelAggSub.modelId),
 		);
 
 		const [[countResult], [totalsResult], rows] = await Promise.all([
 			countQuery,
 			totalsQuery,
 			rowsWithStatsJoin
-				.leftJoin(modelCostSub, eq(tables.model.id, modelCostSub.modelId))
 				.leftJoin(
 					providerCountSub,
 					eq(tables.model.id, providerCountSub.modelId),
 				)
+				.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 				.where(whereClause)
 				.orderBy(orderFn(sortColumn))
 				.limit(limit)
@@ -2985,6 +3451,10 @@ admin.openapi(getModelStats, async (c) => {
 				providerCount: Number(r.providerCount ?? 0),
 				totalTokens: Number(r.totalTokens ?? 0),
 				totalCost: Number(r.totalCost ?? 0),
+				inputPrice: r.inputPrice ?? null,
+				outputPrice: r.outputPrice ?? null,
+				requestPrice: r.requestPrice ?? null,
+				discount: r.discount ?? null,
 				updatedAt: r.updatedAt.toISOString(),
 			})),
 			total,
@@ -3003,6 +3473,30 @@ admin.openapi(getModelStats, async (c) => {
 		.from(tables.modelProviderMapping)
 		.groupBy(tables.modelProviderMapping.modelId)
 		.as("provider_count_sub");
+
+	const pricingSub = db
+		.select({
+			modelId: tables.modelProviderMapping.modelId,
+			inputPrice:
+				sql<string>`MIN(${tables.modelProviderMapping.inputPrice})`.as(
+					"input_price",
+				),
+			outputPrice:
+				sql<string>`MIN(${tables.modelProviderMapping.outputPrice})`.as(
+					"output_price",
+				),
+			requestPrice:
+				sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
+					"request_price",
+				),
+			discount: sql<string>`MAX(${tables.modelProviderMapping.discount})`.as(
+				"discount",
+			),
+		})
+		.from(tables.modelProviderMapping)
+		.where(eq(tables.modelProviderMapping.status, "active"))
+		.groupBy(tables.modelProviderMapping.modelId)
+		.as("pricing_sub");
 
 	const [countResult] = await db
 		.select({ count: sql<number>`COUNT(*)`.as("count") })
@@ -3050,10 +3544,15 @@ admin.openapi(getModelStats, async (c) => {
 			providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 				"providerCount",
 			),
+			inputPrice: pricingSub.inputPrice,
+			outputPrice: pricingSub.outputPrice,
+			requestPrice: pricingSub.requestPrice,
+			discount: pricingSub.discount,
 			updatedAt: tables.model.updatedAt,
 		})
 		.from(tables.model)
 		.leftJoin(providerCountSub, eq(tables.model.id, providerCountSub.modelId))
+		.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 		.where(whereClause)
 		.orderBy(orderFn(sortColumn))
 		.limit(limit)
@@ -3077,6 +3576,10 @@ admin.openapi(getModelStats, async (c) => {
 			providerCount: Number(r.providerCount),
 			totalTokens: 0,
 			totalCost: 0,
+			inputPrice: r.inputPrice ?? null,
+			outputPrice: r.outputPrice ?? null,
+			requestPrice: r.requestPrice ?? null,
+			discount: r.discount ?? null,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total,
@@ -3158,6 +3661,7 @@ const getModelDetail = createRoute({
 		params: z.object({ modelId: z.string() }),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			projectId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -3174,6 +3678,7 @@ admin.openapi(getModelDetail, async (c) => {
 	const { modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const projectId = query.projectId;
 	const startDate = getHistoryStartDate(window);
 
 	const model = await db.query.model.findFirst({
@@ -3184,6 +3689,80 @@ admin.openapi(getModelDetail, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 
+	// Project-scoped: use projectHourlyModelStats for provider breakdown
+	if (projectId) {
+		const hourStartDate = new Date(startDate);
+		hourStartDate.setMinutes(0, 0, 0);
+		const statsRows = await db
+			.select({
+				usedProvider: projectHourlyModelStats.usedProvider,
+				logsCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"logs_count",
+				),
+				errorsCount: sql<number>`SUM(${projectHourlyModelStats.errorCount})`.as(
+					"errors_count",
+				),
+				cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`.as(
+					"cached_count",
+				),
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					eq(projectHourlyModelStats.projectId, projectId),
+					eq(projectHourlyModelStats.usedModel, modelId),
+					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(projectHourlyModelStats.usedProvider);
+
+		const providerIds = statsRows.map((r) => r.usedProvider);
+		const providerRows =
+			providerIds.length > 0
+				? await db.query.provider.findMany({
+						where: { id: { in: providerIds } },
+					})
+				: [];
+		const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
+
+		const totalLogs = statsRows.reduce((s, r) => s + Number(r.logsCount), 0);
+		const totalErrors = statsRows.reduce(
+			(s, r) => s + Number(r.errorsCount),
+			0,
+		);
+		const totalCached = statsRows.reduce(
+			(s, r) => s + Number(r.cachedCount),
+			0,
+		);
+
+		return c.json({
+			model: {
+				id: model.id,
+				name: model.name,
+				family: model.family,
+				free: model.free,
+				stability: model.stability,
+				status: model.status,
+				logsCount: totalLogs,
+				errorsCount: totalErrors,
+				cachedCount: totalCached,
+				avgTimeToFirstToken: null,
+				providerCount: statsRows.length,
+				updatedAt: model.updatedAt.toISOString(),
+			},
+			providers: statsRows.map((r) => ({
+				providerId: r.usedProvider,
+				providerName: providerNameMap.get(r.usedProvider) ?? r.usedProvider,
+				logsCount: Number(r.logsCount),
+				errorsCount: Number(r.errorsCount),
+				cachedCount: Number(r.cachedCount),
+				avgTimeToFirstToken: null,
+				updatedAt: model.updatedAt.toISOString(),
+			})),
+		});
+	}
+
+	// Global view
 	const [mappings, statsRows] = await Promise.all([
 		db
 			.select({
@@ -3462,6 +4041,7 @@ function mapHistoryRows(
 		totalDuration: number;
 		totalTimeToFirstToken: number;
 		totalTokens: number;
+		totalCost?: number;
 	}[],
 	costByHour: Map<string, number> = new Map(),
 ) {
@@ -3480,10 +4060,15 @@ function mapHistoryRows(
 		const totalTokens = Number(r.totalTokens);
 		const nonCached = logsCount - cachedCount;
 
-		const hk = getHourFloor(r.minuteTimestamp);
-		const hourCost = costByHour.get(hk) ?? 0;
-		const hourReqs = requestsByHour.get(hk) ?? 0;
-		const totalCost = hourReqs > 0 ? (logsCount / hourReqs) * hourCost : 0;
+		let totalCost: number;
+		if (r.totalCost !== undefined && r.totalCost !== null) {
+			totalCost = Number(r.totalCost);
+		} else {
+			const hk = getHourFloor(r.minuteTimestamp);
+			const hourCost = costByHour.get(hk) ?? 0;
+			const hourReqs = requestsByHour.get(hk) ?? 0;
+			totalCost = hourReqs > 0 ? (logsCount / hourReqs) * hourCost : 0;
+		}
 
 		return {
 			timestamp: r.minuteTimestamp.toISOString(),
@@ -3599,6 +4184,7 @@ const getModelHistory = createRoute({
 		params: z.object({ modelId: z.string() }),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			projectId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -3615,65 +4201,88 @@ admin.openapi(getModelHistory, async (c) => {
 	const { modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const projectId = query.projectId;
 	const startDate = getHistoryStartDate(window);
-	const hourStartDate = new Date(startDate);
-	hourStartDate.setMinutes(0, 0, 0);
 
-	const [rows, costRows] = await Promise.all([
-		db
-			.select({
-				minuteTimestamp: modelHistory.minuteTimestamp,
-				logsCount: sql<number>`SUM(${modelHistory.logsCount})`.as("logs_count"),
-				errorsCount: sql<number>`SUM(${modelHistory.errorsCount})`.as(
-					"errors_count",
-				),
-				cachedCount: sql<number>`SUM(${modelHistory.cachedCount})`.as(
-					"cached_count",
-				),
-				totalDuration: sql<number>`SUM(${modelHistory.totalDuration})`.as(
-					"total_duration",
-				),
-				totalTimeToFirstToken:
-					sql<number>`SUM(${modelHistory.totalTimeToFirstToken})`.as(
-						"total_ttft",
-					),
-				totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
-					"total_tokens",
-				),
-			})
-			.from(modelHistory)
-			.where(
-				and(
-					eq(modelHistory.modelId, modelId),
-					gte(modelHistory.minuteTimestamp, startDate),
-				),
-			)
-			.groupBy(modelHistory.minuteTimestamp)
-			.orderBy(asc(modelHistory.minuteTimestamp)),
-		db
+	if (projectId) {
+		const hourStartDate = new Date(startDate);
+		hourStartDate.setMinutes(0, 0, 0);
+		const rows = await db
 			.select({
 				hourTimestamp: projectHourlyModelStats.hourTimestamp,
-				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`,
+				logsCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"logs_count",
+				),
+				errorsCount: sql<number>`SUM(${projectHourlyModelStats.errorCount})`.as(
+					"errors_count",
+				),
+				cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`.as(
+					"cached_count",
+				),
+				totalTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+						"total_tokens",
+					),
+				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
 			})
 			.from(projectHourlyModelStats)
 			.where(
 				and(
+					eq(projectHourlyModelStats.projectId, projectId),
 					eq(projectHourlyModelStats.usedModel, modelId),
 					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
 				),
 			)
-			.groupBy(projectHourlyModelStats.hourTimestamp),
-	]);
+			.groupBy(projectHourlyModelStats.hourTimestamp)
+			.orderBy(asc(projectHourlyModelStats.hourTimestamp));
 
-	const costByHour = new Map<string, number>(
-		costRows.map((r) => {
-			const d = new Date(r.hourTimestamp);
-			d.setMinutes(0, 0, 0);
-			return [d.toISOString(), Number(r.cost)];
-		}),
-	);
+		return c.json({
+			data: rows.map((r) => ({
+				timestamp: r.hourTimestamp.toISOString(),
+				logsCount: Number(r.logsCount),
+				errorsCount: Number(r.errorsCount),
+				cachedCount: Number(r.cachedCount),
+				avgTtft: null,
+				avgDuration: null,
+				totalTokens: Number(r.totalTokens),
+				totalCost: Number(r.cost),
+			})),
+		});
+	}
 
-	return c.json({ data: mapHistoryRows(rows, costByHour) });
+	const rows = await db
+		.select({
+			minuteTimestamp: modelHistory.minuteTimestamp,
+			logsCount: sql<number>`SUM(${modelHistory.logsCount})`.as("logs_count"),
+			errorsCount: sql<number>`SUM(${modelHistory.errorsCount})`.as(
+				"errors_count",
+			),
+			cachedCount: sql<number>`SUM(${modelHistory.cachedCount})`.as(
+				"cached_count",
+			),
+			totalDuration: sql<number>`SUM(${modelHistory.totalDuration})`.as(
+				"total_duration",
+			),
+			totalTimeToFirstToken:
+				sql<number>`SUM(${modelHistory.totalTimeToFirstToken})`.as(
+					"total_ttft",
+				),
+			totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
+				"total_tokens",
+			),
+			totalCost: sql<number>`SUM(${modelHistory.totalCost})`.as("total_cost"),
+		})
+		.from(modelHistory)
+		.where(
+			and(
+				eq(modelHistory.modelId, modelId),
+				gte(modelHistory.minuteTimestamp, startDate),
+			),
+		)
+		.groupBy(modelHistory.minuteTimestamp)
+		.orderBy(asc(modelHistory.minuteTimestamp));
+
+	return c.json({ data: mapHistoryRows(rows) });
 });
 
 // Mapping history (provider + model)
@@ -3687,6 +4296,7 @@ const getMappingHistory = createRoute({
 		}),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			projectId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -3703,9 +4313,55 @@ admin.openapi(getMappingHistory, async (c) => {
 	const { providerId, modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const projectId = query.projectId;
 	const startDate = getHistoryStartDate(window);
 	const hourStartDate = new Date(startDate);
 	hourStartDate.setMinutes(0, 0, 0);
+
+	if (projectId) {
+		const rows = await db
+			.select({
+				hourTimestamp: projectHourlyModelStats.hourTimestamp,
+				logsCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"logs_count",
+				),
+				errorsCount: sql<number>`SUM(${projectHourlyModelStats.errorCount})`.as(
+					"errors_count",
+				),
+				cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`.as(
+					"cached_count",
+				),
+				totalTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+						"total_tokens",
+					),
+				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					eq(projectHourlyModelStats.projectId, projectId),
+					eq(projectHourlyModelStats.usedProvider, providerId),
+					eq(projectHourlyModelStats.usedModel, modelId),
+					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(projectHourlyModelStats.hourTimestamp)
+			.orderBy(asc(projectHourlyModelStats.hourTimestamp));
+
+		return c.json({
+			data: rows.map((r) => ({
+				timestamp: r.hourTimestamp.toISOString(),
+				logsCount: Number(r.logsCount),
+				errorsCount: Number(r.errorsCount),
+				cachedCount: Number(r.cachedCount),
+				avgTtft: null,
+				avgDuration: null,
+				totalTokens: Number(r.totalTokens),
+				totalCost: Number(r.cost),
+			})),
+		});
+	}
 
 	const [minuteRows, hourlyRows] = await Promise.all([
 		db
@@ -3734,6 +4390,10 @@ admin.openapi(getMappingHistory, async (c) => {
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
 						"total_tokens",
+					),
+				totalCost:
+					sql<number>`SUM(${modelProviderMappingHistory.totalCost})`.as(
+						"total_cost",
 					),
 			})
 			.from(modelProviderMappingHistory)
@@ -3777,18 +4437,11 @@ admin.openapi(getMappingHistory, async (c) => {
 	]);
 
 	const hasMinuteData = minuteRows.some((r) => Number(r.logsCount) > 0);
-	const costByHour = new Map<string, number>(
-		hourlyRows.map((r) => {
-			const d = new Date(r.hourTimestamp);
-			d.setMinutes(0, 0, 0);
-			return [d.toISOString(), Number(r.cost)];
-		}),
-	);
 
 	// For short windows with minute data, return minute-level granularity
 	const dayWindows = new Set(["1d", "2d", "7d"]);
 	if (hasMinuteData && !dayWindows.has(window)) {
-		return c.json({ data: mapHistoryRows(minuteRows, costByHour) });
+		return c.json({ data: mapHistoryRows(minuteRows) });
 	}
 
 	// For day windows or when minute data is missing, use hourly data as
@@ -4100,6 +4753,179 @@ admin.openapi(getOrgCostByModel, async (c) => {
 		})),
 		totalCost,
 		totalRequests,
+	});
+});
+
+// --- Project Model-Provider Stats ---
+
+const projectModelProviderStatsEntrySchema = z.object({
+	modelId: z.string(),
+	providerId: z.string(),
+	providerName: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	cachedCount: z.number(),
+	cost: z.number(),
+	totalTokens: z.number(),
+});
+
+const projectModelProviderStatsResponseSchema = z.object({
+	mappings: z.array(projectModelProviderStatsEntrySchema),
+	total: z.number(),
+	totalRequests: z.number(),
+	totalTokens: z.number(),
+	totalCost: z.number(),
+});
+
+const getProjectModelProviderStats = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/projects/{projectId}/model-provider-stats",
+	request: {
+		params: z.object({ orgId: z.string(), projectId: z.string() }),
+		query: z.object({
+			search: z.string().optional(),
+			sortBy: z
+				.enum(["logsCount", "errorsCount", "cost", "modelId", "providerId"])
+				.optional(),
+			sortOrder: z.enum(["asc", "desc"]).optional(),
+			limit: z.coerce.number().optional(),
+			offset: z.coerce.number().optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: projectModelProviderStatsResponseSchema.openapi({}),
+				},
+			},
+			description: "Project model-provider stats.",
+		},
+	},
+});
+
+admin.openapi(getProjectModelProviderStats, async (c) => {
+	const { projectId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const sortBy = query.sortBy ?? "logsCount";
+	const sortOrder = query.sortOrder ?? "desc";
+	const limit = query.limit ?? 100;
+	const offset = query.offset ?? 0;
+	const search = query.search ?? "";
+	const { from, to } = query;
+
+	let startDate: Date;
+	let endDate: Date | undefined;
+	if (from && to) {
+		startDate = new Date(from + "T00:00:00");
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(to + "T00:00:00");
+		endDate.setUTCHours(23, 59, 59, 999);
+	} else {
+		const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+		startDate = new Date(Date.now() - sevenDaysMs);
+	}
+
+	const searchClause = search
+		? or(
+				sql`${projectHourlyModelStats.usedModel} ILIKE ${"%" + search + "%"}`,
+				sql`${projectHourlyModelStats.usedProvider} ILIKE ${"%" + search + "%"}`,
+			)
+		: undefined;
+
+	const whereConditions = and(
+		eq(projectHourlyModelStats.projectId, projectId),
+		gte(projectHourlyModelStats.hourTimestamp, startDate),
+		endDate ? lte(projectHourlyModelStats.hourTimestamp, endDate) : undefined,
+		searchClause,
+	);
+
+	const logsCountExpr =
+		sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
+			"logs_count",
+		);
+	const errorsCountExpr =
+		sql<number>`COALESCE(SUM(${projectHourlyModelStats.errorCount}), 0)`.as(
+			"errors_count",
+		);
+	const cachedCountExpr =
+		sql<number>`COALESCE(SUM(${projectHourlyModelStats.cacheCount}), 0)`.as(
+			"cached_count",
+		);
+	const costExpr =
+		sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as("cost");
+	const totalTokensExpr =
+		sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+			"total_tokens",
+		);
+
+	const sortColumn = (() => {
+		switch (sortBy) {
+			case "logsCount":
+				return logsCountExpr;
+			case "errorsCount":
+				return errorsCountExpr;
+			case "cost":
+				return costExpr;
+			case "modelId":
+				return projectHourlyModelStats.usedModel;
+			case "providerId":
+				return projectHourlyModelStats.usedProvider;
+			default:
+				return logsCountExpr;
+		}
+	})();
+
+	const rows = await db
+		.select({
+			usedModel: projectHourlyModelStats.usedModel,
+			usedProvider: projectHourlyModelStats.usedProvider,
+			logsCount: logsCountExpr,
+			errorsCount: errorsCountExpr,
+			cachedCount: cachedCountExpr,
+			cost: costExpr,
+			totalTokens: totalTokensExpr,
+		})
+		.from(projectHourlyModelStats)
+		.where(whereConditions)
+		.groupBy(
+			projectHourlyModelStats.usedModel,
+			projectHourlyModelStats.usedProvider,
+		)
+		.orderBy(sortOrder === "asc" ? asc(sortColumn) : desc(sortColumn))
+		.limit(limit)
+		.offset(offset);
+
+	const providerIds = [...new Set(rows.map((r) => r.usedProvider))];
+	const providerRows =
+		providerIds.length > 0
+			? await db.query.provider.findMany({
+					where: { id: { in: providerIds } },
+				})
+			: [];
+	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
+
+	const totalRequests = rows.reduce((s, r) => s + Number(r.logsCount), 0);
+	const totalTokens = rows.reduce((s, r) => s + Number(r.totalTokens), 0);
+	const totalCost = rows.reduce((s, r) => s + Number(r.cost), 0);
+
+	return c.json({
+		mappings: rows.map((r) => ({
+			modelId: r.usedModel,
+			providerId: r.usedProvider,
+			providerName: providerNameMap.get(r.usedProvider) ?? r.usedProvider,
+			logsCount: Number(r.logsCount),
+			errorsCount: Number(r.errorsCount),
+			cachedCount: Number(r.cachedCount),
+			cost: Number(r.cost),
+			totalTokens: Number(r.totalTokens),
+		})),
+		total: rows.length,
+		totalRequests,
+		totalTokens,
+		totalCost,
 	});
 });
 

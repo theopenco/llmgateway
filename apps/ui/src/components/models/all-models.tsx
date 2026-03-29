@@ -367,6 +367,20 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
+						) : (!row.provider.inputPrice ||
+								parseFloat(row.provider.inputPrice) === 0) &&
+						  row.provider.requestPrice &&
+						  parseFloat(row.provider.requestPrice) > 0 ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-amber-500 cursor-help">
+										${parseFloat(row.provider.requestPrice).toFixed(3)}/req
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">Per-request pricing (not per token)</p>
+								</TooltipContent>
+							</Tooltip>
 						) : (
 							formatPrice(row.provider.inputPrice, row.provider.discount)
 						)}
@@ -395,6 +409,11 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
+						) : (!row.provider.outputPrice ||
+								parseFloat(row.provider.outputPrice) === 0) &&
+						  row.provider.requestPrice &&
+						  parseFloat(row.provider.requestPrice) > 0 ? (
+							<span className="text-muted-foreground">—</span>
 						) : (
 							formatPrice(row.provider.outputPrice, row.provider.discount)
 						)}

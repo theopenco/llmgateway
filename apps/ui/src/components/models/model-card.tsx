@@ -9,6 +9,8 @@ import {
 	ChevronUp,
 	ArrowRight,
 	Globe,
+	Linkedin,
+	Share2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -17,6 +19,12 @@ import { ModelStatusBadge } from "@/components/models/model-status-badge";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card } from "@/lib/components/card";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/lib/components/dropdown-menu";
 import { TooltipProvider } from "@/lib/components/tooltip";
 import {
 	Tooltip,
@@ -24,6 +32,7 @@ import {
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
+import { XIcon } from "@/lib/icons/XIcon";
 import { formatContextSize, formatDeprecationDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
@@ -401,6 +410,74 @@ export function ModelCard({
 	);
 }
 
+function ShareDropdown({
+	modelId,
+	providerId,
+}: {
+	modelId: string;
+	providerId: string;
+}) {
+	const [urlCopied, setUrlCopied] = useState(false);
+	const shareUrl = `https://llmgateway.io/models/${encodeURIComponent(modelId)}/${encodeURIComponent(providerId)}`;
+	const shareTitle = `${providerId} - ${modelId} on LLM Gateway`;
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-6 w-6 p-0 text-muted-foreground/60 hover:text-foreground hover:bg-transparent"
+					onClick={(e) => e.stopPropagation()}
+					title="Share"
+				>
+					<Share2 className="h-3 w-3" />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end">
+				<DropdownMenuItem
+					onClick={async (e) => {
+						e.stopPropagation();
+						await navigator.clipboard.writeText(shareUrl);
+						setUrlCopied(true);
+						setTimeout(() => setUrlCopied(false), 2000);
+					}}
+					className="cursor-pointer"
+				>
+					{urlCopied ? (
+						<Check className="h-4 w-4 mr-2 text-green-500" />
+					) : (
+						<Copy className="h-4 w-4 mr-2" />
+					)}
+					{urlCopied ? "Copied!" : "Copy URL"}
+				</DropdownMenuItem>
+				<DropdownMenuItem asChild className="cursor-pointer">
+					<a
+						href={`https://x.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`}
+						target="_blank"
+						rel="noopener noreferrer"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<XIcon className="h-4 w-4 mr-2" />
+						Share on X
+					</a>
+				</DropdownMenuItem>
+				<DropdownMenuItem asChild className="cursor-pointer">
+					<a
+						href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`}
+						target="_blank"
+						rel="noopener noreferrer"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<Linkedin className="h-4 w-4 mr-2" />
+						Share on LinkedIn
+					</a>
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 export function ProviderSection({
 	modelId,
 	providerInfo,
@@ -456,6 +533,7 @@ export function ProviderSection({
 					)}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
+					<ShareDropdown modelId={modelId} providerId={providerId} />
 					<Button
 						variant="ghost"
 						size="sm"

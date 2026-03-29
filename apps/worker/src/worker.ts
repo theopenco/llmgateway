@@ -67,6 +67,9 @@ const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const LOCK_DURATION_MINUTES = 5;
+const AUTO_TOPUP_DISABLE_AFTER_DAYS = 7;
+const AUTO_TOPUP_DISABLE_AFTER_MS =
+	AUTO_TOPUP_DISABLE_AFTER_DAYS * 24 * 60 * 60 * 1000;
 
 // Configuration for batch processing
 const BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
@@ -161,7 +164,7 @@ async function releaseLock(key: string): Promise<void> {
 	await db.delete(tables.lock).where(eq(tables.lock.key, key));
 }
 
-async function processAutoTopUp(): Promise<void> {
+export async function processAutoTopUp(): Promise<void> {
 	const lockAcquired = await acquireLock(AUTO_TOPUP_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
@@ -213,6 +216,74 @@ async function processAutoTopUp(): Promise<void> {
 						);
 						continue;
 					}
+				}
+
+				if (
+					org.paymentFailureStartedAt &&
+					Date.now() - org.paymentFailureStartedAt.getTime() >=
+						AUTO_TOPUP_DISABLE_AFTER_MS
+				) {
+					const auditActor =
+						(await db.query.userOrganization.findFirst({
+							where: {
+								organizationId: {
+									eq: org.id,
+								},
+								role: {
+									eq: "owner",
+								},
+							},
+						})) ??
+						(await db.query.userOrganization.findFirst({
+							where: {
+								organizationId: {
+									eq: org.id,
+								},
+							},
+						}));
+
+					const previousFailureStartedAt = org.paymentFailureStartedAt;
+					const previousLastPaymentFailureAt = org.lastPaymentFailureAt;
+					const previousFailureCount = org.paymentFailureCount ?? 0;
+
+					await db
+						.update(tables.organization)
+						.set({
+							autoTopUpEnabled: false,
+							paymentFailureCount: 0,
+							lastPaymentFailureAt: null,
+							paymentFailureStartedAt: null,
+						})
+						.where(eq(tables.organization.id, org.id));
+
+					if (auditActor) {
+						await db.insert(tables.auditLog).values({
+							organizationId: org.id,
+							userId: auditActor.userId,
+							action: "payment.auto_topup.disable",
+							resourceType: "organization",
+							resourceId: org.id,
+							metadata: {
+								automatic: true,
+								reason: "payment_failures_exceeded_7_days",
+								changes: {
+									autoTopUpEnabled: {
+										old: true,
+										new: false,
+									},
+								},
+								paymentFailureCount: previousFailureCount,
+								paymentFailureStartedAt: previousFailureStartedAt.toISOString(),
+								lastPaymentFailureAt:
+									previousLastPaymentFailureAt?.toISOString() ?? null,
+							},
+						});
+					}
+
+					logger.warn(
+						`Disabled auto top-up for organization ${org.id} after ${AUTO_TOPUP_DISABLE_AFTER_DAYS} days of payment failures`,
+					);
+					continue;
 				}
 
 				// Check for exponential backoff based on payment failure count
@@ -451,6 +522,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						upstreamRequest: null,
 						upstreamResponse: null,
 						userAgent: null,
+						gatewayContentFilterResponse: null,
 						dataRetentionCleanedUp: true,
 					})
 					.where(inArray(log.id, idsToClean));
@@ -552,6 +624,41 @@ export async function batchProcessLogs(): Promise<void> {
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
+
+				// Log each processed log with JSON format
+				logger.info("processing log", {
+					kind: "log-process",
+					status: row.hasError ? "error" : row.cached ? "cached" : "success",
+					logId: row.id,
+					requestId: row.request_id,
+					organizationId: row.organization_id,
+					projectId: row.project_id,
+					cost: row.cost,
+					inputCost: row.input_cost,
+					outputCost: row.output_cost,
+					cachedInputCost: row.cached_input_cost,
+					estimatedCost: row.estimated_cost,
+					error: !!row.hasError,
+					cached: row.cached,
+					apiKeyId: row.api_key_id,
+					projectMode: row.project_mode,
+					usedMode: row.used_mode,
+					duration: row.duration,
+					requestedModel: row.requested_model,
+					requestedProvider: row.requested_provider,
+					usedModel: row.used_model,
+					usedModelMapping: row.used_model_mapping,
+					usedProvider: row.used_provider,
+					responseSize: row.response_size,
+					promptTokens: row.prompt_tokens,
+					completionTokens: row.completion_tokens,
+					totalTokens: row.total_tokens,
+					reasoningTokens: row.reasoning_tokens,
+					cachedTokens: row.cached_tokens,
+					errorDetails: row.error_details,
+					traceId: row.trace_id,
+					unifiedFinishReason: row.unified_finish_reason,
+				});
 
 				if (row.cost && row.cost > 0 && !row.cached) {
 					// Always update API key usage for non-cached logs with cost

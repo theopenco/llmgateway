@@ -82,10 +82,14 @@ export interface RoutingMetadata {
 		failed?: boolean;
 		status_code?: number;
 		error_type?: string;
+		// Set when this provider was excluded due to RPM cap
+		rate_limited?: boolean;
 	}>;
 	// Optional fields for low-uptime fallback routing
 	originalProvider?: string;
 	originalProviderUptime?: number;
+	// Set when the originally requested provider was rate-limited and fallback occurred
+	originalProviderRateLimited?: boolean;
 	// Whether fallback was disabled via X-No-Fallback header
 	noFallback?: boolean;
 	// All provider attempts from retry fallback mechanism (including successful)

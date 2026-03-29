@@ -352,7 +352,9 @@ export function CostCalculator() {
 										className="flex-1 bg-transparent"
 										asChild
 									>
-										<Link href="/cost-simulator">Full Cost Simulator</Link>
+										<Link href="/token-cost-calculator">
+											Full Token Cost Calculator
+										</Link>
 									</Button>
 								</div>
 							</div>

@@ -568,6 +568,7 @@ async function recordCreditTopUp({
 			credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
 			paymentFailureCount: 0,
 			lastPaymentFailureAt: null,
+			paymentFailureStartedAt: null,
 		})
 		.where(eq(tables.organization.id, organizationId));
 
@@ -810,6 +811,7 @@ async function handlePaymentIntentSucceeded(
 				credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
 				paymentFailureCount: 0,
 				lastPaymentFailureAt: null,
+				paymentFailureStartedAt: null,
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -1027,6 +1029,7 @@ async function handlePaymentIntentFailed(
 	// Calculate new failure count and check if we should send an email
 	const previousFailureCount = organization.paymentFailureCount ?? 0;
 	const previousFailureAt = organization.lastPaymentFailureAt;
+	const failureStartedAt = organization.paymentFailureStartedAt ?? new Date();
 	const newFailureCount = previousFailureCount + 1;
 
 	// Update organization with new failure count and timestamp
@@ -1035,6 +1038,7 @@ async function handlePaymentIntentFailed(
 		.set({
 			paymentFailureCount: newFailureCount,
 			lastPaymentFailureAt: new Date(),
+			paymentFailureStartedAt: failureStartedAt,
 		})
 		.where(eq(tables.organization.id, organizationId));
 

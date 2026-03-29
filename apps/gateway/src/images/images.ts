@@ -401,14 +401,17 @@ images.openapi(generations, async (c) => {
 		request.model,
 	);
 
+	// Truncate to the requested number of images
+	const truncatedImages = imageObjects.slice(0, request.n);
+
 	// Build the OpenAI-compatible images response
 	const imagesResponse = {
 		created: Math.floor(Date.now() / 1000),
-		data: imageObjects,
+		data: truncatedImages,
 	};
 
 	logger.debug("Images API - returning response", {
-		imageCount: imageObjects.length,
+		imageCount: truncatedImages.length,
 		model: request.model,
 	});
 

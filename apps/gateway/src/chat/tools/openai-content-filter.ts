@@ -4,8 +4,8 @@ import { getProviderHeaders } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
 
 import { getProviderEnv } from "./get-provider-env.js";
-import { messagesContainImages } from "./messages-contain-images.js";
 
+import type { ModerationApiPayload } from "@llmgateway/db";
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 
 interface GatewayContentFilterContext {
@@ -33,15 +33,16 @@ type OpenAIModerationInputPart =
 
 type OpenAIModerationInput = string | OpenAIModerationInputPart[];
 
+interface OpenAIModerationRequest {
+	kind: "text" | "image";
+	input: OpenAIModerationInput;
+}
+
 interface OpenAIModerationResult {
 	flagged?: boolean;
 	categories?: Record<string, boolean>;
-}
-
-interface OpenAIModerationResponse {
-	id?: string;
-	model?: string;
-	results?: OpenAIModerationResult[];
+	category_scores?: Record<string, number>;
+	category_applied_input_types?: Record<string, string[]>;
 }
 
 export interface OpenAIContentFilterCheckResult {
@@ -49,11 +50,37 @@ export interface OpenAIContentFilterCheckResult {
 	model: string;
 	upstreamRequestId: string | null;
 	results: OpenAIModerationResult[];
+	responses: ModerationApiPayload[];
+}
+
+interface OpenAIContentFilterRequestResult {
+	success: boolean;
+	response: OpenAIContentFilterCheckResult;
 }
 
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
 const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
+const DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD = 0.8;
+
+function getOpenAIModerationScoreThreshold(): number {
+	const envValue = process.env.LLM_CONTENT_FILTER_OPENAI_SCORE_THRESHOLD;
+
+	if (!envValue || envValue.trim() === "") {
+		return DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD;
+	}
+
+	const parsedThreshold = Number(envValue);
+	if (
+		!Number.isFinite(parsedThreshold) ||
+		parsedThreshold < 0 ||
+		parsedThreshold > 1
+	) {
+		return DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD;
+	}
+
+	return parsedThreshold;
+}
 
 function buildTextSummary(message: BaseMessage): string | null {
 	const segments: string[] = [];
@@ -121,24 +148,17 @@ function toModerationImagePart(
 	return null;
 }
 
-export function buildOpenAIContentFilterInput(
+export function buildOpenAIContentFilterTextInput(
 	messages: BaseMessage[],
-): OpenAIModerationInput {
-	if (!messagesContainImages(messages)) {
-		return messages.map(buildTextSummary).filter(Boolean).join("\n\n");
-	}
+): string {
+	return messages.map(buildTextSummary).filter(Boolean).join("\n\n");
+}
 
-	const parts: OpenAIModerationInputPart[] = [];
-
+export function buildOpenAIContentFilterImageInputs(
+	messages: BaseMessage[],
+): OpenAIModerationInput[] {
+	const inputs: OpenAIModerationInput[] = [];
 	for (const message of messages) {
-		const textSummary = buildTextSummary(message);
-		if (textSummary) {
-			parts.push({
-				type: "text",
-				text: textSummary,
-			});
-		}
-
 		if (!Array.isArray(message.content)) {
 			continue;
 		}
@@ -146,17 +166,41 @@ export function buildOpenAIContentFilterInput(
 		for (const part of message.content) {
 			const imagePart = toModerationImagePart(part);
 			if (imagePart) {
-				parts.push(imagePart);
+				inputs.push([imagePart]);
 			}
 		}
 	}
 
-	return parts;
+	return inputs;
+}
+
+function buildOpenAIContentFilterRequests(
+	messages: BaseMessage[],
+): OpenAIModerationRequest[] {
+	const requests: OpenAIModerationRequest[] = [];
+	const textInput = buildOpenAIContentFilterTextInput(messages);
+	const imageInputs = buildOpenAIContentFilterImageInputs(messages);
+
+	if (textInput.length > 0) {
+		requests.push({
+			kind: "text",
+			input: textInput,
+		});
+	}
+
+	for (const imageInput of imageInputs) {
+		requests.push({
+			kind: "image",
+			input: imageInput,
+		});
+	}
+
+	return requests;
 }
 
 function parseModerationResponse(
 	responseJson: unknown,
-): OpenAIModerationResponse | null {
+): ModerationApiPayload | null {
 	if (typeof responseJson !== "object" || responseJson === null) {
 		return null;
 	}
@@ -166,17 +210,27 @@ function parseModerationResponse(
 		return null;
 	}
 
-	return responseJson as OpenAIModerationResponse;
+	return responseJson as ModerationApiPayload;
+}
+
+function getMatchedCategoryScores(result: OpenAIModerationResult): string[] {
+	return Object.entries(result.category_scores ?? {})
+		.filter(([, score]) => score > getOpenAIModerationScoreThreshold())
+		.map(([category]) => category);
+}
+
+function isOpenAIModerationResultFlagged(
+	result: OpenAIModerationResult,
+): boolean {
+	return getMatchedCategoryScores(result).length > 0;
 }
 
 function getFlaggedCategories(results: OpenAIModerationResult[]): string[] {
 	const categories = new Set<string>();
 
 	for (const result of results) {
-		for (const [category, flagged] of Object.entries(result.categories ?? {})) {
-			if (flagged) {
-				categories.add(category);
-			}
+		for (const category of getMatchedCategoryScores(result)) {
+			categories.add(category);
 		}
 	}
 
@@ -187,10 +241,6 @@ function logModerationResult(
 	context: GatewayContentFilterContext,
 	payload: Record<string, unknown>,
 ) {
-	if (process.env.NODE_ENV === "production") {
-		return;
-	}
-
 	logger.debug("gateway_content_filter", {
 		provider: "openai",
 		mode: "openai",
@@ -226,6 +276,107 @@ function createFailedOpenAIContentFilterResult(
 		model: OPENAI_MODERATION_MODEL,
 		upstreamRequestId,
 		results: [],
+		responses: [],
+	};
+}
+
+async function runOpenAIContentFilterRequest(
+	request: OpenAIModerationRequest,
+	context: GatewayContentFilterContext,
+	providerToken: string,
+	signal: AbortSignal,
+): Promise<OpenAIContentFilterRequestResult> {
+	const startTime = Date.now();
+	let upstreamResponse: Response;
+	let upstreamText: string;
+
+	try {
+		upstreamResponse = await fetch(OPENAI_MODERATION_URL, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Client-Request-Id": context.requestId,
+				...getProviderHeaders("openai", providerToken),
+			},
+			body: JSON.stringify({
+				model: OPENAI_MODERATION_MODEL,
+				input: request.input,
+			}),
+			signal,
+		});
+		upstreamText = await upstreamResponse.text();
+	} catch (error) {
+		if (signal.aborted || isCancellationError(error)) {
+			throw error;
+		}
+
+		logModerationError(context, {
+			durationMs: Date.now() - startTime,
+			inputType: request.kind,
+			error: error instanceof Error ? error.message : String(error),
+			timeout: isTimeoutError(error),
+		});
+
+		return {
+			success: false,
+			response: createFailedOpenAIContentFilterResult(),
+		};
+	}
+
+	let responseJson: unknown = null;
+	if (upstreamText.length > 0) {
+		try {
+			responseJson = JSON.parse(upstreamText);
+		} catch {
+			responseJson = upstreamText;
+		}
+	}
+
+	const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
+	if (!upstreamResponse.ok) {
+		logModerationError(context, {
+			durationMs: Date.now() - startTime,
+			inputType: request.kind,
+			status: upstreamResponse.status,
+			statusText: upstreamResponse.statusText,
+			upstreamRequestId,
+			response: responseJson,
+		});
+
+		return {
+			success: false,
+			response: createFailedOpenAIContentFilterResult(upstreamRequestId),
+		};
+	}
+
+	const moderationResponse = parseModerationResponse(responseJson);
+	if (!moderationResponse) {
+		logModerationError(context, {
+			durationMs: Date.now() - startTime,
+			inputType: request.kind,
+			status: upstreamResponse.status,
+			statusText: upstreamResponse.statusText,
+			upstreamRequestId,
+			response: responseJson,
+		});
+
+		return {
+			success: false,
+			response: createFailedOpenAIContentFilterResult(upstreamRequestId),
+		};
+	}
+
+	return {
+		success: true,
+		response: {
+			flagged: (moderationResponse.results ?? []).some((result) =>
+				isOpenAIModerationResultFlagged(result),
+			),
+			model: moderationResponse.model ?? OPENAI_MODERATION_MODEL,
+			upstreamRequestId,
+			results: moderationResponse.results ?? [],
+			responses: [moderationResponse],
+		},
 	};
 }
 
@@ -235,10 +386,24 @@ export async function checkOpenAIContentFilter(
 	requestSignal?: AbortSignal,
 ): Promise<OpenAIContentFilterCheckResult> {
 	const startTime = Date.now();
-	const requestBody = {
-		model: OPENAI_MODERATION_MODEL,
-		input: buildOpenAIContentFilterInput(messages),
-	};
+	const moderationRequests = buildOpenAIContentFilterRequests(messages);
+	const imageInputs = buildOpenAIContentFilterImageInputs(messages);
+
+	if (moderationRequests.length === 0) {
+		logModerationResult(context, {
+			durationMs: Date.now() - startTime,
+			flagged: false,
+			model: OPENAI_MODERATION_MODEL,
+			upstreamRequestId: null,
+			hasImages: false,
+			requestCount: 0,
+			imageRequestCount: 0,
+			flaggedCategories: [],
+			results: [],
+		});
+
+		return createFailedOpenAIContentFilterResult();
+	}
 
 	const signal = requestSignal
 		? AbortSignal.any([
@@ -247,25 +412,55 @@ export async function checkOpenAIContentFilter(
 			])
 		: AbortSignal.timeout(OPENAI_MODERATION_TIMEOUT_MS);
 
-	let upstreamResponse: Response;
-	let upstreamText: string;
-
 	try {
 		const providerEnv = getProviderEnv("openai", {
 			advanceRoundRobin: false,
 		});
+		const moderationResults = await Promise.all(
+			moderationRequests.map((request) =>
+				runOpenAIContentFilterRequest(
+					request,
+					context,
+					providerEnv.token,
+					signal,
+				),
+			),
+		);
 
-		upstreamResponse = await fetch(OPENAI_MODERATION_URL, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Client-Request-Id": context.requestId,
-				...getProviderHeaders("openai", providerEnv.token),
-			},
-			body: JSON.stringify(requestBody),
-			signal,
+		const successfulResults = moderationResults
+			.filter((result) => result.success)
+			.map((result) => result.response);
+		const results = successfulResults.flatMap((result) => result.results);
+		const responses = successfulResults.flatMap((result) => result.responses);
+		const flagged = successfulResults.some((result) => result.flagged);
+		const model = successfulResults[0]?.model ?? OPENAI_MODERATION_MODEL;
+		const upstreamRequestId =
+			successfulResults.find(
+				(result) => result.flagged && result.upstreamRequestId !== null,
+			)?.upstreamRequestId ??
+			successfulResults.find((result) => result.upstreamRequestId !== null)
+				?.upstreamRequestId ??
+			null;
+
+		logModerationResult(context, {
+			durationMs: Date.now() - startTime,
+			flagged,
+			model,
+			upstreamRequestId,
+			hasImages: imageInputs.length > 0,
+			requestCount: moderationRequests.length,
+			imageRequestCount: imageInputs.length,
+			flaggedCategories: getFlaggedCategories(results),
+			results,
 		});
-		upstreamText = await upstreamResponse.text();
+
+		return {
+			flagged,
+			model,
+			upstreamRequestId,
+			results,
+			responses,
+		};
 	} catch (error) {
 		if (requestSignal?.aborted || isCancellationError(error)) {
 			throw error;
@@ -281,62 +476,4 @@ export async function checkOpenAIContentFilter(
 
 		return createFailedOpenAIContentFilterResult();
 	}
-
-	let responseJson: unknown = null;
-	if (upstreamText.length > 0) {
-		try {
-			responseJson = JSON.parse(upstreamText);
-		} catch {
-			responseJson = upstreamText;
-		}
-	}
-
-	if (!upstreamResponse.ok) {
-		const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
-		logModerationError(context, {
-			durationMs: Date.now() - startTime,
-			status: upstreamResponse.status,
-			statusText: upstreamResponse.statusText,
-			upstreamRequestId,
-			response: responseJson,
-		});
-
-		return createFailedOpenAIContentFilterResult(upstreamRequestId);
-	}
-
-	const moderationResponse = parseModerationResponse(responseJson);
-	if (!moderationResponse) {
-		const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
-		logModerationError(context, {
-			durationMs: Date.now() - startTime,
-			status: upstreamResponse.status,
-			statusText: upstreamResponse.statusText,
-			upstreamRequestId,
-			response: responseJson,
-		});
-
-		return createFailedOpenAIContentFilterResult(upstreamRequestId);
-	}
-
-	const results = moderationResponse.results ?? [];
-	const flagged = results.some((result) => result.flagged === true);
-	const model = moderationResponse.model ?? OPENAI_MODERATION_MODEL;
-	const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
-
-	logModerationResult(context, {
-		durationMs: Date.now() - startTime,
-		flagged,
-		model,
-		upstreamRequestId,
-		hasImages: messagesContainImages(messages),
-		flaggedCategories: getFlaggedCategories(results),
-		results,
-	});
-
-	return {
-		flagged,
-		model,
-		upstreamRequestId,
-		results,
-	};
 }

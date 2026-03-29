@@ -11,9 +11,11 @@ import {
 	text,
 	timestamp,
 	unique,
+	uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
+import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type z from "zod";
 
@@ -147,6 +149,7 @@ export const organization = pgTable("organization", {
 	referralEarnings: decimal().notNull().default("0"),
 	paymentFailureCount: integer().notNull().default(0),
 	lastPaymentFailureAt: timestamp(),
+	paymentFailureStartedAt: timestamp(),
 	// Dev Plans fields (for personal accounts)
 	isPersonal: boolean().notNull().default(false),
 	devPlan: text({
@@ -545,9 +548,11 @@ export const log = pgTable(
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
+				rate_limited?: boolean;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;
+			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
 			routing?: Array<{
 				provider: string;
@@ -583,6 +588,8 @@ export const log = pgTable(
 		retried: boolean().default(false),
 		retriedByLogId: text(),
 		internalContentFilter: boolean(),
+		gatewayContentFilterResponse:
+			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -695,9 +702,11 @@ export const videoJob = pgTable(
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
+				rate_limited?: boolean;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;
+			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
 			routing?: Array<{
 				provider: string;
@@ -1178,6 +1187,8 @@ export const auditLogActions = [
 	"payment.method.set_default",
 	"payment.method.delete",
 	"payment.credit_topup",
+	"payment.auto_topup.update",
+	"payment.auto_topup.disable",
 	// Credits
 	"credits.gift",
 	// Dev Plan
@@ -1434,6 +1445,48 @@ export const discount = pgTable(
 		index("discount_organization_id_idx").on(table.organizationId),
 		index("discount_provider_idx").on(table.provider),
 		index("discount_model_idx").on(table.model),
+	],
+);
+
+// Rate Limit - Admin-configurable provider/model caps
+// Can be global (organizationId = null) or org-specific
+export const rateLimit = pgTable(
+	"rate_limit",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Scope: null = global rate limit, otherwise org-specific
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		// Target: provider-only, model-only, or both
+		// null provider = applies to all providers
+		provider: text(),
+		// null model = applies to all models (of provider if specified)
+		model: text(),
+		// Maximum requests per minute
+		maxRpm: integer(),
+		// Maximum requests per day
+		maxRpd: integer(),
+		// Optional metadata
+		reason: text(),
+	},
+	(table) => [
+		// One row per org/provider/model combo with both RPM and RPD on the same row.
+		// Coalesce nulls to sentinels so Postgres treats them as equal.
+		uniqueIndex("rate_limit_org_provider_model_unique").using(
+			"btree",
+			sql`coalesce(${table.organizationId}, '__global__')`,
+			sql`coalesce(${table.provider}, '__all_providers__')`,
+			sql`coalesce(${table.model}, '__all_models__')`,
+		),
+		index("rate_limit_organization_id_idx").on(table.organizationId),
+		index("rate_limit_provider_idx").on(table.provider),
+		index("rate_limit_model_idx").on(table.model),
 	],
 );
 

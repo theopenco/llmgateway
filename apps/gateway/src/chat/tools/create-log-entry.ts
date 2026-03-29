@@ -1,7 +1,11 @@
 import { trace } from "@opentelemetry/api";
 
 import type { RoutingMetadata } from "@llmgateway/actions";
-import type { ApiKey, Project } from "@llmgateway/db";
+import type {
+	ApiKey,
+	GatewayContentFilterResponse,
+	Project,
+} from "@llmgateway/db";
 import type { OpenAIToolInput } from "@llmgateway/models";
 
 export interface PluginResults {
@@ -50,6 +54,7 @@ export interface CreateLogEntryOptions {
 	upstreamResponse?: unknown;
 	plugins?: string[];
 	pluginResults?: PluginResults;
+	gatewayContentFilterResponse?: GatewayContentFilterResponse | null;
 }
 
 /**
@@ -107,6 +112,7 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		plugins:
 			options.plugins && options.plugins.length > 0 ? options.plugins : null,
 		pluginResults: options.pluginResults ?? null,
+		gatewayContentFilterResponse: options.gatewayContentFilterResponse ?? null,
 	} as const;
 }
 
@@ -160,6 +166,7 @@ export function createLogEntry(
 	upstreamResponse?: unknown,
 	plugins?: string[],
 	pluginResults?: PluginResults,
+	gatewayContentFilterResponse?: GatewayContentFilterResponse | null,
 ): ReturnType<typeof buildLogEntry>;
 export function createLogEntry(
 	requestIdOrOptions: string | CreateLogEntryOptions,
@@ -200,6 +207,7 @@ export function createLogEntry(
 	upstreamResponse?: unknown,
 	plugins?: string[],
 	pluginResults?: PluginResults,
+	gatewayContentFilterResponse?: GatewayContentFilterResponse | null,
 ): ReturnType<typeof buildLogEntry> {
 	if (typeof requestIdOrOptions !== "string") {
 		return buildLogEntry(requestIdOrOptions);
@@ -239,5 +247,6 @@ export function createLogEntry(
 		upstreamResponse,
 		plugins,
 		pluginResults,
+		gatewayContentFilterResponse,
 	});
 }

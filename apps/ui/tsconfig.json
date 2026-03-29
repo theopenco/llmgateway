@@ -26,11 +26,13 @@
 		}
 	},
 	"include": [
-		"**/*.ts",
-		"**/*.tsx",
+		"next-env.d.ts",
+		"*.ts",
+		"*.tsx",
+		"src/**/*.ts",
+		"src/**/*.tsx",
 		"./.content-collections/generated/index.d.ts",
-		".next/types/**/*.ts",
-		"next-env.d.ts"
+		".next/types/**/*.ts"
 	],
-	"exclude": ["node_modules", ".next-dev"]
+	"exclude": ["node_modules", ".next", ".next-dev"]
 }
