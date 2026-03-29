@@ -1,17 +1,47 @@
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import {
+	apiKey,
+	db,
+	log,
+	organization,
+	project,
+	tables,
+	user,
+} from "@llmgateway/db";
 
-import { acquireLock } from "./worker.js";
+import { acquireLock, cleanupExpiredLogData } from "./worker.js";
 
 describe("worker", () => {
+	const previousDataRetentionCleanup =
+		process.env.ENABLE_DATA_RETENTION_CLEANUP;
+
 	beforeEach(async () => {
-		// Clean up lock table before each test
+		await db.delete(log);
+		await db.delete(apiKey);
+		await db.delete(project);
+		await db.delete(organization);
+		await db.delete(user);
 		await db.delete(tables.lock);
 	});
 
+	afterEach(() => {
+		process.env.ENABLE_DATA_RETENTION_CLEANUP = previousDataRetentionCleanup;
+	});
+
 	afterAll(async () => {
-		// Clean up after all tests
+		await db.delete(log);
+		await db.delete(apiKey);
+		await db.delete(project);
+		await db.delete(organization);
+		await db.delete(user);
 		await db.delete(tables.lock);
 	});
 
@@ -106,6 +136,117 @@ describe("worker", () => {
 
 			const lockKeys = locks.map((lock) => lock.key).sort();
 			expect(lockKeys).toEqual([lockKey1, lockKey2].sort());
+		});
+	});
+
+	describe("cleanupExpiredLogData", () => {
+		test("should null moderation payloads during retention cleanup", async () => {
+			process.env.ENABLE_DATA_RETENTION_CLEANUP = "true";
+
+			const testUser = await db
+				.insert(user)
+				.values({
+					id: "retention-test-user",
+					email: "retention@example.com",
+					name: "Retention Test User",
+				})
+				.returning()
+				.then((rows) => rows[0]);
+
+			const testOrg = await db
+				.insert(organization)
+				.values({
+					id: "retention-test-org",
+					name: "Retention Test Org",
+					billingEmail: testUser.email,
+				})
+				.returning()
+				.then((rows) => rows[0]);
+
+			const testProject = await db
+				.insert(project)
+				.values({
+					id: "retention-test-project",
+					organizationId: testOrg.id,
+					name: "Retention Test Project",
+					mode: "credits",
+				})
+				.returning()
+				.then((rows) => rows[0]);
+
+			const testApiKey = await db
+				.insert(apiKey)
+				.values({
+					id: "retention-test-api-key",
+					projectId: testProject.id,
+					token: "retention-test-token",
+					description: "Retention Test API Key",
+					createdBy: testUser.id,
+				})
+				.returning()
+				.then((rows) => rows[0]);
+
+			// eslint-disable-next-line no-mixed-operators
+			const oldCreatedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+
+			await db.insert(log).values({
+				id: "retention-test-log",
+				requestId: "retention-test-request",
+				createdAt: oldCreatedAt,
+				updatedAt: oldCreatedAt,
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				duration: 100,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				content: "response content",
+				messages: [{ role: "user", content: "hello" }],
+				rawRequest: { input: "hello" },
+				upstreamResponse: { output: "response content" },
+				userAgent: "test-user-agent",
+				gatewayContentFilterResponse: [
+					{
+						id: "modr-retention-test",
+						model: "omni-moderation-latest",
+						results: [
+							{
+								flagged: true,
+								categories: {
+									violence: true,
+								},
+								category_scores: {
+									violence: 0.95,
+								},
+							},
+						],
+					},
+				],
+				mode: "credits",
+				usedMode: "credits",
+			});
+
+			await cleanupExpiredLogData();
+
+			const cleanedLog = await db.query.log.findFirst({
+				where: {
+					id: {
+						eq: "retention-test-log",
+					},
+				},
+			});
+
+			expect(cleanedLog).toBeTruthy();
+			expect(cleanedLog?.content).toBeNull();
+			expect(cleanedLog?.messages).toBeNull();
+			expect(cleanedLog?.rawRequest).toBeNull();
+			expect(cleanedLog?.upstreamResponse).toBeNull();
+			expect(cleanedLog?.userAgent).toBeNull();
+			expect(cleanedLog?.gatewayContentFilterResponse).toBeNull();
+			expect(cleanedLog?.dataRetentionCleanedUp).toBe(true);
 		});
 	});
 });
