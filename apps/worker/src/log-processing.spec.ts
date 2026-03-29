@@ -248,6 +248,9 @@ describe("Log Processing", () => {
 		});
 
 		test("should update current period usage for active period limits", async () => {
+			const activeWindowOffsetMs = 60 * 60 * 1000;
+			const activeWindowStartedAt = new Date(Date.now() - activeWindowOffsetMs);
+
 			await db
 				.update(apiKey)
 				.set({
@@ -255,7 +258,7 @@ describe("Log Processing", () => {
 					periodUsageDurationValue: 1,
 					periodUsageDurationUnit: "day",
 					currentPeriodUsage: "1.50",
-					currentPeriodStartedAt: new Date(Date.now() - 60 * 60 * 1000),
+					currentPeriodStartedAt: activeWindowStartedAt,
 				})
 				.where(eq(apiKey.id, testApiKey.id));
 
@@ -287,6 +290,11 @@ describe("Log Processing", () => {
 		});
 
 		test("should reset expired current period usage before adding new cost", async () => {
+			const expiredWindowOffsetMs = 2 * 60 * 60 * 1000;
+			const expiredWindowStartedAt = new Date(
+				Date.now() - expiredWindowOffsetMs,
+			);
+
 			await db
 				.update(apiKey)
 				.set({
@@ -294,7 +302,7 @@ describe("Log Processing", () => {
 					periodUsageDurationValue: 1,
 					periodUsageDurationUnit: "hour",
 					currentPeriodUsage: "4.00",
-					currentPeriodStartedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+					currentPeriodStartedAt: expiredWindowStartedAt,
 				})
 				.where(eq(apiKey.id, testApiKey.id));
 

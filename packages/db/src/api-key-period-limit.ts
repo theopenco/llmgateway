@@ -77,9 +77,11 @@ export function addApiKeyPeriodDuration(
 		case "day":
 			next.setDate(next.getDate() + value);
 			return next;
-		case "week":
-			next.setDate(next.getDate() + value * 7);
+		case "week": {
+			const daysToAdd = value * 7;
+			next.setDate(next.getDate() + daysToAdd);
 			return next;
+		}
 		case "month": {
 			const dayOfMonth = next.getDate();
 			next.setDate(1);
