@@ -35,15 +35,6 @@ import {
 
 import type { Log } from "@llmgateway/db";
 
-const BASE64_PATTERN = /[A-Za-z0-9+/]{200,}/;
-
-function isLikelyBase64Image(value: string | null | undefined): boolean {
-	if (!value || value.length <= 500) {
-		return false;
-	}
-	return value.includes("base64,") || BASE64_PATTERN.test(value);
-}
-
 export function LogCard({
 	log,
 	orgId,
@@ -140,7 +131,9 @@ export function LogCard({
 					<div className="flex items-start justify-between gap-4">
 						<div className="flex items-center gap-2 flex-1 min-w-0">
 							<p className="font-medium break-words max-w-none line-clamp-2">
-								{isLikelyBase64Image(log.content) ? (
+								{log.content &&
+								(log.content.includes("base64,") || log.content.length > 500) &&
+								/[A-Za-z0-9+/]{200,}/.test(log.content) ? (
 									orgId && projectId && log.id ? (
 										<Link
 											href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
@@ -1102,7 +1095,7 @@ export function LogCard({
 											if (
 												typeof value === "string" &&
 												value.length > 200 &&
-												BASE64_PATTERN.test(value)
+												/[A-Za-z0-9+/]{200,}/.test(value)
 											) {
 												return "[base64 image data truncated]";
 											}
@@ -1148,10 +1141,12 @@ export function LogCard({
 					<div className="space-y-2">
 						<h4 className="text-sm font-medium">Response</h4>
 						<div className="rounded-md border p-3">
-							{isLikelyBase64Image(log.content) ? (
+							{log.content &&
+							(log.content.includes("base64,") || log.content.length > 500) &&
+							/[A-Za-z0-9+/]{200,}/.test(log.content) ? (
 								<div className="flex items-center gap-2 text-sm text-muted-foreground">
 									<Sparkles className="h-4 w-4" />
-									<span>Image data ({prettyBytes(log.content!.length)}).</span>
+									<span>Image data ({prettyBytes(log.content.length)}).</span>
 									{orgId && projectId && log.id && (
 										<Link
 											href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
