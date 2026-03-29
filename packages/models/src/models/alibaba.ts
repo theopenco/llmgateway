@@ -490,6 +490,18 @@ export const alibabaModels = [
 				tools: true,
 				stability: "unstable",
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				providerId: "novita",
@@ -504,6 +516,18 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 		],
 	},

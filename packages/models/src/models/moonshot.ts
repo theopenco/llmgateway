@@ -189,6 +189,8 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				modelName: "kimi-k2-thinking-turbo",
+				// Frequently overloaded (429 engine_overloaded_error)
+				stability: "unstable",
 				inputPrice: 1.15 / 1e6,
 				outputPrice: 8.0 / 1e6,
 				cachedInputPrice: 0.15 / 1e6,

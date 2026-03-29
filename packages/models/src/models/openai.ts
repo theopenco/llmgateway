@@ -640,7 +640,9 @@ export const openaiModels = [
 			},
 			{
 				// Cerebras: FP16/FP8 (weights only)
+				// Consistently times out in CI due to model size
 				providerId: "cerebras",
+				stability: "unstable",
 				modelName: "gpt-oss-120b",
 				inputPrice: 0.35 / 1e6,
 				outputPrice: 0.75 / 1e6,
@@ -1349,6 +1351,8 @@ export const openaiModels = [
 			},
 			{
 				providerId: "azure",
+				// Azure Responses API is slow from CI runners
+				stability: "unstable",
 				modelName: "gpt-5.4",
 				inputPrice: 2.5 / 1e6,
 				outputPrice: 15.0 / 1e6,
