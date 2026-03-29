@@ -166,7 +166,7 @@ describe("logs route", () => {
 
 	// Tests for the filter functionality
 	describe("filter functionality", () => {
-		test("should not expose gateway content filter responses in list results", async () => {
+		test("should expose gateway content filter responses in list results", async () => {
 			const params = new URLSearchParams({ projectId: "test-project-id" });
 			const res = await app.request("/logs?" + params, {
 				method: "GET",
@@ -177,10 +177,26 @@ describe("logs route", () => {
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.logs[0]).not.toHaveProperty("gatewayContentFilterResponse");
+			expect(json.logs[0].gatewayContentFilterResponse).toEqual([
+				{
+					id: "modr-test-log-id-1",
+					model: "omni-moderation-latest",
+					results: [
+						{
+							flagged: true,
+							categories: {
+								violence: true,
+							},
+							category_scores: {
+								violence: 0.95,
+							},
+						},
+					],
+				},
+			]);
 		});
 
-		test("should not expose gateway content filter responses by id", async () => {
+		test("should expose gateway content filter responses by id", async () => {
 			const res = await app.request("/logs/test-log-id-1", {
 				method: "GET",
 				headers: {
@@ -190,7 +206,23 @@ describe("logs route", () => {
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.log).not.toHaveProperty("gatewayContentFilterResponse");
+			expect(json.log.gatewayContentFilterResponse).toEqual([
+				{
+					id: "modr-test-log-id-1",
+					model: "omni-moderation-latest",
+					results: [
+						{
+							flagged: true,
+							categories: {
+								violence: true,
+							},
+							category_scores: {
+								violence: 0.95,
+							},
+						},
+					],
+				},
+			]);
 		});
 
 		test("should filter logs by projectId", async () => {
