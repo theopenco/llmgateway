@@ -5,6 +5,7 @@ import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	isCreditTopUpAmountInRange,
+	isRecordedCreditTopUpAmountValid,
 } from "./fees.js";
 
 describe("isCreditTopUpAmountInRange", () => {
@@ -37,5 +38,20 @@ describe("calculateFees", () => {
 			platformFee: 250,
 			totalAmount: 5250,
 		});
+	});
+});
+
+describe("isRecordedCreditTopUpAmountValid", () => {
+	it("accepts legacy settled amounts above the current cap", () => {
+		expect(isRecordedCreditTopUpAmountValid(CREDIT_TOP_UP_MAX_AMOUNT + 1)).toBe(
+			true,
+		);
+	});
+
+	it("still rejects invalid recorded amounts", () => {
+		expect(isRecordedCreditTopUpAmountValid(CREDIT_TOP_UP_MIN_AMOUNT - 1)).toBe(
+			false,
+		);
+		expect(isRecordedCreditTopUpAmountValid(99.5)).toBe(false);
 	});
 });
