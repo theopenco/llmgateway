@@ -5430,10 +5430,18 @@ chat.openapi(completions, async (c) => {
 						sawUpstreamDoneSentinel ||
 						sawProviderTerminalEvent ||
 						handledTerminalProviderEvent;
+					// A terminal finish reason (stop, tool_calls, length) also counts
+					// as a valid stream completion — some providers (e.g. MiniMax)
+					// send finish_reason but omit the [DONE] sentinel.
+					const hasTerminalFinishReason =
+						finishReason !== null &&
+						finishReason !== "upstream_error" &&
+						finishReason !== "gateway_error";
 					const streamEndedWithoutTerminalEvent =
 						!streamingError &&
 						!canceled &&
-						(!streamHasVerifiedTerminalEvent || finishReason === null);
+						!streamHasVerifiedTerminalEvent &&
+						!hasTerminalFinishReason;
 					if (streamEndedWithoutTerminalEvent) {
 						const hasBufferedNonWhitespace = /\S/u.test(buffer);
 						const responseText = hasBufferedNonWhitespace

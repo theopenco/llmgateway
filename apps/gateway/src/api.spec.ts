@@ -1922,7 +1922,10 @@ describe("api", () => {
 			);
 		});
 
-		test("streaming request surfaces missing upstream done sentinel", async () => {
+		test("streaming request with finish_reason but no done sentinel completes successfully", async () => {
+			// Some providers (e.g. MiniMax) send finish_reason: "stop" but omit
+			// the [DONE] sentinel. The gateway should treat a terminal finish
+			// reason as a valid stream completion.
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
 				token: "real-token",
@@ -1962,20 +1965,13 @@ describe("api", () => {
 			const streamResult = await readAll(res.body);
 
 			expect(streamResult.hasContent).toBe(true);
-			expect(streamResult.hasError).toBe(true);
-			expect(streamResult.errorEvents.length).toBeGreaterThan(0);
-			expect(streamResult.errorEvents[0].error.type).toBe("upstream_error");
-			expect(streamResult.errorEvents[0].error.code).toBe("stream_truncated");
+			// A stream with finish_reason: "stop" is complete, not truncated
+			expect(streamResult.hasError).toBe(false);
 
 			const logs = await waitForLogs(1);
 			expect(logs.length).toBe(1);
-			expect(logs[0].finishReason).toBe("upstream_error");
-			expect(logs[0].unifiedFinishReason).toBe("upstream_error");
-			expect(logs[0].hasError).toBe(true);
-			expect(logs[0].errorDetails?.statusCode).toBe(502);
-			expect(logs[0].errorDetails?.statusText).toBe(
-				"Upstream Stream Terminated",
-			);
+			expect(logs[0].finishReason).toBe("stop");
+			expect(logs[0].hasError).toBe(false);
 		});
 
 		test("streaming request surfaces inline provider SSE errors", async () => {
