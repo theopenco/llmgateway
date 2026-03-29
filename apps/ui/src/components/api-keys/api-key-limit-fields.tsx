@@ -45,6 +45,14 @@ const durationMaxValues: Record<ApiKeyPeriodDurationUnit, number> = {
 	week: 52,
 	month: 12,
 };
+const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
+
+const emptyApiKeyLimitPayload: ApiKeyLimitPayload = {
+	usageLimit: null,
+	periodUsageLimit: null,
+	periodUsageDurationValue: null,
+	periodUsageDurationUnit: null,
+};
 
 export function createApiKeyLimitFormValue(
 	apiKey?: Pick<
@@ -71,28 +79,35 @@ export function buildApiKeyLimitPayload(value: ApiKeyLimitFormValue): {
 	error: string | null;
 	payload: ApiKeyLimitPayload;
 } {
-	if (value.usageLimitEnabled && !value.usageLimit.trim()) {
+	const usageLimit = value.usageLimit.trim();
+	const periodUsageLimit = value.periodUsageLimit.trim();
+
+	if (value.usageLimitEnabled && !usageLimit) {
 		return {
 			error: "Enter an all-time usage limit or turn it off.",
-			payload: {
-				usageLimit: null,
-				periodUsageLimit: null,
-				periodUsageDurationValue: null,
-				periodUsageDurationUnit: null,
-			},
+			payload: emptyApiKeyLimitPayload,
+		};
+	}
+
+	if (value.usageLimitEnabled && !nonNegativeDecimalPattern.test(usageLimit)) {
+		return {
+			error: "All-time usage limit must be a non-negative number.",
+			payload: emptyApiKeyLimitPayload,
 		};
 	}
 
 	if (value.periodUsageLimitEnabled) {
-		if (!value.periodUsageLimit.trim()) {
+		if (!periodUsageLimit) {
 			return {
 				error: "Enter a recurring usage limit or turn it off.",
-				payload: {
-					usageLimit: null,
-					periodUsageLimit: null,
-					periodUsageDurationValue: null,
-					periodUsageDurationUnit: null,
-				},
+				payload: emptyApiKeyLimitPayload,
+			};
+		}
+
+		if (!nonNegativeDecimalPattern.test(periodUsageLimit)) {
+			return {
+				error: "Recurring usage limit must be a non-negative number.",
+				payload: emptyApiKeyLimitPayload,
 			};
 		}
 
@@ -104,12 +119,7 @@ export function buildApiKeyLimitPayload(value: ApiKeyLimitFormValue): {
 		) {
 			return {
 				error: `Duration must be between 1 and ${durationMaxValues[value.periodUsageDurationUnit]} ${value.periodUsageDurationUnit}${durationMaxValues[value.periodUsageDurationUnit] === 1 ? "" : "s"}.`,
-				payload: {
-					usageLimit: null,
-					periodUsageLimit: null,
-					periodUsageDurationValue: null,
-					periodUsageDurationUnit: null,
-				},
+				payload: emptyApiKeyLimitPayload,
 			};
 		}
 	}
@@ -117,10 +127,8 @@ export function buildApiKeyLimitPayload(value: ApiKeyLimitFormValue): {
 	return {
 		error: null,
 		payload: {
-			usageLimit: value.usageLimitEnabled ? value.usageLimit.trim() : null,
-			periodUsageLimit: value.periodUsageLimitEnabled
-				? value.periodUsageLimit.trim()
-				: null,
+			usageLimit: value.usageLimitEnabled ? usageLimit : null,
+			periodUsageLimit: value.periodUsageLimitEnabled ? periodUsageLimit : null,
 			periodUsageDurationValue: value.periodUsageLimitEnabled
 				? Number(value.periodUsageDurationValue)
 				: null,

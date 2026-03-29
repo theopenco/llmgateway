@@ -131,7 +131,7 @@ export function ApiKeysList({
 		"/keys/api/{id}",
 	);
 
-	const { mutate: updateKeyUsageLimitMutation } = api.useMutation(
+	const updateKeyUsageLimitMutation = api.useMutation(
 		"patch",
 		"/keys/api/limit/{id}",
 	);
@@ -269,31 +269,42 @@ export function ApiKeysList({
 		);
 	};
 
-	const updateKeyUsageLimit = (id: string, payload: ApiKeyLimitPayload) => {
-		updateKeyUsageLimitMutation(
-			{
-				params: {
-					path: { id },
+	const updateKeyUsageLimit = async (
+		id: string,
+		payload: ApiKeyLimitPayload,
+	) => {
+		try {
+			await updateKeyUsageLimitMutation.mutateAsync(
+				{
+					params: {
+						path: { id },
+					},
+					body: payload,
 				},
-				body: payload,
-			},
-			{
-				onSuccess: () => {
-					const queryKey = api.queryOptions("get", "/keys/api", {
-						params: {
-							query: { projectId: selectedProject.id },
-						},
-					}).queryKey;
+				{
+					onSuccess: () => {
+						const queryKey = api.queryOptions("get", "/keys/api", {
+							params: {
+								query: { projectId: selectedProject.id },
+							},
+						}).queryKey;
 
-					void queryClient.invalidateQueries({ queryKey });
+						void queryClient.invalidateQueries({ queryKey });
 
-					toast({
-						title: "API Key Limits Updated",
-						description: "The API key limits have been updated.",
-					});
+						toast({
+							title: "API Key Limits Updated",
+							description: "The API key limits have been updated.",
+						});
+					},
 				},
-			},
-		);
+			);
+		} catch (error) {
+			toast({
+				title: "Failed to update API key limits.",
+				variant: "destructive",
+			});
+			throw error;
+		}
 	};
 
 	const renderCurrentPeriodUsage = (key: ApiKey) => {

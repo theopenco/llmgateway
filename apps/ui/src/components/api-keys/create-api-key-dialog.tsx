@@ -56,11 +56,11 @@ export function CreateApiKeyDialog({
 	const [apiKey, setApiKey] = useState("");
 	const api = useApi();
 
-	const { mutate: createApiKey } = api.useMutation("post", "/keys/api");
+	const createApiKeyMutation = api.useMutation("post", "/keys/api");
 
-	const handleSubmit = (e: React.FormEvent) => {
+	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		if (!name.trim()) {
+		if (!name.trim() || createApiKeyMutation.isPending) {
 			toast({ title: "Please enter an API key name.", variant: "destructive" });
 			return;
 		}
@@ -71,28 +71,30 @@ export function CreateApiKeyDialog({
 			return;
 		}
 
-		createApiKey(
-			{
+		try {
+			const data = await createApiKeyMutation.mutateAsync({
 				body: {
 					description: name.trim(),
 					projectId: selectedProject.id,
 					...payload,
 				},
-			},
-			{
-				onSuccess: (data) => {
-					const createdKey = data.apiKey;
+			});
 
-					posthog.capture("api_key_created", {
-						description: createdKey.description,
-						keyId: createdKey.id,
-					});
+			const createdKey = data.apiKey;
 
-					setApiKey(createdKey.token);
-					setStep("created");
-				},
-			},
-		);
+			posthog.capture("api_key_created", {
+				description: createdKey.description,
+				keyId: createdKey.id,
+			});
+
+			setApiKey(createdKey.token);
+			setStep("created");
+		} catch {
+			toast({
+				title: "Failed to create API key.",
+				variant: "destructive",
+			});
+		}
 	};
 
 	const copyToClipboard = () => {
@@ -133,7 +135,18 @@ export function CreateApiKeyDialog({
 	);
 
 	return (
-		<Dialog open={open} onOpenChange={disabled ? undefined : setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={
+				disabled
+					? undefined
+					: (nextOpen) => {
+							if (!createApiKeyMutation.isPending) {
+								setOpen(nextOpen);
+							}
+						}
+			}
+		>
 			{!disabled && <DialogTrigger asChild>{triggerElement}</DialogTrigger>}
 			{disabled && triggerElement}
 			<DialogContent className="sm:max-w-[500px]">
@@ -160,6 +173,7 @@ export function CreateApiKeyDialog({
 									placeholder="e.g. Production API Key"
 									value={name}
 									onChange={(e) => setName(e.target.value)}
+									disabled={createApiKeyMutation.isPending}
 									required
 								/>
 							</div>
@@ -169,10 +183,19 @@ export function CreateApiKeyDialog({
 								onChange={setLimitValue}
 							/>
 							<DialogFooter>
-								<Button type="button" variant="outline" onClick={handleClose}>
+								<Button
+									type="button"
+									variant="outline"
+									disabled={createApiKeyMutation.isPending}
+									onClick={handleClose}
+								>
 									Cancel
 								</Button>
-								<Button type="submit">Create API Key</Button>
+								<Button type="submit" disabled={createApiKeyMutation.isPending}>
+									{createApiKeyMutation.isPending
+										? "Creating..."
+										: "Create API Key"}
+								</Button>
 							</DialogFooter>
 						</form>
 					</>

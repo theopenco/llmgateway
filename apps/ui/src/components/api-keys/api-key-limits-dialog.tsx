@@ -27,7 +27,7 @@ import type React from "react";
 interface ApiKeyLimitsDialogProps {
 	apiKey: ApiKey;
 	children: React.ReactNode;
-	onSubmit: (payload: ApiKeyLimitPayload) => void;
+	onSubmit: (payload: ApiKeyLimitPayload) => Promise<void> | void;
 }
 
 export function ApiKeyLimitsDialog({
@@ -36,6 +36,7 @@ export function ApiKeyLimitsDialog({
 	onSubmit,
 }: ApiKeyLimitsDialogProps) {
 	const [open, setOpen] = useState(false);
+	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [value, setValue] = useState(() => createApiKeyLimitFormValue(apiKey));
 
 	useEffect(() => {
@@ -45,11 +46,18 @@ export function ApiKeyLimitsDialog({
 	}, [apiKey, open]);
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(nextOpen) => {
+				if (!isSubmitting) {
+					setOpen(nextOpen);
+				}
+			}}
+		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
 			<DialogContent>
 				<form
-					onSubmit={(event) => {
+					onSubmit={async (event) => {
 						event.preventDefault();
 						const { error, payload } = buildApiKeyLimitPayload(value);
 						if (error) {
@@ -57,8 +65,13 @@ export function ApiKeyLimitsDialog({
 							return;
 						}
 
-						onSubmit(payload);
-						setOpen(false);
+						setIsSubmitting(true);
+						try {
+							await onSubmit(payload);
+							setOpen(false);
+						} finally {
+							setIsSubmitting(false);
+						}
 					}}
 				>
 					<DialogHeader>
@@ -79,11 +92,14 @@ export function ApiKeyLimitsDialog({
 						<Button
 							type="button"
 							variant="outline"
+							disabled={isSubmitting}
 							onClick={() => setOpen(false)}
 						>
 							Cancel
 						</Button>
-						<Button type="submit">Save changes</Button>
+						<Button type="submit" disabled={isSubmitting}>
+							{isSubmitting ? "Saving..." : "Save changes"}
+						</Button>
 					</DialogFooter>
 				</form>
 			</DialogContent>

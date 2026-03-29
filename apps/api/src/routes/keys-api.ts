@@ -24,6 +24,13 @@ import type { ServerTypes } from "@/vars.js";
 export const keysApi = new OpenAPIHono<ServerTypes>();
 
 type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
+type ApiKeyLimitConfig = Pick<
+	ApiKeyRecord,
+	| "usageLimit"
+	| "periodUsageLimit"
+	| "periodUsageDurationValue"
+	| "periodUsageDurationUnit"
+>;
 type ApiKeyResponseRecord = ApiKeyRecord & {
 	creator?: {
 		id: string;
@@ -54,9 +61,37 @@ type ApiKeyResponseRecord = ApiKeyRecord & {
 };
 
 const apiKeyPeriodDurationUnitSchema = z.enum(apiKeyPeriodDurationUnits);
+const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
+
+function normalizeNullableString(value: unknown): unknown {
+	if (value === undefined || value === null) {
+		return null;
+	}
+
+	if (typeof value !== "string") {
+		return value;
+	}
+
+	const trimmedValue = value.trim();
+	return trimmedValue === "" ? null : trimmedValue;
+}
+
+function createNullableLimitSchema(fieldLabel: string) {
+	return z.preprocess(
+		normalizeNullableString,
+		z
+			.string()
+			.refine((value) => nonNegativeDecimalPattern.test(value), {
+				message: `${fieldLabel} must be a non-negative number.`,
+			})
+			.nullable(),
+	);
+}
 
 const apiKeyPeriodConfigFieldsSchema = {
-	periodUsageLimit: z.string().nullable().optional().default(null),
+	periodUsageLimit: createNullableLimitSchema("Period usage limit")
+		.optional()
+		.default(null),
 	periodUsageDurationValue: z
 		.number()
 		.int()
@@ -148,6 +183,43 @@ function hasPeriodConfigChanged(
 	);
 }
 
+function buildApiKeyLimitAuditChanges(
+	previous: ApiKeyLimitConfig,
+	next: ApiKeyLimitConfig,
+) {
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+
+	if (previous.usageLimit !== next.usageLimit) {
+		changes.usageLimit = {
+			old: previous.usageLimit,
+			new: next.usageLimit,
+		};
+	}
+
+	if (previous.periodUsageLimit !== next.periodUsageLimit) {
+		changes.periodUsageLimit = {
+			old: previous.periodUsageLimit,
+			new: next.periodUsageLimit,
+		};
+	}
+
+	if (previous.periodUsageDurationValue !== next.periodUsageDurationValue) {
+		changes.periodUsageDurationValue = {
+			old: previous.periodUsageDurationValue,
+			new: next.periodUsageDurationValue,
+		};
+	}
+
+	if (previous.periodUsageDurationUnit !== next.periodUsageDurationUnit) {
+		changes.periodUsageDurationUnit = {
+			old: previous.periodUsageDurationUnit,
+			new: next.periodUsageDurationUnit,
+		};
+	}
+
+	return changes;
+}
+
 // Create a schema for API key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
 const apiKeySchema = z.object({
@@ -205,9 +277,9 @@ const apiKeySchema = z.object({
 // Schema for creating a new API key
 const createApiKeySchema = z
 	.object({
-		description: z.string().min(1).max(255),
-		projectId: z.string().min(1),
-		usageLimit: z.string().nullable(),
+		description: z.string().trim().min(1).max(255),
+		projectId: z.string().trim().min(1),
+		usageLimit: createNullableLimitSchema("Usage limit"),
 		...apiKeyPeriodConfigFieldsSchema,
 	})
 	.superRefine(validateApiKeyPeriodConfig);
@@ -231,7 +303,7 @@ const updateApiKeyStatusSchema = z.object({
 // Schema for updating an API key usage limit
 const updateApiKeyUsageLimitSchema = z
 	.object({
-		usageLimit: z.string().nullable(),
+		usageLimit: createNullableLimitSchema("Usage limit"),
 		...apiKeyPeriodConfigFieldsSchema,
 	})
 	.superRefine(validateApiKeyPeriodConfig);
@@ -1077,33 +1149,6 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		.returning();
 
 	if (apiKey.usageLimit !== usageLimit || periodConfigChanged) {
-		const changes: Record<string, { old: unknown; new: unknown }> = {};
-
-		if (apiKey.usageLimit !== usageLimit) {
-			changes.usageLimit = { old: apiKey.usageLimit, new: usageLimit };
-		}
-
-		if (apiKey.periodUsageLimit !== periodUsageLimit) {
-			changes.periodUsageLimit = {
-				old: apiKey.periodUsageLimit,
-				new: periodUsageLimit,
-			};
-		}
-
-		if (apiKey.periodUsageDurationValue !== periodUsageDurationValue) {
-			changes.periodUsageDurationValue = {
-				old: apiKey.periodUsageDurationValue,
-				new: periodUsageDurationValue,
-			};
-		}
-
-		if (apiKey.periodUsageDurationUnit !== periodUsageDurationUnit) {
-			changes.periodUsageDurationUnit = {
-				old: apiKey.periodUsageDurationUnit,
-				new: periodUsageDurationUnit,
-			};
-		}
-
 		await logAuditEvent({
 			organizationId: projectOrgId,
 			userId: user.id,
@@ -1112,7 +1157,12 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 			resourceId: id,
 			metadata: {
 				resourceName: apiKey.description,
-				changes,
+				changes: buildApiKeyLimitAuditChanges(apiKey, {
+					usageLimit,
+					periodUsageLimit,
+					periodUsageDurationValue,
+					periodUsageDurationUnit,
+				}),
 			},
 		});
 	}

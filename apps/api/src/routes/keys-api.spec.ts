@@ -232,6 +232,76 @@ describe("keys route", () => {
 		expect(JSON.stringify(json)).toContain("duration value and unit");
 	});
 
+	test("PATCH /keys/api/limit/{id} normalizes blank limits to null", async () => {
+		await db
+			.update(tables.apiKey)
+			.set({
+				usageLimit: "25",
+				periodUsageLimit: "5",
+				periodUsageDurationValue: 1,
+				periodUsageDurationUnit: "day",
+				currentPeriodUsage: "2.25",
+				currentPeriodStartedAt: new Date("2026-03-29T08:00:00.000Z"),
+			})
+			.where(eq(tables.apiKey.id, "test-api-key-id"));
+
+		const res = await app.request("/keys/api/limit/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				usageLimit: "   ",
+				periodUsageLimit: "",
+				periodUsageDurationValue: null,
+				periodUsageDurationUnit: null,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.apiKey.usageLimit).toBeNull();
+		expect(json.apiKey.periodUsageLimit).toBeNull();
+		expect(json.apiKey.currentPeriodUsage).toBe("0");
+		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
+
+		const apiKey = await db.query.apiKey.findFirst({
+			where: {
+				id: {
+					eq: "test-api-key-id",
+				},
+			},
+		});
+
+		expect(apiKey?.usageLimit).toBeNull();
+		expect(apiKey?.periodUsageLimit).toBeNull();
+		expect(apiKey?.periodUsageDurationValue).toBeNull();
+		expect(apiKey?.periodUsageDurationUnit).toBeNull();
+	});
+
+	test("PATCH /keys/api/limit/{id} rejects negative limits", async () => {
+		const res = await app.request("/keys/api/limit/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				usageLimit: "-1",
+				periodUsageLimit: "5",
+				periodUsageDurationValue: 1,
+				periodUsageDurationUnit: "day",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Usage limit must be a non-negative number",
+		);
+	});
+
 	test("POST /keys/api should enforce API key limit of 20", async () => {
 		// Create 19 more API keys to reach the limit of 20
 		for (let i = 2; i <= 20; i++) {

@@ -3744,7 +3744,7 @@ export interface paths {
                     "application/json": {
                         description: string;
                         projectId: string;
-                        usageLimit: string | null;
+                        usageLimit?: string | null;
                         periodUsageLimit?: string | null;
                         periodUsageDurationValue?: number | null;
                         /** @enum {string|null} */
@@ -3993,7 +3993,7 @@ export interface paths {
             requestBody?: {
                 content: {
                     "application/json": {
-                        usageLimit: string | null;
+                        usageLimit?: string | null;
                         periodUsageLimit?: string | null;
                         periodUsageDurationValue?: number | null;
                         /** @enum {string|null} */
