@@ -4819,10 +4819,15 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 	let startDate: Date;
 	let endDate: Date | undefined;
 	if (from && to) {
-		startDate = new Date(from + "T00:00:00");
-		startDate.setUTCHours(0, 0, 0, 0);
-		endDate = new Date(to + "T00:00:00");
-		endDate.setUTCHours(23, 59, 59, 999);
+		if (from.includes("T") || from.includes("Z")) {
+			startDate = new Date(from);
+			endDate = new Date(to);
+		} else {
+			startDate = new Date(from + "T00:00:00");
+			startDate.setUTCHours(0, 0, 0, 0);
+			endDate = new Date(to + "T00:00:00");
+			endDate.setUTCHours(23, 59, 59, 999);
+		}
 	} else {
 		const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 		startDate = new Date(Date.now() - sevenDaysMs);

@@ -17,32 +17,70 @@ const inter = Inter({
 const geistMono = Geist_Mono({
 	variable: "--font-mono",
 	subsets: ["latin"],
+	display: "swap",
 });
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
 	metadataBase: new URL("https://chat.llmgateway.io"),
-	title: "LLM Gateway Chat",
-	description: "Chat with your favorite LLM models through LLM Gateway.",
+	title: {
+		default:
+			"LLM Gateway Playground - Chat, Image & Video Generation with 210+ AI Models",
+		template: "%s | LLM Gateway Playground",
+	},
+	description:
+		"Test and compare 210+ AI models in one playground. Chat with GPT-4, Claude, Gemini, generate images and videos, and run multi-model group chats.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
 	alternates: {
 		canonical: "./",
 	},
+	robots: {
+		index: true,
+		follow: true,
+		googleBot: {
+			index: true,
+			follow: true,
+			"max-video-preview": -1,
+			"max-image-preview": "large",
+			"max-snippet": -1,
+		},
+	},
 	openGraph: {
-		title: "LLM Gateway Chat",
-		description: "Chat with your favorite LLM models through LLM Gateway.",
+		title: "LLM Gateway Playground - Chat, Image & Video Generation",
+		description:
+			"Test and compare 210+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
 		images: ["/opengraph.png?v=1"],
 		type: "website",
 		url: "https://chat.llmgateway.io",
+		siteName: "LLM Gateway Playground",
+		locale: "en_US",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "LLM Gateway Chat",
-		description: "Chat with your favorite LLM models through LLM Gateway.",
+		title: "LLM Gateway Playground - Chat, Image & Video Generation",
+		description:
+			"Test and compare 210+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
 		images: ["/opengraph.png?v=1"],
+		creator: "@llmgateway",
+	},
+};
+
+const webAppSchema = {
+	"@context": "https://schema.org",
+	"@type": "WebApplication",
+	name: "LLM Gateway Playground",
+	url: "https://chat.llmgateway.io",
+	applicationCategory: "DeveloperApplication",
+	operatingSystem: "All",
+	description:
+		"Test and compare 210+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
+	offers: {
+		"@type": "Offer",
+		price: "0",
+		priceCurrency: "USD",
 	},
 };
 
@@ -51,6 +89,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
 	return (
 		<html lang="en" suppressHydrationWarning>
+			<head>
+				<script
+					type="application/ld+json"
+					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+					dangerouslySetInnerHTML={{
+						__html: JSON.stringify(webAppSchema),
+					}}
+				/>
+			</head>
 			<body className={`${inter.variable} ${geistMono.variable} antialiased`}>
 				<Providers config={config}>{children}</Providers>
 			</body>

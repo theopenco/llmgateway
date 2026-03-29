@@ -127,13 +127,13 @@ export default async function ProjectModelProviderMappingsPage({
 			params: { path: { orgId } },
 		}),
 		$api.GET(
-			"/admin/organizations/{orgId}/projects/{projectId}/model-provider-stats" as any,
+			"/admin/organizations/{orgId}/projects/{projectId}/model-provider-stats",
 			{
 				params: {
 					path: { orgId, projectId },
 					query: { search, sortBy, sortOrder, limit: 500, offset: 0, from, to },
 				},
-			} as any,
+			},
 		),
 	]);
 
@@ -147,22 +147,7 @@ export default async function ProjectModelProviderMappingsPage({
 		notFound();
 	}
 
-	const data = (statsRes as any).data as {
-		mappings: Array<{
-			modelId: string;
-			providerId: string;
-			providerName: string;
-			logsCount: number;
-			errorsCount: number;
-			cachedCount: number;
-			totalTokens: number;
-			cost: number;
-		}>;
-		total: number;
-		totalRequests: number;
-		totalTokens: number;
-		totalCost: number;
-	} | null;
+	const data = statsRes.data;
 
 	if (!data) {
 		notFound();
