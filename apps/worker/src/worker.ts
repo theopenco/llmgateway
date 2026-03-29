@@ -522,6 +522,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						upstreamRequest: null,
 						upstreamResponse: null,
 						userAgent: null,
+						gatewayContentFilterResponse: null,
 						dataRetentionCleanedUp: true,
 					})
 					.where(inArray(log.id, idsToClean));

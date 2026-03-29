@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto";
+
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
+	eq,
 	db,
 	tables,
 	log,
@@ -13,24 +16,54 @@ import {
 import { batchProcessLogs } from "./worker.js";
 
 describe("Log Processing", () => {
+	interface TestIds {
+		apiKeyId: string;
+		email: string;
+		lockKey: string;
+		orgId: string;
+		projectId: string;
+		token: string;
+		userId: string;
+	}
+
+	const cleanupLogProcessingTestData = async (testIds: TestIds | null) => {
+		if (!testIds) {
+			return;
+		}
+
+		await db.delete(log).where(eq(log.organizationId, testIds.orgId));
+		await db.delete(apiKey).where(eq(apiKey.id, testIds.apiKeyId));
+		await db.delete(project).where(eq(project.id, testIds.projectId));
+		await db.delete(organization).where(eq(organization.id, testIds.orgId));
+		await db.delete(user).where(eq(user.email, testIds.email));
+		await db.delete(tables.lock).where(eq(tables.lock.key, testIds.lockKey));
+	};
+
+	let currentTestIds: TestIds | null = null;
 	let testOrg: any;
 	let testProject: any;
 	let testApiKey: any;
 
 	beforeEach(async () => {
-		// Clean up existing data
-		await db.delete(user);
-		await db.delete(log);
-		await db.delete(apiKey);
-		await db.delete(project);
-		await db.delete(organization);
-		await db.delete(tables.lock);
+		await cleanupLogProcessingTestData(currentTestIds);
+
+		const testIdSuffix = randomUUID();
+		currentTestIds = {
+			apiKeyId: `log-processing-api-key-${testIdSuffix}`,
+			email: `log-processing-${testIdSuffix}@example.com`,
+			lockKey: "credit_processing",
+			orgId: `log-processing-org-${testIdSuffix}`,
+			projectId: `log-processing-project-${testIdSuffix}`,
+			token: `log-processing-token-${testIdSuffix}`,
+			userId: `log-processing-user-${testIdSuffix}`,
+		};
 
 		// Create test user
 		const users = await db
 			.insert(user)
 			.values({
-				email: "test@example.com",
+				id: currentTestIds.userId,
+				email: currentTestIds.email,
 				name: "Test User",
 			})
 			.returning();
@@ -40,6 +73,7 @@ describe("Log Processing", () => {
 		const orgs = await db
 			.insert(organization)
 			.values({
+				id: currentTestIds.orgId,
 				name: "Test Org",
 				billingEmail: testUser.email,
 				credits: "100.00",
@@ -51,6 +85,7 @@ describe("Log Processing", () => {
 		const projects = await db
 			.insert(project)
 			.values({
+				id: currentTestIds.projectId,
 				organizationId: testOrg.id,
 				name: "Test Project",
 				mode: "credits",
@@ -62,8 +97,9 @@ describe("Log Processing", () => {
 		const keys = await db
 			.insert(apiKey)
 			.values({
+				id: currentTestIds.apiKeyId,
 				projectId: testProject.id,
-				token: "test-token-123",
+				token: currentTestIds.token,
 				description: "Test Key",
 				usage: "0.00",
 				createdBy: testUser.id,
@@ -73,12 +109,7 @@ describe("Log Processing", () => {
 	});
 
 	afterAll(async () => {
-		// Clean up after all tests
-		await db.delete(log);
-		await db.delete(apiKey);
-		await db.delete(project);
-		await db.delete(organization);
-		await db.delete(tables.lock);
+		await cleanupLogProcessingTestData(currentTestIds);
 	});
 
 	describe("batchProcessLogs", () => {
@@ -298,7 +329,10 @@ describe("Log Processing", () => {
 
 			// Verify all logs were processed
 			const processedLogs = await db.query.log.findMany({
-				where: { processedAt: { isNotNull: true } },
+				where: {
+					organizationId: { eq: testOrg.id },
+					processedAt: { isNotNull: true },
+				},
 			});
 			expect(processedLogs).toHaveLength(2);
 

@@ -987,6 +987,22 @@ export interface paths {
                                 } | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
+                                gatewayContentFilterResponse?: {
+                                    id?: string;
+                                    model?: string;
+                                    results?: {
+                                        flagged?: boolean;
+                                        categories?: {
+                                            [key: string]: boolean;
+                                        };
+                                        category_scores?: {
+                                            [key: string]: number;
+                                        };
+                                        category_applied_input_types?: {
+                                            [key: string]: string[];
+                                        };
+                                    }[];
+                                }[] | null;
                             }[];
                             /** @description Pagination metadata */
                             pagination: {
@@ -1207,6 +1223,22 @@ export interface paths {
                                 } | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
+                                gatewayContentFilterResponse?: {
+                                    id?: string;
+                                    model?: string;
+                                    results?: {
+                                        flagged?: boolean;
+                                        categories?: {
+                                            [key: string]: boolean;
+                                        };
+                                        category_scores?: {
+                                            [key: string]: number;
+                                        };
+                                        category_applied_input_types?: {
+                                            [key: string]: string[];
+                                        };
+                                    }[];
+                                }[] | null;
                             };
                         };
                     };

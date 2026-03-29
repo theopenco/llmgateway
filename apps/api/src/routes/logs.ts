@@ -11,6 +11,7 @@ import {
 	desc,
 	eq,
 	errorDetails,
+	gatewayContentFilterResponseSchema,
 	gt,
 	gte,
 	type InferSelectModel,
@@ -147,6 +148,9 @@ const logSchema = z.object({
 		.optional(),
 	retried: z.boolean().nullable().optional(),
 	retriedByLogId: z.string().nullable().optional(),
+	gatewayContentFilterResponse: gatewayContentFilterResponseSchema
+		.nullable()
+		.optional(),
 });
 
 // GET /logs/:id - Fetch a single log by ID

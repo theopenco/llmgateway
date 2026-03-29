@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b9e0db9d-8e00-433d-aa87-b6382efb3744",
+  "id": "cfb943e1-f3fb-47f8-bd0c-1127cb1ad1a7",
   "prevId": "6810f822-e336-4f4e-bdc2-eb4c08c4084a",
   "ddl": [
     {
@@ -4219,6 +4219,19 @@
       "table": "log"
     },
     {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "gateway_content_filter_response",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -6332,19 +6345,6 @@
       "generated": null,
       "identity": null,
       "name": "last_payment_failure_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "payment_failure_started_at",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
