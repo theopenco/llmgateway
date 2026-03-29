@@ -1,45 +1,125 @@
 ---
 title: API Keys
-description: Create and manage API keys for authenticating with LLM Gateway
+description: Create, limit, and control API keys for authenticating with LLM Gateway
 icon: Key
 ---
 
+import { Callout } from "fumadocs-ui/components/callout";
 import { ThemedImage } from "@/components/themed-image";
 
-The API Keys page lets you create, view, and manage the API keys used to authenticate requests to LLM Gateway.
+The API Keys page is the main place to create, secure, and operate the keys
+your apps use to authenticate with LLM Gateway.
 
 <ThemedImage alt="API Keys" basePath="/learn/api-keys" />
 
+Use this page to:
+
+- Create project-specific API keys
+- Set all-time and recurring spend limits per key
+- Track usage for each key, including the active recurring window
+- Enable or disable keys without deleting them
+- Configure IAM rules for model, provider, and pricing access
+
+<Callout type="warning">
+	API keys are shown in full only once, immediately after creation. Copy and
+	store them securely before closing the dialog.
+</Callout>
+
 ## Creating an API Key
 
-Click the **Create API Key** button to generate a new key. The number of keys you can create depends on your plan:
+Click **Create API Key** and configure:
 
-- **Free** — Limited number of keys
-- **Pro** — Higher key limit
-- **Enterprise** — Custom limits
+- **Name**: A label such as `production`, `staging`, or `ci`
+- **All-time usage limit**: An optional lifetime spend cap for the key
+- **Recurring usage limit**: An optional spend cap that resets on a schedule
 
-When creating a key, you can assign it a name to help identify its purpose (e.g., "Production", "Development", "CI/CD").
+Recurring limits support:
+
+- Minimum window: **1 hour**
+- Maximum window: **12 months**
+- Units: **hour**, **day**, **week**, or **month**
+
+This is useful when you want a key to stay below a fixed budget per hour, day,
+week, or month, while still keeping a separate lifetime cap if needed.
+
+## Usage Limits
+
+Each API key can enforce two independent limit types:
+
+| Limit Type                | What it does                                                    |
+| ------------------------- | --------------------------------------------------------------- |
+| **All-time usage limit**  | Stops the key after it reaches a lifetime spend threshold       |
+| **Recurring usage limit** | Stops the key after it reaches the budget for the active window |
+
+Examples:
+
+- `$50` all-time for a temporary integration key
+- `$10 / 1 day` for a development key
+- `$500 / 1 month` for a production service key
+
+If a key hits either limit, requests using that key are rejected until the key
+is updated or, for recurring limits, the next window begins.
+
+### How recurring windows work
+
+Recurring usage is tracked separately from total lifetime usage.
+
+- The dashboard shows the key's **Current Period** usage
+- The active window also shows when it **resets**
+- When the configured window expires, usage for that window resets automatically
+- Updating the recurring limit configuration resets the current window and starts
+  a new one
+
+Usage includes both LLM Gateway credits and requests routed through your own
+provider keys when applicable.
 
 ## API Keys List
 
 Each key in the list shows:
 
-| Field         | Description                                                    |
-| ------------- | -------------------------------------------------------------- |
-| **Name**      | The label you assigned to the key                              |
-| **Key**       | A masked preview of the key (only last few characters visible) |
-| **Created**   | When the key was created                                       |
-| **Last used** | When the key was last used in a request                        |
+| Field              | Description                                                   |
+| ------------------ | ------------------------------------------------------------- |
+| **Name**           | The label you assigned to the key                             |
+| **API Key**        | A masked preview of the key                                   |
+| **Status**         | Whether the key is active or inactive                         |
+| **Created**        | When the key was created                                      |
+| **Usage**          | Total tracked usage for the key                               |
+| **Current Period** | Spend in the active recurring window, if configured           |
+| **Limits**         | All-time and recurring limit summary                          |
+| **IAM Rules**      | Whether model/provider/pricing access controls are configured |
 
 ## Actions
 
 For each API key you can:
 
-- **View** — See the full key (only available once after creation)
-- **Edit** — Update the key name
-- **Rotate** — Generate a new key value while keeping the same configuration
-- **Delete** — Permanently remove the key
+- **Update limits**: Change all-time or recurring limits
+- **Disable or enable**: Pause usage without deleting the key
+- **Configure IAM rules**: Restrict which models, providers, or pricing tiers the key can use
+- **Open usage details**: Inspect requests and usage tied to that key
+- **Delete**: Permanently remove the key
+
+## IAM Rules
+
+IAM rules let you narrow what an API key is allowed to access.
+
+Supported rule types include:
+
+- **Allow/Deny models**
+- **Allow/Deny providers**
+- **Allow/Deny pricing**
+
+Use IAM rules when you want a key to be valid, but only for a specific subset of
+models or providers. For a deeper explanation, see the [API Keys & IAM Rules
+feature page](/features/api-keys).
 
 ## Plan Limits
 
-The page shows your current key count vs. the maximum allowed by your plan. If you've reached your limit, the Create button will be disabled and you'll need to upgrade your plan or delete unused keys.
+The page also shows how many API keys your current project is using relative to
+your plan allowance.
+
+- **Free**: Lower API key count limit
+- **Pro**: Higher API key count limit
+- **Enterprise**: Custom limits
+
+If you reach the project key limit, the **Create API Key** button is disabled
+until you delete unused keys or upgrade.
