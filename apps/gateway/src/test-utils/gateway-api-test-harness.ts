@@ -193,6 +193,7 @@ export function createGatewayApiTestHarness(
 			await db
 				.update(tables.modelProviderMapping)
 				.set({
+					status: "active",
 					routingUptime: metrics.uptime,
 					routingLatency: metrics.latency ?? 100,
 					routingThroughput: metrics.throughput ?? 100,
