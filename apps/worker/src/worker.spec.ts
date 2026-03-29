@@ -10,6 +10,8 @@ import {
 import {
 	apiKey,
 	db,
+	eq,
+	inArray,
 	log,
 	organization,
 	project,
@@ -22,14 +24,38 @@ import { acquireLock, cleanupExpiredLogData } from "./worker.js";
 describe("worker", () => {
 	const previousDataRetentionCleanup =
 		process.env.ENABLE_DATA_RETENTION_CLEANUP;
+	const retentionTestIds = {
+		apiKeyId: "retention-test-api-key",
+		lockKeys: [
+			"data_retention_cleanup",
+			"test-lock-1",
+			"test-lock-2",
+			"test-lock-3",
+			"test-lock-4a",
+			"test-lock-4b",
+		],
+		logId: "retention-test-log",
+		orgId: "retention-test-org",
+		projectId: "retention-test-project",
+		requestId: "retention-test-request",
+		userId: "retention-test-user",
+	};
+
+	const cleanupRetentionTestData = async () => {
+		await db.delete(log).where(eq(log.id, retentionTestIds.logId));
+		await db.delete(apiKey).where(eq(apiKey.id, retentionTestIds.apiKeyId));
+		await db.delete(project).where(eq(project.id, retentionTestIds.projectId));
+		await db
+			.delete(organization)
+			.where(eq(organization.id, retentionTestIds.orgId));
+		await db.delete(user).where(eq(user.id, retentionTestIds.userId));
+		await db
+			.delete(tables.lock)
+			.where(inArray(tables.lock.key, retentionTestIds.lockKeys));
+	};
 
 	beforeEach(async () => {
-		await db.delete(log);
-		await db.delete(apiKey);
-		await db.delete(project);
-		await db.delete(organization);
-		await db.delete(user);
-		await db.delete(tables.lock);
+		await cleanupRetentionTestData();
 	});
 
 	afterEach(() => {
@@ -37,12 +63,7 @@ describe("worker", () => {
 	});
 
 	afterAll(async () => {
-		await db.delete(log);
-		await db.delete(apiKey);
-		await db.delete(project);
-		await db.delete(organization);
-		await db.delete(user);
-		await db.delete(tables.lock);
+		await cleanupRetentionTestData();
 	});
 
 	describe("acquireLock", () => {
@@ -146,7 +167,7 @@ describe("worker", () => {
 			const testUser = await db
 				.insert(user)
 				.values({
-					id: "retention-test-user",
+					id: retentionTestIds.userId,
 					email: "retention@example.com",
 					name: "Retention Test User",
 				})
@@ -156,7 +177,7 @@ describe("worker", () => {
 			const testOrg = await db
 				.insert(organization)
 				.values({
-					id: "retention-test-org",
+					id: retentionTestIds.orgId,
 					name: "Retention Test Org",
 					billingEmail: testUser.email,
 				})
@@ -166,7 +187,7 @@ describe("worker", () => {
 			const testProject = await db
 				.insert(project)
 				.values({
-					id: "retention-test-project",
+					id: retentionTestIds.projectId,
 					organizationId: testOrg.id,
 					name: "Retention Test Project",
 					mode: "credits",
@@ -177,7 +198,7 @@ describe("worker", () => {
 			const testApiKey = await db
 				.insert(apiKey)
 				.values({
-					id: "retention-test-api-key",
+					id: retentionTestIds.apiKeyId,
 					projectId: testProject.id,
 					token: "retention-test-token",
 					description: "Retention Test API Key",
@@ -190,8 +211,8 @@ describe("worker", () => {
 			const oldCreatedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
 
 			await db.insert(log).values({
-				id: "retention-test-log",
-				requestId: "retention-test-request",
+				id: retentionTestIds.logId,
+				requestId: retentionTestIds.requestId,
 				createdAt: oldCreatedAt,
 				updatedAt: oldCreatedAt,
 				organizationId: testOrg.id,
@@ -234,7 +255,7 @@ describe("worker", () => {
 			const cleanedLog = await db.query.log.findFirst({
 				where: {
 					id: {
-						eq: "retention-test-log",
+						eq: retentionTestIds.logId,
 					},
 				},
 			});
