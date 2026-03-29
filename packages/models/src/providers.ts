@@ -157,7 +157,6 @@ export const providers = [
 		color: "#4285f4",
 		website: null,
 		announcement: null,
-		contentFilter: true,
 	},
 	{
 		id: "obsidian",
