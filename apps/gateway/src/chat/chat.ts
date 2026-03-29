@@ -2498,12 +2498,18 @@ chat.openapi(completions, async (c) => {
 	// filter method would have blocked the request.
 	const shouldTagContentFilter =
 		contentFilterMode === "monitor" && contentFilterMatched;
+	const gatewayContentFilterResponse = openAIContentFilterResult?.responses
+		.length
+		? openAIContentFilterResult.responses
+		: null;
 	const insertLog = (logData: Parameters<typeof _insertLog>[0]) =>
 		_insertLog({
 			...logData,
 			internalContentFilter: shouldTagContentFilter
 				? true
 				: logData.internalContentFilter,
+			gatewayContentFilterResponse:
+				logData.gatewayContentFilterResponse ?? gatewayContentFilterResponse,
 		});
 
 	if (contentFilterBlocked) {

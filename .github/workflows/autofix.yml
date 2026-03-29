@@ -6,7 +6,7 @@ jobs:
   autofix:
     runs-on: ubuntu-latest
 
-    if: ${{ github.actor == 'steebchen' || github.actor == 'smakosh' }}
+    if: github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Autofix

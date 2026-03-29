@@ -120,6 +120,7 @@ export type SerializedOrganization = Omit<
 	| "isTrialActive"
 	| "paymentFailureCount"
 	| "lastPaymentFailureAt"
+	| "paymentFailureStartedAt"
 	| "devPlanBillingCycleStart"
 	| "devPlanStripeSubscriptionId"
 	| "devPlanCancelled"

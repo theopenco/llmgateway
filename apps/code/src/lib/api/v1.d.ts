@@ -987,6 +987,22 @@ export interface paths {
                                 } | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
+                                gatewayContentFilterResponse?: {
+                                    id?: string;
+                                    model?: string;
+                                    results?: {
+                                        flagged?: boolean;
+                                        categories?: {
+                                            [key: string]: boolean;
+                                        };
+                                        category_scores?: {
+                                            [key: string]: number;
+                                        };
+                                        category_applied_input_types?: {
+                                            [key: string]: string[];
+                                        };
+                                    }[];
+                                }[] | null;
                             }[];
                             /** @description Pagination metadata */
                             pagination: {
@@ -1207,6 +1223,22 @@ export interface paths {
                                 } | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
+                                gatewayContentFilterResponse?: {
+                                    id?: string;
+                                    model?: string;
+                                    results?: {
+                                        flagged?: boolean;
+                                        categories?: {
+                                            [key: string]: boolean;
+                                        };
+                                        category_scores?: {
+                                            [key: string]: number;
+                                        };
+                                        category_applied_input_types?: {
+                                            [key: string]: string[];
+                                        };
+                                    }[];
+                                }[] | null;
                             };
                         };
                     };
@@ -6721,7 +6753,7 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
                                 /** @enum {string} */
                                 resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;

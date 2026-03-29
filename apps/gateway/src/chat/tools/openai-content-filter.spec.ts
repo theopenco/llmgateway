@@ -303,6 +303,49 @@ describe("checkOpenAIContentFilter", () => {
 		expect(result.model).toBe("omni-moderation-latest");
 		expect(result.upstreamRequestId).toBe("req-dog");
 		expect(result.results).toHaveLength(3);
+		expect(result.responses).toEqual([
+			{
+				id: "modr-text",
+				model: "omni-moderation-latest",
+				results: [
+					{
+						flagged: false,
+						categories: {},
+						category_scores: {},
+					},
+				],
+			},
+			{
+				id: "modr-https://example.com/cat.png",
+				model: "omni-moderation-latest",
+				results: [
+					{
+						flagged: false,
+						categories: {
+							violence: false,
+						},
+						category_scores: {
+							violence: 0.2,
+						},
+					},
+				],
+			},
+			{
+				id: "modr-https://example.com/dog.png",
+				model: "omni-moderation-latest",
+				results: [
+					{
+						flagged: true,
+						categories: {
+							violence: true,
+						},
+						category_scores: {
+							violence: 0.95,
+						},
+					},
+				],
+			},
+		]);
 		expect(result.results.some((entry) => entry.flagged)).toBe(true);
 	});
 

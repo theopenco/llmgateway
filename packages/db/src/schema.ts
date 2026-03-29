@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
+import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type z from "zod";
 
@@ -148,6 +149,7 @@ export const organization = pgTable("organization", {
 	referralEarnings: decimal().notNull().default("0"),
 	paymentFailureCount: integer().notNull().default(0),
 	lastPaymentFailureAt: timestamp(),
+	paymentFailureStartedAt: timestamp(),
 	// Dev Plans fields (for personal accounts)
 	isPersonal: boolean().notNull().default(false),
 	devPlan: text({
@@ -586,6 +588,8 @@ export const log = pgTable(
 		retried: boolean().default(false),
 		retriedByLogId: text(),
 		internalContentFilter: boolean(),
+		gatewayContentFilterResponse:
+			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -1183,6 +1187,8 @@ export const auditLogActions = [
 	"payment.method.set_default",
 	"payment.method.delete",
 	"payment.credit_topup",
+	"payment.auto_topup.update",
+	"payment.auto_topup.disable",
 	// Credits
 	"credits.gift",
 	// Dev Plan

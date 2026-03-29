@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "gateway_content_filter_response" jsonb;

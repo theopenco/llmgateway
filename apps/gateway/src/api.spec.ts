@@ -532,6 +532,23 @@ describe("api", () => {
 			expect(blockedLog).toBeTruthy();
 			expect(blockedLog?.finishReason).toBe("llmgateway_content_filter");
 			expect(blockedLog?.unifiedFinishReason).toBe("content_filter");
+			expect(blockedLog?.gatewayContentFilterResponse).toEqual([
+				{
+					id: "modr-123",
+					model: "omni-moderation-latest",
+					results: [
+						{
+							flagged: true,
+							categories: {
+								violence: true,
+							},
+							category_scores: {
+								violence: 0.95,
+							},
+						},
+					],
+				},
+			]);
 		} finally {
 			fetchSpy.mockRestore();
 			debugSpy.mockRestore();
@@ -669,6 +686,23 @@ describe("api", () => {
 			expect(completedLog).toBeTruthy();
 			expect(completedLog?.finishReason).toBe("stop");
 			expect(completedLog?.internalContentFilter).toBe(true);
+			expect(completedLog?.gatewayContentFilterResponse).toEqual([
+				{
+					id: "modr-123",
+					model: "omni-moderation-latest",
+					results: [
+						{
+							flagged: true,
+							categories: {
+								violence: true,
+							},
+							category_scores: {
+								violence: 0.95,
+							},
+						},
+					],
+				},
+			]);
 		} finally {
 			fetchSpy.mockRestore();
 			debugSpy.mockRestore();
@@ -784,6 +818,7 @@ describe("api", () => {
 
 			expect(completedLog).toBeTruthy();
 			expect(completedLog?.finishReason).toBe("stop");
+			expect(completedLog?.gatewayContentFilterResponse).toBeNull();
 		} finally {
 			fetchSpy.mockRestore();
 			errorSpy.mockRestore();
@@ -881,6 +916,7 @@ describe("api", () => {
 
 			expect(completedLog).toBeTruthy();
 			expect(completedLog?.finishReason).toBe("stop");
+			expect(completedLog?.gatewayContentFilterResponse).toBeNull();
 		} finally {
 			errorSpy.mockRestore();
 			if (previousContentFilterMode === undefined) {
@@ -999,6 +1035,7 @@ describe("api", () => {
 			expect(completedLog).toBeTruthy();
 			expect(completedLog?.finishReason).toBe("stop");
 			expect(completedLog?.internalContentFilter).toBeNull();
+			expect(completedLog?.gatewayContentFilterResponse).toBeNull();
 		} finally {
 			fetchSpy.mockRestore();
 			debugSpy.mockRestore();

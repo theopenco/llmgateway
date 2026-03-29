@@ -5,6 +5,7 @@ import { logger } from "@llmgateway/logger";
 
 import { getProviderEnv } from "./get-provider-env.js";
 
+import type { ModerationApiPayload } from "@llmgateway/db";
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 
 interface GatewayContentFilterContext {
@@ -44,17 +45,12 @@ interface OpenAIModerationResult {
 	category_applied_input_types?: Record<string, string[]>;
 }
 
-interface OpenAIModerationResponse {
-	id?: string;
-	model?: string;
-	results?: OpenAIModerationResult[];
-}
-
 export interface OpenAIContentFilterCheckResult {
 	flagged: boolean;
 	model: string;
 	upstreamRequestId: string | null;
 	results: OpenAIModerationResult[];
+	responses: ModerationApiPayload[];
 }
 
 interface OpenAIContentFilterRequestResult {
@@ -204,7 +200,7 @@ function buildOpenAIContentFilterRequests(
 
 function parseModerationResponse(
 	responseJson: unknown,
-): OpenAIModerationResponse | null {
+): ModerationApiPayload | null {
 	if (typeof responseJson !== "object" || responseJson === null) {
 		return null;
 	}
@@ -214,7 +210,7 @@ function parseModerationResponse(
 		return null;
 	}
 
-	return responseJson as OpenAIModerationResponse;
+	return responseJson as ModerationApiPayload;
 }
 
 function getMatchedCategoryScores(result: OpenAIModerationResult): string[] {
@@ -280,6 +276,7 @@ function createFailedOpenAIContentFilterResult(
 		model: OPENAI_MODERATION_MODEL,
 		upstreamRequestId,
 		results: [],
+		responses: [],
 	};
 }
 
@@ -378,6 +375,7 @@ async function runOpenAIContentFilterRequest(
 			model: moderationResponse.model ?? OPENAI_MODERATION_MODEL,
 			upstreamRequestId,
 			results: moderationResponse.results ?? [],
+			responses: [moderationResponse],
 		},
 	};
 }
@@ -433,6 +431,7 @@ export async function checkOpenAIContentFilter(
 			.filter((result) => result.success)
 			.map((result) => result.response);
 		const results = successfulResults.flatMap((result) => result.results);
+		const responses = successfulResults.flatMap((result) => result.responses);
 		const flagged = successfulResults.some((result) => result.flagged);
 		const model = successfulResults[0]?.model ?? OPENAI_MODERATION_MODEL;
 		const upstreamRequestId =
@@ -460,6 +459,7 @@ export async function checkOpenAIContentFilter(
 			model,
 			upstreamRequestId,
 			results,
+			responses,
 		};
 	} catch (error) {
 		if (requestSignal?.aborted || isCancellationError(error)) {
