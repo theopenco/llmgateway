@@ -289,6 +289,48 @@ describe("Log Processing", () => {
 			expect(updatedKey!.currentPeriodStartedAt).not.toBeNull();
 		});
 
+		test("should update current period usage for api-keys mode logs", async () => {
+			const activeWindowOffsetMs = 60 * 60 * 1000;
+			const activeWindowStartedAt = new Date(Date.now() - activeWindowOffsetMs);
+
+			await db
+				.update(apiKey)
+				.set({
+					periodUsageLimit: "10.00",
+					periodUsageDurationValue: 1,
+					periodUsageDurationUnit: "day",
+					currentPeriodUsage: "1.50",
+					currentPeriodStartedAt: activeWindowStartedAt,
+				})
+				.where(eq(apiKey.id, testApiKey.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-period-usage-api-keys",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.25,
+				cached: false,
+				usedMode: "api-keys",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "api-keys",
+			});
+
+			await batchProcessLogs();
+
+			const updatedKey = await db.query.apiKey.findFirst({
+				where: { id: { eq: testApiKey.id } },
+			});
+
+			expect(Number(updatedKey!.currentPeriodUsage)).toBe(1.75);
+			expect(updatedKey!.currentPeriodStartedAt).not.toBeNull();
+		});
+
 		test("should reset expired current period usage before adding new cost", async () => {
 			const expiredWindowOffsetMs = 2 * 60 * 60 * 1000;
 			const expiredWindowStartedAt = new Date(

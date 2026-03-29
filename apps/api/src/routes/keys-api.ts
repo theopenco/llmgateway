@@ -31,6 +31,7 @@ type ApiKeyLimitConfig = Pick<
 	| "periodUsageDurationValue"
 	| "periodUsageDurationUnit"
 >;
+type PartialApiKeyLimitConfig = Partial<ApiKeyLimitConfig>;
 type ApiKeyResponseRecord = ApiKeyRecord & {
 	creator?: {
 		id: string;
@@ -88,21 +89,35 @@ function createNullableLimitSchema(fieldLabel: string) {
 	);
 }
 
-const apiKeyPeriodConfigFieldsSchema = {
+const nullableApiKeyPeriodDurationValueSchema = z.number().int().nullable();
+const nullableApiKeyPeriodDurationUnitSchema =
+	apiKeyPeriodDurationUnitSchema.nullable();
+
+const createApiKeyPeriodConfigFieldsSchema = {
 	periodUsageLimit: createNullableLimitSchema("Period usage limit")
 		.optional()
 		.default(null),
-	periodUsageDurationValue: z
-		.number()
-		.int()
-		.nullable()
+	periodUsageDurationValue: nullableApiKeyPeriodDurationValueSchema
 		.optional()
 		.default(null),
-	periodUsageDurationUnit: apiKeyPeriodDurationUnitSchema
-		.nullable()
+	periodUsageDurationUnit: nullableApiKeyPeriodDurationUnitSchema
 		.optional()
 		.default(null),
 } as const;
+
+const updateApiKeyPeriodConfigFieldsSchema = {
+	periodUsageLimit: createNullableLimitSchema("Period usage limit").optional(),
+	periodUsageDurationValue: nullableApiKeyPeriodDurationValueSchema.optional(),
+	periodUsageDurationUnit: nullableApiKeyPeriodDurationUnitSchema.optional(),
+} as const;
+
+const apiKeyPeriodConfigSchema = z
+	.object({
+		periodUsageLimit: createNullableLimitSchema("Period usage limit"),
+		periodUsageDurationValue: nullableApiKeyPeriodDurationValueSchema,
+		periodUsageDurationUnit: nullableApiKeyPeriodDurationUnitSchema,
+	})
+	.superRefine(validateApiKeyPeriodConfig);
 
 function validateApiKeyPeriodConfig(
 	value: {
@@ -220,6 +235,44 @@ function buildApiKeyLimitAuditChanges(
 	return changes;
 }
 
+function mergeApiKeyLimitConfig(
+	current: ApiKeyLimitConfig,
+	update: PartialApiKeyLimitConfig,
+): ApiKeyLimitConfig {
+	return {
+		usageLimit:
+			update.usageLimit === undefined ? current.usageLimit : update.usageLimit,
+		periodUsageLimit:
+			update.periodUsageLimit === undefined
+				? current.periodUsageLimit
+				: update.periodUsageLimit,
+		periodUsageDurationValue:
+			update.periodUsageDurationValue === undefined
+				? current.periodUsageDurationValue
+				: update.periodUsageDurationValue,
+		periodUsageDurationUnit:
+			update.periodUsageDurationUnit === undefined
+				? current.periodUsageDurationUnit
+				: update.periodUsageDurationUnit,
+	};
+}
+
+function parseApiKeyPeriodConfig(config: ApiKeyLimitConfig) {
+	const parsedConfig = apiKeyPeriodConfigSchema.safeParse({
+		periodUsageLimit: config.periodUsageLimit,
+		periodUsageDurationValue: config.periodUsageDurationValue,
+		periodUsageDurationUnit: config.periodUsageDurationUnit,
+	});
+
+	if (!parsedConfig.success) {
+		throw new HTTPException(400, {
+			message:
+				parsedConfig.error.issues[0]?.message ??
+				"Invalid API key period limit configuration.",
+		});
+	}
+}
+
 // Create a schema for API key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
 const apiKeySchema = z.object({
@@ -279,8 +332,10 @@ const createApiKeySchema = z
 	.object({
 		description: z.string().trim().min(1).max(255),
 		projectId: z.string().trim().min(1),
-		usageLimit: createNullableLimitSchema("Usage limit"),
-		...apiKeyPeriodConfigFieldsSchema,
+		usageLimit: createNullableLimitSchema("Usage limit")
+			.optional()
+			.default(null),
+		...createApiKeyPeriodConfigFieldsSchema,
 	})
 	.superRefine(validateApiKeyPeriodConfig);
 
@@ -303,10 +358,10 @@ const updateApiKeyStatusSchema = z.object({
 // Schema for updating an API key usage limit
 const updateApiKeyUsageLimitSchema = z
 	.object({
-		usageLimit: createNullableLimitSchema("Usage limit"),
-		...apiKeyPeriodConfigFieldsSchema,
+		usageLimit: createNullableLimitSchema("Usage limit").optional(),
+		...updateApiKeyPeriodConfigFieldsSchema,
 	})
-	.superRefine(validateApiKeyPeriodConfig);
+	.strict();
 
 // Schema for IAM rule
 const iamRuleSchema = z.object({
@@ -1056,12 +1111,7 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const {
-		usageLimit,
-		periodUsageLimit,
-		periodUsageDurationValue,
-		periodUsageDurationUnit,
-	} = c.req.valid("json");
+	const limitUpdate = c.req.valid("json");
 
 	// Get the user's projects
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -1126,20 +1176,19 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		});
 	}
 
-	const periodConfigChanged = hasPeriodConfigChanged(apiKey, {
-		periodUsageLimit,
-		periodUsageDurationValue,
-		periodUsageDurationUnit,
-	});
+	const nextLimitConfig = mergeApiKeyLimitConfig(apiKey, limitUpdate);
+	parseApiKeyPeriodConfig(nextLimitConfig);
+
+	const periodConfigChanged = hasPeriodConfigChanged(apiKey, nextLimitConfig);
 
 	// Update the API key usage limit
 	const [updatedApiKey] = await db
 		.update(tables.apiKey)
 		.set({
-			usageLimit,
-			periodUsageLimit,
-			periodUsageDurationValue,
-			periodUsageDurationUnit,
+			usageLimit: nextLimitConfig.usageLimit,
+			periodUsageLimit: nextLimitConfig.periodUsageLimit,
+			periodUsageDurationValue: nextLimitConfig.periodUsageDurationValue,
+			periodUsageDurationUnit: nextLimitConfig.periodUsageDurationUnit,
 			...(periodConfigChanged && {
 				currentPeriodUsage: "0",
 				currentPeriodStartedAt: null,
@@ -1148,7 +1197,7 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
-	if (apiKey.usageLimit !== usageLimit || periodConfigChanged) {
+	if (apiKey.usageLimit !== nextLimitConfig.usageLimit || periodConfigChanged) {
 		await logAuditEvent({
 			organizationId: projectOrgId,
 			userId: user.id,
@@ -1157,12 +1206,7 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 			resourceId: id,
 			metadata: {
 				resourceName: apiKey.description,
-				changes: buildApiKeyLimitAuditChanges(apiKey, {
-					usageLimit,
-					periodUsageLimit,
-					periodUsageDurationValue,
-					periodUsageDurationUnit,
-				}),
+				changes: buildApiKeyLimitAuditChanges(apiKey, nextLimitConfig),
 			},
 		});
 	}

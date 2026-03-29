@@ -64,9 +64,12 @@ export function createApiKeyLimitFormValue(
 	>,
 ): ApiKeyLimitFormValue {
 	return {
-		usageLimitEnabled: apiKey?.usageLimit !== null,
+		usageLimitEnabled:
+			apiKey?.usageLimit !== null && apiKey?.usageLimit !== undefined,
 		usageLimit: apiKey?.usageLimit ?? "",
-		periodUsageLimitEnabled: apiKey?.periodUsageLimit !== null,
+		periodUsageLimitEnabled:
+			apiKey?.periodUsageLimit !== null &&
+			apiKey?.periodUsageLimit !== undefined,
 		periodUsageLimit: apiKey?.periodUsageLimit ?? "",
 		periodUsageDurationValue: apiKey?.periodUsageDurationValue
 			? String(apiKey.periodUsageDurationValue)
@@ -193,20 +196,28 @@ export function formatCurrentPeriodUsageSummary(
 		};
 	}
 
+	const resetAt =
+		apiKey.currentPeriodResetAt !== null &&
+		apiKey.currentPeriodResetAt !== undefined
+			? new Date(apiKey.currentPeriodResetAt)
+			: null;
+	const resetLabel =
+		resetAt && !Number.isNaN(resetAt.getTime())
+			? Intl.DateTimeFormat(undefined, {
+					month: "short",
+					day: "numeric",
+					hour: "2-digit",
+					minute: "2-digit",
+				}).format(resetAt)
+			: null;
+
 	return {
 		summary: `${formatCurrencyAmount(apiKey.currentPeriodUsage)} / ${formatCurrencyAmount(apiKey.periodUsageLimit)}`,
 		windowLabel: formatPeriodWindowLabel(
 			apiKey.periodUsageDurationValue,
 			apiKey.periodUsageDurationUnit,
 		),
-		resetLabel: apiKey.currentPeriodResetAt
-			? Intl.DateTimeFormat(undefined, {
-					month: "short",
-					day: "numeric",
-					hour: "2-digit",
-					minute: "2-digit",
-				}).format(new Date(apiKey.currentPeriodResetAt))
-			: null,
+		resetLabel,
 	};
 }
 

@@ -69,6 +69,8 @@ export function ApiKeyLimitsDialog({
 						try {
 							await onSubmit(payload);
 							setOpen(false);
+						} catch {
+							return;
 						} finally {
 							setIsSubmitting(false);
 						}

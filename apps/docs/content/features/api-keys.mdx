@@ -68,8 +68,10 @@ You can set two independent limits for each key:
 - **All-time usage limit**: A lifetime spend cap
 - **Recurring usage limit**: A spend cap that resets every configured hour, day, week, or month
 
-When a key reaches either limit, requests using that key return an error until
-the key is updated or, for recurring limits, the next usage window starts.
+When a key reaches either limit, requests using that key return `401
+Unauthorized` until the key is updated or, for recurring limits, the next
+usage window starts. This is separate from IAM rule violations, which return
+`403 Forbidden`.
 
 Recurring windows support:
 

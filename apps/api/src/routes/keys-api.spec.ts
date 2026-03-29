@@ -212,6 +212,55 @@ describe("keys route", () => {
 		expect(apiKey?.currentPeriodStartedAt).toBeNull();
 	});
 
+	test("PATCH /keys/api/limit/{id} preserves recurring limits on partial updates", async () => {
+		await db
+			.update(tables.apiKey)
+			.set({
+				usageLimit: "25",
+				periodUsageLimit: "5",
+				periodUsageDurationValue: 1,
+				periodUsageDurationUnit: "day",
+				currentPeriodUsage: "2.25",
+				currentPeriodStartedAt: new Date("2026-03-29T08:00:00.000Z"),
+			})
+			.where(eq(tables.apiKey.id, "test-api-key-id"));
+
+		const res = await app.request("/keys/api/limit/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				usageLimit: "50",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.apiKey.usageLimit).toBe("50");
+		expect(json.apiKey.periodUsageLimit).toBe("5");
+		expect(json.apiKey.periodUsageDurationValue).toBe(1);
+		expect(json.apiKey.periodUsageDurationUnit).toBe("day");
+		expect(json.apiKey.currentPeriodUsage).toBe("2.25");
+		expect(json.apiKey.currentPeriodStartedAt).not.toBeNull();
+
+		const apiKey = await db.query.apiKey.findFirst({
+			where: {
+				id: {
+					eq: "test-api-key-id",
+				},
+			},
+		});
+
+		expect(apiKey?.usageLimit).toBe("50");
+		expect(apiKey?.periodUsageLimit).toBe("5");
+		expect(apiKey?.periodUsageDurationValue).toBe(1);
+		expect(apiKey?.periodUsageDurationUnit).toBe("day");
+		expect(apiKey?.currentPeriodUsage).toBe("2.25");
+		expect(apiKey?.currentPeriodStartedAt).not.toBeNull();
+	});
+
 	test("PATCH /keys/api/limit/{id} rejects incomplete period limits", async () => {
 		const res = await app.request("/keys/api/limit/test-api-key-id", {
 			method: "PATCH",

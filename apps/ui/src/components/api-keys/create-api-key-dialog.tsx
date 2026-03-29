@@ -60,7 +60,11 @@ export function CreateApiKeyDialog({
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		if (!name.trim() || createApiKeyMutation.isPending) {
+		if (createApiKeyMutation.isPending) {
+			return;
+		}
+
+		if (!name.trim()) {
 			toast({ title: "Please enter an API key name.", variant: "destructive" });
 			return;
 		}
