@@ -19,10 +19,6 @@ export function isCreditTopUpAmountInRange(amount: number): boolean {
 	);
 }
 
-export function isRecordedCreditTopUpAmountValid(amount: number): boolean {
-	return Number.isInteger(amount) && amount >= CREDIT_TOP_UP_MIN_AMOUNT;
-}
-
 const PLATFORM_FEE_PERCENTAGE = 0.05; // Fixed 5% for all users
 
 export function calculateFees(input: FeeCalculationInput): FeeBreakdown {

@@ -3,7 +3,6 @@ export {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	isCreditTopUpAmountInRange,
-	isRecordedCreditTopUpAmountValid,
 	type FeeBreakdown,
 	type FeeCalculationInput,
 } from "./fees.js";

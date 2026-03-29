@@ -4,11 +4,7 @@ import { z } from "zod";
 
 import { db, eq, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import {
-	getDevPlanCreditsLimit,
-	isRecordedCreditTopUpAmountValid,
-	type DevPlanTier,
-} from "@llmgateway/shared";
+import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
@@ -656,9 +652,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 	}
 
 	const creditAmount = Number(metadata?.baseAmount);
-	// Preserve settlement of already-issued Stripe sessions created before the
-	// new cap was deployed, while newer requests are capped at creation time.
-	if (!isRecordedCreditTopUpAmountValid(creditAmount)) {
+	if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
 		logger.error("Invalid baseAmount in credit top-up checkout metadata", {
 			baseAmount: metadata?.baseAmount,
 		});
@@ -756,9 +750,7 @@ async function handlePaymentIntentSucceeded(
 
 	// Get the credit amount (base amount without fees) from metadata
 	const creditAmount = Number(paymentIntent.metadata.baseAmount);
-	// Preserve settlement of already-issued payment intents created before the
-	// new cap was deployed, while newer requests are capped at creation time.
-	if (!isRecordedCreditTopUpAmountValid(creditAmount)) {
+	if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
 		logger.error("Invalid baseAmount in payment intent metadata", {
 			baseAmount: paymentIntent.metadata.baseAmount,
 			paymentIntentId: paymentIntent.id,
