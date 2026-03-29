@@ -2,6 +2,7 @@
 
 import { useChat } from "@ai-sdk/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
@@ -78,6 +79,7 @@ export default function ChatPageClient({
 	enableWebSearch = false,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -654,6 +656,11 @@ export default function ChatPageClient({
 
 		setError(null);
 		setIsLoading(true);
+		posthog.capture("playground_chat_sent", {
+			model: selectedModel,
+			has_images: !!images?.length,
+			web_search: webSearchEnabled,
+		});
 		errorOccurredRef.current = false;
 		isSendingRef.current = true;
 

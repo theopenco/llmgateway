@@ -8,6 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, ExternalLink, Plus } from "lucide-react";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -57,6 +58,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	>(null);
 	const { stripe, isLoading: stripeLoading } = useStripe();
 	const api = useApi();
+	const posthog = usePostHog();
 
 	const { data: paymentMethodsData, isLoading: paymentMethodsLoading } =
 		api.useQuery(
@@ -95,6 +97,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 			onOpenChange={(isOpen) => {
 				if (isOpen) {
 					setOpen(true);
+					posthog.capture("topup_dialog_opened");
 				} else {
 					// Prevent closing while payment is processing
 					if (loading) {
@@ -114,6 +117,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 							if (paymentMethodsLoading) {
 								return; // Don't proceed if still loading
 							}
+							posthog.capture("topup_amount_selected", { amount });
 							if (hasPaymentMethods) {
 								setStep("select-payment");
 							} else {
@@ -159,7 +163,12 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 						</Elements>
 					)
 				) : (
-					<SuccessStep onClose={handleClose} />
+					<SuccessStep
+						onClose={() => {
+							posthog.capture("topup_completed", { amount });
+							handleClose();
+						}}
+					/>
 				)}
 			</DialogContent>
 		</Dialog>
@@ -180,6 +189,7 @@ function AmountStep({
 	const presetAmounts = [10, 25, 50, 100];
 	const api = useApi();
 	const { toast } = useToast();
+	const posthog = usePostHog();
 	const [checkoutLoading, setCheckoutLoading] = useState(false);
 	const { mutateAsync: createCheckoutSession } = api.useMutation(
 		"post",
@@ -199,6 +209,7 @@ function AmountStep({
 	const hasBonus = feeData?.bonusAmount && feeData.bonusAmount > 0;
 
 	const handleStripeCheckout = async () => {
+		posthog.capture("topup_stripe_checkout_started", { amount });
 		setCheckoutLoading(true);
 		try {
 			const { checkoutUrl } = await createCheckoutSession({

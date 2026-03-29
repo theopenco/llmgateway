@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
@@ -12,6 +13,7 @@ import { VideoSidebar } from "@/components/playground/video-sidebar";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
+import { useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
 import {
 	getNormalizedVideoRequestSelection,
@@ -60,6 +62,8 @@ export default function VideoPageClient({
 	selectedProject,
 }: VideoPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const posthog = usePostHog();
+	const fetchClient = useFetchClient();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -382,6 +386,16 @@ export default function VideoPageClient({
 
 			const currentPrompt = effectivePrompt.trim();
 			setIsGenerating(true);
+			posthog.capture("playground_video_generated", {
+				models: selectedModels,
+				model_count: selectedModels.length,
+				comparison_mode: comparisonMode,
+				video_size: videoSize,
+				video_duration: videoDuration,
+				audio_enabled: effectiveAudioEnabled,
+				has_frame_inputs: !!(frameInputs.start ?? frameInputs.end),
+				has_reference_images: referenceImages.length > 0,
+			});
 
 			const itemId = crypto.randomUUID();
 
@@ -474,6 +488,7 @@ export default function VideoPageClient({
 
 						for await (const updatedJob of pollVideoJob(
 							job.id,
+							fetchClient,
 							controller.signal,
 						)) {
 							if (updatedJob.status === "completed") {
@@ -527,6 +542,7 @@ export default function VideoPageClient({
 			selectedModels,
 			isGenerating,
 			getModelName,
+			fetchClient,
 			videoSize,
 			videoDuration,
 			effectiveAudioEnabled,
