@@ -48,6 +48,25 @@ async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
 	);
 }
 
+function stripGatewayContentFilterResponse<T extends LogRecord>(
+	logEntry: T,
+): Omit<T, "gatewayContentFilterResponse"> {
+	const {
+		gatewayContentFilterResponse: _gatewayContentFilterResponse,
+		...log
+	} = logEntry;
+
+	return log;
+}
+
+async function toPublicLogs<T extends LogRecord>(
+	logEntries: T[],
+): Promise<Array<Omit<T, "gatewayContentFilterResponse">>> {
+	const enrichedLogs = await enrichLogsWithVideoContentUrls(logEntries);
+
+	return enrichedLogs.map(stripGatewayContentFilterResponse);
+}
+
 // Use the log schema directly from the database
 // Using z.object directly instead of createSelectSchema due to compatibility issues
 const logSchema = z.object({
@@ -584,7 +603,7 @@ logs.openapi(get, async (c) => {
 	}
 
 	return c.json({
-		logs: await enrichLogsWithVideoContentUrls(paginatedLogs),
+		logs: await toPublicLogs(paginatedLogs),
 		pagination: {
 			nextCursor,
 			hasMore,
@@ -769,5 +788,5 @@ logs.openapi(getById, async (c) => {
 		});
 	}
 
-	return c.json({ log });
+	return c.json({ log: stripGatewayContentFilterResponse(log) });
 });

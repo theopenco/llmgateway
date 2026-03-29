@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
+import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type z from "zod";
 
@@ -586,6 +587,8 @@ export const log = pgTable(
 		retried: boolean().default(false),
 		retriedByLogId: text(),
 		internalContentFilter: boolean(),
+		gatewayContentFilterResponse:
+			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),

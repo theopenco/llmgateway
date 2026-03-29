@@ -113,6 +113,23 @@ describe("logs route", () => {
 				temperature: 0.7,
 				maxTokens: 100,
 				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+				gatewayContentFilterResponse: [
+					{
+						id: "modr-test-log-id-1",
+						model: "omni-moderation-latest",
+						results: [
+							{
+								flagged: true,
+								categories: {
+									violence: true,
+								},
+								category_scores: {
+									violence: 0.95,
+								},
+							},
+						],
+					},
+				],
 				mode: "api-keys",
 				usedMode: "api-keys",
 			},
@@ -149,6 +166,33 @@ describe("logs route", () => {
 
 	// Tests for the filter functionality
 	describe("filter functionality", () => {
+		test("should not expose gateway content filter responses in list results", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.logs[0]).not.toHaveProperty("gatewayContentFilterResponse");
+		});
+
+		test("should not expose gateway content filter responses by id", async () => {
+			const res = await app.request("/logs/test-log-id-1", {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.log).not.toHaveProperty("gatewayContentFilterResponse");
+		});
+
 		test("should filter logs by projectId", async () => {
 			const params = new URLSearchParams({ projectId: "test-project-id" });
 			const res = await app.request("/logs?" + params, {
