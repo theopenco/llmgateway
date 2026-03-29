@@ -12,6 +12,12 @@ export interface ApiKey {
 	status: "active" | "inactive" | "deleted" | null;
 	usageLimit: string | null;
 	usage: string;
+	periodUsageLimit: string | null;
+	periodUsageDurationValue: number | null;
+	periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+	currentPeriodUsage: string;
+	currentPeriodStartedAt: string | null;
+	currentPeriodResetAt: string | null;
 	description: string;
 	projectId: string;
 	iamRules?: Array<{

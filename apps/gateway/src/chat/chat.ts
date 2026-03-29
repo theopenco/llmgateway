@@ -5,6 +5,7 @@ import { streamSSE } from "hono/streaming";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { reportKeyError, reportKeySuccess } from "@/lib/api-key-health.js";
+import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findProjectById,
@@ -767,11 +768,7 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
-		throw new HTTPException(401, {
-			message: "Unauthorized: LLMGateway API key reached its usage limit.",
-		});
-	}
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	// Get the project to determine mode for routing decisions
 	const project = await findProjectById(apiKey.projectId);

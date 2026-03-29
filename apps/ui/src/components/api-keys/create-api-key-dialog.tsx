@@ -4,7 +4,6 @@ import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
 import { Button } from "@/lib/components/button";
-import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -23,6 +22,12 @@ import {
 } from "@/lib/components/tooltip";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+
+import {
+	ApiKeyLimitFields,
+	buildApiKeyLimitPayload,
+	createApiKeyLimitFormValue,
+} from "./api-key-limit-fields";
 
 import type { Project } from "@/lib/types";
 import type React from "react";
@@ -45,8 +50,9 @@ export function CreateApiKeyDialog({
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<"form" | "created">("form");
 	const [name, setName] = useState("");
-	const [limit, setLimit] = useState<string>("0");
-	const [limitChecked, setLimitChecked] = useState<boolean>(false);
+	const [limitValue, setLimitValue] = useState(() =>
+		createApiKeyLimitFormValue(),
+	);
 	const [apiKey, setApiKey] = useState("");
 	const api = useApi();
 
@@ -59,12 +65,18 @@ export function CreateApiKeyDialog({
 			return;
 		}
 
+		const { error, payload } = buildApiKeyLimitPayload(limitValue);
+		if (error) {
+			toast({ title: error, variant: "destructive" });
+			return;
+		}
+
 		createApiKey(
 			{
 				body: {
 					description: name.trim(),
 					projectId: selectedProject.id,
-					usageLimit: limitChecked ? limit : null,
+					...payload,
 				},
 			},
 			{
@@ -103,7 +115,7 @@ export function CreateApiKeyDialog({
 			setStep("form");
 			setName("");
 			setApiKey("");
-			setLimit("");
+			setLimitValue(createApiKeyLimitFormValue());
 		}, 300);
 	};
 
@@ -151,40 +163,11 @@ export function CreateApiKeyDialog({
 									required
 								/>
 							</div>
-							<div className="space-y-2">
-								<div className="flex items-center gap-2">
-									<Checkbox
-										id="limit-checkbox"
-										checked={limitChecked}
-										onCheckedChange={(v) => setLimitChecked(v)}
-									/>
-									<Label htmlFor="limit-checkbox">
-										Set API Key Usage Limit
-									</Label>
-								</div>
-								<div
-									className={`text-muted-foreground text-sm ${limitChecked ? "block" : "hidden"}`}
-								>
-									Usage includes both usage from LLM Gateway credits and usage
-									from your own provider keys when applicable.
-								</div>
-								<div
-									className={`relative ${limitChecked ? "block" : "hidden"}`}
-								>
-									<span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-										$
-									</span>
-									<Input
-										className="pl-6"
-										id="limit"
-										value={limit}
-										onChange={(e) => setLimit(e.target.value)}
-										type="number"
-										min={0}
-										required={limitChecked}
-									/>
-								</div>
-							</div>
+							<ApiKeyLimitFields
+								idPrefix="create-api-key"
+								value={limitValue}
+								onChange={setLimitValue}
+							/>
 							<DialogFooter>
 								<Button type="button" variant="outline" onClick={handleClose}>
 									Cancel

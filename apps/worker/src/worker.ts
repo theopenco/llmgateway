@@ -80,6 +80,26 @@ const VIDEO_JOB_POLL_INTERVAL_SECONDS =
 const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
 	Number(process.env.VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS) || 5;
 
+function getApiKeyPeriodWindowEndSql() {
+	return sql`
+		CASE
+			WHEN ${apiKey.periodUsageDurationUnit} = 'hour' THEN ${apiKey.currentPeriodStartedAt} + (${apiKey.periodUsageDurationValue} * INTERVAL '1 hour')
+			WHEN ${apiKey.periodUsageDurationUnit} = 'day' THEN ${apiKey.currentPeriodStartedAt} + (${apiKey.periodUsageDurationValue} * INTERVAL '1 day')
+			WHEN ${apiKey.periodUsageDurationUnit} = 'week' THEN ${apiKey.currentPeriodStartedAt} + (${apiKey.periodUsageDurationValue} * INTERVAL '1 week')
+			WHEN ${apiKey.periodUsageDurationUnit} = 'month' THEN ${apiKey.currentPeriodStartedAt} + (${apiKey.periodUsageDurationValue} * INTERVAL '1 month')
+			ELSE NULL
+		END
+	`;
+}
+
+function getApiKeyHasPeriodLimitSql() {
+	return sql`
+		${apiKey.periodUsageLimit} IS NOT NULL
+		AND ${apiKey.periodUsageDurationValue} IS NOT NULL
+		AND ${apiKey.periodUsageDurationUnit} IS NOT NULL
+	`;
+}
+
 const schema = z.object({
 	id: z.string(),
 	request_id: z.string(),
@@ -801,6 +821,13 @@ export async function batchProcessLogs(): Promise<void> {
 			}
 
 			// Batch update API key usage within the same transaction
+			const periodUsageRecordedAt = new Date();
+			const apiKeyHasPeriodLimitSql = getApiKeyHasPeriodLimitSql();
+			const apiKeyPeriodExpiredSql = sql`
+				${apiKey.currentPeriodStartedAt} IS NULL
+				OR ${getApiKeyPeriodWindowEndSql()} <= ${periodUsageRecordedAt}
+			`;
+
 			for (const [apiKeyId, totalCost] of apiKeyCosts.entries()) {
 				if (totalCost.greaterThan(0)) {
 					const costNumber = totalCost.toNumber();
@@ -808,6 +835,26 @@ export async function batchProcessLogs(): Promise<void> {
 						.update(apiKey)
 						.set({
 							usage: sql`${apiKey.usage} + ${costNumber}`,
+							currentPeriodUsage: sql`
+								CASE
+									WHEN ${apiKeyHasPeriodLimitSql} THEN
+										CASE
+											WHEN ${apiKeyPeriodExpiredSql} THEN ${costNumber}
+											ELSE ${apiKey.currentPeriodUsage} + ${costNumber}
+										END
+									ELSE ${apiKey.currentPeriodUsage}
+								END
+							`,
+							currentPeriodStartedAt: sql`
+								CASE
+									WHEN ${apiKeyHasPeriodLimitSql} THEN
+										CASE
+											WHEN ${apiKeyPeriodExpiredSql} THEN ${periodUsageRecordedAt}
+											ELSE ${apiKey.currentPeriodStartedAt}
+										END
+									ELSE ${apiKey.currentPeriodStartedAt}
+								END
+							`,
 						})
 						.where(eq(apiKey.id, apiKeyId));
 
