@@ -701,7 +701,7 @@ describe("fallback and error status code handling", () => {
 	});
 
 	describe("low-uptime fallback respects IAM provider rules", () => {
-		const modelId = "llama-3.1-8b-instruct";
+		const modelId = "glm-4.7";
 
 		beforeEach(async () => {
 			await setupMultiProviderKeys();
@@ -725,7 +725,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "together.ai/llama-3.1-8b-instruct",
+					model: "together.ai/glm-4.7",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -760,7 +760,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "together.ai/llama-3.1-8b-instruct",
+					model: "together.ai/glm-4.7",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -799,7 +799,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "together.ai/llama-3.1-8b-instruct",
+					model: "together.ai/glm-4.7",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1542,7 +1542,7 @@ describe("fallback and error status code handling", () => {
 				},
 				body: JSON.stringify({
 					// No provider prefix - auto-routing required for retry
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1616,7 +1616,7 @@ describe("fallback and error status code handling", () => {
 					"X-No-Fallback": "true",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1637,7 +1637,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
 				}),
 			});
@@ -1665,7 +1665,7 @@ describe("fallback and error status code handling", () => {
 				},
 				body: JSON.stringify({
 					// Explicit provider prefix - retry disabled
-					model: "together.ai/llama-3.1-8b-instruct",
+					model: "together.ai/glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1686,7 +1686,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 					stream: true,
 				}),
@@ -1751,7 +1751,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1781,7 +1781,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1816,7 +1816,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
