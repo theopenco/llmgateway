@@ -28,6 +28,8 @@ export const moonshotModels = [
 			{
 				providerId: "novita",
 				modelName: "moonshotai/kimi-k2-instruct",
+				// Streaming tool calls produce malformed JSON arguments
+				stability: "unstable",
 				inputPrice: 0.57 / 1e6,
 				outputPrice: 2.3 / 1e6,
 				requestPrice: 0,
