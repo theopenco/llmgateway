@@ -564,6 +564,8 @@ export const zaiModels = [
 			{
 				providerId: "zai",
 				modelName: "glm-4.7-flashx",
+				// Frequently times out on multi-turn tool call requests
+				stability: "unstable",
 				inputPrice: 0.07 / 1e6,
 				cachedInputPrice: 0.01 / 1e6,
 				outputPrice: 0.4 / 1e6,
