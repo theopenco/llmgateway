@@ -9,11 +9,12 @@ fi
 IMAGE1=$1
 IMAGE2=$2
 PROMPT=${3:-"Combine these two images into one polished product-style scene. Keep the main subject from the first image, borrow the background mood and lighting from the second image, and make the result feel cohesive and photorealistic."}
-OUTPUT_FILE=${4:-.context/quartz-two-image-edit-output.png}
 
 GATEWAY_URL=${GATEWAY_URL:-http://localhost:4001}
 TOKEN=${TOKEN:-test-token}
 MODEL=${MODEL:-quartz/gemini-3.1-flash-image-preview}
+MODEL_FILENAME=${MODEL//\//--}
+OUTPUT_FILE=${4:-.context/${MODEL_FILENAME}.png}
 ASPECT_RATIO=${ASPECT_RATIO:-1:1}
 SIZE=${SIZE:-1K}
 QUALITY=${QUALITY:-high}
