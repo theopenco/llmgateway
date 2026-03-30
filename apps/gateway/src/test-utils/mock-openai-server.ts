@@ -45,7 +45,9 @@ const textEncoder = new TextEncoder();
 function encodeAwsEventStreamHeader(name: string, value: string): Uint8Array {
 	const nameBytes = textEncoder.encode(name);
 	const valueBytes = textEncoder.encode(value);
-	const header = new Uint8Array(1 + nameBytes.length + 1 + 2 + valueBytes.length);
+	const header = new Uint8Array(
+		1 + nameBytes.length + 1 + 2 + valueBytes.length,
+	);
 	let offset = 0;
 	header[offset++] = nameBytes.length;
 	header.set(nameBytes, offset);
@@ -1701,8 +1703,7 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 	}
 
 	if (userMessage.includes("TRIGGER_BEDROCK_STREAM_503")) {
-		c.header("content-type", "application/vnd.amazon.eventstream");
-		return c.body(
+		const eventBytes = Uint8Array.from(
 			encodeAwsEventStreamMessage(
 				{
 					":message-type": "exception",
@@ -1711,6 +1712,17 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 				},
 				"The service is temporarily unavailable.",
 			),
+		);
+
+		return new Response(
+			new Blob([eventBytes], {
+				type: "application/vnd.amazon.eventstream",
+			}),
+			{
+				headers: {
+					"content-type": "application/vnd.amazon.eventstream",
+				},
+			},
 		);
 	}
 
