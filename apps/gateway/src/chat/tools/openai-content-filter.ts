@@ -295,11 +295,13 @@ function getErrorCode(error: unknown): string | undefined {
 		return directCode;
 	}
 
+	const visited = new Set<Error>([error]);
 	let current = (error as ErrorWithCode).cause;
 	for (let depth = 0; depth < 5; depth++) {
-		if (!(current instanceof Error)) {
+		if (!(current instanceof Error) || visited.has(current)) {
 			return undefined;
 		}
+		visited.add(current);
 
 		if (typeof (current as ErrorWithCode).code === "string") {
 			return (current as ErrorWithCode).code;
@@ -311,18 +313,27 @@ function getErrorCode(error: unknown): string | undefined {
 	return undefined;
 }
 
-function buildModerationErrorDetails(
-	error: unknown,
-): Record<string, string | undefined> {
+function buildModerationErrorDetails(error: unknown): Record<string, string> {
 	if (!(error instanceof Error)) {
-		return {};
+		return {
+			error: String(error),
+			errorName:
+				error === null
+					? "NullThrownValue"
+					: typeof error === "undefined"
+						? "UndefinedThrownValue"
+						: typeof error,
+		};
 	}
+
+	const errorCause = extractErrorCause(error);
+	const errorCode = getErrorCode(error);
 
 	return {
 		error: error.message,
 		errorName: error.name,
-		errorCause: extractErrorCause(error),
-		errorCode: getErrorCode(error),
+		...(errorCause ? { errorCause } : {}),
+		...(errorCode ? { errorCode } : {}),
 	};
 }
 
