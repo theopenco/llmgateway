@@ -22,11 +22,117 @@ import { shortid } from "@llmgateway/db";
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
-const moderationRequestSchema = z.object({
-	input: z.any().openapi({
-		description: "Input text or multimodal content to classify.",
+const moderationInputTextSchema = z.string().openapi({
+	description: "Plain text input to classify.",
+	example: "I want to harm someone.",
+});
+
+const moderationInputContentSchema = z
+	.object({
+		type: z.enum(["text", "image_url"]).openapi({
+			description: "Input item type.",
+			example: "text",
+		}),
+		text: z.string().optional().openapi({
+			description: "Text content for `type: text` items.",
+			example: "Please review this sentence.",
+		}),
+		image_url: z
+			.object({
+				url: z.string().openapi({
+					description: "Image URL or data URL for `type: image_url` items.",
+					example: "https://example.com/image.png",
+				}),
+			})
+			.optional()
+			.openapi({
+				description: "Image payload for `type: image_url` items.",
+			}),
+	})
+	.openapi({
+		description: "Multimodal moderation input item.",
+	});
+
+const moderationInputSchema = z
+	.union([
+		moderationInputTextSchema,
+		z.array(moderationInputTextSchema),
+		z.array(moderationInputContentSchema),
+	])
+	.openapi({
+		description:
+			"Plain text, an array of text strings, or an array of multimodal input items.",
 		example: "I want to harm someone.",
+	});
+
+const moderationResultSchema = z
+	.object({
+		flagged: z.boolean().openapi({
+			description: "Whether the input was flagged.",
+			example: true,
+		}),
+		categories: z
+			.record(z.boolean())
+			.optional()
+			.openapi({
+				description: "Category flags returned by the moderation model.",
+				example: {
+					violence: true,
+					self_harm: false,
+				},
+			}),
+		category_scores: z
+			.record(z.number())
+			.optional()
+			.openapi({
+				description: "Model confidence scores for each category.",
+				example: {
+					violence: 0.98,
+					self_harm: 0.01,
+				},
+			}),
+		category_applied_input_types: z
+			.record(z.array(z.string()))
+			.optional()
+			.openapi({
+				description: "Input types that contributed to each category decision.",
+			}),
+	})
+	.passthrough()
+	.openapi({
+		description: "One moderation result entry.",
+	});
+
+const moderationResponseSchema = z
+	.object({
+		id: z.string().optional().openapi({
+			description: "Moderation response ID.",
+			example: "modr-123",
+		}),
+		model: z.string().optional().openapi({
+			description: "Moderation model used for the request.",
+			example: "omni-moderation-latest",
+		}),
+		results: z.array(moderationResultSchema).optional().openapi({
+			description: "Moderation results for the submitted input.",
+		}),
+	})
+	.passthrough()
+	.openapi({
+		description: "Moderation response payload.",
+	});
+
+const moderationErrorSchema = z.object({
+	error: z.object({
+		message: z.string(),
+		type: z.string(),
+		param: z.string().nullable(),
+		code: z.string(),
 	}),
+});
+
+const moderationRequestSchema = z.object({
+	input: moderationInputSchema,
 	model: z.string().optional().default("omni-moderation-latest").openapi({
 		description: "OpenAI moderation model. Defaults to omni-moderation-latest.",
 		example: "omni-moderation-latest",
@@ -87,10 +193,90 @@ const createModeration = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: moderationResponseSchema,
 				},
 			},
 			description: "Moderation response.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Invalid request body or parameters.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Unauthorized request.",
+		},
+		403: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Forbidden upstream response.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Not found upstream response.",
+		},
+		410: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Archived or unavailable project.",
+		},
+		429: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Rate limited upstream response.",
+		},
+		500: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Internal server error.",
+		},
+		502: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Failed to connect to the upstream provider.",
+		},
+		503: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Service unavailable upstream response.",
+		},
+		504: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Upstream provider timeout.",
 		},
 	},
 });
@@ -416,7 +602,17 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			(typeof upstreamJson === "string"
 				? { error: { message: upstreamJson } }
 				: upstreamJson) ?? { error: true },
-			upstreamResponse.status as any,
+			upstreamResponse.status as
+				| 400
+				| 401
+				| 403
+				| 404
+				| 410
+				| 429
+				| 500
+				| 502
+				| 503
+				| 504,
 		);
 	}
 

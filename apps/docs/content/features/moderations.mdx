@@ -1,0 +1,139 @@
+---
+title: Moderations
+description: Classify unsafe text and image inputs with the OpenAI-compatible moderations API
+icon: ShieldCheck
+---
+
+# Moderations
+
+LLMGateway supports the OpenAI-compatible `/v1/moderations` endpoint for text
+and multimodal safety classification.
+
+Use it when you want to:
+
+- Screen user prompts before they reach a model
+- Review generated output before displaying it
+- Apply the same moderation API shape you already use with OpenAI clients
+
+For the full request and response schema, see the
+[API reference](/v1/moderations).
+
+## Endpoint
+
+`POST https://api.llmgateway.io/v1/moderations`
+
+Authenticate with your LLMGateway API key:
+
+```bash
+-H "Authorization: Bearer $LLM_GATEWAY_API_KEY"
+```
+
+## Supported Inputs
+
+The `input` field accepts:
+
+- A single string
+- An array of strings
+- An array of multimodal content items with `text` and `image_url`
+
+The default model is `omni-moderation-latest`.
+
+## curl
+
+### Single text input
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/moderations" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "I want to harm someone."
+  }'
+```
+
+### Multiple text inputs
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/moderations" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "omni-moderation-latest",
+    "input": [
+      "This is a harmless sentence.",
+      "I want to attack somebody."
+    ]
+  }'
+```
+
+### Multimodal input
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/moderations" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": [
+      {
+        "type": "text",
+        "text": "Check this image for violent content."
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://example.com/image.png"
+        }
+      }
+    ]
+  }'
+```
+
+## OpenAI SDK
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+	baseURL: "https://api.llmgateway.io/v1",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const response = await client.moderations.create({
+	model: "omni-moderation-latest",
+	input: "I want to harm someone.",
+});
+
+console.log(response.results[0]?.flagged);
+```
+
+## Response Shape
+
+The response follows the standard OpenAI moderation format:
+
+```json
+{
+	"id": "modr-123",
+	"model": "omni-moderation-latest",
+	"results": [
+		{
+			"flagged": true,
+			"categories": {
+				"violence": true,
+				"self_harm": false
+			},
+			"category_scores": {
+				"violence": 0.98,
+				"self_harm": 0.01
+			}
+		}
+	]
+}
+```
+
+## When To Use This Instead Of Chat Content Filtering
+
+Use `/v1/moderations` when you want an explicit moderation decision in your own
+application flow.
+
+If you want moderation to happen automatically as part of model requests, use
+LLMGateway content filtering on `/v1/chat/completions` instead.
