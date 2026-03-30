@@ -1,0 +1,63 @@
+{
+	"name": "llmgateway",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".."
+	},
+	"runArgs": ["--privileged"],
+	"overrideCommand": false,
+	"remoteUser": "node",
+	"containerUser": "node",
+	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"containerEnv": {
+		"PATH": "/opt/node/bin:/opt/pnpm/bin:/home/node/.local/share/pnpm:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	},
+	"remoteEnv": {
+		"DOCKER_BUILDKIT": "1",
+		"COMPOSE_DOCKER_CLI_BUILD": "1"
+	},
+	"postStartCommand": "bash .devcontainer/post-start.sh",
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "bash"
+			},
+			"extensions": [
+				"dbaeumer.vscode-eslint",
+				"esbenp.prettier-vscode",
+				"ms-azuretools.vscode-docker",
+				"vitest.explorer"
+			]
+		}
+	},
+	"forwardPorts": [3002, 3003, 3004, 3005, 3006, 4001, 4002, 5432, 6379],
+	"portsAttributes": {
+		"3002": {
+			"label": "UI"
+		},
+		"3003": {
+			"label": "Playground"
+		},
+		"3004": {
+			"label": "Code"
+		},
+		"3005": {
+			"label": "Docs"
+		},
+		"3006": {
+			"label": "Admin"
+		},
+		"4001": {
+			"label": "Gateway"
+		},
+		"4002": {
+			"label": "API"
+		},
+		"5432": {
+			"label": "PostgreSQL"
+		},
+		"6379": {
+			"label": "Redis"
+		}
+	}
+}
