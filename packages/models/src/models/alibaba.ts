@@ -1532,6 +1532,10 @@ export const alibabaModels = [
 						id: "cn-beijing",
 						inputPrice: 0.23 / 1e6,
 						outputPrice: 0.574 / 1e6,
+						// QwQ models are officially stream-only per Alibaba docs:
+						// "Some models only support streaming calls: [...] the commercial
+						// and open-source versions of QwQ"
+						// Ref: https://www.alibabacloud.com/help/en/model-studio/stream
 						streaming: "only",
 					},
 				],

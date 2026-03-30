@@ -189,7 +189,9 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports streaming for this provider.
 	 * - true: supports both streaming and non-streaming
 	 * - false: does not support streaming
-	 * - "only": only supports streaming (non-streaming requests are auto-converted)
+	 * - "only": only supports streaming (non-streaming requests are auto-converted).
+	 *   Some providers enforce stream-only for certain models (e.g. Alibaba QwQ series).
+	 *   Ref: https://www.alibabacloud.com/help/en/model-studio/stream
 	 */
 	streaming: boolean | "only";
 	/**
