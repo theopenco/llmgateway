@@ -583,6 +583,47 @@ describe("fallback and error status code handling", () => {
 				"The provided model identifier is invalid for this account.",
 			);
 		});
+
+		test("streaming aws-bedrock 503 exception frame returns error SSE and done", async () => {
+			await setupKeys("aws-bedrock");
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "aws-bedrock/claude-sonnet-4-6",
+					messages: [{ role: "user", content: "TRIGGER_BEDROCK_STREAM_503" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasError).toBe(true);
+			expect(streamResult.errorEvents.length).toBeGreaterThan(0);
+
+			const errorEvent = streamResult.errorEvents[0];
+			const errorPayload = errorEvent.error ?? errorEvent;
+			expect(errorPayload.type).toBe("upstream_error");
+			expect(errorPayload.code).toBe("serviceUnavailableException");
+			expect(errorPayload.message).toContain("temporarily unavailable");
+			expect(streamResult.fullContent).toContain("data: [DONE]");
+
+			const logs = await waitForLogs(1);
+			const log = logs[0];
+			expect(log.finishReason).toBe("upstream_error");
+			expect(log.hasError).toBe(true);
+			expect(log.streamed).toBe(true);
+			expect(log.errorDetails?.statusCode).toBe(503);
+			expect(log.errorDetails?.statusText).toBe("serviceUnavailableException");
+			expect(log.errorDetails?.responseText).toContain(
+				"serviceUnavailableException",
+			);
+		});
 	});
 
 	describe("deactivated provider fallback with metadata", () => {

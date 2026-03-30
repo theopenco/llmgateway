@@ -40,6 +40,50 @@ const sampleErrorResponse = {
 	},
 };
 const sample500ErrorResponse = sampleErrorResponse;
+const textEncoder = new TextEncoder();
+
+function encodeAwsEventStreamHeader(name: string, value: string): Uint8Array {
+	const nameBytes = textEncoder.encode(name);
+	const valueBytes = textEncoder.encode(value);
+	const header = new Uint8Array(1 + nameBytes.length + 1 + 2 + valueBytes.length);
+	let offset = 0;
+	header[offset++] = nameBytes.length;
+	header.set(nameBytes, offset);
+	offset += nameBytes.length;
+	header[offset++] = 7; // string
+	new DataView(header.buffer).setUint16(offset, valueBytes.length, false);
+	offset += 2;
+	header.set(valueBytes, offset);
+	return header;
+}
+
+function encodeAwsEventStreamMessage(
+	headers: Record<string, string>,
+	payload: string,
+): Uint8Array {
+	const encodedHeaders = Object.entries(headers).map(([name, value]) =>
+		encodeAwsEventStreamHeader(name, value),
+	);
+	const headersLength = encodedHeaders.reduce(
+		(total, header) => total + header.length,
+		0,
+	);
+	const payloadBytes = textEncoder.encode(payload);
+	const totalLength = 12 + headersLength + payloadBytes.length + 4;
+	const message = new Uint8Array(totalLength);
+	const view = new DataView(message.buffer);
+	view.setUint32(0, totalLength, false);
+	view.setUint32(4, headersLength, false);
+	view.setUint32(8, 0, false); // CRC ignored by parser in tests
+	let offset = 12;
+	for (const header of encodedHeaders) {
+		message.set(header, offset);
+		offset += header.length;
+	}
+	message.set(payloadBytes, offset);
+	view.setUint32(totalLength - 4, 0, false); // CRC ignored by parser in tests
+	return message;
+}
 
 // Helper to extract delay from message content (e.g., "TRIGGER_TIMEOUT_500" -> 500ms)
 function extractTimeoutDelay(content: string): number | null {
@@ -1654,6 +1698,20 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 		c.header("x-amzn-errortype", "ValidationException");
 		c.status(400);
 		return c.json({});
+	}
+
+	if (userMessage.includes("TRIGGER_BEDROCK_STREAM_503")) {
+		c.header("content-type", "application/vnd.amazon.eventstream");
+		return c.body(
+			encodeAwsEventStreamMessage(
+				{
+					":message-type": "exception",
+					":event-type": "serviceUnavailableException",
+					":content-type": "text/plain",
+				},
+				"The service is temporarily unavailable.",
+			),
+		);
 	}
 
 	c.header("content-type", "application/vnd.amazon.eventstream");

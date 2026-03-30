@@ -14,6 +14,7 @@
 interface EventStreamMessage {
 	headers: Record<string, string>;
 	payload: Uint8Array;
+	totalLength: number;
 }
 
 export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
@@ -93,7 +94,7 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 		const payloadEnd = offset + totalLength - 4; // Exclude message CRC
 		const payload = buffer.slice(payloadStart, payloadEnd);
 
-		messages.push({ headers, payload });
+		messages.push({ headers, payload, totalLength });
 
 		// Move to next message
 		offset += totalLength;
@@ -136,13 +137,19 @@ export function convertAwsEventStreamToSSE(buffer: Uint8Array): {
 	// Calculate total bytes consumed
 	let bytesConsumed = 0;
 	const sseEvents: string[] = [];
+	const decoder = new TextDecoder();
 
 	for (const msg of messages) {
+		bytesConsumed += msg.totalLength;
+
+		const payloadText = decoder.decode(msg.payload).trim();
+		const eventType =
+			msg.headers[":event-type"] ?? msg.headers[":exception-type"];
+
 		try {
-			const json = JSON.parse(new TextDecoder().decode(msg.payload));
+			const json = JSON.parse(payloadText);
 
 			// Add event type to the JSON payload for easier processing
-			const eventType = msg.headers[":event-type"];
 			const enrichedJson = {
 				...json,
 				__aws_event_type: eventType,
@@ -150,19 +157,17 @@ export function convertAwsEventStreamToSSE(buffer: Uint8Array): {
 
 			// Convert to SSE format: "data: {...}\n\n"
 			sseEvents.push(`data: ${JSON.stringify(enrichedJson)}\n\n`);
-
-			// Calculate message size (total length is in first 4 bytes of each message)
-			const messageStart = bytesConsumed;
-			if (messageStart + 4 <= buffer.length) {
-				const totalLength = new DataView(
-					buffer.buffer,
-					buffer.byteOffset + messageStart,
-					4,
-				).getUint32(0, false);
-				bytesConsumed += totalLength;
-			}
 		} catch {
-			// Skip invalid JSON
+			// Bedrock exception frames are still useful even when the payload is not JSON.
+			// Emit a synthetic SSE payload so the downstream error path can classify it.
+			sseEvents.push(
+				`data: ${JSON.stringify({
+					message: payloadText || undefined,
+					__aws_event_type: eventType,
+					__aws_message_type: msg.headers[":message-type"],
+					__aws_content_type: msg.headers[":content-type"],
+				})}\n\n`,
+			);
 		}
 	}
 
