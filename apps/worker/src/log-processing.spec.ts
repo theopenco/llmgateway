@@ -376,6 +376,68 @@ describe("Log Processing", () => {
 			expect(Number(updatedKey!.usage)).toBe(0.4);
 		});
 
+		test("should split delayed logs using event timestamps across windows", async () => {
+			await db
+				.update(apiKey)
+				.set({
+					periodUsageLimit: "10.00",
+					periodUsageDurationValue: 1,
+					periodUsageDurationUnit: "hour",
+					currentPeriodUsage: "4.00",
+					currentPeriodStartedAt: new Date("2026-03-29T10:00:00.000Z"),
+				})
+				.where(eq(apiKey.id, testApiKey.id));
+
+			await db.insert(log).values([
+				{
+					requestId: "test-request-period-before-reset",
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0.25,
+					cached: false,
+					usedMode: "credits",
+					duration: 2000,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 150,
+					mode: "credits",
+					createdAt: new Date("2026-03-29T10:30:00.000Z"),
+				},
+				{
+					requestId: "test-request-period-after-reset",
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0.4,
+					cached: false,
+					usedMode: "credits",
+					duration: 2000,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 150,
+					mode: "credits",
+					createdAt: new Date("2026-03-29T11:30:00.000Z"),
+				},
+			]);
+
+			await batchProcessLogs();
+
+			const updatedKey = await db.query.apiKey.findFirst({
+				where: { id: { eq: testApiKey.id } },
+			});
+
+			expect(Number(updatedKey!.usage)).toBe(0.65);
+			expect(Number(updatedKey!.currentPeriodUsage)).toBe(0.4);
+			expect(updatedKey!.currentPeriodStartedAt?.toISOString()).toBe(
+				"2026-03-29T11:30:00.000Z",
+			);
+		});
+
 		test("should not update costs for cached logs", async () => {
 			const initialCredits = Number(testOrg.credits);
 			const initialUsage = Number(testApiKey.usage);
