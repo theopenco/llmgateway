@@ -689,6 +689,10 @@ export function transformStreamingToOpenai(
 		case "openai": {
 			if (data.type) {
 				switch (data.type) {
+					case "keepalive":
+						transformedData = null;
+						break;
+
 					case "response.created":
 					case "response.in_progress":
 						transformedData = {

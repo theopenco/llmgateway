@@ -22,9 +22,18 @@ import { clearCache, waitForLogs, readAll } from "./test-utils/test-helpers.js";
 describe("fallback and error status code handling", () => {
 	let mockServerUrl: string;
 
-	async function resetTestState() {
+	async function resetTestState(options?: { resetRoutingMetrics?: boolean }) {
 		resetFailOnceCounter();
 		await clearCache();
+		if (options?.resetRoutingMetrics ?? false) {
+			await db.update(tables.modelProviderMapping).set({
+				routingUptime: null,
+				routingLatency: null,
+				routingThroughput: null,
+				routingTotalRequests: null,
+				statsUpdatedAt: null,
+			});
+		}
 
 		await Promise.all([
 			db.delete(tables.log),
@@ -56,7 +65,7 @@ describe("fallback and error status code handling", () => {
 	});
 
 	beforeEach(async () => {
-		await resetTestState();
+		await resetTestState({ resetRoutingMetrics: true });
 	});
 
 	beforeEach(async () => {

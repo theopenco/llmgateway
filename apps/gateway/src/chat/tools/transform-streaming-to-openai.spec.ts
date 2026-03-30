@@ -23,6 +23,22 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it("ignores OpenAI keepalive events without warning", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"openai",
+			"gpt-5-mini",
+			{
+				type: "keepalive",
+			},
+			[],
+		);
+
+		expect(result).toBeNull();
+		expect(warn).not.toHaveBeenCalled();
+	});
+
 	it.each(["response.content_part.done", "response.output_text.done"])(
 		"treats %s as a handled OpenAI Responses terminal event",
 		(eventType) => {
