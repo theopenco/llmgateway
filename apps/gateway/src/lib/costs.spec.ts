@@ -1,8 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { calculateCosts } from "./costs.js";
 
+const { mockGetEffectiveDiscount } = vi.hoisted(() => ({
+	mockGetEffectiveDiscount: vi.fn(),
+}));
+
+vi.mock("@llmgateway/db", () => ({
+	getEffectiveDiscount: mockGetEffectiveDiscount,
+}));
+
 describe("calculateCosts", () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(
+			async (_organizationId, _provider, _model, hardcodedDiscount = 0) => ({
+				discount: hardcodedDiscount,
+				source: hardcodedDiscount > 0 ? "hardcoded" : "none",
+			}),
+		);
+	});
+
 	it("should calculate costs with provided token counts", async () => {
 		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
 
@@ -133,33 +151,31 @@ describe("calculateCosts", () => {
 	});
 
 	it("should apply discount when model has discount field", async () => {
-		// For this test, let's create a mock model calculation that simulates discount behavior
-		// Since the environment variable approach doesn't work well in tests due to module loading order
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
+			discount: 0.1,
+			source: "global_provider",
+			discountId: "disc-global-openai",
+		});
 
-		// Test with gpt-4 openai which should have no discount
-		const resultWithoutDiscount = await calculateCosts(
+		const resultWithDiscount = await calculateCosts(
 			"gpt-4",
 			"openai",
 			100,
 			50,
 			null,
 		);
-		expect(resultWithoutDiscount.discount).toBeUndefined(); // No discount field when discount is 1
 
-		// Test that the discount field appears when a discount is applied (using the actual logic from costs.ts)
-		const testDiscount = 0.8; // 80% off
-		const discountMultiplier = 1 - testDiscount; // Pay 20% of original price
-		const inputPrice = 0.8 / 1e6; // Haiku input price
-		const outputPrice = 4.0 / 1e6; // Haiku output price
-
-		const expectedInputCost = 100 * inputPrice * discountMultiplier;
-		const expectedOutputCost = 50 * outputPrice * discountMultiplier;
-		const expectedTotalCost = expectedInputCost + expectedOutputCost;
-
-		// Verify our calculation logic is sound
-		expect(expectedInputCost).toBeCloseTo(0.000016); // 100 * 0.8e-6 * 0.2
-		expect(expectedOutputCost).toBeCloseTo(0.00004); // 50 * 4.0e-6 * 0.2
-		expect(expectedTotalCost).toBeCloseTo(0.000056);
+		expect(resultWithDiscount.discount).toBeCloseTo(0.1);
+		expect(resultWithDiscount.inputCost).toBeCloseTo(0.0009);
+		expect(resultWithDiscount.outputCost).toBeCloseTo(0.00135);
+		expect(resultWithDiscount.totalCost).toBeCloseTo(0.00225);
+		expect(mockGetEffectiveDiscount).toHaveBeenCalledWith(
+			null,
+			"openai",
+			"gpt-4",
+			0,
+			"gpt-4",
+		);
 	});
 
 	it("should not include discount field when no discount applied", async () => {
