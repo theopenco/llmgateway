@@ -1549,7 +1549,7 @@ describe("fallback and error status code handling", () => {
 			togetherProvider.contentFilter = true;
 			process.env.LLM_CONTENT_FILTER_MODE = "enabled";
 			process.env.LLM_CONTENT_FILTER_METHOD = "keywords";
-			process.env.LLM_CONTENT_FILTER_MODELS = "llama-3.1-8b-instruct";
+			process.env.LLM_CONTENT_FILTER_MODELS = "glm-4.7";
 			process.env.LLM_CONTENT_FILTER_KEYWORDS = "blocked";
 
 			try {
@@ -1560,7 +1560,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "llama-3.1-8b-instruct",
+						model: "glm-4.7",
 						messages: [{ role: "user", content: "this request is blocked" }],
 					}),
 				});
@@ -1639,7 +1639,7 @@ describe("fallback and error status code handling", () => {
 			togetherProvider.contentFilter = true;
 			process.env.LLM_CONTENT_FILTER_MODE = "monitor";
 			process.env.LLM_CONTENT_FILTER_METHOD = "keywords";
-			process.env.LLM_CONTENT_FILTER_MODELS = "llama-3.1-8b-instruct";
+			process.env.LLM_CONTENT_FILTER_MODELS = "glm-4.7";
 			process.env.LLM_CONTENT_FILTER_KEYWORDS = "blocked";
 
 			try {
@@ -1650,7 +1650,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "llama-3.1-8b-instruct",
+						model: "glm-4.7",
 						messages: [{ role: "user", content: "this request is blocked" }],
 					}),
 				});
