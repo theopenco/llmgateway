@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 import { logger } from "@llmgateway/logger";
 
 import { startWorker, stopWorker } from "./worker.js";
@@ -49,12 +51,22 @@ process.on("unhandledRejection", (reason) => {
 	void gracefulShutdown();
 });
 
-// Start the worker
-logger.info("Starting worker application...");
-startWorker().catch((error) => {
-	logger.error(
-		"Failed to start worker",
-		error instanceof Error ? error : new Error(String(error)),
-	);
-	process.exit(1);
-});
+function isDirectExecution() {
+	const entrypoint = process.argv[1];
+	if (!entrypoint) {
+		return false;
+	}
+
+	return fileURLToPath(import.meta.url) === entrypoint;
+}
+
+if (isDirectExecution()) {
+	logger.info("Starting worker application...");
+	startWorker().catch((error) => {
+		logger.error(
+			"Failed to start worker",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		process.exit(1);
+	});
+}

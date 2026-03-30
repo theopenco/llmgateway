@@ -1,8 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { calculateCosts } from "./costs.js";
 
+const { mockGetEffectiveDiscount } = vi.hoisted(() => ({
+	mockGetEffectiveDiscount: vi.fn(),
+}));
+
+vi.mock("@llmgateway/db", () => ({
+	getEffectiveDiscount: mockGetEffectiveDiscount,
+}));
+
 describe("calculateCosts", () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(
+			async (_organizationId, _provider, _model, hardcodedDiscount = 0) => ({
+				discount: hardcodedDiscount,
+				source: hardcodedDiscount > 0 ? "hardcoded" : "none",
+			}),
+		);
+	});
+
 	it("should calculate costs with provided token counts", async () => {
 		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
 
@@ -133,6 +151,11 @@ describe("calculateCosts", () => {
 	});
 
 	it("should apply discount when model has discount field", async () => {
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
+			discount: 0.1,
+			source: "global_provider",
+			discountId: "disc-global-openai",
+		});
 		const resultWithDiscount = await calculateCosts(
 			"gpt-4",
 			"openai",
@@ -141,11 +164,17 @@ describe("calculateCosts", () => {
 			null,
 		);
 
-		// Seeded test data includes a 10% global OpenAI discount.
 		expect(resultWithDiscount.discount).toBeCloseTo(0.1);
 		expect(resultWithDiscount.inputCost).toBeCloseTo(0.0009);
 		expect(resultWithDiscount.outputCost).toBeCloseTo(0.00135);
 		expect(resultWithDiscount.totalCost).toBeCloseTo(0.00225);
+		expect(mockGetEffectiveDiscount).toHaveBeenCalledWith(
+			null,
+			"openai",
+			"gpt-4",
+			0,
+			"gpt-4",
+		);
 	});
 
 	it("should not include discount field when no discount applied", async () => {

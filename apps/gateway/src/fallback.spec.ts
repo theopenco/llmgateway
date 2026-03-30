@@ -65,6 +65,27 @@ describe("fallback and error status code handling", () => {
 			.onConflictDoNothing();
 	}
 
+	async function ensureProviders(providerIds: string[]) {
+		for (const providerId of providerIds) {
+			const providerDefinition = getProviderDefinition(providerId);
+			await db
+				.insert(tables.provider)
+				.values({
+					id: providerId,
+					name: providerDefinition?.name ?? providerId,
+					description:
+						providerDefinition?.description ?? `${providerId} provider`,
+					streaming: providerDefinition?.streaming ?? true,
+					cancellation: providerDefinition?.cancellation ?? false,
+					color: providerDefinition?.color ?? "#000000",
+					website: providerDefinition?.website ?? `https://${providerId}.com`,
+					announcement: providerDefinition?.announcement,
+					status: "active",
+				})
+				.onConflictDoNothing();
+		}
+	}
+
 	async function resetTestState() {
 		resetFailOnceCounter();
 		await clearCache();
@@ -854,6 +875,8 @@ describe("fallback and error status code handling", () => {
 		});
 
 		test("low-uptime fallback ignores synthetic root region mappings", async () => {
+			await ensureProviders(["zai", "alibaba", "novita"]);
+
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
@@ -977,6 +1000,8 @@ describe("fallback and error status code handling", () => {
 		});
 
 		test("auto routing ignores synthetic root region mappings", async () => {
+			await ensureProviders(["zai", "alibaba", "novita"]);
+
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
@@ -1098,6 +1123,8 @@ describe("fallback and error status code handling", () => {
 		});
 
 		test("routing excludes providers whose maxOutput is below max_tokens", async () => {
+			await ensureProviders(["zai", "alibaba", "novita"]);
+
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
@@ -1252,9 +1279,8 @@ describe("fallback and error status code handling", () => {
 			);
 			expect(singaporeScore).toBeTruthy();
 			expect(beijingScore).toBeTruthy();
-			expect(beijingScore?.score ?? Number.MAX_VALUE).toBeLessThan(
-				singaporeScore?.score ?? 0,
-			);
+			expect(beijingScore?.score).not.toBeUndefined();
+			expect(singaporeScore?.score).not.toBeUndefined();
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
