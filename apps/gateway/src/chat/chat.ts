@@ -5320,6 +5320,7 @@ chat.openapi(completions, async (c) => {
 								// Extract finishReason from transformedData to update tracking variable
 								if (transformedData.choices?.[0]?.finish_reason) {
 									finishReason = transformedData.choices[0].finish_reason;
+									sawProviderTerminalEvent = true;
 									sentDownstreamFinishReasonChunk = true;
 								}
 
