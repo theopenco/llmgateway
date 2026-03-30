@@ -5,6 +5,11 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
+function getActivePeriodStartedAt() {
+	const oneHourInMs = 60 * 60 * 1000;
+	return new Date(Date.now() - oneHourInMs);
+}
+
 describe("keys route", () => {
 	let token: string;
 
@@ -221,7 +226,7 @@ describe("keys route", () => {
 				periodUsageDurationValue: 1,
 				periodUsageDurationUnit: "day",
 				currentPeriodUsage: "2.25",
-				currentPeriodStartedAt: new Date("2026-03-29T08:00:00.000Z"),
+				currentPeriodStartedAt: getActivePeriodStartedAt(),
 			})
 			.where(eq(tables.apiKey.id, "test-api-key-id"));
 
@@ -259,6 +264,57 @@ describe("keys route", () => {
 		expect(apiKey?.periodUsageDurationUnit).toBe("day");
 		expect(apiKey?.currentPeriodUsage).toBe("2.25");
 		expect(apiKey?.currentPeriodStartedAt).not.toBeNull();
+	});
+
+	test("PATCH /keys/api/limit/{id} preserves usage limit when omitted", async () => {
+		await db
+			.update(tables.apiKey)
+			.set({
+				usageLimit: "25",
+				periodUsageLimit: "5",
+				periodUsageDurationValue: 1,
+				periodUsageDurationUnit: "day",
+				currentPeriodUsage: "2.25",
+				currentPeriodStartedAt: getActivePeriodStartedAt(),
+			})
+			.where(eq(tables.apiKey.id, "test-api-key-id"));
+
+		const res = await app.request("/keys/api/limit/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				periodUsageLimit: "8",
+				periodUsageDurationValue: 1,
+				periodUsageDurationUnit: "week",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.apiKey.usageLimit).toBe("25");
+		expect(json.apiKey.periodUsageLimit).toBe("8");
+		expect(json.apiKey.periodUsageDurationValue).toBe(1);
+		expect(json.apiKey.periodUsageDurationUnit).toBe("week");
+		expect(json.apiKey.currentPeriodUsage).toBe("0");
+		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
+
+		const apiKey = await db.query.apiKey.findFirst({
+			where: {
+				id: {
+					eq: "test-api-key-id",
+				},
+			},
+		});
+
+		expect(apiKey?.usageLimit).toBe("25");
+		expect(apiKey?.periodUsageLimit).toBe("8");
+		expect(apiKey?.periodUsageDurationValue).toBe(1);
+		expect(apiKey?.periodUsageDurationUnit).toBe("week");
+		expect(apiKey?.currentPeriodUsage).toBe("0");
+		expect(apiKey?.currentPeriodStartedAt).toBeNull();
 	});
 
 	test("PATCH /keys/api/limit/{id} rejects incomplete period limits", async () => {
