@@ -4438,6 +4438,7 @@ chat.openapi(completions, async (c) => {
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
+				let sawOpenAiResponsesCompletedStatus = false;
 				let sentDownstreamFinishReasonChunk = false;
 				let handledTerminalProviderEvent = false;
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
@@ -4950,6 +4951,17 @@ chat.openapi(completions, async (c) => {
 									usedProvider === "aws-bedrock"
 										? extractAwsBedrockStreamError(data)
 										: null;
+								if (
+									data &&
+									typeof data === "object" &&
+									"response" in data &&
+									data.response &&
+									typeof data.response === "object" &&
+									"status" in data.response &&
+									data.response.status === "completed"
+								) {
+									sawOpenAiResponsesCompletedStatus = true;
+								}
 								if (
 									data &&
 									typeof data === "object" &&
@@ -5768,7 +5780,8 @@ chat.openapi(completions, async (c) => {
 						!streamingError &&
 						!canceled &&
 						finishReason === null &&
-						sawOpenAiResponsesDoneEvent
+						sawOpenAiResponsesDoneEvent &&
+						sawOpenAiResponsesCompletedStatus
 					) {
 						sawProviderTerminalEvent = true;
 						finishReason =

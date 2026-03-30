@@ -581,6 +581,9 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
+	const shouldEndAfterIntermediateDoneEvent = userMessage.includes(
+		"TRIGGER_RESPONSES_DONE_BEFORE_COMPLETED",
+	);
 	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
 
 	if (body.stream === true) {
@@ -668,7 +671,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				id: String(eventId++),
 			});
 
-			if (shouldEndAfterDoneEvent) {
+			if (shouldEndAfterDoneEvent || shouldEndAfterIntermediateDoneEvent) {
 				return;
 			}
 
