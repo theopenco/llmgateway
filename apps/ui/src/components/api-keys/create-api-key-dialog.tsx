@@ -145,9 +145,16 @@ export function CreateApiKeyDialog({
 				disabled
 					? undefined
 					: (nextOpen) => {
-							if (!createApiKeyMutation.isPending) {
-								setOpen(nextOpen);
+							if (createApiKeyMutation.isPending) {
+								return;
 							}
+
+							if (!nextOpen) {
+								handleClose();
+								return;
+							}
+
+							setOpen(true);
 						}
 			}
 		>
