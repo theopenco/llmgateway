@@ -583,6 +583,44 @@ describe("fallback and error status code handling", () => {
 				"The provided model identifier is invalid for this account.",
 			);
 		});
+
+		test("streaming aws-bedrock success closes cleanly", async () => {
+			await setupKeys("aws-bedrock");
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "aws-bedrock/claude-opus-4-6",
+					messages: [{ role: "user", content: "Reply with exactly: hi" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.errorEvents).toHaveLength(0);
+			expect(streamResult.hasUsage).toBe(true);
+			expect(
+				streamResult.chunks.some(
+					(chunk) => chunk.choices?.[0]?.finish_reason === "stop",
+				),
+			).toBe(true);
+
+			const logs = await waitForLogs(1);
+			const log = logs[0];
+			expect(log.finishReason).toBe("stop");
+			expect(log.unifiedFinishReason).toBe("completed");
+			expect(log.hasError).toBe(false);
+			expect(log.streamed).toBe(true);
+			expect(log.usedProvider).toBe("aws-bedrock");
+		});
 	});
 
 	describe("deactivated provider fallback with metadata", () => {

@@ -171,6 +171,60 @@ function getResponsesApiUserMessage(input: unknown): string {
 		.join(" ");
 }
 
+function buildAwsEventStreamMessage(
+	eventType: string,
+	payload: Record<string, unknown>,
+): Uint8Array {
+	const encoder = new TextEncoder();
+	const headerName = encoder.encode(":event-type");
+	const headerValue = encoder.encode(eventType);
+	const payloadBytes = encoder.encode(JSON.stringify(payload));
+	const headersLength = 1 + headerName.length + 1 + 2 + headerValue.length;
+	const totalLength = 12 + headersLength + payloadBytes.length + 4;
+	const message = new Uint8Array(totalLength);
+	const view = new DataView(message.buffer);
+
+	view.setUint32(0, totalLength, false);
+	view.setUint32(4, headersLength, false);
+	view.setUint32(8, 0, false);
+
+	let offset = 12;
+	message[offset] = headerName.length;
+	offset += 1;
+	message.set(headerName, offset);
+	offset += headerName.length;
+	message[offset] = 7;
+	offset += 1;
+	view.setUint16(offset, headerValue.length, false);
+	offset += 2;
+	message.set(headerValue, offset);
+	offset += headerValue.length;
+	message.set(payloadBytes, offset);
+
+	return message;
+}
+
+function buildAwsEventStream(
+	events: Array<{ eventType: string; payload: Record<string, unknown> }>,
+): Uint8Array {
+	const messages = events.map(({ eventType, payload }) =>
+		buildAwsEventStreamMessage(eventType, payload),
+	);
+	const totalLength = messages.reduce(
+		(sum, message) => sum + message.length,
+		0,
+	);
+	const combined = new Uint8Array(totalLength);
+	let offset = 0;
+
+	for (const message of messages) {
+		combined.set(message, offset);
+		offset += message.length;
+	}
+
+	return combined;
+}
+
 function extractApplicationCodeTrigger(
 	content: string,
 ): { code: number; response: object } | null {
@@ -1809,7 +1863,41 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 	}
 
 	c.header("content-type", "application/vnd.amazon.eventstream");
-	return c.body("");
+	return c.body(
+		buildAwsEventStream([
+			{
+				eventType: "messageStart",
+				payload: {
+					role: "assistant",
+				},
+			},
+			{
+				eventType: "contentBlockDelta",
+				payload: {
+					contentBlockIndex: 0,
+					delta: {
+						text: `Bedrock mock response: ${userMessage}`,
+					},
+				},
+			},
+			{
+				eventType: "messageStop",
+				payload: {
+					stopReason: "end_turn",
+				},
+			},
+			{
+				eventType: "metadata",
+				payload: {
+					usage: {
+						inputTokens: 10,
+						outputTokens: 20,
+						totalTokens: 30,
+					},
+				},
+			},
+		]),
+	);
 });
 
 let server: any = null;
