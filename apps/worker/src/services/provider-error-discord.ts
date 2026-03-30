@@ -17,7 +17,7 @@ export interface ProviderErrorNotificationLog {
 	requestedModel: string;
 	requestedProvider: string | null;
 	traceId: string | null;
-	unifiedFinishReason: string;
+	unifiedFinishReason: string | null;
 	usedModel: string;
 	usedModelMapping: string | null;
 	usedProvider: string;
@@ -65,10 +65,12 @@ function formatErrorDescription(errorDetails: ErrorDetails | null): string {
 function buildDiscordEmbed(log: ProviderErrorNotificationLog): {
 	embeds: DiscordEmbed[];
 } {
+	const errorType = log.unifiedFinishReason?.replaceAll("_", " ") ?? "error";
+
 	return {
 		embeds: [
 			{
-				title: `Provider ${log.unifiedFinishReason.replaceAll("_", " ")}`,
+				title: `Provider ${errorType}`,
 				description: formatErrorDescription(log.errorDetails),
 				color: 0xef4444,
 				fields: [

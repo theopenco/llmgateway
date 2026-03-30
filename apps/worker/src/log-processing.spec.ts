@@ -702,5 +702,52 @@ describe("Log Processing", () => {
 
 			expect(fetchMock).not.toHaveBeenCalled();
 		});
+
+		test("should report provider errors without a finish reason", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(new Response(null, { status: 204 }));
+			vi.stubGlobal("fetch", fetchMock);
+			process.env.PROVIDER_ERROR_DISCORD_URL =
+				"https://discord.example/provider-errors";
+
+			await db.insert(log).values({
+				requestId: "test-request-missing-finish-reason",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0,
+				cached: false,
+				usedMode: "credits",
+				duration: 1200,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+				hasError: true,
+				errorDetails: {
+					statusCode: 502,
+					statusText: "Bad Gateway",
+					responseText: "upstream unavailable",
+				},
+				unifiedFinishReason: null,
+			});
+
+			await batchProcessLogs();
+
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+
+			const payload = JSON.parse(
+				String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
+			) as {
+				embeds?: Array<{
+					title?: string;
+				}>;
+			};
+
+			expect(payload.embeds?.[0]?.title).toBe("Provider error");
+		});
 	});
 });
