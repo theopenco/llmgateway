@@ -43,7 +43,7 @@ const modelSchema = z.object({
 					per_second: z.record(z.string()).optional(),
 				})
 				.optional(),
-			streaming: z.boolean(),
+			streaming: z.union([z.boolean(), z.literal("only")]),
 			vision: z.boolean(),
 			cancellation: z.boolean(),
 			tools: z.boolean(),

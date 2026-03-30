@@ -102,6 +102,16 @@ export interface ProviderRegion {
 	 * When absent, falls back to the mapping-level maxOutput.
 	 */
 	maxOutput?: number;
+	/**
+	 * Streaming support override for this region.
+	 * When absent, falls back to the mapping-level streaming.
+	 */
+	streaming?: boolean | "only";
+	/**
+	 * Test skip/only for this specific region.
+	 * When absent, falls back to the mapping-level test.
+	 */
+	test?: "skip" | "only";
 }
 
 export interface ProviderModelMapping {
@@ -176,9 +186,14 @@ export interface ProviderModelMapping {
 	 */
 	maxOutput?: number;
 	/**
-	 * Whether this specific model supports streaming for this provider
+	 * Whether this specific model supports streaming for this provider.
+	 * - true: supports both streaming and non-streaming
+	 * - false: does not support streaming
+	 * - "only": only supports streaming (non-streaming requests are auto-converted).
+	 *   Some providers enforce stream-only for certain models (e.g. Alibaba QwQ series).
+	 *   Ref: https://www.alibabacloud.com/help/en/model-studio/stream
 	 */
-	streaming: boolean;
+	streaming: boolean | "only";
 	/**
 	 * Whether this specific model supports vision (image inputs) for this provider
 	 */

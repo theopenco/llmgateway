@@ -787,15 +787,26 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// Resolve tool_choice: fall back to "auto" when the provider mapping
+	// explicitly lists supportedParameters but omits "tool_choice".
+	let resolvedToolChoice = tool_choice;
 	if (tool_choice) {
-		requestBody.tool_choice = tool_choice;
+		const mapping = modelDef?.providers.find(
+			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+		) as ProviderModelMapping | undefined;
+		const supported = mapping?.supportedParameters;
+		const supportsToolChoice =
+			!supported || supported.length === 0 || supported.includes("tool_choice");
+		resolvedToolChoice = supportsToolChoice ? tool_choice : "auto";
+		requestBody.tool_choice = resolvedToolChoice;
 	}
 
 	const forcesToolUse =
 		tools &&
 		tools.filter(isFunctionTool).length > 0 &&
-		(tool_choice === "required" ||
-			(typeof tool_choice === "object" && tool_choice.type === "function"));
+		(resolvedToolChoice === "required" ||
+			(typeof resolvedToolChoice === "object" &&
+				resolvedToolChoice.type === "function"));
 
 	if (forcesToolUse && usedProvider === "alibaba") {
 		const providerMapping = modelDef?.providers.find(
@@ -899,8 +910,8 @@ export async function prepareRequestBody(
 					}
 					responsesBody.tools.push(webSearch);
 				}
-				if (tool_choice) {
-					responsesBody.tool_choice = tool_choice;
+				if (resolvedToolChoice) {
+					responsesBody.tool_choice = resolvedToolChoice;
 				}
 
 				// Add optional parameters if they are provided

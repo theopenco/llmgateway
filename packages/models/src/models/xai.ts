@@ -545,6 +545,11 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4.20-multi-agent-beta-0309",
+				// xAI multi-agent models do not work with the Chat Completions API.
+				// They require the Responses API (/v1/responses) with orchestrated sub-agents.
+				// Deactivated until the gateway adds xAI Responses API routing support.
+				// Ref: https://docs.x.ai/developers/model-capabilities/text/multi-agent
+				deactivatedAt: new Date("2026-03-27"),
 				inputPrice: 2.0 / 1e6,
 				outputPrice: 6.0 / 1e6,
 				pricingTiers: [

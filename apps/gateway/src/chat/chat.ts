@@ -3234,13 +3234,20 @@ chat.openapi(completions, async (c) => {
 	// Check if streaming is requested and if the model/provider combination supports it
 	// For image generation models, we'll fake streaming by converting the response
 	const fakeStreamingForImageGen = stream && isImageGeneration;
-	const effectiveStream = fakeStreamingForImageGen ? false : stream;
+	const streamingSupport = getModelStreamingSupport(
+		baseModelName,
+		usedProvider,
+		usedRegion,
+	);
+	// When the provider only supports streaming, force it even if the client didn't request it.
+	// The upstream request uses effectiveStream; the client response uses stream.
+	const forceStream = streamingSupport === "only" && !stream;
+	const effectiveStream = fakeStreamingForImageGen
+		? false
+		: stream || forceStream;
 
 	if (stream) {
-		if (
-			!isImageGeneration &&
-			getModelStreamingSupport(baseModelName, usedProvider) === false
-		) {
+		if (!isImageGeneration && streamingSupport === false) {
 			throw new HTTPException(400, {
 				message: `Model ${usedModel} with provider ${usedProvider} does not support streaming`,
 			});
@@ -3456,7 +3463,9 @@ chat.openapi(completions, async (c) => {
 
 	// Handle streaming response if requested
 	// For image generation models, we skip real streaming and use fake streaming later
-	if (effectiveStream) {
+	// For stream-only models where the client didn't request streaming, use the non-streaming path
+	// (effectiveStream forces streaming upstream, but the client gets a regular JSON response)
+	if (effectiveStream && !forceStream) {
 		return streamSSE(
 			c,
 			async (stream) => {
@@ -5933,10 +5942,18 @@ chat.openapi(completions, async (c) => {
 						sawUpstreamDoneSentinel ||
 						sawProviderTerminalEvent ||
 						handledTerminalProviderEvent;
+					// A terminal finish reason (stop, tool_calls, length) also counts
+					// as a valid stream completion — some providers (e.g. MiniMax)
+					// send finish_reason but omit the [DONE] sentinel.
+					const hasTerminalFinishReason =
+						finishReason !== null &&
+						finishReason !== "upstream_error" &&
+						finishReason !== "gateway_error";
 					const streamEndedWithoutTerminalEvent =
 						!streamingError &&
 						!canceled &&
-						(!streamHasVerifiedTerminalEvent || finishReason === null);
+						!streamHasVerifiedTerminalEvent &&
+						!hasTerminalFinishReason;
 					if (streamEndedWithoutTerminalEvent) {
 						const hasBufferedNonWhitespace = /\S/u.test(buffer);
 						const responseText = hasBufferedNonWhitespace
@@ -7539,7 +7556,92 @@ chat.openapi(completions, async (c) => {
 
 	let json: any;
 	try {
-		json = await res.json();
+		if (forceStream && res.body) {
+			// Stream-only model: upstream returned SSE but client expects JSON.
+			// Read the full stream and assemble a non-streaming response.
+			const text = await res.text();
+			const lines = text.split("\n");
+			let content = "";
+			const toolCalls: any[] = [];
+			let finishReason: string | null = null;
+			let usage: any = null;
+			let responseId = "";
+			let model = "";
+			let created = 0;
+
+			for (const line of lines) {
+				if (!line.startsWith("data: ") || line === "data: [DONE]") {
+					continue;
+				}
+				try {
+					const chunk = JSON.parse(line.slice(6));
+					if (!responseId && chunk.id) {
+						responseId = chunk.id;
+					}
+					if (!model && chunk.model) {
+						model = chunk.model;
+					}
+					if (!created && chunk.created) {
+						created = chunk.created;
+					}
+					const delta = chunk.choices?.[0]?.delta;
+					if (delta?.content) {
+						content += delta.content;
+					}
+					if (delta?.tool_calls) {
+						for (const tc of delta.tool_calls) {
+							const idx = tc.index ?? 0;
+							if (!toolCalls[idx]) {
+								toolCalls[idx] = {
+									id: tc.id ?? "",
+									type: tc.type ?? "function",
+									function: { name: tc.function?.name ?? "", arguments: "" },
+								};
+							} else {
+								if (tc.id) {
+									toolCalls[idx].id = tc.id;
+								}
+								if (tc.function?.name) {
+									toolCalls[idx].function.name = tc.function.name;
+								}
+							}
+							if (tc.function?.arguments) {
+								toolCalls[idx].function.arguments += tc.function.arguments;
+							}
+						}
+					}
+					if (chunk.choices?.[0]?.finish_reason) {
+						finishReason = chunk.choices[0].finish_reason;
+					}
+					if (chunk.usage) {
+						usage = chunk.usage;
+					}
+				} catch {
+					// skip unparseable lines
+				}
+			}
+
+			json = {
+				id: responseId,
+				object: "chat.completion",
+				created,
+				model,
+				choices: [
+					{
+						index: 0,
+						message: {
+							role: "assistant",
+							content: content || null,
+							...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+						},
+						finish_reason: finishReason ?? "stop",
+					},
+				],
+				...(usage ? { usage } : {}),
+			};
+		} else {
+			json = await res.json();
+		}
 	} catch (bodyError) {
 		if (isTimeoutError(bodyError)) {
 			const errorMessage =

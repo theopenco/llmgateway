@@ -52,6 +52,8 @@ export const metaModels = [
 			{
 				providerId: "together.ai",
 				modelName: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+				// Retired from Together.ai serverless API
+				deactivatedAt: new Date("2026-03-27"),
 				inputPrice: 0.06 / 1e6,
 				outputPrice: 0.06 / 1e6,
 				requestPrice: 0,
@@ -176,6 +178,8 @@ export const metaModels = [
 			{
 				providerId: "groq",
 				modelName: "meta-llama/llama-guard-4-12b",
+				// Decommissioned by Groq
+				deactivatedAt: new Date("2026-03-29"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.2 / 1e6,
 				requestPrice: 0,
@@ -207,6 +211,18 @@ export const metaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				// Cerebras: FP16

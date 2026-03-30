@@ -490,6 +490,18 @@ export const alibabaModels = [
 				tools: true,
 				stability: "unstable",
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				providerId: "novita",
@@ -504,6 +516,18 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 		],
 	},
@@ -775,6 +799,18 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				providerId: "novita",
@@ -860,6 +896,18 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 		],
 	},
@@ -883,6 +931,18 @@ export const alibabaModels = [
 				tools: true,
 				reasoning: true,
 				jsonOutput: true,
+				// Nebius does not reliably support tool_choice
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 		],
 	},
@@ -955,6 +1015,18 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				providerId: "novita",
@@ -969,6 +1041,18 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 		],
 	},
@@ -1091,7 +1175,9 @@ export const alibabaModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// Embercloud leaks reasoning tags into JSON output, breaking json_object mode
+				jsonOutput: false,
+				// Embercloud bug: tool_choice other than "auto" breaks streaming tool calls for this model
 				supportedParameters: [
 					"messages",
 					"model",
@@ -1105,7 +1191,6 @@ export const alibabaModels = [
 					"stop",
 					"response_format",
 					"tools",
-					"tool_choice",
 					"parallel_tool_calls",
 				],
 			},
@@ -1280,6 +1365,18 @@ export const alibabaModels = [
 				webSearch: true,
 				webSearchPrice: 0.01,
 				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				providerId: "novita",
@@ -1294,6 +1391,18 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 		],
 	},
@@ -1423,6 +1532,11 @@ export const alibabaModels = [
 						id: "cn-beijing",
 						inputPrice: 0.23 / 1e6,
 						outputPrice: 0.574 / 1e6,
+						// QwQ models are officially stream-only per Alibaba docs:
+						// "Some models only support streaming calls: [...] the commercial
+						// and open-source versions of QwQ"
+						// Ref: https://www.alibabacloud.com/help/en/model-studio/stream
+						streaming: "only",
 					},
 				],
 				requestPrice: 0,

@@ -33,6 +33,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId1,
+					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -96,6 +97,9 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			const toolCalls = initialJson.choices[0].message.tool_calls;
 			const assistantMessage = initialJson.choices[0].message;
 
+			// Small delay between requests to reduce rate limit pressure in CI
+			await new Promise((resolve) => setTimeout(resolve, 500));
+
 			// STEP 2: Send tool results back
 			const requestId2 = generateTestRequestId();
 			const followupRes = await app.request("/v1/chat/completions", {
@@ -103,6 +107,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId2,
+					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({

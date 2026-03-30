@@ -154,7 +154,8 @@ export const minimaxModels = [
 				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// Embercloud leaks <think> tags into JSON output, breaking json_object mode
+				jsonOutput: false,
 				supportedParameters: [
 					"messages",
 					"model",

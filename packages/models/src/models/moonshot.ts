@@ -11,6 +11,9 @@ export const moonshotModels = [
 			{
 				providerId: "groq",
 				modelName: "moonshotai/kimi-k2-instruct",
+				// Frequently over capacity on Groq (503)
+				// Ref: https://groqstatus.com
+				stability: "unstable",
 				inputPrice: 1.0 / 1e6,
 				cachedInputPrice: 0.5 / 1e6,
 				outputPrice: 3.0 / 1e6,
@@ -25,6 +28,8 @@ export const moonshotModels = [
 			{
 				providerId: "novita",
 				modelName: "moonshotai/kimi-k2-instruct",
+				// Streaming tool calls produce malformed JSON arguments
+				stability: "unstable",
 				inputPrice: 0.57 / 1e6,
 				outputPrice: 2.3 / 1e6,
 				requestPrice: 0,
@@ -189,6 +194,8 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				modelName: "kimi-k2-thinking-turbo",
+				// Frequently overloaded (429 engine_overloaded_error)
+				stability: "unstable",
 				inputPrice: 1.15 / 1e6,
 				outputPrice: 8.0 / 1e6,
 				cachedInputPrice: 0.15 / 1e6,
@@ -252,6 +259,10 @@ export const moonshotModels = [
 			{
 				providerId: "together.ai",
 				modelName: "moonshotai/Kimi-K2.5",
+				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
+				// Ref: https://status.together.ai
+				// Model page: https://www.together.ai/models/kimi-k2-5
+				stability: "unstable",
 				inputPrice: 0.5 / 1e6,
 				outputPrice: 2.8 / 1e6,
 				requestPrice: 0,

@@ -70,6 +70,8 @@ jobs:
           LLM_Z_AI_API_KEY: ${{ secrets.Z_AI_API_KEY }}
           LLM_NANO_GPT_API_KEY: ${{ secrets.NANO_GPT_API_KEY }}
           LLM_AWS_BEDROCK_API_KEY: ${{ secrets.AWS_BEDROCK_API_KEY }}
+          LLM_AWS_BEDROCK_BASE_URL: ${{ secrets.AWS_BEDROCK_BASE_URL }}
+          LLM_AWS_BEDROCK_REGION: ${{ secrets.AWS_BEDROCK_REGION }}
           LLM_AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           LLM_AZURE_RESOURCE: ${{ secrets.AZURE_RESOURCE }}
           LLM_CANOPY_WAVE_API_KEY: ${{ secrets.CANOPY_WAVE_API_KEY }}
