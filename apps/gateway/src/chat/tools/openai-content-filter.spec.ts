@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { logger } from "@llmgateway/logger";
+
 import {
 	buildOpenAIContentFilterImageInputs,
 	buildOpenAIContentFilterTextInput,
@@ -547,5 +549,104 @@ describe("checkOpenAIContentFilter", () => {
 
 		expect(result.flagged).toBe(false);
 		expect(result.upstreamRequestId).toBe("req-invalid-env-threshold");
+	});
+
+	it("logs nested fetch causes as structured moderation errors", async () => {
+		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+		const loggerErrorSpy = vi
+			.spyOn(logger, "error")
+			.mockImplementation(() => {});
+
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(
+			new TypeError("fetch failed", {
+				cause: Object.assign(new Error("connect ETIMEDOUT 10.0.0.1:443"), {
+					code: "ETIMEDOUT",
+				}),
+			}),
+		);
+
+		const result = await checkOpenAIContentFilter(
+			[
+				{
+					role: "user",
+					content: "hello",
+				},
+			],
+			{
+				requestId: "request-id",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "api-key-id",
+			},
+		);
+
+		expect(result).toEqual({
+			flagged: false,
+			model: "omni-moderation-latest",
+			upstreamRequestId: null,
+			results: [],
+			responses: [],
+		});
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			"gateway_content_filter_error",
+			expect.objectContaining({
+				mode: "openai",
+				requestId: "request-id",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "api-key-id",
+				inputType: "text",
+				timeout: false,
+				error: "fetch failed",
+				errorName: "TypeError",
+				errorCause: "Error: connect ETIMEDOUT 10.0.0.1:443 (code: ETIMEDOUT)",
+				errorCode: "ETIMEDOUT",
+			}),
+			expect.any(TypeError),
+		);
+	});
+
+	it("logs missing moderation credentials through the shared logger", async () => {
+		delete process.env.LLM_OPENAI_API_KEY;
+		const loggerErrorSpy = vi
+			.spyOn(logger, "error")
+			.mockImplementation(() => {});
+
+		const result = await checkOpenAIContentFilter(
+			[
+				{
+					role: "user",
+					content: "hello",
+				},
+			],
+			{
+				requestId: "request-id",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "api-key-id",
+			},
+		);
+
+		expect(result).toEqual({
+			flagged: false,
+			model: "omni-moderation-latest",
+			upstreamRequestId: null,
+			results: [],
+			responses: [],
+		});
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			"gateway_content_filter_error",
+			expect.objectContaining({
+				mode: "openai",
+				requestId: "request-id",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "api-key-id",
+				timeout: false,
+				error: expect.stringContaining("openai"),
+				errorName: "Error",
+			}),
+			expect.any(Error),
+		);
 	});
 });
