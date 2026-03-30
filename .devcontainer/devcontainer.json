@@ -1,13 +1,18 @@
 {
 	"name": "llmgateway",
 	"build": {
-		"dockerfile": "Dockerfile"
+		"dockerfile": "Dockerfile",
+		"context": ".."
 	},
-	"features": {
-		"ghcr.io/devcontainers/features/docker-in-docker:2": {}
-	},
+	"runArgs": ["--privileged"],
+	"overrideCommand": false,
 	"remoteUser": "node",
+	"containerUser": "node",
 	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"remoteEnv": {
+		"DOCKER_BUILDKIT": "1",
+		"COMPOSE_DOCKER_CLI_BUILD": "1"
+	},
 	"postCreateCommand": "pnpm install",
 	"customizations": {
 		"vscode": {
