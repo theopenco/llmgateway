@@ -1862,41 +1862,47 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 		return c.json({});
 	}
 
-	c.header("content-type", "application/vnd.amazon.eventstream");
-	return c.body(
-		buildAwsEventStream([
-			{
-				eventType: "messageStart",
-				payload: {
-					role: "assistant",
-				},
-			},
-			{
-				eventType: "contentBlockDelta",
-				payload: {
-					contentBlockIndex: 0,
-					delta: {
-						text: `Bedrock mock response: ${userMessage}`,
+	return new Response(
+		Buffer.from(
+			buildAwsEventStream([
+				{
+					eventType: "messageStart",
+					payload: {
+						role: "assistant",
 					},
 				},
-			},
-			{
-				eventType: "messageStop",
-				payload: {
-					stopReason: "end_turn",
-				},
-			},
-			{
-				eventType: "metadata",
-				payload: {
-					usage: {
-						inputTokens: 10,
-						outputTokens: 20,
-						totalTokens: 30,
+				{
+					eventType: "contentBlockDelta",
+					payload: {
+						contentBlockIndex: 0,
+						delta: {
+							text: `Bedrock mock response: ${userMessage}`,
+						},
 					},
 				},
+				{
+					eventType: "messageStop",
+					payload: {
+						stopReason: "end_turn",
+					},
+				},
+				{
+					eventType: "metadata",
+					payload: {
+						usage: {
+							inputTokens: 10,
+							outputTokens: 20,
+							totalTokens: 30,
+						},
+					},
+				},
+			]),
+		),
+		{
+			headers: {
+				"content-type": "application/vnd.amazon.eventstream",
 			},
-		]),
+		},
 	);
 });
 
