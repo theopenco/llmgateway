@@ -804,8 +804,9 @@ export async function prepareRequestBody(
 	const forcesToolUse =
 		tools &&
 		tools.filter(isFunctionTool).length > 0 &&
-		(tool_choice === "required" ||
-			(typeof tool_choice === "object" && tool_choice.type === "function"));
+		(resolvedToolChoice === "required" ||
+			(typeof resolvedToolChoice === "object" &&
+				resolvedToolChoice.type === "function"));
 
 	if (forcesToolUse && usedProvider === "alibaba") {
 		const providerMapping = modelDef?.providers.find(
