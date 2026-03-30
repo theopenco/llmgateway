@@ -1,12 +1,12 @@
+# syntax=docker/dockerfile:1
 FROM docker:28-dind
 
-ARG NODE_VERSION=24.13.0
-ARG PNPM_VERSION=10.28.1
 ARG USERNAME=node
 ARG USER_UID=1000
 ARG USER_GID=${USER_UID}
 
-RUN apk add --no-cache \
+RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions,readonly \
+	apk add --no-cache \
 		bash \
 		binutils \
 		curl \
@@ -22,6 +22,10 @@ RUN apk add --no-cache \
 		g++ \
 		libc6-compat \
 		xz \
+	&& NODE_VERSION="$(awk '$1 == "nodejs" { print $2 }' /tmp/.tool-versions)" \
+	&& PNPM_VERSION="$(awk '$1 == "pnpm" { print $2 }' /tmp/.tool-versions)" \
+	&& test -n "${NODE_VERSION}" \
+	&& test -n "${PNPM_VERSION}" \
 	&& ARCH="$(apk --print-arch)" \
 	&& case "${ARCH}" in \
 		x86_64) NODE_ARCH='x64' ;; \
@@ -41,9 +45,7 @@ RUN apk add --no-cache \
 	&& ln -sf /usr/local/lib/nodejs/bin/npm /usr/bin/npm \
 	&& ln -sf /usr/local/lib/nodejs/bin/npx /usr/bin/npx \
 	&& rm -f /tmp/node.tar.xz /tmp/SHASUMS256.txt \
-	&& npm install -g corepack@latest \
-	&& corepack enable \
-	&& corepack prepare pnpm@${PNPM_VERSION} --activate \
+	&& npm install -g pnpm@${PNPM_VERSION} \
 	&& addgroup -g ${USER_GID} ${USERNAME} \
 	&& adduser -D -u ${USER_UID} -G ${USERNAME} -s /bin/bash ${USERNAME} \
 	&& addgroup ${USERNAME} docker \
@@ -54,7 +56,6 @@ RUN apk add --no-cache \
 
 ENV PNPM_HOME=/home/${USERNAME}/.local/share/pnpm
 ENV PATH=/usr/local/lib/nodejs/bin:${PNPM_HOME}:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ENV NODE_VERSION=${NODE_VERSION}
 
 WORKDIR /workspaces
 
