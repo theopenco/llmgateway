@@ -254,6 +254,10 @@ export const moonshotModels = [
 			{
 				providerId: "together.ai",
 				modelName: "moonshotai/Kimi-K2.5",
+				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
+				// Ref: https://status.together.ai
+				// Model page: https://www.together.ai/models/kimi-k2-5
+				stability: "unstable",
 				inputPrice: 0.5 / 1e6,
 				outputPrice: 2.8 / 1e6,
 				requestPrice: 0,
