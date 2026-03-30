@@ -53,7 +53,7 @@ RUN apk add --no-cache \
 	&& chown -R ${USERNAME}:${USERNAME} /home/${USERNAME} /workspaces
 
 ENV PNPM_HOME=/home/${USERNAME}/.local/share/pnpm
-ENV PATH=${PNPM_HOME}:/usr/local/lib/nodejs/bin:/usr/local/bin:$PATH
+ENV PATH=/usr/local/lib/nodejs/bin:${PNPM_HOME}:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV NODE_VERSION=${NODE_VERSION}
 
 WORKDIR /workspaces

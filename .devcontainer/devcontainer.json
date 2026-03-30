@@ -9,6 +9,9 @@
 	"remoteUser": "node",
 	"containerUser": "node",
 	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"containerEnv": {
+		"PATH": "/usr/local/lib/nodejs/bin:/home/node/.local/share/pnpm:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	},
 	"remoteEnv": {
 		"DOCKER_BUILDKIT": "1",
 		"COMPOSE_DOCKER_CLI_BUILD": "1"
