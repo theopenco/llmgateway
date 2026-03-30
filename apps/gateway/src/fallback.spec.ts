@@ -23,9 +23,58 @@ import { clearCache, waitForLogs, readAll } from "./test-utils/test-helpers.js";
 describe("fallback and error status code handling", () => {
 	let mockServerUrl: string;
 
+	async function ensureBaseFixtures() {
+		await db
+			.insert(tables.user)
+			.values({
+				id: "user-id",
+				name: "user",
+				email: "user",
+			})
+			.onConflictDoNothing();
+
+		await db
+			.insert(tables.organization)
+			.values({
+				id: "org-id",
+				name: "Test Organization",
+				billingEmail: "user",
+				plan: "pro",
+				retentionLevel: "retain",
+				credits: "100.00",
+			})
+			.onConflictDoNothing();
+
+		await db
+			.insert(tables.userOrganization)
+			.values({
+				id: "user-org-id",
+				userId: "user-id",
+				organizationId: "org-id",
+			})
+			.onConflictDoNothing();
+
+		await db
+			.insert(tables.project)
+			.values({
+				id: "project-id",
+				name: "Test Project",
+				organizationId: "org-id",
+				mode: "api-keys",
+			})
+			.onConflictDoNothing();
+	}
+
 	async function resetTestState() {
 		resetFailOnceCounter();
 		await clearCache();
+
+		await db.update(tables.modelProviderMapping).set({
+			routingUptime: null,
+			routingLatency: null,
+			routingThroughput: null,
+			routingTotalRequests: null,
+		});
 
 		await Promise.all([
 			db.delete(tables.log),
@@ -61,33 +110,7 @@ describe("fallback and error status code handling", () => {
 	});
 
 	beforeEach(async () => {
-		await db.insert(tables.user).values({
-			id: "user-id",
-			name: "user",
-			email: "user",
-		});
-
-		await db.insert(tables.organization).values({
-			id: "org-id",
-			name: "Test Organization",
-			billingEmail: "user",
-			plan: "pro",
-			retentionLevel: "retain",
-			credits: "100.00",
-		});
-
-		await db.insert(tables.userOrganization).values({
-			id: "user-org-id",
-			userId: "user-id",
-			organizationId: "org-id",
-		});
-
-		await db.insert(tables.project).values({
-			id: "project-id",
-			name: "Test Project",
-			organizationId: "org-id",
-			mode: "api-keys",
-		});
+		await ensureBaseFixtures();
 	});
 
 	afterEach(async () => {
@@ -96,6 +119,8 @@ describe("fallback and error status code handling", () => {
 
 	// Helper to set up API key and provider key
 	async function setupKeys(provider = "openai") {
+		await ensureBaseFixtures();
+
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -115,6 +140,8 @@ describe("fallback and error status code handling", () => {
 
 	// Helper to set up API key and llmgateway custom provider key
 	async function setupCustomKeys() {
+		await ensureBaseFixtures();
+
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -133,6 +160,8 @@ describe("fallback and error status code handling", () => {
 	}
 
 	async function setupMultiProviderKeys() {
+		await ensureBaseFixtures();
+
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
