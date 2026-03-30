@@ -2,6 +2,7 @@
 
 import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 
 import { useUser } from "@/hooks/useUser";
 import { Badge } from "@/lib/components/badge";
@@ -18,8 +19,14 @@ import {
 export function PricingPlans() {
 	const { user } = useUser();
 	const router = useRouter();
+	const posthog = usePostHog();
 
 	const handlePlanSelection = (planName: string) => {
+		posthog.capture("pricing_plan_clicked", {
+			plan: planName.toLowerCase(),
+			is_authenticated: !!user,
+		});
+
 		switch (planName) {
 			case "Self-Host":
 				router.push("https://docs.llmgateway.io");

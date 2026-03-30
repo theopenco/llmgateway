@@ -5,6 +5,7 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
+import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findOrganizationById,
@@ -154,11 +155,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
-		throw new HTTPException(401, {
-			message: "Unauthorized: LLMGateway API key reached its usage limit.",
-		});
-	}
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	const project = await findProjectById(apiKey.projectId);
 	if (!project) {

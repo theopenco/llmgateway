@@ -6,6 +6,7 @@ import { userHasOrganizationAccess } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, desc, eq, gte, isNull, or, tables } from "@llmgateway/db";
+import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -67,7 +68,12 @@ const updateOrganizationSchema = z.object({
 	retentionLevel: z.enum(["retain", "none"]).optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
-	autoTopUpAmount: z.number().min(10).optional(),
+	autoTopUpAmount: z
+		.number()
+		.int()
+		.min(10)
+		.max(CREDIT_TOP_UP_MAX_AMOUNT)
+		.optional(),
 });
 
 const AUTO_TOP_UP_AUDIT_FIELDS = [

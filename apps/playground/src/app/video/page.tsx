@@ -7,6 +7,13 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	title: "AI Video Generation",
+	description:
+		"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in one playground.",
+};
 
 export default async function VideoPage({
 	searchParams,

@@ -248,7 +248,7 @@ export async function transformAnthropicMessages(
 				);
 			} else {
 				// Use the appropriate mapped ID based on the count
-				const toolUseId = mappedToolUseIds[currentCount] || mappedToolUseIds[0];
+				const toolUseId = mappedToolUseIds[currentCount] ?? mappedToolUseIds[0];
 				content = [
 					{
 						type: "tool_result",

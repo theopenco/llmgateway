@@ -188,7 +188,7 @@ export function ImageSidebar({
 														<img
 															key={i}
 															src={img.dataUrl}
-															alt=""
+															alt="Generated image thumbnail"
 															className="h-5 w-5 rounded border object-cover"
 														/>
 													))}

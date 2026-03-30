@@ -1,4 +1,6 @@
+import type { paths } from "@/lib/api/v1";
 import type { ApiModel, ApiModelProviderMapping } from "@/lib/fetch-models";
+import type { Client } from "openapi-fetch";
 
 export type VideoSize =
 	| "1280x720"
@@ -382,6 +384,7 @@ function pollDelay(ms: number, signal?: AbortSignal): Promise<void> {
 
 export async function* pollVideoJob(
 	videoId: string,
+	fetchClient: Client<paths>,
 	signal?: AbortSignal,
 ): AsyncGenerator<VideoJob> {
 	const startTime = Date.now();
@@ -411,9 +414,10 @@ export async function* pollVideoJob(
 			return;
 		}
 
-		let response: Response;
+		let result: Awaited<ReturnType<Client<paths>["GET"]>>;
 		try {
-			response = await fetch(`/api/video/${videoId}?_t=${Date.now()}`, {
+			result = await fetchClient.GET("/video/{videoId}", {
+				params: { path: { videoId } },
 				signal,
 				cache: "no-store",
 			});
@@ -431,23 +435,23 @@ export async function* pollVideoJob(
 			continue;
 		}
 
-		if (!response.ok) {
-			if (TRANSIENT_STATUS_CODES.has(response.status)) {
+		if (!result.response.ok) {
+			if (TRANSIENT_STATUS_CODES.has(result.response.status)) {
 				consecutiveErrors++;
 				if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
 					throw new Error(
-						`Poll failed: ${response.status} (after ${consecutiveErrors} retries)`,
+						`Poll failed: ${result.response.status} (after ${consecutiveErrors} retries)`,
 					);
 				}
 				await pollDelay(Math.min(consecutiveErrors * 2_000, 10_000), signal);
 				continue;
 			}
-			throw new Error(`Poll failed: ${response.status}`);
+			throw new Error(`Poll failed: ${result.response.status}`);
 		}
 
 		consecutiveErrors = 0;
 
-		const job: VideoJob = await response.json();
+		const job = result.data as VideoJob;
 		yield job;
 
 		if (TERMINAL_STATUSES.has(job.status)) {

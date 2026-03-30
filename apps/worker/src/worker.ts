@@ -9,12 +9,14 @@ import {
 	publishToQueue,
 } from "@llmgateway/cache";
 import {
+	addApiKeyPeriodDuration,
 	and,
 	apiKey,
 	closeDatabase,
 	db,
 	eq,
 	inArray,
+	isApiKeyPeriodLimitConfigured,
 	log,
 	type LogInsertData,
 	lt,
@@ -24,7 +26,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees } from "@llmgateway/shared";
+import { calculateFees, isCreditTopUpAmountInRange } from "@llmgateway/shared";
 
 import { runFollowUpEmailsLoop } from "./services/follow-up-emails.js";
 import {
@@ -80,8 +82,76 @@ const VIDEO_JOB_POLL_INTERVAL_SECONDS =
 const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
 	Number(process.env.VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS) || 5;
 
+interface ApiKeyUsageEvent {
+	cost: Decimal;
+	createdAt: Date;
+}
+
+type ApiKeyPeriodState = Pick<
+	typeof apiKey.$inferSelect,
+	| "currentPeriodStartedAt"
+	| "currentPeriodUsage"
+	| "periodUsageLimit"
+	| "periodUsageDurationValue"
+	| "periodUsageDurationUnit"
+>;
+
+interface ApiKeyUsageUpdate {
+	hasPeriodUsageUpdate: boolean;
+	currentPeriodStartedAt: Date | null;
+	currentPeriodUsage: string;
+	totalUsageCost: Decimal;
+}
+
+function buildApiKeyUsageUpdate(
+	apiKeyState: ApiKeyPeriodState,
+	events: ApiKeyUsageEvent[],
+): ApiKeyUsageUpdate {
+	const totalUsageCost = events.reduce(
+		(total, event) => total.plus(event.cost),
+		new Decimal(0),
+	);
+
+	if (!isApiKeyPeriodLimitConfigured(apiKeyState)) {
+		return {
+			hasPeriodUsageUpdate: false,
+			currentPeriodStartedAt: apiKeyState.currentPeriodStartedAt,
+			currentPeriodUsage: String(apiKeyState.currentPeriodUsage ?? "0"),
+			totalUsageCost,
+		};
+	}
+
+	let currentPeriodStartedAt = apiKeyState.currentPeriodStartedAt;
+	let currentPeriodUsage = new Decimal(apiKeyState.currentPeriodUsage ?? "0");
+
+	for (const event of events) {
+		if (
+			currentPeriodStartedAt === null ||
+			addApiKeyPeriodDuration(
+				currentPeriodStartedAt,
+				apiKeyState.periodUsageDurationValue,
+				apiKeyState.periodUsageDurationUnit,
+			) <= event.createdAt
+		) {
+			currentPeriodStartedAt = event.createdAt;
+			currentPeriodUsage = event.cost;
+			continue;
+		}
+
+		currentPeriodUsage = currentPeriodUsage.plus(event.cost);
+	}
+
+	return {
+		hasPeriodUsageUpdate: true,
+		currentPeriodStartedAt,
+		currentPeriodUsage: currentPeriodUsage.toString(),
+		totalUsageCost,
+	};
+}
+
 const schema = z.object({
 	id: z.string(),
+	created_at: z.date(),
 	request_id: z.string(),
 	organization_id: z.string(),
 	project_id: z.string(),
@@ -329,6 +399,13 @@ export async function processAutoTopUp(): Promise<void> {
 
 				const topUpAmount = Number(org.autoTopUpAmount ?? "10");
 
+				if (!isCreditTopUpAmountInRange(topUpAmount)) {
+					logger.error(
+						`Skipping auto top-up for organization ${org.id}: invalid amount ${org.autoTopUpAmount}`,
+					);
+					continue;
+				}
+
 				// Get the first user associated with this organization for email metadata
 				const orgUser = await db.query.userOrganization.findFirst({
 					where: {
@@ -570,6 +647,7 @@ export async function batchProcessLogs(): Promise<void> {
 			const rows = await tx
 				.select({
 					id: log.id,
+					created_at: log.createdAt,
 					request_id: log.requestId,
 					organization_id: log.organizationId,
 					project_id: log.projectId,
@@ -619,7 +697,7 @@ export async function batchProcessLogs(): Promise<void> {
 			// Group logs by organization and api key to calculate total costs
 			// Use Decimal.js to avoid floating point rounding errors
 			const orgCosts = new Map<string, Decimal>();
-			const apiKeyCosts = new Map<string, Decimal>();
+			const apiKeyEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const logIds: string[] = [];
 
 			for (const raw of unprocessedLogs.rows) {
@@ -630,6 +708,7 @@ export async function batchProcessLogs(): Promise<void> {
 					kind: "log-process",
 					status: row.hasError ? "error" : row.cached ? "cached" : "success",
 					logId: row.id,
+					createdAt: row.created_at,
 					requestId: row.request_id,
 					organizationId: row.organization_id,
 					projectId: row.project_id,
@@ -661,13 +740,13 @@ export async function batchProcessLogs(): Promise<void> {
 				});
 
 				if (row.cost && row.cost > 0 && !row.cached) {
-					// Always update API key usage for non-cached logs with cost
-					const currentApiKeyCost =
-						apiKeyCosts.get(row.api_key_id) ?? new Decimal(0);
-					apiKeyCosts.set(
-						row.api_key_id,
-						currentApiKeyCost.plus(new Decimal(row.cost)),
-					);
+					const apiKeyCost = new Decimal(row.cost);
+					const existingEvents = apiKeyEvents.get(row.api_key_id) ?? [];
+					existingEvents.push({
+						cost: apiKeyCost,
+						createdAt: row.created_at,
+					});
+					apiKeyEvents.set(row.api_key_id, existingEvents);
 
 					// Deduct organization credits based on mode:
 					// - Credits mode: deduct full cost (includes request cost + storage cost)
@@ -676,10 +755,7 @@ export async function batchProcessLogs(): Promise<void> {
 						// In credits mode, deduct the full cost
 						const currentOrgCost =
 							orgCosts.get(row.organization_id) ?? new Decimal(0);
-						orgCosts.set(
-							row.organization_id,
-							currentOrgCost.plus(new Decimal(row.cost)),
-						);
+						orgCosts.set(row.organization_id, currentOrgCost.plus(apiKeyCost));
 					} else if (row.used_mode === "api-keys") {
 						// In API keys mode, only deduct storage cost (data retention billing)
 						if (row.data_storage_cost) {
@@ -800,14 +876,50 @@ export async function batchProcessLogs(): Promise<void> {
 				}
 			}
 
-			// Batch update API key usage within the same transaction
-			for (const [apiKeyId, totalCost] of apiKeyCosts.entries()) {
-				if (totalCost.greaterThan(0)) {
-					const costNumber = totalCost.toNumber();
+			// Batch update API key usage within the same transaction.
+			// Period windows are replayed from each log's event time so delayed
+			// processing does not shift usage across recurring-limit boundaries.
+			const apiKeyIds = Array.from(apiKeyEvents.keys());
+			if (apiKeyIds.length > 0) {
+				const apiKeyRecords = await tx.query.apiKey.findMany({
+					columns: {
+						id: true,
+						currentPeriodStartedAt: true,
+						currentPeriodUsage: true,
+						periodUsageLimit: true,
+						periodUsageDurationValue: true,
+						periodUsageDurationUnit: true,
+					},
+					where: {
+						id: {
+							in: apiKeyIds,
+						},
+					},
+				});
+				const apiKeyRecordsById = new Map(
+					apiKeyRecords.map((record) => [record.id, record]),
+				);
+
+				for (const [apiKeyId, events] of apiKeyEvents.entries()) {
+					const apiKeyRecord = apiKeyRecordsById.get(apiKeyId);
+					if (!apiKeyRecord) {
+						logger.warn(
+							`Skipping usage update for missing API key ${apiKeyId}`,
+						);
+						continue;
+					}
+
+					const usageUpdate = buildApiKeyUsageUpdate(apiKeyRecord, events);
+					const costNumber = usageUpdate.totalUsageCost.toNumber();
+
 					await tx
 						.update(apiKey)
 						.set({
 							usage: sql`${apiKey.usage} + ${costNumber}`,
+							...(usageUpdate.hasPeriodUsageUpdate && {
+								currentPeriodUsage: usageUpdate.currentPeriodUsage,
+								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
+							}),
 						})
 						.where(eq(apiKey.id, apiKeyId));
 

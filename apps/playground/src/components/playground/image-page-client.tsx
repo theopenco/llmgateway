@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -38,6 +39,7 @@ export default function ImagePageClient({
 	selectedProject,
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const posthog = usePostHog();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -207,6 +209,14 @@ export default function ImagePageClient({
 
 			const currentPrompt = effectivePrompt.trim();
 			setIsGenerating(true);
+			posthog.capture("playground_image_generated", {
+				models: selectedModels,
+				model_count: selectedModels.length,
+				comparison_mode: comparisonMode,
+				aspect_ratio: imageAspectRatio,
+				image_count: imageCount,
+				has_input_images: inputImages.length > 0,
+			});
 
 			const itemId = crypto.randomUUID();
 

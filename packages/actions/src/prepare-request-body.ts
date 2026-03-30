@@ -1728,7 +1728,8 @@ export async function prepareRequestBody(
 			// Add image generation config if provided
 			if (
 				image_config?.aspect_ratio !== undefined ||
-				image_config?.image_size !== undefined
+				image_config?.image_size !== undefined ||
+				image_config?.n !== undefined
 			) {
 				// Set responseModalities to enable image output
 				requestBody.generationConfig.responseModalities = ["TEXT", "IMAGE"];
@@ -1740,6 +1741,10 @@ export async function prepareRequestBody(
 				if (image_config.image_size !== undefined) {
 					requestBody.generationConfig.imageConfig.imageSize =
 						mapGoogleImageSize(image_config.image_size);
+				}
+				if (image_config.n !== undefined) {
+					requestBody.generationConfig.imageConfig.numberOfImages =
+						image_config.n;
 				}
 			}
 

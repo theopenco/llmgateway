@@ -11,6 +11,11 @@ import {
 import Link from "next/link";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
+import {
+	CodeCTATracker,
+	CodePlanTracker,
+	LandingPageTracker,
+} from "@/components/LandingTracker";
 import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
@@ -53,6 +58,7 @@ export default function LandingPage() {
 
 	return (
 		<div className="min-h-screen bg-background">
+			<LandingPageTracker />
 			{/* Header */}
 			<header className="border-b border-border/50">
 				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -94,15 +100,19 @@ export default function LandingPage() {
 								OpenAI-compatible tool. Stop juggling API keys and balances.
 							</p>
 							<div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-								<Button size="lg" className="gap-2 px-8" asChild>
-									<Link href="/signup">
-										Start coding
-										<ArrowRight className="h-4 w-4" />
-									</Link>
-								</Button>
-								<Button size="lg" variant="outline" asChild>
-									<Link href="#pricing">View plans</Link>
-								</Button>
+								<CodeCTATracker cta="start_coding" location="hero">
+									<Button size="lg" className="gap-2 px-8" asChild>
+										<Link href="/signup">
+											Start coding
+											<ArrowRight className="h-4 w-4" />
+										</Link>
+									</Button>
+								</CodeCTATracker>
+								<CodeCTATracker cta="view_plans" location="hero">
+									<Button size="lg" variant="outline" asChild>
+										<Link href="#pricing">View plans</Link>
+									</Button>
+								</CodeCTATracker>
 							</div>
 						</div>
 
@@ -245,13 +255,17 @@ export default function LandingPage() {
 											</li>
 										))}
 									</ul>
-									<Button
-										className="w-full"
-										variant={plan.popular ? "default" : "outline"}
-										asChild
-									>
-										<Link href={`/signup?plan=${plan.tier}`}>Get started</Link>
-									</Button>
+									<CodePlanTracker plan={plan.tier} price={plan.price}>
+										<Button
+											className="w-full"
+											variant={plan.popular ? "default" : "outline"}
+											asChild
+										>
+											<Link href={`/signup?plan=${plan.tier}`}>
+												Get started
+											</Link>
+										</Button>
+									</CodePlanTracker>
 								</div>
 							))}
 						</div>
@@ -328,15 +342,19 @@ export default function LandingPage() {
 							Pick a plan, set two env vars, and get back to building.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-							<Button size="lg" className="gap-2 px-8" asChild>
-								<Link href="/signup">
-									Get started
-									<ArrowRight className="h-4 w-4" />
-								</Link>
-							</Button>
-							<Button size="lg" variant="ghost" asChild>
-								<Link href="/coding-models">Browse models</Link>
-							</Button>
+							<CodeCTATracker cta="get_started" location="bottom_cta">
+								<Button size="lg" className="gap-2 px-8" asChild>
+									<Link href="/signup">
+										Get started
+										<ArrowRight className="h-4 w-4" />
+									</Link>
+								</Button>
+							</CodeCTATracker>
+							<CodeCTATracker cta="browse_models" location="bottom_cta">
+								<Button size="lg" variant="ghost" asChild>
+									<Link href="/coding-models">Browse models</Link>
+								</Button>
+							</CodeCTATracker>
 						</div>
 					</div>
 				</section>

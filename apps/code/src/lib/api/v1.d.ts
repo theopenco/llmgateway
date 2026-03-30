@@ -3685,6 +3685,13 @@ export interface paths {
                                 status: "active" | "inactive" | "deleted" | null;
                                 usageLimit: string | null;
                                 usage: string;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                                currentPeriodUsage: string;
+                                currentPeriodStartedAt: string | null;
+                                currentPeriodResetAt: string | null;
                                 projectId: string;
                                 createdBy: string;
                                 creator?: {
@@ -3737,7 +3744,11 @@ export interface paths {
                     "application/json": {
                         description: string;
                         projectId: string;
-                        usageLimit: string | null;
+                        usageLimit?: string | null;
+                        periodUsageLimit?: string | null;
+                        periodUsageDurationValue?: number | null;
+                        /** @enum {string|null} */
+                        periodUsageDurationUnit?: "hour" | "day" | "week" | "month" | null;
                     };
                 };
             };
@@ -3758,6 +3769,13 @@ export interface paths {
                                 status: "active" | "inactive" | "deleted" | null;
                                 usageLimit: string | null;
                                 usage: string;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                                currentPeriodUsage: string;
+                                currentPeriodStartedAt: string | null;
+                                currentPeriodResetAt: string | null;
                                 projectId: string;
                                 createdBy: string;
                                 creator?: {
@@ -3888,6 +3906,13 @@ export interface paths {
                                 status: "active" | "inactive" | "deleted" | null;
                                 usageLimit: string | null;
                                 usage: string;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                                currentPeriodUsage: string;
+                                currentPeriodStartedAt: string | null;
+                                currentPeriodResetAt: string | null;
                                 projectId: string;
                                 createdBy: string;
                                 creator?: {
@@ -3968,7 +3993,11 @@ export interface paths {
             requestBody?: {
                 content: {
                     "application/json": {
-                        usageLimit: string | null;
+                        usageLimit?: string | null;
+                        periodUsageLimit?: string | null;
+                        periodUsageDurationValue?: number | null;
+                        /** @enum {string|null} */
+                        periodUsageDurationUnit?: "hour" | "day" | "week" | "month" | null;
                     };
                 };
             };
@@ -3990,6 +4019,13 @@ export interface paths {
                                 status: "active" | "inactive" | "deleted" | null;
                                 usageLimit: string | null;
                                 usage: string;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                                currentPeriodUsage: string;
+                                currentPeriodStartedAt: string | null;
+                                currentPeriodResetAt: string | null;
                                 projectId: string;
                                 createdBy: string;
                                 creator?: {
@@ -7559,6 +7595,59 @@ export interface paths {
                                 /** @enum {string} */
                                 defaultAction: "block" | "redact" | "warn" | "allow";
                             }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/video/{videoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    videoId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Video job status */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            /** @enum {string} */
+                            object: "video";
+                            model: string;
+                            /** @enum {string} */
+                            status: "queued" | "in_progress" | "completed" | "failed" | "canceled" | "expired";
+                            progress: number | null;
+                            created_at: number;
+                            completed_at: number | null;
+                            expires_at: number | null;
+                            error: {
+                                code?: string;
+                                message: string;
+                                details?: unknown;
+                            } | null;
                         };
                     };
                 };

@@ -1,4 +1,6 @@
 "use client";
+import { usePostHog } from "posthog-js/react";
+
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { ShimmerButton } from "@/lib/components/shimmer-button";
@@ -8,6 +10,7 @@ import { AnimatedGroup } from "./animated-group";
 
 export default function CallToAction() {
 	const config = useAppConfig();
+	const posthog = usePostHog();
 	return (
 		<section className="relative py-32 md:py-40 overflow-hidden">
 			{/* Gradient separator at top */}
@@ -37,7 +40,16 @@ export default function CallToAction() {
 						preset="blur-slide"
 						className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
 					>
-						<AuthLink href="/signup" className="w-full sm:w-auto">
+						<AuthLink
+							href="/signup"
+							className="w-full sm:w-auto"
+							onClick={() =>
+								posthog.capture("cta_clicked", {
+									location: "landing_bottom",
+									cta: "create_free_account",
+								})
+							}
+						>
 							<ShimmerButton
 								background="rgb(37, 99, 235)"
 								className="shadow-2xl shadow-blue-500/25 px-8 py-4 text-base font-medium w-full sm:w-auto"
@@ -50,7 +62,16 @@ export default function CallToAction() {
 							className="border-border bg-transparent text-foreground hover:bg-muted px-8 py-6 text-base w-full sm:w-auto"
 							asChild
 						>
-							<a href={config.githubUrl ?? ""} target="_blank">
+							<a
+								href={config.githubUrl ?? ""}
+								target="_blank"
+								onClick={() =>
+									posthog.capture("cta_clicked", {
+										location: "landing_bottom",
+										cta: "self_host",
+									})
+								}
+							>
 								Self-host LLM Gateway
 							</a>
 						</Button>
