@@ -9,7 +9,7 @@ import {
 	vi,
 } from "vitest";
 
-import { and, db, eq, tables, type Log } from "@llmgateway/db";
+import { and, db, eq, inArray, pool, tables, type Log } from "@llmgateway/db";
 
 import { app } from "./app.js";
 import {
@@ -20,11 +20,37 @@ import {
 import { clearCache, waitForLogs, readAll } from "./test-utils/test-helpers.js";
 
 describe("fallback and error status code handling", () => {
+	const GATEWAY_TEST_DB_LOCK_ID = 41001;
+	const ROUTING_TEST_MODEL_IDS = [
+		"llama-3.1-8b-instruct",
+		"glm-4.6",
+		"deepseek-v3.2",
+	];
+
 	let mockServerUrl: string;
+	let lockClient: {
+		query: (text: string, values?: unknown[]) => Promise<unknown>;
+		release: () => void;
+	} | null = null;
+
+	async function resetRoutingOverrides() {
+		await db
+			.update(tables.modelProviderMapping)
+			.set({
+				routingUptime: null,
+				routingLatency: null,
+				routingThroughput: null,
+				routingTotalRequests: null,
+			})
+			.where(
+				inArray(tables.modelProviderMapping.modelId, ROUTING_TEST_MODEL_IDS),
+			);
+	}
 
 	async function resetTestState() {
 		resetFailOnceCounter();
 		await clearCache();
+		await resetRoutingOverrides();
 
 		await Promise.all([
 			db.delete(tables.log),
@@ -56,6 +82,10 @@ describe("fallback and error status code handling", () => {
 	});
 
 	beforeEach(async () => {
+		lockClient = await pool.connect();
+		await lockClient.query("SELECT pg_advisory_lock($1)", [
+			GATEWAY_TEST_DB_LOCK_ID,
+		]);
 		await resetTestState();
 	});
 
@@ -90,7 +120,24 @@ describe("fallback and error status code handling", () => {
 	});
 
 	afterEach(async () => {
-		await resetTestState();
+		const client = lockClient;
+
+		try {
+			await resetTestState();
+		} finally {
+			if (!client) {
+				lockClient = null;
+			} else {
+				try {
+					await client.query("SELECT pg_advisory_unlock($1)", [
+						GATEWAY_TEST_DB_LOCK_ID,
+					]);
+				} finally {
+					client.release();
+					lockClient = null;
+				}
+			}
+		}
 	});
 
 	// Helper to set up API key and provider key
