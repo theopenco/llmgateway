@@ -7,7 +7,11 @@ import { ensureStripeCustomer } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
-import { calculateFees } from "@llmgateway/shared";
+import {
+	calculateFees,
+	CREDIT_TOP_UP_MAX_AMOUNT,
+	CREDIT_TOP_UP_MIN_AMOUNT,
+} from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -29,6 +33,12 @@ export function getStripe(): Stripe {
 
 export const payments = new OpenAPIHono<ServerTypes>();
 
+const creditTopUpAmountSchema = z
+	.number()
+	.int()
+	.min(CREDIT_TOP_UP_MIN_AMOUNT, "Minimum top-up amount is $5.")
+	.max(CREDIT_TOP_UP_MAX_AMOUNT, "Maximum top-up amount is $5000.");
+
 const createPaymentIntent = createRoute({
 	method: "post",
 	path: "/create-payment-intent",
@@ -37,7 +47,7 @@ const createPaymentIntent = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						amount: z.number().int().min(5),
+						amount: creditTopUpAmountSchema,
 					}),
 				},
 			},
@@ -479,7 +489,7 @@ const topUpWithSavedMethod = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						amount: z.number().int().min(5),
+						amount: creditTopUpAmountSchema,
 						paymentMethodId: z.string(),
 					}),
 				},
@@ -645,7 +655,7 @@ const createCheckoutSession = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						amount: z.number().int().min(5),
+						amount: creditTopUpAmountSchema,
 						returnUrl: z.string().url().optional(),
 					}),
 				},
@@ -790,7 +800,7 @@ const calculateFeesRoute = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						amount: z.number().int().min(5),
+						amount: creditTopUpAmountSchema,
 						paymentMethodId: z.string().optional(),
 					}),
 				},

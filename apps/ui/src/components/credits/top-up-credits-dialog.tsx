@@ -29,6 +29,12 @@ import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
 import { useStripe } from "@/lib/stripe";
 
+import {
+	CREDIT_TOP_UP_MAX_AMOUNT,
+	CREDIT_TOP_UP_MIN_AMOUNT,
+	isCreditTopUpAmountInRange,
+} from "@llmgateway/shared";
+
 import type React from "react";
 
 export function TopUpCreditsButton() {
@@ -195,6 +201,15 @@ function AmountStep({
 		"post",
 		"/payments/create-checkout-session",
 	);
+	const isAmountValid = isCreditTopUpAmountInRange(amount);
+	const amountValidationMessage =
+		amount > CREDIT_TOP_UP_MAX_AMOUNT
+			? `Maximum top-up amount is $${CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}.`
+			: amount < CREDIT_TOP_UP_MIN_AMOUNT
+				? `Minimum top-up amount is $${CREDIT_TOP_UP_MIN_AMOUNT}.`
+				: !Number.isInteger(amount)
+					? "Amount must be a whole dollar amount."
+					: null;
 	const { data: feeData, isLoading: feeDataLoading } = api.useQuery(
 		"post",
 		"/payments/calculate-fees",
@@ -202,9 +217,11 @@ function AmountStep({
 			body: { amount },
 		},
 		{
-			enabled: amount >= 5,
+			enabled: isAmountValid,
 		},
 	);
+	const isActionDisabled =
+		!isAmountValid || Boolean(feeDataLoading) || checkoutLoading;
 
 	const hasBonus = feeData?.bonusAmount && feeData.bonusAmount > 0;
 
@@ -244,11 +261,22 @@ function AmountStep({
 					<Input
 						id="amount"
 						type="number"
-						min={5}
+						min={CREDIT_TOP_UP_MIN_AMOUNT}
+						max={CREDIT_TOP_UP_MAX_AMOUNT}
+						step={1}
 						value={amount}
 						onChange={(e) => setAmount(Number(e.target.value))}
 						required
 					/>
+					<p className="text-xs text-muted-foreground">
+						Minimum ${CREDIT_TOP_UP_MIN_AMOUNT}. Maximum $
+						{CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}.
+					</p>
+					{amountValidationMessage ? (
+						<p className="text-xs text-destructive">
+							{amountValidationMessage}
+						</p>
+					) : null}
 				</div>
 				<div className="flex flex-wrap gap-2">
 					{presetAmounts.map((preset) => (
@@ -263,7 +291,7 @@ function AmountStep({
 					))}
 				</div>
 
-				{amount >= 5 && (
+				{isAmountValid && (
 					<div className="border rounded-lg p-4 bg-muted/50">
 						<p className="font-medium mb-2">Fee Breakdown</p>
 						{feeDataLoading ? (
@@ -303,11 +331,7 @@ function AmountStep({
 					<Button type="button" variant="outline" onClick={onCancel}>
 						Cancel
 					</Button>
-					<Button
-						type="button"
-						onClick={onNext}
-						disabled={amount < 5 || feeDataLoading || checkoutLoading}
-					>
+					<Button type="button" onClick={onNext} disabled={isActionDisabled}>
 						Pay with Card
 					</Button>
 				</div>
@@ -324,7 +348,7 @@ function AmountStep({
 					variant="outline"
 					className="w-full"
 					onClick={handleStripeCheckout}
-					disabled={amount < 5 || feeDataLoading || checkoutLoading}
+					disabled={isActionDisabled}
 				>
 					{checkoutLoading ? (
 						"Redirecting..."

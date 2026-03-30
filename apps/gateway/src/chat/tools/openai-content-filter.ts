@@ -3,6 +3,7 @@ import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 import { getProviderHeaders } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
 
+import { extractErrorCause } from "./extract-error-cause.js";
 import { getProviderEnv } from "./get-provider-env.js";
 
 import type { ModerationApiPayload } from "@llmgateway/db";
@@ -13,6 +14,11 @@ interface GatewayContentFilterContext {
 	organizationId: string;
 	projectId: string;
 	apiKeyId: string;
+}
+
+interface ErrorWithCode extends Error {
+	code?: string;
+	cause?: unknown;
 }
 
 interface OpenAIModerationImagePart {
@@ -255,9 +261,9 @@ function logModerationResult(
 function logModerationError(
 	context: GatewayContentFilterContext,
 	payload: Record<string, unknown>,
+	error?: unknown,
 ) {
-	// eslint-disable-next-line no-console
-	console.error("gateway_content_filter_error", {
+	const logPayload = {
 		provider: "openai",
 		mode: "openai",
 		requestId: context.requestId,
@@ -265,7 +271,70 @@ function logModerationError(
 		projectId: context.projectId,
 		apiKeyId: context.apiKeyId,
 		...payload,
-	});
+		...buildModerationErrorDetails(error),
+	};
+
+	if (error instanceof Error) {
+		logger.error("gateway_content_filter_error", logPayload, error);
+		return;
+	}
+
+	logger.error("gateway_content_filter_error", logPayload);
+}
+
+function getErrorCode(error: unknown): string | undefined {
+	if (!(error instanceof Error)) {
+		return undefined;
+	}
+
+	const directCode =
+		typeof (error as ErrorWithCode).code === "string"
+			? (error as ErrorWithCode).code
+			: undefined;
+	if (directCode) {
+		return directCode;
+	}
+
+	const visited = new Set<Error>([error]);
+	let current = (error as ErrorWithCode).cause;
+	for (let depth = 0; depth < 5; depth++) {
+		if (!(current instanceof Error) || visited.has(current)) {
+			return undefined;
+		}
+		visited.add(current);
+
+		if (typeof (current as ErrorWithCode).code === "string") {
+			return (current as ErrorWithCode).code;
+		}
+
+		current = (current as ErrorWithCode).cause;
+	}
+
+	return undefined;
+}
+
+function buildModerationErrorDetails(error: unknown): Record<string, string> {
+	if (!(error instanceof Error)) {
+		return {
+			error: String(error),
+			errorName:
+				error === null
+					? "NullThrownValue"
+					: typeof error === "undefined"
+						? "UndefinedThrownValue"
+						: typeof error,
+		};
+	}
+
+	const errorCause = extractErrorCause(error);
+	const errorCode = getErrorCode(error);
+
+	return {
+		error: error.message,
+		errorName: error.name,
+		...(errorCause ? { errorCause } : {}),
+		...(errorCode ? { errorCode } : {}),
+	};
 }
 
 function createFailedOpenAIContentFilterResult(
@@ -310,12 +379,15 @@ async function runOpenAIContentFilterRequest(
 			throw error;
 		}
 
-		logModerationError(context, {
-			durationMs: Date.now() - startTime,
-			inputType: request.kind,
-			error: error instanceof Error ? error.message : String(error),
-			timeout: isTimeoutError(error),
-		});
+		logModerationError(
+			context,
+			{
+				durationMs: Date.now() - startTime,
+				inputType: request.kind,
+				timeout: isTimeoutError(error),
+			},
+			error,
+		);
 
 		return {
 			success: false,
@@ -468,11 +540,14 @@ export async function checkOpenAIContentFilter(
 
 		// Fail open for moderation outages so upstream OpenAI moderation issues do
 		// not fail customer requests at the gateway layer.
-		logModerationError(context, {
-			durationMs: Date.now() - startTime,
-			error: error instanceof Error ? error.message : String(error),
-			timeout: isTimeoutError(error),
-		});
+		logModerationError(
+			context,
+			{
+				durationMs: Date.now() - startTime,
+				timeout: isTimeoutError(error),
+			},
+			error,
+		);
 
 		return createFailedOpenAIContentFilterResult();
 	}

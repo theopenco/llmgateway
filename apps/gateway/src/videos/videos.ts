@@ -8,6 +8,7 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
+import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findOrganizationById,
@@ -639,11 +640,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
-	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
-		throw new HTTPException(401, {
-			message: "Unauthorized: LLMGateway API key reached its usage limit.",
-		});
-	}
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	const project = await findProjectById(apiKey.projectId);
 	if (!project) {

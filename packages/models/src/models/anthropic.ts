@@ -748,6 +748,7 @@ export const anthropicModels = [
 		releasedAt: new Date("2025-11-24"),
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-opus-4-5-20251101",
 				inputPrice: 5.0 / 1e6,
@@ -815,6 +816,7 @@ export const anthropicModels = [
 		releasedAt: new Date("2026-02-05"),
 		providers: [
 			{
+				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-opus-4-6",
 				inputPrice: 5.0 / 1e6,

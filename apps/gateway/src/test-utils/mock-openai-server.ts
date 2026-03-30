@@ -129,6 +129,102 @@ function extractStatusCodeTrigger(
 	};
 }
 
+function getResponsesApiUserMessage(input: unknown): string {
+	if (!Array.isArray(input)) {
+		return "";
+	}
+
+	const userItem = input.find(
+		(item) =>
+			item &&
+			typeof item === "object" &&
+			"role" in item &&
+			item.role === "user",
+	);
+	if (!userItem || typeof userItem !== "object" || !("content" in userItem)) {
+		return "";
+	}
+
+	const { content } = userItem;
+	if (typeof content === "string") {
+		return content;
+	}
+	if (!Array.isArray(content)) {
+		return "";
+	}
+
+	return content
+		.map((part) => {
+			if (
+				part &&
+				typeof part === "object" &&
+				"type" in part &&
+				part.type === "input_text" &&
+				"text" in part &&
+				typeof part.text === "string"
+			) {
+				return part.text;
+			}
+			return "";
+		})
+		.filter(Boolean)
+		.join(" ");
+}
+
+function buildAwsEventStreamMessage(
+	eventType: string,
+	payload: Record<string, unknown>,
+): Uint8Array {
+	const encoder = new TextEncoder();
+	const headerName = encoder.encode(":event-type");
+	const headerValue = encoder.encode(eventType);
+	const payloadBytes = encoder.encode(JSON.stringify(payload));
+	const headersLength = 1 + headerName.length + 1 + 2 + headerValue.length;
+	const totalLength = 12 + headersLength + payloadBytes.length + 4;
+	const message = new Uint8Array(totalLength);
+	const view = new DataView(message.buffer);
+
+	view.setUint32(0, totalLength, false);
+	view.setUint32(4, headersLength, false);
+	view.setUint32(8, 0, false);
+
+	let offset = 12;
+	message[offset] = headerName.length;
+	offset += 1;
+	message.set(headerName, offset);
+	offset += headerName.length;
+	message[offset] = 7;
+	offset += 1;
+	view.setUint16(offset, headerValue.length, false);
+	offset += 2;
+	message.set(headerValue, offset);
+	offset += headerValue.length;
+	message.set(payloadBytes, offset);
+
+	return message;
+}
+
+function buildAwsEventStream(
+	events: Array<{ eventType: string; payload: Record<string, unknown> }>,
+): Uint8Array {
+	const messages = events.map(({ eventType, payload }) =>
+		buildAwsEventStreamMessage(eventType, payload),
+	);
+	const totalLength = messages.reduce(
+		(sum, message) => sum + message.length,
+		0,
+	);
+	const combined = new Uint8Array(totalLength);
+	let offset = 0;
+
+	for (const message of messages) {
+		combined.set(message, offset);
+		offset += message.length;
+	}
+
+	return combined;
+}
+
 function extractApplicationCodeTrigger(
 	content: string,
 ): { code: number; response: object } | null {
@@ -481,8 +577,121 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	}
 
 	// Get the user's message to include in the response
-	const userMessage =
-		body.input?.find?.((msg: any) => msg.role === "user")?.content ?? "";
+	const userMessage = getResponsesApiUserMessage(body.input);
+	const shouldEndAfterDoneEvent = userMessage.includes(
+		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
+	);
+	const shouldEndAfterIntermediateDoneEvent = userMessage.includes(
+		"TRIGGER_RESPONSES_DONE_BEFORE_COMPLETED",
+	);
+	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
+
+	if (body.stream === true) {
+		return streamSSE(c, async (stream) => {
+			let eventId = 0;
+			const responseBase = {
+				id: "resp-123",
+				object: "response",
+				created_at: Math.floor(Date.now() / 1000),
+				model: body.model ?? "gpt-5-nano",
+			};
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.created",
+					response: {
+						...responseBase,
+						status: "in_progress",
+					},
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.content_part.added",
+					content_index: 0,
+					item_id: "msg_123",
+					output_index: 0,
+					part: {
+						type: "output_text",
+						text: assistantContent,
+					},
+					response: {
+						...responseBase,
+						status: "in_progress",
+					},
+					sequence_number: 0,
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.output_text.done",
+					content_index: 0,
+					item_id: "msg_123",
+					output_index: 0,
+					response: {
+						...responseBase,
+						status: shouldEndAfterDoneEvent ? "completed" : "in_progress",
+						usage: {
+							input_tokens: 10,
+							output_tokens: 20,
+							total_tokens: 30,
+						},
+					},
+					sequence_number: 1,
+					text: assistantContent,
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.content_part.done",
+					content_index: 0,
+					item_id: "msg_123",
+					output_index: 0,
+					part: {
+						type: "output_text",
+						text: assistantContent,
+					},
+					response: {
+						...responseBase,
+						status: shouldEndAfterDoneEvent ? "completed" : "in_progress",
+						usage: {
+							input_tokens: 10,
+							output_tokens: 20,
+							total_tokens: 30,
+						},
+					},
+					sequence_number: 2,
+				}),
+				id: String(eventId++),
+			});
+
+			if (shouldEndAfterDoneEvent || shouldEndAfterIntermediateDoneEvent) {
+				return;
+			}
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.completed",
+					response: {
+						...responseBase,
+						usage: {
+							input_tokens: 10,
+							output_tokens: 20,
+							total_tokens: 30,
+						},
+						status: "completed",
+					},
+				}),
+				id: String(eventId++),
+			});
+		});
+	}
 
 	// Create a Responses API format response
 	const response = {
@@ -497,7 +706,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				content: [
 					{
 						type: "output_text",
-						text: `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`,
+						text: assistantContent,
 					},
 				],
 			},
@@ -1656,8 +1865,48 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 		return c.json({});
 	}
 
-	c.header("content-type", "application/vnd.amazon.eventstream");
-	return c.body("");
+	return new Response(
+		Buffer.from(
+			buildAwsEventStream([
+				{
+					eventType: "messageStart",
+					payload: {
+						role: "assistant",
+					},
+				},
+				{
+					eventType: "contentBlockDelta",
+					payload: {
+						contentBlockIndex: 0,
+						delta: {
+							text: `Bedrock mock response: ${userMessage}`,
+						},
+					},
+				},
+				{
+					eventType: "messageStop",
+					payload: {
+						stopReason: "end_turn",
+					},
+				},
+				{
+					eventType: "metadata",
+					payload: {
+						usage: {
+							inputTokens: 10,
+							outputTokens: 20,
+							totalTokens: 30,
+						},
+					},
+				},
+			]),
+		),
+		{
+			headers: {
+				"content-type": "application/vnd.amazon.eventstream",
+			},
+		},
+	);
 });
 
 let server: any = null;

@@ -25,16 +25,6 @@ import {
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
-	Dialog,
-	DialogClose,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger,
-} from "@/lib/components/dialog";
-import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
@@ -42,8 +32,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
-import { Input } from "@/lib/components/input";
-import { Label } from "@/lib/components/label";
 import { StatusBadge } from "@/lib/components/status-badge";
 import {
 	Table,
@@ -63,6 +51,13 @@ import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 
+import {
+	formatCurrentPeriodUsageSummary,
+	formatCurrencyAmount,
+	formatPeriodLimitSummary,
+	type ApiKeyLimitPayload,
+} from "./api-key-limit-fields";
+import { ApiKeyLimitsDialog } from "./api-key-limits-dialog";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
 
 import type { ApiKey, Project } from "@/lib/types";
@@ -136,7 +131,7 @@ export function ApiKeysList({
 		"/keys/api/{id}",
 	);
 
-	const { mutate: updateKeyUsageLimitMutation } = api.useMutation(
+	const updateKeyUsageLimitMutation = api.useMutation(
 		"patch",
 		"/keys/api/limit/{id}",
 	);
@@ -274,34 +269,84 @@ export function ApiKeysList({
 		);
 	};
 
-	const updateKeyUsageLimit = (id: string, newUsageLimit: string | null) => {
-		updateKeyUsageLimitMutation(
-			{
-				params: {
-					path: { id },
+	const updateKeyUsageLimit = async (
+		id: string,
+		payload: ApiKeyLimitPayload,
+	) => {
+		try {
+			await updateKeyUsageLimitMutation.mutateAsync(
+				{
+					params: {
+						path: { id },
+					},
+					body: payload,
 				},
-				body: {
-					usageLimit: newUsageLimit,
-				},
-			},
-			{
-				onSuccess: () => {
-					const queryKey = api.queryOptions("get", "/keys/api", {
-						params: {
-							query: { projectId: selectedProject.id },
-						},
-					}).queryKey;
+				{
+					onSuccess: () => {
+						const queryKey = api.queryOptions("get", "/keys/api", {
+							params: {
+								query: { projectId: selectedProject.id },
+							},
+						}).queryKey;
 
-					void queryClient.invalidateQueries({ queryKey });
+						void queryClient.invalidateQueries({ queryKey });
 
-					toast({
-						title: "API Key Usage Limit Updated",
-						description: "The API key usage limit has been updated.",
-					});
+						toast({
+							title: "API Key Limits Updated",
+							description: "The API key limits have been updated.",
+						});
+					},
 				},
-			},
+			);
+		} catch (error) {
+			toast({
+				title: "Failed to update API key limits.",
+				variant: "destructive",
+			});
+			throw error;
+		}
+	};
+
+	const renderCurrentPeriodUsage = (key: ApiKey) => {
+		const summary = formatCurrentPeriodUsageSummary(key);
+
+		return (
+			<div className="space-y-1">
+				<div
+					className={
+						summary.windowLabel
+							? "font-mono text-xs"
+							: "text-muted-foreground text-xs"
+					}
+				>
+					{summary.summary}
+				</div>
+				{summary.windowLabel && (
+					<div className="text-muted-foreground text-xs">
+						Every {summary.windowLabel}
+					</div>
+				)}
+				{summary.resetLabel && (
+					<div className="text-muted-foreground text-xs">
+						Resets {summary.resetLabel}
+					</div>
+				)}
+			</div>
 		);
 	};
+
+	const renderLimitSummary = (key: ApiKey) => (
+		<div className="text-left">
+			<div className="font-mono text-xs">
+				{key.usageLimit
+					? formatCurrencyAmount(key.usageLimit)
+					: "No all-time limit"}
+			</div>
+			<div className="text-muted-foreground text-xs">
+				{formatPeriodLimitSummary(key)}
+			</div>
+		</div>
+	);
 
 	if (allKeys.length === 0) {
 		return (
@@ -423,7 +468,8 @@ export function ApiKeysList({
 							<TableHead>Created</TableHead>
 							<TableHead>Created By</TableHead>
 							<TableHead>Usage</TableHead>
-							<TableHead>Usage Limit</TableHead>
+							<TableHead>Current Period</TableHead>
+							<TableHead>Limits</TableHead>
 							<TableHead>IAM Rules</TableHead>
 							<TableHead className="text-right">Actions</TableHead>
 						</TableRow>
@@ -485,84 +531,22 @@ export function ApiKeysList({
 										</TooltipContent>
 									</Tooltip>
 								</TableCell>
-								<TableCell>${Number(key.usage).toFixed(2)}</TableCell>
+								<TableCell>{formatCurrencyAmount(key.usage)}</TableCell>
+								<TableCell>{renderCurrentPeriodUsage(key)}</TableCell>
 								<TableCell>
-									<Dialog>
-										<DialogTrigger asChild>
-											<Button
-												variant="outline"
-												size="sm"
-												className="min-w-28 flex justify-between"
-											>
-												{key.usageLimit
-													? `$${Number(key.usageLimit).toFixed(2)}`
-													: "No limit"}
-												<EditIcon />
-											</Button>
-										</DialogTrigger>
-										<DialogContent>
-											<form
-												onSubmit={(e) => {
-													e.preventDefault();
-													const formData = new FormData(
-														e.target as HTMLFormElement,
-													);
-													const newUsageLimit = formData.get("limit") as
-														| string
-														| null;
-													if (newUsageLimit === key.usageLimit) {
-														return;
-													}
-													if (newUsageLimit === "") {
-														updateKeyUsageLimit(key.id, null);
-													} else {
-														updateKeyUsageLimit(key.id, newUsageLimit);
-													}
-												}}
-											>
-												<DialogHeader>
-													<DialogTitle>Edit key credit limit</DialogTitle>
-													<DialogDescription>
-														Set a credit limit for this key. When key usage is
-														past this limit, requests using this key will return
-														an error.
-													</DialogDescription>
-												</DialogHeader>
-												<div className="grid gap-3 pt-8">
-													<Label htmlFor="limit">
-														Usage Limit (leave empty for no limit)
-													</Label>
-													<div className="relative">
-														<span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-															$
-														</span>
-														<Input
-															className="pl-6"
-															id="limit"
-															name="limit"
-															defaultValue={
-																key.usageLimit ? Number(key.usageLimit) : ""
-															}
-															type="number"
-														/>
-													</div>
-													<div className="text-muted-foreground text-sm">
-														Usage includes both usage from LLM Gateway credits
-														and usage from your own provider keys when
-														applicable.
-													</div>
-												</div>
-												<DialogFooter className="pt-8">
-													<DialogClose asChild>
-														<Button variant="outline">Cancel</Button>
-													</DialogClose>
-													<DialogClose asChild>
-														<Button type="submit">Save changes</Button>
-													</DialogClose>
-												</DialogFooter>
-											</form>
-										</DialogContent>
-									</Dialog>
+									<ApiKeyLimitsDialog
+										apiKey={key}
+										onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
+									>
+										<Button
+											variant="outline"
+											size="sm"
+											className="min-w-48 flex items-center justify-between gap-3"
+										>
+											{renderLimitSummary(key)}
+											<EditIcon />
+										</Button>
+									</ApiKeyLimitsDialog>
 								</TableCell>
 								<TableCell>
 									{key.iamRules && key.iamRules.length > 0 ? (
@@ -765,96 +749,38 @@ export function ApiKeysList({
 								{key.maskedToken}
 							</div>
 						</div>
-						<div className="pt-2 border-t grid grid-cols-2">
+						<div className="pt-2 border-t grid gap-3 md:grid-cols-3">
 							<div className="py-1">
 								<div className="text-xs text-muted-foreground mb-1">Usage</div>
 								<div className="font-mono text-xs break-all">
-									${Number(key.usage).toFixed(2)}
+									{formatCurrencyAmount(key.usage)}
 								</div>
 							</div>
+							<div className="py-1">
+								<div className="text-xs text-muted-foreground mb-1">
+									Current Period
+								</div>
+								{renderCurrentPeriodUsage(key)}
+							</div>
 							<div>
-								<Dialog>
-									<DialogTrigger asChild>
-										<Button
-											variant="outline"
-											size="sm"
-											className="min-w-32 flex justify-between h-full py-1"
-										>
-											<div className="text-left">
-												<div className="text-xs text-muted-foreground mb-1">
-													Usage Limit
-												</div>
-												<div className="font-mono text-xs break-all">
-													{key.usageLimit
-														? `$${Number(key.usageLimit).toFixed(2)}`
-														: "No limit"}
-												</div>
+								<ApiKeyLimitsDialog
+									apiKey={key}
+									onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
+								>
+									<Button
+										variant="outline"
+										size="sm"
+										className="min-w-32 flex justify-between h-full py-2"
+									>
+										<div className="text-left">
+											<div className="text-xs text-muted-foreground mb-1">
+												Limits
 											</div>
-											<EditIcon />
-										</Button>
-									</DialogTrigger>
-									<DialogContent>
-										<form
-											onSubmit={(e) => {
-												e.preventDefault();
-												const formData = new FormData(
-													e.target as HTMLFormElement,
-												);
-												const newUsageLimit = formData.get("limit") as
-													| string
-													| null;
-												if (newUsageLimit === key.usageLimit) {
-													return;
-												}
-												if (newUsageLimit === "") {
-													updateKeyUsageLimit(key.id, null);
-												} else {
-													updateKeyUsageLimit(key.id, newUsageLimit);
-												}
-											}}
-										>
-											<DialogHeader>
-												<DialogTitle>Edit key credit limit</DialogTitle>
-												<DialogDescription>
-													Set a credit limit for this key. When key usage is
-													past this limit, requests using this key will return
-													an error.
-												</DialogDescription>
-											</DialogHeader>
-											<div className="grid gap-3 pt-8">
-												<Label htmlFor="limit">
-													Usage Limit (leave empty for no limit)
-												</Label>
-												<div className="relative">
-													<span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-														$
-													</span>
-													<Input
-														className="pl-6"
-														id="limit"
-														name="limit"
-														defaultValue={
-															key.usageLimit ? Number(key.usageLimit) : ""
-														}
-														type="number"
-													/>
-												</div>
-												<div className="text-muted-foreground text-sm">
-													Usage includes both usage from LLM Gateway credits and
-													usage from your own provider keys when applicable.
-												</div>
-											</div>
-											<DialogFooter className="pt-8">
-												<DialogClose asChild>
-													<Button variant="outline">Cancel</Button>
-												</DialogClose>
-												<DialogClose asChild>
-													<Button type="submit">Save changes</Button>
-												</DialogClose>
-											</DialogFooter>
-										</form>
-									</DialogContent>
-								</Dialog>
+											{renderLimitSummary(key)}
+										</div>
+										<EditIcon />
+									</Button>
+								</ApiKeyLimitsDialog>
 							</div>
 						</div>
 						<div className="pt-2 border-t">

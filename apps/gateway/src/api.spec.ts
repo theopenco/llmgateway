@@ -752,7 +752,7 @@ describe("api", () => {
 		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
 		const requestId = "chat-openai-content-filter-fail-open-request-id";
 		const originalFetch = globalThis.fetch;
-		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
 			.mockImplementation(async (input, init) => {
@@ -811,6 +811,7 @@ describe("api", () => {
 					apiKeyId: "token-id",
 					error: "moderation fetch failed",
 				}),
+				expect.any(Error),
 			);
 
 			const logs = await waitForLogs(1);
@@ -867,7 +868,7 @@ describe("api", () => {
 		const previousContentFilterModels = process.env.LLM_CONTENT_FILTER_MODELS;
 		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
 		const requestId = "chat-openai-content-filter-missing-key-request-id";
-		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
 
 		try {
 			process.env.LLM_CONTENT_FILTER_MODE = "enabled";
@@ -909,6 +910,7 @@ describe("api", () => {
 					apiKeyId: "token-id",
 					error: expect.stringContaining("openai"),
 				}),
+				expect.any(Error),
 			);
 
 			const logs = await waitForLogs(1);
@@ -1965,7 +1967,7 @@ describe("api", () => {
 			);
 		});
 
-		test("streaming request surfaces missing upstream done sentinel", async () => {
+		test("streaming request closes cleanly after finish reason without upstream done sentinel", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
 				token: "real-token",
@@ -2005,20 +2007,188 @@ describe("api", () => {
 			const streamResult = await readAll(res.body);
 
 			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.errorEvents).toHaveLength(0);
+			expect(
+				streamResult.chunks.some(
+					(chunk) => chunk.choices?.[0]?.finish_reason === "stop",
+				),
+			).toBe(true);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("stop");
+			expect(logs[0].unifiedFinishReason).toBe("completed");
+			expect(logs[0].hasError).toBe(false);
+		});
+
+		test("streaming OpenAI Responses API closes cleanly after done events", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-5.4",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+
+			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.errorEvents).toHaveLength(0);
+			expect(streamResult.hasUsage).toBe(true);
+			expect(
+				streamResult.chunks.some(
+					(chunk) => chunk.choices?.[0]?.finish_reason === "stop",
+				),
+			).toBe(true);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("stop");
+			expect(logs[0].unifiedFinishReason).toBe("completed");
+			expect(logs[0].hasError).toBe(false);
+		});
+
+		test("streaming OpenAI Responses API treats done events without completed status as truncated", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-5.4",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_RESPONSES_DONE_BEFORE_COMPLETED",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+
+			expect(streamResult.hasContent).toBe(true);
 			expect(streamResult.hasError).toBe(true);
 			expect(streamResult.errorEvents.length).toBeGreaterThan(0);
 			expect(streamResult.errorEvents[0].error.type).toBe("upstream_error");
 			expect(streamResult.errorEvents[0].error.code).toBe("stream_truncated");
+			expect(
+				streamResult.chunks.some(
+					(chunk) => chunk.choices?.[0]?.finish_reason === "stop",
+				),
+			).toBe(false);
 
 			const logs = await waitForLogs(1);
 			expect(logs.length).toBe(1);
 			expect(logs[0].finishReason).toBe("upstream_error");
 			expect(logs[0].unifiedFinishReason).toBe("upstream_error");
 			expect(logs[0].hasError).toBe(true);
-			expect(logs[0].errorDetails?.statusCode).toBe(502);
-			expect(logs[0].errorDetails?.statusText).toBe(
-				"Upstream Stream Terminated",
-			);
+		});
+
+		test("streaming OpenAI Responses API closes cleanly after response.completed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-5.4",
+					messages: [
+						{
+							role: "user",
+							content: "Reply with exactly: hi",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+
+			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.errorEvents).toHaveLength(0);
+			expect(streamResult.hasUsage).toBe(true);
+			expect(
+				streamResult.chunks.some(
+					(chunk) => chunk.choices?.[0]?.finish_reason === "stop",
+				),
+			).toBe(true);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("stop");
+			expect(logs[0].unifiedFinishReason).toBe("completed");
+			expect(logs[0].hasError).toBe(false);
 		});
 
 		test("streaming request surfaces inline provider SSE errors", async () => {
