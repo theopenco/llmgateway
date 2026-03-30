@@ -56,6 +56,10 @@ import {
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
 import {
+	notifyProviderError,
+	type ProviderErrorNotificationLog,
+} from "./services/provider-error-discord.js";
+import {
 	backfillHistoryIfNeeded,
 	calculateAggregatedStatistics,
 	calculateCurrentMinuteHistory,
@@ -230,6 +234,30 @@ const schema = z.object({
 	unified_finish_reason: z.string().nullable(),
 	source: z.string().nullable(),
 });
+
+type ProcessedLogRow = z.infer<typeof schema>;
+
+const NOTIFIABLE_PROVIDER_ERROR_REASONS = new Set([
+	"gateway_error",
+	"upstream_error",
+]);
+
+function shouldNotifyProviderError(logRow: ProcessedLogRow): boolean {
+	if (logRow.hasError !== true) {
+		return false;
+	}
+
+	if (logRow.unified_finish_reason === "client_error") {
+		return false;
+	}
+
+	if (logRow.unified_finish_reason !== null) {
+		return NOTIFIABLE_PROVIDER_ERROR_REASONS.has(logRow.unified_finish_reason);
+	}
+
+	const statusCode = logRow.error_details?.statusCode;
+	return statusCode !== undefined && statusCode >= 500;
+}
 
 export async function acquireLock(key: string): Promise<boolean> {
 	// eslint-disable-next-line no-mixed-operators
@@ -712,6 +740,8 @@ export async function batchProcessLogs(): Promise<void> {
 		endCustomerId: string;
 		balance: string;
 	}> = [];
+	const providerErrorLogs: ProviderErrorNotificationLog[] = [];
+	let shouldSendProviderErrorNotifications = false;
 
 	try {
 		await db.transaction(async (tx) => {
@@ -838,6 +868,24 @@ export async function batchProcessLogs(): Promise<void> {
 					traceId: row.trace_id,
 					unifiedFinishReason: row.unified_finish_reason,
 				});
+
+				if (shouldNotifyProviderError(row)) {
+					providerErrorLogs.push({
+						duration: row.duration,
+						errorDetails: row.error_details,
+						logId: row.id,
+						organizationId: row.organization_id,
+						projectId: row.project_id,
+						requestId: row.request_id,
+						requestedModel: row.requested_model,
+						requestedProvider: row.requested_provider,
+						traceId: row.trace_id,
+						unifiedFinishReason: row.unified_finish_reason,
+						usedModel: row.used_model,
+						usedModelMapping: row.used_model_mapping,
+						usedProvider: row.used_provider,
+					});
+				}
 
 				if (row.cost && row.cost > 0 && !row.cached) {
 					const apiKeyCost = new Decimal(row.cost);
@@ -1334,6 +1382,8 @@ export async function batchProcessLogs(): Promise<void> {
 				});
 			}
 		}
+
+		shouldSendProviderErrorNotifications = true;
 	} catch (error) {
 		logger.error(
 			"Error processing batch credit deductions",
@@ -1341,6 +1391,14 @@ export async function batchProcessLogs(): Promise<void> {
 		);
 	} finally {
 		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
+	}
+
+	if (deductedOrgIds.length > 0) {
+		void checkLowBalanceAlerts(deductedOrgIds);
+	}
+
+	if (shouldSendProviderErrorNotifications && providerErrorLogs.length > 0) {
+		await Promise.all(providerErrorLogs.map(notifyProviderError));
 	}
 }
 

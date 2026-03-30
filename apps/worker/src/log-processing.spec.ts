@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 
 import {
 	eq,
@@ -16,6 +24,9 @@ import {
 import { batchProcessLogs } from "./worker.js";
 
 describe("Log Processing", () => {
+	const previousProviderErrorDiscordUrl =
+		process.env.PROVIDER_ERROR_DISCORD_URL;
+
 	interface TestIds {
 		apiKeyId: string;
 		email: string;
@@ -110,6 +121,12 @@ describe("Log Processing", () => {
 
 	afterAll(async () => {
 		await cleanupLogProcessingTestData(currentTestIds);
+	});
+
+	afterEach(() => {
+		process.env.PROVIDER_ERROR_DISCORD_URL = previousProviderErrorDiscordUrl;
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
 	});
 
 	describe("batchProcessLogs", () => {
@@ -570,6 +587,120 @@ describe("Log Processing", () => {
 			});
 
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
+		});
+
+		test.each(["upstream_error", "gateway_error"])(
+			"should report %s logs to Discord",
+			async (unifiedFinishReason) => {
+				const fetchMock = vi
+					.fn()
+					.mockResolvedValue(new Response(null, { status: 204 }));
+				vi.stubGlobal("fetch", fetchMock);
+				process.env.PROVIDER_ERROR_DISCORD_URL =
+					"https://discord.example/provider-errors";
+
+				await db.insert(log).values({
+					requestId: `test-request-${unifiedFinishReason}`,
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0,
+					cached: false,
+					usedMode: "credits",
+					duration: 2450,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedModelMapping: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 150,
+					mode: "credits",
+					hasError: true,
+					errorDetails: {
+						statusCode: 502,
+						statusText: "Bad Gateway",
+						responseText: "provider timed out",
+						cause: "upstream timeout",
+					},
+					unifiedFinishReason,
+					traceId: `trace-${unifiedFinishReason}`,
+				});
+
+				await batchProcessLogs();
+
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				expect(fetchMock).toHaveBeenCalledWith(
+					"https://discord.example/provider-errors",
+					expect.objectContaining({
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+					}),
+				);
+
+				const payload = JSON.parse(
+					String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
+				) as {
+					embeds?: Array<{
+						description?: string;
+						fields?: Array<{ name: string; value: string }>;
+						title?: string;
+					}>;
+				};
+
+				expect(payload.embeds?.[0]?.title).toContain(
+					unifiedFinishReason.replaceAll("_", " "),
+				);
+				expect(payload.embeds?.[0]?.description).toContain(
+					"provider timed out",
+				);
+				expect(payload.embeds?.[0]?.fields).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							name: "Trace ID",
+							value: `trace-${unifiedFinishReason}`,
+						}),
+					]),
+				);
+			},
+		);
+
+		test("should not report client errors to Discord", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(new Response(null, { status: 204 }));
+			vi.stubGlobal("fetch", fetchMock);
+			process.env.PROVIDER_ERROR_DISCORD_URL =
+				"https://discord.example/provider-errors";
+
+			await db.insert(log).values({
+				requestId: "test-request-client-error",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0,
+				cached: false,
+				usedMode: "credits",
+				duration: 900,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+				hasError: true,
+				errorDetails: {
+					statusCode: 400,
+					statusText: "Bad Request",
+					responseText: "invalid input",
+				},
+				unifiedFinishReason: "client_error",
+			});
+
+			await batchProcessLogs();
+
+			expect(fetchMock).not.toHaveBeenCalled();
 		});
 	});
 });
