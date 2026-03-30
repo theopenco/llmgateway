@@ -441,6 +441,18 @@ export function LogDetailClient({
 																		</span>
 																	</span>
 																)}
+																{score.rate_limited && (
+																	<span className="inline-flex items-center gap-0.5 text-amber-500">
+																		<Clock className="h-3 w-3" />
+																		<span>rpm capped</span>
+																	</span>
+																)}
+																{score.excludedByContentFilter && (
+																	<span className="inline-flex items-center gap-0.5 text-amber-500">
+																		<Ban className="h-3 w-3" />
+																		<span>content filter</span>
+																	</span>
+																)}
 															</span>
 															<span className="text-muted-foreground font-mono">
 																{score.score.toFixed(2)}

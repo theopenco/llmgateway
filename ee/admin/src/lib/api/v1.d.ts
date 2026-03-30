@@ -975,7 +975,12 @@ export interface paths {
                                         status_code?: number;
                                         error_type?: string;
                                         rate_limited?: boolean;
+                                        contentFilterProvider?: boolean;
+                                        excludedByContentFilter?: boolean;
                                     }[];
+                                    contentFilterMatched?: boolean;
+                                    contentFilterRerouted?: boolean;
+                                    contentFilterExcludedProviders?: string[];
                                     routing?: {
                                         provider: string;
                                         model: string;
@@ -1211,7 +1216,12 @@ export interface paths {
                                         status_code?: number;
                                         error_type?: string;
                                         rate_limited?: boolean;
+                                        contentFilterProvider?: boolean;
+                                        excludedByContentFilter?: boolean;
                                     }[];
+                                    contentFilterMatched?: boolean;
+                                    contentFilterRerouted?: boolean;
+                                    contentFilterExcludedProviders?: string[];
                                     routing?: {
                                         provider: string;
                                         model: string;

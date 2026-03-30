@@ -128,9 +128,14 @@ const logSchema = z.object({
 						status_code: z.number().optional(),
 						error_type: z.string().optional(),
 						rate_limited: z.boolean().optional(),
+						contentFilterProvider: z.boolean().optional(),
+						excludedByContentFilter: z.boolean().optional(),
 					}),
 				)
 				.optional(),
+			contentFilterMatched: z.boolean().optional(),
+			contentFilterRerouted: z.boolean().optional(),
+			contentFilterExcludedProviders: z.array(z.string()).optional(),
 			routing: z
 				.array(
 					z.object({

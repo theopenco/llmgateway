@@ -82,6 +82,7 @@ import {
 	providers,
 	type WebSearchTool,
 	expandAllProviderRegions,
+	getProviderDefinition,
 	getRegionSpecificEnvValue,
 	stripRegionFromModelName,
 } from "@llmgateway/models";
@@ -328,6 +329,110 @@ function filterEligibleModelProviders(
 
 		return true;
 	});
+}
+
+interface ContentFilterRoutingDecision {
+	candidates: ProviderModelMapping[];
+	excludedProviders: ProviderModelMapping[];
+	rerouted: boolean;
+}
+
+function isContentFilterProvider(providerId: string): boolean {
+	return getProviderDefinition(providerId)?.contentFilter === true;
+}
+
+function getContentFilterRoutingDecision(
+	availableModelProviders: ProviderModelMapping[],
+	contentFilterMatched: boolean,
+): ContentFilterRoutingDecision {
+	if (!contentFilterMatched) {
+		return {
+			candidates: availableModelProviders,
+			excludedProviders: [],
+			rerouted: false,
+		};
+	}
+
+	const preferredProviders = availableModelProviders.filter(
+		(provider) => !isContentFilterProvider(provider.providerId),
+	);
+
+	if (preferredProviders.length === 0) {
+		return {
+			candidates: availableModelProviders,
+			excludedProviders: [],
+			rerouted: false,
+		};
+	}
+
+	const excludedProviders = availableModelProviders.filter((provider) =>
+		isContentFilterProvider(provider.providerId),
+	);
+
+	if (excludedProviders.length === 0) {
+		return {
+			candidates: availableModelProviders,
+			excludedProviders: [],
+			rerouted: false,
+		};
+	}
+
+	return {
+		candidates: preferredProviders,
+		excludedProviders,
+		rerouted: true,
+	};
+}
+
+function addContentFilterRoutingMetadata(
+	routingMetadata: RoutingMetadata,
+	contentFilterMatched: boolean,
+	excludedProviders: ProviderModelMapping[],
+	modelId: string | undefined,
+	metricsMap: Map<string, ProviderMetrics>,
+): RoutingMetadata {
+	if (!contentFilterMatched) {
+		return routingMetadata;
+	}
+
+	const contentFilterExcludedProviders = [
+		...new Set(excludedProviders.map((provider) => provider.providerId)),
+	];
+
+	const providerScores =
+		excludedProviders.length === 0 || !modelId
+			? routingMetadata.providerScores
+			: [
+					...excludedProviders.map((provider) => {
+						const metrics = metricsMap.get(
+							metricsKey(modelId, provider.providerId, provider.region),
+						);
+
+						return {
+							providerId: provider.providerId,
+							region: provider.region,
+							score: -1,
+							uptime: metrics?.uptime ?? 0,
+							latency: metrics?.averageLatency ?? 0,
+							throughput: metrics?.throughput ?? 0,
+							price: getProviderSelectionPrice(provider),
+							contentFilterProvider: true,
+							excludedByContentFilter: true,
+						};
+					}),
+					...routingMetadata.providerScores,
+				];
+
+	return {
+		...routingMetadata,
+		contentFilterMatched: true,
+		contentFilterRerouted: contentFilterExcludedProviders.length > 0,
+		contentFilterExcludedProviders:
+			contentFilterExcludedProviders.length > 0
+				? contentFilterExcludedProviders
+				: undefined,
+		providerScores,
+	};
 }
 
 function usesGoogleQueryToken(provider: string): boolean {
@@ -1418,6 +1523,36 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	const contentFilterMode = getContentFilterMode();
+	const contentFilterMethod = getContentFilterMethod();
+	const shouldApplyGatewayContentFilter =
+		contentFilterMode !== "disabled" &&
+		shouldApplyContentFilterToModel(requestedModel);
+	const keywordContentFilterMatch =
+		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
+			? checkContentFilter(messages as BaseMessage[])
+			: null;
+	const openAIContentFilterResult =
+		shouldApplyGatewayContentFilter && contentFilterMethod === "openai"
+			? await checkOpenAIContentFilter(
+					messages as BaseMessage[],
+					{
+						requestId,
+						organizationId: project.organizationId,
+						projectId: project.id,
+						apiKeyId: apiKey.id,
+					},
+					c.req.raw.signal,
+				)
+			: null;
+	const contentFilterMatched =
+		keywordContentFilterMatch !== null ||
+		openAIContentFilterResult?.flagged === true;
+	const shouldRerouteContentFilter =
+		contentFilterMode === "enabled" && contentFilterMatched;
+	let contentFilterRoutingExcludedProviders: ProviderModelMapping[] = [];
+	let contentFilterRoutingApplied = false;
+
 	// Check provider RPM caps for specifically requested providers
 	// If rate-limited, route to an alternative (or 429 if no-fallback)
 	if (
@@ -1823,23 +1958,33 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
+			const contentFilterRoutingDecision = getContentFilterRoutingDecision(
+				availableModelProviders,
+				shouldRerouteContentFilter,
+			);
+			const contentFilterPreferredProviders =
+				contentFilterRoutingDecision.candidates;
+			contentFilterRoutingExcludedProviders =
+				contentFilterRoutingDecision.excludedProviders;
+			contentFilterRoutingApplied = contentFilterRoutingDecision.rerouted;
+
 			// Filter out rate-limited providers during routing
 			const rateLimitedProviderIds = await filterRateLimitedProviders(
 				project.organizationId,
-				availableModelProviders.map((p) => ({
+				contentFilterPreferredProviders.map((p) => ({
 					providerId: p.providerId,
 					model: (modelInfo as ModelDefinition).id,
 					providerModelName: p.modelName,
 				})),
 			);
-			const nonRateLimitedProviders = availableModelProviders.filter(
+			const nonRateLimitedProviders = contentFilterPreferredProviders.filter(
 				(p) => !rateLimitedProviderIds.has(p.providerId),
 			);
 			// Fail-open: if all are rate-limited, use them all anyway
 			const routingCandidates =
 				nonRateLimitedProviders.length > 0
 					? nonRateLimitedProviders
-					: availableModelProviders;
+					: contentFilterPreferredProviders;
 
 			const rawModelWithPricing = models.find((m) => m.id === usedModel);
 			const modelWithPricing = rawModelWithPricing
@@ -1853,10 +1998,13 @@ chat.openapi(completions, async (c) => {
 
 			if (modelWithPricing) {
 				// Fetch uptime/latency metrics from last 5 minutes for provider selection
-				const metricsCombinations = routingCandidates.map((p) => ({
+				const metricsCombinations = [
+					...routingCandidates,
+					...contentFilterRoutingExcludedProviders,
+				].map((provider) => ({
 					modelId: modelWithPricing.id,
-					providerId: p.providerId,
-					region: p.region,
+					providerId: provider.providerId,
+					region: provider.region,
 				}));
 				const metricsMap =
 					await getProviderMetricsForCombinations(metricsCombinations);
@@ -1877,10 +2025,16 @@ chat.openapi(completions, async (c) => {
 					usedProvider = cheapestResult.provider.providerId;
 					usedModel = cheapestResult.provider.modelName;
 					usedRegion = cheapestResult.provider.region;
-					routingMetadata = {
-						...cheapestResult.metadata,
-						...(noFallback ? { noFallback: true } : {}),
-					};
+					routingMetadata = addContentFilterRoutingMetadata(
+						{
+							...cheapestResult.metadata,
+							...(noFallback ? { noFallback: true } : {}),
+						},
+						contentFilterMatched,
+						contentFilterRoutingExcludedProviders,
+						modelWithPricing.id,
+						metricsMap,
+					);
 					// Annotate rate-limited providers in routing metadata
 					if (rateLimitedProviderIds.size > 0) {
 						// Add filtered-out rate-limited providers as score entries
@@ -1912,9 +2066,9 @@ chat.openapi(completions, async (c) => {
 					usedRegion = routingCandidates[0].region;
 				}
 			} else {
-				usedProvider = availableModelProviders[0].providerId;
-				usedModel = availableModelProviders[0].modelName;
-				usedRegion = availableModelProviders[0].region;
+				usedProvider = contentFilterPreferredProviders[0].providerId;
+				usedModel = contentFilterPreferredProviders[0].modelName;
+				usedRegion = contentFilterPreferredProviders[0].region;
 			}
 		}
 	}
@@ -2007,10 +2161,13 @@ chat.openapi(completions, async (c) => {
 		let metricsMap: Map<string, ProviderMetrics> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
-			const metricsCombinations = routingMetadataProviders.map((p) => ({
+			const metricsCombinations = [
+				...routingMetadataProviders,
+				...contentFilterRoutingExcludedProviders,
+			].map((provider) => ({
 				modelId: baseModelId,
-				providerId: p.providerId,
-				region: p.region,
+				providerId: provider.providerId,
+				region: provider.region,
 			}));
 			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
@@ -2052,13 +2209,19 @@ chat.openapi(completions, async (c) => {
 				};
 			});
 
-		routingMetadata = {
-			availableProviders: routingMetadataProviders.map((p) => p.providerId),
-			selectedProvider: usedProvider,
-			selectionReason,
-			providerScores: allProviderScores,
-			...(noFallback ? { noFallback: true } : {}),
-		};
+		routingMetadata = addContentFilterRoutingMetadata(
+			{
+				availableProviders: routingMetadataProviders.map((p) => p.providerId),
+				selectedProvider: usedProvider,
+				selectionReason,
+				providerScores: allProviderScores,
+				...(noFallback ? { noFallback: true } : {}),
+			},
+			contentFilterMatched,
+			contentFilterRoutingExcludedProviders,
+			baseModelId,
+			metricsMap,
+		);
 	}
 
 	// Update baseModelName to match the final usedModel after routing
@@ -2462,39 +2625,16 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check gateway-level content filter before routing the request upstream.
-	const contentFilterMode = getContentFilterMode();
-	const contentFilterMethod = getContentFilterMethod();
-	const shouldApplyGatewayContentFilter =
-		contentFilterMode !== "disabled" &&
-		shouldApplyContentFilterToModel(requestedModel);
-	const keywordContentFilterMatch =
-		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
-			? checkContentFilter(messages as BaseMessage[])
-			: null;
-	const openAIContentFilterResult =
-		shouldApplyGatewayContentFilter && contentFilterMethod === "openai"
-			? await checkOpenAIContentFilter(
-					messages as BaseMessage[],
-					{
-						requestId,
-						organizationId: project.organizationId,
-						projectId: project.id,
-						apiKeyId: apiKey.id,
-					},
-					c.req.raw.signal,
-				)
-			: null;
-	const contentFilterMatched =
-		keywordContentFilterMatch !== null ||
-		openAIContentFilterResult?.flagged === true;
 	const contentFilterBlocked =
-		contentFilterMode === "enabled" && contentFilterMatched;
+		contentFilterMode === "enabled" &&
+		contentFilterMatched &&
+		!contentFilterRoutingApplied;
 
-	// In monitor mode, tag logs with internalContentFilter when the selected
-	// filter method would have blocked the request.
+	// Preserve monitor tagging, and also tag successful reroutes triggered by a
+	// gateway content-filter match so the decision remains visible in logs.
 	const shouldTagContentFilter =
-		contentFilterMode === "monitor" && contentFilterMatched;
+		(contentFilterMode === "monitor" && contentFilterMatched) ||
+		contentFilterRoutingApplied;
 	const gatewayContentFilterResponse = openAIContentFilterResult?.responses
 		.length
 		? openAIContentFilterResult.responses

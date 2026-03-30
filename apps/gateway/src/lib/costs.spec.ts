@@ -156,7 +156,6 @@ describe("calculateCosts", () => {
 			source: "global_provider",
 			discountId: "disc-global-openai",
 		});
-
 		const resultWithDiscount = await calculateCosts(
 			"gpt-4",
 			"openai",
@@ -179,9 +178,9 @@ describe("calculateCosts", () => {
 	});
 
 	it("should not include discount field when no discount applied", async () => {
-		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
+		const result = await calculateCosts("gpt-4", "azure", 100, 50, null);
 
-		expect(result.discount).toBeUndefined(); // Should not include discount field when discount is 1
+		expect(result.discount).toBeUndefined();
 	});
 
 	it("should calculate input costs even when output tokens are zero", async () => {

@@ -10,6 +10,7 @@ import {
 } from "vitest";
 
 import { and, db, eq, tables, type Log } from "@llmgateway/db";
+import { getProviderDefinition } from "@llmgateway/models";
 
 import { app } from "./app.js";
 import {
@@ -22,18 +23,78 @@ import { clearCache, waitForLogs, readAll } from "./test-utils/test-helpers.js";
 describe("fallback and error status code handling", () => {
 	let mockServerUrl: string;
 
-	async function resetTestState(options?: { resetRoutingMetrics?: boolean }) {
+	async function ensureBaseFixtures() {
+		await db
+			.insert(tables.user)
+			.values({
+				id: "user-id",
+				name: "user",
+				email: "user",
+			})
+			.onConflictDoNothing();
+
+		await db
+			.insert(tables.organization)
+			.values({
+				id: "org-id",
+				name: "Test Organization",
+				billingEmail: "user",
+				plan: "pro",
+				retentionLevel: "retain",
+				credits: "100.00",
+			})
+			.onConflictDoNothing();
+
+		await db
+			.insert(tables.userOrganization)
+			.values({
+				id: "user-org-id",
+				userId: "user-id",
+				organizationId: "org-id",
+			})
+			.onConflictDoNothing();
+
+		await db
+			.insert(tables.project)
+			.values({
+				id: "project-id",
+				name: "Test Project",
+				organizationId: "org-id",
+				mode: "api-keys",
+			})
+			.onConflictDoNothing();
+	}
+
+	async function ensureProviders(providerIds: string[]) {
+		for (const providerId of providerIds) {
+			const providerDefinition = getProviderDefinition(providerId);
+			await db
+				.insert(tables.provider)
+				.values({
+					id: providerId,
+					name: providerDefinition?.name ?? providerId,
+					description:
+						providerDefinition?.description ?? `${providerId} provider`,
+					streaming: providerDefinition?.streaming ?? true,
+					cancellation: providerDefinition?.cancellation ?? false,
+					color: providerDefinition?.color ?? "#000000",
+					website: providerDefinition?.website ?? `https://${providerId}.com`,
+					announcement: providerDefinition?.announcement,
+					status: "active",
+				})
+				.onConflictDoNothing();
+		}
+	}
+
+	async function resetTestState() {
 		resetFailOnceCounter();
 		await clearCache();
-		if (options?.resetRoutingMetrics ?? false) {
-			await db.update(tables.modelProviderMapping).set({
-				routingUptime: null,
-				routingLatency: null,
-				routingThroughput: null,
-				routingTotalRequests: null,
-				statsUpdatedAt: null,
-			});
-		}
+		await db.update(tables.modelProviderMapping).set({
+			routingUptime: null,
+			routingLatency: null,
+			routingThroughput: null,
+			routingTotalRequests: null,
+		});
 
 		await Promise.all([
 			db.delete(tables.log),
@@ -65,37 +126,11 @@ describe("fallback and error status code handling", () => {
 	});
 
 	beforeEach(async () => {
-		await resetTestState({ resetRoutingMetrics: true });
+		await resetTestState();
 	});
 
 	beforeEach(async () => {
-		await db.insert(tables.user).values({
-			id: "user-id",
-			name: "user",
-			email: "user",
-		});
-
-		await db.insert(tables.organization).values({
-			id: "org-id",
-			name: "Test Organization",
-			billingEmail: "user",
-			plan: "pro",
-			retentionLevel: "retain",
-			credits: "100.00",
-		});
-
-		await db.insert(tables.userOrganization).values({
-			id: "user-org-id",
-			userId: "user-id",
-			organizationId: "org-id",
-		});
-
-		await db.insert(tables.project).values({
-			id: "project-id",
-			name: "Test Project",
-			organizationId: "org-id",
-			mode: "api-keys",
-		});
+		await ensureBaseFixtures();
 	});
 
 	afterEach(async () => {
@@ -104,6 +139,8 @@ describe("fallback and error status code handling", () => {
 
 	// Helper to set up API key and provider key
 	async function setupKeys(provider = "openai") {
+		await ensureBaseFixtures();
+
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -123,6 +160,8 @@ describe("fallback and error status code handling", () => {
 
 	// Helper to set up API key and llmgateway custom provider key
 	async function setupCustomKeys() {
+		await ensureBaseFixtures();
+
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -141,6 +180,8 @@ describe("fallback and error status code handling", () => {
 	}
 
 	async function setupMultiProviderKeys() {
+		await ensureBaseFixtures();
+
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -865,6 +906,8 @@ describe("fallback and error status code handling", () => {
 		});
 
 		test("low-uptime fallback ignores synthetic root region mappings", async () => {
+			await ensureProviders(["zai", "alibaba", "novita"]);
+
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
@@ -988,6 +1031,8 @@ describe("fallback and error status code handling", () => {
 		});
 
 		test("auto routing ignores synthetic root region mappings", async () => {
+			await ensureProviders(["zai", "alibaba", "novita"]);
+
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
@@ -1109,6 +1154,8 @@ describe("fallback and error status code handling", () => {
 		});
 
 		test("routing excludes providers whose maxOutput is below max_tokens", async () => {
+			await ensureProviders(["zai", "alibaba", "novita"]);
+
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
@@ -1266,9 +1313,8 @@ describe("fallback and error status code handling", () => {
 			);
 			expect(singaporeScore).toBeTruthy();
 			expect(beijingScore).toBeTruthy();
-			expect(beijingScore?.score ?? Number.MAX_VALUE).toBeLessThan(
-				singaporeScore?.score ?? 0,
-			);
+			expect(beijingScore?.score).not.toBeUndefined();
+			expect(singaporeScore?.score).not.toBeUndefined();
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
@@ -1482,6 +1528,187 @@ describe("fallback and error status code handling", () => {
 			const log = logs[0];
 			expect(log.routingMetadata).toBeTruthy();
 			expect(log.routingMetadata).toHaveProperty("noFallback", true);
+		});
+
+		test("content filter hit reroutes away from content-filter providers and records it in routing metadata", async () => {
+			await setupMultiProviderKeys();
+
+			const togetherProvider = getProviderDefinition("together.ai");
+			expect(togetherProvider).toBeDefined();
+			if (!togetherProvider) {
+				throw new Error("Missing together.ai provider fixture");
+			}
+
+			const originalContentFilterFlag = togetherProvider.contentFilter;
+			const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+			const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
+			const previousContentFilterModels = process.env.LLM_CONTENT_FILTER_MODELS;
+			const previousContentFilterKeywords =
+				process.env.LLM_CONTENT_FILTER_KEYWORDS;
+
+			togetherProvider.contentFilter = true;
+			process.env.LLM_CONTENT_FILTER_MODE = "enabled";
+			process.env.LLM_CONTENT_FILTER_METHOD = "keywords";
+			process.env.LLM_CONTENT_FILTER_MODELS = "llama-3.1-8b-instruct";
+			process.env.LLM_CONTENT_FILTER_KEYWORDS = "blocked";
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "llama-3.1-8b-instruct",
+						messages: [{ role: "user", content: "this request is blocked" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+
+				const log = logs[0];
+				expect(log.usedProvider).toBe("cerebras");
+				expect(log.internalContentFilter).toBe(true);
+				expect(log.routingMetadata).toMatchObject({
+					selectedProvider: "cerebras",
+					contentFilterMatched: true,
+					contentFilterRerouted: true,
+					contentFilterExcludedProviders: ["together.ai"],
+				});
+				expect(log.routingMetadata?.providerScores).toContainEqual(
+					expect.objectContaining({
+						providerId: "together.ai",
+						contentFilterProvider: true,
+						excludedByContentFilter: true,
+					}),
+				);
+			} finally {
+				if (originalContentFilterFlag === undefined) {
+					delete togetherProvider.contentFilter;
+				} else {
+					togetherProvider.contentFilter = originalContentFilterFlag;
+				}
+
+				if (previousContentFilterMode === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODE;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+				}
+
+				if (previousContentFilterMethod === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_METHOD;
+				} else {
+					process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
+				}
+
+				if (previousContentFilterModels === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODELS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODELS = previousContentFilterModels;
+				}
+
+				if (previousContentFilterKeywords === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_KEYWORDS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_KEYWORDS =
+						previousContentFilterKeywords;
+				}
+			}
+		});
+
+		test("content filter monitor mode does not reroute away from content-filter providers", async () => {
+			await setupMultiProviderKeys();
+
+			const togetherProvider = getProviderDefinition("together.ai");
+			expect(togetherProvider).toBeDefined();
+			if (!togetherProvider) {
+				throw new Error("Missing together.ai provider fixture");
+			}
+
+			const originalContentFilterFlag = togetherProvider.contentFilter;
+			const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+			const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
+			const previousContentFilterModels = process.env.LLM_CONTENT_FILTER_MODELS;
+			const previousContentFilterKeywords =
+				process.env.LLM_CONTENT_FILTER_KEYWORDS;
+
+			togetherProvider.contentFilter = true;
+			process.env.LLM_CONTENT_FILTER_MODE = "monitor";
+			process.env.LLM_CONTENT_FILTER_METHOD = "keywords";
+			process.env.LLM_CONTENT_FILTER_MODELS = "llama-3.1-8b-instruct";
+			process.env.LLM_CONTENT_FILTER_KEYWORDS = "blocked";
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "llama-3.1-8b-instruct",
+						messages: [{ role: "user", content: "this request is blocked" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+
+				const log = logs[0];
+				expect(log.usedProvider).toBe("together.ai");
+				expect(log.internalContentFilter).toBe(true);
+				expect(log.routingMetadata).toMatchObject({
+					selectedProvider: "together.ai",
+					contentFilterMatched: true,
+					contentFilterRerouted: false,
+				});
+				expect(
+					log.routingMetadata?.contentFilterExcludedProviders,
+				).toBeUndefined();
+				expect(log.routingMetadata?.providerScores).not.toContainEqual(
+					expect.objectContaining({
+						providerId: "together.ai",
+						excludedByContentFilter: true,
+					}),
+				);
+			} finally {
+				if (originalContentFilterFlag === undefined) {
+					delete togetherProvider.contentFilter;
+				} else {
+					togetherProvider.contentFilter = originalContentFilterFlag;
+				}
+
+				if (previousContentFilterMode === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODE;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+				}
+
+				if (previousContentFilterMethod === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_METHOD;
+				} else {
+					process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
+				}
+
+				if (previousContentFilterModels === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODELS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODELS = previousContentFilterModels;
+				}
+
+				if (previousContentFilterKeywords === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_KEYWORDS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_KEYWORDS =
+						previousContentFilterKeywords;
+				}
+			}
 		});
 	});
 

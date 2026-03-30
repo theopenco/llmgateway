@@ -44,6 +44,9 @@ export interface ProviderDefinition {
 	// Priority weight for routing (default: 1). Lower values deprioritize the provider.
 	// e.g., 0.8 means 20% lower priority (score multiplied by 1/0.8 = 1.25)
 	priority?: number;
+	// Whether requests that match the gateway content filter should avoid this provider
+	// when an alternative provider is available.
+	contentFilter?: boolean;
 	/** Region routing config - when set, provider supports multiple geographic endpoints */
 	regionConfig?: ProviderRegionConfig;
 }
@@ -170,6 +173,7 @@ export const providers = [
 		color: "#1a1a1a",
 		website: null,
 		announcement: null,
+		contentFilter: true,
 	},
 	{
 		id: "avalanche",
