@@ -14,7 +14,7 @@ import { ImageSidebar } from "@/components/playground/image-sidebar";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
-import { getModelImageConfig, streamImageParts } from "@/lib/image-gen";
+import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -303,27 +303,16 @@ export default function ImagePageClient({
 							);
 						}
 
-						await streamImageParts(response, (image) => {
-							setGalleryItems((prev) =>
-								prev.map((item) => {
-									if (item.id !== itemId) {
-										return item;
-									}
-									return {
-										...item,
-										models: item.models.map((m) => {
-											if (m.modelId !== modelId) {
-												return m;
-											}
-											return {
-												...m,
-												images: [...m.images, image],
-											};
-										}),
-									};
-								}),
+						const data = await response.json();
+						const generatedImages = data.images as
+							| { base64: string; mediaType: string }[]
+							| undefined;
+
+						if (!generatedImages || generatedImages.length === 0) {
+							throw new Error(
+								"The model did not generate any images. Try a different model.",
 							);
-						});
+						}
 
 						setGalleryItems((prev) =>
 							prev.map((item) => {
@@ -336,7 +325,11 @@ export default function ImagePageClient({
 										if (m.modelId !== modelId) {
 											return m;
 										}
-										return { ...m, isLoading: false };
+										return {
+											...m,
+											images: generatedImages,
+											isLoading: false,
+										};
 									}),
 								};
 							}),

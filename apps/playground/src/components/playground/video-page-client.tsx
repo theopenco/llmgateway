@@ -492,9 +492,7 @@ export default function VideoPageClient({
 							controller.signal,
 						)) {
 							if (updatedJob.status === "completed") {
-								const videoUrl =
-									updatedJob.content?.[0]?.url ??
-									`/api/video/${updatedJob.id}/content`;
+								const videoUrl = `/api/video/${updatedJob.id}/content`;
 								updateGalleryModel(itemId, modelId, {
 									job: updatedJob,
 									videoUrl,
