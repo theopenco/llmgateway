@@ -163,19 +163,6 @@ describe("fallback and error status code handling", () => {
 				baseUrl: mockServerUrl,
 			},
 		]);
-
-		// These tests rely on together.ai being selected first for
-		// llama-3.1-8b-instruct. Seed explicit routing metrics here so they do not
-		// inherit whichever scores a previous test left behind in the shared
-		// modelProviderMapping table.
-		await setRoutingMetrics("llama-3.1-8b-instruct", "together.ai", 100, {
-			routingLatency: 100,
-			routingThroughput: 100,
-		});
-		await setRoutingMetrics("llama-3.1-8b-instruct", "cerebras", 95, {
-			routingLatency: 300,
-			routingThroughput: 50,
-		});
 	}
 
 	async function setRoutingMetrics(
