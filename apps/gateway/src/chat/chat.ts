@@ -438,6 +438,7 @@ function addContentFilterRoutingMetadata(
 function usesGoogleQueryToken(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
+		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -5610,6 +5611,7 @@ chat.openapi(completions, async (c) => {
 								// Handle provider-specific finish reason extraction
 								switch (usedProvider) {
 									case "google-ai-studio":
+									case "glacier":
 									case "google-vertex":
 									case "quartz":
 									case "obsidian":

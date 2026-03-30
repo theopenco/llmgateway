@@ -28,6 +28,7 @@ export function getProviderHeaders(
 			};
 		}
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
 		case "quartz":
 			return {};

@@ -263,6 +263,7 @@ export async function resolveProviderContext(
 		providerKey?.baseUrl ?? undefined,
 		upstreamModelName,
 		usedProvider === "google-ai-studio" ||
+			usedProvider === "glacier" ||
 			usedProvider === "google-vertex" ||
 			usedProvider === "quartz"
 			? usedToken
