@@ -2021,6 +2021,62 @@ describe("api", () => {
 			);
 		});
 
+		test("streaming OpenAI Responses API closes cleanly after done events", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-5.4",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+
+			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.errorEvents).toHaveLength(0);
+			expect(streamResult.hasUsage).toBe(true);
+			expect(
+				streamResult.chunks.some(
+					(chunk) => chunk.choices?.[0]?.finish_reason === "stop",
+				),
+			).toBe(true);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("stop");
+			expect(logs[0].unifiedFinishReason).toBe("completed");
+			expect(logs[0].hasError).toBe(false);
+		});
+
 		test("streaming request surfaces inline provider SSE errors", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",

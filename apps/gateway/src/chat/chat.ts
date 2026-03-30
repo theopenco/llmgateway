@@ -4437,6 +4437,8 @@ chat.openapi(completions, async (c) => {
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
+				let sawOpenAiResponsesDoneEvent = false;
+				let sentDownstreamFinishReasonChunk = false;
 				let handledTerminalProviderEvent = false;
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
@@ -4948,6 +4950,17 @@ chat.openapi(completions, async (c) => {
 									usedProvider === "aws-bedrock"
 										? extractAwsBedrockStreamError(data)
 										: null;
+								if (
+									data &&
+									typeof data === "object" &&
+									"type" in data &&
+									typeof data.type === "string" &&
+									(data.type === "response.content_part.done" ||
+										data.type === "response.output_item.done" ||
+										data.type === "response.output_text.done")
+								) {
+									sawOpenAiResponsesDoneEvent = true;
+								}
 								const openAiCompatibleStreamError =
 									!awsBedrockStreamError &&
 									data &&
@@ -5307,6 +5320,7 @@ chat.openapi(completions, async (c) => {
 								// Extract finishReason from transformedData to update tracking variable
 								if (transformedData.choices?.[0]?.finish_reason) {
 									finishReason = transformedData.choices[0].finish_reason;
+									sentDownstreamFinishReasonChunk = true;
 								}
 
 								// Extract content for logging using helper function
@@ -5749,6 +5763,19 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
+					if (
+						!streamingError &&
+						!canceled &&
+						finishReason === null &&
+						sawOpenAiResponsesDoneEvent
+					) {
+						sawProviderTerminalEvent = true;
+						finishReason =
+							streamingToolCalls && streamingToolCalls.length > 0
+								? "tool_calls"
+								: "stop";
+					}
+
 					const streamHasVerifiedTerminalEvent =
 						sawUpstreamDoneSentinel ||
 						sawProviderTerminalEvent ||
@@ -5907,6 +5934,39 @@ chat.openapi(completions, async (c) => {
 							);
 						}
 					} else if (!streamingError && !doneSent) {
+						if (
+							finishReason &&
+							!sentDownstreamFinishReasonChunk &&
+							!shouldBufferForHealing
+						) {
+							try {
+								const finishChunk = {
+									id: `chatcmpl-${Date.now()}`,
+									object: "chat.completion.chunk",
+									created: Math.floor(Date.now() / 1000),
+									model: usedModel,
+									choices: [
+										{
+											index: 0,
+											delta: {},
+											finish_reason: finishReason,
+										},
+									],
+								};
+
+								await writeSSEAndCache({
+									data: JSON.stringify(finishChunk),
+									id: String(eventId++),
+								});
+								sentDownstreamFinishReasonChunk = true;
+							} catch (error) {
+								logger.error(
+									"Error sending synthesized finish chunk",
+									error instanceof Error ? error : new Error(String(error)),
+								);
+							}
+						}
+
 						// Calculate costs before sending usage chunk so we can include cost data
 						const billCancelledRequestsEarly = shouldBillCancelledRequests();
 						streamingCostsEarly =

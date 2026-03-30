@@ -129,6 +129,48 @@ function extractStatusCodeTrigger(
 	};
 }
 
+function getResponsesApiUserMessage(input: unknown): string {
+	if (!Array.isArray(input)) {
+		return "";
+	}
+
+	const userItem = input.find(
+		(item) =>
+			item &&
+			typeof item === "object" &&
+			"role" in item &&
+			item.role === "user",
+	);
+	if (!userItem || typeof userItem !== "object" || !("content" in userItem)) {
+		return "";
+	}
+
+	const { content } = userItem;
+	if (typeof content === "string") {
+		return content;
+	}
+	if (!Array.isArray(content)) {
+		return "";
+	}
+
+	return content
+		.map((part) => {
+			if (
+				part &&
+				typeof part === "object" &&
+				"type" in part &&
+				part.type === "input_text" &&
+				"text" in part &&
+				typeof part.text === "string"
+			) {
+				return part.text;
+			}
+			return "";
+		})
+		.filter(Boolean)
+		.join(" ");
+}
+
 function extractApplicationCodeTrigger(
 	content: string,
 ): { code: number; response: object } | null {
@@ -481,8 +523,118 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	}
 
 	// Get the user's message to include in the response
-	const userMessage =
-		body.input?.find?.((msg: any) => msg.role === "user")?.content ?? "";
+	const userMessage = getResponsesApiUserMessage(body.input);
+	const shouldEndAfterDoneEvent = userMessage.includes(
+		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
+	);
+	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
+
+	if (body.stream === true) {
+		return streamSSE(c, async (stream) => {
+			let eventId = 0;
+			const responseBase = {
+				id: "resp-123",
+				object: "response",
+				created_at: Math.floor(Date.now() / 1000),
+				model: body.model ?? "gpt-5-nano",
+			};
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.created",
+					response: {
+						...responseBase,
+						status: "in_progress",
+					},
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.content_part.added",
+					content_index: 0,
+					item_id: "msg_123",
+					output_index: 0,
+					part: {
+						type: "output_text",
+						text: assistantContent,
+					},
+					response: {
+						...responseBase,
+						status: "in_progress",
+					},
+					sequence_number: 0,
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.output_text.done",
+					content_index: 0,
+					item_id: "msg_123",
+					output_index: 0,
+					response: {
+						...responseBase,
+						status: shouldEndAfterDoneEvent ? "completed" : "in_progress",
+						usage: {
+							input_tokens: 10,
+							output_tokens: 20,
+							total_tokens: 30,
+						},
+					},
+					sequence_number: 1,
+					text: assistantContent,
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.content_part.done",
+					content_index: 0,
+					item_id: "msg_123",
+					output_index: 0,
+					part: {
+						type: "output_text",
+						text: assistantContent,
+					},
+					response: {
+						...responseBase,
+						status: shouldEndAfterDoneEvent ? "completed" : "in_progress",
+						usage: {
+							input_tokens: 10,
+							output_tokens: 20,
+							total_tokens: 30,
+						},
+					},
+					sequence_number: 2,
+				}),
+				id: String(eventId++),
+			});
+
+			if (shouldEndAfterDoneEvent) {
+				return;
+			}
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.completed",
+					response: {
+						...responseBase,
+						usage: {
+							input_tokens: 10,
+							output_tokens: 20,
+							total_tokens: 30,
+						},
+						status: "completed",
+					},
+				}),
+				id: String(eventId++),
+			});
+		});
+	}
 
 	// Create a Responses API format response
 	const response = {
@@ -497,7 +649,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				content: [
 					{
 						type: "output_text",
-						text: `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`,
+						text: assistantContent,
 					},
 				],
 			},
