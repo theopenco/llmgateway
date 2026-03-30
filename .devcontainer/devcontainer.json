@@ -13,7 +13,7 @@
 		"DOCKER_BUILDKIT": "1",
 		"COMPOSE_DOCKER_CLI_BUILD": "1"
 	},
-	"postCreateCommand": "pnpm install",
+	"postStartCommand": "bash .devcontainer/post-start.sh",
 	"customizations": {
 		"vscode": {
 			"settings": {
