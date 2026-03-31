@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "responses_api_data" jsonb;
