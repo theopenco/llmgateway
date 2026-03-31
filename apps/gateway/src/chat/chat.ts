@@ -2667,15 +2667,21 @@ chat.openapi(completions, async (c) => {
 		.length
 		? openAIContentFilterResult.responses
 		: null;
-	const insertLog = (logData: Parameters<typeof _insertLog>[0]) =>
-		_insertLog({
-			...logData,
-			internalContentFilter: shouldTagContentFilter
-				? true
-				: logData.internalContentFilter,
-			gatewayContentFilterResponse:
-				logData.gatewayContentFilterResponse ?? gatewayContentFilterResponse,
-		});
+	const insertLog = (
+		logData: Parameters<typeof _insertLog>[0],
+		options?: Parameters<typeof _insertLog>[1],
+	) =>
+		_insertLog(
+			{
+				...logData,
+				internalContentFilter: shouldTagContentFilter
+					? true
+					: logData.internalContentFilter,
+				gatewayContentFilterResponse:
+					logData.gatewayContentFilterResponse ?? gatewayContentFilterResponse,
+			},
+			options,
+		);
 
 	if (contentFilterBlocked) {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
