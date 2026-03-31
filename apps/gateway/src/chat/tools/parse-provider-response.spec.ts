@@ -226,7 +226,14 @@ describe("parseProviderResponse", () => {
 				},
 			};
 
-			const result = parseProviderResponse("minimax", "MiniMax-M2", json);
+			const result = parseProviderResponse(
+				"minimax",
+				"MiniMax-M2",
+				json,
+				[],
+				true,
+				true,
+			);
 
 			expect(result.content).toBe("Final answer");
 			expect(result.reasoningContent).toBe("step 1 step 2");
@@ -250,7 +257,14 @@ describe("parseProviderResponse", () => {
 				},
 			};
 
-			const result = parseProviderResponse("minimax", "MiniMax-M2", json);
+			const result = parseProviderResponse(
+				"minimax",
+				"MiniMax-M2",
+				json,
+				[],
+				true,
+				true,
+			);
 
 			expect(result.content).toBe("Final answer");
 			expect(result.reasoningContent).toBe("step 1\nstep 2");
@@ -275,7 +289,14 @@ describe("parseProviderResponse", () => {
 				},
 			};
 
-			const result = parseProviderResponse("minimax", "MiniMax-M2", json);
+			const result = parseProviderResponse(
+				"minimax",
+				"MiniMax-M2",
+				json,
+				[],
+				true,
+				true,
+			);
 
 			expect(result.content).toBe("Final answer");
 			expect(result.reasoningContent).toBe("structured reasoning");

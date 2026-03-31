@@ -46,6 +46,7 @@ export interface ProviderContext {
 	requestCanBeCanceled: boolean;
 	isImageGeneration: boolean;
 	supportsReasoning: boolean;
+	splitTaggedReasoning: boolean;
 	temperature: number | undefined;
 	max_tokens: number | undefined;
 	top_p: number | undefined;
@@ -252,6 +253,8 @@ export async function resolveProviderContext(
 
 	// --- Check if model supports reasoning (from selected provider, not any) ---
 	const supportsReasoning = providerMappingForSelected?.reasoning === true;
+	const splitTaggedReasoning =
+		providerMappingForSelected?.splitTaggedReasoning === true;
 
 	// --- Image generation check ---
 	const isImageGeneration =
@@ -427,6 +430,7 @@ export async function resolveProviderContext(
 		requestCanBeCanceled,
 		isImageGeneration,
 		supportsReasoning,
+		splitTaggedReasoning,
 		temperature,
 		max_tokens,
 		top_p,

@@ -2776,6 +2776,8 @@ chat.openapi(completions, async (c) => {
 			p.region === usedRegion,
 	);
 	let supportsReasoning = selectedProviderMapping?.reasoning === true;
+	let splitTaggedReasoning =
+		selectedProviderMapping?.splitTaggedReasoning === true;
 
 	// Check if messages contain existing tool calls or tool results
 	// If so, use Chat Completions API instead of Responses API
@@ -3757,6 +3759,7 @@ chat.openapi(completions, async (c) => {
 							requestCanBeCanceled = ctx.requestCanBeCanceled;
 							isImageGeneration = ctx.isImageGeneration;
 							supportsReasoning = ctx.supportsReasoning;
+							splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 							temperature = ctx.temperature;
 							max_tokens = ctx.max_tokens;
 							top_p = ctx.top_p;
@@ -4596,7 +4599,7 @@ chat.openapi(completions, async (c) => {
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 				let rawUpstreamData = ""; // Raw data received from upstream provider
 				const isAwsBedrock = usedProvider === "aws-bedrock";
-				const minimaxStreamingReasoningState = {
+				const taggedReasoningStreamState = {
 					inReasoning: false,
 					pending: "",
 				};
@@ -4613,7 +4616,7 @@ chat.openapi(completions, async (c) => {
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
 						usedProvider === "novita" ||
-						usedProvider === "minimax");
+						splitTaggedReasoning);
 
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end
@@ -5053,9 +5056,9 @@ chat.openapi(completions, async (c) => {
 								}
 
 								if (!shouldBufferForHealing) {
-									if (usedProvider === "minimax") {
+									if (splitTaggedReasoning) {
 										const flushedRemainder = flushTaggedStreamingRemainder(
-											minimaxStreamingReasoningState,
+											taggedReasoningStreamState,
 										);
 										if (
 											flushedRemainder.content ||
@@ -5332,7 +5335,7 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
-								if (usedProvider === "minimax") {
+								if (splitTaggedReasoning) {
 									const deltaContent =
 										transformedData.choices?.[0]?.delta?.content;
 
@@ -5342,7 +5345,7 @@ chat.openapi(completions, async (c) => {
 									) {
 										const splitChunk = splitTaggedStreamingContentChunk(
 											deltaContent,
-											minimaxStreamingReasoningState,
+											taggedReasoningStreamState,
 										);
 
 										if (splitChunk.content) {
@@ -6450,7 +6453,7 @@ chat.openapi(completions, async (c) => {
 					// clearInterval is idempotent so calling it multiple times is safe
 					clearKeepalive();
 
-					if (usedProvider === "minimax" && !fullReasoningContent) {
+					if (splitTaggedReasoning && !fullReasoningContent) {
 						const splitContent = splitReasoningFromTaggedContent(fullContent);
 						if (splitContent.reasoningContent) {
 							fullContent = splitContent.content ?? "";
@@ -6863,6 +6866,7 @@ chat.openapi(completions, async (c) => {
 				requestCanBeCanceled = ctx.requestCanBeCanceled;
 				isImageGeneration = ctx.isImageGeneration;
 				supportsReasoning = ctx.supportsReasoning;
+				splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 				temperature = ctx.temperature;
 				max_tokens = ctx.max_tokens;
 				top_p = ctx.top_p;
@@ -7841,6 +7845,7 @@ chat.openapi(completions, async (c) => {
 		json,
 		messages,
 		supportsReasoning,
+		splitTaggedReasoning,
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {
@@ -7875,7 +7880,7 @@ chat.openapi(completions, async (c) => {
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
 			usedProvider === "novita" ||
-			usedProvider === "minimax");
+			splitTaggedReasoning);
 
 	if (shouldHealNonStreaming && content) {
 		const healingResult = healJsonResponse(content);

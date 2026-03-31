@@ -20,6 +20,7 @@ export function parseProviderResponse(
 	json: any,
 	messages: any[] = [],
 	supportsReasoning = true,
+	splitTaggedReasoning = false,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -758,7 +759,7 @@ export function parseProviderResponse(
 			break;
 	}
 
-	if (usedProvider === "minimax" && typeof content === "string") {
+	if (splitTaggedReasoning && typeof content === "string") {
 		const splitContent = splitReasoningFromTaggedContent(content);
 		if (splitContent.reasoningContent) {
 			content = splitContent.content;
