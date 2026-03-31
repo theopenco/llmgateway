@@ -5280,6 +5280,7 @@ chat.openapi(completions, async (c) => {
 									data,
 									messages,
 									serverToolUseIndices,
+									supportsReasoning,
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -7761,6 +7762,7 @@ chat.openapi(completions, async (c) => {
 		usedModel,
 		json,
 		messages,
+		supportsReasoning,
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {

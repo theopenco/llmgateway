@@ -15,6 +15,7 @@ export function transformStreamingToOpenai(
 	data: any,
 	messages: any[],
 	serverToolUseIndices?: Set<number>,
+	supportsReasoning = true,
 ): any {
 	let transformedData = data;
 
@@ -1012,7 +1013,11 @@ export function transformStreamingToOpenai(
 						break;
 				}
 			} else {
-				transformedData = transformOpenaiStreaming(data, usedModel);
+				transformedData = transformOpenaiStreaming(
+					data,
+					usedModel,
+					supportsReasoning,
+				);
 			}
 			break;
 		}
@@ -1200,7 +1205,11 @@ export function transformStreamingToOpenai(
 		case "embercloud":
 		case "llmgateway": {
 			// Transform standard OpenAI streaming format with finish reason mapping
-			transformedData = transformOpenaiStreaming(data, usedModel);
+			transformedData = transformOpenaiStreaming(
+				data,
+				usedModel,
+				supportsReasoning,
+			);
 
 			// Map non-standard finish reasons to OpenAI-compatible values
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {
@@ -1219,7 +1228,11 @@ export function transformStreamingToOpenai(
 				model: usedModel,
 				dataKeys: Object.keys(data),
 			});
-			transformedData = transformOpenaiStreaming(data, usedModel);
+			transformedData = transformOpenaiStreaming(
+				data,
+				usedModel,
+				supportsReasoning,
+			);
 			break;
 		}
 	}

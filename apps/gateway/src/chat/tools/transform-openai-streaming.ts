@@ -41,7 +41,11 @@ function normalizeUsage(usage: any): any {
 /**
  * Helper function to transform standard OpenAI streaming format
  */
-export function transformOpenaiStreaming(data: any, usedModel: string): any {
+export function transformOpenaiStreaming(
+	data: any,
+	usedModel: string,
+	supportsReasoning = true,
+): any {
 	// Helper to transform delta and normalize reasoning_content to reasoning
 	const transformDelta = (delta: any): any => {
 		if (!delta) {
@@ -56,6 +60,16 @@ export function transformOpenaiStreaming(data: any, usedModel: string): any {
 		// Normalize reasoning_content field to reasoning for OpenAI compatibility
 		if (newDelta.reasoning_content) {
 			const { reasoning_content, ...rest } = newDelta;
+			// If the model doesn't support reasoning, treat reasoning_content as
+			// regular content (some providers like CanopyWave return the actual
+			// answer in reasoning_content for non-reasoning models).
+			// Only override content if it's not already set to avoid losing data.
+			if (!supportsReasoning) {
+				return {
+					...rest,
+					...(!rest.content && { content: reasoning_content }),
+				};
+			}
 			return {
 				...rest,
 				reasoning: reasoning_content,

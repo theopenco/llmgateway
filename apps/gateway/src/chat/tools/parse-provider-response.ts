@@ -15,6 +15,7 @@ export function parseProviderResponse(
 	usedModel: string,
 	json: any,
 	messages: any[] = [],
+	supportsReasoning = true,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -767,6 +768,13 @@ export function parseProviderResponse(
 					});
 			}
 		}
+	}
+
+	// For non-reasoning models that return their answer in reasoning_content
+	// (e.g. CanopyWave Mimo), move reasoning to content so the response is visible.
+	if (!supportsReasoning && !content && reasoningContent) {
+		content = reasoningContent;
+		reasoningContent = null;
 	}
 
 	return {
