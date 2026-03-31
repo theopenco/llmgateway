@@ -261,6 +261,7 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				stability: "unstable",
 				jsonOutput: true,
 			},
 			{
@@ -344,6 +345,7 @@ export const zaiModels = [
 				reasoning: false,
 				vision: false,
 				tools: true,
+				stability: "unstable",
 				jsonOutput: true,
 			},
 		],
