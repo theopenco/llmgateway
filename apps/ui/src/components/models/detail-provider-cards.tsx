@@ -1,11 +1,9 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Button } from "@/lib/components/button";
+import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { TooltipProvider } from "@/lib/components/tooltip";
-import { useAppConfig } from "@/lib/config";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -25,7 +23,6 @@ interface ModelWithProviders extends ApiModel {
 }
 
 export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
-	const config = useAppConfig();
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
 	const copyToClipboard = (text: string) => {
@@ -121,17 +118,7 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 								copyToClipboard={copyToClipboard}
 								copiedModel={copiedModel}
 							/>
-							<Button
-								variant="default"
-								size="default"
-								className="w-full gap-2 font-semibold group/cta"
-								asChild
-							>
-								<a href={`${config.appUrl}/signup`}>
-									Get Started
-									<ArrowRight className="h-4 w-4 transition-transform group-hover/cta:translate-x-0.5" />
-								</a>
-							</Button>
+							<ModelCtaButton modelId={`${providerId}/${model.id}`} />
 						</div>
 					);
 				})}

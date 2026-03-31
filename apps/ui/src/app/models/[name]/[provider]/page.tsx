@@ -1,7 +1,6 @@
 import {
 	AlertTriangle,
 	ArrowLeft,
-	ArrowRight,
 	Zap,
 	Eye,
 	Wrench,
@@ -21,11 +20,10 @@ import {
 	GlobalDiscountBanner,
 	type DiscountData,
 } from "@/components/models/global-discount-banner";
+import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import { Button } from "@/lib/components/button";
-import { getConfig } from "@/lib/config-server";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -43,7 +41,6 @@ interface PageProps {
 }
 
 export default async function ModelProviderPage({ params }: PageProps) {
-	const config = getConfig();
 	const { name, provider } = await params;
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
@@ -309,12 +306,12 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								]}
 							/>
 
-							<Button variant="default" size="sm" className="gap-2" asChild>
-								<a href={`${config.appUrl}/signup`}>
-									Get Started
-									<ArrowRight className="h-3 w-3" />
-								</a>
-							</Button>
+							<ModelCtaButton
+								modelId={`${decodedProvider}/${decodedName}`}
+								size="sm"
+								className="gap-2"
+								iconClassName="h-3 w-3"
+							/>
 						</div>
 
 						{/* Capabilities */}

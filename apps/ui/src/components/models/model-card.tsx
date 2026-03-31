@@ -7,7 +7,6 @@ import {
 	Check,
 	ChevronDown,
 	ChevronUp,
-	ArrowRight,
 	Globe,
 	Linkedin,
 	Share2,
@@ -15,6 +14,7 @@ import {
 import { useMemo, useState } from "react";
 
 import { ModelCodeExampleDialog } from "@/components/models/model-code-example-dialog";
+import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelStatusBadge } from "@/components/models/model-status-badge";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -31,7 +31,6 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
-import { useAppConfig } from "@/lib/config";
 import { XIcon } from "@/lib/icons/XIcon";
 import { formatContextSize, formatDeprecationDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -135,7 +134,6 @@ export function ModelCard({
 		discount?: string | null,
 	) => string | React.JSX.Element;
 }) {
-	const config = useAppConfig();
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 	const [showAllProviders, setShowAllProviders] = useState(false);
 
@@ -391,18 +389,10 @@ export function ModelCard({
 
 					{/* CTA */}
 					<div className="mt-4 pt-4 border-t border-border/30">
-						<Button
-							variant="default"
-							size="default"
-							className="w-full gap-2 font-semibold group/cta"
+						<ModelCtaButton
+							modelId={`${groupedByProvider[0]?.providerId}/${model.id}`}
 							onClick={(e) => e.stopPropagation()}
-							asChild
-						>
-							<a href={`${config.appUrl}/signup`}>
-								Get Started
-								<ArrowRight className="h-4 w-4 transition-transform group-hover/cta:translate-x-0.5" />
-							</a>
-						</Button>
+						/>
 					</div>
 				</div>
 			</Card>

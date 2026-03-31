@@ -3,7 +3,6 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { ModelDetailClient } from "@/components/model-detail-client";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -13,13 +12,12 @@ export default async function ModelDetailPage({
 	searchParams,
 }: {
 	params: Promise<{ modelId: string }>;
-	searchParams?: Promise<{ projectId?: string; window?: string }>;
+	searchParams?: Promise<{ window?: string }>;
 }) {
 	await requireSession();
 
 	const { modelId } = await params;
 	const searchParamsData = await searchParams;
-	const projectId = searchParamsData?.projectId;
 	const window = searchParamsData?.window;
 	const decodedModelId = decodeURIComponent(modelId);
 
@@ -28,7 +26,6 @@ export default async function ModelDetailPage({
 		params: {
 			path: { modelId: encodeURIComponent(decodedModelId) },
 			query: {
-				...(projectId ? { projectId } : {}),
 				...(window ? { window } : {}),
 			} as any,
 		},
@@ -61,18 +58,12 @@ export default async function ModelDetailPage({
 						Back
 					</Link>
 				</Button>
-				{projectId && (
-					<Badge variant="outline" className="text-xs">
-						Project: {projectId}
-					</Badge>
-				)}
 			</div>
 			<Suspense>
 				<ModelDetailClient
 					modelId={decodedModelId}
 					allTimeStats={model}
 					providers={providers}
-					projectId={projectId}
 				/>
 			</Suspense>
 		</div>
