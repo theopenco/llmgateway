@@ -21,6 +21,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { deleteUser } from "@/lib/admin-organizations";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
@@ -145,6 +146,8 @@ export default async function OrganizationsPage({
 		sortOrder?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const params = await searchParams;
 	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
 	const search = params?.search ?? "";
@@ -197,17 +200,20 @@ export default async function OrganizationsPage({
 						{currencyFormatter.format(parseFloat(data.totalCredits))}
 					</p>
 				</div>
-				<form action={handleSearch} className="flex items-center gap-2">
+				<form
+					action={handleSearch}
+					className="flex w-full items-center gap-2 sm:w-auto"
+				>
 					<input type="hidden" name="sortBy" value={sortBy} />
 					<input type="hidden" name="sortOrder" value={sortOrder} />
-					<div className="relative">
+					<div className="relative flex-1 sm:flex-initial">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 						<input
 							type="text"
 							name="search"
 							placeholder="Search by name, email, or ID..."
 							defaultValue={search}
-							className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
 						/>
 					</div>
 					<Button type="submit" size="sm">
@@ -385,7 +391,7 @@ export default async function OrganizationsPage({
 			</div>
 
 			{totalPages > 1 && (
-				<div className="flex items-center justify-between">
+				<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<p className="text-sm text-muted-foreground">
 						Showing {offset + 1} to {Math.min(offset + limit, data.total)} of{" "}
 						{data.total}

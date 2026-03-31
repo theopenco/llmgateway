@@ -277,6 +277,14 @@ function stripUnsupportedSchemaProperties(
 	return cleaned;
 }
 
+function mapGoogleImageSize(imageSize: string): string {
+	if (imageSize === "0.5K") {
+		return "512";
+	}
+
+	return imageSize;
+}
+
 /**
  * Recursively sanitizes tool input schemas for AWS Bedrock Converse.
  * Bedrock is stricter than Anthropic's direct API and rejects several JSON Schema
@@ -779,15 +787,26 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// Resolve tool_choice: fall back to "auto" when the provider mapping
+	// explicitly lists supportedParameters but omits "tool_choice".
+	let resolvedToolChoice = tool_choice;
 	if (tool_choice) {
-		requestBody.tool_choice = tool_choice;
+		const mapping = modelDef?.providers.find(
+			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+		) as ProviderModelMapping | undefined;
+		const supported = mapping?.supportedParameters;
+		const supportsToolChoice =
+			!supported || supported.length === 0 || supported.includes("tool_choice");
+		resolvedToolChoice = supportsToolChoice ? tool_choice : "auto";
+		requestBody.tool_choice = resolvedToolChoice;
 	}
 
 	const forcesToolUse =
 		tools &&
 		tools.filter(isFunctionTool).length > 0 &&
-		(tool_choice === "required" ||
-			(typeof tool_choice === "object" && tool_choice.type === "function"));
+		(resolvedToolChoice === "required" ||
+			(typeof resolvedToolChoice === "object" &&
+				resolvedToolChoice.type === "function"));
 
 	if (forcesToolUse && usedProvider === "alibaba") {
 		const providerMapping = modelDef?.providers.find(
@@ -803,16 +822,7 @@ export async function prepareRequestBody(
 	}
 
 	if (forcesToolUse && usedProvider === "moonshot") {
-		const providerMapping = modelDef?.providers.find(
-			(p) => p.modelName === usedModel && p.providerId === usedProvider,
-		);
-		const isExplicitThinkingModel =
-			providerMapping &&
-			"reasoning" in providerMapping &&
-			providerMapping.reasoning === true;
-		if (!isExplicitThinkingModel) {
-			requestBody.thinking = { enabled: false };
-		}
+		requestBody.thinking = { enabled: false };
 	}
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
@@ -900,8 +910,8 @@ export async function prepareRequestBody(
 					}
 					responsesBody.tools.push(webSearch);
 				}
-				if (tool_choice) {
-					responsesBody.tool_choice = tool_choice;
+				if (resolvedToolChoice) {
+					responsesBody.tool_choice = resolvedToolChoice;
 				}
 
 				// Add optional parameters if they are provided
@@ -1593,6 +1603,7 @@ export async function prepareRequestBody(
 		}
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
@@ -1729,7 +1740,7 @@ export async function prepareRequestBody(
 				}
 				if (image_config.image_size !== undefined) {
 					requestBody.generationConfig.imageConfig.imageSize =
-						image_config.image_size;
+						mapGoogleImageSize(image_config.image_size);
 				}
 			}
 

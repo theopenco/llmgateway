@@ -1,7 +1,15 @@
 "use client";
 
+import { Check, ChevronsUpDown } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useDeferredValue,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { LogCard } from "@/components/dashboard/log-card";
 import {
@@ -9,7 +17,19 @@ import {
 	DateRangeSelect,
 } from "@/components/date-range-select";
 import { Button } from "@/lib/components/button";
+import {
+	Command,
+	CommandEmpty,
+	CommandInput,
+	CommandItem,
+	CommandList,
+} from "@/lib/components/command";
 import { Input } from "@/lib/components/input";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/lib/components/popover";
 import {
 	Select,
 	SelectContent,
@@ -18,7 +38,9 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
+import { cn } from "@/lib/utils";
 
+import type { paths } from "@/lib/api/v1";
 import type { Log } from "@llmgateway/db";
 
 const UnifiedFinishReason = {
@@ -32,25 +54,56 @@ const UnifiedFinishReason = {
 	UNKNOWN: "unknown",
 } as const;
 
+type ApiLog =
+	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
+
+interface ProviderOption {
+	id: string;
+	label: string;
+}
+
+interface ModelOption {
+	id: string;
+	label: string;
+	aliases: string[];
+	providerIds: string[];
+}
+
 interface RecentLogsProps {
 	initialData?:
-		| {
-				message?: string;
-				logs: Log[];
-				pagination: {
-					nextCursor: string | null;
-					hasMore: boolean;
-					limit: number;
-				};
-		  }
+		| paths["/logs"]["get"]["responses"][200]["content"]["application/json"]
 		| undefined;
+	providerOptions: ProviderOption[];
+	modelOptions: ModelOption[];
 	projectId: string | null;
 	orgId?: string | null;
 }
 
-export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
+function toUiLog(log: ApiLog): Partial<Log> {
+	return {
+		...log,
+		createdAt: new Date(log.createdAt),
+		updatedAt: new Date(log.updatedAt),
+		lastVideoDownloadedAt: log.lastVideoDownloadedAt
+			? new Date(log.lastVideoDownloadedAt)
+			: null,
+		videoDownloadCount: log.videoDownloadCount ?? undefined,
+		toolChoice: log.toolChoice as any,
+		customHeaders: log.customHeaders as any,
+	};
+}
+
+export function RecentLogs({
+	initialData,
+	providerOptions,
+	modelOptions,
+	projectId,
+	orgId,
+}: RecentLogsProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
+	const [modelPickerOpen, setModelPickerOpen] = useState(false);
+	const [modelSearch, setModelSearch] = useState("");
 
 	// Initialize state from URL parameters
 	const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -71,16 +124,8 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 	);
 
 	const api = useApi();
+	const deferredModelSearch = useDeferredValue(modelSearch);
 
-	// Fetch unique models for the current project
-	const { data: uniqueModels } = api.useQuery("get", "/logs/unique-models", {
-		params: {
-			query: projectId ? { projectId } : {},
-		},
-		enabled: !!projectId,
-		refetchOnWindowFocus: false,
-		staleTime: 10 * 60 * 1000, // 10 minutes
-	});
 	const scrollPositionRef = useRef<number>(0);
 	const isFilteringRef = useRef<boolean>(false);
 
@@ -175,7 +220,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 	}
 
 	const shouldUseInitialData =
-		!dateRange && // No date range selected (date range is not in URL initially)
+		!dateRange &&
 		unifiedFinishReason ===
 			(searchParams.get("unifiedFinishReason") ?? undefined) &&
 		provider === (searchParams.get("provider") ?? undefined) &&
@@ -203,22 +248,7 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 			initialData:
 				shouldUseInitialData && initialData
 					? {
-							pages: [
-								{
-									...initialData,
-									logs: initialData.logs.map((log) => ({
-										...log,
-										createdAt:
-											log.createdAt instanceof Date
-												? log.createdAt.toISOString()
-												: log.createdAt,
-										updatedAt:
-											log.updatedAt instanceof Date
-												? log.updatedAt.toISOString()
-												: log.updatedAt,
-									})),
-								},
-							],
+							pages: [initialData],
 							pageParams: [undefined],
 						}
 					: undefined,
@@ -233,8 +263,40 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 		},
 	);
 
-	// Flatten all pages into a single array of logs
-	const allLogs = data?.pages.flatMap((page) => page?.logs ?? []) ?? [];
+	// Flatten all pages into a single array of logs, hiding retried requests
+	const allLogs = (
+		data?.pages.flatMap((page) => page?.logs ?? []) ?? []
+	).filter((log) => !log.retriedByLogId);
+
+	const selectedModelOption = useMemo(
+		() => modelOptions.find((option) => option.id === model),
+		[model, modelOptions],
+	);
+
+	const filteredModelOptions = useMemo(() => {
+		const normalizedSearch = deferredModelSearch
+			.trim()
+			.toLowerCase()
+			.replace(/[\s/_-]/g, "");
+
+		return modelOptions.filter((option) => {
+			if (provider && !option.providerIds.includes(provider)) {
+				return false;
+			}
+
+			if (!normalizedSearch) {
+				return true;
+			}
+
+			const searchFields = [option.id, option.label, ...option.aliases];
+			return searchFields.some((field) =>
+				field
+					.toLowerCase()
+					.replace(/[\s/_-]/g, "")
+					.includes(normalizedSearch),
+			);
+		});
+	}, [deferredModelSearch, modelOptions, provider]);
 
 	const handleDateRangeChange = (_value: string, range: DateRange) => {
 		setDateRange(range);
@@ -244,6 +306,33 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 			endDate: range.end?.toISOString(),
 		});
 	};
+
+	const handleProviderChange = useCallback(
+		(value: string) => {
+			isFilteringRef.current = true;
+			scrollPositionRef.current = window.scrollY;
+
+			const nextProvider = value === "all" ? undefined : value;
+			const shouldClearModel =
+				model !== undefined &&
+				nextProvider !== undefined &&
+				!modelOptions.some(
+					(option) =>
+						option.id === model && option.providerIds.includes(nextProvider),
+				);
+
+			setProvider(nextProvider);
+			if (shouldClearModel) {
+				setModel(undefined);
+			}
+
+			updateUrlWithFilters({
+				provider: nextProvider,
+				model: shouldClearModel ? undefined : model,
+			});
+		},
+		[model, modelOptions, updateUrlWithFilters],
+	);
 
 	if (!projectId) {
 		return (
@@ -284,39 +373,89 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 					</SelectContent>
 				</Select>
 
-				<Select
-					onValueChange={handleFilterChange("provider", setProvider)}
-					value={provider ?? "all"}
-				>
+				<Select onValueChange={handleProviderChange} value={provider ?? "all"}>
 					<SelectTrigger className="w-[160px]">
 						<SelectValue placeholder="Filter by provider" />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All providers</SelectItem>
-						{(uniqueModels?.providers ?? []).map((p) => (
-							<SelectItem key={p} value={p}>
-								{p}
+						{providerOptions.map((option) => (
+							<SelectItem key={option.id} value={option.id}>
+								{option.label}
 							</SelectItem>
 						))}
 					</SelectContent>
 				</Select>
 
-				<Select
-					onValueChange={handleFilterChange("model", setModel)}
-					value={model ?? "all"}
-				>
-					<SelectTrigger className="w-[180px]">
-						<SelectValue placeholder="Filter by model" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">All models</SelectItem>
-						{(uniqueModels?.models ?? []).map((modelName) => (
-							<SelectItem key={modelName} value={modelName}>
-								{modelName}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+				<Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
+					<PopoverTrigger asChild>
+						<Button
+							variant="outline"
+							role="combobox"
+							aria-expanded={modelPickerOpen}
+							className="w-[260px] justify-between"
+						>
+							<span className="truncate">
+								{selectedModelOption?.label ?? model ?? "Filter by model"}
+							</span>
+							<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent className="w-[320px] p-0" align="start">
+						<Command shouldFilter={false}>
+							<CommandInput
+								placeholder="Search models..."
+								value={modelSearch}
+								onValueChange={setModelSearch}
+							/>
+							<CommandList>
+								<CommandEmpty>No models found.</CommandEmpty>
+								<CommandItem
+									value="all"
+									onSelect={() => {
+										handleFilterChange("model", setModel)("all");
+										setModelPickerOpen(false);
+										setModelSearch("");
+									}}
+								>
+									<Check
+										className={cn(
+											"h-4 w-4",
+											!model ? "opacity-100" : "opacity-0",
+										)}
+									/>
+									All models
+								</CommandItem>
+								{filteredModelOptions.map((option) => (
+									<CommandItem
+										key={option.id}
+										value={`${option.id} ${option.label} ${option.aliases.join(" ")}`}
+										onSelect={() => {
+											handleFilterChange("model", setModel)(option.id);
+											setModelPickerOpen(false);
+											setModelSearch("");
+										}}
+									>
+										<Check
+											className={cn(
+												"h-4 w-4",
+												model === option.id ? "opacity-100" : "opacity-0",
+											)}
+										/>
+										<div className="flex min-w-0 flex-col">
+											<span className="truncate">{option.label}</span>
+											{option.label !== option.id ? (
+												<span className="truncate text-xs text-muted-foreground">
+													{option.id}
+												</span>
+											) : null}
+										</div>
+									</CommandItem>
+								))}
+							</CommandList>
+						</Command>
+					</PopoverContent>
+				</Popover>
 
 				<Input
 					placeholder="Custom header key (e.g., uid)"
@@ -355,36 +494,28 @@ export function RecentLogs({ initialData, projectId, orgId }: RecentLogsProps) {
 				<div>Error loading logs</div>
 			) : (
 				<div className="space-y-4 @container">
-					{allLogs.length ? (
-						<>
-							{allLogs.map((log) => (
-								<LogCard
-									key={log.id}
-									log={{
-										...log,
-										createdAt: new Date(log.createdAt),
-										updatedAt: new Date(log.updatedAt),
-										toolChoice: log.toolChoice as any,
-										customHeaders: log.customHeaders as any,
-									}}
-									orgId={orgId ?? undefined}
-									projectId={projectId || undefined}
-								/>
-							))}
+					{allLogs.map((log) => (
+						<LogCard
+							key={log.id}
+							log={toUiLog(log)}
+							orgId={orgId ?? undefined}
+							projectId={projectId || undefined}
+						/>
+					))}
 
-							{hasNextPage && (
-								<div className="flex justify-center pt-4">
-									<Button
-										onClick={() => fetchNextPage()}
-										disabled={isFetchingNextPage}
-										variant="outline"
-									>
-										{isFetchingNextPage ? "Loading more..." : "Load More"}
-									</Button>
-								</div>
-							)}
-						</>
-					) : (
+					{hasNextPage && (
+						<div className="flex justify-center pt-4">
+							<Button
+								onClick={() => fetchNextPage()}
+								disabled={isFetchingNextPage}
+								variant="outline"
+							>
+								{isFetchingNextPage ? "Loading more..." : "Load More"}
+							</Button>
+						</div>
+					)}
+
+					{allLogs.length === 0 && !hasNextPage && (
 						<div className="py-4 text-center text-muted-foreground">
 							No logs found matching the selected filters.
 							{projectId && (

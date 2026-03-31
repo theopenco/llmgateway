@@ -1,9 +1,10 @@
-import { ArrowLeft, FolderOpen } from "lucide-react";
+import { ArrowLeft, FolderOpen, LayoutGrid } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 import { ProjectLogsSection } from "./project-logs";
@@ -42,6 +43,8 @@ export default async function ProjectDetailPage({
 }: {
 	params: Promise<{ orgId: string; projectId: string }>;
 }) {
+	await requireSession();
+
 	const { orgId, projectId } = await params;
 
 	const $api = await createServerApiClient();
@@ -95,6 +98,17 @@ export default async function ProjectDetailPage({
 			</header>
 
 			<ProjectMetricsSection orgId={orgId} projectId={projectId} />
+
+			<div>
+				<Button variant="outline" size="sm" asChild>
+					<Link
+						href={`/organizations/${orgId}/projects/${projectId}/model-provider-mappings`}
+					>
+						<LayoutGrid className="mr-2 h-4 w-4" />
+						Model-Provider Mappings
+					</Link>
+				</Button>
+			</div>
 
 			<ProjectLogsSection orgId={orgId} projectId={projectId} />
 		</div>

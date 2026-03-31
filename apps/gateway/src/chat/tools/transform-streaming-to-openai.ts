@@ -15,6 +15,7 @@ export function transformStreamingToOpenai(
 	data: any,
 	messages: any[],
 	serverToolUseIndices?: Set<number>,
+	supportsReasoning = true,
 ): any {
 	let transformedData = data;
 
@@ -302,6 +303,7 @@ export function transformStreamingToOpenai(
 
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian": {
 			const mapFinishReason = (
 				finishReason?: string,
@@ -687,18 +689,11 @@ export function transformStreamingToOpenai(
 		case "azure":
 		case "openai": {
 			if (data.type) {
-				// Log full OpenAI event data for debugging
-				logger.info("[OpenAI Streaming Debug]", {
-					eventType: data.type,
-					hasAnnotations: !!(data.annotations ?? data.part?.annotations),
-					annotationsCount: (data.annotations ?? data.part?.annotations ?? [])
-						.length,
-					hasDelta: !!data.delta,
-					deltaKeys: data.delta ? Object.keys(data.delta) : [],
-					fullData: JSON.stringify(data),
-				});
-
 				switch (data.type) {
+					case "keepalive":
+						transformedData = null;
+						break;
+
 					case "response.created":
 					case "response.in_progress":
 						transformedData = {
@@ -771,6 +766,8 @@ export function transformStreamingToOpenai(
 						break;
 					}
 					case "response.output_item.done":
+					case "response.content_part.done":
+					case "response.output_text.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
 					case "response.web_search_call.completed":
@@ -1016,19 +1013,11 @@ export function transformStreamingToOpenai(
 						break;
 				}
 			} else {
-				// Log standard OpenAI streaming format for debugging
-				logger.info("[OpenAI Standard Streaming Debug]", {
-					hasChoices: !!data.choices,
-					choicesLength: data.choices?.length ?? 0,
-					firstChoiceDeltaKeys: data.choices?.[0]?.delta
-						? Object.keys(data.choices[0].delta)
-						: [],
-					hasAnnotations: !!data.choices?.[0]?.delta?.annotations,
-					annotationsCount: data.choices?.[0]?.delta?.annotations?.length ?? 0,
-					fullData: JSON.stringify(data),
-				});
-
-				transformedData = transformOpenaiStreaming(data, usedModel);
+				transformedData = transformOpenaiStreaming(
+					data,
+					usedModel,
+					supportsReasoning,
+				);
 			}
 			break;
 		}
@@ -1213,9 +1202,14 @@ export function transformStreamingToOpenai(
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":
+		case "embercloud":
 		case "llmgateway": {
 			// Transform standard OpenAI streaming format with finish reason mapping
-			transformedData = transformOpenaiStreaming(data, usedModel);
+			transformedData = transformOpenaiStreaming(
+				data,
+				usedModel,
+				supportsReasoning,
+			);
 
 			// Map non-standard finish reasons to OpenAI-compatible values
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {
@@ -1234,7 +1228,11 @@ export function transformStreamingToOpenai(
 				model: usedModel,
 				dataKeys: Object.keys(data),
 			});
-			transformedData = transformOpenaiStreaming(data, usedModel);
+			transformedData = transformOpenaiStreaming(
+				data,
+				usedModel,
+				supportsReasoning,
+			);
 			break;
 		}
 	}

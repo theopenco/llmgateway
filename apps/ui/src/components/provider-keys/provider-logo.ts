@@ -9,6 +9,7 @@ export const providerLogoUrls: Partial<
 	anthropic: ProviderIcons.anthropic,
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
 	"google-vertex": ProviderIcons["google-vertex"],
+	quartz: ProviderIcons.quartz,
 	"inference.net": ProviderIcons["inference.net"],
 	"together.ai": ProviderIcons["together.ai"],
 	mistral: ProviderIcons.mistral,

@@ -1,5 +1,8 @@
 export {
 	calculateFees,
+	CREDIT_TOP_UP_MAX_AMOUNT,
+	CREDIT_TOP_UP_MIN_AMOUNT,
+	isCreditTopUpAmountInRange,
 	type FeeBreakdown,
 	type FeeCalculationInput,
 } from "./fees.js";
@@ -19,6 +22,17 @@ export {
 } from "./health-check.js";
 
 export {
+	buildGatewayVideoLogContentUrl,
+	getGatewayPublicBaseUrl,
+} from "./gateway-url.js";
+
+export {
+	getAvalancheApiBaseUrl,
+	getAvalancheJobsApiBaseUrl,
+	getAvalancheFileUploadBaseUrl,
+} from "./avalanche.js";
+
+export {
 	createHttpClient,
 	type HttpClientOptions,
 	type HttpClientConfig,
@@ -33,5 +47,12 @@ export {
 export { useIsMobile } from "./hooks/use-mobile.js";
 
 export { cn } from "./lib/utils.js";
+
+export {
+	getVideoProxyRedisKey,
+	VIDEO_PROXY_REDIS_TTL_SECONDS,
+} from "./video-proxy.js";
+
+export { selectLoadBalancedItem } from "./load-balance.js";
 
 export * from "./components/ui/index.js";

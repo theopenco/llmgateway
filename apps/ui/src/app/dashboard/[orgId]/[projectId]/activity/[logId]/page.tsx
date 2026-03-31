@@ -2,7 +2,7 @@ import { fetchServerData } from "@/lib/server-api";
 
 import { LogDetailClient } from "./log-detail-client";
 
-import type { Log } from "@llmgateway/db";
+import type { LogDetailData } from "@/types/activity";
 
 export default async function LogDetailPage({
 	params,
@@ -11,11 +11,15 @@ export default async function LogDetailPage({
 }) {
 	const { orgId, projectId, logId } = await params;
 
-	const initialData = await fetchServerData<{ log: Log }>("GET", "/logs/{id}", {
-		params: {
-			path: { id: logId },
+	const initialData = await fetchServerData<LogDetailData>(
+		"GET",
+		"/logs/{id}",
+		{
+			params: {
+				path: { id: logId },
+			},
 		},
-	});
+	);
 
 	return (
 		<LogDetailClient

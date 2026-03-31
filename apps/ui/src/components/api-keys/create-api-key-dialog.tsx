@@ -4,7 +4,6 @@ import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
 import { Button } from "@/lib/components/button";
-import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -23,6 +22,12 @@ import {
 } from "@/lib/components/tooltip";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+
+import {
+	ApiKeyLimitFields,
+	buildApiKeyLimitPayload,
+	createApiKeyLimitFormValue,
+} from "./api-key-limit-fields";
 
 import type { Project } from "@/lib/types";
 import type React from "react";
@@ -45,42 +50,55 @@ export function CreateApiKeyDialog({
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<"form" | "created">("form");
 	const [name, setName] = useState("");
-	const [limit, setLimit] = useState<string>("0");
-	const [limitChecked, setLimitChecked] = useState<boolean>(false);
+	const [limitValue, setLimitValue] = useState(() =>
+		createApiKeyLimitFormValue(),
+	);
 	const [apiKey, setApiKey] = useState("");
 	const api = useApi();
 
-	const { mutate: createApiKey } = api.useMutation("post", "/keys/api");
+	const createApiKeyMutation = api.useMutation("post", "/keys/api");
 
-	const handleSubmit = (e: React.FormEvent) => {
+	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
+		if (createApiKeyMutation.isPending) {
+			return;
+		}
+
 		if (!name.trim()) {
 			toast({ title: "Please enter an API key name.", variant: "destructive" });
 			return;
 		}
 
-		createApiKey(
-			{
+		const { error, payload } = buildApiKeyLimitPayload(limitValue);
+		if (error) {
+			toast({ title: error, variant: "destructive" });
+			return;
+		}
+
+		try {
+			const data = await createApiKeyMutation.mutateAsync({
 				body: {
 					description: name.trim(),
 					projectId: selectedProject.id,
-					usageLimit: limitChecked ? limit : null,
+					...payload,
 				},
-			},
-			{
-				onSuccess: (data) => {
-					const createdKey = data.apiKey;
+			});
 
-					posthog.capture("api_key_created", {
-						description: createdKey.description,
-						keyId: createdKey.id,
-					});
+			const createdKey = data.apiKey;
 
-					setApiKey(createdKey.token);
-					setStep("created");
-				},
-			},
-		);
+			posthog.capture("api_key_created", {
+				description: createdKey.description,
+				keyId: createdKey.id,
+			});
+
+			setApiKey(createdKey.token);
+			setStep("created");
+		} catch {
+			toast({
+				title: "Failed to create API key.",
+				variant: "destructive",
+			});
+		}
 	};
 
 	const copyToClipboard = () => {
@@ -103,7 +121,7 @@ export function CreateApiKeyDialog({
 			setStep("form");
 			setName("");
 			setApiKey("");
-			setLimit("");
+			setLimitValue(createApiKeyLimitFormValue());
 		}, 300);
 	};
 
@@ -121,7 +139,25 @@ export function CreateApiKeyDialog({
 	);
 
 	return (
-		<Dialog open={open} onOpenChange={disabled ? undefined : setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={
+				disabled
+					? undefined
+					: (nextOpen) => {
+							if (createApiKeyMutation.isPending) {
+								return;
+							}
+
+							if (!nextOpen) {
+								handleClose();
+								return;
+							}
+
+							setOpen(true);
+						}
+			}
+		>
 			{!disabled && <DialogTrigger asChild>{triggerElement}</DialogTrigger>}
 			{disabled && triggerElement}
 			<DialogContent className="sm:max-w-[500px]">
@@ -148,48 +184,29 @@ export function CreateApiKeyDialog({
 									placeholder="e.g. Production API Key"
 									value={name}
 									onChange={(e) => setName(e.target.value)}
+									disabled={createApiKeyMutation.isPending}
 									required
 								/>
 							</div>
-							<div className="space-y-2">
-								<div className="flex items-center gap-2">
-									<Checkbox
-										id="limit-checkbox"
-										checked={limitChecked}
-										onCheckedChange={(v) => setLimitChecked(v)}
-									/>
-									<Label htmlFor="limit-checkbox">
-										Set API Key Usage Limit
-									</Label>
-								</div>
-								<div
-									className={`text-muted-foreground text-sm ${limitChecked ? "block" : "hidden"}`}
-								>
-									Usage includes both usage from LLM Gateway credits and usage
-									from your own provider keys when applicable.
-								</div>
-								<div
-									className={`relative ${limitChecked ? "block" : "hidden"}`}
-								>
-									<span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-										$
-									</span>
-									<Input
-										className="pl-6"
-										id="limit"
-										value={limit}
-										onChange={(e) => setLimit(e.target.value)}
-										type="number"
-										min={0}
-										required={limitChecked}
-									/>
-								</div>
-							</div>
+							<ApiKeyLimitFields
+								idPrefix="create-api-key"
+								value={limitValue}
+								onChange={setLimitValue}
+							/>
 							<DialogFooter>
-								<Button type="button" variant="outline" onClick={handleClose}>
+								<Button
+									type="button"
+									variant="outline"
+									disabled={createApiKeyMutation.isPending}
+									onClick={handleClose}
+								>
 									Cancel
 								</Button>
-								<Button type="submit">Create API Key</Button>
+								<Button type="submit" disabled={createApiKeyMutation.isPending}>
+									{createApiKeyMutation.isPending
+										? "Creating..."
+										: "Create API Key"}
+								</Button>
 							</DialogFooter>
 						</form>
 					</>

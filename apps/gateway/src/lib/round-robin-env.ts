@@ -39,16 +39,10 @@ interface KeyScore {
 	metrics: KeyMetrics;
 }
 
-/**
- * Get the next value from a comma-separated environment variable using uptime-weighted selection
- * Keys with better uptime scores are preferred, but round-robin is still used among equally healthy keys
- * @param envVarName The name of the environment variable
- * @param value The environment variable value (potentially comma-separated)
- * @returns Object containing the selected value and its index
- */
-export function getRoundRobinValue(
+function selectRoundRobinValue(
 	envVarName: string,
 	value: string,
+	advanceCounter: boolean,
 ): RoundRobinResult {
 	const values = parseCommaSeparatedEnv(value);
 
@@ -100,7 +94,9 @@ export function getRoundRobinValue(
 		const currentIndex = startIndex % values.length;
 		const selectedValue = values[currentIndex];
 		const nextIndex = (currentIndex + 1) % values.length;
-		roundRobinCounters.set(envVarName, nextIndex);
+		if (advanceCounter) {
+			roundRobinCounters.set(envVarName, nextIndex);
+		}
 		return { value: selectedValue, index: currentIndex };
 	}
 
@@ -112,14 +108,18 @@ export function getRoundRobinValue(
 			const keyScore = keyScores.find((k) => k.index === candidateIndex);
 			if (keyScore) {
 				const nextIndex = (candidateIndex + 1) % values.length;
-				roundRobinCounters.set(envVarName, nextIndex);
+				if (advanceCounter) {
+					roundRobinCounters.set(envVarName, nextIndex);
+				}
 				return { value: values[candidateIndex], index: candidateIndex };
 			}
 		}
 		// Fallback: use first healthy key
 		const firstHealthy = keyScores[0];
 		const nextIndex = (firstHealthy.index + 1) % values.length;
-		roundRobinCounters.set(envVarName, nextIndex);
+		if (advanceCounter) {
+			roundRobinCounters.set(envVarName, nextIndex);
+		}
 		return { value: values[firstHealthy.index], index: firstHealthy.index };
 	}
 
@@ -148,9 +148,37 @@ export function getRoundRobinValue(
 	selectedKey ??= bestKeys[0];
 
 	const nextIndex = (selectedKey.index + 1) % values.length;
-	roundRobinCounters.set(envVarName, nextIndex);
+	if (advanceCounter) {
+		roundRobinCounters.set(envVarName, nextIndex);
+	}
 
 	return { value: values[selectedKey.index], index: selectedKey.index };
+}
+
+/**
+ * Get the next value from a comma-separated environment variable using uptime-weighted selection
+ * Keys with better uptime scores are preferred, but round-robin is still used among equally healthy keys
+ * @param envVarName The name of the environment variable
+ * @param value The environment variable value (potentially comma-separated)
+ * @returns Object containing the selected value and its index
+ */
+export function getRoundRobinValue(
+	envVarName: string,
+	value: string,
+): RoundRobinResult {
+	return selectRoundRobinValue(envVarName, value, true);
+}
+
+/**
+ * Get the current value from a comma-separated environment variable without
+ * advancing its round-robin counter. Useful for auxiliary requests like
+ * moderation that should not perturb primary request routing.
+ */
+export function peekRoundRobinValue(
+	envVarName: string,
+	value: string,
+): RoundRobinResult {
+	return selectRoundRobinValue(envVarName, value, false);
 }
 
 /**

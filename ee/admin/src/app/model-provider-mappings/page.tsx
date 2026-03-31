@@ -15,6 +15,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { parsePageWindow, windowToFromTo } from "@/lib/page-window";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,9 @@ type MappingSortBy =
 	| "modelId"
 	| "logsCount"
 	| "errorsCount"
+	| "clientErrorsCount"
+	| "gatewayErrorsCount"
+	| "upstreamErrorsCount"
 	| "avgTimeToFirstToken"
 	| "updatedAt";
 
@@ -126,6 +130,15 @@ function MappingRow({ mapping }: { mapping: ModelProviderMappingEntry }) {
 				</div>
 			</TableCell>
 			<TableCell>
+				{mapping.region ? (
+					<span className="text-xs text-muted-foreground">
+						{mapping.region}
+					</span>
+				) : (
+					<span className="text-xs text-muted-foreground">—</span>
+				)}
+			</TableCell>
+			<TableCell>
 				<Badge variant={mapping.status === "active" ? "secondary" : "outline"}>
 					{mapping.status}
 				</Badge>
@@ -135,6 +148,15 @@ function MappingRow({ mapping }: { mapping: ModelProviderMappingEntry }) {
 			</TableCell>
 			<TableCell className="tabular-nums">
 				{formatNumber(mapping.errorsCount)}
+			</TableCell>
+			<TableCell className="tabular-nums">
+				{formatNumber(mapping.clientErrorsCount)}
+			</TableCell>
+			<TableCell className="tabular-nums">
+				{formatNumber(mapping.gatewayErrorsCount)}
+			</TableCell>
+			<TableCell className="tabular-nums">
+				{formatNumber(mapping.upstreamErrorsCount)}
 			</TableCell>
 			<TableCell className="tabular-nums">{errorRate}%</TableCell>
 			<TableCell className="tabular-nums">
@@ -186,6 +208,8 @@ export default async function ModelProviderMappingsPage({
 		window?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const params = await searchParams;
 	const search = params?.search ?? "";
 	const sortBy = (params?.sortBy as MappingSortBy) ?? "logsCount";
@@ -267,26 +291,27 @@ export default async function ModelProviderMappingsPage({
 						{data.total} mappings — all models available per provider
 					</p>
 				</div>
-				<div className="flex items-center gap-3">
-					<form action={handleSearch} className="flex items-center gap-2">
-						<input type="hidden" name="sortBy" value={sortBy} />
-						<input type="hidden" name="sortOrder" value={sortOrder} />
-						<input type="hidden" name="window" value={pageWindow} />
-						<div className="relative">
-							<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-							<input
-								type="text"
-								name="search"
-								placeholder="Search by model or provider..."
-								defaultValue={search}
-								className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-							/>
-						</div>
-						<Button type="submit" size="sm">
-							Search
-						</Button>
-					</form>
-				</div>
+				<form
+					action={handleSearch}
+					className="flex w-full items-center gap-2 sm:w-auto"
+				>
+					<input type="hidden" name="sortBy" value={sortBy} />
+					<input type="hidden" name="sortOrder" value={sortOrder} />
+					<input type="hidden" name="window" value={pageWindow} />
+					<div className="relative flex-1 sm:flex-initial">
+						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+						<input
+							type="text"
+							name="search"
+							placeholder="Search by model or provider..."
+							defaultValue={search}
+							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
+						/>
+					</div>
+					<Button type="submit" size="sm">
+						Search
+					</Button>
+				</form>
 			</header>
 
 			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -321,9 +346,13 @@ export default async function ModelProviderMappingsPage({
 						<TableRow>
 							{sh("Provider", "providerId")}
 							{sh("Model", "modelId")}
+							<TableHead>Region</TableHead>
 							<TableHead>Status</TableHead>
 							{sh("Requests", "logsCount")}
 							{sh("Errors", "errorsCount")}
+							{sh("Client", "clientErrorsCount")}
+							{sh("Gateway", "gatewayErrorsCount")}
+							{sh("Upstream", "upstreamErrorsCount")}
 							<TableHead>Error Rate</TableHead>
 							{sh("Avg TTFT", "avgTimeToFirstToken")}
 							<TableHead>Input Price</TableHead>
@@ -335,7 +364,7 @@ export default async function ModelProviderMappingsPage({
 						{data.mappings.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={10}
+									colSpan={14}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No mappings found

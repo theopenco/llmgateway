@@ -6,6 +6,7 @@ import { userHasOrganizationAccess } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, desc, eq, gte, isNull, or, tables } from "@llmgateway/db";
+import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -67,8 +68,19 @@ const updateOrganizationSchema = z.object({
 	retentionLevel: z.enum(["retain", "none"]).optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
-	autoTopUpAmount: z.number().min(10).optional(),
+	autoTopUpAmount: z
+		.number()
+		.int()
+		.min(10)
+		.max(CREDIT_TOP_UP_MAX_AMOUNT)
+		.optional(),
 });
+
+const AUTO_TOP_UP_AUDIT_FIELDS = [
+	"autoTopUpEnabled",
+	"autoTopUpThreshold",
+	"autoTopUpAmount",
+] as const;
 
 const transactionSchema = z.object({
 	id: z.string(),
@@ -433,6 +445,11 @@ organization.openapi(updateOrganization, async (c) => {
 	}
 	if (autoTopUpEnabled !== undefined) {
 		updateData.autoTopUpEnabled = autoTopUpEnabled;
+		if (autoTopUpEnabled && !userOrganization.organization?.autoTopUpEnabled) {
+			updateData.paymentFailureCount = 0;
+			updateData.lastPaymentFailureAt = null;
+			updateData.paymentFailureStartedAt = null;
+		}
 	}
 	if (autoTopUpThreshold !== undefined) {
 		updateData.autoTopUpThreshold = autoTopUpThreshold.toString();
@@ -449,6 +466,7 @@ organization.openapi(updateOrganization, async (c) => {
 
 	// Build changes metadata for audit log
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	const autoTopUpChanges: Record<string, { old: unknown; new: unknown }> = {};
 	const oldOrg = userOrganization.organization!;
 	if (name !== undefined && name !== oldOrg.name) {
 		changes.name = { old: oldOrg.name, new: name };
@@ -493,32 +511,58 @@ organization.openapi(updateOrganization, async (c) => {
 		autoTopUpEnabled !== undefined &&
 		autoTopUpEnabled !== oldOrg.autoTopUpEnabled
 	) {
-		changes.autoTopUpEnabled = {
+		autoTopUpChanges.autoTopUpEnabled = {
 			old: oldOrg.autoTopUpEnabled,
 			new: autoTopUpEnabled,
 		};
 	}
-	if (autoTopUpThreshold !== undefined) {
-		changes.autoTopUpThreshold = {
+	if (
+		autoTopUpThreshold !== undefined &&
+		autoTopUpThreshold.toString() !== oldOrg.autoTopUpThreshold
+	) {
+		autoTopUpChanges.autoTopUpThreshold = {
 			old: oldOrg.autoTopUpThreshold,
 			new: autoTopUpThreshold.toString(),
 		};
 	}
-	if (autoTopUpAmount !== undefined) {
-		changes.autoTopUpAmount = {
+	if (
+		autoTopUpAmount !== undefined &&
+		autoTopUpAmount.toString() !== oldOrg.autoTopUpAmount
+	) {
+		autoTopUpChanges.autoTopUpAmount = {
 			old: oldOrg.autoTopUpAmount,
 			new: autoTopUpAmount.toString(),
 		};
 	}
 
-	if (Object.keys(changes).length > 0) {
+	const organizationChanges = Object.fromEntries(
+		Object.entries(changes).filter(
+			([field]) =>
+				!AUTO_TOP_UP_AUDIT_FIELDS.includes(
+					field as (typeof AUTO_TOP_UP_AUDIT_FIELDS)[number],
+				),
+		),
+	);
+
+	if (Object.keys(organizationChanges).length > 0) {
 		await logAuditEvent({
 			organizationId: id,
 			userId: user.id,
 			action: "organization.update",
 			resourceType: "organization",
 			resourceId: id,
-			metadata: { changes },
+			metadata: { changes: organizationChanges },
+		});
+	}
+
+	if (Object.keys(autoTopUpChanges).length > 0) {
+		await logAuditEvent({
+			organizationId: id,
+			userId: user.id,
+			action: "payment.auto_topup.update",
+			resourceType: "organization",
+			resourceId: id,
+			metadata: { changes: autoTopUpChanges },
 		});
 	}
 

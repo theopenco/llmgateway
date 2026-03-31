@@ -190,12 +190,10 @@ export function MultiModelSelector({
 	const modelsWithProviderInfo = useMemo(() => {
 		return [...models]
 			.sort((a, b) => {
-				const dateA = getModelReleasedAt(a)
-					? new Date(getModelReleasedAt(a)!).getTime()
-					: 0;
-				const dateB = getModelReleasedAt(b)
-					? new Date(getModelReleasedAt(b)!).getTime()
-					: 0;
+				const releasedAtA = getModelReleasedAt(a);
+				const releasedAtB = getModelReleasedAt(b);
+				const dateA = releasedAtA ? new Date(releasedAtA).getTime() : 0;
+				const dateB = releasedAtB ? new Date(releasedAtB).getTime() : 0;
 				return dateB - dateA;
 			})
 			.map((model) => {

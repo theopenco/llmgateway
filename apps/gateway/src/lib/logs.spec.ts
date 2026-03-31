@@ -98,6 +98,15 @@ describe("getUnifiedFinishReason", () => {
 			UnifiedFinishReason.UNKNOWN,
 		);
 	});
+
+	it("maps llmgateway_content_filter to CONTENT_FILTER", () => {
+		expect(
+			getUnifiedFinishReason("llmgateway_content_filter", "any-provider"),
+		).toBe(UnifiedFinishReason.CONTENT_FILTER);
+		expect(getUnifiedFinishReason("llmgateway_content_filter", "openai")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
 });
 
 describe("isExpectedUnknownFinishReason", () => {

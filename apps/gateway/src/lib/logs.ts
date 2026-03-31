@@ -21,6 +21,7 @@ export function isExpectedUnknownFinishReason(
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "google-vertex" ||
+			provider === "quartz" ||
 			provider === "obsidian") &&
 		finishReason === "OTHER"
 	) {
@@ -55,6 +56,9 @@ export function getUnifiedFinishReason(
 	if (finishReason === "client_error") {
 		return UnifiedFinishReason.CLIENT_ERROR;
 	}
+	if (finishReason === "llmgateway_content_filter") {
+		return UnifiedFinishReason.CONTENT_FILTER;
+	}
 
 	switch (provider) {
 		case "anthropic":
@@ -73,6 +77,7 @@ export function getUnifiedFinishReason(
 			break;
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 		case "obsidian":
 			// Google finish reasons (original format, not mapped to OpenAI)
 			if (finishReason === "STOP") {

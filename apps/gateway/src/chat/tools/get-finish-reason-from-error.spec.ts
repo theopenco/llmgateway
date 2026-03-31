@@ -46,6 +46,34 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(500, azureError)).toBe("upstream_error");
 	});
 
+	it("returns content_filter for ByteDance SensitiveContentDetected", () => {
+		const bytedanceError = JSON.stringify({
+			error: {
+				code: "SensitiveContentDetected",
+				message:
+					"The request failed because the input text may contain sensitive information.",
+				param: "",
+				type: "BadRequest",
+			},
+		});
+		expect(getFinishReasonFromError(400, bytedanceError)).toBe(
+			"content_filter",
+		);
+	});
+
+	it("returns content_filter for Alibaba data inspection errors", () => {
+		const alibabaError = JSON.stringify({
+			error: {
+				code: "data_inspection_failed",
+				message:
+					"Input data may contain inappropriate content. Please ensure that your input complies with the usage policy of DashScope LLM.",
+				param: null,
+				type: "data_inspection_failed",
+			},
+		});
+		expect(getFinishReasonFromError(400, alibabaError)).toBe("content_filter");
+	});
+
 	it("returns client_error for zai content filter", () => {
 		expect(
 			getFinishReasonFromError(

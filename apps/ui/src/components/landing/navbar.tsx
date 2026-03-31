@@ -5,6 +5,7 @@ import {
 	BookOpen,
 	Bot,
 	ChevronDown,
+	Code,
 	Github,
 	Menu,
 	MessagesSquare,
@@ -37,6 +38,7 @@ import { cn } from "@/lib/utils";
 
 import { ThemeToggle } from "./theme-toggle";
 
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Route } from "next";
 import type { ReactNode } from "react";
 
@@ -86,9 +88,13 @@ function ListItem({
 export const Navbar = ({
 	children,
 	sticky = true,
+	models,
+	providers,
 }: {
 	children?: React.ReactNode;
 	sticky?: boolean;
+	models?: ApiModel[];
+	providers?: ApiProvider[];
 }) => {
 	const config = useAppConfig();
 
@@ -146,6 +152,16 @@ export const Navbar = ({
 			gradient:
 				"hover:from-pink-500/20 hover:to-rose-600/30 hover:shadow-pink-500/10 group-hover/product:text-pink-500 dark:group-hover/product:text-pink-400",
 		},
+		{
+			title: "DevPass",
+			href: "https://code.llmgateway.io",
+			description:
+				"Fixed-price monthly plans for Claude Code, Cursor, and every coding tool.",
+			icon: Code,
+			gradient:
+				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
+			external: true,
+		},
 	];
 
 	const resourcesLinks: Array<{
@@ -185,9 +201,9 @@ export const Navbar = ({
 			description: "Compare models side by side.",
 		},
 		{
-			title: "Cost Simulator",
-			href: "/cost-simulator",
-			description: "Calculate your LLM cost savings instantly.",
+			title: "Token Cost Calculator",
+			href: "/token-cost-calculator",
+			description: "Calculate your LLM token costs and savings instantly.",
 		},
 		{
 			title: "Referral Program",
@@ -338,7 +354,7 @@ export const Navbar = ({
 						{/* Desktop center nav */}
 						<div className="m-auto hidden items-center gap-2 nav:flex min-w-0">
 							<div className="w-[140px] lg:w-[160px]">
-								<ModelSearch />
+								<ModelSearch models={models} providers={providers} />
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
 								<NavigationMenuList className="flex gap-1 text-sm">
@@ -575,7 +591,7 @@ export const Navbar = ({
 							{/* Mobile nav */}
 							<div className="nav:hidden">
 								<div className="mb-6">
-									<ModelSearch />
+									<ModelSearch models={models} providers={providers} />
 								</div>
 								<ul className="space-y-6 text-base">
 									<li>

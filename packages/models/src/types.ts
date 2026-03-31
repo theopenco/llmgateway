@@ -329,9 +329,12 @@ export interface ModelWithPricing {
 		providerId: string;
 		inputPrice?: number;
 		outputPrice?: number;
+		perSecondPrice?: Record<string, number>;
 		supportedParameters?: string[];
 		modelName: string;
 		discount?: number;
+		region?: string;
+		stability?: string;
 	}>;
 }
 
@@ -339,6 +342,7 @@ export interface ModelWithPricing {
 export interface AvailableModelProvider {
 	providerId: string;
 	modelName: string;
+	region?: string;
 }
 
 // Function type definitions

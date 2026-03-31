@@ -33,7 +33,7 @@ export function ProviderSelect({
 	providers,
 	loading = false,
 	placeholder = "Select provider...",
-	emptyMessage = "All providers already have keys",
+	emptyMessage = "No providers available",
 	disabled = false,
 }: ProviderSelectProps) {
 	return (

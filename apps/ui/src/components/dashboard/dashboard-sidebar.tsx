@@ -104,6 +104,11 @@ const PROJECT_NAVIGATION: readonly {
 		icon: AnimatedActivity,
 	},
 	{
+		href: "sessions",
+		label: "Sessions",
+		icon: AnimatedMessageSquare,
+	},
+	{
 		href: "model-usage",
 		label: "Model Usage",
 		icon: AnimatedChartColumnBig,

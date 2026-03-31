@@ -247,6 +247,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/models/{modelId}/benchmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get model benchmarks
+         * @description Returns per-provider performance benchmarks and Arena scores for a specific model
+         */
+        get: operations["internal_get_model_benchmarks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/discounts/model/{modelId}": {
         parameters: {
             query?: never;
@@ -362,6 +382,75 @@ export interface paths {
                     };
                 };
                 /** @description Submission could not be processed */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/newsletter/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        email: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Successfully subscribed to newsletter */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Rate limit exceeded */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Internal server error */
                 500: {
                     headers: {
                         [name: string]: unknown;
@@ -726,168 +815,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/logs/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Single log entry */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            log: {
-                                id: string;
-                                requestId: string;
-                                createdAt: string;
-                                updatedAt: string;
-                                organizationId: string;
-                                projectId: string;
-                                apiKeyId: string;
-                                duration: number;
-                                requestedModel: string;
-                                requestedProvider: string | null;
-                                usedModel: string;
-                                usedProvider: string;
-                                responseSize: number;
-                                content: string | null;
-                                reasoningContent: string | null;
-                                unifiedFinishReason: string | null;
-                                finishReason: string | null;
-                                promptTokens: string | null;
-                                completionTokens: string | null;
-                                totalTokens: string | null;
-                                reasoningTokens: string | null;
-                                messages?: unknown;
-                                temperature: number | null;
-                                maxTokens: number | null;
-                                topP: number | null;
-                                frequencyPenalty: number | null;
-                                presencePenalty: number | null;
-                                reasoningEffort: string | null;
-                                reasoningMaxTokens: number | null;
-                                responseFormat?: unknown;
-                                tools: ({
-                                    /** @enum {string} */
-                                    type: "function";
-                                    function: {
-                                        name: string;
-                                        description?: string;
-                                        parameters?: {
-                                            [key: string]: unknown;
-                                        };
-                                    };
-                                } | {
-                                    /** @enum {string} */
-                                    type: "web_search";
-                                    user_location?: {
-                                        city?: string;
-                                        region?: string;
-                                        country?: string;
-                                        timezone?: string;
-                                    };
-                                    /** @enum {string} */
-                                    search_context_size?: "low" | "medium" | "high";
-                                    max_uses?: number;
-                                })[] | null;
-                                toolChoice: "none" | "auto" | "required" | {
-                                    /** @enum {string} */
-                                    type: "function";
-                                    function: {
-                                        name: string;
-                                    };
-                                } | unknown;
-                                toolResults: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    type: "function";
-                                    function: {
-                                        name: string;
-                                        arguments: string;
-                                    };
-                                }[] | null;
-                                hasError: boolean | null;
-                                errorDetails: {
-                                    statusCode: number;
-                                    statusText: string;
-                                    responseText: string;
-                                    cause?: string;
-                                } | null;
-                                cost: number | null;
-                                inputCost: number | null;
-                                outputCost: number | null;
-                                requestCost: number | null;
-                                imageInputTokens: string | null;
-                                imageOutputTokens: string | null;
-                                imageInputCost: number | null;
-                                imageOutputCost: number | null;
-                                estimatedCost: boolean | null;
-                                canceled: boolean | null;
-                                streamed: boolean | null;
-                                cached: boolean | null;
-                                customHeaders?: unknown;
-                                /** @enum {string} */
-                                mode: "api-keys" | "credits" | "hybrid";
-                                /** @enum {string} */
-                                usedMode: "api-keys" | "credits";
-                                source: string | null;
-                                routingMetadata?: {
-                                    availableProviders?: string[];
-                                    selectedProvider?: string;
-                                    selectionReason?: string;
-                                    providerScores?: {
-                                        providerId: string;
-                                        score: number;
-                                        uptime?: number;
-                                        latency?: number;
-                                        price?: number;
-                                    }[];
-                                    routing?: {
-                                        provider: string;
-                                        model: string;
-                                        status_code: number;
-                                        error_type: string;
-                                        succeeded: boolean;
-                                    }[];
-                                } | null;
-                                retried?: boolean | null;
-                                retriedByLogId?: string | null;
-                            };
-                        };
-                    };
-                };
-                /** @description Log not found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/logs": {
         parameters: {
             query?: never;
@@ -1012,10 +939,15 @@ export interface paths {
                                 inputCost: number | null;
                                 outputCost: number | null;
                                 requestCost: number | null;
+                                cachedInputCost?: number | null;
+                                webSearchCost?: number | null;
                                 imageInputTokens: string | null;
                                 imageOutputTokens: string | null;
                                 imageInputCost: number | null;
                                 imageOutputCost: number | null;
+                                videoOutputCost: number | null;
+                                videoDownloadCount: number | null;
+                                lastVideoDownloadedAt: string | null;
                                 estimatedCost: boolean | null;
                                 canceled: boolean | null;
                                 streamed: boolean | null;
@@ -1032,14 +964,27 @@ export interface paths {
                                     selectionReason?: string;
                                     providerScores?: {
                                         providerId: string;
+                                        region?: string;
                                         score: number;
                                         uptime?: number;
                                         latency?: number;
+                                        throughput?: number;
                                         price?: number;
+                                        priority?: number;
+                                        failed?: boolean;
+                                        status_code?: number;
+                                        error_type?: string;
+                                        rate_limited?: boolean;
+                                        contentFilterProvider?: boolean;
+                                        excludedByContentFilter?: boolean;
                                     }[];
+                                    contentFilterMatched?: boolean;
+                                    contentFilterRerouted?: boolean;
+                                    contentFilterExcludedProviders?: string[];
                                     routing?: {
                                         provider: string;
                                         model: string;
+                                        region?: string;
                                         status_code: number;
                                         error_type: string;
                                         succeeded: boolean;
@@ -1047,6 +992,22 @@ export interface paths {
                                 } | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
+                                gatewayContentFilterResponse?: {
+                                    id?: string;
+                                    model?: string;
+                                    results?: {
+                                        flagged?: boolean;
+                                        categories?: {
+                                            [key: string]: boolean;
+                                        };
+                                        category_scores?: {
+                                            [key: string]: number;
+                                        };
+                                        category_applied_input_types?: {
+                                            [key: string]: string[];
+                                        };
+                                    }[];
+                                }[] | null;
                             }[];
                             /** @description Pagination metadata */
                             pagination: {
@@ -1113,6 +1074,202 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/logs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Single log entry */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            log: {
+                                id: string;
+                                requestId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                organizationId: string;
+                                projectId: string;
+                                apiKeyId: string;
+                                duration: number;
+                                requestedModel: string;
+                                requestedProvider: string | null;
+                                usedModel: string;
+                                usedProvider: string;
+                                responseSize: number;
+                                content: string | null;
+                                reasoningContent: string | null;
+                                unifiedFinishReason: string | null;
+                                finishReason: string | null;
+                                promptTokens: string | null;
+                                completionTokens: string | null;
+                                totalTokens: string | null;
+                                reasoningTokens: string | null;
+                                messages?: unknown;
+                                temperature: number | null;
+                                maxTokens: number | null;
+                                topP: number | null;
+                                frequencyPenalty: number | null;
+                                presencePenalty: number | null;
+                                reasoningEffort: string | null;
+                                reasoningMaxTokens: number | null;
+                                responseFormat?: unknown;
+                                tools: ({
+                                    /** @enum {string} */
+                                    type: "function";
+                                    function: {
+                                        name: string;
+                                        description?: string;
+                                        parameters?: {
+                                            [key: string]: unknown;
+                                        };
+                                    };
+                                } | {
+                                    /** @enum {string} */
+                                    type: "web_search";
+                                    user_location?: {
+                                        city?: string;
+                                        region?: string;
+                                        country?: string;
+                                        timezone?: string;
+                                    };
+                                    /** @enum {string} */
+                                    search_context_size?: "low" | "medium" | "high";
+                                    max_uses?: number;
+                                })[] | null;
+                                toolChoice: "none" | "auto" | "required" | {
+                                    /** @enum {string} */
+                                    type: "function";
+                                    function: {
+                                        name: string;
+                                    };
+                                } | unknown;
+                                toolResults: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    type: "function";
+                                    function: {
+                                        name: string;
+                                        arguments: string;
+                                    };
+                                }[] | null;
+                                hasError: boolean | null;
+                                errorDetails: {
+                                    statusCode: number;
+                                    statusText: string;
+                                    responseText: string;
+                                    cause?: string;
+                                } | null;
+                                cost: number | null;
+                                inputCost: number | null;
+                                outputCost: number | null;
+                                requestCost: number | null;
+                                cachedInputCost?: number | null;
+                                webSearchCost?: number | null;
+                                imageInputTokens: string | null;
+                                imageOutputTokens: string | null;
+                                imageInputCost: number | null;
+                                imageOutputCost: number | null;
+                                videoOutputCost: number | null;
+                                videoDownloadCount: number | null;
+                                lastVideoDownloadedAt: string | null;
+                                estimatedCost: boolean | null;
+                                canceled: boolean | null;
+                                streamed: boolean | null;
+                                cached: boolean | null;
+                                customHeaders?: unknown;
+                                /** @enum {string} */
+                                mode: "api-keys" | "credits" | "hybrid";
+                                /** @enum {string} */
+                                usedMode: "api-keys" | "credits";
+                                source: string | null;
+                                routingMetadata?: {
+                                    availableProviders?: string[];
+                                    selectedProvider?: string;
+                                    selectionReason?: string;
+                                    providerScores?: {
+                                        providerId: string;
+                                        region?: string;
+                                        score: number;
+                                        uptime?: number;
+                                        latency?: number;
+                                        throughput?: number;
+                                        price?: number;
+                                        priority?: number;
+                                        failed?: boolean;
+                                        status_code?: number;
+                                        error_type?: string;
+                                        rate_limited?: boolean;
+                                        contentFilterProvider?: boolean;
+                                        excludedByContentFilter?: boolean;
+                                    }[];
+                                    contentFilterMatched?: boolean;
+                                    contentFilterRerouted?: boolean;
+                                    contentFilterExcludedProviders?: string[];
+                                    routing?: {
+                                        provider: string;
+                                        model: string;
+                                        region?: string;
+                                        status_code: number;
+                                        error_type: string;
+                                        succeeded: boolean;
+                                    }[];
+                                } | null;
+                                retried?: boolean | null;
+                                retriedByLogId?: string | null;
+                                gatewayContentFilterResponse?: {
+                                    id?: string;
+                                    model?: string;
+                                    results?: {
+                                        flagged?: boolean;
+                                        categories?: {
+                                            [key: string]: boolean;
+                                        };
+                                        category_scores?: {
+                                            [key: string]: number;
+                                        };
+                                        category_applied_input_types?: {
+                                            [key: string]: string[];
+                                        };
+                                    }[];
+                                }[] | null;
+                            };
+                        };
+                    };
+                };
+                /** @description Log not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activity": {
         parameters: {
             query?: never;
@@ -1128,6 +1285,7 @@ export interface paths {
                     to?: string;
                     projectId?: string;
                     apiKeyId?: string;
+                    timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
                 };
                 header?: never;
                 path?: never;
@@ -1135,7 +1293,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Activity data grouped by day */
+                /** @description Activity data grouped by day or hour */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -1156,6 +1314,7 @@ export interface paths {
                                 dataStorageCost: number;
                                 imageInputCost: number;
                                 imageOutputCost: number;
+                                videoOutputCost: number;
                                 cachedInputCost: number;
                                 errorCount: number;
                                 errorRate: number;
@@ -1178,6 +1337,8 @@ export interface paths {
                                     cost: number;
                                 }[];
                             }[];
+                            /** @enum {string} */
+                            granularity?: "hourly" | "daily";
                         };
                     };
                 };
@@ -1769,6 +1930,10 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    provider?: string;
+                    model?: string;
+                    source?: string;
+                    unifiedFinishReason?: string;
                 };
                 header?: never;
                 path: {
@@ -1813,6 +1978,7 @@ export interface paths {
                                 webSearchCost: number | null;
                                 imageInputCost: number | null;
                                 imageOutputCost: number | null;
+                                videoOutputCost: number | null;
                                 dataStorageCost: number | null;
                                 hasError: boolean | null;
                                 errorDetails?: unknown;
@@ -2238,6 +2404,374 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/rate-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of global rate limits. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rateLimits: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                /** @enum {string} */
+                                limitType: "rpm" | "rpd";
+                                maxRequests: number;
+                                reason: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        provider?: string | null;
+                        model?: string | null;
+                        /** @enum {string} */
+                        limitType: "rpm" | "rpd";
+                        maxRequests: number;
+                        reason?: string | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created global rate limit. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string | null;
+                            provider: string | null;
+                            model: string | null;
+                            /** @enum {string} */
+                            limitType: "rpm" | "rpd";
+                            maxRequests: number;
+                            reason: string | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+                /** @description Invalid rate limit data. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limit already exists for this provider/model/limit type combination. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/rate-limits/{rateLimitId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    rateLimitId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Rate limit deleted. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Rate limit not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/rate-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of organization rate limits. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rateLimits: {
+                                id: string;
+                                organizationId: string | null;
+                                provider: string | null;
+                                model: string | null;
+                                /** @enum {string} */
+                                limitType: "rpm" | "rpd";
+                                maxRequests: number;
+                                reason: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        provider?: string | null;
+                        model?: string | null;
+                        /** @enum {string} */
+                        limitType: "rpm" | "rpd";
+                        maxRequests: number;
+                        reason?: string | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created organization rate limit. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            organizationId: string | null;
+                            provider: string | null;
+                            model: string | null;
+                            /** @enum {string} */
+                            limitType: "rpm" | "rpd";
+                            maxRequests: number;
+                            reason: string | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+                /** @description Invalid rate limit data. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Rate limit already exists for this provider/model/limit type combination. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/rate-limits/{rateLimitId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                    rateLimitId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Rate limit deleted. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Rate limit not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/rate-limits/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Available providers and provider/model mappings for rate limit selection. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providers: {
+                                id: string;
+                                name: string;
+                            }[];
+                            mappings: {
+                                providerId: string;
+                                providerName: string;
+                                modelId: string;
+                                modelName: string;
+                                rootModelId: string;
+                                rootModelName: string;
+                                family: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/providers": {
         parameters: {
             query?: never;
@@ -2308,7 +2842,7 @@ export interface paths {
                 query?: {
                     search?: string;
                     family?: string;
-                    sortBy?: "name" | "family" | "status" | "free" | "logsCount" | "errorsCount" | "cachedCount" | "avgTimeToFirstToken" | "providerCount" | "updatedAt";
+                    sortBy?: "name" | "family" | "status" | "free" | "logsCount" | "totalCost" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "cachedCount" | "avgTimeToFirstToken" | "providerCount" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                     limit?: number;
                     offset?: number | null;
@@ -2337,11 +2871,18 @@ export interface paths {
                                 status: string;
                                 logsCount: number;
                                 errorsCount: number;
+                                clientErrorsCount: number;
+                                gatewayErrorsCount: number;
+                                upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 providerCount: number;
                                 totalTokens: number;
                                 totalCost: number;
+                                inputPrice: string | null;
+                                outputPrice: string | null;
+                                requestPrice: string | null;
+                                discount: string | null;
                                 updatedAt: string;
                             }[];
                             total: number;
@@ -2373,6 +2914,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                    projectId?: string;
                 };
                 header?: never;
                 path: {
@@ -2590,6 +3132,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                    projectId?: string;
                 };
                 header?: never;
                 path: {
@@ -2640,6 +3183,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
+                    projectId?: string;
                 };
                 header?: never;
                 path: {
@@ -2667,58 +3211,6 @@ export interface paths {
                                 totalTokens: number;
                                 totalCost: number;
                             }[];
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/models/{modelId}/providers/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: {
-                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
-                };
-                header?: never;
-                path: {
-                    modelId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Per-provider model history timeseries for all providers. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            data: {
-                                [key: string]: {
-                                    timestamp: string;
-                                    logsCount: number;
-                                    errorsCount: number;
-                                    cachedCount: number;
-                                    avgTtft: number | null;
-                                    avgDuration: number | null;
-                                    totalTokens: number;
-                                    totalCost: number;
-                                }[];
-                            };
                         };
                     };
                 };
@@ -2839,6 +3331,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/organizations/{orgId}/projects/{projectId}/model-provider-stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    search?: string;
+                    sortBy?: "logsCount" | "errorsCount" | "cost" | "modelId" | "providerId";
+                    sortOrder?: "asc" | "desc";
+                    limit?: number | null;
+                    offset?: number | null;
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project model-provider stats. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            mappings: {
+                                modelId: string;
+                                providerId: string;
+                                providerName: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                cost: number;
+                                totalTokens: number;
+                            }[];
+                            total: number;
+                            totalRequests: number;
+                            totalTokens: number;
+                            totalCost: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/model-provider-mappings": {
         parameters: {
             query?: never;
@@ -2850,7 +3403,7 @@ export interface paths {
             parameters: {
                 query?: {
                     search?: string;
-                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "avgTimeToFirstToken" | "updatedAt";
+                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "avgTimeToFirstToken" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                     limit?: number | null;
                     offset?: number | null;
@@ -2874,11 +3427,15 @@ export interface paths {
                                 id: string;
                                 modelId: string;
                                 modelName: string;
+                                region: string | null;
                                 providerId: string;
                                 providerName: string;
                                 status: string;
                                 logsCount: number;
                                 errorsCount: number;
+                                clientErrorsCount: number;
+                                gatewayErrorsCount: number;
+                                upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 inputPrice: string | null;
@@ -2960,6 +3517,149 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/contact-submissions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Single enterprise contact submission. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            createdAt: string;
+                            name: string;
+                            email: string;
+                            country: string;
+                            size: string;
+                            message: string;
+                            ipAddress: string | null;
+                            userAgent: string | null;
+                            spamFilterStatus: string;
+                            rejectionReason: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/contact-submissions/{id}/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        subject: string;
+                        body: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Reply sent or failed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/send-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        to: string;
+                        subject: string;
+                        body: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Email sent or failed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/keys/api": {
         parameters: {
             query?: never;
@@ -2995,6 +3695,13 @@ export interface paths {
                                 status: "active" | "inactive" | "deleted" | null;
                                 usageLimit: string | null;
                                 usage: string;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                                currentPeriodUsage: string;
+                                currentPeriodStartedAt: string | null;
+                                currentPeriodResetAt: string | null;
                                 projectId: string;
                                 createdBy: string;
                                 creator?: {
@@ -3047,7 +3754,11 @@ export interface paths {
                     "application/json": {
                         description: string;
                         projectId: string;
-                        usageLimit: string | null;
+                        usageLimit?: string | null;
+                        periodUsageLimit?: string | null;
+                        periodUsageDurationValue?: number | null;
+                        /** @enum {string|null} */
+                        periodUsageDurationUnit?: "hour" | "day" | "week" | "month" | null;
                     };
                 };
             };
@@ -3068,6 +3779,13 @@ export interface paths {
                                 status: "active" | "inactive" | "deleted" | null;
                                 usageLimit: string | null;
                                 usage: string;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                                currentPeriodUsage: string;
+                                currentPeriodStartedAt: string | null;
+                                currentPeriodResetAt: string | null;
                                 projectId: string;
                                 createdBy: string;
                                 creator?: {
@@ -3198,6 +3916,13 @@ export interface paths {
                                 status: "active" | "inactive" | "deleted" | null;
                                 usageLimit: string | null;
                                 usage: string;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                                currentPeriodUsage: string;
+                                currentPeriodStartedAt: string | null;
+                                currentPeriodResetAt: string | null;
                                 projectId: string;
                                 createdBy: string;
                                 creator?: {
@@ -3278,7 +4003,11 @@ export interface paths {
             requestBody?: {
                 content: {
                     "application/json": {
-                        usageLimit: string | null;
+                        usageLimit?: string | null;
+                        periodUsageLimit?: string | null;
+                        periodUsageDurationValue?: number | null;
+                        /** @enum {string|null} */
+                        periodUsageDurationUnit?: "hour" | "day" | "week" | "month" | null;
                     };
                 };
             };
@@ -3300,6 +4029,13 @@ export interface paths {
                                 status: "active" | "inactive" | "deleted" | null;
                                 usageLimit: string | null;
                                 usage: string;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                                currentPeriodUsage: string;
+                                currentPeriodStartedAt: string | null;
+                                currentPeriodResetAt: string | null;
                                 projectId: string;
                                 createdBy: string;
                                 creator?: {
@@ -3612,6 +4348,8 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    /** @enum {string} */
+                                    alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -3647,6 +4385,8 @@ export interface paths {
                             /** @enum {string} */
                             azure_deployment_type?: "openai" | "ai-foundry";
                             azure_validation_model?: string;
+                            /** @enum {string} */
+                            alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                         };
                         organizationId: string;
                     };
@@ -3675,6 +4415,8 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    /** @enum {string} */
+                                    alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -3791,6 +4533,8 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    /** @enum {string} */
+                                    alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
                                 /** @enum {string|null} */
                                 status: "active" | "inactive" | "deleted" | null;
@@ -6055,7 +6799,7 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
                                 /** @enum {string} */
                                 resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
@@ -6874,6 +7618,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/video/{videoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    videoId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Video job status */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            /** @enum {string} */
+                            object: "video";
+                            model: string;
+                            /** @enum {string} */
+                            status: "queued" | "in_progress" | "completed" | "failed" | "canceled" | "expired";
+                            progress: number | null;
+                            created_at: number;
+                            completed_at: number | null;
+                            expires_at: number | null;
+                            error: {
+                                code?: string;
+                                message: string;
+                                details?: unknown;
+                            } | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6923,6 +7720,7 @@ export interface operations {
                                 modelId: string;
                                 providerId: string;
                                 modelName: string;
+                                region: string | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;
                                 cachedInputPrice: string | null;
@@ -6943,6 +7741,13 @@ export interface operations {
                                 /** @enum {string|null} */
                                 stability: "stable" | "beta" | "unstable" | "experimental" | null;
                                 supportedParameters: string[] | null;
+                                supportedVideoSizes: string[] | null;
+                                supportedVideoDurationsSeconds: number[] | null;
+                                supportsVideoAudio: boolean | null;
+                                supportsVideoWithoutAudio: boolean | null;
+                                perSecondPrice: {
+                                    [key: string]: string;
+                                } | null;
                                 deprecatedAt: string | null;
                                 deactivatedAt: string | null;
                                 /** @enum {string} */
@@ -6983,6 +7788,56 @@ export interface operations {
                             /** @enum {string} */
                             status: "active" | "inactive";
                         }[];
+                    };
+                };
+            };
+        };
+    };
+    internal_get_model_benchmarks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                modelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-provider benchmarks and Arena scores for the model */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        modelId: string;
+                        providers: {
+                            providerId: string;
+                            providerName: string;
+                            logsCount: number;
+                            errorsCount: number;
+                            clientErrorsCount: number;
+                            gatewayErrorsCount: number;
+                            upstreamErrorsCount: number;
+                            cachedCount: number;
+                            avgTimeToFirstToken: number | null;
+                            errorRate: number;
+                        }[];
+                        arena: {
+                            text: {
+                                rank: number;
+                                score: number;
+                                matchedName: string;
+                            } | null;
+                            code: {
+                                rank: number;
+                                score: number;
+                                matchedName: string;
+                            } | null;
+                            source: string;
+                            fetchedAt: string;
+                        };
                     };
                 };
             };

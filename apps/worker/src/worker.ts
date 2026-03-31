@@ -9,12 +9,14 @@ import {
 	publishToQueue,
 } from "@llmgateway/cache";
 import {
+	addApiKeyPeriodDuration,
 	and,
 	apiKey,
 	closeDatabase,
 	db,
 	eq,
 	inArray,
+	isApiKeyPeriodLimitConfigured,
 	log,
 	type LogInsertData,
 	lt,
@@ -24,7 +26,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees } from "@llmgateway/shared";
+import { calculateFees, isCreditTopUpAmountInRange } from "@llmgateway/shared";
 
 import { runFollowUpEmailsLoop } from "./services/follow-up-emails.js";
 import {
@@ -38,6 +40,10 @@ import {
 	calculateMinutelyHistory,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
+import {
+	processPendingVideoJobs,
+	processPendingWebhookDeliveries,
+} from "./services/video-jobs.js";
 
 // Configuration for current minute history calculation interval (defaults to 5 seconds)
 const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
@@ -63,14 +69,89 @@ const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const LOCK_DURATION_MINUTES = 5;
+const AUTO_TOPUP_DISABLE_AFTER_DAYS = 7;
+const AUTO_TOPUP_DISABLE_AFTER_MS =
+	AUTO_TOPUP_DISABLE_AFTER_DAYS * 24 * 60 * 60 * 1000;
 
 // Configuration for batch processing
 const BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
+const VIDEO_JOB_POLL_INTERVAL_SECONDS =
+	Number(process.env.VIDEO_JOB_POLL_INTERVAL_SECONDS) || 5;
+const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
+	Number(process.env.VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS) || 5;
+
+interface ApiKeyUsageEvent {
+	cost: Decimal;
+	createdAt: Date;
+}
+
+type ApiKeyPeriodState = Pick<
+	typeof apiKey.$inferSelect,
+	| "currentPeriodStartedAt"
+	| "currentPeriodUsage"
+	| "periodUsageLimit"
+	| "periodUsageDurationValue"
+	| "periodUsageDurationUnit"
+>;
+
+interface ApiKeyUsageUpdate {
+	hasPeriodUsageUpdate: boolean;
+	currentPeriodStartedAt: Date | null;
+	currentPeriodUsage: string;
+	totalUsageCost: Decimal;
+}
+
+function buildApiKeyUsageUpdate(
+	apiKeyState: ApiKeyPeriodState,
+	events: ApiKeyUsageEvent[],
+): ApiKeyUsageUpdate {
+	const totalUsageCost = events.reduce(
+		(total, event) => total.plus(event.cost),
+		new Decimal(0),
+	);
+
+	if (!isApiKeyPeriodLimitConfigured(apiKeyState)) {
+		return {
+			hasPeriodUsageUpdate: false,
+			currentPeriodStartedAt: apiKeyState.currentPeriodStartedAt,
+			currentPeriodUsage: String(apiKeyState.currentPeriodUsage ?? "0"),
+			totalUsageCost,
+		};
+	}
+
+	let currentPeriodStartedAt = apiKeyState.currentPeriodStartedAt;
+	let currentPeriodUsage = new Decimal(apiKeyState.currentPeriodUsage ?? "0");
+
+	for (const event of events) {
+		if (
+			currentPeriodStartedAt === null ||
+			addApiKeyPeriodDuration(
+				currentPeriodStartedAt,
+				apiKeyState.periodUsageDurationValue,
+				apiKeyState.periodUsageDurationUnit,
+			) <= event.createdAt
+		) {
+			currentPeriodStartedAt = event.createdAt;
+			currentPeriodUsage = event.cost;
+			continue;
+		}
+
+		currentPeriodUsage = currentPeriodUsage.plus(event.cost);
+	}
+
+	return {
+		hasPeriodUsageUpdate: true,
+		currentPeriodStartedAt,
+		currentPeriodUsage: currentPeriodUsage.toString(),
+		totalUsageCost,
+	};
+}
 
 const schema = z.object({
 	id: z.string(),
+	created_at: z.date(),
 	request_id: z.string(),
 	organization_id: z.string(),
 	project_id: z.string(),
@@ -153,7 +234,7 @@ async function releaseLock(key: string): Promise<void> {
 	await db.delete(tables.lock).where(eq(tables.lock.key, key));
 }
 
-async function processAutoTopUp(): Promise<void> {
+export async function processAutoTopUp(): Promise<void> {
 	const lockAcquired = await acquireLock(AUTO_TOPUP_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
@@ -207,6 +288,74 @@ async function processAutoTopUp(): Promise<void> {
 					}
 				}
 
+				if (
+					org.paymentFailureStartedAt &&
+					Date.now() - org.paymentFailureStartedAt.getTime() >=
+						AUTO_TOPUP_DISABLE_AFTER_MS
+				) {
+					const auditActor =
+						(await db.query.userOrganization.findFirst({
+							where: {
+								organizationId: {
+									eq: org.id,
+								},
+								role: {
+									eq: "owner",
+								},
+							},
+						})) ??
+						(await db.query.userOrganization.findFirst({
+							where: {
+								organizationId: {
+									eq: org.id,
+								},
+							},
+						}));
+
+					const previousFailureStartedAt = org.paymentFailureStartedAt;
+					const previousLastPaymentFailureAt = org.lastPaymentFailureAt;
+					const previousFailureCount = org.paymentFailureCount ?? 0;
+
+					await db
+						.update(tables.organization)
+						.set({
+							autoTopUpEnabled: false,
+							paymentFailureCount: 0,
+							lastPaymentFailureAt: null,
+							paymentFailureStartedAt: null,
+						})
+						.where(eq(tables.organization.id, org.id));
+
+					if (auditActor) {
+						await db.insert(tables.auditLog).values({
+							organizationId: org.id,
+							userId: auditActor.userId,
+							action: "payment.auto_topup.disable",
+							resourceType: "organization",
+							resourceId: org.id,
+							metadata: {
+								automatic: true,
+								reason: "payment_failures_exceeded_7_days",
+								changes: {
+									autoTopUpEnabled: {
+										old: true,
+										new: false,
+									},
+								},
+								paymentFailureCount: previousFailureCount,
+								paymentFailureStartedAt: previousFailureStartedAt.toISOString(),
+								lastPaymentFailureAt:
+									previousLastPaymentFailureAt?.toISOString() ?? null,
+							},
+						});
+					}
+
+					logger.warn(
+						`Disabled auto top-up for organization ${org.id} after ${AUTO_TOPUP_DISABLE_AFTER_DAYS} days of payment failures`,
+					);
+					continue;
+				}
+
 				// Check for exponential backoff based on payment failure count
 				// Backoff intervals: 1h, 2h, 4h, 8h, 16h, 24h (capped)
 				if (org.lastPaymentFailureAt && (org.paymentFailureCount ?? 0) > 0) {
@@ -249,6 +398,13 @@ async function processAutoTopUp(): Promise<void> {
 				}
 
 				const topUpAmount = Number(org.autoTopUpAmount ?? "10");
+
+				if (!isCreditTopUpAmountInRange(topUpAmount)) {
+					logger.error(
+						`Skipping auto top-up for organization ${org.id}: invalid amount ${org.autoTopUpAmount}`,
+					);
+					continue;
+				}
 
 				// Get the first user associated with this organization for email metadata
 				const orgUser = await db.query.userOrganization.findFirst({
@@ -443,6 +599,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						upstreamRequest: null,
 						upstreamResponse: null,
 						userAgent: null,
+						gatewayContentFilterResponse: null,
 						dataRetentionCleanedUp: true,
 					})
 					.where(inArray(log.id, idsToClean));
@@ -490,6 +647,7 @@ export async function batchProcessLogs(): Promise<void> {
 			const rows = await tx
 				.select({
 					id: log.id,
+					created_at: log.createdAt,
 					request_id: log.requestId,
 					organization_id: log.organizationId,
 					project_id: log.projectId,
@@ -539,17 +697,18 @@ export async function batchProcessLogs(): Promise<void> {
 			// Group logs by organization and api key to calculate total costs
 			// Use Decimal.js to avoid floating point rounding errors
 			const orgCosts = new Map<string, Decimal>();
-			const apiKeyCosts = new Map<string, Decimal>();
+			const apiKeyEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const logIds: string[] = [];
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
 
 				// Log each processed log with JSON format
-				logger.info("Processing log", {
+				logger.info("processing log", {
 					kind: "log-process",
 					status: row.hasError ? "error" : row.cached ? "cached" : "success",
 					logId: row.id,
+					createdAt: row.created_at,
 					requestId: row.request_id,
 					organizationId: row.organization_id,
 					projectId: row.project_id,
@@ -581,13 +740,13 @@ export async function batchProcessLogs(): Promise<void> {
 				});
 
 				if (row.cost && row.cost > 0 && !row.cached) {
-					// Always update API key usage for non-cached logs with cost
-					const currentApiKeyCost =
-						apiKeyCosts.get(row.api_key_id) ?? new Decimal(0);
-					apiKeyCosts.set(
-						row.api_key_id,
-						currentApiKeyCost.plus(new Decimal(row.cost)),
-					);
+					const apiKeyCost = new Decimal(row.cost);
+					const existingEvents = apiKeyEvents.get(row.api_key_id) ?? [];
+					existingEvents.push({
+						cost: apiKeyCost,
+						createdAt: row.created_at,
+					});
+					apiKeyEvents.set(row.api_key_id, existingEvents);
 
 					// Deduct organization credits based on mode:
 					// - Credits mode: deduct full cost (includes request cost + storage cost)
@@ -596,10 +755,7 @@ export async function batchProcessLogs(): Promise<void> {
 						// In credits mode, deduct the full cost
 						const currentOrgCost =
 							orgCosts.get(row.organization_id) ?? new Decimal(0);
-						orgCosts.set(
-							row.organization_id,
-							currentOrgCost.plus(new Decimal(row.cost)),
-						);
+						orgCosts.set(row.organization_id, currentOrgCost.plus(apiKeyCost));
 					} else if (row.used_mode === "api-keys") {
 						// In API keys mode, only deduct storage cost (data retention billing)
 						if (row.data_storage_cost) {
@@ -720,14 +876,50 @@ export async function batchProcessLogs(): Promise<void> {
 				}
 			}
 
-			// Batch update API key usage within the same transaction
-			for (const [apiKeyId, totalCost] of apiKeyCosts.entries()) {
-				if (totalCost.greaterThan(0)) {
-					const costNumber = totalCost.toNumber();
+			// Batch update API key usage within the same transaction.
+			// Period windows are replayed from each log's event time so delayed
+			// processing does not shift usage across recurring-limit boundaries.
+			const apiKeyIds = Array.from(apiKeyEvents.keys());
+			if (apiKeyIds.length > 0) {
+				const apiKeyRecords = await tx.query.apiKey.findMany({
+					columns: {
+						id: true,
+						currentPeriodStartedAt: true,
+						currentPeriodUsage: true,
+						periodUsageLimit: true,
+						periodUsageDurationValue: true,
+						periodUsageDurationUnit: true,
+					},
+					where: {
+						id: {
+							in: apiKeyIds,
+						},
+					},
+				});
+				const apiKeyRecordsById = new Map(
+					apiKeyRecords.map((record) => [record.id, record]),
+				);
+
+				for (const [apiKeyId, events] of apiKeyEvents.entries()) {
+					const apiKeyRecord = apiKeyRecordsById.get(apiKeyId);
+					if (!apiKeyRecord) {
+						logger.warn(
+							`Skipping usage update for missing API key ${apiKeyId}`,
+						);
+						continue;
+					}
+
+					const usageUpdate = buildApiKeyUsageUpdate(apiKeyRecord, events);
+					const costNumber = usageUpdate.totalUsageCost.toNumber();
+
 					await tx
 						.update(apiKey)
 						.set({
 							usage: sql`${apiKey.usage} + ${costNumber}`,
+							...(usageUpdate.hasPeriodUsageUpdate && {
+								currentPeriodUsage: usageUpdate.currentPeriodUsage,
+								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
+							}),
 						})
 						.where(eq(apiKey.id, apiKeyId));
 
@@ -1065,6 +1257,76 @@ async function runCurrentMinuteHistoryLoop() {
 	}
 }
 
+async function runVideoJobsLoop() {
+	activeLoops++;
+	const interval = VIDEO_JOB_POLL_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting video jobs loop (interval: ${VIDEO_JOB_POLL_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!shouldStop) {
+			try {
+				await processPendingVideoJobs();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in video jobs loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Video jobs loop stopped");
+	}
+}
+
+async function runVideoWebhookLoop() {
+	activeLoops++;
+	const interval = VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting video webhook loop (interval: ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!shouldStop) {
+			try {
+				await processPendingWebhookDeliveries();
+
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, interval);
+					});
+				}
+			} catch (error) {
+				logger.error(
+					"Error in video webhook loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				if (!shouldStop) {
+					await new Promise((resolve) => {
+						setTimeout(resolve, 5000);
+					});
+				}
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Video webhook loop stopped");
+	}
+}
+
 async function runAggregatedStatsLoop() {
 	activeLoops++;
 	logger.info(
@@ -1242,6 +1504,12 @@ export async function startWorker() {
 		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
 	);
 	logger.info(
+		`- Video jobs: runs every ${VIDEO_JOB_POLL_INTERVAL_SECONDS} seconds for async video status polling`,
+	);
+	logger.info(
+		`- Video webhooks: runs every ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds for callback delivery`,
+	);
+	logger.info(
 		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
 	);
 	logger.info(
@@ -1253,6 +1521,8 @@ export async function startWorker() {
 
 	void runMinutelyHistoryLoop();
 	void runCurrentMinuteHistoryLoop();
+	void runVideoJobsLoop();
+	void runVideoWebhookLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runLogQueueLoop();

@@ -128,6 +128,7 @@ function normalizeLanguageName(rawLanguageName: string | undefined): Language {
 		sql: "sql",
 		docker: "docker",
 		dockerfile: "docker",
+		diff: "diff",
 	};
 
 	return aliasToLanguage[value] ?? "text";
@@ -197,6 +198,25 @@ function CopyButton({ code }: { code: string }) {
 			)}
 		</button>
 	);
+}
+
+// Determine diff line color based on leading +/- character
+function getDiffColor(
+	language: Language,
+	line: { content: string }[],
+	mode: "light" | "dark",
+): string | undefined {
+	if (language !== "diff") {
+		return undefined;
+	}
+	const lineText = line.map((t) => t.content).join("");
+	if (lineText.startsWith("+")) {
+		return mode === "light" ? "#16a34a" : "#4ade80";
+	}
+	if (lineText.startsWith("-")) {
+		return mode === "light" ? "#dc2626" : "#f87171";
+	}
+	return undefined;
 }
 
 // Syntax highlighted pre component
@@ -280,6 +300,7 @@ export const SyntaxHighlightedPre = ({
 						>
 							{tokens.map((line, i) => {
 								const lineProps = getLineProps({ line });
+								const diffColor = getDiffColor(language, line, "light");
 								return (
 									<div key={i} {...lineProps} className="table-row">
 										<span className="table-cell pr-4 text-muted-foreground select-none text-right opacity-50">
@@ -288,6 +309,16 @@ export const SyntaxHighlightedPre = ({
 										<span className="table-cell">
 											{line.map((token, key) => {
 												const tokenProps = getTokenProps({ token });
+												const isDiffMarkerToken =
+													key === 0 &&
+													(token.content.startsWith("+") ||
+														token.content.startsWith("-"));
+												if (diffColor && isDiffMarkerToken) {
+													tokenProps.style = {
+														...tokenProps.style,
+														color: diffColor,
+													};
+												}
 												return <span key={key} {...tokenProps} />;
 											})}
 										</span>
@@ -314,6 +345,7 @@ export const SyntaxHighlightedPre = ({
 						>
 							{tokens.map((line, i) => {
 								const lineProps = getLineProps({ line });
+								const diffColor = getDiffColor(language, line, "dark");
 								return (
 									<div key={i} {...lineProps} className="table-row">
 										<span className="table-cell pr-4 text-muted-foreground select-none text-right opacity-50">
@@ -322,6 +354,16 @@ export const SyntaxHighlightedPre = ({
 										<span className="table-cell">
 											{line.map((token, key) => {
 												const tokenProps = getTokenProps({ token });
+												const isDiffMarkerToken =
+													key === 0 &&
+													(token.content.startsWith("+") ||
+														token.content.startsWith("-"));
+												if (diffColor && isDiffMarkerToken) {
+													tokenProps.style = {
+														...tokenProps.style,
+														color: diffColor,
+													};
+												}
 												return <span key={key} {...tokenProps} />;
 											})}
 										</span>

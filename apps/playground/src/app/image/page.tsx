@@ -7,6 +7,13 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	title: "AI Image Generation",
+	description:
+		"Generate images with DALL-E, Stable Diffusion, Flux, and other AI models. Compare outputs across providers in one playground.",
+};
 
 export default async function ImagePage({
 	searchParams,

@@ -72,7 +72,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					requestPrice: map.requestPrice?.toString() ?? null,
 					contextSize: map.contextSize ?? null,
 					maxOutput: map.maxOutput ?? null,
-					streaming: map.streaming ?? true,
+					streaming: map.streaming === "only" ? true : (map.streaming ?? true),
 					vision: map.vision ?? null,
 					reasoning: map.reasoning ?? null,
 					reasoningOutput: map.reasoningOutput ?? null,
@@ -82,6 +82,19 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					jsonOutputSchema: map.jsonOutputSchema ?? null,
 					webSearch: map.webSearch ?? null,
 					webSearchPrice: map.webSearchPrice?.toString() ?? null,
+					supportedVideoSizes: map.supportedVideoSizes ?? null,
+					supportedVideoDurationsSeconds:
+						map.supportedVideoDurationsSeconds ?? null,
+					supportsVideoAudio: map.supportsVideoAudio ?? null,
+					supportsVideoWithoutAudio: map.supportsVideoWithoutAudio ?? null,
+					perSecondPrice: map.perSecondPrice
+						? Object.fromEntries(
+								Object.entries(map.perSecondPrice).map(([k, v]) => [
+									k,
+									v.toString(),
+								]),
+							)
+						: null,
 					discount: map.discount?.toString() ?? null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,

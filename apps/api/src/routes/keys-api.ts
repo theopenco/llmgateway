@@ -6,11 +6,272 @@ import { maskToken } from "@/lib/maskToken.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { eq, db, shortid, tables } from "@llmgateway/db";
+import {
+	apiKeyPeriodDurationMaxValues,
+	apiKeyPeriodDurationUnits,
+	db,
+	eq,
+	getApiKeyCurrentPeriodState,
+	isValidApiKeyPeriodDuration,
+	shortid,
+	tables,
+	type ApiKeyPeriodDurationUnit,
+	type InferSelectModel,
+} from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const keysApi = new OpenAPIHono<ServerTypes>();
+
+type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
+type ApiKeyLimitConfig = Pick<
+	ApiKeyRecord,
+	| "usageLimit"
+	| "periodUsageLimit"
+	| "periodUsageDurationValue"
+	| "periodUsageDurationUnit"
+>;
+type PartialApiKeyLimitConfig = Partial<ApiKeyLimitConfig>;
+type ApiKeyResponseRecord = ApiKeyRecord & {
+	creator?: {
+		id: string;
+		name: string | null;
+		email: string;
+	} | null;
+	iamRules?: Array<{
+		id: string;
+		createdAt: Date;
+		updatedAt: Date;
+		apiKeyId: string;
+		ruleType:
+			| "allow_models"
+			| "deny_models"
+			| "allow_pricing"
+			| "deny_pricing"
+			| "allow_providers"
+			| "deny_providers";
+		ruleValue: {
+			models?: string[];
+			providers?: string[];
+			pricingType?: "free" | "paid";
+			maxInputPrice?: number;
+			maxOutputPrice?: number;
+		};
+		status: "active" | "inactive";
+	}>;
+};
+
+const apiKeyPeriodDurationUnitSchema = z.enum(apiKeyPeriodDurationUnits);
+const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
+
+function normalizeNullableString(value: unknown): unknown {
+	if (value === undefined || value === null) {
+		return null;
+	}
+
+	if (typeof value !== "string") {
+		return value;
+	}
+
+	const trimmedValue = value.trim();
+	return trimmedValue === "" ? null : trimmedValue;
+}
+
+function createNullableLimitSchema(fieldLabel: string) {
+	return z.preprocess(
+		normalizeNullableString,
+		z
+			.string()
+			.refine((value) => nonNegativeDecimalPattern.test(value), {
+				message: `${fieldLabel} must be a non-negative number.`,
+			})
+			.nullable(),
+	);
+}
+
+const nullableApiKeyPeriodDurationValueSchema = z.number().int().nullable();
+const nullableApiKeyPeriodDurationUnitSchema =
+	apiKeyPeriodDurationUnitSchema.nullable();
+
+const createApiKeyPeriodConfigFieldsSchema = {
+	periodUsageLimit: createNullableLimitSchema("Period usage limit")
+		.optional()
+		.default(null),
+	periodUsageDurationValue: nullableApiKeyPeriodDurationValueSchema
+		.optional()
+		.default(null),
+	periodUsageDurationUnit: nullableApiKeyPeriodDurationUnitSchema
+		.optional()
+		.default(null),
+} as const;
+
+const updateApiKeyPeriodConfigFieldsSchema = {
+	periodUsageLimit: createNullableLimitSchema("Period usage limit").optional(),
+	periodUsageDurationValue: nullableApiKeyPeriodDurationValueSchema.optional(),
+	periodUsageDurationUnit: nullableApiKeyPeriodDurationUnitSchema.optional(),
+} as const;
+
+const apiKeyPeriodConfigSchema = z
+	.object({
+		periodUsageLimit: createNullableLimitSchema("Period usage limit"),
+		periodUsageDurationValue: nullableApiKeyPeriodDurationValueSchema,
+		periodUsageDurationUnit: nullableApiKeyPeriodDurationUnitSchema,
+	})
+	.superRefine(validateApiKeyPeriodConfig);
+
+function validateApiKeyPeriodConfig(
+	value: {
+		periodUsageLimit: string | null;
+		periodUsageDurationValue: number | null;
+		periodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+	},
+	ctx: z.RefinementCtx,
+) {
+	const hasPeriodLimit = value.periodUsageLimit !== null;
+	const hasDurationValue = value.periodUsageDurationValue !== null;
+	const hasDurationUnit = value.periodUsageDurationUnit !== null;
+
+	if (!hasPeriodLimit && (hasDurationValue || hasDurationUnit)) {
+		ctx.addIssue({
+			code: z.ZodIssueCode.custom,
+			path: ["periodUsageLimit"],
+			message:
+				"Period usage limit is required when a time window is configured.",
+		});
+	}
+
+	if (hasPeriodLimit && (!hasDurationValue || !hasDurationUnit)) {
+		ctx.addIssue({
+			code: z.ZodIssueCode.custom,
+			path: ["periodUsageDurationValue"],
+			message:
+				"Both a duration value and unit are required for period usage limits.",
+		});
+		return;
+	}
+
+	if (
+		value.periodUsageDurationValue !== null &&
+		value.periodUsageDurationUnit
+	) {
+		const maxValue =
+			apiKeyPeriodDurationMaxValues[value.periodUsageDurationUnit];
+
+		if (
+			!isValidApiKeyPeriodDuration(
+				value.periodUsageDurationValue,
+				value.periodUsageDurationUnit,
+			)
+		) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["periodUsageDurationValue"],
+				message: `Duration must be between 1 and ${maxValue} ${value.periodUsageDurationUnit}${maxValue === 1 ? "" : "s"}.`,
+			});
+		}
+	}
+}
+
+function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
+	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
+
+	return {
+		...apiKey,
+		currentPeriodUsage: currentPeriod.usage,
+		currentPeriodStartedAt: currentPeriod.startedAt,
+		currentPeriodResetAt: currentPeriod.resetAt,
+	};
+}
+
+function hasPeriodConfigChanged(
+	apiKey: ApiKeyRecord,
+	config: {
+		periodUsageLimit: string | null;
+		periodUsageDurationValue: number | null;
+		periodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+	},
+): boolean {
+	return (
+		apiKey.periodUsageLimit !== config.periodUsageLimit ||
+		apiKey.periodUsageDurationValue !== config.periodUsageDurationValue ||
+		apiKey.periodUsageDurationUnit !== config.periodUsageDurationUnit
+	);
+}
+
+function buildApiKeyLimitAuditChanges(
+	previous: ApiKeyLimitConfig,
+	next: ApiKeyLimitConfig,
+) {
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+
+	if (previous.usageLimit !== next.usageLimit) {
+		changes.usageLimit = {
+			old: previous.usageLimit,
+			new: next.usageLimit,
+		};
+	}
+
+	if (previous.periodUsageLimit !== next.periodUsageLimit) {
+		changes.periodUsageLimit = {
+			old: previous.periodUsageLimit,
+			new: next.periodUsageLimit,
+		};
+	}
+
+	if (previous.periodUsageDurationValue !== next.periodUsageDurationValue) {
+		changes.periodUsageDurationValue = {
+			old: previous.periodUsageDurationValue,
+			new: next.periodUsageDurationValue,
+		};
+	}
+
+	if (previous.periodUsageDurationUnit !== next.periodUsageDurationUnit) {
+		changes.periodUsageDurationUnit = {
+			old: previous.periodUsageDurationUnit,
+			new: next.periodUsageDurationUnit,
+		};
+	}
+
+	return changes;
+}
+
+function mergeApiKeyLimitConfig(
+	current: ApiKeyLimitConfig,
+	update: PartialApiKeyLimitConfig,
+): ApiKeyLimitConfig {
+	return {
+		usageLimit:
+			update.usageLimit === undefined ? current.usageLimit : update.usageLimit,
+		periodUsageLimit:
+			update.periodUsageLimit === undefined
+				? current.periodUsageLimit
+				: update.periodUsageLimit,
+		periodUsageDurationValue:
+			update.periodUsageDurationValue === undefined
+				? current.periodUsageDurationValue
+				: update.periodUsageDurationValue,
+		periodUsageDurationUnit:
+			update.periodUsageDurationUnit === undefined
+				? current.periodUsageDurationUnit
+				: update.periodUsageDurationUnit,
+	};
+}
+
+function parseApiKeyPeriodConfig(config: ApiKeyLimitConfig) {
+	const parsedConfig = apiKeyPeriodConfigSchema.safeParse({
+		periodUsageLimit: config.periodUsageLimit,
+		periodUsageDurationValue: config.periodUsageDurationValue,
+		periodUsageDurationUnit: config.periodUsageDurationUnit,
+	});
+
+	if (!parsedConfig.success) {
+		throw new HTTPException(400, {
+			message:
+				parsedConfig.error.issues[0]?.message ??
+				"Invalid API key period limit configuration.",
+		});
+	}
+}
 
 // Create a schema for API key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
@@ -23,6 +284,12 @@ const apiKeySchema = z.object({
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	usageLimit: z.string().nullable(),
 	usage: z.string(),
+	periodUsageLimit: z.string().nullable(),
+	periodUsageDurationValue: z.number().int().nullable(),
+	periodUsageDurationUnit: apiKeyPeriodDurationUnitSchema.nullable(),
+	currentPeriodUsage: z.string(),
+	currentPeriodStartedAt: z.date().nullable(),
+	currentPeriodResetAt: z.date().nullable(),
 	projectId: z.string(),
 	createdBy: z.string(),
 	creator: z
@@ -61,11 +328,16 @@ const apiKeySchema = z.object({
 });
 
 // Schema for creating a new API key
-const createApiKeySchema = z.object({
-	description: z.string().min(1).max(255),
-	projectId: z.string().min(1),
-	usageLimit: z.string().nullable(),
-});
+const createApiKeySchema = z
+	.object({
+		description: z.string().trim().min(1).max(255),
+		projectId: z.string().trim().min(1),
+		usageLimit: createNullableLimitSchema("Usage limit")
+			.optional()
+			.default(null),
+		...createApiKeyPeriodConfigFieldsSchema,
+	})
+	.superRefine(validateApiKeyPeriodConfig);
 
 // Schema for listing API keys
 const listApiKeysQuerySchema = z.object({
@@ -84,9 +356,12 @@ const updateApiKeyStatusSchema = z.object({
 });
 
 // Schema for updating an API key usage limit
-const updateApiKeyUsageLimitSchema = z.object({
-	usageLimit: z.string().nullable(),
-});
+const updateApiKeyUsageLimitSchema = z
+	.object({
+		usageLimit: createNullableLimitSchema("Usage limit").optional(),
+		...updateApiKeyPeriodConfigFieldsSchema,
+	})
+	.strict();
 
 // Schema for IAM rule
 const iamRuleSchema = z.object({
@@ -172,7 +447,14 @@ keysApi.openapi(create, async (c) => {
 		});
 	}
 
-	const { description, projectId, usageLimit } = c.req.valid("json");
+	const {
+		description,
+		projectId,
+		usageLimit,
+		periodUsageLimit,
+		periodUsageDurationValue,
+		periodUsageDurationUnit,
+	} = c.req.valid("json");
 
 	// Check if user has access to the project
 	const projectIds = await getUserProjectIds(user.id);
@@ -241,6 +523,9 @@ keysApi.openapi(create, async (c) => {
 			projectId,
 			description,
 			usageLimit,
+			periodUsageLimit,
+			periodUsageDurationValue,
+			periodUsageDurationUnit,
 			createdBy: user.id,
 		})
 		.returning();
@@ -255,14 +540,17 @@ keysApi.openapi(create, async (c) => {
 			resourceName: description,
 			projectId,
 			usageLimit,
+			periodUsageLimit,
+			periodUsageDurationValue,
+			periodUsageDurationUnit,
 		},
 	});
 
 	return c.json({
-		apiKey: {
+		apiKey: serializeApiKey({
 			...apiKey,
 			token, // Include the token in the response
-		},
+		}),
 	});
 });
 
@@ -420,7 +708,7 @@ keysApi.openapi(list, async (c) => {
 
 	return c.json({
 		apiKeys: apiKeys.map((key) => ({
-			...key,
+			...serializeApiKey(key),
 			maskedToken: maskToken(key.token),
 			token: undefined,
 		})),
@@ -751,7 +1039,7 @@ keysApi.openapi(updateStatus, async (c) => {
 	return c.json({
 		message: `API key status updated to ${status}`,
 		apiKey: {
-			...updatedApiKey,
+			...serializeApiKey(updatedApiKey),
 			maskedToken: maskToken(updatedApiKey.token),
 			token: undefined,
 		},
@@ -823,7 +1111,7 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { usageLimit } = c.req.valid("json");
+	const limitUpdate = c.req.valid("json");
 
 	// Get the user's projects
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -888,16 +1176,28 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		});
 	}
 
+	const nextLimitConfig = mergeApiKeyLimitConfig(apiKey, limitUpdate);
+	parseApiKeyPeriodConfig(nextLimitConfig);
+
+	const periodConfigChanged = hasPeriodConfigChanged(apiKey, nextLimitConfig);
+
 	// Update the API key usage limit
 	const [updatedApiKey] = await db
 		.update(tables.apiKey)
 		.set({
-			usageLimit,
+			usageLimit: nextLimitConfig.usageLimit,
+			periodUsageLimit: nextLimitConfig.periodUsageLimit,
+			periodUsageDurationValue: nextLimitConfig.periodUsageDurationValue,
+			periodUsageDurationUnit: nextLimitConfig.periodUsageDurationUnit,
+			...(periodConfigChanged && {
+				currentPeriodUsage: "0",
+				currentPeriodStartedAt: null,
+			}),
 		})
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
-	if (apiKey.usageLimit !== usageLimit) {
+	if (apiKey.usageLimit !== nextLimitConfig.usageLimit || periodConfigChanged) {
 		await logAuditEvent({
 			organizationId: projectOrgId,
 			userId: user.id,
@@ -906,17 +1206,15 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 			resourceId: id,
 			metadata: {
 				resourceName: apiKey.description,
-				changes: {
-					usageLimit: { old: apiKey.usageLimit, new: usageLimit },
-				},
+				changes: buildApiKeyLimitAuditChanges(apiKey, nextLimitConfig),
 			},
 		});
 	}
 
 	return c.json({
-		message: `API key usage limit updated to ${usageLimit}`,
+		message: "API key limits updated successfully.",
 		apiKey: {
-			...updatedApiKey,
+			...serializeApiKey(updatedApiKey),
 			maskedToken: maskToken(updatedApiKey.token),
 			token: undefined,
 		},

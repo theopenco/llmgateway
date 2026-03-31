@@ -4,7 +4,6 @@ description: Comprehensive guide to API key management and Identity Access Manag
 icon: Key
 ---
 
-import { Tabs, Tab } from "fumadocs-ui/components/tabs";
 import { Callout } from "fumadocs-ui/components/callout";
 
 # API Keys & IAM Rules
@@ -16,7 +15,7 @@ API keys are the primary method for authenticating with the LLM Gateway. This gu
 LLM Gateway provides comprehensive API key management with the following features:
 
 - **Basic API Key Management**: Create, list, update, and delete API keys
-- **Usage Limits**: Set spending limits on individual API keys
+- **Usage Limits**: Set lifetime and recurring spending limits on individual API keys
 - **IAM Rules**: Fine-grained access control for models, providers, and pricing
 - **Usage Tracking**: Monitor API key usage and costs
 - **Status Management**: Enable/disable keys without deletion
@@ -31,8 +30,9 @@ At this time, API keys can only be created via the dashboard.
 2. Go to the **API Keys** section
 3. Click **Create API Key**
 4. Provide a description for your key
-5. Optionally set a usage limit
-6. Click **Create**
+5. Optionally set an all-time usage limit
+6. Optionally set a recurring usage limit such as `$10 / day` or `$500 / month`
+7. Click **Create**
 
 <Callout type="warning">
 	API keys are shown in full only once during creation. Make sure to copy and
@@ -53,17 +53,34 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-## API Key Management
-
 ## Disabling/Enabling API Keys
 
 You can disable an API key to stop it from being used, but the key is not deleted and can be re-enabled later.
 
 ## Usage Limits
 
-Usage is tracked per API key which is shown on the API Keys page. Usage includes both costs from LLM Gateway credits and usage from your own provider keys when applicable, giving you complete visibility into total spending per key.
+Usage is tracked per API key on the API Keys page. Usage includes both costs
+from LLM Gateway credits and usage from your own provider keys when applicable,
+giving you complete visibility into total spending per key.
 
-You can set a maximum usage limit for each API key. When the limit is reached, requests using that key will return an error.
+You can set two independent limits for each key:
+
+- **All-time usage limit**: A lifetime spend cap
+- **Recurring usage limit**: A spend cap that resets every configured hour, day, week, or month
+
+When a key reaches either limit, requests using that key return `401
+Unauthorized` until the key is updated or, for recurring limits, the next
+usage window starts. This is separate from IAM rule violations, which return
+`403 Forbidden`.
+
+Recurring windows support:
+
+- Minimum duration: **1 hour**
+- Maximum duration: **12 months**
+- Units: **hour**, **day**, **week**, **month**
+
+For the dashboard walkthrough and field-by-field details, see [API Keys in
+Learn](/learn/api-keys).
 
 ## IAM Rules
 

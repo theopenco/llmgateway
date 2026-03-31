@@ -6,6 +6,7 @@ import { googleModels } from "./models/google.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
 import { microsoftModels } from "./models/microsoft.js";
+import { mimoModels } from "./models/mimo.js";
 import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
@@ -45,6 +46,73 @@ export interface PricingTier {
 	 * Price per cached input token in USD for this tier
 	 */
 	cachedInputPrice?: number;
+}
+
+/**
+ * Pricing and availability for a specific geographic region.
+ * When defined on a ProviderModelMapping, the first entry is the default region.
+ * Top-level inputPrice/outputPrice always reflect the default (first) region
+ * for backwards compatibility.
+ */
+export interface ProviderRegion {
+	/**
+	 * Region identifier (e.g. "singapore", "us-virginia", "cn-beijing")
+	 */
+	id: string;
+	/**
+	 * Price per input token in USD for this region.
+	 * When absent, falls back to the mapping-level inputPrice.
+	 */
+	inputPrice?: number;
+	/**
+	 * Price per output token in USD for this region.
+	 * When absent, falls back to the mapping-level outputPrice.
+	 */
+	outputPrice?: number;
+	/**
+	 * Price per cached input token in USD for this region
+	 */
+	cachedInputPrice?: number;
+	/**
+	 * Context-length based pricing tiers for this region.
+	 * When absent, falls back to the mapping-level pricingTiers.
+	 */
+	pricingTiers?: PricingTier[];
+	/**
+	 * Discount multiplier (0-1) for this region.
+	 * When absent, falls back to the mapping-level discount.
+	 */
+	discount?: number;
+	/**
+	 * Price per request in USD for this region.
+	 * When absent, falls back to the mapping-level requestPrice.
+	 */
+	requestPrice?: number;
+	/**
+	 * Price per web search query in USD for this region.
+	 * When absent, falls back to the mapping-level webSearchPrice.
+	 */
+	webSearchPrice?: number;
+	/**
+	 * Context window size in tokens for this region.
+	 * When absent, falls back to the mapping-level contextSize.
+	 */
+	contextSize?: number;
+	/**
+	 * Maximum output size in tokens for this region.
+	 * When absent, falls back to the mapping-level maxOutput.
+	 */
+	maxOutput?: number;
+	/**
+	 * Streaming support override for this region.
+	 * When absent, falls back to the mapping-level streaming.
+	 */
+	streaming?: boolean | "only";
+	/**
+	 * Test skip/only for this specific region.
+	 * When absent, falls back to the mapping-level test.
+	 */
+	test?: "skip" | "only";
 }
 
 export interface ProviderModelMapping {
@@ -95,6 +163,12 @@ export interface ProviderModelMapping {
 	 */
 	requestPrice?: number;
 	/**
+	 * Price per second in USD for video generation models.
+	 * Maps billing keys like "default", "4k", "default_audio", "4k_audio",
+	 * "default_video", and "4k_video" to per-second pricing.
+	 */
+	perSecondPrice?: Record<string, number>;
+	/**
 	 * Discount multiplier (0-1), where 0.5 = 50% off
 	 */
 	discount?: number;
@@ -113,9 +187,14 @@ export interface ProviderModelMapping {
 	 */
 	maxOutput?: number;
 	/**
-	 * Whether this specific model supports streaming for this provider
+	 * Whether this specific model supports streaming for this provider.
+	 * - true: supports both streaming and non-streaming
+	 * - false: does not support streaming
+	 * - "only": only supports streaming (non-streaming requests are auto-converted).
+	 *   Some providers enforce stream-only for certain models (e.g. Alibaba QwQ series).
+	 *   Ref: https://www.alibabacloud.com/help/en/model-studio/stream
 	 */
-	streaming: boolean;
+	streaming: boolean | "only";
 	/**
 	 * Whether this specific model supports vision (image inputs) for this provider
 	 */
@@ -193,6 +272,40 @@ export interface ProviderModelMapping {
 	 * When true, requests are routed to a provider-specific image generation endpoint.
 	 */
 	imageGenerations?: boolean;
+	/**
+	 * Geographic region for this provider mapping.
+	 * Set automatically when a mapping with `regions` is expanded into flat entries.
+	 * When absent (undefined), the provider uses a single global endpoint.
+	 */
+	region?: string;
+	/**
+	 * Available regions for this provider mapping.
+	 * Each region can optionally override pricing and other properties.
+	 * Properties not specified in a region entry are inherited from the parent mapping.
+	 * At sync/routing time, each region is expanded into a separate DB row / candidate.
+	 */
+	regions?: ProviderRegion[];
+	/**
+	 * Whether this model uses a dedicated video generation API.
+	 * When true, requests are routed to a provider-specific video generation endpoint.
+	 */
+	videoGenerations?: boolean;
+	/**
+	 * Supported OpenAI-style video sizes in widthxheight format for this provider.
+	 */
+	supportedVideoSizes?: string[];
+	/**
+	 * Supported output durations in seconds for this provider.
+	 */
+	supportedVideoDurationsSeconds?: number[];
+	/**
+	 * Whether this provider mapping supports generating video with audio.
+	 */
+	supportsVideoAudio?: boolean;
+	/**
+	 * Whether this provider mapping supports generating video without audio.
+	 */
+	supportsVideoWithoutAudio?: boolean;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
@@ -232,11 +345,15 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image")[];
+	output?: ("text" | "image" | "video")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
 	imageInputRequired?: boolean;
+	/**
+	 * Maximum supported output duration in seconds for video generation models.
+	 */
+	maxVideoDurationSeconds?: number;
 	/**
 	 * Stability level of the model (defaults to 'stable' if not specified)
 	 * - stable: Fully tested and production ready
@@ -270,6 +387,7 @@ export const models = [
 	...deepseekModels,
 	...mistralModels,
 	...microsoftModels,
+	...mimoModels,
 	...minimaxModels,
 	...moonshotModels,
 	...alibabaModels,

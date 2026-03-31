@@ -40,6 +40,7 @@ interface RoutingMetadata {
 	availableProviders?: string[];
 	providerScores?: Array<{
 		providerId: string;
+		region?: string;
 		score: number;
 		uptime?: number;
 		throughput?: number;
@@ -49,10 +50,17 @@ interface RoutingMetadata {
 		failed?: boolean;
 		status_code?: number;
 		error_type?: string;
+		rate_limited?: boolean;
+		contentFilterProvider?: boolean;
+		excludedByContentFilter?: boolean;
 	}>;
+	contentFilterMatched?: boolean;
+	contentFilterRerouted?: boolean;
+	contentFilterExcludedProviders?: string[];
 	routing?: Array<{
 		provider: string;
 		model: string;
+		region?: string;
 		succeeded: boolean;
 		status_code?: number;
 		error_type?: string;
@@ -368,11 +376,16 @@ export function LogCard({ log }: { log: ProjectLogEntry }) {
 													<div className="space-y-1">
 														{routingMetadata.providerScores.map((score) => (
 															<div
-																key={score.providerId}
+																key={`${score.providerId}-${score.region ?? "default"}`}
 																className="flex justify-between items-center"
 															>
 																<span className="font-mono flex items-center gap-1.5">
 																	{score.providerId}
+																	{score.region && (
+																		<span className="text-muted-foreground">
+																			({score.region})
+																		</span>
+																	)}
 																	{score.failed && (
 																		<span className="inline-flex items-center gap-0.5 text-red-500">
 																			<AlertCircle className="h-3 w-3" />
@@ -384,6 +397,18 @@ export function LogCard({ log }: { log: ProjectLogEntry }) {
 																					</span>
 																				)}
 																			</span>
+																		</span>
+																	)}
+																	{score.rate_limited && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Clock className="h-3 w-3" />
+																			<span>rpm capped</span>
+																		</span>
+																	)}
+																	{score.excludedByContentFilter && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Ban className="h-3 w-3" />
+																			<span>content filter</span>
 																		</span>
 																	)}
 																</span>

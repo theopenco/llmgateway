@@ -19,6 +19,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
@@ -123,6 +124,8 @@ export default async function ContactSubmissionsPage({
 		sortOrder?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const params = await searchParams;
 	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
 	const search = params?.search ?? "";
@@ -195,7 +198,10 @@ export default async function ContactSubmissionsPage({
 						{data.total} submissions found
 					</p>
 				</div>
-				<form action={handleSearch} className="flex items-center gap-2">
+				<form
+					action={handleSearch}
+					className="flex w-full flex-wrap items-center gap-2 sm:w-auto"
+				>
 					<input type="hidden" name="sortBy" value={sortBy} />
 					<input type="hidden" name="sortOrder" value={sortOrder} />
 					<select
@@ -209,14 +215,14 @@ export default async function ContactSubmissionsPage({
 							</option>
 						))}
 					</select>
-					<div className="relative">
+					<div className="relative flex-1 sm:flex-initial">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 						<input
 							type="text"
 							name="search"
 							placeholder="Search by name, email, or message..."
 							defaultValue={search}
-							className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
 						/>
 					</div>
 					<Button type="submit" size="sm">
@@ -288,12 +294,20 @@ export default async function ContactSubmissionsPage({
 							</TableRow>
 						) : (
 							data.submissions.map((submission) => (
-								<TableRow key={submission.id}>
+								<TableRow
+									key={submission.id}
+									className="cursor-pointer hover:bg-muted/50"
+								>
 									<TableCell className="text-muted-foreground">
 										{formatDate(submission.createdAt)}
 									</TableCell>
 									<TableCell className="font-medium">
-										{submission.name}
+										<Link
+											href={`/contact-submissions/${submission.id}`}
+											className="block hover:underline"
+										>
+											{submission.name}
+										</Link>
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{submission.email}
@@ -333,7 +347,7 @@ export default async function ContactSubmissionsPage({
 			</div>
 
 			{totalPages > 1 && (
-				<div className="flex items-center justify-between">
+				<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<p className="text-sm text-muted-foreground">
 						Showing {offset + 1} to {Math.min(offset + limit, data.total)} of{" "}
 						{data.total}

@@ -3,49 +3,34 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { ModelDetailClient } from "@/components/model-detail-client";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
-
-import type { HistoryWindow } from "@/components/history-chart";
-
-const validHistoryWindows = new Set<HistoryWindow>([
-	"1m",
-	"2m",
-	"5m",
-	"15m",
-	"1h",
-	"2h",
-	"4h",
-	"12h",
-	"24h",
-	"2d",
-	"7d",
-]);
-
-function parseHistoryWindow(value?: string): HistoryWindow {
-	if (value && validHistoryWindows.has(value as HistoryWindow)) {
-		return value as HistoryWindow;
-	}
-	return "4h";
-}
 
 export default async function ModelDetailPage({
 	params,
 	searchParams,
 }: {
 	params: Promise<{ modelId: string }>;
-	searchParams: Promise<{ window?: string }>;
+	searchParams?: Promise<{ projectId?: string; window?: string }>;
 }) {
+	await requireSession();
+
 	const { modelId } = await params;
-	const { window: rawWindow } = await searchParams;
+	const searchParamsData = await searchParams;
+	const projectId = searchParamsData?.projectId;
+	const window = searchParamsData?.window;
 	const decodedModelId = decodeURIComponent(modelId);
-	const window = parseHistoryWindow(rawWindow);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/models/{modelId}", {
 		params: {
 			path: { modelId: encodeURIComponent(decodedModelId) },
-			query: { window },
+			query: {
+				...(projectId ? { projectId } : {}),
+				...(window ? { window } : {}),
+			} as any,
 		},
 	});
 
@@ -76,13 +61,18 @@ export default async function ModelDetailPage({
 						Back
 					</Link>
 				</Button>
+				{projectId && (
+					<Badge variant="outline" className="text-xs">
+						Project: {projectId}
+					</Badge>
+				)}
 			</div>
 			<Suspense>
 				<ModelDetailClient
 					modelId={decodedModelId}
 					allTimeStats={model}
-					initialWindow={window}
 					providers={providers}
+					projectId={projectId}
 				/>
 			</Suspense>
 		</div>

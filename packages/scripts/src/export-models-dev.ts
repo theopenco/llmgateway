@@ -20,7 +20,7 @@
  *         └── ...
  */
 
-import { mkdirSync, writeFileSync, existsSync, rmSync, copyFileSync } from "fs";
+import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -82,78 +82,27 @@ function generateProviderToml(): string {
 	return lines.join("\n");
 }
 
-function generateReadme(): string {
-	return `# LLM Gateway Provider
-
-This provider enables access to 150+ AI models through [LLM Gateway](https://llmgateway.io), an OpenAI-compatible API gateway that provides unified access to 40+ LLM providers.
-
-## Directory Structure
-
-- **models/**: TOML configuration files for all supported models
-- **provider.toml**: Provider configuration
-- **logo.svg**: Provider logo
-
-## Regenerating Models
-
-Model configurations are generated from the [LLM Gateway repository](https://github.com/theopenco/llmgateway):
-
-\`\`\`bash
-npx tsx scripts/export-models-dev.ts
-\`\`\`
-
-## How It Works
-
-LLM Gateway acts as a unified proxy for multiple AI providers. You can access any supported model through a single API endpoint using your LLM Gateway API key.
-
-## Prerequisites
-
-\`\`\`bash
-export LLMGATEWAY_API_KEY="your-api-key"
-\`\`\`
-
-## Supported Providers
-
-- OpenAI (GPT-3.5, GPT-4, GPT-4o, GPT-5, o1, o3, o4-mini)
-- Anthropic (Claude 3, 3.5, 3.7, 4, 4.5)
-- Google (Gemini 1.5, 2.0, 2.5, 3, Gemma)
-- Meta (Llama 3.1, 3.3, 4)
-- xAI (Grok 2, 3, 4)
-- DeepSeek (V3, R1)
-- Alibaba (Qwen Max, Plus, Flash, VL, Coder)
-- Mistral (Large, Pixtral, Mixtral)
-- ZAI (GLM 4.5, 4.6, 4.7)
-- ByteDance (Seed, Seedream)
-- Moonshot (Kimi K2)
-- Perplexity (Sonar)
-- And many more...
-
-## Usage with AI SDK
-
-\`\`\`typescript
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-
-const llmgateway = createOpenAICompatible({
-  baseURL: "https://api.llmgateway.io/v1",
-  apiKey: process.env.LLMGATEWAY_API_KEY,
-});
-
-const result = await generateText({
-  model: llmgateway("claude-sonnet-4-5"),
-  prompt: "Hello!",
-});
-\`\`\`
-
-## Links
-
-- [Documentation](https://llmgateway.io/docs)
-- [Pricing](https://llmgateway.io/pricing)
-- [GitHub](https://github.com/theopenco/llmgateway)
-`;
+function generateLogo(outputPath: string): void {
+	const source = readFileSync(LOGO_SOURCE, "utf-8");
+	// Extract path elements from the source SVG
+	const paths = [...source.matchAll(/<path\s+d="([^"]+)"/g)].map((m) => m[1]);
+	// Wrap in a normalized 24x24 / viewBox 0 0 40 40 SVG with currentColor
+	// Original viewBox is 0 0 218 232, scale to fit 40x40 (scale by 40/232, center horizontally)
+	const scale = 40 / 232;
+	const xOffset = (40 - 218 * scale) / 2;
+	const lines = [
+		`<svg width="24" height="24" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">`,
+		`<g transform="translate(${xOffset.toFixed(2)}, 0) scale(${scale.toFixed(5)})">`,
+		...paths.map((d) => `<path d="${d}" fill="currentColor"/>`),
+		`</g>`,
+		`</svg>`,
+	];
+	writeFileSync(outputPath, lines.join("\n"));
 }
 
 function isOpenWeights(modelId: string, family: string): boolean {
-	const openWeightsFamilies = ["meta", "mistral", "deepseek", "alibaba"];
-	const openWeightsPatterns = [/llama/i, /gemma/i, /qwen/i, /mixtral/i, /deepseek/i, /nous/i];
+	const openWeightsFamilies = ["meta", "mistral", "deepseek", "alibaba", "minimax"];
+	const openWeightsPatterns = [/llama/i, /gemma/i, /qwen/i, /mixtral/i, /deepseek/i, /nous/i, /minimax/i];
 
 	if (openWeightsFamilies.includes(family)) {return true;}
 
@@ -200,6 +149,29 @@ function getModelFamily(model: ModelDefinition): string {
 	return familyMap[model.family] || model.family;
 }
 
+function isReasoningModel(model: ModelDefinition): boolean {
+	// Check if any provider explicitly has reasoning: true
+	if (model.providers.some((p) => p.reasoning === true)) {
+		return true;
+	}
+
+	// Check if any provider has "reasoning_effort" in supportedParameters
+	if (model.providers.some((p) => p.supportedParameters?.includes("reasoning_effort"))) {
+		return true;
+	}
+
+	// Infer from well-known reasoning model patterns
+	const id = model.id.toLowerCase();
+	const reasoningPatterns = [
+		/^o[134]-/, // o1-*, o3-*, o4-*
+		/^o[134]$/, // o1, o3, o4
+		/deepseek-r1/, // DeepSeek R1 variants
+		/(?<!non-)reasoning/, // models with "reasoning" but not "non-reasoning"
+	];
+
+	return reasoningPatterns.some((p) => p.test(id));
+}
+
 function generateModelToml(model: ModelDefinition): string | null {
 	// Get the first active provider mapping for pricing/capabilities
 	const now = new Date();
@@ -207,8 +179,11 @@ function generateModelToml(model: ModelDefinition): string | null {
 
 	if (!activeProvider) {return null;}
 
+	// Check vision across all providers (use first active as primary)
+	const hasVision = activeProvider.vision || model.providers.some((p) => p.vision === true);
+
 	const inputModalities: string[] = ["text"];
-	if (activeProvider.vision) {
+	if (hasVision) {
 		inputModalities.push("image");
 	}
 
@@ -229,6 +204,16 @@ function generateModelToml(model: ModelDefinition): string | null {
 		status = "beta";
 	}
 
+	// Determine reasoning across all providers
+	const reasoning = isReasoningModel(model);
+
+	// Check tools and structured output across all providers
+	const hasTools = activeProvider.tools === true || model.providers.some((p) => p.tools === true);
+	const hasStructuredOutput =
+		activeProvider.jsonOutputSchema === true ||
+		activeProvider.jsonOutput === true ||
+		model.providers.some((p) => p.jsonOutputSchema === true || p.jsonOutput === true);
+
 	// Calculate costs (convert from per-token to per-million-token)
 	const inputCost = (activeProvider.inputPrice ?? 0) * 1e6;
 	const outputCost = (activeProvider.outputPrice ?? 0) * 1e6;
@@ -239,11 +224,11 @@ function generateModelToml(model: ModelDefinition): string | null {
 		family: getModelFamily(model),
 		release_date: model.releasedAt ? formatDate(model.releasedAt) : "2024-01-01",
 		last_updated: model.releasedAt ? formatDate(model.releasedAt) : "2024-01-01",
-		attachment: activeProvider.vision ?? false,
-		reasoning: activeProvider.reasoning ?? false,
+		attachment: hasVision,
+		reasoning,
 		temperature: true,
-		tool_call: activeProvider.tools ?? false,
-		structured_output: activeProvider.jsonOutputSchema ?? activeProvider.jsonOutput ?? false,
+		tool_call: hasTools,
+		structured_output: hasStructuredOutput,
 		open_weights: isOpenWeights(model.id, model.family),
 		status,
 		cost: {
@@ -328,13 +313,8 @@ function main(): void {
 	writeFileSync(join(OUTPUT_DIR, "provider.toml"), providerToml);
 	console.log("Created provider.toml");
 
-	// Write README.md
-	const readme = generateReadme();
-	writeFileSync(join(OUTPUT_DIR, "README.md"), readme);
-	console.log("Created README.md");
-
-	// Copy logo.svg
-	copyFileSync(LOGO_SOURCE, join(OUTPUT_DIR, "logo.svg"));
+	// Write logo.svg (normalized for models.dev: 24x24, viewBox 0 0 40 40, currentColor)
+	generateLogo(join(OUTPUT_DIR, "logo.svg"));
 	console.log("Created logo.svg");
 
 	// Write model files directly to models/

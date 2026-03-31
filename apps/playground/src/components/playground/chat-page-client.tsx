@@ -2,6 +2,7 @@
 
 import { useChat } from "@ai-sdk/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
@@ -78,6 +79,7 @@ export default function ChatPageClient({
 	enableWebSearch = false,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -144,6 +146,7 @@ export default function ChatPageClient({
 	const chatIdRef = useRef(currentChatId);
 	const isNewChatRef = useRef(false);
 	const errorOccurredRef = useRef(false);
+	const isSendingRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
 	// Flag to indicate we should clear messages on next URL change (set by handleChatSelect)
 	const shouldClearMessagesRef = useRef(false);
@@ -151,6 +154,7 @@ export default function ChatPageClient({
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
 			onError: async (e) => {
+				isSendingRef.current = false;
 				errorOccurredRef.current = true;
 				const msg = getErrorMessage(e);
 				setError(msg);
@@ -175,6 +179,7 @@ export default function ChatPageClient({
 				}
 			},
 			onFinish: async ({ message }) => {
+				isSendingRef.current = false;
 				isNewChatRef.current = false;
 
 				// If an error already occurred during streaming, skip saving the response
@@ -479,7 +484,7 @@ export default function ChatPageClient({
 	useChats();
 
 	useEffect(() => {
-		if (!currentChatData?.messages) {
+		if (!currentChatData?.messages || isSendingRef.current) {
 			return;
 		}
 
@@ -651,7 +656,13 @@ export default function ChatPageClient({
 
 		setError(null);
 		setIsLoading(true);
+		posthog.capture("playground_chat_sent", {
+			model: selectedModel,
+			has_images: !!images?.length,
+			web_search: webSearchEnabled,
+		});
 		errorOccurredRef.current = false;
+		isSendingRef.current = true;
 
 		const isNewChat = !chatIdRef.current;
 		if (isNewChat) {
@@ -799,15 +810,16 @@ export default function ChatPageClient({
 
 	// keep URL in sync with selected model
 	useEffect(() => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		// Read current URL params directly to avoid stale searchParams closure
+		const currentParams = new URLSearchParams(window.location.search);
 		if (selectedModel) {
-			params.set("model", selectedModel);
+			currentParams.set("model", selectedModel);
 		} else {
-			params.delete("model");
+			currentParams.delete("model");
 		}
-		const qs = params.toString();
-		router.replace(qs ? `?${qs}` : "");
-	}, [selectedModel]);
+		const qs = currentParams.toString();
+		router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+	}, [selectedModel, pathname, router]);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;

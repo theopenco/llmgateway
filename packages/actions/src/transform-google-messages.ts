@@ -105,7 +105,7 @@ export async function transformGoogleMessages(
 				if (toolCall.type === "function") {
 					let args: Record<string, unknown> = {};
 					try {
-						args = JSON.parse(toolCall.function.arguments || "{}");
+						args = JSON.parse(toolCall.function.arguments ?? "{}");
 					} catch {
 						args = {};
 					}

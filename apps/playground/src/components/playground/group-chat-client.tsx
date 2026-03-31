@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import { X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useState, useRef } from "react";
 
 import { ThemeToggle } from "@/components/landing/theme-toggle";
@@ -46,6 +47,7 @@ export default function GroupChatClient({
 	selectedProject,
 }: GroupChatClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -212,6 +214,10 @@ export default function GroupChatClient({
 
 		setError(null);
 		stoppedRef.current = false;
+		posthog.capture("playground_group_chat_started", {
+			models: selectedModels,
+			model_count: selectedModels.length,
+		});
 
 		// If this is the very first start (no messages yet), reset and seed
 		if (messages.length === 0) {

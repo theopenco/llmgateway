@@ -29,8 +29,10 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "google-vertex":
+		case "quartz":
 			return {};
 		case "obsidian":
+		case "avalanche":
 			return {
 				Authorization: `Bearer ${token}`,
 			};
@@ -55,6 +57,7 @@ export function getProviderHeaders(
 		case "nebius":
 		case "zai":
 		case "canopywave":
+		case "embercloud":
 		case "custom":
 		default:
 			return {

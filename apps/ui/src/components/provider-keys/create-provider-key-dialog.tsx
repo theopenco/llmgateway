@@ -35,24 +35,12 @@ interface CreateProviderKeyDialogProps {
 	children: React.ReactNode;
 	selectedOrganization: Organization;
 	preselectedProvider?: string;
-	existingProviderKeys?: {
-		id: string;
-		createdAt: string;
-		updatedAt: string;
-		provider: string;
-		name: string | null;
-		baseUrl: string | null;
-		status: "active" | "inactive" | "deleted" | null;
-		organizationId: string;
-		maskedToken: string;
-	}[];
 }
 
 export function CreateProviderKeyDialog({
 	children,
 	selectedOrganization,
 	preselectedProvider,
-	existingProviderKeys = [],
 }: CreateProviderKeyDialogProps) {
 	const posthog = usePostHog();
 	const [open, setOpen] = useState(false);
@@ -72,6 +60,7 @@ export function CreateProviderKeyDialog({
 	>("ai-foundry");
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
+	const [selectedRegion, setSelectedRegion] = useState("");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -80,26 +69,16 @@ export function CreateProviderKeyDialog({
 
 	const createMutation = api.useMutation("post", "/keys/provider");
 
-	// Filter provider keys by selected organization
-	const organizationProviderKeys = existingProviderKeys.filter(
-		(key) => key.organizationId === selectedOrganization.id,
+	const selectedProviderDef = providers.find(
+		(p) => p.id === selectedProvider,
+	) as ProviderDefinition | undefined;
+
+	const effectiveRegion =
+		(selectedRegion || selectedProviderDef?.regionConfig?.defaultRegion) ?? "";
+
+	const availableProviders = providers.filter(
+		(provider) => provider.id !== "llmgateway",
 	);
-
-	const availableProviders = providers.filter((provider) => {
-		if (provider.id === "llmgateway") {
-			return false;
-		}
-
-		// If a provider is preselected, always include it even if it has a key
-		if (preselectedProvider && provider.id === preselectedProvider) {
-			return true;
-		}
-
-		const existingKey = organizationProviderKeys.find(
-			(key) => key.provider === provider.id && key.status !== "deleted",
-		);
-		return !existingKey;
-	});
 
 	// Update selectedProvider when preselectedProvider changes or dialog opens
 	React.useEffect(() => {
@@ -155,13 +134,7 @@ export function CreateProviderKeyDialog({
 			token: string;
 			name?: string;
 			baseUrl?: string;
-			options?: {
-				aws_bedrock_region_prefix?: "us." | "global." | "eu.";
-				azure_resource?: string;
-				azure_api_version?: string;
-				azure_deployment_type?: "openai" | "ai-foundry";
-				azure_validation_model?: string;
-			};
+			options?: Record<string, string | undefined>;
 			organizationId: string;
 		} = {
 			provider: selectedProvider,
@@ -179,6 +152,14 @@ export function CreateProviderKeyDialog({
 				aws_bedrock_region_prefix: awsBedrockRegionPrefix,
 			};
 		}
+		// Include region in options for providers that support it
+		if (selectedProviderDef?.regionConfig && effectiveRegion) {
+			payload.options = {
+				...payload.options,
+				[selectedProviderDef.regionConfig.optionsKey]: effectiveRegion,
+			};
+		}
+
 		if (selectedProvider === "azure") {
 			if (!azureResource) {
 				toast({
@@ -215,6 +196,15 @@ export function CreateProviderKeyDialog({
 					void queryClient.invalidateQueries({ queryKey });
 					setOpen(false);
 				},
+				onError: () => {
+					setIsValidating(false);
+					toast({
+						title: "Validation Failed",
+						description:
+							"Failed to validate the API key. Please check your key and region.",
+						variant: "destructive",
+					});
+				},
 			},
 		);
 	};
@@ -231,6 +221,7 @@ export function CreateProviderKeyDialog({
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
+			setSelectedRegion("");
 		}, 300);
 	};
 
@@ -257,7 +248,10 @@ export function CreateProviderKeyDialog({
 					<div className="space-y-2">
 						<Label htmlFor="provider">Provider</Label>
 						<ProviderSelect
-							onValueChange={setSelectedProvider}
+							onValueChange={(value) => {
+								setSelectedProvider(value);
+								setSelectedRegion("");
+							}}
 							value={selectedProvider}
 							providers={availableProviders}
 							loading={false}
@@ -416,6 +410,28 @@ export function CreateProviderKeyDialog({
 						</>
 					)}
 
+					{selectedProviderDef?.regionConfig && (
+						<div className="space-y-2">
+							<Label htmlFor="provider-region">Region</Label>
+							<Select value={effectiveRegion} onValueChange={setSelectedRegion}>
+								<SelectTrigger id="provider-region">
+									<SelectValue placeholder="Select region" />
+								</SelectTrigger>
+								<SelectContent>
+									{selectedProviderDef.regionConfig.regions.map((r) => (
+										<SelectItem key={r.id} value={r.id}>
+											{r.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="text-sm text-muted-foreground">
+								API keys are region-specific. Make sure your key matches the
+								selected region.
+							</p>
+						</div>
+					)}
+
 					{selectedProvider === "custom" && (
 						<>
 							<div className="space-y-2">
@@ -423,14 +439,14 @@ export function CreateProviderKeyDialog({
 								<Input
 									id="custom-name"
 									type="text"
-									placeholder="my-provider"
+									placeholder="myprovider"
 									value={customName}
 									onChange={(e) => setCustomName(e.target.value.toLowerCase())}
 									pattern="[a-z]+"
 									required
 								/>
 								<p className="text-sm text-muted-foreground">
-									Used in model names like: {customName || "my-provider"}/gpt-4o
+									Used in model names like: {customName || "myprovider"}/gpt-4o
 								</p>
 							</div>
 							<div className="space-y-2">

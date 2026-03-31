@@ -163,6 +163,84 @@ describe("prepareRequestBody - Anthropic", () => {
 });
 
 describe("prepareRequestBody - Google AI Studio", () => {
+	test("should map gateway 0.5K image size to Google 512", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.1-flash-image-preview",
+			[
+				{
+					role: "user",
+					content: "Generate a small colorful abstract painting",
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			{
+				aspect_ratio: "1:1",
+				image_size: "0.5K",
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.imageConfig).toEqual({
+			aspectRatio: "1:1",
+			imageSize: "512",
+		});
+		expect(requestBody.generationConfig.responseModalities).toEqual([
+			"TEXT",
+			"IMAGE",
+		]);
+	});
+
+	test("should map gateway 0.5K image size to Google 512 for Vertex", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-vertex",
+			"gemini-3.1-flash-image-preview",
+			[
+				{
+					role: "user",
+					content: "Generate a small colorful abstract painting",
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			{
+				aspect_ratio: "1:1",
+				image_size: "0.5K",
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.imageConfig).toEqual({
+			aspectRatio: "1:1",
+			imageSize: "512",
+		});
+	});
+
 	test("should set thinkingBudget when reasoning_effort is provided", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",

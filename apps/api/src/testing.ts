@@ -22,6 +22,7 @@ export async function deleteAll() {
 
 	await Promise.all([
 		db.delete(tables.log),
+		db.delete(tables.auditLog),
 		db.delete(tables.apiKey),
 		db.delete(tables.providerKey),
 		db.delete(projectHourlyStats),
@@ -153,6 +154,10 @@ function getCommonAggregationFields() {
 		imageOutputCost:
 			sql<number>`coalesce(sum(${tables.log.imageOutputCost}), 0)`.as(
 				"imageOutputCost",
+			),
+		videoOutputCost:
+			sql<number>`coalesce(sum(${tables.log.videoOutputCost}), 0)`.as(
+				"videoOutputCost",
 			),
 		cachedInputCost:
 			sql<number>`coalesce(sum(${tables.log.cachedInputCost}), 0)`.as(

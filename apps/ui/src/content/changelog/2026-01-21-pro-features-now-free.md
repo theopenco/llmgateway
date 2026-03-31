@@ -1,5 +1,5 @@
 ---
-id: "35"
+id: "36"
 slug: "pro-features-now-free"
 date: "2026-01-21"
 title: "Pro Features Now Free for Everyone"

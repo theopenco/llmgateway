@@ -8,6 +8,7 @@ import {
 import {
 	parseCommaSeparatedEnv,
 	getRoundRobinValue,
+	peekRoundRobinValue,
 	getNthValue,
 	resetRoundRobinCounters,
 } from "./round-robin-env.js";
@@ -81,6 +82,24 @@ describe("round-robin-env", () => {
 
 			const result4 = getRoundRobinValue("VAR_B", "b1,b2");
 			expect(result4.value).toBe("b2");
+		});
+
+		it("should support peeking without advancing the counter", () => {
+			const result1 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(result1.value).toBe("value1");
+			expect(result1.index).toBe(0);
+
+			const peek1 = peekRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(peek1.value).toBe("value2");
+			expect(peek1.index).toBe(1);
+
+			const peek2 = peekRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(peek2.value).toBe("value2");
+			expect(peek2.index).toBe(1);
+
+			const result2 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
+			expect(result2.value).toBe("value2");
+			expect(result2.index).toBe(1);
 		});
 
 		it("should throw error for empty value", () => {

@@ -120,6 +120,7 @@ export type SerializedOrganization = Omit<
 	| "isTrialActive"
 	| "paymentFailureCount"
 	| "lastPaymentFailureAt"
+	| "paymentFailureStartedAt"
 	| "devPlanBillingCycleStart"
 	| "devPlanStripeSubscriptionId"
 	| "devPlanCancelled"
@@ -139,9 +140,13 @@ export type SerializedProject = Omit<Project, "createdAt" | "updatedAt"> & {
 
 export type SerializedUser = Pick<User, "id" | "email" | "name">;
 
-export type SerializedApiKey = Omit<ApiKey, "createdAt" | "updatedAt"> & {
+export type SerializedApiKey = Omit<
+	ApiKey,
+	"createdAt" | "updatedAt" | "currentPeriodStartedAt"
+> & {
 	createdAt: string;
 	updatedAt: string;
+	currentPeriodStartedAt: string | null;
 };
 
 export type SerializedApiKeyIamRule = Omit<

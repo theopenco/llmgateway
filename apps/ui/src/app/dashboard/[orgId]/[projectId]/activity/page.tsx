@@ -1,5 +1,6 @@
 import { RecentLogs } from "@/components/activity/recent-logs";
 import { Card, CardContent } from "@/lib/components/card";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { LogsData } from "@/types/activity";
@@ -60,12 +61,33 @@ export default async function ActivityPage({
 		logsQueryParams.limit = searchParamsData.limit;
 	}
 
-	// Server-side data fetching for logs with all query parameters
-	const initialLogsData = await fetchServerData<LogsData>("GET", "/logs", {
-		params: {
-			query: logsQueryParams,
-		},
-	});
+	const [initialLogsData, providers, models] = await Promise.all([
+		fetchServerData<LogsData>("GET", "/logs", {
+			params: {
+				query: logsQueryParams,
+			},
+		}),
+		fetchProviders(),
+		fetchModels(),
+	]);
+
+	const providerOptions = providers
+		.map((provider) => ({
+			id: provider.id,
+			label: provider.name ?? provider.id,
+		}))
+		.toSorted((a, b) => a.label.localeCompare(b.label));
+
+	const modelOptions = models
+		.map((model) => ({
+			id: model.id,
+			label: model.name ?? model.id,
+			aliases: model.aliases ?? [],
+			providerIds: Array.from(
+				new Set(model.mappings.map((mapping) => mapping.providerId)),
+			).toSorted(),
+		}))
+		.toSorted((a, b) => a.label.localeCompare(b.label));
 
 	return (
 		<div className="flex flex-col">
@@ -77,6 +99,8 @@ export default async function ActivityPage({
 						<CardContent>
 							<RecentLogs
 								initialData={initialLogsData ?? undefined}
+								providerOptions={providerOptions}
+								modelOptions={modelOptions}
 								projectId={projectId}
 								orgId={orgId}
 							/>

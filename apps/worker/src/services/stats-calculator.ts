@@ -20,6 +20,81 @@ const BACKFILL_DURATION_SECONDS =
 	Number(process.env.BACKFILL_DURATION_SECONDS) || 300;
 
 const ONE_MINUTE_MS = 60 * 1000;
+const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
+const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 1)`;
+const usedRegionSql = sql<
+	string | null
+>`nullif(split_part(${usedModelWithRegionSql}, ':', 2), '')`;
+
+interface MappingMinuteStats {
+	modelId: string | null;
+	providerId: string | null;
+	region: string | null;
+	logsCount: number;
+	errorsCount: number;
+	clientErrorsCount: number;
+	gatewayErrorsCount: number;
+	upstreamErrorsCount: number;
+	cachedCount: number;
+	totalInputTokens: number;
+	totalOutputTokens: number;
+	totalTokens: number;
+	totalReasoningTokens: number;
+	totalCachedTokens: number;
+	totalDuration: number;
+	totalTimeToFirstToken: number;
+	totalTimeToFirstReasoningToken: number;
+	totalCost: number;
+}
+
+function createEmptyMappingMinuteStats(
+	modelId: string,
+	providerId: string,
+): MappingMinuteStats {
+	return {
+		modelId,
+		providerId,
+		region: null,
+		logsCount: 0,
+		errorsCount: 0,
+		clientErrorsCount: 0,
+		gatewayErrorsCount: 0,
+		upstreamErrorsCount: 0,
+		cachedCount: 0,
+		totalInputTokens: 0,
+		totalOutputTokens: 0,
+		totalTokens: 0,
+		totalReasoningTokens: 0,
+		totalCachedTokens: 0,
+		totalDuration: 0,
+		totalTimeToFirstToken: 0,
+		totalTimeToFirstReasoningToken: 0,
+		totalCost: 0,
+	};
+}
+
+function mergeMappingMinuteStats(
+	target: MappingMinuteStats,
+	source: MappingMinuteStats,
+): MappingMinuteStats {
+	target.logsCount += source.logsCount;
+	target.errorsCount += source.errorsCount;
+	target.clientErrorsCount += source.clientErrorsCount;
+	target.gatewayErrorsCount += source.gatewayErrorsCount;
+	target.upstreamErrorsCount += source.upstreamErrorsCount;
+	target.cachedCount += source.cachedCount;
+	target.totalInputTokens += source.totalInputTokens;
+	target.totalOutputTokens += source.totalOutputTokens;
+	target.totalTokens += source.totalTokens;
+	target.totalReasoningTokens += source.totalReasoningTokens;
+	target.totalCachedTokens += source.totalCachedTokens;
+	target.totalDuration += source.totalDuration;
+	target.totalTimeToFirstToken += source.totalTimeToFirstToken;
+	target.totalTimeToFirstReasoningToken +=
+		source.totalTimeToFirstReasoningToken;
+	target.totalCost += source.totalCost;
+	return target;
+}
 
 /**
  * Helper function to round any date to the start of its minute (00 seconds, 00 milliseconds)
@@ -62,11 +137,11 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
 
-	// Get logs from the specified minute, aggregated by model
-	// Note: usedModel field contains "provider/model" format, so we extract just the model part
+	// Get logs from the specified minute, aggregated by base model.
+	// Note: usedModel contains "provider/model[:region]" in logs.
 	const modelStats = await database
 		.select({
-			modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as("modelId"),
+			modelId: usedBaseModelSql.as("modelId"),
 			logsCount: sql<number>`count(*)::int`.as("logsCount"),
 			errorsCount:
 				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
@@ -129,7 +204,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				lt(log.createdAt, minuteEnd),
 			),
 		)
-		.groupBy(sql`split_part(${log.usedModel}, '/', 2)`);
+		.groupBy(usedBaseModelSql);
 
 	// Get all active models to ensure we create entries for inactive ones too
 	const allModels = await database
@@ -238,12 +313,13 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
 
-	// Get logs from the specified minute
-	// Note: usedModel field contains "provider/model" format, so we extract just the model part
+	// Get logs from the specified minute and normalize them back into the
+	// (base model, provider, region) tuple used by model_provider_mapping.
 	const mappingStats = await database
 		.select({
-			modelId: sql<string>`split_part(${log.usedModel}, '/', 2)`.as("modelId"),
+			modelId: usedBaseModelSql.as("modelId"),
 			providerId: log.usedProvider,
+			region: usedRegionSql.as("region"),
 			logsCount: sql<number>`count(*)::int`.as("logsCount"),
 			errorsCount:
 				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
@@ -306,7 +382,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				lt(log.createdAt, minuteEnd),
 			),
 		)
-		.groupBy(sql`split_part(${log.usedModel}, '/', 2)`, log.usedProvider);
+		.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql);
 
 	// Get all active model-provider mappings to ensure we create entries for inactive ones too
 	const allMappings = await database
@@ -314,21 +390,76 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			id: modelProviderMapping.id, // The mapping ID
 			modelId: modelProviderMapping.modelId, // LLMGateway model name
 			providerId: modelProviderMapping.providerId,
+			region: modelProviderMapping.region,
 		})
 		.from(modelProviderMapping)
 		.where(eq(modelProviderMapping.status, "active"));
 
 	// Create a map of active mappings that had logs
-	const activeMappingsMap = new Map<string, (typeof mappingStats)[0]>();
+	const activeMappingsMap = new Map<string, MappingMinuteStats>();
 	for (const stat of mappingStats) {
 		if (stat.modelId && stat.providerId) {
-			const key = `${stat.modelId}-${stat.providerId}`;
+			const key = `${stat.modelId}-${stat.providerId}-${stat.region ?? ""}`;
 			activeMappingsMap.set(key, stat);
+		}
+	}
+
+	const regionalMappingsByRootKey = new Map<
+		string,
+		Array<{ modelId: string; providerId: string; region: string }>
+	>();
+	for (const mapping of allMappings) {
+		if (!mapping.region) {
+			continue;
+		}
+
+		const rootKey = `${mapping.modelId}-${mapping.providerId}-`;
+		const regionalMappings = regionalMappingsByRootKey.get(rootKey) ?? [];
+		regionalMappings.push({
+			modelId: mapping.modelId,
+			providerId: mapping.providerId,
+			region: mapping.region,
+		});
+		regionalMappingsByRootKey.set(rootKey, regionalMappings);
+	}
+
+	for (const mapping of allMappings) {
+		if (mapping.region) {
+			continue;
+		}
+
+		const rootKey = `${mapping.modelId}-${mapping.providerId}-`;
+		const regionalMappings = regionalMappingsByRootKey.get(rootKey);
+		if (!regionalMappings || regionalMappings.length === 0) {
+			continue;
+		}
+
+		const existingRootStat = activeMappingsMap.get(rootKey);
+		let aggregateStat = existingRootStat
+			? { ...existingRootStat, region: null }
+			: createEmptyMappingMinuteStats(mapping.modelId, mapping.providerId);
+
+		let hasRegionalTraffic = false;
+		for (const regionalMapping of regionalMappings) {
+			const regionalKey = `${regionalMapping.modelId}-${regionalMapping.providerId}-${regionalMapping.region}`;
+			const regionalStat = activeMappingsMap.get(regionalKey);
+			if (!regionalStat) {
+				continue;
+			}
+
+			aggregateStat = mergeMappingMinuteStats(aggregateStat, regionalStat);
+			hasRegionalTraffic = true;
+		}
+
+		if (existingRootStat || hasRegionalTraffic) {
+			activeMappingsMap.set(rootKey, aggregateStat);
 		}
 	}
 
 	// Process all model-provider mappings
 	const processedMappings = new Set<string>();
+
+	let activeMappingsCount = 0;
 
 	for (const mapping of allMappings) {
 		// Use mapping ID to prevent duplicates
@@ -337,7 +468,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		}
 		processedMappings.add(mapping.id);
 
-		const key = `${mapping.modelId}-${mapping.providerId}`;
+		const key = `${mapping.modelId}-${mapping.providerId}-${mapping.region ?? ""}`;
 		const stat = activeMappingsMap.get(key);
 
 		// Use actual stats if available, otherwise create zero stats
@@ -357,6 +488,10 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		const totalTimeToFirstReasoningToken =
 			stat?.totalTimeToFirstReasoningToken ?? 0;
 		const totalCost = stat?.totalCost ?? 0;
+
+		if (logsCount > 0) {
+			activeMappingsCount++;
+		}
 
 		// Insert or update a history record for this minute
 		await database
@@ -410,8 +545,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 
 	return {
 		totalMappings: allMappings.length,
-		activeMappings: mappingStats.length,
-		inactiveMappings: allMappings.length - mappingStats.length,
+		activeMappings: activeMappingsCount,
+		inactiveMappings: allMappings.length - activeMappingsCount,
 	};
 }
 

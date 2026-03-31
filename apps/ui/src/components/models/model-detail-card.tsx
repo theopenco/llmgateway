@@ -52,9 +52,11 @@ export function ModelDetailCard({ model }: ModelDetailCardProps) {
 		}
 		const priceNum = parseFloat(price);
 		const discountNum = discount ? parseFloat(discount) : 0;
-		const originalPrice = priceNum * 1e6;
+		const originalPrice = parseFloat((priceNum * 1e6).toFixed(4));
 		if (discountNum > 0) {
-			const discountedPrice = priceNum * 1e6 * (1 - discountNum);
+			const discountedPrice = parseFloat(
+				(priceNum * 1e6 * (1 - discountNum)).toFixed(4),
+			);
 			return (
 				<div className="flex flex-col justify-items-center">
 					<div className="flex items-center gap-1">

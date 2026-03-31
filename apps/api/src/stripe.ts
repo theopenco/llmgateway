@@ -190,7 +190,10 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 
 		const event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
 
-		logger.info(JSON.stringify({ kind: "stripe-event", payload: event }));
+		logger.info("Stripe webhook received", {
+			eventId: event.id,
+			eventType: event.type,
+		});
 
 		switch (event.type) {
 			case "payment_intent.succeeded":
@@ -565,6 +568,7 @@ async function recordCreditTopUp({
 			credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
 			paymentFailureCount: 0,
 			lastPaymentFailureAt: null,
+			paymentFailureStartedAt: null,
 		})
 		.where(eq(tables.organization.id, organizationId));
 
@@ -648,9 +652,11 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		return;
 	}
 
-	const creditAmount = parseFloat(metadata?.baseAmount ?? "0");
-	if (!creditAmount) {
-		logger.error("Missing baseAmount in credit top-up checkout metadata");
+	const creditAmount = Number(metadata?.baseAmount);
+	if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
+		logger.error("Invalid baseAmount in credit top-up checkout metadata", {
+			baseAmount: metadata?.baseAmount,
+		});
 		return;
 	}
 
@@ -744,8 +750,12 @@ async function handlePaymentIntentSucceeded(
 	const { metadata, amount } = paymentIntent;
 
 	// Get the credit amount (base amount without fees) from metadata
-	const creditAmount = parseFloat(paymentIntent.metadata.baseAmount);
-	if (!creditAmount) {
+	const creditAmount = Number(paymentIntent.metadata.baseAmount);
+	if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
+		logger.error("Invalid baseAmount in payment intent metadata", {
+			baseAmount: paymentIntent.metadata.baseAmount,
+			paymentIntentId: paymentIntent.id,
+		});
 		return;
 	}
 
@@ -807,6 +817,7 @@ async function handlePaymentIntentSucceeded(
 				credits: sql`${tables.organization.credits} + ${finalCreditAmount}`,
 				paymentFailureCount: 0,
 				lastPaymentFailureAt: null,
+				paymentFailureStartedAt: null,
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -1024,6 +1035,7 @@ async function handlePaymentIntentFailed(
 	// Calculate new failure count and check if we should send an email
 	const previousFailureCount = organization.paymentFailureCount ?? 0;
 	const previousFailureAt = organization.lastPaymentFailureAt;
+	const failureStartedAt = organization.paymentFailureStartedAt ?? new Date();
 	const newFailureCount = previousFailureCount + 1;
 
 	// Update organization with new failure count and timestamp
@@ -1032,6 +1044,7 @@ async function handlePaymentIntentFailed(
 		.set({
 			paymentFailureCount: newFailureCount,
 			lastPaymentFailureAt: new Date(),
+			paymentFailureStartedAt: failureStartedAt,
 		})
 		.where(eq(tables.organization.id, organizationId));
 

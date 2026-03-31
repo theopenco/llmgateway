@@ -1,6 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import { usePostHog } from "posthog-js/react";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -21,6 +22,7 @@ export function PlanManagement() {
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const posthog = usePostHog();
 
 	const { data: subscriptionStatus } = api.useQuery(
 		"get",
@@ -47,6 +49,8 @@ export function PlanManagement() {
 			return;
 		}
 
+		posthog.capture("subscription_cancel_initiated");
+
 		await cancelSubscriptionMutation.mutateAsync({});
 		await queryClient.invalidateQueries({
 			queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
@@ -66,6 +70,8 @@ export function PlanManagement() {
 		if (!confirmed) {
 			return;
 		}
+
+		posthog.capture("subscription_resume_initiated");
 
 		await resumeSubscriptionMutation.mutateAsync({});
 		await queryClient.invalidateQueries({

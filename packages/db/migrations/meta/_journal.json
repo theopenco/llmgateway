@@ -736,6 +736,62 @@
       "when": 1773857747731,
       "tag": "1773857747_free_vin_gonzales",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "8",
+      "when": 1774200015446,
+      "tag": "1774200015_hot_kingpin",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "8",
+      "when": 1774285728875,
+      "tag": "1774285728_bored_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "8",
+      "when": 1774300855725,
+      "tag": "1774300855_dizzy_blindfold",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "8",
+      "when": 1774622168105,
+      "tag": "1774622168_youthful_the_hood",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "8",
+      "when": 1774721979493,
+      "tag": "1774721979_left_mimic",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "8",
+      "when": 1774778651077,
+      "tag": "1774778651_puzzling_gorilla_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "8",
+      "when": 1774784729326,
+      "tag": "1774784729_hard_maximus",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "8",
+      "when": 1774798756336,
+      "tag": "1774798756_icy_lifeguard",
+      "breakpoints": true
     }
   ]
 }

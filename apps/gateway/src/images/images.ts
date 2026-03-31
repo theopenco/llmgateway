@@ -252,6 +252,13 @@ async function extractImagesFromChatResponse(
 	}
 
 	if (imageObjects.length === 0) {
+		if (chatResponse.choices?.[0]?.finish_reason === "content_filter") {
+			logger.warn("Images API - content filtered response", {
+				model,
+			});
+			return [];
+		}
+
 		logger.warn("Images API - no images found in chat completions response", {
 			model,
 			hasContent: !!chatResponse.choices?.[0]?.message?.content,
@@ -394,14 +401,17 @@ images.openapi(generations, async (c) => {
 		request.model,
 	);
 
+	// Truncate to the requested number of images
+	const truncatedImages = imageObjects.slice(0, request.n);
+
 	// Build the OpenAI-compatible images response
 	const imagesResponse = {
 		created: Math.floor(Date.now() / 1000),
-		data: imageObjects,
+		data: truncatedImages,
 	};
 
 	logger.debug("Images API - returning response", {
-		imageCount: imageObjects.length,
+		imageCount: truncatedImages.length,
 		model: request.model,
 	});
 
@@ -454,13 +464,16 @@ const imageEditsRequestSchema = z.object({
 		description: "Output quality for image models.",
 		example: "high",
 	}),
-	size: z
-		.enum(["auto", "1024x1024", "1536x1024", "1024x1536"])
-		.optional()
-		.openapi({
-			description: "Requested output image size.",
-			example: "1024x1024",
-		}),
+	size: z.string().optional().openapi({
+		description:
+			"Requested output image size. Supported values depend on the model and provider.",
+		example: "1024x1024",
+	}),
+	aspect_ratio: z.string().optional().openapi({
+		description:
+			"The aspect ratio of the edited images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size-derived defaults.",
+		example: "16:9",
+	}),
 });
 
 type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
@@ -469,7 +482,7 @@ const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
 	background: z.enum(["transparent", "opaque"]).optional(),
 	output_format: z.enum(["png", "webp", "jpeg"]).optional(),
 	quality: z.enum(["low", "medium", "high"]).optional(),
-	size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).optional(),
+	size: z.string().optional(),
 	usage: z
 		.object({
 			input_tokens: z.number(),
@@ -712,9 +725,9 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 	});
 
 	const requestedSize = request.size === "auto" ? undefined : request.size;
-	const aspectRatio = requestedSize
-		? sizeToAspectRatio(requestedSize)
-		: undefined;
+	const aspectRatio =
+		request.aspect_ratio ??
+		(requestedSize ? sizeToAspectRatio(requestedSize) : undefined);
 
 	const model =
 		request.model === "auto" || !request.model
@@ -755,6 +768,7 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 		imageCount: imageUrls.length,
 		n: request.n,
 		size: request.size,
+		aspectRatio: request.aspect_ratio,
 		quality: request.quality,
 		outputFormat: request.output_format,
 	});

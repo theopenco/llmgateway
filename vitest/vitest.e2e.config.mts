@@ -7,9 +7,12 @@ export default defineConfig({
 		include: ["**/*.e2e.ts"],
 		exclude: ["**/node_modules/**", "**/dist/**", ".conductor/**"],
 		environment: "node",
-		testTimeout: 60000, // Longer timeout for e2e tests
-		hookTimeout: 30000, // Timeout for hooks
-		setupFiles: ["./vitest/e2e-setup.ts"],
+		testTimeout: 120000, // Longer timeout for e2e tests
+		hookTimeout: 60000, // Timeout for hooks
+		setupFiles: [
+			"./vitest/test-database-setup.ts",
+			"./vitest/e2e-setup.ts",
+		],
 		reporters: ["default"],
 		coverage: {
 			reporter: ["text", "json", "html"],

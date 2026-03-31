@@ -2,13 +2,15 @@ import { Code, Wrench, Zap, Braces } from "lucide-react";
 import Link from "next/link";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
+import { Footer } from "@/components/Footer";
+import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
 
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Models for Coding - LLM Gateway Code",
+	title: "AI Models for Coding",
 	description:
 		"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
 };
@@ -18,22 +20,7 @@ export default function CodingModelsPage() {
 
 	return (
 		<div className="min-h-screen bg-background">
-			<header className="border-b">
-				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
-					<Link href="/" className="flex items-center gap-2">
-						<Code className="h-6 w-6" />
-						<span className="font-semibold text-lg">LLM Gateway Code</span>
-					</Link>
-					<div className="flex items-center gap-4">
-						<Button variant="ghost" asChild>
-							<Link href="/login">Sign in</Link>
-						</Button>
-						<Button asChild>
-							<Link href="/signup">Get Started</Link>
-						</Button>
-					</div>
-				</div>
-			</header>
+			<Header />
 
 			<main>
 				<section className="py-20 px-4">
@@ -115,17 +102,19 @@ export default function CodingModelsPage() {
 							Start coding with AI today
 						</h2>
 						<p className="text-muted-foreground mb-8">
-							Subscribe to a Dev Plan and get access to all coding models with a
-							single API key.
+							Get your DevPass and access all coding models with a single API
+							key.
 						</p>
 						<div className="flex gap-4 justify-center">
 							<Button size="lg" asChild>
-								<Link href="/signup">Sign up for a Dev Plan</Link>
+								<Link href="/signup">Get your DevPass</Link>
 							</Button>
 						</div>
 					</div>
 				</section>
 			</main>
+
+			<Footer />
 		</div>
 	);
 }

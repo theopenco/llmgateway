@@ -131,12 +131,32 @@ export function LogCard({
 					<div className="flex items-start justify-between gap-4">
 						<div className="flex items-center gap-2 flex-1 min-w-0">
 							<p className="font-medium break-words max-w-none line-clamp-2">
-								{log.content ??
+								{log.content &&
+								(log.content.includes("base64,") || log.content.length > 500) &&
+								/[A-Za-z0-9+/]{200,}/.test(log.content) ? (
+									orgId && projectId && log.id ? (
+										<Link
+											href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
+											className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+											prefetch={false}
+										>
+											<Sparkles className="h-3.5 w-3.5" />
+											Image generated — view details
+										</Link>
+									) : (
+										<span className="text-muted-foreground inline-flex items-center gap-1">
+											<Sparkles className="h-3.5 w-3.5" />
+											Image generated
+										</span>
+									)
+								) : (
+									(log.content ??
 									(log.unifiedFinishReason === "tool_calls" && log.toolResults
 										? Array.isArray(log.toolResults)
 											? `Tool calls: ${log.toolResults.map((tr) => tr.function?.name || "unknown").join(", ")}`
 											: "Tool calls executed"
-										: "---")}
+										: "---"))
+								)}
 							</p>
 							{!log.content &&
 								log.unifiedFinishReason !== "tool_calls" &&
@@ -184,7 +204,9 @@ export function LogCard({
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
 						<div className="flex items-center gap-1">
 							<Package className="h-3.5 w-3.5 shrink-0" />
-							<span className="truncate">{log.usedModel}</span>
+							<span className="truncate">
+								{log.usedModel === "" ? "—" : log.usedModel}
+							</span>
 						</div>
 						<div className="flex items-center gap-1">
 							<Zap className="h-3.5 w-3.5 shrink-0" />
@@ -304,7 +326,7 @@ export function LogCard({
 								</div>
 								<div className="text-muted-foreground">Used Model</div>
 								<div className="font-mono text-xs break-all">
-									{log.usedModel}
+									{log.usedModel === "" ? "—" : log.usedModel}
 								</div>
 								{log.usedModelMapping && (
 									<>
@@ -351,11 +373,16 @@ export function LogCard({
 													<div className="space-y-1">
 														{log.routingMetadata.providerScores.map((score) => (
 															<div
-																key={score.providerId}
+																key={`${score.providerId}-${score.region ?? "default"}`}
 																className="flex justify-between items-center"
 															>
 																<span className="font-mono flex items-center gap-1.5">
 																	{score.providerId}
+																	{score.region && (
+																		<span className="text-muted-foreground">
+																			({score.region})
+																		</span>
+																	)}
 																	{score.failed && (
 																		<span className="inline-flex items-center gap-0.5 text-red-500">
 																			<AlertCircle className="h-3 w-3" />
@@ -369,8 +396,20 @@ export function LogCard({
 																			</span>
 																		</span>
 																	)}
+																	{score.rate_limited && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Clock className="h-3 w-3" />
+																			<span>rpm capped</span>
+																		</span>
+																	)}
+																	{score.excludedByContentFilter && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Ban className="h-3 w-3" />
+																			<span>content filter</span>
+																		</span>
+																	)}
 																</span>
-																<span className="text-muted-foreground">
+																<span className="text-muted-foreground font-mono">
 																	{score.score.toFixed(2)}
 																	{score.uptime !== undefined && (
 																		<span className="ml-2">
@@ -389,7 +428,7 @@ export function LogCard({
 																	)}
 																	{score.price !== undefined && (
 																		<span className="ml-2">
-																			${score.price.toFixed(6)}
+																			${score.price.toFixed(10)}
 																		</span>
 																	)}
 																	{score.priority !== undefined &&
@@ -423,6 +462,11 @@ export function LogCard({
 																		<AlertCircle className="h-3 w-3" />
 																	)}
 																	{attempt.provider}/{attempt.model}
+																	{attempt.region && (
+																		<span className="text-muted-foreground">
+																			({attempt.region})
+																		</span>
+																	)}
 																</span>
 																<span>
 																	{attempt.status_code}{" "}
@@ -607,6 +651,13 @@ export function LogCard({
 												<>
 													<div>Image Output Cost</div>
 													<div>{`$${Number(log.imageOutputCost).toFixed(8)}`}</div>
+												</>
+											)}
+										{!!log.videoOutputCost &&
+											Number(log.videoOutputCost) > 0 && (
+												<>
+													<div>Video Output Cost</div>
+													<div>{`$${Number(log.videoOutputCost).toFixed(8)}`}</div>
 												</>
 											)}
 										<div>Inference Total</div>
@@ -1044,7 +1095,20 @@ export function LogCard({
 						<div className="rounded-md border p-3">
 							{log.messages ? (
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
-									{JSON.stringify(log.messages, null, 2)}
+									{JSON.stringify(
+										log.messages,
+										(_key, value) => {
+											if (
+												typeof value === "string" &&
+												value.length > 200 &&
+												/[A-Za-z0-9+/]{200,}/.test(value)
+											) {
+												return "[base64 image data truncated]";
+											}
+											return value;
+										},
+										2,
+									)}
 								</pre>
 							) : !retentionEnabled ? (
 								<p className="text-sm text-muted-foreground italic">
@@ -1083,7 +1147,23 @@ export function LogCard({
 					<div className="space-y-2">
 						<h4 className="text-sm font-medium">Response</h4>
 						<div className="rounded-md border p-3">
-							{log.content ? (
+							{log.content &&
+							(log.content.includes("base64,") || log.content.length > 500) &&
+							/[A-Za-z0-9+/]{200,}/.test(log.content) ? (
+								<div className="flex items-center gap-2 text-sm text-muted-foreground">
+									<Sparkles className="h-4 w-4" />
+									<span>Image data ({prettyBytes(log.content.length)}).</span>
+									{orgId && projectId && log.id && (
+										<Link
+											href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
+											className="text-blue-600 dark:text-blue-400 hover:underline"
+											prefetch={false}
+										>
+											View full response
+										</Link>
+									)}
+								</div>
+							) : log.content ? (
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
 									{log.content}
 								</pre>

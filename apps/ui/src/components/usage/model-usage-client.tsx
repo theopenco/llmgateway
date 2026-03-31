@@ -3,7 +3,10 @@
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { ActivityChart } from "@/components/dashboard/activity-chart";
-import { DateRangePicker } from "@/components/date-range-picker";
+import {
+	TimeRangePicker,
+	type TimeRangeValue,
+} from "@/components/time-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Select,
@@ -14,17 +17,11 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
-import type { ActivitT } from "@/types/activity";
-
 interface ModelUsageClientProps {
-	initialActivityData?: ActivitT;
 	projectId: string;
 }
 
-export function ModelUsageClient({
-	initialActivityData,
-	projectId,
-}: ModelUsageClientProps) {
+export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
@@ -49,8 +46,9 @@ export function ModelUsageClient({
 	const apiKeys =
 		apiKeysData?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 
-	// Get apiKeyId from URL
+	// Get apiKeyId and timeRange from URL
 	const apiKeyId = searchParams.get("apiKeyId") ?? undefined;
+	const timeRange = (searchParams.get("timeRange") as TimeRangeValue) ?? "24h";
 
 	// Function to update apiKeyId in URL
 	const updateApiKeyIdInUrl = (newApiKeyId: string | undefined) => {
@@ -60,6 +58,17 @@ export function ModelUsageClient({
 		} else {
 			params.delete("apiKeyId");
 		}
+		router.push(`${buildUrl("model-usage")}?${params.toString()}`);
+	};
+
+	// Function to update timeRange in URL
+	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
+		const params = new URLSearchParams(searchParams);
+		params.set("timeRange", newTimeRange);
+		// Remove date-range params since timeRange replaces them
+		params.delete("from");
+		params.delete("to");
+		params.delete("days");
 		router.push(`${buildUrl("model-usage")}?${params.toString()}`);
 	};
 
@@ -87,14 +96,11 @@ export function ModelUsageClient({
 								))}
 							</SelectContent>
 						</Select>
-						<DateRangePicker buildUrl={buildUrl} path="model-usage" />
+						<TimeRangePicker value={timeRange} onChange={updateTimeRange} />
 					</div>
 				</div>
 				<div className="space-y-4">
-					<ActivityChart
-						initialData={apiKeyId ? undefined : initialActivityData}
-						apiKeyId={apiKeyId}
-					/>
+					<ActivityChart apiKeyId={apiKeyId} timeRange={timeRange} />
 				</div>
 			</div>
 		</div>

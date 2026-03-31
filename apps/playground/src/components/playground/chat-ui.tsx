@@ -635,9 +635,10 @@ export const ChatUI = ({
 				}
 			>
 				<PromptInput
+					key={supportsImages ? "prompt-input-images" : "prompt-input-text"}
 					accept={supportsImages ? "image/*" : undefined}
 					multiple
-					globalDrop
+					globalDrop={supportsImages}
 					aria-disabled={isLoading || status === "streaming"}
 					onSubmit={(message) => {
 						void handlePromptSubmit(message.text ?? "", message.files);
@@ -656,12 +657,14 @@ export const ChatUI = ({
 					</PromptInputBody>
 					<PromptInputToolbar>
 						<PromptInputTools>
-							<PromptInputActionMenu>
-								<PromptInputActionMenuTrigger />
-								<PromptInputActionMenuContent>
-									<PromptInputActionAddAttachments />
-								</PromptInputActionMenuContent>
-							</PromptInputActionMenu>
+							{supportsImages && (
+								<PromptInputActionMenu>
+									<PromptInputActionMenuTrigger />
+									<PromptInputActionMenuContent>
+										<PromptInputActionAddAttachments />
+									</PromptInputActionMenuContent>
+								</PromptInputActionMenu>
+							)}
 							<PromptInputSpeechButton
 								onTranscriptionChange={setText}
 								textareaRef={textareaRef}
