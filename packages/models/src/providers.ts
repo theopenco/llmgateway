@@ -175,6 +175,7 @@ export const providers = [
 		color: "#4285f4",
 		website: null,
 		announcement: null,
+		priority: 0.9,
 	},
 	{
 		id: "obsidian",
