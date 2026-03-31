@@ -195,6 +195,15 @@ export function processStreamChunk(
 			} else {
 				if (tc.function?.arguments) {
 					existing.arguments += tc.function.arguments;
+					events.push({
+						event: "response.function_call_arguments.delta",
+						data: JSON.stringify({
+							type: "response.function_call_arguments.delta",
+							item_id: existing.id,
+							output_index: existing.outputIndex,
+							delta: tc.function.arguments,
+						}),
+					});
 				}
 			}
 		}
@@ -243,6 +252,7 @@ export function processStreamChunk(
 			event: "response.output_text.delta",
 			data: JSON.stringify({
 				type: "response.output_text.delta",
+				item_id: state.messageId,
 				output_index: state.outputItemIndex,
 				content_index: 0,
 				delta: delta.content,
