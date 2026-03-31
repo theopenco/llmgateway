@@ -286,6 +286,7 @@ export const minimaxModels = [
 			{
 				providerId: "canopywave",
 				modelName: "minimax/minimax-m2.1",
+				deactivatedAt: new Date("2026-03-31"),
 				test: "skip",
 				inputPrice: 0.27 / 1e6,
 				cachedInputPrice: 0.07 / 1e6,
