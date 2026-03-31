@@ -259,6 +259,6 @@ describe("transformOpenaiStreaming", () => {
 			"reasoning",
 			"step 1 step 2",
 		);
-		expect(result.choices[0].delta).toHaveProperty("reasoning_details");
+		expect(result.choices[0].delta).not.toHaveProperty("reasoning_details");
 	});
 });
