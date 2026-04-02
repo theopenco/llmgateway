@@ -148,16 +148,13 @@ responses.post("/", async (c) => {
 
 	const shouldStore = req.store !== false;
 
-	// Require retention when storing responses or chaining via previous_response_id
-	if (
-		(shouldStore || req.previous_response_id) &&
-		organization.retentionLevel !== "retain"
-	) {
+	// Require retention to use the Responses API
+	if (organization.retentionLevel !== "retain") {
 		return c.json(
 			{
 				error: {
 					message:
-						"Storing responses and using previous_response_id requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, use store: false, or use /v1/chat/completions instead.",
+						"The Responses API requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, or use /v1/chat/completions instead.",
 					type: "invalid_request_error",
 					code: "data_retention_required",
 				},

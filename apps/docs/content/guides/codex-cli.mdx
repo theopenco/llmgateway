@@ -123,9 +123,49 @@ model = "gpt-5.3-codex"
 
 ## Troubleshooting
 
+### Data retention required
+
+If you see an error like:
+
+```
+The Responses API requires data retention to be enabled.
+```
+
+Codex CLI uses the OpenAI Responses API (`/v1/responses`), which requires data retention to be enabled. To fix this:
+
+1. Go to your [organization settings](https://llmgateway.io/dashboard) and navigate to **Settings > Policies**
+2. Select **Retain All Data** and click **Save Settings**
+
+If you prefer not to enable data retention, you can configure Codex CLI to use the Chat Completions API instead by setting the `OPENAI_CHAT_COMPLETIONS_PATH` environment variable, if supported by your Codex CLI version.
+
 ### Authentication errors
 
 Make sure your `OPENAI_API_KEY` environment variable is set to your LLM Gateway API key (starts with `llmgtwy_`).
+
+### API key not found when opening Codex App directly
+
+If Codex CLI works from the terminal but the Codex App can't find your API key when opened from Finder or Spotlight, this is because macOS GUI apps don't inherit shell environment variables from `.zshrc` or `.bashrc`.
+
+**Option 1: Use a config file (recommended)**
+
+Set your API key in `~/.codex/config.toml` so it doesn't depend on environment variables:
+
+```bash
+api_key = "llmgtwy_your_api_key_here"
+openai_base_url = "https://api.llmgateway.io/v1"
+model = "auto"
+```
+
+**Option 2: Set a system-wide environment variable**
+
+```bash
+launchctl setenv OPENAI_API_KEY "llmgtwy_your_api_key_here"
+```
+
+<Callout type="warn">
+	The `launchctl` approach resets on reboot. Add the command to a login script
+	or use the config file instead.
+</Callout>
 
 ### Model not found
 
