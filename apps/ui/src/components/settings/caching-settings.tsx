@@ -7,7 +7,6 @@ import { z } from "zod";
 
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
-import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Form,
 	FormControl,
@@ -19,6 +18,7 @@ import {
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
 import { Separator } from "@/lib/components/separator";
+import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
@@ -144,7 +144,7 @@ export function CachingSettings({
 						render={({ field }) => (
 							<FormItem className="flex flex-row items-start space-x-3 space-y-0">
 								<FormControl>
-									<Checkbox
+									<Switch
 										checked={field.value}
 										onCheckedChange={field.onChange}
 										disabled={isMetadataOnlyRetention}

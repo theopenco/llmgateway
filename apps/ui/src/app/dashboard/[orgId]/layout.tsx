@@ -4,7 +4,9 @@ import { SidebarProvider } from "@/lib/components/sidebar";
 import { getLastUsedProjectId } from "@/lib/last-used-project-server";
 import { fetchServerData } from "@/lib/server-api";
 
+import type { AnnouncementEntry } from "@/components/dashboard/changelog-notifications";
 import type { User, Project } from "@/lib/types";
+import type { Blog, Changelog } from "content-collections";
 import type { ReactNode } from "react";
 
 interface OrgLayoutProps {
@@ -61,6 +63,38 @@ export default async function OrgLayout({ children, params }: OrgLayoutProps) {
 		}
 	}
 
+	// Fetch recent changelog + blog entries for the notifications bell
+	let announcementEntries: AnnouncementEntry[] = [];
+	try {
+		const { allChangelogs, allBlogs } = await import("content-collections");
+
+		const changelogs: AnnouncementEntry[] = allChangelogs
+			.filter((entry: Changelog) => !entry?.draft)
+			.map((entry: Changelog) => ({
+				slug: entry.slug,
+				title: entry.title,
+				summary: entry.summary,
+				date: entry.date,
+				type: "changelog" as const,
+			}));
+
+		const blogs: AnnouncementEntry[] = allBlogs
+			.filter((entry: Blog) => !entry?.draft)
+			.map((entry: Blog) => ({
+				slug: entry.slug,
+				title: entry.title,
+				summary: entry.summary,
+				date: entry.date,
+				type: "blog" as const,
+			}));
+
+		announcementEntries = [...changelogs, ...blogs]
+			.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+			.slice(0, 8);
+	} catch {
+		// Content collections may not be available during build
+	}
+
 	return (
 		<UserProvider initialUserData={initialUserData}>
 			<SidebarProvider>
@@ -69,6 +103,7 @@ export default async function OrgLayout({ children, params }: OrgLayoutProps) {
 					initialProjectsData={initialProjectsData}
 					selectedOrgId={orgId}
 					selectedProjectId={lastUsedProjectId}
+					announcementEntries={announcementEntries}
 				>
 					{children}
 				</DashboardLayoutClient>

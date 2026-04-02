@@ -11,9 +11,9 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
@@ -146,7 +146,7 @@ function AutoTopUpSettings() {
 							low
 						</p>
 					</div>
-					<Checkbox
+					<Switch
 						id="auto-topup-enabled"
 						checked={enabled}
 						onCheckedChange={(checked) => setEnabled(!!checked)}

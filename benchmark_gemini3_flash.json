@@ -1,0 +1,968 @@
+{
+  "timestamp": "2026-04-02T11:20:32Z",
+  "config": {
+    "model": "gemini-3-flash-preview",
+    "endpoints": [
+      "google-ai-studio-direct",
+      "google-vertex-direct",
+      "llm-gw-ai-studio",
+      "llm-gw-vertex",
+      "openrouter"
+    ],
+    "requests_per_endpoint": 20
+  },
+  "statistics": {
+    "google-ai-studio-direct": {
+      "avg_ttft_ms": 1452,
+      "min_ttft_ms": 1194,
+      "max_ttft_ms": 1778,
+      "avg_total_ms": 1466,
+      "min_total_ms": 1208,
+      "max_total_ms": 1793,
+      "requests": 20,
+      "successful_requests": 20
+    },
+    "google-vertex-direct": {
+      "avg_ttft_ms": 2240,
+      "min_ttft_ms": 1162,
+      "max_ttft_ms": 8047,
+      "avg_total_ms": 2258,
+      "min_total_ms": 1181,
+      "max_total_ms": 8062,
+      "requests": 20,
+      "successful_requests": 20
+    },
+    "llm-gw-ai-studio": {
+      "avg_ttft_ms": 1487,
+      "min_ttft_ms": 1156,
+      "max_ttft_ms": 2178,
+      "avg_total_ms": 1998,
+      "min_total_ms": 1604,
+      "max_total_ms": 3074,
+      "requests": 20,
+      "successful_requests": 20
+    },
+    "llm-gw-vertex": {
+      "avg_ttft_ms": 3321,
+      "min_ttft_ms": 2113,
+      "max_ttft_ms": 7815,
+      "avg_total_ms": 3431,
+      "min_total_ms": 2155,
+      "max_total_ms": 7923,
+      "requests": 20,
+      "successful_requests": 20
+    },
+    "openrouter": {
+      "avg_ttft_ms": 2139,
+      "min_ttft_ms": 893,
+      "max_ttft_ms": 11209,
+      "avg_total_ms": 2468,
+      "min_total_ms": 1228,
+      "max_total_ms": 11669,
+      "requests": 20,
+      "successful_requests": 20
+    }
+  },
+  "raw_results": [
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 1,
+      "ttft_ms": 1337,
+      "total_ms": 1352,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 2,
+      "ttft_ms": 1702,
+      "total_ms": 1717,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 3,
+      "ttft_ms": 1493,
+      "total_ms": 1507,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 4,
+      "ttft_ms": 1378,
+      "total_ms": 1393,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 5,
+      "ttft_ms": 1452,
+      "total_ms": 1466,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 6,
+      "ttft_ms": 1406,
+      "total_ms": 1420,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 7,
+      "ttft_ms": 1778,
+      "total_ms": 1793,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 8,
+      "ttft_ms": 1728,
+      "total_ms": 1743,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 9,
+      "ttft_ms": 1261,
+      "total_ms": 1277,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 10,
+      "ttft_ms": 1424,
+      "total_ms": 1432,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 11,
+      "ttft_ms": 1412,
+      "total_ms": 1426,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 12,
+      "ttft_ms": 1365,
+      "total_ms": 1380,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 13,
+      "ttft_ms": 1317,
+      "total_ms": 1329,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 14,
+      "ttft_ms": 1194,
+      "total_ms": 1208,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 15,
+      "ttft_ms": 1691,
+      "total_ms": 1705,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 16,
+      "ttft_ms": 1358,
+      "total_ms": 1372,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 17,
+      "ttft_ms": 1363,
+      "total_ms": 1377,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 18,
+      "ttft_ms": 1573,
+      "total_ms": 1587,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 19,
+      "ttft_ms": 1280,
+      "total_ms": 1292,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-ai-studio-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 20,
+      "ttft_ms": 1544,
+      "total_ms": 1558,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 1,
+      "ttft_ms": 1469,
+      "total_ms": 1522,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 2,
+      "ttft_ms": 1627,
+      "total_ms": 1649,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 3,
+      "ttft_ms": 1868,
+      "total_ms": 1882,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 4,
+      "ttft_ms": 1679,
+      "total_ms": 1699,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 5,
+      "ttft_ms": 1315,
+      "total_ms": 1324,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 6,
+      "ttft_ms": 1779,
+      "total_ms": 1796,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 7,
+      "ttft_ms": 4182,
+      "total_ms": 4194,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 8,
+      "ttft_ms": 1739,
+      "total_ms": 1756,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 9,
+      "ttft_ms": 3340,
+      "total_ms": 3351,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 10,
+      "ttft_ms": 1162,
+      "total_ms": 1181,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 11,
+      "ttft_ms": 1641,
+      "total_ms": 1649,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 12,
+      "ttft_ms": 1370,
+      "total_ms": 1390,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 13,
+      "ttft_ms": 1700,
+      "total_ms": 1715,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 14,
+      "ttft_ms": 1771,
+      "total_ms": 1782,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 15,
+      "ttft_ms": 1777,
+      "total_ms": 1809,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 16,
+      "ttft_ms": 1957,
+      "total_ms": 1966,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 17,
+      "ttft_ms": 1880,
+      "total_ms": 1892,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 18,
+      "ttft_ms": 3148,
+      "total_ms": 3161,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 19,
+      "ttft_ms": 8047,
+      "total_ms": 8062,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "google-vertex-direct",
+      "model": "gemini-3-flash-preview",
+      "request": 20,
+      "ttft_ms": 1365,
+      "total_ms": 1381,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 1,
+      "ttft_ms": 1453,
+      "total_ms": 2175,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 2,
+      "ttft_ms": 1461,
+      "total_ms": 1871,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 3,
+      "ttft_ms": 1537,
+      "total_ms": 1886,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 4,
+      "ttft_ms": 1360,
+      "total_ms": 1743,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 5,
+      "ttft_ms": 1225,
+      "total_ms": 1604,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 6,
+      "ttft_ms": 1868,
+      "total_ms": 2358,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 7,
+      "ttft_ms": 1325,
+      "total_ms": 1916,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 8,
+      "ttft_ms": 1539,
+      "total_ms": 1967,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 9,
+      "ttft_ms": 1462,
+      "total_ms": 1719,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 10,
+      "ttft_ms": 1564,
+      "total_ms": 1930,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 11,
+      "ttft_ms": 1315,
+      "total_ms": 1910,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 12,
+      "ttft_ms": 1156,
+      "total_ms": 1873,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 13,
+      "ttft_ms": 1282,
+      "total_ms": 1973,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 14,
+      "ttft_ms": 2178,
+      "total_ms": 2613,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 15,
+      "ttft_ms": 1500,
+      "total_ms": 2077,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 16,
+      "ttft_ms": 1346,
+      "total_ms": 1971,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 17,
+      "ttft_ms": 1459,
+      "total_ms": 1907,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 18,
+      "ttft_ms": 1423,
+      "total_ms": 1735,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 19,
+      "ttft_ms": 1287,
+      "total_ms": 1671,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-ai-studio",
+      "model": "google-ai-studio/gemini-3-flash-preview",
+      "request": 20,
+      "ttft_ms": 2004,
+      "total_ms": 3074,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 1,
+      "ttft_ms": 2725,
+      "total_ms": 2802,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 2,
+      "ttft_ms": 3431,
+      "total_ms": 3543,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 3,
+      "ttft_ms": 3201,
+      "total_ms": 3320,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 4,
+      "ttft_ms": 2113,
+      "total_ms": 2155,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 5,
+      "ttft_ms": 3192,
+      "total_ms": 3342,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 6,
+      "ttft_ms": 4692,
+      "total_ms": 4840,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 7,
+      "ttft_ms": 2769,
+      "total_ms": 2851,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 8,
+      "ttft_ms": 3121,
+      "total_ms": 3258,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 9,
+      "ttft_ms": 3017,
+      "total_ms": 3171,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 10,
+      "ttft_ms": 4712,
+      "total_ms": 4870,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 11,
+      "ttft_ms": 2853,
+      "total_ms": 2995,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 12,
+      "ttft_ms": 4074,
+      "total_ms": 4287,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 13,
+      "ttft_ms": 3345,
+      "total_ms": 3410,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 14,
+      "ttft_ms": 2638,
+      "total_ms": 2729,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 15,
+      "ttft_ms": 2287,
+      "total_ms": 2374,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 16,
+      "ttft_ms": 2728,
+      "total_ms": 2797,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 17,
+      "ttft_ms": 2684,
+      "total_ms": 2831,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 18,
+      "ttft_ms": 7815,
+      "total_ms": 7923,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 19,
+      "ttft_ms": 2572,
+      "total_ms": 2609,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "llm-gw-vertex",
+      "model": "google-vertex/gemini-3-flash-preview",
+      "request": 20,
+      "ttft_ms": 2459,
+      "total_ms": 2526,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 1,
+      "ttft_ms": 1223,
+      "total_ms": 1556,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 2,
+      "ttft_ms": 11209,
+      "total_ms": 11669,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 3,
+      "ttft_ms": 1332,
+      "total_ms": 1345,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 4,
+      "ttft_ms": 893,
+      "total_ms": 1228,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 5,
+      "ttft_ms": 1419,
+      "total_ms": 1765,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 6,
+      "ttft_ms": 976,
+      "total_ms": 1331,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 7,
+      "ttft_ms": 1055,
+      "total_ms": 1360,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 8,
+      "ttft_ms": 1656,
+      "total_ms": 1980,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 9,
+      "ttft_ms": 1261,
+      "total_ms": 1973,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 10,
+      "ttft_ms": 1401,
+      "total_ms": 1717,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 11,
+      "ttft_ms": 1192,
+      "total_ms": 1514,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 12,
+      "ttft_ms": 1555,
+      "total_ms": 1903,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 13,
+      "ttft_ms": 1330,
+      "total_ms": 1593,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 14,
+      "ttft_ms": 1370,
+      "total_ms": 1453,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 15,
+      "ttft_ms": 1419,
+      "total_ms": 1678,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 16,
+      "ttft_ms": 1213,
+      "total_ms": 1705,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 17,
+      "ttft_ms": 1696,
+      "total_ms": 2009,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 18,
+      "ttft_ms": 967,
+      "total_ms": 1303,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 19,
+      "ttft_ms": 6813,
+      "total_ms": 7137,
+      "status": "success",
+      "error": ""
+    },
+    {
+      "endpoint": "openrouter",
+      "model": "google/gemini-3-flash-preview",
+      "request": 20,
+      "ttft_ms": 2816,
+      "total_ms": 3145,
+      "status": "success",
+      "error": ""
+    }
+  ]
+}

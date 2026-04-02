@@ -370,52 +370,50 @@ export function ChatSidebar({
 	}
 
 	return (
-		<Sidebar className={className + " max-md:hidden"}>
+		<Sidebar collapsible="icon" className={className + " max-md:hidden"}>
 			<SidebarHeader>
-				<div className="flex flex-col items-center gap-4 mb-4">
-					<Link
-						href="/"
-						className="flex self-start items-center gap-2 my-2"
-						prefetch={true}
-					>
-						<Logo className="h-10 w-10" />
-						<h1 className="text-xl font-semibold">LLM Gateway</h1>
-						<Badge>Chat</Badge>
-					</Link>
-					<Button
-						variant="outline"
-						className="w-full flex items-center gap-2"
-						onClick={onNewChat}
-						disabled={isPageLoading}
-					>
-						{isPageLoading ? (
-							<Loader2 className="h-4 w-4 animate-spin" />
-						) : (
-							<Plus className="h-4 w-4" />
-						)}
-						New Chat
-					</Button>
-					<Button
-						variant="ghost"
-						className="w-full flex items-center gap-2"
-						asChild
-					>
-						<Link href="/image">
-							<ImagePlus className="h-4 w-4" />
-							Image Studio
-						</Link>
-					</Button>
-					<Button
-						variant="ghost"
-						className="w-full flex items-center gap-2"
-						asChild
-					>
-						<Link href="/video">
-							<Film className="h-4 w-4" />
-							Video Studio
-						</Link>
-					</Button>
-				</div>
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
+							<Link href="/" prefetch={true}>
+								<Logo className="h-8 w-8" />
+								<span className="text-lg font-semibold">LLM Gateway</span>
+								<Badge>Chat</Badge>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							onClick={onNewChat}
+							disabled={isPageLoading}
+							tooltip="New Chat"
+							className="border border-border"
+						>
+							{isPageLoading ? (
+								<Loader2 className="h-4 w-4 animate-spin" />
+							) : (
+								<Plus className="h-4 w-4" />
+							)}
+							<span>New Chat</span>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton asChild tooltip="Image Studio">
+							<Link href="/image">
+								<ImagePlus className="h-4 w-4" />
+								<span>Image Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton asChild tooltip="Video Studio">
+							<Link href="/video">
+								<Film className="h-4 w-4" />
+								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+				</SidebarMenu>
 			</SidebarHeader>
 
 			<SidebarContent className="px-2 py-4">
@@ -463,45 +461,37 @@ export function ChatSidebar({
 			</SidebarContent>
 
 			<SidebarFooter className="border-t">
-				<CreditsDisplay organization={organization} isLoading={isOrgLoading} />
-				<div className="flex items-center justify-between p-4 pt-0">
-					<div className="flex items-center gap-3 flex-1">
-						<Avatar className="border-border h-9 w-9 border">
-							<AvatarFallback className="bg-muted">
-								{user?.name?.slice(0, 2) ?? "AU"}
-							</AvatarFallback>
-						</Avatar>
-						<div className="text-sm flex-1 min-w-0">
-							<div className="flex items-center gap-2 font-medium truncate">
-								{user?.name}
-							</div>
-							<div className="text-xs text-muted-foreground truncate">
-								{user?.email}
-							</div>
-						</div>
-					</div>
-					<Button
-						variant="ghost"
-						size="sm"
-						onClick={logout}
-						className="p-2 h-auto ml-2"
-						title="Sign out"
-					>
-						<LogOutIcon className="h-4 w-4" />
-					</Button>
+				<div className="group-data-[collapsible=icon]:hidden">
+					<CreditsDisplay
+						organization={organization}
+						isLoading={isOrgLoading}
+					/>
 				</div>
-				<a
-					href="https://status.llmgateway.io/"
-					target="_blank"
-					rel="noopener noreferrer"
-					className="flex items-center justify-center gap-2 px-4 pb-4 text-xs text-muted-foreground hover:text-foreground transition-colors"
-				>
-					<span className="relative flex h-2 w-2">
-						<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-						<span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-					</span>
-					All systems operational
-				</a>
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<SidebarMenuButton asChild tooltip={user?.name ?? "User"}>
+							<div className="flex items-center gap-3">
+								<Avatar className="border-border h-8 w-8 border">
+									<AvatarFallback className="bg-muted text-xs">
+										{user?.name?.slice(0, 2) ?? "AU"}
+									</AvatarFallback>
+								</Avatar>
+								<div className="grid flex-1 text-left text-sm leading-tight">
+									<span className="truncate font-medium">{user?.name}</span>
+									<span className="truncate text-xs text-muted-foreground">
+										{user?.email}
+									</span>
+								</div>
+							</div>
+						</SidebarMenuButton>
+						<SidebarMenuAction
+							onClick={logout}
+							className="group-data-[collapsible=icon]:hidden"
+						>
+							<LogOutIcon className="h-4 w-4" />
+						</SidebarMenuAction>
+					</SidebarMenuItem>
+				</SidebarMenu>
 			</SidebarFooter>
 		</Sidebar>
 	);
