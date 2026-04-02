@@ -1,9 +1,5 @@
 import type { ReasoningDetail } from "@llmgateway/models";
 
-const THINK_TAG_PATTERNS = [
-	/<think>([\s\S]*?)<\/think>/gi,
-	/<thinking>([\s\S]*?)<\/thinking>/gi,
-];
 const THINK_TAG_PAIRS = [
 	{
 		open: "<think>",
@@ -67,20 +63,37 @@ export function splitReasoningFromTaggedContent(
 		};
 	}
 
-	let cleanedContent = content;
+	let remaining = content;
 	const reasoningParts: string[] = [];
+	const contentParts: string[] = [];
 
-	for (const pattern of THINK_TAG_PATTERNS) {
-		cleanedContent = cleanedContent.replace(pattern, (_, reasoning: string) => {
-			const trimmedReasoning = reasoning.trim();
-			if (trimmedReasoning) {
-				reasoningParts.push(trimmedReasoning);
-			}
-			return "";
-		});
+	while (remaining.length > 0) {
+		const openingTag = findFirstOpeningTag(remaining);
+		if (!openingTag) {
+			contentParts.push(remaining);
+			break;
+		}
+
+		if (openingTag.index > 0) {
+			contentParts.push(remaining.slice(0, openingTag.index));
+		}
+		remaining = remaining.slice(openingTag.index + openingTag.open.length);
+
+		const closeIndex = remaining.indexOf(openingTag.close);
+		if (closeIndex === -1) {
+			contentParts.push(openingTag.open + remaining);
+			remaining = "";
+			break;
+		}
+
+		const reasoning = remaining.slice(0, closeIndex).trim();
+		if (reasoning) {
+			reasoningParts.push(reasoning);
+		}
+		remaining = remaining.slice(closeIndex + openingTag.close.length);
 	}
 
-	const normalizedContent = cleanedContent.trim();
+	const normalizedContent = contentParts.join("").trim();
 
 	return {
 		content: normalizedContent || null,
