@@ -12,10 +12,14 @@ import {
 	ImagePlus,
 	Film,
 	Users,
+	ChevronUp,
+	LogOut,
+	ExternalLink,
+	Settings,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -27,6 +31,7 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -97,6 +102,7 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
 	const queryClient = useQueryClient();
 	const router = useRouter();
+	const pathname = usePathname();
 	const posthog = usePostHog();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
@@ -400,7 +406,23 @@ export function ChatSidebar({
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Group Chat">
+						<SidebarMenuButton
+							asChild
+							tooltip="Chat"
+							isActive={pathname === "/"}
+						>
+							<Link href="/">
+								<MessageSquare className="h-4 w-4" />
+								<span>Chat</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Group Chat"
+							isActive={pathname === "/group"}
+						>
 							<Link href="/group">
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
@@ -408,7 +430,11 @@ export function ChatSidebar({
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Image Studio">
+						<SidebarMenuButton
+							asChild
+							tooltip="Image Studio"
+							isActive={pathname === "/image"}
+						>
 							<Link href="/image">
 								<ImagePlus className="h-4 w-4" />
 								<span>Image Studio</span>
@@ -416,7 +442,11 @@ export function ChatSidebar({
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Video Studio">
+						<SidebarMenuButton
+							asChild
+							tooltip="Video Studio"
+							isActive={pathname === "/video"}
+						>
 							<Link href="/video">
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
@@ -479,28 +509,73 @@ export function ChatSidebar({
 				</div>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton
-							size="lg"
-							onClick={logout}
-							tooltip={user?.name ?? "User"}
-						>
-							<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-								<span className="text-xs font-semibold">
-									{user?.name
-										?.split(" ")
-										.map((n: string) => n[0])
-										.join("")
-										.toUpperCase()
-										.slice(0, 2) ?? "U"}
-								</span>
-							</div>
-							<div className="grid flex-1 text-left text-sm leading-tight">
-								<span className="truncate font-semibold">{user?.name}</span>
-								<span className="truncate text-xs text-muted-foreground">
-									{user?.email}
-								</span>
-							</div>
-						</SidebarMenuButton>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<SidebarMenuButton
+									size="lg"
+									tooltip={user?.name ?? "User"}
+									className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+								>
+									<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+										<span className="text-xs font-semibold">
+											{user?.name
+												?.split(" ")
+												.map((n: string) => n[0])
+												.join("")
+												.toUpperCase()
+												.slice(0, 2) ?? "U"}
+										</span>
+									</div>
+									<div className="grid flex-1 text-left text-sm leading-tight">
+										<span className="truncate font-semibold">{user?.name}</span>
+										<span className="truncate text-xs text-muted-foreground">
+											{user?.email}
+										</span>
+									</div>
+									<ChevronUp className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
+								</SidebarMenuButton>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
+								side="top"
+								align="end"
+								sideOffset={4}
+							>
+								<DropdownMenuItem asChild>
+									<a
+										href={
+											process.env.NODE_ENV === "development"
+												? "http://localhost:3002/dashboard"
+												: "https://llmgateway.io/dashboard"
+										}
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										<ExternalLink className="mr-2 h-4 w-4" />
+										Dashboard
+									</a>
+								</DropdownMenuItem>
+								<DropdownMenuItem asChild>
+									<a
+										href={
+											process.env.NODE_ENV === "development"
+												? "http://localhost:3002/dashboard"
+												: "https://llmgateway.io/dashboard"
+										}
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										<Settings className="mr-2 h-4 w-4" />
+										Settings
+									</a>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onClick={logout}>
+									<LogOut className="mr-2 h-4 w-4" />
+									Log out
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
