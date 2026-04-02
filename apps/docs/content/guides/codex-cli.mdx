@@ -143,6 +143,8 @@ If you prefer not to enable data retention, you can configure Codex CLI to use t
 
 Make sure your `OPENAI_API_KEY` environment variable is set to your LLM Gateway API key (starts with `llmgtwy_`).
 
+If you're logged into your OpenAI account in Codex CLI (via `codex login`), the stored session may take priority over your custom provider config and route requests directly to OpenAI. Run `codex logout` first to ensure requests go through LLM Gateway.
+
 ### API key not found when opening Codex App directly
 
 If Codex CLI works from the terminal but the Codex App can't find your API key when opened from Finder or Spotlight, this is because macOS GUI apps don't inherit shell environment variables from `.zshrc` or `.bashrc`.
