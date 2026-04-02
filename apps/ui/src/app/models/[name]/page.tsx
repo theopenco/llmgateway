@@ -1,7 +1,6 @@
 import {
 	AlertTriangle,
 	ArrowLeft,
-	ArrowRight,
 	Zap,
 	Eye,
 	Wrench,
@@ -23,11 +22,10 @@ import {
 	type DiscountData,
 } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
+import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import { Button } from "@/lib/components/button";
-import { getConfig } from "@/lib/config-server";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -116,7 +114,6 @@ function getEffectiveProviderDiscount(
 }
 
 export default async function ModelPage({ params }: PageProps) {
-	const config = getConfig();
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
@@ -306,12 +303,12 @@ export default async function ModelPage({ params }: PageProps) {
 								}))}
 							/>
 
-							<Button variant="default" size="sm" className="gap-2" asChild>
-								<a href={`${config.appUrl}/signup`}>
-									Get Started
-									<ArrowRight className="h-3 w-3" />
-								</a>
-							</Button>
+							<ModelCtaButton
+								modelId={`${modelProviders[0]?.providerId}/${decodedName}`}
+								size="sm"
+								className="gap-2"
+								iconClassName="h-3 w-3"
+							/>
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
