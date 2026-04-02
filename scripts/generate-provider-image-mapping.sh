@@ -8,10 +8,12 @@ PROVIDER="glacier"
 MODEL="gemini-3.1-flash-image-preview"
 ASPECT_RATIO="1:1"
 EDIT_SIZE="1K"
+MAX_JOBS="${MAX_JOBS:-10}"
 GENERATION_PROMPT="Generate a polished editorial-quality hero image of a brutalist concrete house on a cliff above the ocean at blue hour, with cinematic lighting, crisp material detail, realistic water, and no text."
 EDIT_PROMPT="Join these two images together into one cohesive composition. Keep the main subjects from both inputs, blend their framing and lighting naturally, and return a single polished edited image."
 
 FROM_IMAGES=()
+JOB_PIDS=()
 
 usage() {
 	cat <<'EOF'
@@ -27,6 +29,7 @@ Options:
   --edit-prompt TEXT      Prompt for the optional two-image edit
   --aspect-ratio VALUE    Aspect ratio for generation/edit (default: 1:1)
   --edit-size VALUE       Image size for the optional edit (default: 1K)
+  --jobs N                Max concurrent requests (default: 10)
   --from PATH             Input image for the optional edit, pass exactly twice
   --help                  Show this help text
 
@@ -40,6 +43,16 @@ Examples:
     --edit-prompt "Join these into one cinematic poster"
 EOF
 }
+
+cleanup_background_jobs() {
+	local pid
+
+	for pid in "${JOB_PIDS[@]:-}"; do
+		kill "$pid" 2>/dev/null || true
+	done
+}
+
+trap cleanup_background_jobs EXIT
 
 supported_sizes() {
 	case "$1" in
@@ -229,6 +242,30 @@ run_edit() {
 	echo "Saved edit output to $output_file"
 }
 
+wait_for_oldest_job() {
+	if [[ ${#JOB_PIDS[@]} -eq 0 ]]; then
+		return
+	fi
+
+	wait "${JOB_PIDS[0]}"
+	JOB_PIDS=("${JOB_PIDS[@]:1}")
+}
+
+enqueue_job() {
+	"$@" &
+	JOB_PIDS+=("$!")
+
+	if (( ${#JOB_PIDS[@]} >= MAX_JOBS )); then
+		wait_for_oldest_job
+	fi
+}
+
+wait_for_all_jobs() {
+	while [[ ${#JOB_PIDS[@]} -gt 0 ]]; do
+		wait_for_oldest_job
+	done
+}
+
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--local)
@@ -273,6 +310,10 @@ while [[ $# -gt 0 ]]; do
 			EDIT_SIZE="$2"
 			shift 2
 			;;
+		--jobs)
+			MAX_JOBS="$2"
+			shift 2
+			;;
 		--from)
 			FROM_IMAGES+=("$2")
 			shift 2
@@ -294,6 +335,11 @@ if [[ ${#FROM_IMAGES[@]} -ne 0 && ${#FROM_IMAGES[@]} -ne 2 ]]; then
 	exit 1
 fi
 
+if ! [[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || (( MAX_JOBS < 1 )); then
+	echo "--jobs must be a positive integer" >&2
+	exit 1
+fi
+
 for input_image in "${FROM_IMAGES[@]}"; do
 	if [[ ! -f "$input_image" ]]; then
 		echo "Input image not found: $input_image" >&2
@@ -305,12 +351,16 @@ MAPPING="$PROVIDER/$MODEL"
 OUTPUT_DIR=".context/$PROVIDER/$MODEL"
 mkdir -p "$OUTPUT_DIR"
 
+echo "Running image mapping requests with up to $MAX_JOBS concurrent job(s)"
+
 while IFS= read -r size; do
-	run_generation "$MAPPING" "$size" "$OUTPUT_DIR"
+	enqueue_job run_generation "$MAPPING" "$size" "$OUTPUT_DIR"
 done < <(supported_sizes "$MODEL")
 
 if [[ ${#FROM_IMAGES[@]} -eq 2 ]]; then
-	run_edit "$MAPPING" "$OUTPUT_DIR"
+	enqueue_job run_edit "$MAPPING" "$OUTPUT_DIR"
 fi
+
+wait_for_all_jobs
 
 echo "Finished writing artifacts to $OUTPUT_DIR"
