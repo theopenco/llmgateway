@@ -61,6 +61,11 @@ export function ChangelogNotifications({
 				<Button
 					variant="ghost"
 					size="icon"
+					aria-label={
+						unreadCount > 0
+							? `${unreadCount} unread announcement${unreadCount === 1 ? "" : "s"}`
+							: "Changelog notifications"
+					}
 					className="relative h-9 w-9 text-muted-foreground hover:text-foreground"
 				>
 					<Bell className="h-[18px] w-[18px]" />
