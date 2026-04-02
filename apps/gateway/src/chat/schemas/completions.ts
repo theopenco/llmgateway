@@ -60,6 +60,18 @@ export const completionsRequestSchema = z.object({
 						},
 					],
 				}),
+			reasoning: z.string().optional(),
+			reasoning_content: z.string().optional(),
+			reasoning_details: z
+				.array(
+					z
+						.object({
+							text: z.string().optional(),
+							type: z.string().optional(),
+						})
+						.passthrough(),
+				)
+				.optional(),
 		}),
 	),
 	temperature: z

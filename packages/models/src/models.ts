@@ -204,6 +204,11 @@ export interface ProviderModelMapping {
 	 */
 	reasoning?: boolean;
 	/**
+	 * Whether the provider returns reasoning inside tagged content (e.g. &lt;think&gt;...&lt;/think&gt;)
+	 * that needs to be split into separate reasoning and content fields
+	 */
+	splitTaggedReasoning?: boolean;
+	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
 	supportsResponsesApi?: boolean;
