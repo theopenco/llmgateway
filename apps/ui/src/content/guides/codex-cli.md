@@ -138,14 +138,6 @@ name = "LLM Gateway"
 base_url = "https://api.llmgateway.io/v1"
 ```
 
-**Option 2: Set a system-wide environment variable**
-
-```bash
-launchctl setenv OPENAI_API_KEY "llmgtwy_your_api_key_here"
-```
-
-> **Note:** The `launchctl` approach resets on reboot. Add the command to a login script or use the config file instead.
-
 ### Model not found
 
 Verify the model ID matches exactly what's listed on the [models page](https://llmgateway.io/models). Model IDs are case-sensitive.
