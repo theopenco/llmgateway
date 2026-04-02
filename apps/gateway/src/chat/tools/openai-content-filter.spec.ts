@@ -351,7 +351,7 @@ describe("checkOpenAIContentFilter", () => {
 		expect(result.results.some((entry) => entry.flagged)).toBe(true);
 	});
 
-	it("ignores upstream flagged when category scores stay at or below 0.8", async () => {
+	it("ignores upstream flagged when category scores stay at or below 0.75", async () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -367,8 +367,8 @@ describe("checkOpenAIContentFilter", () => {
 								"violence/graphic": true,
 							},
 							category_scores: {
-								violence: 0.8,
-								"violence/graphic": 0.79,
+								violence: 0.75,
+								"violence/graphic": 0.74,
 							},
 						},
 					],
@@ -402,7 +402,7 @@ describe("checkOpenAIContentFilter", () => {
 		expect(result.upstreamRequestId).toBe("req-low-threshold");
 	});
 
-	it("flags when any category score is higher than 0.8", async () => {
+	it("flags when any category score is higher than 0.75", async () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -417,7 +417,7 @@ describe("checkOpenAIContentFilter", () => {
 								violence: true,
 							},
 							category_scores: {
-								violence: 0.81,
+								violence: 0.76,
 							},
 						},
 					],

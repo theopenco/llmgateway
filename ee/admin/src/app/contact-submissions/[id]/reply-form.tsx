@@ -160,7 +160,7 @@ export function ReplyForm({
 						value={body}
 						onChange={(e) => setBody(e.target.value)}
 						rows={12}
-						className="mt-1"
+						className="mt-1 max-h-[400px] overflow-y-auto"
 					/>
 				</div>
 

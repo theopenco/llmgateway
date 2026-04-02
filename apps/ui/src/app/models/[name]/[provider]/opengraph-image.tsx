@@ -107,6 +107,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			: null;
 		const pricing = getEffectivePricePerMillion(selectedMapping);
 		const requestPrice = selectedMapping?.requestPrice;
+		const perSecondPrice = selectedMapping?.perSecondPrice;
+		const isVideoGen = selectedMapping?.videoGenerations === true;
+		const isImageGen = selectedMapping?.imageGenerations === true;
 		const hasTokenPricing =
 			pricing?.input ?? pricing?.output ?? pricing?.cachedInput;
 
@@ -327,7 +330,8 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						}}
 					>
 						{(hasTokenPricing ??
-							(requestPrice !== undefined && requestPrice !== 0)) && (
+							(requestPrice !== undefined && requestPrice !== 0) ??
+							(perSecondPrice && Object.keys(perSecondPrice).length > 0)) && (
 							<span
 								style={{
 									color: "#6B7280",
@@ -337,9 +341,16 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 									letterSpacing: "0.1em",
 								}}
 							>
-								{requestPrice !== undefined && requestPrice !== 0
-									? "Pricing"
-									: "Pricing per 1M tokens"}
+								{isVideoGen && perSecondPrice
+									? "Pricing per second"
+									: isImageGen &&
+										  requestPrice !== undefined &&
+										  requestPrice !== 0 &&
+										  !hasTokenPricing
+										? "Pricing per request"
+										: requestPrice !== undefined && requestPrice !== 0
+											? "Pricing"
+											: "Pricing per 1M tokens"}
 							</span>
 						)}
 						<div
@@ -377,6 +388,43 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								</span>
 							</div>
 
+							{/* Per-Second Price for video gen */}
+							{isVideoGen &&
+								perSecondPrice &&
+								Object.entries(perSecondPrice)
+									.slice(0, 2)
+									.map(([key, price]) => (
+										<div
+											key={key}
+											style={{
+												display: "flex",
+												flexDirection: "column",
+												gap: 10,
+												padding: "28px 36px",
+												backgroundColor: "#0A0A0A",
+												borderRadius: 20,
+												border: "1px solid #1F2937",
+											}}
+										>
+											<span
+												style={{
+													color: "#9CA3AF",
+													fontSize: 20,
+													fontWeight: 500,
+													textTransform: "uppercase",
+													letterSpacing: "0.05em",
+												}}
+											>
+												{key === "default"
+													? "Per Second"
+													: key.replace(/_/g, " ")}
+											</span>
+											<span style={{ fontWeight: 700, fontSize: 56 }}>
+												${price.toFixed(4)}
+											</span>
+										</div>
+									))}
+
 							{/* Request Price */}
 							{requestPrice !== undefined && requestPrice !== 0 && (
 								<div
@@ -399,7 +447,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 											letterSpacing: "0.05em",
 										}}
 									>
-										Price per Request
+										Per Request
 									</span>
 									<span style={{ fontWeight: 700, fontSize: 56 }}>
 										${requestPrice.toFixed(4)}

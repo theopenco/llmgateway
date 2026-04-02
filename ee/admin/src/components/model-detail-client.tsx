@@ -63,12 +63,10 @@ export function ModelDetailClient({
 	modelId,
 	allTimeStats,
 	providers: initialProviders,
-	projectId,
 }: {
 	modelId: string;
 	allTimeStats: ModelInfo;
 	providers: ModelProviderStats[];
-	projectId?: string;
 }) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
@@ -95,8 +93,8 @@ export function ModelDetailClient({
 			setLoading(true);
 			try {
 				const [historyData, detailData] = await Promise.all([
-					getModelHistory(modelId, w, projectId),
-					getModelDetail(modelId, w, projectId),
+					getModelHistory(modelId, w),
+					getModelDetail(modelId, w),
 				]);
 				if (historyData) {
 					setStats(aggregateStats(historyData));
@@ -108,7 +106,7 @@ export function ModelDetailClient({
 				setLoading(false);
 			}
 		},
-		[modelId, projectId],
+		[modelId],
 	);
 
 	useEffect(() => {
@@ -215,7 +213,6 @@ export function ModelDetailClient({
 					modelId={modelId}
 					providers={providers}
 					window={window}
-					projectId={projectId}
 				/>
 			</section>
 		</>

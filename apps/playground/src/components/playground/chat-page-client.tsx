@@ -810,15 +810,16 @@ export default function ChatPageClient({
 
 	// keep URL in sync with selected model
 	useEffect(() => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		// Read current URL params directly to avoid stale searchParams closure
+		const currentParams = new URLSearchParams(window.location.search);
 		if (selectedModel) {
-			params.set("model", selectedModel);
+			currentParams.set("model", selectedModel);
 		} else {
-			params.delete("model");
+			currentParams.delete("model");
 		}
-		const qs = params.toString();
-		router.replace(qs ? `?${qs}` : "");
-	}, [selectedModel]);
+		const qs = currentParams.toString();
+		router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+	}, [selectedModel, pathname, router]);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;

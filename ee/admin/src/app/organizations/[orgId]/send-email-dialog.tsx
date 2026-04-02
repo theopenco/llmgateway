@@ -107,7 +107,7 @@ export function SendEmailDialog({
 					<Mail className="h-3.5 w-3.5" />
 				</Button>
 			</DialogTrigger>
-			<DialogContent className="max-w-lg">
+			<DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Email {userName || userEmail}</DialogTitle>
 					<DialogDescription>
@@ -160,7 +160,7 @@ export function SendEmailDialog({
 							value={body}
 							onChange={(e) => setBody(e.target.value)}
 							rows={10}
-							className="mt-1"
+							className="mt-1 max-h-[300px] overflow-y-auto"
 						/>
 					</div>
 

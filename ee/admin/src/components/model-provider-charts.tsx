@@ -15,25 +15,18 @@ function ProviderSection({
 	modelId,
 	provider,
 	window,
-	projectId,
 }: {
 	modelId: string;
 	provider: ModelProviderStats;
 	window: HistoryWindow;
-	projectId?: string;
 }) {
 	const ProviderIcon = getProviderIcon(provider.providerId);
 
 	const fetchData = useCallback(
 		async (w: HistoryWindow) => {
-			return await getMappingHistory(
-				provider.providerId,
-				modelId,
-				w,
-				projectId,
-			);
+			return await getMappingHistory(provider.providerId, modelId, w);
 		},
-		[provider.providerId, modelId, projectId],
+		[provider.providerId, modelId],
 	);
 
 	return (
@@ -59,12 +52,10 @@ export function ModelProviderCharts({
 	modelId,
 	providers,
 	window,
-	projectId,
 }: {
 	modelId: string;
 	providers: ModelProviderStats[];
 	window: HistoryWindow;
-	projectId?: string;
 }) {
 	if (providers.length === 0) {
 		return (
@@ -82,7 +73,6 @@ export function ModelProviderCharts({
 					modelId={modelId}
 					provider={provider}
 					window={window}
-					projectId={projectId}
 				/>
 			))}
 		</div>

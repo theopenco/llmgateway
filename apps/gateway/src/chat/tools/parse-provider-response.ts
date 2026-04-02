@@ -3,6 +3,10 @@ import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
 import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	extractReasoningDetailsText,
+	splitReasoningFromTaggedContent,
+} from "./reasoning-details.js";
 
 import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
@@ -15,6 +19,8 @@ export function parseProviderResponse(
 	usedModel: string,
 	json: any,
 	messages: any[] = [],
+	supportsReasoning = true,
+	splitTaggedReasoning = false,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -382,6 +388,9 @@ export function parseProviderResponse(
 			reasoningContent =
 				json.choices?.[0]?.message?.reasoning ??
 				json.choices?.[0]?.message?.reasoning_content ??
+				extractReasoningDetailsText(
+					json.choices?.[0]?.message?.reasoning_details,
+				) ??
 				null;
 			finishReason = json.choices?.[0]?.finish_reason ?? null;
 			promptTokens = json.usage?.prompt_tokens ?? null;
@@ -462,6 +471,9 @@ export function parseProviderResponse(
 				reasoningContent =
 					json.choices?.[0]?.message?.reasoning ??
 					json.choices?.[0]?.message?.reasoning_content ??
+					extractReasoningDetailsText(
+						json.choices?.[0]?.message?.reasoning_details,
+					) ??
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 				promptTokens = json.usage?.prompt_tokens ?? null;
@@ -648,6 +660,9 @@ export function parseProviderResponse(
 				reasoningContent =
 					json.choices?.[0]?.message?.reasoning ??
 					json.choices?.[0]?.message?.reasoning_content ??
+					extractReasoningDetailsText(
+						json.choices?.[0]?.message?.reasoning_details,
+					) ??
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 
@@ -745,6 +760,14 @@ export function parseProviderResponse(
 			break;
 	}
 
+	if (splitTaggedReasoning && typeof content === "string") {
+		const splitContent = splitReasoningFromTaggedContent(content);
+		if (splitContent.reasoningContent) {
+			content = splitContent.content;
+			reasoningContent ??= splitContent.reasoningContent;
+		}
+	}
+
 	// Cache reasoning_content for Moonshot thinking models when tool_calls are present
 	// This is needed for multi-turn tool call conversations because Moonshot requires
 	// reasoning_content to be included in assistant messages with tool_calls
@@ -768,6 +791,13 @@ export function parseProviderResponse(
 					});
 			}
 		}
+	}
+
+	// For non-reasoning models that return their answer in reasoning_content
+	// (e.g. CanopyWave Mimo), move reasoning to content so the response is visible.
+	if (!supportsReasoning && !content && reasoningContent) {
+		content = reasoningContent;
+		reasoningContent = null;
 	}
 
 	return {

@@ -14,8 +14,8 @@ export default async function SessionsPage({
 				<div>
 					<h2 className="text-3xl font-bold tracking-tight">Sessions</h2>
 					<p className="text-muted-foreground">
-						Group API requests by session from tools like Claude Code and Open
-						Code
+						Group API requests by session from tools like Claude Code, OpenCode,
+						and SoulForge
 					</p>
 				</div>
 				<Card>

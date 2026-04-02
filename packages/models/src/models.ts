@@ -6,6 +6,7 @@ import { googleModels } from "./models/google.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
 import { microsoftModels } from "./models/microsoft.js";
+import { mimoModels } from "./models/mimo.js";
 import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
@@ -203,6 +204,11 @@ export interface ProviderModelMapping {
 	 */
 	reasoning?: boolean;
 	/**
+	 * Whether the provider returns reasoning inside tagged content (e.g. &lt;think&gt;...&lt;/think&gt;)
+	 * that needs to be split into separate reasoning and content fields
+	 */
+	splitTaggedReasoning?: boolean;
+	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
 	supportsResponsesApi?: boolean;
@@ -386,6 +392,7 @@ export const models = [
 	...deepseekModels,
 	...mistralModels,
 	...microsoftModels,
+	...mimoModels,
 	...minimaxModels,
 	...moonshotModels,
 	...alibabaModels,

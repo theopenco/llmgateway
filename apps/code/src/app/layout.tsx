@@ -25,11 +25,11 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
 	metadataBase: new URL("https://code.llmgateway.io"),
 	title: {
-		default: "LLM Gateway Code - Dev Plans for Developers",
-		template: "%s | LLM Gateway Code",
+		default: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
+		template: "%s | DevPass by LLM Gateway",
 	},
 	description:
-		"Subscribe to LLM Gateway Dev Plans for AI-powered coding assistance. Access Claude, GPT-4, and other models through one subscription.",
+		"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool. 200+ models, one API key.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
@@ -48,20 +48,20 @@ export const metadata: Metadata = {
 		},
 	},
 	openGraph: {
-		title: "LLM Gateway Code - Dev Plans for Developers",
+		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
-			"Subscribe to LLM Gateway Dev Plans for AI-powered coding assistance. Access Claude, GPT-4, and other models through one subscription.",
+			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool.",
 		images: ["/opengraph.png?v=1"],
 		type: "website",
 		url: "https://code.llmgateway.io",
-		siteName: "LLM Gateway Code",
+		siteName: "DevPass by LLM Gateway",
 		locale: "en_US",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "LLM Gateway Code - Dev Plans for Developers",
+		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
-			"Subscribe to LLM Gateway Dev Plans for AI-powered coding assistance. Access Claude, GPT-4, and other models.",
+			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 200+ models.",
 		images: ["/opengraph.png?v=1"],
 		creator: "@llmgateway",
 	},
@@ -70,12 +70,12 @@ export const metadata: Metadata = {
 const softwareAppSchema = {
 	"@context": "https://schema.org",
 	"@type": "SoftwareApplication",
-	name: "LLM Gateway Code",
+	name: "DevPass by LLM Gateway",
 	url: "https://code.llmgateway.io",
 	applicationCategory: "DeveloperApplication",
 	operatingSystem: "All",
 	description:
-		"Fixed-price dev plans for AI-powered coding with Claude Code, Cursor, Cline, and any OpenAI-compatible tool.",
+		"Fixed-price dev plans for AI-powered coding with Claude Code, Cursor, Cline, and any OpenAI-compatible tool. One subscription, every model.",
 	offers: {
 		"@type": "AggregateOffer",
 		priceCurrency: "USD",

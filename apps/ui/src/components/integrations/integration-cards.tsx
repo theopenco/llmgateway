@@ -122,7 +122,7 @@ function DevPlansCta() {
 							<Terminal className="h-5 w-5" strokeWidth={1.5} />
 						</div>
 						<h3 className="text-xl font-semibold tracking-tight sm:text-2xl">
-							Dev Plans
+							DevPass
 						</h3>
 						<Badge className="border-transparent bg-foreground/10 text-foreground text-[11px] font-medium tracking-wide uppercase">
 							New

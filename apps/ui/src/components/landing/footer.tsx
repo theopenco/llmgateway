@@ -115,6 +115,16 @@ export default function Footer() {
 									</Link>
 								</li>
 								<li>
+									<a
+										href="https://code.llmgateway.io"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										DevPass
+									</a>
+								</li>
+								<li>
 									<Link
 										href="/models/compare"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"

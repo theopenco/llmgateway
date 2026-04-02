@@ -1512,7 +1512,7 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 		const errorMessage = await res.text();
 		expect(errorMessage).toMatchInlineSnapshot(
-			`"{"error":true,"status":400,"message":"No provider key set for any of the providers that support model gpt-4o-mini. Please add the provider key in the settings or switch the project mode to credits or hybrid."}"`,
+			`"{"error":true,"status":400,"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode."}"`,
 		);
 	});
 

@@ -364,7 +364,7 @@ export default function DashboardClient() {
 					<div className="flex items-center gap-6">
 						<Link href="/" className="flex items-center gap-2">
 							<Code className="h-5 w-5" />
-							<span className="font-semibold">LLM Gateway Code</span>
+							<span className="font-semibold">DevPass</span>
 						</Link>
 						{hasActivePlan && (
 							<span className="hidden sm:inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium">

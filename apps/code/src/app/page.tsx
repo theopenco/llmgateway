@@ -1,9 +1,9 @@
 import {
 	ArrowRight,
 	Check,
-	Code,
 	Layers,
 	RotateCcw,
+	Shield,
 	Sparkles,
 	Terminal,
 	Zap,
@@ -11,6 +11,8 @@ import {
 import Link from "next/link";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
+import { Footer } from "@/components/Footer";
+import { Header } from "@/components/Header";
 import {
 	CodeCTATracker,
 	CodePlanTracker,
@@ -59,26 +61,7 @@ export default function LandingPage() {
 	return (
 		<div className="min-h-screen bg-background">
 			<LandingPageTracker />
-			{/* Header */}
-			<header className="border-b border-border/50">
-				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
-					<Link href="/" className="flex items-center gap-2">
-						<Code className="h-6 w-6" />
-						<span className="font-semibold text-lg">LLM Gateway Code</span>
-					</Link>
-					<div className="flex items-center gap-3">
-						<Button variant="ghost" size="sm" asChild>
-							<Link href="/coding-models">Models</Link>
-						</Button>
-						<Button variant="ghost" size="sm" asChild>
-							<Link href="/login">Sign in</Link>
-						</Button>
-						<Button size="sm" asChild>
-							<Link href="/signup">Get Started</Link>
-						</Button>
-					</div>
-				</div>
-			</header>
+			<Header />
 
 			<main>
 				{/* Hero */}
@@ -88,22 +71,23 @@ export default function LandingPage() {
 						<div className="mx-auto max-w-3xl text-center">
 							<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/50 px-4 py-1.5 text-sm text-muted-foreground">
 								<Sparkles className="h-3.5 w-3.5" />
-								Fixed-price plans for AI coding tools
+								Your all-access pass to AI coding
 							</div>
 							<h1 className="mb-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-								One subscription.
+								Stop counting tokens.
 								<br />
-								Every coding model.
+								Start shipping code.
 							</h1>
 							<p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-muted-foreground">
-								Fixed-price dev plans for Claude Code, Cursor, Cline, and any
-								OpenAI-compatible tool. Stop juggling API keys and balances.
+								One flat-rate subscription for Claude Code, Cursor, Cline, and
+								every OpenAI-compatible tool. 200+ models, one API key, zero
+								surprises on your bill.
 							</p>
 							<div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
 								<CodeCTATracker cta="start_coding" location="hero">
 									<Button size="lg" className="gap-2 px-8" asChild>
 										<Link href="/signup">
-											Start coding
+											Get your DevPass
 											<ArrowRight className="h-4 w-4" />
 										</Link>
 									</Button>
@@ -125,7 +109,7 @@ export default function LandingPage() {
 					<div className="container mx-auto max-w-5xl">
 						<div className="mb-14 text-center">
 							<h2 className="mb-3 text-3xl font-bold tracking-tight">
-								Why developers switch to Dev Plans
+								Why developers switch to DevPass
 							</h2>
 							<p className="text-muted-foreground">
 								Stop paying per token. Start shipping.
@@ -174,22 +158,12 @@ export default function LandingPage() {
 							</div>
 							<div className="rounded-xl border p-6 transition-colors hover:bg-muted/30">
 								<div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-foreground text-background">
-									<svg
-										className="h-5 w-5"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth={1.5}
-										strokeLinecap="round"
-										strokeLinejoin="round"
-									>
-										<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-									</svg>
+									<Shield className="h-5 w-5" strokeWidth={1.5} />
 								</div>
-								<h3 className="mb-2 font-semibold">Predictable billing</h3>
+								<h3 className="mb-2 font-semibold">Full observability</h3>
 								<p className="text-sm leading-relaxed text-muted-foreground">
-									One fixed monthly price. No surprise invoices, no per-token
-									math. Budget with confidence.
+									Track every request, session, and dollar spent. Real-time
+									dashboards with cost and latency insights.
 								</p>
 							</div>
 							<div className="rounded-xl border p-6 transition-colors hover:bg-muted/30">
@@ -345,7 +319,7 @@ export default function LandingPage() {
 							<CodeCTATracker cta="get_started" location="bottom_cta">
 								<Button size="lg" className="gap-2 px-8" asChild>
 									<Link href="/signup">
-										Get started
+										Get your DevPass
 										<ArrowRight className="h-4 w-4" />
 									</Link>
 								</Button>
@@ -360,42 +334,7 @@ export default function LandingPage() {
 				</section>
 			</main>
 
-			{/* Footer */}
-			<footer className="border-t py-8 px-4">
-				<div className="container mx-auto flex flex-col items-center justify-between gap-4 md:flex-row">
-					<Link href="/" className="flex items-center gap-2">
-						<Code className="h-5 w-5" />
-						<span className="font-medium">LLM Gateway Code</span>
-					</Link>
-					<div className="flex items-center gap-6 text-sm text-muted-foreground">
-						<Link
-							href="/coding-models"
-							className="hover:text-foreground transition-colors"
-						>
-							Models
-						</Link>
-						<a
-							href="https://docs.llmgateway.io"
-							target="_blank"
-							rel="noopener noreferrer"
-							className="hover:text-foreground transition-colors"
-						>
-							Docs
-						</a>
-						<a
-							href="https://llmgateway.io/discord"
-							target="_blank"
-							rel="noopener noreferrer"
-							className="hover:text-foreground transition-colors"
-						>
-							Discord
-						</a>
-					</div>
-					<p className="text-sm text-muted-foreground">
-						&copy; {new Date().getFullYear()} LLM Gateway
-					</p>
-				</div>
-			</footer>
+			<Footer />
 		</div>
 	);
 }

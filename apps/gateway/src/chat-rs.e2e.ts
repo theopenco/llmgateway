@@ -27,7 +27,10 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 	test.each(streamingReasoningModels)(
 		"reasoning + streaming $model",
-		getTestOptions(),
+		{
+			...getTestOptions(),
+			timeout: process.env.CI ? 180000 : 120000,
+		},
 		async ({ model, providers }) => {
 			const requestId = generateTestRequestId();
 

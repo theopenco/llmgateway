@@ -10,7 +10,7 @@ import { getUser } from "@/lib/getUser";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-	_req: Request,
+	req: Request,
 	{ params }: { params: Promise<{ videoId: string }> },
 ) {
 	const user = await getUser();
@@ -35,18 +35,21 @@ export async function GET(
 			? "http://localhost:4001"
 			: "https://api.llmgateway.io");
 
+	const rangeHeader = req.headers.get("Range");
+
 	const response = await fetch(
 		`${gatewayBaseUrl}/v1/videos/${encodeURIComponent(videoId)}/content`,
 		{
 			headers: {
 				Authorization: `Bearer ${apiKey}`,
 				"x-source": "chat.llmgateway.io",
+				...(rangeHeader ? { Range: rangeHeader } : {}),
 			},
 			cache: "no-store",
 		},
 	);
 
-	if (!response.ok || !response.body) {
+	if (!response.ok && response.status !== 206) {
 		const body = await readGatewayResponseBody(response);
 		return NextResponse.json(
 			{ error: getGatewayErrorMessage(body, "Failed to fetch video content") },
@@ -54,14 +57,31 @@ export async function GET(
 		);
 	}
 
+	if (!response.body) {
+		return NextResponse.json(
+			{ error: "No video content returned" },
+			{ status: 502 },
+		);
+	}
+
+	const headers: Record<string, string> = {
+		"Content-Type": response.headers.get("Content-Type") ?? "video/mp4",
+		"Cache-Control": "private, max-age=3600",
+		"Accept-Ranges": "bytes",
+	};
+
+	const contentLength = response.headers.get("Content-Length");
+	if (contentLength) {
+		headers["Content-Length"] = contentLength;
+	}
+
+	const contentRange = response.headers.get("Content-Range");
+	if (contentRange) {
+		headers["Content-Range"] = contentRange;
+	}
+
 	return new Response(response.body, {
-		status: 200,
-		headers: {
-			"Content-Type": response.headers.get("Content-Type") ?? "video/mp4",
-			"Cache-Control": "private, max-age=3600",
-			...(response.headers.get("Content-Length")
-				? { "Content-Length": response.headers.get("Content-Length")! }
-				: {}),
-		},
+		status: response.status,
+		headers,
 	});
 }

@@ -79,7 +79,7 @@ export function TerminalPreview() {
 	return (
 		<>
 			{/* Terminal preview */}
-			<div className="mx-auto mt-16 max-w-2xl">
+			<div className="mx-auto mt-16 max-w-2xl px-4 sm:px-0">
 				<div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-lg">
 					<div className="flex items-center gap-2 border-b border-border/40 px-4 py-3">
 						<div className="flex gap-1.5">
@@ -91,11 +91,11 @@ export function TerminalPreview() {
 							terminal
 						</span>
 					</div>
-					<div className="p-5 font-mono text-sm leading-relaxed">
+					<div className="p-4 sm:p-5 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
 						{snippet.lines.map((line) => (
 							<div
 								key={line.key}
-								className="mt-1 first:mt-0 text-muted-foreground"
+								className="mt-1 first:mt-0 text-muted-foreground whitespace-nowrap"
 							>
 								<span className="text-foreground/70">$</span> export {line.key}
 								<span className="text-foreground">{line.value}</span>
@@ -107,7 +107,7 @@ export function TerminalPreview() {
 						<div className="mt-3 text-muted-foreground/60">
 							{snippet.comment}
 						</div>
-						<div className="mt-1 text-muted-foreground">
+						<div className="mt-1 text-muted-foreground whitespace-nowrap">
 							<span className="text-foreground/70">$</span> export{" "}
 							{snippet.modelLine.key}
 							<span className="text-foreground">{snippet.modelLine.value}</span>
@@ -119,9 +119,9 @@ export function TerminalPreview() {
 			{/* Compatible tools */}
 			<div className="mt-16 border-y border-border/40 bg-muted/30 py-10">
 				<div className="container mx-auto px-4">
-					<div className="flex flex-col items-center gap-6 sm:flex-row sm:justify-center sm:gap-12">
+					<div className="flex flex-col items-center gap-6">
 						<span className="text-sm text-muted-foreground">Works with</span>
-						<div className="flex items-center gap-8 sm:gap-10">
+						<div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10">
 							{tools.map((tool) => (
 								<button
 									key={tool.id}
@@ -137,10 +137,10 @@ export function TerminalPreview() {
 									<span className="text-sm font-medium">{tool.name}</span>
 								</button>
 							))}
-							<span className="text-sm text-muted-foreground">
-								+ any OpenAI-compatible tool
-							</span>
 						</div>
+						<span className="text-xs text-muted-foreground">
+							+ any OpenAI-compatible tool
+						</span>
 					</div>
 				</div>
 			</div>

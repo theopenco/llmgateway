@@ -230,7 +230,7 @@ export default async function OrganizationPage({
 						</span>
 					</div>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2">
 					<GiftCreditsDialog
 						orgId={orgId}
 						orgName={org.name}
@@ -301,7 +301,7 @@ export default async function OrganizationPage({
 			)}
 
 			<Tabs defaultValue={activeTab}>
-				<TabsList>
+				<TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
 					<TabsTrigger value="transactions">
 						<Receipt className="mr-1.5 h-4 w-4" />
 						Transactions ({txTotal})
@@ -393,7 +393,7 @@ export default async function OrganizationPage({
 						</div>
 
 						{txTotalPages > 1 && (
-							<div className="flex items-center justify-between">
+							<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
 								<p className="text-sm text-muted-foreground">
 									Showing {txOffset + 1} to{" "}
 									{Math.min(txOffset + txLimit, txTotal)} of {txTotal}
@@ -515,7 +515,7 @@ export default async function OrganizationPage({
 						</div>
 
 						{akTotalPages > 1 && (
-							<div className="flex items-center justify-between">
+							<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
 								<p className="text-sm text-muted-foreground">
 									Showing {akOffset + 1} to{" "}
 									{Math.min(akOffset + akLimit, akTotal)} of {akTotal}

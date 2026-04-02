@@ -286,12 +286,9 @@ export default async function ProjectModelProviderMappingsPage({
 											</div>
 										</TableCell>
 										<TableCell>
-											<Link
-												href={`/models/${encodeURIComponent(m.modelId)}?projectId=${projectId}`}
-												className="font-medium hover:underline"
-											>
-												{m.modelId}
-											</Link>
+											{m.modelId.includes("/")
+												? m.modelId.split("/").slice(1).join("/")
+												: m.modelId}
 										</TableCell>
 										<TableCell className="tabular-nums">
 											{formatNumber(m.logsCount)}
