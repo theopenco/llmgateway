@@ -3,7 +3,6 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
-import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/ui/logo";
 import {
 	Sidebar,
@@ -37,9 +36,12 @@ export const ChatSidebarSkeleton = ({
 					<SidebarMenuItem>
 						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
 							<Link href="/" prefetch={true}>
-								<Logo className="h-8 w-8" />
-								<span className="text-lg font-semibold">LLM Gateway</span>
-								<Badge>Chat</Badge>
+								<div className="flex aspect-square size-8 items-center justify-center">
+									<Logo className="size-6" />
+								</div>
+								<span className="text-lg font-bold tracking-tight">
+									LLM Gateway
+								</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

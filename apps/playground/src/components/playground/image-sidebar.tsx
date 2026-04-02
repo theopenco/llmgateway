@@ -1,12 +1,11 @@
 "use client";
 
-import { Film, ImageIcon, LogOutIcon, MessageSquare, Plus } from "lucide-react";
+import { Film, ImageIcon, MessageSquare, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
@@ -16,7 +15,6 @@ import {
 	SidebarFooter,
 	SidebarHeader,
 	SidebarMenu,
-	SidebarMenuAction,
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
@@ -81,7 +79,7 @@ export function ImageSidebar({
 							className="flex self-start items-center gap-2 my-2"
 							prefetch={true}
 						>
-							<Logo className="h-10 w-10" />
+							<Logo className="size-6" />
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
 							<Badge>Image</Badge>
 						</Link>
@@ -101,7 +99,7 @@ export function ImageSidebar({
 							className="flex self-start items-center gap-2 my-2"
 							prefetch={true}
 						>
-							<Logo className="h-10 w-10" />
+							<Logo className="size-6" />
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
 							<Badge>Image</Badge>
 						</Link>
@@ -135,9 +133,12 @@ export function ImageSidebar({
 					<SidebarMenuItem>
 						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
 							<Link href="/" prefetch={true}>
-								<Logo className="h-8 w-8" />
-								<span className="text-lg font-semibold">LLM Gateway</span>
-								<Badge>Image</Badge>
+								<div className="flex aspect-square size-8 items-center justify-center">
+									<Logo className="size-6" />
+								</div>
+								<span className="text-lg font-bold tracking-tight">
+									LLM Gateway
+								</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -174,7 +175,7 @@ export function ImageSidebar({
 				<SidebarMenu>
 					{galleryItems.length > 0 && (
 						<div>
-							<div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+							<div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider group-data-[collapsible=icon]:hidden">
 								History
 							</div>
 							{galleryItems.map((item) => (
@@ -213,7 +214,7 @@ export function ImageSidebar({
 					)}
 
 					{galleryItems.length === 0 && (
-						<div className="flex flex-col items-center justify-center py-8 text-center">
+						<div className="flex flex-col items-center justify-center py-8 text-center group-data-[collapsible=icon]:hidden">
 							<ImageIcon className="h-12 w-12 text-muted-foreground/50 mb-4" />
 							<p className="text-sm text-muted-foreground mb-2">
 								No generation history
@@ -226,7 +227,7 @@ export function ImageSidebar({
 				</SidebarMenu>
 			</SidebarContent>
 
-			<SidebarFooter className="border-t">
+			<SidebarFooter>
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
 						organization={organization}
@@ -235,27 +236,28 @@ export function ImageSidebar({
 				</div>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip={user?.name ?? "User"}>
-							<div className="flex items-center gap-3">
-								<Avatar className="border-border h-8 w-8 border">
-									<AvatarFallback className="bg-muted text-xs">
-										{user?.name?.slice(0, 2) ?? "AU"}
-									</AvatarFallback>
-								</Avatar>
-								<div className="grid flex-1 text-left text-sm leading-tight">
-									<span className="truncate font-medium">{user?.name}</span>
-									<span className="truncate text-xs text-muted-foreground">
-										{user?.email}
-									</span>
-								</div>
+						<SidebarMenuButton
+							size="lg"
+							onClick={logout}
+							tooltip={user?.name ?? "User"}
+						>
+							<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+								<span className="text-xs font-semibold">
+									{user?.name
+										?.split(" ")
+										.map((n: string) => n[0])
+										.join("")
+										.toUpperCase()
+										.slice(0, 2) ?? "U"}
+								</span>
+							</div>
+							<div className="grid flex-1 text-left text-sm leading-tight">
+								<span className="truncate font-semibold">{user?.name}</span>
+								<span className="truncate text-xs text-muted-foreground">
+									{user?.email}
+								</span>
 							</div>
 						</SidebarMenuButton>
-						<SidebarMenuAction
-							onClick={logout}
-							className="group-data-[collapsible=icon]:hidden"
-						>
-							<LogOutIcon className="h-4 w-4" />
-						</SidebarMenuAction>
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>

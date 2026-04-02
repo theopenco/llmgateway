@@ -53,7 +53,11 @@ export default function GroupChatClient({
 	const searchParams = useSearchParams();
 
 	const mapped = useMemo(
-		() => mapModels(models, providers),
+		() =>
+			mapModels(models, providers).filter(
+				(m) =>
+					!m.imageGen && !m.supportsVideoAudio && !m.supportsVideoWithoutAudio,
+			),
 		[models, providers],
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
