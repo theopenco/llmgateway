@@ -36,6 +36,21 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/chat",
+				destination: "https://chat.llmgateway.io",
+				permanent: true,
+			},
+			{
+				source: "/code",
+				destination: "https://code.llmgateway.io",
+				permanent: true,
+			},
+			{
+				source: "/devpass",
+				destination: "https://code.llmgateway.io",
+				permanent: true,
+			},
+			{
 				source: "/discord",
 				destination: "https://discord.gg/3u7jpXf36B",
 				permanent: true,

@@ -15,7 +15,6 @@ import {
 	ChevronUp,
 	LogOut,
 	ExternalLink,
-	Settings,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -553,20 +552,6 @@ export function ChatSidebar({
 									>
 										<ExternalLink className="mr-2 h-4 w-4" />
 										Dashboard
-									</a>
-								</DropdownMenuItem>
-								<DropdownMenuItem asChild>
-									<a
-										href={
-											process.env.NODE_ENV === "development"
-												? "http://localhost:3002/dashboard"
-												: "https://llmgateway.io/dashboard"
-										}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										<Settings className="mr-2 h-4 w-4" />
-										Settings
 									</a>
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
