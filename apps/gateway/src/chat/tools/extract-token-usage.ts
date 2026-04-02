@@ -130,8 +130,17 @@ export function extractTokenUsage(
 			}
 			break;
 		default: // OpenAI format
-			if (data.usage) {
-				// Standard OpenAI-style token parsing
+			if (data.response?.usage) {
+				// OpenAI Responses API format (response.completed events)
+				// Usage is nested under data.response.usage with input_tokens/output_tokens naming
+				const ru = data.response.usage;
+				promptTokens = ru.input_tokens ?? null;
+				completionTokens = ru.output_tokens ?? null;
+				totalTokens = ru.total_tokens ?? null;
+				reasoningTokens = ru.output_tokens_details?.reasoning_tokens ?? null;
+				cachedTokens = ru.input_tokens_details?.cached_tokens ?? null;
+			} else if (data.usage) {
+				// Standard OpenAI Chat Completions format
 				promptTokens = data.usage.prompt_tokens ?? null;
 				completionTokens = data.usage.completion_tokens ?? null;
 				totalTokens = data.usage.total_tokens ?? null;

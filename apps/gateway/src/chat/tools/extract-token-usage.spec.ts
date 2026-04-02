@@ -231,6 +231,82 @@ describe("extractTokenUsage", () => {
 			expect(result.cachedTokens).toBeNull();
 		});
 	});
+
+	describe("openai responses api format", () => {
+		it("extracts usage from response.completed event", () => {
+			const data = {
+				type: "response.completed",
+				response: {
+					usage: {
+						input_tokens: 150,
+						output_tokens: 80,
+						total_tokens: 230,
+						input_tokens_details: {
+							cached_tokens: 120,
+						},
+						output_tokens_details: {
+							reasoning_tokens: 30,
+						},
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(150);
+			expect(result.completionTokens).toBe(80);
+			expect(result.totalTokens).toBe(230);
+			expect(result.cachedTokens).toBe(120);
+			expect(result.reasoningTokens).toBe(30);
+		});
+
+		it("extracts usage without cached tokens", () => {
+			const data = {
+				type: "response.completed",
+				response: {
+					usage: {
+						input_tokens: 100,
+						output_tokens: 50,
+						total_tokens: 150,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(100);
+			expect(result.completionTokens).toBe(50);
+			expect(result.totalTokens).toBe(150);
+			expect(result.cachedTokens).toBeNull();
+			expect(result.reasoningTokens).toBeNull();
+		});
+
+		it("prefers response.usage over data.usage when both present", () => {
+			const data = {
+				response: {
+					usage: {
+						input_tokens: 200,
+						output_tokens: 100,
+						total_tokens: 300,
+						input_tokens_details: {
+							cached_tokens: 150,
+						},
+					},
+				},
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(200);
+			expect(result.completionTokens).toBe(100);
+			expect(result.cachedTokens).toBe(150);
+		});
+	});
 });
 
 describe("adjustGoogleCandidateTokens", () => {
