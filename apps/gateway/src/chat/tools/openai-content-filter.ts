@@ -67,7 +67,7 @@ interface OpenAIContentFilterRequestResult {
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
 const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
-const DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD = 0.8;
+const DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD = 0.75;
 
 function getOpenAIModerationScoreThreshold(): number {
 	const envValue = process.env.LLM_CONTENT_FILTER_OPENAI_SCORE_THRESHOLD;
