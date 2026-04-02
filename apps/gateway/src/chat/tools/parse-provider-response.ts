@@ -218,9 +218,13 @@ export function parseProviderResponse(
 			const contentParts = parts.filter((part: any) => !part.thought);
 			const reasoningParts = parts.filter((part: any) => part.thought);
 
-			content = contentParts.map((part: any) => part.text).join("") ?? null;
-			reasoningContent =
-				reasoningParts.map((part: any) => part.text).join("") ?? null;
+			const textContent = contentParts.map((part: any) => part.text).join("");
+			const thoughtContent = reasoningParts
+				.map((part: any) => part.text)
+				.join("");
+
+			content = textContent.length > 0 ? textContent : null;
+			reasoningContent = thoughtContent.length > 0 ? thoughtContent : null;
 
 			// Extract images from Google response parts
 			const imageParts = parts.filter((part: any) => part.inlineData);
