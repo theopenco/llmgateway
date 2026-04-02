@@ -17,17 +17,8 @@ Create or edit your Codex CLI config file at `~/.codex/config.toml`:
 ```bash
 model = "auto"
 model_reasoning_effort = "high"
-model_provider = "llmgateway"
-
-[model_providers.llmgateway]
-name = "LLM Gateway"
-base_url = "https://api.llmgateway.io/v1"
-```
-
-Then set your API key:
-
-```bash
-export OPENAI_API_KEY=llmgtwy_your_api_key_here
+openai_base_url = "https://api.llmgateway.io/v1"
+api_key = "llmgtwy_your_api_key_here"
 ```
 
 Now run Codex CLI as usual:
@@ -49,14 +40,10 @@ LLM Gateway's `/v1` endpoint is fully OpenAI-compatible. Codex CLI sends request
 
 ### Base URL
 
-The `model_provider` and `base_url` fields point Codex CLI to LLM Gateway instead of OpenAI:
+The `openai_base_url` field points Codex CLI to LLM Gateway instead of OpenAI:
 
 ```bash
-model_provider = "llmgateway"
-
-[model_providers.llmgateway]
-name = "LLM Gateway"
-base_url = "https://api.llmgateway.io/v1"
+openai_base_url = "https://api.llmgateway.io/v1"
 ```
 
 ### Model Selection
@@ -130,12 +117,8 @@ Set your API key in `~/.codex/config.toml` so it doesn't depend on environment v
 
 ```bash
 model = "auto"
-model_provider = "llmgateway"
+openai_base_url = "https://api.llmgateway.io/v1"
 api_key = "llmgtwy_your_api_key_here"
-
-[model_providers.llmgateway]
-name = "LLM Gateway"
-base_url = "https://api.llmgateway.io/v1"
 ```
 
 ### Model not found
@@ -144,7 +127,7 @@ Verify the model ID matches exactly what's listed on the [models page](https://l
 
 ### Connection issues
 
-Check that `base_url` under `[model_providers.llmgateway]` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end) and that `model_provider = "llmgateway"` is set at the top level.
+Check that `openai_base_url` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end).
 
 ## Get Started
 
