@@ -1195,11 +1195,13 @@ export function AllModels({
 		filters.outputPrice.min ||
 		filters.outputPrice.max ||
 		filters.contextSize.min ||
-		filters.contextSize.max ||
-		sortField !== null;
+		filters.contextSize.max;
 
 	// Pagination
-	const currentPage = Math.max(1, Number(searchParams.get("page")) || 1);
+	const currentPage = Math.max(
+		1,
+		Math.floor(Number(searchParams.get("page")) || 1),
+	);
 	const isSearchOrFilterActive = searchQuery || hasActiveFilters;
 
 	const totalTablePages = Math.ceil(flattenedRows.length / MODELS_PER_PAGE);
