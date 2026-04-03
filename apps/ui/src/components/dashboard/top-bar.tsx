@@ -2,12 +2,14 @@
 
 import { usePathname } from "next/navigation";
 
+import { ChangelogNotifications } from "@/components/dashboard/changelog-notifications";
 import { ModelSearch } from "@/components/shared/model-search";
 import { Separator } from "@/lib/components/separator";
 import { SidebarTrigger } from "@/lib/components/sidebar";
 
 import { ProjectSwitcher } from "./project-switcher";
 
+import type { AnnouncementEntry } from "@/components/dashboard/changelog-notifications";
 import type { Organization, Project } from "@/lib/types";
 
 interface TopBarProps {
@@ -16,6 +18,7 @@ interface TopBarProps {
 	onSelectProject: (project: Project | null) => void;
 	selectedOrganization: Organization | null;
 	onProjectCreated: (project: Project) => void;
+	announcementEntries?: AnnouncementEntry[];
 }
 
 export function TopBar({
@@ -24,6 +27,7 @@ export function TopBar({
 	onSelectProject,
 	selectedOrganization,
 	onProjectCreated,
+	announcementEntries = [],
 }: TopBarProps) {
 	const pathname = usePathname();
 
@@ -43,10 +47,11 @@ export function TopBar({
 					onProjectCreated={onProjectCreated}
 				/>
 			)}
-			<div className="ml-auto flex items-center gap-3">
+			<div className="ml-auto flex items-center gap-2">
 				<div className="w-[160px] sm:w-[200px]">
 					<ModelSearch />
 				</div>
+				<ChangelogNotifications entries={announcementEntries} />
 			</div>
 		</header>
 	);

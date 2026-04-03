@@ -12,7 +12,6 @@ import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/lib/components/button";
-import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -24,6 +23,7 @@ import {
 } from "@/lib/components/dialog";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
@@ -530,7 +530,7 @@ function PaymentStep({
 				</div>
 				<div className="space-y-2">
 					<div className="flex items-center space-x-2">
-						<Checkbox
+						<Switch
 							id="save-card"
 							checked={saveCard}
 							onCheckedChange={(checked) => setSaveCard(checked as boolean)}

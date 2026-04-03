@@ -13,7 +13,6 @@ import { z } from "zod";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { Button } from "@/lib/components/button";
-import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Form,
 	FormControl,
@@ -23,6 +22,7 @@ import {
 	FormMessage,
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
+import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 
@@ -302,7 +302,7 @@ export default function Signup() {
 								<FormItem>
 									<div className="flex items-center gap-3">
 										<FormControl>
-											<Checkbox
+											<Switch
 												checked={field.value}
 												onCheckedChange={field.onChange}
 											/>

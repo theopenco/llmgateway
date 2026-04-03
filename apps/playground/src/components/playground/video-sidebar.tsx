@@ -1,14 +1,29 @@
 "use client";
 
-import { Film, ImageIcon, LogOutIcon, MessageSquare, Plus } from "lucide-react";
+import {
+	ChevronUp,
+	ExternalLink,
+	Film,
+	ImageIcon,
+	LogOut,
+	MessageSquare,
+	Plus,
+	Users,
+} from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Logo } from "@/components/ui/logo";
 import {
 	Sidebar,
@@ -77,6 +92,7 @@ export function VideoSidebar({
 	className,
 }: VideoSidebarProps) {
 	const router = useRouter();
+	const pathname = usePathname();
 	const posthog = usePostHog();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
@@ -114,7 +130,7 @@ export function VideoSidebar({
 							className="flex self-start items-center gap-2 my-2"
 							prefetch={true}
 						>
-							<Logo className="h-10 w-10" />
+							<Logo className="size-6" />
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
 							<Badge>Video</Badge>
 						</Link>
@@ -134,7 +150,7 @@ export function VideoSidebar({
 							className="flex self-start items-center gap-2 my-2"
 							prefetch={true}
 						>
-							<Logo className="h-10 w-10" />
+							<Logo className="size-6" />
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
 							<Badge>Video</Badge>
 						</Link>
@@ -159,54 +175,90 @@ export function VideoSidebar({
 	}
 
 	return (
-		<Sidebar className={(className ?? "") + " max-md:hidden"}>
+		<Sidebar
+			collapsible="icon"
+			className={(className ?? "") + " max-md:hidden"}
+		>
 			<SidebarHeader>
-				<div className="flex flex-col items-center gap-4 mb-4">
-					<Link
-						href="/"
-						className="flex self-start items-center gap-2 my-2"
-						prefetch={true}
-					>
-						<Logo className="h-10 w-10" />
-						<h1 className="text-xl font-semibold">LLM Gateway</h1>
-						<Badge>Video</Badge>
-					</Link>
-					<Button
-						variant="outline"
-						className="w-full flex items-center gap-2"
-						onClick={onNewChat}
-					>
-						<Plus className="h-4 w-4" />
-						New Chat
-					</Button>
-					<Button
-						variant="ghost"
-						className="w-full flex items-center gap-2"
-						asChild
-					>
-						<Link href="/">
-							<MessageSquare className="h-4 w-4" />
-							Chat
-						</Link>
-					</Button>
-					<Button
-						variant="ghost"
-						className="w-full flex items-center gap-2"
-						asChild
-					>
-						<Link href="/image">
-							<ImageIcon className="h-4 w-4" />
-							Image Studio
-						</Link>
-					</Button>
-				</div>
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
+							<Link href="/" prefetch={true}>
+								<div className="flex aspect-square size-8 items-center justify-center">
+									<Logo className="size-6" />
+								</div>
+								<span className="text-lg font-bold tracking-tight">
+									LLM Gateway
+								</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							onClick={onNewChat}
+							tooltip="New Generation"
+							className="border border-border"
+						>
+							<Plus className="h-4 w-4" />
+							<span>New Generation</span>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Chat"
+							isActive={pathname === "/"}
+						>
+							<Link href="/">
+								<MessageSquare className="h-4 w-4" />
+								<span>Chat</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Group Chat"
+							isActive={pathname === "/group"}
+						>
+							<Link href="/group">
+								<Users className="h-4 w-4" />
+								<span>Group Chat</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Image Studio"
+							isActive={pathname === "/image"}
+						>
+							<Link href="/image">
+								<ImageIcon className="h-4 w-4" />
+								<span>Image Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Video Studio"
+							isActive={pathname === "/video"}
+						>
+							<Link href="/video">
+								<Film className="h-4 w-4" />
+								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+				</SidebarMenu>
 			</SidebarHeader>
 
 			<SidebarContent className="px-2 py-4">
 				<SidebarMenu>
 					{galleryItems.length > 0 && (
 						<div>
-							<div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+							<div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider group-data-[collapsible=icon]:hidden">
 								History
 							</div>
 							{galleryItems.map((item) => (
@@ -234,7 +286,7 @@ export function VideoSidebar({
 					)}
 
 					{galleryItems.length === 0 && (
-						<div className="flex flex-col items-center justify-center py-8 text-center">
+						<div className="flex flex-col items-center justify-center py-8 text-center group-data-[collapsible=icon]:hidden">
 							<Film className="h-12 w-12 text-muted-foreground/50 mb-4" />
 							<p className="text-sm text-muted-foreground mb-2">
 								No generation history
@@ -247,46 +299,70 @@ export function VideoSidebar({
 				</SidebarMenu>
 			</SidebarContent>
 
-			<SidebarFooter className="border-t">
-				<CreditsDisplay organization={organization} isLoading={isOrgLoading} />
-				<div className="flex items-center justify-between p-4 pt-0">
-					<div className="flex items-center gap-3 flex-1">
-						<Avatar className="border-border h-9 w-9 border">
-							<AvatarFallback className="bg-muted">
-								{user?.name?.slice(0, 2) ?? "AU"}
-							</AvatarFallback>
-						</Avatar>
-						<div className="text-sm flex-1 min-w-0">
-							<div className="flex items-center gap-2 font-medium truncate">
-								{user?.name}
-							</div>
-							<div className="text-xs text-muted-foreground truncate">
-								{user?.email}
-							</div>
-						</div>
-					</div>
-					<Button
-						variant="ghost"
-						size="sm"
-						onClick={logout}
-						className="p-2 h-auto ml-2"
-						title="Sign out"
-					>
-						<LogOutIcon className="h-4 w-4" />
-					</Button>
+			<SidebarFooter>
+				<div className="group-data-[collapsible=icon]:hidden">
+					<CreditsDisplay
+						organization={organization}
+						isLoading={isOrgLoading}
+					/>
 				</div>
-				<a
-					href="https://status.llmgateway.io/"
-					target="_blank"
-					rel="noopener noreferrer"
-					className="flex items-center justify-center gap-2 px-4 pb-4 text-xs text-muted-foreground hover:text-foreground transition-colors"
-				>
-					<span className="relative flex h-2 w-2">
-						<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-						<span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-					</span>
-					All systems operational
-				</a>
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<SidebarMenuButton
+									size="lg"
+									tooltip={user?.name ?? "User"}
+									className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+								>
+									<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+										<span className="text-xs font-semibold">
+											{user?.name
+												?.split(" ")
+												.map((n: string) => n[0])
+												.join("")
+												.toUpperCase()
+												.slice(0, 2) ?? "U"}
+										</span>
+									</div>
+									<div className="grid flex-1 text-left text-sm leading-tight">
+										<span className="truncate font-semibold">{user?.name}</span>
+										<span className="truncate text-xs text-muted-foreground">
+											{user?.email}
+										</span>
+									</div>
+									<ChevronUp className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
+								</SidebarMenuButton>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
+								side="top"
+								align="end"
+								sideOffset={4}
+							>
+								<DropdownMenuItem asChild>
+									<a
+										href={
+											process.env.NODE_ENV === "development"
+												? "http://localhost:3002/dashboard"
+												: "https://llmgateway.io/dashboard"
+										}
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										<ExternalLink className="mr-2 h-4 w-4" />
+										Dashboard
+									</a>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onClick={logout}>
+									<LogOut className="mr-2 h-4 w-4" />
+									Log out
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</SidebarMenuItem>
+				</SidebarMenu>
 			</SidebarFooter>
 		</Sidebar>
 	);

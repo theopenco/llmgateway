@@ -5,7 +5,6 @@ import * as React from "react";
 
 // import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
-import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Command,
 	CommandEmpty,
@@ -22,6 +21,7 @@ import {
 	PopoverTrigger,
 } from "@/lib/components/popover";
 import { Separator } from "@/lib/components/separator";
+import { Switch } from "@/lib/components/switch";
 import { getProviderForModel } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
 
@@ -395,7 +395,7 @@ export function ModelSelector({
 																key={`${provider.id}-${index}`}
 																className="flex items-center space-x-2"
 															>
-																<Checkbox
+																<Switch
 																	id={`provider-${provider.id}`}
 																	checked={filters.providers.includes(
 																		provider.id,
@@ -435,7 +435,7 @@ export function ModelSelector({
 															key={capability}
 															className="flex items-center space-x-2"
 														>
-															<Checkbox
+															<Switch
 																id={`capability-${capability}`}
 																checked={filters.capabilities.includes(
 																	capability,
@@ -477,7 +477,7 @@ export function ModelSelector({
 															key={option.value}
 															className="flex items-center space-x-2"
 														>
-															<Checkbox
+															<Switch
 																id={`price-${option.value}`}
 																checked={filters.priceRange === option.value}
 																onCheckedChange={() =>

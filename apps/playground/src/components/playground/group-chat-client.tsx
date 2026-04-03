@@ -52,9 +52,18 @@ export default function GroupChatClient({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
+	// Filter out image/video generation models — group chat is text-only
+	const chatModels = useMemo(
+		() =>
+			models.filter(
+				(m) => !m.output?.includes("image") && !m.output?.includes("video"),
+			),
+		[models],
+	);
+
 	const mapped = useMemo(
-		() => mapModels(models, providers),
-		[models, providers],
+		() => mapModels(chatModels, providers),
+		[chatModels, providers],
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
@@ -438,7 +447,7 @@ export default function GroupChatClient({
 									</h2>
 									{selectedModels.length < 5 && (
 										<ModelSelector
-											models={models}
+											models={chatModels}
 											providers={providers}
 											value=""
 											onValueChange={(value) => {

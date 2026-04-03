@@ -4,14 +4,16 @@ import { useState } from "react";
 
 import {
 	AnthropicIcon,
+	AutohandIcon,
 	ClineIcon,
 	OpenCodeIcon,
 } from "@llmgateway/shared/components";
 
-type Tool = "claude-code" | "opencode" | "cline";
+type Tool = "claude-code" | "autohand" | "opencode" | "cline";
 
 const tools: { id: Tool; name: string; icon: typeof AnthropicIcon }[] = [
 	{ id: "claude-code", name: "Claude Code", icon: AnthropicIcon },
+	{ id: "autohand", name: "Autohand", icon: AutohandIcon },
 	{ id: "opencode", name: "OpenCode", icon: OpenCodeIcon },
 	{ id: "cline", name: "Cline", icon: ClineIcon },
 ];
@@ -39,6 +41,21 @@ const snippets: Record<
 		command: "claude",
 		comment: "# works with any model — switch freely",
 		modelLine: { key: "ANTHROPIC_MODEL=", value: "gpt-5" },
+	},
+	autohand: {
+		lines: [
+			{
+				key: "OPENAI_BASE_URL=",
+				value: "https://api.llmgateway.io/v1",
+			},
+			{
+				key: "OPENAI_API_KEY=",
+				value: "llmgtwy_your_key",
+			},
+		],
+		command: "autohand",
+		comment: "# works with any model — switch freely",
+		modelLine: { key: "OPENAI_MODEL=", value: "claude-opus-4-6" },
 	},
 	opencode: {
 		lines: [
