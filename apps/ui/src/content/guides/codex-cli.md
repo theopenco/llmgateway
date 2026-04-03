@@ -32,7 +32,7 @@ openai_base_url = "https://api.llmgateway.io/v1"
 codex
 ```
 
-On first launch, Codex will prompt you for authentication. Select **API key** and enter your LLM Gateway API key (starts with `llmgtwy_`).
+On first launch, Codex will prompt you for authentication. Select **Provide your own API key**, then enter your LLM Gateway API key (starts with `llmgtwy_`).
 
 ## Why This Works
 
@@ -114,7 +114,7 @@ If you see `401 Unauthorized` or requests going to `api.openai.com` instead of L
 
 1. Make sure you've run `codex logout` to clear any ChatGPT session
 2. Verify `openai_base_url` is set in `~/.codex/config.toml`
-3. When Codex prompts for authentication, select **API key** and enter your LLM Gateway key (starts with `llmgtwy_`)
+3. When Codex prompts for authentication, select **Provide your own API key** and enter your LLM Gateway key (starts with `llmgtwy_`)
 
 ### Model not found
 
@@ -130,6 +130,6 @@ Check that `openai_base_url` is set to `https://api.llmgateway.io/v1` (note the 
 2. Copy your API key from the dashboard
 3. Run `codex logout` to clear any existing ChatGPT session
 4. Create the config file above
-5. Run `codex`, select **API key** when prompted, and paste your LLM Gateway key
+5. Run `codex`, select **Provide your own API key** when prompted, and paste your LLM Gateway key
 
 Questions? Check [our docs](https://docs.llmgateway.io) or [join Discord](https://llmgateway.io/discord).
