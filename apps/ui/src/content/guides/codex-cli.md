@@ -26,13 +26,19 @@ model_reasoning_effort = "high"
 openai_base_url = "https://api.llmgateway.io/v1"
 ```
 
+You can also set your API key directly in the config file:
+
+```bash
+api_key = "llmgtwy_your_api_key_here"
+```
+
 **3. Run Codex CLI:**
 
 ```bash
 codex
 ```
 
-On first launch, Codex will prompt you for authentication. Select **API key** and enter your LLM Gateway API key (starts with `llmgtwy_`).
+If you didn't set `api_key` in the config file, Codex will prompt you for authentication on first launch. Select **API key** and enter your LLM Gateway API key (starts with `llmgtwy_`).
 
 ## Why This Works
 
