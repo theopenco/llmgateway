@@ -9,7 +9,7 @@ on:
       - main
 jobs:
   quality:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.head_ref != 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
