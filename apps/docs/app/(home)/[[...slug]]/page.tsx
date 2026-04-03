@@ -73,7 +73,10 @@ export default async function Page(props: {
 			}}
 			lastUpdate={time ? new Date(time) : new Date()}
 		>
-			<div className="flex flex-row gap-2 items-center border-b pt-2 pb-6">
+			<nav
+				aria-label="Page actions"
+				className="flex flex-row gap-2 items-center border-b pt-2 pb-6"
+			>
 				<LLMCopyButton
 					markdownUrl={
 						page.url === "/" ? "/llms.mdx/index" : `/llms.mdx${page.url}`
@@ -85,7 +88,7 @@ export default async function Page(props: {
 					}
 					githubUrl={`https://github.com/theopenco/llmgateway/blob/main/apps/docs/content/${page.path}`}
 				/>
-			</div>
+			</nav>
 			<DocsTitle>{page.data.title}</DocsTitle>
 			<DocsDescription>{page.data.description}</DocsDescription>
 			<DocsBody>

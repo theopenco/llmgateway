@@ -5,6 +5,7 @@ import {
 	AlertTriangle,
 	Check,
 	ChevronDown,
+	ChevronLeft,
 	ChevronRight,
 	Code,
 	Copy,
@@ -36,7 +37,7 @@ import {
 	Sliders,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
 import Footer from "@/components/landing/footer";
@@ -503,6 +504,8 @@ const ModelTableRow = React.memo(
 	},
 );
 
+const MODELS_PER_PAGE = 50;
+
 function applyCategoryFilter(
 	categoryFilter: AllModelsProps["categoryFilter"],
 	model: ApiModel,
@@ -544,6 +547,7 @@ export function AllModels({
 	categoryFilter,
 }: AllModelsProps) {
 	const router = useRouter();
+	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const isMobile = useIsMobile();
 
@@ -1181,6 +1185,68 @@ export function AllModels({
 		});
 	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
 
+	const hasActiveFilters =
+		searchQuery ||
+		(filters.category && filters.category !== "all") ||
+		Object.values(filters.capabilities).some(Boolean) ||
+		(filters.selectedProvider && filters.selectedProvider !== "all") ||
+		filters.inputPrice.min ||
+		filters.inputPrice.max ||
+		filters.outputPrice.min ||
+		filters.outputPrice.max ||
+		filters.contextSize.min ||
+		filters.contextSize.max ||
+		sortField !== null;
+
+	// Pagination
+	const currentPage = Math.max(1, Number(searchParams.get("page")) || 1);
+	const isSearchOrFilterActive = searchQuery || hasActiveFilters;
+
+	const totalTablePages = Math.ceil(flattenedRows.length / MODELS_PER_PAGE);
+	const totalGridPages = Math.ceil(
+		modelsWithProviders.length / MODELS_PER_PAGE,
+	);
+	const totalPages = viewMode === "table" ? totalTablePages : totalGridPages;
+	const safePage = Math.min(currentPage, Math.max(1, totalPages));
+
+	const paginatedFlattenedRows = isSearchOrFilterActive
+		? flattenedRows
+		: flattenedRows.slice(
+				(safePage - 1) * MODELS_PER_PAGE,
+				safePage * MODELS_PER_PAGE,
+			);
+
+	const paginatedModels = isSearchOrFilterActive
+		? modelsWithProviders
+		: modelsWithProviders.slice(
+				(safePage - 1) * MODELS_PER_PAGE,
+				safePage * MODELS_PER_PAGE,
+			);
+
+	const goToPage = useCallback(
+		(page: number) => {
+			updateUrlWithFilters({
+				page: page > 1 ? String(page) : undefined,
+			});
+			window.scrollTo({ top: 0, behavior: "smooth" });
+		},
+		[updateUrlWithFilters],
+	);
+
+	const buildPageUrl = useCallback(
+		(page: number) => {
+			const params = new URLSearchParams(searchParams.toString());
+			if (page > 1) {
+				params.set("page", String(page));
+			} else {
+				params.delete("page");
+			}
+			const qs = params.toString();
+			return `${pathname}${qs ? `?${qs}` : ""}`;
+		},
+		[pathname, searchParams],
+	);
+
 	// Toggle expanded row
 	const toggleRowExpanded = useCallback((rowKey: string) => {
 		setExpandedRows((prev) => {
@@ -1402,19 +1468,6 @@ export function AllModels({
 			sortDir: undefined,
 		});
 	};
-
-	const hasActiveFilters =
-		searchQuery ||
-		(filters.category && filters.category !== "all") ||
-		Object.values(filters.capabilities).some(Boolean) ||
-		(filters.selectedProvider && filters.selectedProvider !== "all") ||
-		filters.inputPrice.min ||
-		filters.inputPrice.max ||
-		filters.outputPrice.min ||
-		filters.outputPrice.max ||
-		filters.contextSize.min ||
-		filters.contextSize.max ||
-		sortField !== null;
 
 	const renderFilters = () => (
 		<Card
@@ -1797,7 +1850,7 @@ export function AllModels({
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{flattenedRows.map((row) => (
+						{paginatedFlattenedRows.map((row) => (
 							<ModelTableRow
 								key={row.rowKey}
 								row={row}
@@ -1821,7 +1874,7 @@ export function AllModels({
 
 	const renderGridView = () => (
 		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-			{modelsWithProviders.map((model) => (
+			{paginatedModels.map((model) => (
 				<ModelCard
 					key={`${model.id}-${model.providerDetails[0].provider.providerId}-${model.providerDetails[0].provider.region ?? ""}`}
 					shouldShowStabilityWarning={shouldShowStabilityWarning}
@@ -1838,6 +1891,16 @@ export function AllModels({
 
 	return (
 		<div className="min-h-screen text-foreground bg-background">
+			{!isSearchOrFilterActive && totalPages > 1 && (
+				<>
+					{safePage > 1 && (
+						<link rel="prev" href={buildPageUrl(safePage - 1)} />
+					)}
+					{safePage < totalPages && (
+						<link rel="next" href={buildPageUrl(safePage + 1)} />
+					)}
+				</>
+			)}
 			<main>
 				{children}
 				<div
@@ -2030,6 +2093,35 @@ export function AllModels({
 							</div>
 
 							{viewMode === "table" ? renderTableView() : renderGridView()}
+
+							{!isSearchOrFilterActive && totalPages > 1 && (
+								<nav
+									aria-label="Pagination"
+									className="flex items-center justify-center gap-2 pt-4"
+								>
+									<Button
+										variant="outline"
+										size="sm"
+										disabled={safePage <= 1}
+										onClick={() => goToPage(safePage - 1)}
+									>
+										<ChevronLeft className="h-4 w-4 mr-1" />
+										Previous
+									</Button>
+									<span className="text-sm text-muted-foreground px-2">
+										Page {safePage} of {totalPages}
+									</span>
+									<Button
+										variant="outline"
+										size="sm"
+										disabled={safePage >= totalPages}
+										onClick={() => goToPage(safePage + 1)}
+									>
+										Next
+										<ChevronRight className="h-4 w-4 ml-1" />
+									</Button>
+								</nav>
+							)}
 						</div>
 					</TooltipProvider>
 				</div>

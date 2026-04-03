@@ -1,5 +1,8 @@
+import { Play } from "lucide-react";
+
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
+import { getConfig } from "@/lib/config-server";
 import Logo from "@/lib/icons/Logo";
 
 import {
@@ -13,6 +16,7 @@ interface HeroProps {
 }
 
 export function Hero({ providerId }: HeroProps) {
+	const config = getConfig();
 	const provider = providerDefinitions.find((p) => p.id === providerId)!;
 
 	const getProviderIcon = (providerId: ProviderId) => {
@@ -48,6 +52,16 @@ export function Hero({ providerId }: HeroProps) {
 							<AuthLink href="/signup">Get started</AuthLink>
 						</Button>
 						<Button variant="outline" asChild>
+							<a
+								href={config.playgroundUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								<Play className="h-4 w-4" />
+								Try in Playground
+							</a>
+						</Button>
+						<Button variant="ghost" asChild>
 							<a
 								href={`${provider.website}?utm_source=llmgateway-models`}
 								target="_blank"

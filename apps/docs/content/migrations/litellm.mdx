@@ -7,6 +7,8 @@ icon: ArrowRightLeft
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
+<section>
+
 Running your own LiteLLM proxy works—until it doesn't. Scaling, monitoring, and keeping it running becomes another job. LLM Gateway gives you the same unified API with built-in analytics, caching, and a dashboard—without the infrastructure overhead.
 
 ## Quick Migration
@@ -20,6 +22,10 @@ Both services use OpenAI-compatible endpoints, so migration is a two-line change
 - const apiKey = process.env.LITELLM_API_KEY;
 + const apiKey = process.env.LLM_GATEWAY_API_KEY;
 ```
+
+</section>
+
+<section>
 
 ## Why Teams Switch to LLM Gateway
 
@@ -37,6 +43,10 @@ Both services use OpenAI-compatible endpoints, so migration is a two-line change
 Still want to self-host? LLM Gateway is [open source under AGPLv3](https://llmgateway.io/blog/how-to-self-host-llm-gateway)—same features, your infrastructure.
 
 For a detailed breakdown, see [LLM Gateway vs LiteLLM](https://llmgateway.io/compare/litellm).
+
+</section>
+
+<section>
 
 ## Migration Steps
 
@@ -210,6 +220,10 @@ If you want to use your own provider keys, configure them in the dashboard under
 </Step>
 </Steps>
 
+</section>
+
+<section>
+
 ## Streaming Support
 
 LLM Gateway supports streaming identically to LiteLLM:
@@ -232,6 +246,10 @@ for chunk in stream:
     if chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="")
 ```
+
+</section>
+
+<section>
 
 ## Function/Tool Calling
 
@@ -267,6 +285,10 @@ response = client.chat.completions.create(
 )
 ```
 
+</section>
+
+<section>
+
 ## Removing LiteLLM Infrastructure
 
 After verifying LLM Gateway works for your use case, you can decommission your LiteLLM proxy:
@@ -283,6 +305,10 @@ After verifying LLM Gateway works for your use case, you can decommission your L
 - **Automatic caching** — Repeated requests hit cache, reducing your spend
 - **Web-based management** — No more editing YAML files for config changes
 - **New models immediately** — Access new releases within 48 hours, no deployment needed
+
+</section>
+
+<section>
 
 ## Self-Hosting LLM Gateway
 
@@ -302,8 +328,14 @@ This gives you the same benefits as LiteLLM's self-hosted proxy with LLM Gateway
 
 Want to see a detailed breakdown of all features? Check out our [LLM Gateway vs LiteLLM comparison page](https://llmgateway.io/compare/litellm).
 
+</section>
+
+<footer>
+
 ## Need Help?
 
 - Browse available models at [llmgateway.io/models](https://llmgateway.io/models)
 - Read the [API documentation](https://docs.llmgateway.io)
 - Contact support at contact@llmgateway.io
+
+</footer>
