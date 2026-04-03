@@ -55,11 +55,16 @@ export default async function Page(props: {
 		notFound();
 	}
 
-	const time = await getGithubLastEdit({
-		owner: "theopenco",
-		repo: "llmgateway",
-		path: `apps/docs/content/${page.path}`,
-	});
+	let time: Date | null = null;
+	try {
+		time = await getGithubLastEdit({
+			owner: "theopenco",
+			repo: "llmgateway",
+			path: `apps/docs/content/${page.path}`,
+		});
+	} catch {
+		// Gracefully handle GitHub API rate limits during static generation
+	}
 
 	const MDXContent = page.data.body;
 

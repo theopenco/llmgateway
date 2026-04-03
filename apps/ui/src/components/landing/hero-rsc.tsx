@@ -10,18 +10,25 @@ export const HeroRSC = async ({
 	navbarOnly?: boolean;
 	sticky?: boolean;
 }) => {
+	if (navbarOnly) {
+		// Skip fetching models/providers/migrations for navbar-only mode
+		return (
+			<Hero navbarOnly sticky={sticky}>
+				<GitHubStars />
+			</Hero>
+		);
+	}
+
 	const [{ allMigrations }, models, providers] = await Promise.all([
 		import("content-collections"),
 		fetchModels(),
 		fetchProviders(),
 	]);
-	const migrations = navbarOnly
-		? []
-		: allMigrations.map((m) => ({
-				slug: m.slug,
-				title: m.title,
-				fromProvider: m.fromProvider,
-			}));
+	const migrations = allMigrations.map((m) => ({
+		slug: m.slug,
+		title: m.title,
+		fromProvider: m.fromProvider,
+	}));
 
 	return (
 		<Hero

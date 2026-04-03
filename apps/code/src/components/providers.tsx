@@ -5,7 +5,7 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/lib/config";
@@ -43,12 +43,23 @@ export function Providers({ children, config }: ProvidersProps) {
 		[config.posthogHost],
 	);
 
+	// Defer PostHog initialization to reduce TBT
+	const [posthogReady, setPosthogReady] = useState(false);
 	useEffect(() => {
 		if (!config.posthogKey) {
 			return;
 		}
-
-		posthog.init(config.posthogKey, posthogOptions);
+		const key = config.posthogKey;
+		const init = () => {
+			posthog.init(key, posthogOptions);
+			setPosthogReady(true);
+		};
+		if (typeof requestIdleCallback !== "undefined") {
+			requestIdleCallback(init);
+		} else {
+			const timer = setTimeout(init, 1000);
+			return () => clearTimeout(timer);
+		}
 	}, [config.posthogKey, posthogOptions]);
 
 	return (
@@ -60,7 +71,11 @@ export function Providers({ children, config }: ProvidersProps) {
 				storageKey="theme"
 			>
 				<QueryClientProvider client={queryClient}>
-					<PostHogProvider client={posthog}>{children}</PostHogProvider>
+					{posthogReady ? (
+						<PostHogProvider client={posthog}>{children}</PostHogProvider>
+					) : (
+						children
+					)}
 					{process.env.NODE_ENV === "development" && (
 						<ReactQueryDevtools buttonPosition="top-right" />
 					)}

@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import { PostHogProvider } from "posthog-js/react";
-import { Suspense, useMemo, useEffect } from "react";
+import { Suspense, useMemo, useEffect, useState } from "react";
 import { Toaster as SonnerToaster } from "sonner";
 
 import { ReferralHandler } from "@/components/referral-handler";
@@ -67,13 +67,37 @@ export function Providers({ children, config }: ProvidersProps) {
 		autocapture: true,
 	};
 
-	// Set up Crisp if configured
+	// Defer PostHog initialization to reduce TBT
+	const [posthogReady, setPosthogReady] = useState(false);
 	useEffect(() => {
-		if (config.crispId) {
-			// Dynamically import Crisp to avoid SSR issues
+		if (!config.posthogKey) {
+			return;
+		}
+		const init = () => setPosthogReady(true);
+		if (typeof requestIdleCallback !== "undefined") {
+			requestIdleCallback(init);
+		} else {
+			const timer = setTimeout(init, 1000);
+			return () => clearTimeout(timer);
+		}
+	}, [config.posthogKey]);
+
+	// Set up Crisp if configured — deferred to reduce TBT
+	useEffect(() => {
+		if (!config.crispId) {
+			return;
+		}
+		const id = config.crispId;
+		const load = () => {
 			void import("crisp-sdk-web").then(({ Crisp }) => {
-				Crisp.configure(config.crispId!);
+				Crisp.configure(id);
 			});
+		};
+		if (typeof requestIdleCallback !== "undefined") {
+			requestIdleCallback(load);
+		} else {
+			const timer = setTimeout(load, 3000);
+			return () => clearTimeout(timer);
 		}
 	}, [config.crispId]);
 
@@ -86,7 +110,7 @@ export function Providers({ children, config }: ProvidersProps) {
 				storageKey="theme"
 			>
 				<QueryClientProvider client={queryClient}>
-					{config.posthogKey ? (
+					{posthogReady && config.posthogKey ? (
 						<PostHogProvider
 							apiKey={config.posthogKey}
 							options={posthogOptions}
