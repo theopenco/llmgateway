@@ -62,8 +62,12 @@ export default async function Page(props: {
 			repo: "llmgateway",
 			path: `apps/docs/content/${page.path}`,
 		});
-	} catch {
-		// Gracefully handle GitHub API rate limits during static generation
+	} catch (error: unknown) {
+		const message = error instanceof Error ? error.message : String(error);
+		const isRateLimit = message.includes("rate limit");
+		if (!isRateLimit) {
+			throw error;
+		}
 	}
 
 	const MDXContent = page.data.body;
