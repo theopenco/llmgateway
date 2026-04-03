@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "59e0f163-0dd9-4a9c-ae12-0cf18fa9f6ee",
+  "id": "41b8583d-239a-4d20-ae4c-72492175c671",
   "prevId": "c8c7212a-75e5-4ece-804d-5fde73f6c98b",
   "ddl": [
     {
@@ -4274,19 +4274,6 @@
       "table": "log"
     },
     {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "responses_api_data",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
       "type": "boolean",
       "typeSchema": null,
       "notNull": false,
@@ -4308,6 +4295,32 @@
       "generated": null,
       "identity": null,
       "name": "gateway_content_filter_response",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "responses_api_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "responses_api_data",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
