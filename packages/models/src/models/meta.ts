@@ -435,6 +435,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "novita",
+				test: "skip", // skip tests, provider returns 500
 				modelName: "meta-llama/llama-3-70b-instruct",
 				inputPrice: 0.51 / 1e6,
 				outputPrice: 0.74 / 1e6,

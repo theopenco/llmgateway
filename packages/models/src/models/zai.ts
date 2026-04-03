@@ -477,6 +477,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "together.ai",
+				test: "skip", // skip tests due to reasoning issues
 				modelName: "zai-org/GLM-4.7",
 				inputPrice: 0.45 / 1e6,
 				outputPrice: 2.0 / 1e6,
