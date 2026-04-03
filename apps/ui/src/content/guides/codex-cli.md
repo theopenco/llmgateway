@@ -12,20 +12,27 @@ One config file. No code changes. Full cost tracking in your dashboard.
 
 ## Quick Start
 
-Create or edit your Codex CLI config file at `~/.codex/config.toml`:
+**1. Log out of ChatGPT** if you're logged in (stored sessions override custom config):
+
+```bash
+codex logout
+```
+
+**2. Create or edit** your Codex CLI config file at `~/.codex/config.toml`:
 
 ```bash
 model = "auto"
 model_reasoning_effort = "high"
 openai_base_url = "https://api.llmgateway.io/v1"
-api_key = "llmgtwy_your_api_key_here"
 ```
 
-Now run Codex CLI as usual:
+**3. Run Codex CLI:**
 
 ```bash
 codex
 ```
+
+On first launch, Codex will prompt you for authentication. Select **API key** and enter your LLM Gateway API key (starts with `llmgtwy_`).
 
 ## Why This Works
 
@@ -103,23 +110,11 @@ If you prefer not to enable data retention, you can configure Codex CLI to use t
 
 ### Authentication errors
 
-Make sure your `OPENAI_API_KEY` environment variable is set to your LLM Gateway API key (starts with `llmgtwy_`).
+If you see `401 Unauthorized` or requests going to `api.openai.com` instead of LLM Gateway:
 
-If you're logged into your OpenAI account in Codex CLI (via `codex login`), the stored session may take priority over your custom provider config and route requests directly to OpenAI. Run `codex logout` first to ensure requests go through LLM Gateway.
-
-### API key not found when opening Codex App directly
-
-If Codex CLI works from the terminal but the Codex App can't find your API key when opened from Finder or Spotlight, this is because macOS GUI apps don't inherit shell environment variables from `.zshrc` or `.bashrc`.
-
-**Option 1: Use a config file (recommended)**
-
-Set your API key in `~/.codex/config.toml` so it doesn't depend on environment variables:
-
-```bash
-model = "auto"
-openai_base_url = "https://api.llmgateway.io/v1"
-api_key = "llmgtwy_your_api_key_here"
-```
+1. Make sure you've run `codex logout` to clear any ChatGPT session
+2. Verify `openai_base_url` is set in `~/.codex/config.toml`
+3. When Codex prompts for authentication, select **API key** and enter your LLM Gateway key (starts with `llmgtwy_`)
 
 ### Model not found
 
@@ -133,7 +128,8 @@ Check that `openai_base_url` is set to `https://api.llmgateway.io/v1` (note the 
 
 1. [Sign up free](https://llmgateway.io/signup) — no credit card required
 2. Copy your API key from the dashboard
-3. Create the config file above
-4. Run `codex` and start coding
+3. Run `codex logout` to clear any existing ChatGPT session
+4. Create the config file above
+5. Run `codex`, select **API key** when prompted, and paste your LLM Gateway key
 
 Questions? Check [our docs](https://docs.llmgateway.io) or [join Discord](https://llmgateway.io/discord).

@@ -22,15 +22,25 @@ One config file. No code changes. Full cost tracking in your dashboard.
 </Step>
 
 <Step>
+### Log Out of ChatGPT
+
+If you're logged into ChatGPT in Codex CLI, the stored session will override your custom config. Log out first:
+
+```bash
+codex logout
+```
+
+</Step>
+
+<Step>
 ### Create Config File
 
-Create or edit `~/.codex/config.toml` with your LLM Gateway API key:
+Create or edit `~/.codex/config.toml`:
 
 ```bash
 model = "auto"
 model_reasoning_effort = "high"
 openai_base_url = "https://api.llmgateway.io/v1"
-api_key = "llmgtwy_your_api_key_here"
 ```
 
 </Step>
@@ -41,6 +51,8 @@ api_key = "llmgtwy_your_api_key_here"
 ```bash
 codex
 ```
+
+On first launch, Codex will prompt you for authentication. Select **API key** and enter your LLM Gateway API key (starts with `llmgtwy_`).
 
 All requests will now be routed through LLM Gateway.
 
@@ -123,23 +135,11 @@ If you prefer not to enable data retention, you can configure Codex CLI to use t
 
 ### Authentication errors
 
-Make sure your `OPENAI_API_KEY` environment variable is set to your LLM Gateway API key (starts with `llmgtwy_`).
+If you see `401 Unauthorized` or requests going to `api.openai.com` instead of LLM Gateway:
 
-If you're logged into your OpenAI account in Codex CLI (via `codex login`), the stored session may take priority over your custom provider config and route requests directly to OpenAI. Run `codex logout` first to ensure requests go through LLM Gateway.
-
-### API key not found when opening Codex App directly
-
-If Codex CLI works from the terminal but the Codex App can't find your API key when opened from Finder or Spotlight, this is because macOS GUI apps don't inherit shell environment variables from `.zshrc` or `.bashrc`.
-
-**Option 1: Use a config file (recommended)**
-
-Set your API key in `~/.codex/config.toml` so it doesn't depend on environment variables:
-
-```bash
-model = "auto"
-openai_base_url = "https://api.llmgateway.io/v1"
-api_key = "llmgtwy_your_api_key_here"
-```
+1. Make sure you've run `codex logout` to clear any ChatGPT session
+2. Verify `openai_base_url` is set in `~/.codex/config.toml`
+3. When Codex prompts for authentication, select **API key** and enter your LLM Gateway key (starts with `llmgtwy_`)
 
 ### Model not found
 
