@@ -168,12 +168,14 @@ export function Footer() {
 							</h3>
 							<ul className="space-y-2">
 								<li>
-									<Link
-										href="/coding-models"
+									<a
+										href={`${config.uiUrl}/models`}
+										target="_blank"
+										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Models
-									</Link>
+									</a>
 								</li>
 								<li>
 									<Link

@@ -27,7 +27,13 @@ export function Header() {
 				{/* Desktop nav */}
 				<div className="hidden sm:flex items-center gap-3">
 					<Button variant="ghost" size="sm" asChild>
-						<Link href="/coding-models">Models</Link>
+						<a
+							href={`${config.uiUrl}/models`}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							Models
+						</a>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
 						<a href={config.docsUrl} target="_blank" rel="noopener noreferrer">
