@@ -9,7 +9,6 @@ export interface AppConfig {
 	adminUrl: string;
 	posthogKey?: string;
 	posthogHost?: string;
-	crispId?: string;
 }
 
 export function getConfig(): AppConfig {
@@ -26,6 +25,5 @@ export function getConfig(): AppConfig {
 		adminUrl: process.env.ADMIN_URL ?? "http://localhost:3006",
 		posthogKey: process.env.POSTHOG_KEY,
 		posthogHost: process.env.POSTHOG_HOST,
-		crispId: process.env.CRISP_ID,
 	};
 }

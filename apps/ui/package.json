@@ -16,6 +16,7 @@
 		"start": "next start"
 	},
 	"dependencies": {
+		"@ai-sdk/react": "3.0.29",
 		"@better-auth/passkey": "1.5.5",
 		"@content-collections/core": "0.11.1",
 		"@content-collections/next": "0.2.9",
@@ -52,13 +53,13 @@
 		"@tailwindcss/typography": "0.5.19",
 		"@tanstack/react-query": "^5.90.5",
 		"@tanstack/react-table": "^8.21.3",
+		"ai": "6.0.27",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
 		"better-auth": "1.5.5",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
-		"crisp-sdk-web": "1.0.26",
 		"date-fns": "4.1.0",
 		"framer-motion": "12.23.24",
 		"html-to-image": "^1.11.13",

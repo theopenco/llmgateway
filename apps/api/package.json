@@ -23,6 +23,7 @@
 		"@hono/zod-validator": "^0.7.2",
 		"@kubiks/otel-better-auth": "2.0.2",
 		"@llmgateway/actions": "workspace:*",
+		"@llmgateway/ai-sdk-provider": "3.5.0",
 		"@llmgateway/audit": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/guardrails": "workspace:*",
@@ -32,6 +33,7 @@
 		"@llmgateway/shared": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/sdk-node": "0.205.0",
+		"ai": "6.0.27",
 		"bcrypt-ts": "8.0.0",
 		"better-auth": "1.5.5",
 		"disposable-email-domains-js": "1.20.0",
@@ -48,6 +50,5 @@
 		"stripe": "18.1.1",
 		"zod": "3.25.75",
 		"zod-openapi": "^5.4.3"
-	},
-	"devDependencies": {}
+	}
 }

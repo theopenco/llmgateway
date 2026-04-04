@@ -1,0 +1,143 @@
+import { streamText, convertToModelMessages, type UIMessage } from "ai";
+import { Hono } from "hono";
+
+import { redisClient } from "@/auth/config.js";
+
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { logger } from "@llmgateway/logger";
+
+import type { ServerTypes } from "@/vars.js";
+
+const RATE_LIMIT_MAX = 20;
+const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
+
+const DOCS_BASE_URL = "https://docs.llmgateway.io";
+
+const SYSTEM_PROMPT = `You are the LLM Gateway support assistant. You ONLY answer questions related to LLM Gateway — the unified API gateway for multiple LLM providers.
+
+Your knowledge covers:
+- Getting started, quick start, and setup
+- API endpoints: /v1/chat/completions, /v1/messages, /v1/models, /v1/moderations, /v1/videos
+- Features: routing, caching, response healing, vision, image generation, video generation, web search, reasoning, guardrails, audit logs, cost breakdown, data retention, metadata, custom providers, API keys, moderations
+- Guides: Cursor, Cline, Claude Code, Codex CLI, OpenCode, Autohand, CLI, MCP, n8n, Agent Skills, OpenClaw
+- Integrations: AWS Bedrock, Azure
+- Migrations: from OpenRouter, LiteLLM, Vercel AI Gateway
+- Learning: dashboard, API keys, playground, billing, activity, usage metrics, model usage, transactions, team, org preferences, preferences, provider keys, referrals, security events, guardrails, audit logs, policies
+- Self-hosting
+- Rate limits and resources
+
+When answering:
+1. Be concise and helpful
+2. Include relevant documentation links using this format: ${DOCS_BASE_URL}/<path>
+3. Common doc paths:
+   - Quick start: ${DOCS_BASE_URL}/quick-start
+   - API Chat Completions: ${DOCS_BASE_URL}/v1_chat_completions
+   - API Messages (Anthropic): ${DOCS_BASE_URL}/v1_messages
+   - Models: ${DOCS_BASE_URL}/v1_models
+   - Routing: ${DOCS_BASE_URL}/features/routing
+   - Caching: ${DOCS_BASE_URL}/features/caching
+   - Image Generation: ${DOCS_BASE_URL}/features/image-generation
+   - Video Generation: ${DOCS_BASE_URL}/features/video-generation
+   - Vision: ${DOCS_BASE_URL}/features/vision
+   - Guardrails: ${DOCS_BASE_URL}/features/guardrails
+   - Audit Logs: ${DOCS_BASE_URL}/features/audit-logs
+   - Web Search: ${DOCS_BASE_URL}/features/web-search
+   - Reasoning: ${DOCS_BASE_URL}/features/reasoning
+   - API Keys: ${DOCS_BASE_URL}/features/api-keys
+   - Custom Providers: ${DOCS_BASE_URL}/features/custom-providers
+   - Self Host: ${DOCS_BASE_URL}/self-host
+   - Rate Limits: ${DOCS_BASE_URL}/resources/rate-limits
+   - Cursor guide: ${DOCS_BASE_URL}/guides/cursor
+   - Claude Code guide: ${DOCS_BASE_URL}/guides/claude-code
+   - MCP guide: ${DOCS_BASE_URL}/guides/mcp
+   - Billing: ${DOCS_BASE_URL}/learn/billing
+   - Dashboard: ${DOCS_BASE_URL}/learn/dashboard
+   - Playground: ${DOCS_BASE_URL}/learn/playground
+4. If the question is NOT related to LLM Gateway, politely decline and suggest they ask about LLM Gateway features instead.
+5. Do not make up features or capabilities. If unsure, direct them to the docs at ${DOCS_BASE_URL} or suggest contacting support at contact@llmgateway.io.
+6. Keep responses short — ideally under 200 words.`;
+
+function extractClientIP(c: {
+	req: { header: (name: string) => string | undefined };
+}): string | null {
+	const cfConnectingIP = c.req.header("CF-Connecting-IP");
+	if (cfConnectingIP) {
+		return cfConnectingIP;
+	}
+	const xForwardedFor = c.req.header("X-Forwarded-For");
+	if (xForwardedFor) {
+		return xForwardedFor.split(",")[0]?.trim() ?? null;
+	}
+	return c.req.header("X-Real-IP") ?? null;
+}
+
+async function checkRateLimit(identifier: string): Promise<boolean> {
+	const key = `chat_support_rate_limit:${identifier}`;
+	try {
+		const count = await redisClient.incr(key);
+		if (count === 1) {
+			await redisClient.expire(key, RATE_LIMIT_WINDOW_SECONDS);
+		}
+		return count <= RATE_LIMIT_MAX;
+	} catch (error) {
+		logger.error("Chat support rate limit check failed", { error });
+		return true;
+	}
+}
+
+export const publicChatSupport = new Hono<ServerTypes>();
+
+publicChatSupport.post("/", async (c) => {
+	const ipAddress = extractClientIP(c) ?? "unknown";
+	const canSubmit = await checkRateLimit(ipAddress);
+
+	if (!canSubmit) {
+		return c.json(
+			{
+				error: "Too many messages. Please try again later (max 20 per hour).",
+			},
+			429,
+		);
+	}
+
+	const body = await c.req.json<{ messages: UIMessage[] }>();
+	const { messages } = body;
+
+	if (!messages || !Array.isArray(messages) || messages.length === 0) {
+		return c.json({ error: "Missing messages" }, 400);
+	}
+
+	// Limit message history to prevent abuse
+	if (messages.length > 20) {
+		return c.json({ error: "Too many messages in conversation" }, 400);
+	}
+
+	const gatewayUrl =
+		process.env.GATEWAY_URL ??
+		(process.env.NODE_ENV === "development"
+			? "http://localhost:4001/v1"
+			: "https://api.llmgateway.io/v1");
+
+	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
+	if (!supportApiKey) {
+		logger.error("SUPPORT_CHAT_API_KEY not configured");
+		return c.json({ error: "Chat support is not configured" }, 503);
+	}
+
+	const llmgateway = createLLMGateway({
+		apiKey: supportApiKey,
+		baseURL: gatewayUrl,
+		headers: {
+			"x-source": "support-chat",
+		},
+	});
+
+	const result = streamText({
+		model: llmgateway.chat("auto"),
+		system: SYSTEM_PROMPT,
+		messages: await convertToModelMessages(messages),
+		maxOutputTokens: 1024,
+	});
+
+	return result.toTextStreamResponse();
+});
