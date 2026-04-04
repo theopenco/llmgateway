@@ -14,18 +14,17 @@ export interface AppConfig {
 }
 
 export function getConfig(): AppConfig {
-	const apiUrl = process.env.API_URL ?? "http://localhost:4002";
+	const apiUrl = "https://api.llmgateway.io";
 	return {
-		hosted: process.env.HOSTED === "true",
+		hosted: true,
 		apiUrl,
 		apiBackendUrl: process.env.API_BACKEND_URL ?? apiUrl,
-		uiUrl: process.env.UI_URL ?? "http://localhost:3002",
-		playgroundUrl: process.env.PLAYGROUND_URL ?? "http://localhost:3003",
-		docsUrl: process.env.DOCS_URL ?? "http://localhost:3005",
-		githubUrl:
-			process.env.GITHUB_URL ?? "https://github.com/theopenco/llmgateway",
-		discordUrl: process.env.DISCORD_URL ?? "https://llmgateway.io/discord",
-		twitterUrl: process.env.TWITTER_URL ?? "https://x.com/llmgateway",
+		uiUrl: "https://llmgateway.io",
+		playgroundUrl: "https://chat.llmgateway.io",
+		docsUrl: "https://docs.llmgateway.io",
+		githubUrl: "https://github.com/theopenco/llmgateway",
+		discordUrl: "https://llmgateway.io/discord",
+		twitterUrl: "https://x.com/llmgateway",
 		posthogKey: process.env.POSTHOG_KEY,
 		posthogHost: process.env.POSTHOG_HOST,
 		stripePublishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
