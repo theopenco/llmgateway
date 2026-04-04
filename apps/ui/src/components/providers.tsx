@@ -95,7 +95,7 @@ export function Providers({ children, config }: ProvidersProps) {
 				<QueryClientProvider client={queryClient}>
 					<PostHogProvider client={posthog}>{children}</PostHogProvider>
 					{process.env.NODE_ENV === "development" && (
-						<ReactQueryDevtools buttonPosition="bottom-right" />
+						<ReactQueryDevtools buttonPosition="bottom-left" />
 					)}
 				</QueryClientProvider>
 				<Toaster />

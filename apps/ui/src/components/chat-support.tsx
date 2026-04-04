@@ -2,8 +2,9 @@
 
 import { Chat, useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport } from "ai";
-import { MessageCircle, X, Send, RotateCcw, ExternalLink } from "lucide-react";
+import { MessageCircle, X, Send, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Streamdown } from "streamdown";
 
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
@@ -16,60 +17,6 @@ function getTextFromParts(message: UIMessage): string {
 		.filter((p): p is { type: "text"; text: string } => p.type === "text")
 		.map((p) => p.text)
 		.join("");
-}
-
-function MarkdownContent({ content }: { content: string }) {
-	const parts = content.split(
-		/(https?:\/\/docs\.llmgateway\.io[^\s),]*|\*\*[^*]+\*\*|`[^`]+`|\n)/g,
-	);
-
-	return (
-		<>
-			{parts.map((part) => {
-				if (!part) {
-					return null;
-				}
-				if (part === "\n") {
-					return <br key={part} />;
-				}
-				if (part.startsWith("https://docs.llmgateway.io")) {
-					const path = part.replace("https://docs.llmgateway.io", "");
-					const label =
-						path.replace(/^\//, "").replace(/[-_/]/g, " ") || "docs";
-					return (
-						<a
-							key={part}
-							href={part}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="inline-flex items-center gap-0.5 text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
-						>
-							{label}
-							<ExternalLink className="size-3" />
-						</a>
-					);
-				}
-				if (part.startsWith("**") && part.endsWith("**")) {
-					return (
-						<strong key={part} className="font-semibold">
-							{part.slice(2, -2)}
-						</strong>
-					);
-				}
-				if (part.startsWith("`") && part.endsWith("`")) {
-					return (
-						<code
-							key={part}
-							className="rounded bg-muted px-1 py-0.5 text-xs font-mono"
-						>
-							{part.slice(1, -1)}
-						</code>
-					);
-				}
-				return part;
-			})}
-		</>
-	);
 }
 
 export function ChatSupport() {
@@ -91,7 +38,9 @@ export function ChatSupport() {
 		[config.apiUrl],
 	);
 
-	const { messages, sendMessage, status, setMessages } = useChat({ chat });
+	const { messages, sendMessage, status, setMessages, error } = useChat({
+		chat,
+	});
 
 	const isLoading = status === "streaming" || status === "submitted";
 
@@ -208,24 +157,33 @@ export function ChatSupport() {
 							if (!content) {
 								return null;
 							}
+							const isAssistant = message.role === "assistant";
+							const isLastAssistant =
+								isAssistant && message.id === messages[messages.length - 1]?.id;
 							return (
 								<div
 									key={message.id}
 									className={cn(
 										"flex",
-										message.role === "user" ? "justify-end" : "justify-start",
+										isAssistant ? "justify-start" : "justify-end",
 									)}
 								>
 									<div
 										className={cn(
-											"max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed",
-											message.role === "user"
-												? "bg-primary text-primary-foreground"
-												: "bg-muted text-foreground",
+											"max-w-[85%] overflow-hidden rounded-xl px-3 py-2 text-sm leading-relaxed",
+											isAssistant
+												? "bg-muted text-foreground"
+												: "bg-primary text-primary-foreground",
 										)}
 									>
-										{message.role === "assistant" ? (
-											<MarkdownContent content={content} />
+										{isAssistant ? (
+											<Streamdown
+												isAnimating={isLastAssistant && isLoading}
+												controls={false}
+												className="overflow-x-auto [&_pre]:overflow-x-auto [&_code]:break-all"
+											>
+												{content}
+											</Streamdown>
 										) : (
 											content
 										)}
@@ -244,6 +202,13 @@ export function ChatSupport() {
 									</div>
 								</div>
 							)}
+						{error && (
+							<div className="flex justify-start">
+								<div className="max-w-[85%] rounded-xl bg-destructive/10 px-3 py-2 text-sm leading-relaxed text-destructive">
+									Something went wrong. Please try again.
+								</div>
+							</div>
+						)}
 						<div ref={messagesEndRef} />
 					</div>
 				</div>

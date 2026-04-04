@@ -112,11 +112,7 @@ publicChatSupport.post("/", async (c) => {
 		return c.json({ error: "Too many messages in conversation" }, 400);
 	}
 
-	const gatewayUrl =
-		process.env.GATEWAY_URL ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001/v1"
-			: "https://api.llmgateway.io/v1");
+	const gatewayUrl = process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1";
 
 	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
 	if (!supportApiKey) {
