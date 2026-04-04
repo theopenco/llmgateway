@@ -4593,25 +4593,6 @@ chat.openapi(completions, async (c) => {
 		) {
 			usedRegion ??= resolveRegionFromProviderKey(providerKey);
 		}
-		// Override with region-specific env var if the DB key doesn't match the requested region.
-		// When we do override, route health attribution to the regional env credential.
-		// providerKey stays set so endpoint/options/baseUrl construction keeps the BYOK context;
-		// only trackedKeyHealthId is cleared so reportTrackedKey* doesn't blame the unused DB key.
-		if (usedRegion) {
-			const regionEnvVarName = getRegionSpecificEnvVarName(
-				usedProvider,
-				usedRegion,
-			);
-			if (regionEnvVarName) {
-				const regionToken = process.env[regionEnvVarName];
-				if (regionToken && regionToken !== usedToken) {
-					usedToken = regionToken;
-					envVarName = regionEnvVarName;
-					configIndex = 0;
-					trackedKeyHealthId = undefined;
-				}
-			}
-		}
 	} else if (project.mode === "credits") {
 		// Check regular credits, dev plan credits, and chat plan credits.
 		assertDevPlanPremiumCapNotExceeded(
@@ -4725,24 +4706,6 @@ chat.openapi(completions, async (c) => {
 				)
 			) {
 				usedRegion ??= resolveRegionFromProviderKey(providerKey);
-			}
-			// Override with region-specific env var if the DB key doesn't match the requested region.
-			// Route health attribution to the env credential while keeping providerKey for
-			// endpoint/options resolution (BYOK base URLs and provider options).
-			if (usedRegion) {
-				const regionEnvVarName = getRegionSpecificEnvVarName(
-					usedProvider,
-					usedRegion,
-				);
-				if (regionEnvVarName) {
-					const regionToken = process.env[regionEnvVarName];
-					if (regionToken && regionToken !== usedToken) {
-						usedToken = regionToken;
-						envVarName = regionEnvVarName;
-						configIndex = 0;
-						trackedKeyHealthId = undefined;
-					}
-				}
 			}
 		} else {
 			// No API key available, fall back to credits

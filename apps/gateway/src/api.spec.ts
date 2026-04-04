@@ -3860,6 +3860,81 @@ describe("api", () => {
 		expect(Number(cachedLog?.promptTokens)).toBeGreaterThan(0);
 	});
 
+	test("/v1/chat/completions hybrid prefers provider key over regional env token", async () => {
+		await harness.setProjectMode("hybrid");
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-db-key",
+			provider: "alibaba",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const previousAlibabaRegionalKey =
+			process.env.LLM_ALIBABA_API_KEY__US_VIRGINIA;
+		const originalFetch = globalThis.fetch;
+		let sawAlibabaRequest = false;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.startsWith(mockServerUrl)) {
+					sawAlibabaRequest = true;
+					const headers = new Headers(init?.headers);
+					expect(headers.get("authorization")).toBe("Bearer sk-db-key");
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			process.env.LLM_ALIBABA_API_KEY__US_VIRGINIA = "sk-env-key";
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/qwen-plus:us-virginia",
+					messages: [
+						{
+							role: "user",
+							content: "Hello from hybrid regional routing!",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(sawAlibabaRequest).toBe(true);
+		} finally {
+			fetchSpy.mockRestore();
+			if (previousAlibabaRegionalKey === undefined) {
+				delete process.env.LLM_ALIBABA_API_KEY__US_VIRGINIA;
+			} else {
+				process.env.LLM_ALIBABA_API_KEY__US_VIRGINIA =
+					previousAlibabaRegionalKey;
+			}
+		}
+	});
+
 	// test for model with multiple providers (llama-3.3-70b-instruct)
 	test.skip("/v1/chat/completions with model that has multiple providers", async () => {
 		await db.insert(tables.apiKey).values({
