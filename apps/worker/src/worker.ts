@@ -74,7 +74,8 @@ const AUTO_TOPUP_DISABLE_AFTER_MS =
 	AUTO_TOPUP_DISABLE_AFTER_DAYS * 24 * 60 * 60 * 1000;
 
 // Configuration for batch processing
-const BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
+const LOG_QUEUE_BATCH_SIZE = Number(process.env.LOG_QUEUE_BATCH_SIZE) || 100;
+const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
 const VIDEO_JOB_POLL_INTERVAL_SECONDS =
@@ -683,7 +684,7 @@ export async function batchProcessLogs(): Promise<void> {
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
 				.where(sql`${log.processedAt} IS NULL`)
 				.orderBy(sql`${log.createdAt} ASC`)
-				.limit(BATCH_SIZE)
+				.limit(CREDIT_BATCH_SIZE)
 				.for("update", { of: [log], skipLocked: true });
 			const unprocessedLogs = { rows };
 
@@ -949,7 +950,7 @@ export async function batchProcessLogs(): Promise<void> {
 }
 
 export async function processLogQueue(): Promise<void> {
-	const message = await consumeFromQueue(LOG_QUEUE);
+	const message = await consumeFromQueue(LOG_QUEUE, LOG_QUEUE_BATCH_SIZE);
 
 	if (!message) {
 		return;
@@ -1501,6 +1502,12 @@ export async function startWorker() {
 
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
+	logger.info(
+		`- Log queue: dequeues up to ${LOG_QUEUE_BATCH_SIZE} logs per iteration`,
+	);
+	logger.info(
+		`- Credit processing: processes up to ${CREDIT_BATCH_SIZE} logs per batch`,
+	);
 	logger.info("- Minutely history: runs at the first second of every minute");
 	logger.info(
 		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
