@@ -12,6 +12,7 @@ import {
 	addApiKeyPeriodDuration,
 	and,
 	apiKey,
+	cdb,
 	closeDatabase,
 	db,
 	eq,
@@ -965,17 +966,13 @@ export async function processLogQueue(): Promise<void> {
 		);
 		const organizations =
 			organizationIds.length > 0
-				? await db.query.organization.findMany({
-						columns: {
-							id: true,
-							retentionLevel: true,
-						},
-						where: {
-							id: {
-								in: organizationIds,
-							},
-						},
-					})
+				? await cdb
+						.select({
+							id: organization.id,
+							retentionLevel: organization.retentionLevel,
+						})
+						.from(organization)
+						.where(inArray(organization.id, organizationIds))
 				: [];
 		const organizationsById = new Map(
 			organizations.map((organization) => [organization.id, organization]),
