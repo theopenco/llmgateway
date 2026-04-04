@@ -3935,6 +3935,97 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-2.5-flash-lite", async () => {
+		await harness.setProjectMode("hybrid");
+		await harness.setRoutingMetrics(
+			"gemini-2.5-flash-lite",
+			"google-ai-studio",
+			{
+				uptime: 90,
+				latency: 1200,
+				throughput: 5,
+			},
+		);
+		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+			uptime: 100,
+			latency: 10,
+			throughput: 500,
+		});
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "studio-db-key",
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const previousVertexKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		const previousGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const previousVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		const requestId = "chat-hybrid-keyed-provider-request-id";
+
+		try {
+			process.env.LLM_GOOGLE_VERTEX_API_KEY = "vertex-env-key";
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash-lite",
+					messages: [
+						{
+							role: "user",
+							content: "Hello from hybrid provider routing!",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json.metadata.used_provider).toBe("google-ai-studio");
+			expect(json.choices[0].message.content).toContain(
+				"mock Google AI response",
+			);
+
+			const logs = await waitForLogs(1);
+			const completedLog = logs.find((log) => log.requestId === requestId);
+			expect(completedLog?.usedProvider).toBe("google-ai-studio");
+		} finally {
+			if (previousVertexKey === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = previousVertexKey;
+			}
+			if (previousGoogleCloudProject === undefined) {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			} else {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = previousGoogleCloudProject;
+			}
+			if (previousVertexBaseUrl === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_BASE_URL = previousVertexBaseUrl;
+			}
+		}
+	});
+
 	// test for model with multiple providers (llama-3.3-70b-instruct)
 	test.skip("/v1/chat/completions with model that has multiple providers", async () => {
 		await db.insert(tables.apiKey).values({

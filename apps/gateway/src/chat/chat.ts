@@ -402,6 +402,108 @@ function applyPinnedDefaultRegions(
 	});
 }
 
+function getEnvironmentBackedProviders(providerIds?: string[]): string[] {
+	const candidateProviders = providerIds
+		? providers.filter((provider) => providerIds.includes(provider.id))
+		: providers;
+
+	return candidateProviders
+		.filter((provider) => provider.id !== "llmgateway")
+		.filter((provider) => hasProviderEnvironmentToken(provider.id as Provider))
+		.map((provider) => provider.id);
+}
+
+function getAvailableProvidersForProjectMode(
+	projectMode: string,
+	providerKeys: Array<{ provider: string }>,
+	providerIds?: string[],
+): {
+	availableProviders: string[];
+	providersWithKeys: Set<string>;
+} {
+	const providersWithKeys = new Set(providerKeys.map((key) => key.provider));
+
+	if (projectMode === "api-keys") {
+		return {
+			availableProviders: Array.from(providersWithKeys),
+			providersWithKeys,
+		};
+	}
+
+	const envProviders = getEnvironmentBackedProviders(providerIds);
+
+	if (projectMode === "credits") {
+		return {
+			availableProviders: envProviders,
+			providersWithKeys,
+		};
+	}
+
+	return {
+		availableProviders: Array.from(
+			new Set([...providersWithKeys, ...envProviders]),
+		),
+		providersWithKeys,
+	};
+}
+
+function preferProvidersWithKeys(
+	projectMode: string,
+	candidates: ProviderModelMapping[],
+	providersWithKeys: Set<string>,
+): ProviderModelMapping[] {
+	if (projectMode !== "hybrid") {
+		return candidates;
+	}
+
+	const keyedCandidates = candidates.filter((candidate) =>
+		providersWithKeys.has(candidate.providerId),
+	);
+
+	return keyedCandidates.length > 0 ? keyedCandidates : candidates;
+}
+
+function getRoutingCandidatesForProjectMode(
+	projectMode: string,
+	candidates: ProviderModelMapping[],
+	rateLimitedProviderIds: Set<string>,
+	providersWithKeys: Set<string>,
+): ProviderModelMapping[] {
+	const nonRateLimitedCandidates = candidates.filter(
+		(candidate) => !rateLimitedProviderIds.has(candidate.providerId),
+	);
+
+	if (projectMode !== "hybrid") {
+		return nonRateLimitedCandidates.length > 0
+			? nonRateLimitedCandidates
+			: candidates;
+	}
+
+	const keyedCandidates = candidates.filter((candidate) =>
+		providersWithKeys.has(candidate.providerId),
+	);
+
+	if (keyedCandidates.length === 0) {
+		return nonRateLimitedCandidates.length > 0
+			? nonRateLimitedCandidates
+			: candidates;
+	}
+
+	const nonRateLimitedKeyedCandidates = keyedCandidates.filter(
+		(candidate) => !rateLimitedProviderIds.has(candidate.providerId),
+	);
+
+	if (nonRateLimitedKeyedCandidates.length > 0) {
+		return nonRateLimitedKeyedCandidates;
+	}
+
+	if (nonRateLimitedCandidates.length > 0) {
+		return nonRateLimitedCandidates;
+	}
+
+	return keyedCandidates;
+}
+
 function preferConcreteRegionalMappings(
 	providers: ProviderModelMapping[],
 ): ProviderModelMapping[] {
@@ -2886,40 +2988,20 @@ chat.openapi(completions, async (c) => {
 		}
 
 		// Get available providers based on project mode
-		let availableProviders: string[] = [];
+		const providerKeys = await findActiveProviderKeys(project.organizationId);
+		const supportedProviderIds = providers
+			.filter((provider) => provider.id !== "llmgateway")
+			.map((provider) => provider.id);
+		const { availableProviders, providersWithKeys } =
+			getAvailableProvidersForProjectMode(
+				project.mode,
+				providerKeys,
+				supportedProviderIds,
+			);
 		// Region locks from DB provider keys, so auto-routing honors an org's
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
 		// collapsed to the pinned default by applyPinnedDefaultRegions.
-		let autoProviderLockedRegions = new Map<string, string>();
-
-		if (project.mode === "api-keys") {
-			const providerKeys = await findActiveProviderKeys(project.organizationId);
-			availableProviders = providerKeys.map((key) => key.provider);
-			autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
-		} else if (project.mode === "credits" || project.mode === "hybrid") {
-			const providerKeys = await findActiveProviderKeys(project.organizationId);
-			const databaseProviders = providerKeys.map((key) => key.provider);
-			autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
-
-			// Check which providers have environment tokens available
-			const envProviders: string[] = [];
-			const supportedProviders = providers
-				.filter((p) => p.id !== "llmgateway")
-				.map((p) => p.id);
-			for (const provider of supportedProviders) {
-				if (hasProviderEnvironmentToken(provider as Provider)) {
-					envProviders.push(provider);
-				}
-			}
-
-			if (project.mode === "credits") {
-				availableProviders = envProviders;
-			} else {
-				availableProviders = [
-					...new Set([...databaseProviders, ...envProviders]),
-				];
-			}
-		}
+		const autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
@@ -3025,7 +3107,6 @@ chat.openapi(completions, async (c) => {
 					(!candidateAllowedProviders ||
 						candidateAllowedProviders.includes(provider.providerId)),
 			);
-
 			const cachedFilteredProviders = isDevPlanRestricted
 				? availableModelProviders.filter(providerSupportsCachedInput)
 				: availableModelProviders;
@@ -3041,7 +3122,6 @@ chat.openapi(completions, async (c) => {
 					anyPostComplianceCandidate = true;
 				}
 			}
-
 			// Filter by context size requirement, reasoning capability, and deprecation status
 			const suitableProviders = complianceFilteredProviders.filter(
 				(provider) => {
@@ -3107,7 +3187,6 @@ chat.openapi(completions, async (c) => {
 							return false;
 						}
 					}
-
 					// Check JSON output capability if json_object or json_schema response format is requested
 					if (
 						response_format?.type === "json_object" ||
@@ -3159,10 +3238,15 @@ chat.openapi(completions, async (c) => {
 					return contextSizeMet;
 				},
 			);
+			const preferredSuitableProviders = preferProvidersWithKeys(
+				project.mode,
+				suitableProviders,
+				providersWithKeys,
+			);
 
-			if (suitableProviders.length > 0) {
+			if (preferredSuitableProviders.length > 0) {
 				// Find the cheapest among the suitable providers for this model
-				for (const provider of suitableProviders) {
+				for (const provider of preferredSuitableProviders) {
 					const { price } = await getDiscountedProviderSelectionPrice(
 						provider,
 						modelDef.id,
@@ -3176,7 +3260,7 @@ chat.openapi(completions, async (c) => {
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
 						selectedModel = modelDef;
-						selectedProviders = suitableProviders;
+						selectedProviders = preferredSuitableProviders;
 					}
 				}
 			}
@@ -3576,14 +3660,12 @@ chat.openapi(completions, async (c) => {
 					project.organizationId,
 					providerIds,
 				);
-
-				const availableProviders =
-					project.mode === "api-keys"
-						? providerKeys.map((key) => key.provider)
-						: providers
-								.filter((p) => p.id !== "llmgateway" && p.id !== usedProvider)
-								.filter((p) => hasProviderEnvironmentToken(p.id as Provider))
-								.map((p) => p.id);
+				const { availableProviders, providersWithKeys } =
+					getAvailableProvidersForProjectMode(
+						project.mode,
+						providerKeys,
+						providerIds,
+					);
 
 				const availableModelProviders = preferConcreteRegionalMappings(
 					applyPinnedDefaultRegions(iamFilteredModelProviders, {
@@ -3642,8 +3724,13 @@ chat.openapi(completions, async (c) => {
 					baseModelId,
 					availableModelProviders,
 				);
+				const preferredCandidatesForRouting = preferProvidersWithKeys(
+					project.mode,
+					candidatesForRouting,
+					providersWithKeys,
+				);
 
-				if (candidatesForRouting.length > 0) {
+				if (preferredCandidatesForRouting.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
 					const modelWithPricing = rawModelForFallback
 						? {
@@ -3778,14 +3865,12 @@ chat.openapi(completions, async (c) => {
 					project.organizationId,
 					providerIds,
 				);
-
-				const availableProviders =
-					project.mode === "api-keys"
-						? providerKeys.map((key) => key.provider)
-						: providers
-								.filter((p) => p.id !== "llmgateway" && p.id !== usedProvider)
-								.filter((p) => hasProviderEnvironmentToken(p.id as Provider))
-								.map((p) => p.id);
+				const { availableProviders, providersWithKeys } =
+					getAvailableProvidersForProjectMode(
+						project.mode,
+						providerKeys,
+						providerIds,
+					);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
 				// If web search is requested, also filter to providers that support it
@@ -3818,14 +3903,18 @@ chat.openapi(completions, async (c) => {
 							provider.region === usedRegion
 						),
 				);
-
 				const uptimeFallbackCandidates = await pickNonRateLimitedCandidates(
 					project.organizationId,
 					baseModelId,
 					availableModelProviders,
 				);
+				const preferredUptimeFallbackCandidates = preferProvidersWithKeys(
+					project.mode,
+					uptimeFallbackCandidates,
+					providersWithKeys,
+				);
 
-				if (uptimeFallbackCandidates.length > 0) {
+				if (preferredUptimeFallbackCandidates.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
 					const modelWithPricing = rawModelForFallback
 						? {
@@ -3838,18 +3927,20 @@ chat.openapi(completions, async (c) => {
 
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
-						const metricsCombinations = uptimeFallbackCandidates.map((p) => ({
-							modelId: modelWithPricing.id,
-							providerId: p.providerId,
-							region: p.region,
-						}));
+						const metricsCombinations = preferredUptimeFallbackCandidates.map(
+							(p) => ({
+								modelId: modelWithPricing.id,
+								providerId: p.providerId,
+								region: p.region,
+							}),
+						);
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
 						);
 						const providerAgnosticCandidates =
 							await collapseProvidersToBestRegionPerProvider(
-								uptimeFallbackCandidates,
+								preferredUptimeFallbackCandidates,
 								modelWithPricing,
 								{
 									metricsMap: allMetricsMap,
@@ -3967,14 +4058,12 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				providerIds,
 			);
-
-			const availableProviders =
-				project.mode === "api-keys"
-					? providerKeys.map((key) => key.provider)
-					: providers
-							.filter((p) => p.id !== "llmgateway")
-							.filter((p) => hasProviderEnvironmentToken(p.id as Provider))
-							.map((p) => p.id);
+			const { availableProviders, providersWithKeys } =
+				getAvailableProvidersForProjectMode(
+					project.mode,
+					providerKeys,
+					providerIds,
+				);
 
 			// Build a map of provider → locked region from DB provider keys.
 			// When a user sets a region in their provider key (e.g. alibaba_region: "cn-beijing"),
@@ -4065,23 +4154,26 @@ chat.openapi(completions, async (c) => {
 			contentFilterRoutingExcludedProviders =
 				contentFilterRoutingDecision.excludedProviders;
 			contentFilterRoutingApplied = contentFilterRoutingDecision.rerouted;
+			const preferredRoutingProviders = preferProvidersWithKeys(
+				project.mode,
+				contentFilterPreferredProviders,
+				providersWithKeys,
+			);
 
 			// Filter out rate-limited providers during routing
 			const rateLimitedProviderIds = await filterRateLimitedProviders(
 				project.organizationId,
-				contentFilterPreferredProviders.map((p) => ({
+				preferredRoutingProviders.map((p) => ({
 					providerId: p.providerId,
 					model: (modelInfo as ModelDefinition).id,
 				})),
 			);
-			const nonRateLimitedProviders = contentFilterPreferredProviders.filter(
-				(p) => !rateLimitedProviderIds.has(p.providerId),
+			const routingCandidates = getRoutingCandidatesForProjectMode(
+				project.mode,
+				preferredRoutingProviders,
+				rateLimitedProviderIds,
+				providersWithKeys,
 			);
-			// Fail-open: if all are rate-limited, use them all anyway
-			const routingCandidates =
-				nonRateLimitedProviders.length > 0
-					? nonRateLimitedProviders
-					: contentFilterPreferredProviders;
 
 			const rawModelWithPricing = models.find(
 				(m) => m.id === usedInternalModel,
