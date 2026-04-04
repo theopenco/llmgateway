@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 function Newsletter() {
@@ -102,6 +103,8 @@ function Newsletter() {
 }
 
 export function Footer() {
+	const config = useAppConfig();
+
 	return (
 		<footer className="relative border-t py-12 px-4">
 			<div className="container mx-auto max-w-5xl">
@@ -117,7 +120,7 @@ export function Footer() {
 						</Link>
 						<div className="flex items-center gap-3 mt-4">
 							<a
-								href="https://github.com/theopenco/llmgateway"
+								href={config.githubUrl}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-muted-foreground hover:text-foreground transition-colors"
@@ -126,7 +129,7 @@ export function Footer() {
 								<GithubIcon className="h-5 w-5" />
 							</a>
 							<a
-								href="https://x.com/llmgateway"
+								href={config.twitterUrl}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-muted-foreground hover:text-foreground transition-colors"
@@ -141,7 +144,7 @@ export function Footer() {
 								</svg>
 							</a>
 							<a
-								href="https://llmgateway.io/discord"
+								href={config.discordUrl}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-muted-foreground hover:text-foreground transition-colors"
@@ -166,7 +169,7 @@ export function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<a
-										href="https://llmgateway.io/models"
+										href={`${config.uiUrl}/models`}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
@@ -184,7 +187,7 @@ export function Footer() {
 								</li>
 								<li>
 									<a
-										href="https://llmgateway.io"
+										href={config.uiUrl}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
@@ -201,7 +204,7 @@ export function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<a
-										href="https://docs.llmgateway.io"
+										href={config.docsUrl}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
@@ -211,7 +214,7 @@ export function Footer() {
 								</li>
 								<li>
 									<a
-										href="https://llmgateway.io/integrations"
+										href={`${config.uiUrl}/integrations`}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
@@ -221,7 +224,7 @@ export function Footer() {
 								</li>
 								<li>
 									<a
-										href="https://llmgateway.io/blog"
+										href={`${config.uiUrl}/blog`}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
@@ -238,7 +241,7 @@ export function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<a
-										href="https://llmgateway.io/discord"
+										href={config.discordUrl}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
@@ -248,7 +251,7 @@ export function Footer() {
 								</li>
 								<li>
 									<a
-										href="https://x.com/llmgateway"
+										href={config.twitterUrl}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
@@ -258,7 +261,7 @@ export function Footer() {
 								</li>
 								<li>
 									<a
-										href="https://github.com/theopenco/llmgateway"
+										href={config.githubUrl}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
@@ -277,7 +280,7 @@ export function Footer() {
 					</p>
 					<div className="flex items-center gap-6">
 						<a
-							href="https://llmgateway.io/legal/privacy"
+							href={`${config.uiUrl}/legal/privacy`}
 							target="_blank"
 							rel="noopener noreferrer"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
@@ -285,7 +288,7 @@ export function Footer() {
 							Privacy Policy
 						</a>
 						<a
-							href="https://llmgateway.io/legal/terms"
+							href={`${config.uiUrl}/legal/terms`}
 							target="_blank"
 							rel="noopener noreferrer"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"

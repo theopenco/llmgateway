@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useAppConfig } from "@/lib/config";
 
 export function Header() {
+	const config = useAppConfig();
 	const [menuOpen, setMenuOpen] = useState(false);
 
 	return (
@@ -26,7 +28,7 @@ export function Header() {
 				<div className="hidden sm:flex items-center gap-3">
 					<Button variant="ghost" size="sm" asChild>
 						<a
-							href="https://llmgateway.io/models"
+							href={`${config.uiUrl}/models`}
 							target="_blank"
 							rel="noopener noreferrer"
 						>
@@ -34,20 +36,12 @@ export function Header() {
 						</a>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
-						<a
-							href="https://docs.llmgateway.io"
-							target="_blank"
-							rel="noopener noreferrer"
-						>
+						<a href={config.docsUrl} target="_blank" rel="noopener noreferrer">
 							Docs
 						</a>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
-						<a
-							href="https://llmgateway.io"
-							target="_blank"
-							rel="noopener noreferrer"
-						>
+						<a href={config.uiUrl} target="_blank" rel="noopener noreferrer">
 							Dashboard
 						</a>
 					</Button>
@@ -81,7 +75,7 @@ export function Header() {
 						Models
 					</Link>
 					<a
-						href="https://docs.llmgateway.io"
+						href={config.docsUrl}
 						target="_blank"
 						rel="noopener noreferrer"
 						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -89,7 +83,7 @@ export function Header() {
 						Docs
 					</a>
 					<a
-						href="https://llmgateway.io"
+						href={config.uiUrl}
 						target="_blank"
 						rel="noopener noreferrer"
 						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
