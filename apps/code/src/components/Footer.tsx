@@ -212,7 +212,7 @@ export function Footer() {
 								</li>
 								<li>
 									<a
-										href={`${config.uiUrl}/guides`}
+										href={`${config.uiUrl}/integrations`}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"

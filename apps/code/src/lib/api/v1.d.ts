@@ -7725,6 +7725,13 @@ export interface operations {
                                 outputPrice: string | null;
                                 cachedInputPrice: string | null;
                                 imageInputPrice: string | null;
+                                imageOutputPrice: string | null;
+                                imageInputTokensByResolution: {
+                                    [key: string]: number;
+                                } | null;
+                                imageOutputTokensByResolution: {
+                                    [key: string]: number;
+                                } | null;
                                 requestPrice: string | null;
                                 contextSize: number | null;
                                 maxOutput: number | null;
