@@ -1602,6 +1602,7 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
 		case "quartz":
 		case "obsidian": {

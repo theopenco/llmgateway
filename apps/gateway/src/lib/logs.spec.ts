@@ -78,6 +78,21 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps Glacier finish reasons like Google AI Studio", () => {
+		expect(getUnifiedFinishReason("STOP", "glacier")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("MAX_TOKENS", "glacier")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("SAFETY", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("OTHER", "glacier")).toBe(
+			UnifiedFinishReason.UNKNOWN,
+		);
+	});
+
 	it("handles special cases", () => {
 		expect(getUnifiedFinishReason("canceled", "any-provider")).toBe(
 			UnifiedFinishReason.CANCELED,
@@ -114,6 +129,7 @@ describe("isExpectedUnknownFinishReason", () => {
 		expect(isExpectedUnknownFinishReason("OTHER", "google-ai-studio")).toBe(
 			true,
 		);
+		expect(isExpectedUnknownFinishReason("OTHER", "glacier")).toBe(true);
 		expect(isExpectedUnknownFinishReason("OTHER", "google-vertex")).toBe(true);
 	});
 

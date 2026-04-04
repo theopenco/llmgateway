@@ -20,6 +20,7 @@ export function extractReasoning(data: any, provider: Provider): string {
 			return "";
 		}
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
 		case "quartz":
 		case "obsidian": {

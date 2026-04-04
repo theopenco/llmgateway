@@ -87,6 +87,7 @@ export function transformResponseToOpenai(
 
 	switch (usedProvider) {
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
 		case "quartz":
 		case "obsidian": {

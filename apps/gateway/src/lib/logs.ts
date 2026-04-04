@@ -24,6 +24,7 @@ export function isExpectedUnknownFinishReason(
 	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
+			provider === "glacier" ||
 			provider === "google-vertex" ||
 			provider === "quartz" ||
 			provider === "obsidian") &&
@@ -80,6 +81,7 @@ export function getUnifiedFinishReason(
 			}
 			break;
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
 		case "quartz":
 		case "obsidian":

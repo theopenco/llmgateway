@@ -123,6 +123,14 @@ export function getProviderEndpoint(
 			case "google-ai-studio":
 				url = "https://generativelanguage.googleapis.com";
 				break;
+			case "glacier":
+				url = getProviderEnvValue("glacier", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "google-vertex":
 				url = "https://aiplatform.googleapis.com";
 				break;
@@ -246,6 +254,22 @@ export function getProviderEndpoint(
 		case "anthropic":
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {
+			const endpoint = stream ? "streamGenerateContent" : "generateContent";
+			const baseEndpoint = modelName
+				? `${url}/v1beta/models/${modelName}:${endpoint}`
+				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
+			const queryParams = [];
+			if (token) {
+				queryParams.push(`key=${token}`);
+			}
+			if (stream) {
+				queryParams.push("alt=sse");
+			}
+			return queryParams.length > 0
+				? `${baseEndpoint}?${queryParams.join("&")}`
+				: baseEndpoint;
+		}
+		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = modelName
 				? `${url}/v1beta/models/${modelName}:${endpoint}`

@@ -118,6 +118,24 @@ export const providers = [
 		priority: 0.8,
 	},
 	{
+		id: "glacier",
+		name: "Glacier",
+		description:
+			"Glacier is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
+		env: {
+			required: {
+				apiKey: "LLM_GLACIER_API_KEY",
+				baseUrl: "LLM_GLACIER_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: null,
+		announcement: null,
+		priority: 0.8,
+	},
+	{
 		id: "google-vertex",
 		name: "Google Vertex AI",
 		description:
@@ -157,6 +175,7 @@ export const providers = [
 		color: "#4285f4",
 		website: null,
 		announcement: null,
+		priority: 0.9,
 	},
 	{
 		id: "obsidian",

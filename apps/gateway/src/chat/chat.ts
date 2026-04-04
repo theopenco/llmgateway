@@ -113,6 +113,7 @@ import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
+import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
@@ -445,6 +446,7 @@ function addContentFilterRoutingMetadata(
 function usesGoogleQueryToken(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
+		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -5727,6 +5729,7 @@ chat.openapi(completions, async (c) => {
 								// Handle provider-specific finish reason extraction
 								switch (usedProvider) {
 									case "google-ai-studio":
+									case "glacier":
 									case "google-vertex":
 									case "quartz":
 									case "obsidian":
@@ -8123,10 +8126,13 @@ chat.openapi(completions, async (c) => {
 		finishReason !== "content_filter" &&
 		finishReason !== "incomplete" &&
 		!isGoogleContentFilter &&
-		(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
-		(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
-		(!content || content.trim() === "") &&
-		(!toolResults || toolResults.length === 0);
+		!hasMeaningfulAssistantOutput({
+			completionTokens: calculatedCompletionTokens,
+			reasoningTokens: calculatedReasoningTokens,
+			content,
+			toolResults,
+			images: convertedImages,
+		});
 
 	if (hasEmptyNonStreamingResponse) {
 		logger.debug("Empty non-streaming response detected", {
@@ -8136,6 +8142,7 @@ chat.openapi(completions, async (c) => {
 			calculatedCompletionTokens,
 			contentLength: content?.length ?? 0,
 			toolResultsLength: toolResults?.length ?? 0,
+			imageCount: convertedImages?.length ?? 0,
 		});
 	}
 

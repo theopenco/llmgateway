@@ -184,6 +184,7 @@ export async function validateProviderKey(
 			baseUrl,
 			effectiveModelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock, azure)
 			provider === "google-ai-studio" ||
+				provider === "glacier" ||
 				provider === "google-vertex" ||
 				provider === "quartz"
 				? token
