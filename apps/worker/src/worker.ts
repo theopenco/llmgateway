@@ -960,37 +960,49 @@ export async function processLogQueue(): Promise<void> {
 
 	try {
 		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
+		const organizationIds = Array.from(
+			new Set(logData.map((data) => data.organizationId)),
+		);
+		const organizations =
+			organizationIds.length > 0
+				? await db.query.organization.findMany({
+						columns: {
+							id: true,
+							retentionLevel: true,
+						},
+						where: {
+							id: {
+								in: organizationIds,
+							},
+						},
+					})
+				: [];
+		const organizationsById = new Map(
+			organizations.map((organization) => [organization.id, organization]),
+		);
 
 		const processedLogData: (
 			| LogInsertData
 			| Omit<LogInsertData, "messages" | "content">
-		)[] = await Promise.all(
-			logData.map(async (data) => {
-				const organization = await db.query.organization.findFirst({
-					where: {
-						id: {
-							eq: data.organizationId,
-						},
-					},
-				});
+		)[] = logData.map((data) => {
+			const organization = organizationsById.get(data.organizationId);
 
-				if (organization?.retentionLevel === "none") {
-					const {
-						messages: _messages,
-						content: _content,
-						reasoningContent: _reasoningContent,
-						tools: _tools,
-						toolChoice: _toolChoice,
-						toolResults: _toolResults,
-						responsesApiData: _responsesApiData,
-						...metadataOnly
-					} = data;
-					return metadataOnly;
-				}
+			if (organization?.retentionLevel === "none") {
+				const {
+					messages: _messages,
+					content: _content,
+					reasoningContent: _reasoningContent,
+					tools: _tools,
+					toolChoice: _toolChoice,
+					toolResults: _toolResults,
+					responsesApiData: _responsesApiData,
+					...metadataOnly
+				} = data;
+				return metadataOnly;
+			}
 
-				return data;
-			}),
-		);
+			return data;
+		});
 
 		// Insert logs with retry logic
 		let lastError: Error | undefined;
