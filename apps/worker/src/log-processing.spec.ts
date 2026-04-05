@@ -609,33 +609,43 @@ describe("Log Processing", () => {
 				vi.stubGlobal("fetch", fetchMock);
 				process.env.PROVIDER_ERROR_DISCORD_URL =
 					"https://discord.example/provider-errors";
+				const requestId = `test-request-${unifiedFinishReason}`;
+				const traceId = `trace-${unifiedFinishReason}`;
 
-				await db.insert(log).values({
-					requestId: `test-request-${unifiedFinishReason}`,
-					organizationId: testOrg.id,
-					projectId: testProject.id,
-					apiKeyId: testApiKey.id,
-					cost: 0,
-					cached: false,
-					usedMode: "credits",
-					duration: 2450,
-					requestedModel: "openai/gpt-4o-mini",
-					requestedProvider: "openai",
-					usedModel: "gpt-4o-mini",
-					usedModelMapping: "gpt-4o-mini",
-					usedProvider: "openai",
-					responseSize: 150,
-					mode: "credits",
-					hasError: true,
-					errorDetails: {
-						statusCode,
-						statusText,
-						responseText: "provider timed out",
-						cause: "upstream timeout",
-					},
-					unifiedFinishReason,
-					traceId: `trace-${unifiedFinishReason}`,
-				});
+				const insertedLogs = await db
+					.insert(log)
+					.values({
+						requestId,
+						organizationId: testOrg.id,
+						projectId: testProject.id,
+						apiKeyId: testApiKey.id,
+						cost: 0,
+						cached: false,
+						usedMode: "credits",
+						duration: 2450,
+						requestedModel: "openai/gpt-4o-mini",
+						requestedProvider: "openai",
+						usedModel: "gpt-4o-mini",
+						usedModelMapping: "gpt-4o-mini",
+						usedProvider: "openai",
+						responseSize: 150,
+						mode: "credits",
+						hasError: true,
+						errorDetails: {
+							statusCode,
+							statusText,
+							responseText:
+								"provider timed out for support@example.com " +
+								`request ${requestId} in project ${testProject.id}`,
+							cause: `trace ${traceId}`,
+						},
+						unifiedFinishReason,
+						traceId,
+					})
+					.returning({
+						id: log.id,
+					});
+				const insertedLogId = insertedLogs[0]?.id ?? "";
 
 				await batchProcessLogs();
 
@@ -650,9 +660,8 @@ describe("Log Processing", () => {
 					}),
 				);
 
-				const payload = JSON.parse(
-					String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
-				) as {
+				const payloadText = String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}");
+				const payload = JSON.parse(payloadText) as {
 					embeds?: Array<{
 						description?: string;
 						fields?: Array<{ name: string; value: string }>;
@@ -666,11 +675,34 @@ describe("Log Processing", () => {
 				expect(payload.embeds?.[0]?.description).toContain(
 					"provider timed out",
 				);
+				expect(payload.embeds?.[0]?.description).toContain("<redacted-email>");
+				expect(payloadText).not.toContain(requestId);
+				expect(payloadText).not.toContain(traceId);
+				expect(payloadText).not.toContain(testProject.id);
+				expect(payloadText).not.toContain(testOrg.id);
+				expect(insertedLogId).not.toBe("");
+				expect(payloadText).not.toContain(insertedLogId);
 				expect(payload.embeds?.[0]?.fields).toEqual(
 					expect.arrayContaining([
 						expect.objectContaining({
 							name: "Trace ID",
-							value: `trace-${unifiedFinishReason}`,
+							value: expect.stringMatching(/^redacted:/),
+						}),
+						expect.objectContaining({
+							name: "Request ID",
+							value: expect.stringMatching(/^redacted:/),
+						}),
+						expect.objectContaining({
+							name: "Project",
+							value: expect.stringMatching(/^redacted:/),
+						}),
+						expect.objectContaining({
+							name: "Organization",
+							value: expect.stringMatching(/^redacted:/),
+						}),
+						expect.objectContaining({
+							name: "Log ID",
+							value: expect.stringMatching(/^redacted:/),
 						}),
 					]),
 				);
