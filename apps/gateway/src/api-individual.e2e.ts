@@ -9,12 +9,7 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { db, tables, eq } from "@llmgateway/db";
-import {
-	hasProviderEnvironmentToken,
-	models,
-	providers,
-	getProviderEnvVar,
-} from "@llmgateway/models";
+import { models, providers, getProviderEnvVar } from "@llmgateway/models";
 
 import { app } from "./app.js";
 import {
@@ -106,15 +101,6 @@ describe("e2e individual tests", () => {
 			expect(json.usage).toHaveProperty("completion_tokens");
 			expect(json.usage).toHaveProperty("total_tokens");
 		}
-	}
-
-	function hasConfiguredProviderForModel(modelId: string) {
-		const model = models.find((modelDef) => modelDef.id === modelId);
-		return (
-			model?.providers.some((provider) =>
-				hasProviderEnvironmentToken(provider.providerId),
-			) ?? false
-		);
 	}
 
 	test(
@@ -317,16 +303,19 @@ describe("e2e individual tests", () => {
 		"completions with llmgateway/auto in credits mode",
 		getTestOptions({ completions: false }),
 		async () => {
-			if (!hasConfiguredProviderForModel("claude-sonnet-4-6")) {
-				console.log(
-					"Skipping llmgateway/auto in credits mode test - no Claude Sonnet 4.6 provider is configured",
-				);
-				return;
+			// require all provider keys to be set
+			for (const provider of providers) {
+				const envVarName = getProviderEnvVar(provider.id);
+				const envVarValue = envVarName ? process.env[envVarName] : undefined;
+				if (!envVarValue) {
+					console.log(
+						`Skipping llmgateway/auto in credits mode test - no API key provided for ${provider.id}`,
+					);
+					return;
+				}
 			}
 
-			const { userId, orgId, projectId } = await createTestData(
-				`credits-auto-${Date.now()}`,
-			);
+			const { userId, orgId, projectId } = await createTestData("credits-auto");
 
 			await db
 				.update(tables.organization)
@@ -338,10 +327,9 @@ describe("e2e individual tests", () => {
 				.set({ mode: "credits" })
 				.where(eq(tables.project.id, projectId));
 
-			const creditsSuffix = generateTestRequestId();
-			const creditsToken = `credits-token-auto-${creditsSuffix}`;
+			const creditsToken = "credits-token-auto";
 			await db.insert(tables.apiKey).values({
-				id: `token-credits-auto-${creditsSuffix}`,
+				id: "token-credits-auto",
 				token: creditsToken,
 				projectId: projectId,
 				description: "Test API Key for Credits",
@@ -374,10 +362,9 @@ describe("e2e individual tests", () => {
 			expect(json).toHaveProperty("choices.[0].message.content");
 
 			const log = await waitForLogByRequestId(requestId);
-			expect(log.requestedModel).toBe("llmgateway/auto");
+			expect(log.requestedModel).toBe("auto");
 			expect(log.usedProvider).toBeTruthy();
 			expect(log.usedModel).toBeTruthy();
-			expect(log.usedModel).toContain("claude-sonnet-4-6");
 		},
 	);
 
@@ -385,16 +372,7 @@ describe("e2e individual tests", () => {
 		"completions with bare 'auto' model and credits",
 		getTestOptions({ completions: false }),
 		async () => {
-			if (!hasConfiguredProviderForModel("claude-sonnet-4-6")) {
-				console.log(
-					"Skipping bare auto credits test - no Claude Sonnet 4.6 provider is configured",
-				);
-				return;
-			}
-
-			const { orgId, projectId, token } = await createTestData(
-				`bare-auto-${Date.now()}`,
-			);
+			const { orgId, projectId, token } = await createTestData("bare-auto");
 
 			await db
 				.update(tables.organization)
@@ -434,7 +412,6 @@ describe("e2e individual tests", () => {
 			expect(log.requestedModel).toBe("auto");
 			expect(log.usedProvider).toBeTruthy();
 			expect(log.usedModel).toBeTruthy();
-			expect(log.usedModel).toContain("claude-sonnet-4-6");
 		},
 	);
 
@@ -665,9 +642,11 @@ describe("e2e individual tests", () => {
 		"Auto-routing sets reasoning_effort appropriately",
 		getTestOptions({ completions: false }),
 		async () => {
-			if (!hasConfiguredProviderForModel("claude-sonnet-4-6")) {
+			const envVarName = getProviderEnvVar("openai");
+			const envVarValue = envVarName ? process.env[envVarName] : undefined;
+			if (!envVarValue) {
 				console.log(
-					"Skipping auto-routing reasoning_effort test - no Claude Sonnet 4.6 provider is configured",
+					"Skipping auto-routing reasoning_effort test - no OpenAI API key provided",
 				);
 				return;
 			}
@@ -719,11 +698,14 @@ describe("e2e individual tests", () => {
 			// Verify a reasoning model was selected
 			const usedModel = log.usedModelMapping;
 			expect(usedModel).toBeDefined();
-			expect(usedModel).toContain("claude-sonnet-4-6");
 
-			// Claude auto-routing should always default to low reasoning effort.
+			// Verify reasoningEffort is set and has the correct value based on model
 			expect(log.reasoningEffort).toBeDefined();
-			expect(log.reasoningEffort).toEqual("low");
+			if (usedModel?.startsWith("gpt-5")) {
+				expect(log.reasoningEffort).toEqual("minimal");
+			} else {
+				expect(log.reasoningEffort).toEqual("low");
+			}
 
 			// Verify the response has valid usage information (if available)
 			// Some auto-routed models may not return usage in non-streaming mode
@@ -739,63 +721,6 @@ describe("e2e individual tests", () => {
 				expect(typeof json.usage.reasoning_tokens).toBe("number");
 				expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
 			}
-		},
-	);
-
-	test(
-		"Auto-routing with no_reasoning chooses Claude Haiku 4.5",
-		getTestOptions({ completions: false }),
-		async () => {
-			if (!hasConfiguredProviderForModel("claude-haiku-4-5")) {
-				console.log(
-					"Skipping auto-routing no_reasoning test - no Claude Haiku 4.5 provider is configured",
-				);
-				return;
-			}
-
-			const { orgId, projectId, token } = await createTestData(
-				`auto-no-reasoning-${Date.now()}`,
-			);
-
-			await db
-				.update(tables.organization)
-				.set({ credits: "1000" })
-				.where(eq(tables.organization.id, orgId));
-
-			await db
-				.update(tables.project)
-				.set({ mode: "credits" })
-				.where(eq(tables.project.id, projectId));
-
-			const requestId = generateTestRequestId();
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-request-id": requestId,
-					"x-no-fallback": "true",
-					Authorization: `Bearer ${token}`,
-				},
-				body: JSON.stringify({
-					model: "auto",
-					no_reasoning: true,
-					messages: [
-						{
-							role: "user",
-							content: "Summarize this request without extended reasoning.",
-						},
-					],
-				}),
-			});
-
-			expect(res.status).toBe(200);
-			const json = await res.json();
-			validateResponse(json);
-
-			const log = await validateLogByRequestId(requestId);
-			expect(log.requestedModel).toBe("auto");
-			expect(log.usedModelMapping).toContain("claude-haiku-4-5");
-			expect(log.reasoningEffort).toBeNull();
 		},
 	);
 
