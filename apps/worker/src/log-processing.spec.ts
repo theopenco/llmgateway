@@ -589,9 +589,20 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
 		});
 
-		test.each(["upstream_error", "gateway_error"])(
-			"should report %s logs to Discord",
-			async (unifiedFinishReason) => {
+		test.each([
+			{
+				statusCode: 429,
+				statusText: "Too Many Requests",
+				unifiedFinishReason: "upstream_error",
+			},
+			{
+				statusCode: 401,
+				statusText: "Unauthorized",
+				unifiedFinishReason: "gateway_error",
+			},
+		])(
+			"should report $unifiedFinishReason logs to Discord even for non-5xx statuses",
+			async ({ unifiedFinishReason, statusCode, statusText }) => {
 				const fetchMock = vi
 					.fn()
 					.mockResolvedValue(new Response(null, { status: 204 }));
@@ -617,8 +628,8 @@ describe("Log Processing", () => {
 					mode: "credits",
 					hasError: true,
 					errorDetails: {
-						statusCode: 502,
-						statusText: "Bad Gateway",
+						statusCode,
+						statusText,
 						responseText: "provider timed out",
 						cause: "upstream timeout",
 					},
@@ -665,6 +676,40 @@ describe("Log Processing", () => {
 				);
 			},
 		);
+
+		test("should not report to Discord when the webhook URL is blank", async () => {
+			const fetchMock = vi.fn();
+			vi.stubGlobal("fetch", fetchMock);
+			process.env.PROVIDER_ERROR_DISCORD_URL = "   ";
+
+			await db.insert(log).values({
+				requestId: "test-request-blank-webhook-url",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0,
+				cached: false,
+				usedMode: "credits",
+				duration: 1200,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+				hasError: true,
+				errorDetails: {
+					statusCode: 502,
+					statusText: "Bad Gateway",
+					responseText: "upstream unavailable",
+				},
+				unifiedFinishReason: "upstream_error",
+			});
+
+			await batchProcessLogs();
+
+			expect(fetchMock).not.toHaveBeenCalled();
+		});
 
 		test("should not report client errors to Discord", async () => {
 			const fetchMock = vi

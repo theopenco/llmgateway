@@ -35,9 +35,15 @@ interface DiscordEmbed {
 	timestamp?: string;
 }
 
+const DISCORD_WEBHOOK_TIMEOUT_MS = 5000;
+
 function getProviderErrorDiscordUrl(): string | null {
 	const url = process.env.PROVIDER_ERROR_DISCORD_URL?.trim();
-	return url ?? null;
+	if (!url) {
+		return null;
+	}
+
+	return url;
 }
 
 function truncate(value: string, maxLength: number): string {
@@ -138,24 +144,42 @@ export async function notifyProviderError(
 	}
 
 	try {
-		const response = await fetch(providerErrorDiscordUrl, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify(buildDiscordEmbed(log)),
-		});
+		const controller = new AbortController();
+		const timeout = setTimeout(() => {
+			controller.abort();
+		}, DISCORD_WEBHOOK_TIMEOUT_MS);
+		try {
+			const response = await fetch(providerErrorDiscordUrl, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(buildDiscordEmbed(log)),
+				signal: controller.signal,
+			});
 
-		if (!response.ok) {
-			const errorText = await response.text();
-			throw new Error(
-				`Discord webhook error: ${response.status} - ${errorText}`,
-			);
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(
+					`Discord webhook error: ${response.status} - ${errorText}`,
+				);
+			}
+		} finally {
+			clearTimeout(timeout);
 		}
 	} catch (error) {
+		const errorToLog =
+			error instanceof Error && error.name === "AbortError"
+				? new Error(
+						`Discord webhook timed out after ${DISCORD_WEBHOOK_TIMEOUT_MS}ms`,
+					)
+				: error instanceof Error
+					? error
+					: new Error(String(error));
+
 		logger.error(
 			`Failed to send provider error Discord notification for log ${log.logId}`,
-			error instanceof Error ? error : new Error(String(error)),
+			errorToLog,
 		);
 	}
 }
