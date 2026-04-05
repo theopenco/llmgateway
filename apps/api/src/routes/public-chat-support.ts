@@ -4,12 +4,14 @@ import { Hono } from "hono";
 import { redisClient } from "@/auth/config.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
+const CONVERSATION_TTL_SECONDS = 60 * 60; // 1 hour
 
 const DOCS_BASE_URL = "https://docs.llmgateway.io";
 
@@ -85,6 +87,91 @@ async function checkRateLimit(identifier: string): Promise<boolean> {
 	}
 }
 
+function getTextFromUIMessage(message: UIMessage): string {
+	return message.parts
+		.filter((p): p is { type: "text"; text: string } => p.type === "text")
+		.map((p) => p.text)
+		.join("");
+}
+
+async function getOrCreateConversation(
+	ipAddress: string,
+	userAgent: string | undefined,
+): Promise<string> {
+	const redisKey = `chat_support_conv:${ipAddress}`;
+	const existingId = await redisClient.get(redisKey);
+	if (existingId) {
+		return existingId;
+	}
+
+	const t = tables.chatSupportConversation;
+	const [conv] = await db
+		.insert(t)
+		.values({ ipAddress, userAgent, messageCount: 0 })
+		.returning({ id: t.id });
+	const conversationId = conv!.id;
+
+	await redisClient.set(
+		redisKey,
+		conversationId,
+		"EX",
+		CONVERSATION_TTL_SECONDS,
+	);
+	return conversationId;
+}
+
+async function persistMessages(
+	conversationId: string,
+	messages: UIMessage[],
+	assistantContent: string,
+): Promise<void> {
+	try {
+		const t = tables.chatSupportConversation;
+		const mt = tables.chatSupportMessage;
+
+		const existingMessages = await db
+			.select({ id: mt.id })
+			.from(mt)
+			.where(eq(mt.conversationId, conversationId));
+
+		const existingCount = existingMessages.length;
+		const newMessages: {
+			conversationId: string;
+			role: "user" | "assistant";
+			content: string;
+			sequence: number;
+		}[] = [];
+
+		for (let i = existingCount; i < messages.length; i++) {
+			const m = messages[i]!;
+			newMessages.push({
+				conversationId,
+				role: m.role as "user" | "assistant",
+				content: getTextFromUIMessage(m),
+				sequence: i,
+			});
+		}
+
+		newMessages.push({
+			conversationId,
+			role: "assistant",
+			content: assistantContent,
+			sequence: messages.length,
+		});
+
+		if (newMessages.length > 0) {
+			await db.insert(mt).values(newMessages);
+		}
+
+		await db
+			.update(t)
+			.set({ messageCount: existingCount + newMessages.length })
+			.where(eq(t.id, conversationId));
+	} catch (error) {
+		logger.error("Failed to persist chat support messages", { error });
+	}
+}
+
 export const publicChatSupport = new Hono<ServerTypes>();
 
 publicChatSupport.post("/", async (c) => {
@@ -120,6 +207,9 @@ publicChatSupport.post("/", async (c) => {
 		return c.json({ error: "Chat support is not configured" }, 503);
 	}
 
+	const userAgent = c.req.header("User-Agent");
+	const conversationId = await getOrCreateConversation(ipAddress, userAgent);
+
 	const llmgateway = createLLMGateway({
 		apiKey: supportApiKey,
 		baseURL: gatewayUrl,
@@ -133,6 +223,9 @@ publicChatSupport.post("/", async (c) => {
 		system: SYSTEM_PROMPT,
 		messages: await convertToModelMessages(messages),
 		maxOutputTokens: 1024,
+		async onFinish({ text }) {
+			await persistMessages(conversationId, messages, text);
+		},
 	});
 
 	return result.toTextStreamResponse();

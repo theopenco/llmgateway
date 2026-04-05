@@ -3660,6 +3660,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/chat-support-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                    search?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of chat support conversations. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            conversations: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                ipAddress: string | null;
+                                userAgent: string | null;
+                                messageCount: number;
+                                firstMessage: string | null;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/chat-support-logs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Single chat support conversation with messages. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            createdAt: string;
+                            updatedAt: string;
+                            ipAddress: string | null;
+                            userAgent: string | null;
+                            messageCount: number;
+                            messages: {
+                                id: string;
+                                createdAt: string;
+                                role: string;
+                                content: string;
+                                sequence: number;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/keys/api": {
         parameters: {
             query?: never;

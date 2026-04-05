@@ -913,6 +913,43 @@ export const message = pgTable(
 	(table) => [index("message_chat_id_idx").on(table.chatId)],
 );
 
+export const chatSupportConversation = pgTable(
+	"chat_support_conversation",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		ipAddress: text(),
+		userAgent: text(),
+		messageCount: integer().notNull().default(0),
+	},
+	(table) => [
+		index("chat_support_conversation_created_at_idx").on(table.createdAt),
+	],
+);
+
+export const chatSupportMessage = pgTable(
+	"chat_support_message",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		conversationId: text()
+			.notNull()
+			.references(() => chatSupportConversation.id, { onDelete: "cascade" }),
+		role: text({
+			enum: ["user", "assistant"],
+		}).notNull(),
+		content: text().notNull(),
+		sequence: integer().notNull(),
+	},
+	(table) => [
+		index("chat_support_message_conversation_id_idx").on(table.conversationId),
+	],
+);
+
 export const installation = pgTable("installation", {
 	id: text().primaryKey().$defaultFn(shortid),
 	createdAt: timestamp().notNull().defaultNow(),

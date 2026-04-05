@@ -5566,4 +5566,190 @@ admin.openapi(sendEmail, async (c) => {
 	return c.json({ success: true, message: "Email sent successfully." });
 });
 
+// ── Chat Support Logs ───────────────────────────────────────────────────────
+
+const chatSupportConversationSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+	ipAddress: z.string().nullable(),
+	userAgent: z.string().nullable(),
+	messageCount: z.number(),
+	firstMessage: z.string().nullable(),
+});
+
+const chatSupportConversationsListSchema = z.object({
+	conversations: z.array(chatSupportConversationSchema),
+	total: z.number(),
+});
+
+const chatSupportMessageSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	role: z.string(),
+	content: z.string(),
+	sequence: z.number(),
+});
+
+const chatSupportConversationDetailSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+	ipAddress: z.string().nullable(),
+	userAgent: z.string().nullable(),
+	messageCount: z.number(),
+	messages: z.array(chatSupportMessageSchema),
+});
+
+const getChatSupportConversations = createRoute({
+	method: "get",
+	path: "/chat-support-logs",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+			search: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: chatSupportConversationsListSchema.openapi({}),
+				},
+			},
+			description: "List of chat support conversations.",
+		},
+	},
+});
+
+admin.openapi(getChatSupportConversations, async (c) => {
+	const { limit = 50, offset = 0, search } = c.req.valid("query");
+
+	const t = tables.chatSupportConversation;
+	const mt = tables.chatSupportMessage;
+
+	const conditions = [];
+	if (search) {
+		const matchingConvIds = db
+			.select({ conversationId: mt.conversationId })
+			.from(mt)
+			.where(sql`${mt.content} ILIKE ${"%" + search + "%"}`)
+			.groupBy(mt.conversationId);
+		conditions.push(sql`${t.id} IN (${matchingConvIds})`);
+	}
+
+	const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+	const firstMessageSubquery = db
+		.select({
+			conversationId: mt.conversationId,
+			content: mt.content,
+		})
+		.from(mt)
+		.where(and(eq(mt.role, "user"), eq(mt.sequence, 0)))
+		.as("first_msg");
+
+	const [conversations, countResult] = await Promise.all([
+		db
+			.select({
+				id: t.id,
+				createdAt: t.createdAt,
+				updatedAt: t.updatedAt,
+				ipAddress: t.ipAddress,
+				userAgent: t.userAgent,
+				messageCount: t.messageCount,
+				firstMessage: firstMessageSubquery.content,
+			})
+			.from(t)
+			.leftJoin(
+				firstMessageSubquery,
+				eq(t.id, firstMessageSubquery.conversationId),
+			)
+			.where(where)
+			.orderBy(desc(t.createdAt))
+			.limit(limit)
+			.offset(offset),
+		db
+			.select({ count: sql<number>`COUNT(*)`.as("count") })
+			.from(t)
+			.where(where),
+	]);
+
+	return c.json({
+		conversations: conversations.map((conv) => ({
+			...conv,
+			createdAt: conv.createdAt.toISOString(),
+			updatedAt: conv.updatedAt.toISOString(),
+			firstMessage: conv.firstMessage ?? null,
+		})),
+		total: Number(countResult[0]?.count ?? 0),
+	});
+});
+
+const getChatSupportConversation = createRoute({
+	method: "get",
+	path: "/chat-support-logs/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: chatSupportConversationDetailSchema.openapi({}),
+				},
+			},
+			description: "Single chat support conversation with messages.",
+		},
+	},
+});
+
+admin.openapi(getChatSupportConversation, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const t = tables.chatSupportConversation;
+	const mt = tables.chatSupportMessage;
+
+	const rows = await db
+		.select({
+			id: t.id,
+			createdAt: t.createdAt,
+			updatedAt: t.updatedAt,
+			ipAddress: t.ipAddress,
+			userAgent: t.userAgent,
+			messageCount: t.messageCount,
+		})
+		.from(t)
+		.where(eq(t.id, id))
+		.limit(1);
+
+	const conversation = rows[0];
+	if (!conversation) {
+		throw new HTTPException(404, { message: "Conversation not found" });
+	}
+
+	const messages = await db
+		.select({
+			id: mt.id,
+			createdAt: mt.createdAt,
+			role: mt.role,
+			content: mt.content,
+			sequence: mt.sequence,
+		})
+		.from(mt)
+		.where(eq(mt.conversationId, id))
+		.orderBy(asc(mt.sequence));
+
+	return c.json({
+		...conversation,
+		createdAt: conversation.createdAt.toISOString(),
+		updatedAt: conversation.updatedAt.toISOString(),
+		messages: messages.map((m) => ({
+			...m,
+			createdAt: m.createdAt.toISOString(),
+		})),
+	});
+});
+
 export default admin;

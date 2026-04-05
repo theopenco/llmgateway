@@ -10,6 +10,7 @@ import {
 	LogOut,
 	Mail,
 	Menu,
+	MessageCircle,
 	Percent,
 	Server,
 } from "lucide-react";
@@ -87,6 +88,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
+	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -188,6 +190,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isContactSubmissions} size="lg">
 										<Mail className="h-4 w-4" />
 										<span>Contact Submissions</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/chat-support-logs" className="block">
+									<SidebarMenuButton isActive={isChatSupportLogs} size="lg">
+										<MessageCircle className="h-4 w-4" />
+										<span>Chat Support Logs</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
