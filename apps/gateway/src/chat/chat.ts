@@ -111,6 +111,7 @@ import { extractErrorCause } from "./tools/extract-error-cause.js";
 import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
+import { getAllowedAutoModelIds } from "./tools/get-default-auto-model-id.js";
 import { getDefaultAutoModelId } from "./tools/get-default-auto-model-id.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
@@ -1205,7 +1206,10 @@ chat.openapi(completions, async (c) => {
 		// Find the cheapest provider for the default auto-routed model that meets
 		// our request requirements. Free-model routing is handled separately below.
 		const defaultAutoModelId = getDefaultAutoModelId(requiredContextSize);
-		const allowedAutoModels = [defaultAutoModelId];
+		const allowedAutoModels = getAllowedAutoModelIds(
+			requiredContextSize,
+			no_reasoning,
+		);
 
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];

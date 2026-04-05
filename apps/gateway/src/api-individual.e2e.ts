@@ -739,6 +739,63 @@ describe("e2e individual tests", () => {
 	);
 
 	test(
+		"Auto-routing with no_reasoning chooses Claude Haiku 4.5",
+		getTestOptions({ completions: false }),
+		async () => {
+			if (!hasConfiguredProviderForModel("claude-haiku-4-5")) {
+				console.log(
+					"Skipping auto-routing no_reasoning test - no Claude Haiku 4.5 provider is configured",
+				);
+				return;
+			}
+
+			const { orgId, projectId, token } = await createTestData(
+				`auto-no-reasoning-${Date.now()}`,
+			);
+
+			await db
+				.update(tables.organization)
+				.set({ credits: "1000" })
+				.where(eq(tables.organization.id, orgId));
+
+			await db
+				.update(tables.project)
+				.set({ mode: "credits" })
+				.where(eq(tables.project.id, projectId));
+
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "auto",
+					no_reasoning: true,
+					messages: [
+						{
+							role: "user",
+							content: "Summarize this request without extended reasoning.",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			validateResponse(json);
+
+			const log = await validateLogByRequestId(requestId);
+			expect(log.requestedModel).toBe("auto");
+			expect(log.usedModelMapping).toContain("claude-haiku-4-5");
+			expect(log.reasoningEffort).toBeNull();
+		},
+	);
+
+	test(
 		"Success when requesting multi-provider model without prefix",
 		getTestOptions({ completions: false }),
 		async () => {

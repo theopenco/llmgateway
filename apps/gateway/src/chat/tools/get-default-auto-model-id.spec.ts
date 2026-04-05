@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	AUTO_ROUTE_OPUS_CONTEXT_THRESHOLD,
+	getAllowedAutoModelIds,
 	getDefaultAutoModelId,
 } from "./get-default-auto-model-id.js";
 
@@ -18,5 +19,21 @@ describe("getDefaultAutoModelId", () => {
 			"claude-opus-4-6",
 		);
 		expect(getDefaultAutoModelId(200_000)).toBe("claude-opus-4-6");
+	});
+
+	it("adds claude-haiku-4-5 when no_reasoning is enabled", () => {
+		expect(getAllowedAutoModelIds(8_192, true)).toEqual([
+			"claude-sonnet-4-6",
+			"claude-haiku-4-5",
+		]);
+		expect(getAllowedAutoModelIds(200_000, true)).toEqual([
+			"claude-opus-4-6",
+			"claude-haiku-4-5",
+		]);
+	});
+
+	it("uses the default Claude routing when reasoning is allowed", () => {
+		expect(getAllowedAutoModelIds(8_192, false)).toEqual(["claude-sonnet-4-6"]);
+		expect(getAllowedAutoModelIds(200_000, false)).toEqual(["claude-opus-4-6"]);
 	});
 });
