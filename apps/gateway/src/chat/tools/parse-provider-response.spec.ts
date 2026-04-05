@@ -136,6 +136,52 @@ describe("parseProviderResponse", () => {
 
 			expect(result.cachedTokens).toBe(0);
 		});
+
+		it("extracts reasoning content from Bedrock reasoning blocks", () => {
+			const json = {
+				output: {
+					message: {
+						content: [
+							{
+								reasoningContent: {
+									reasoningText: {
+										text: "First compare the sets. ",
+									},
+								},
+							},
+							{
+								reasoningContent: {
+									reasoningText: {
+										text: "Then derive the conclusion.",
+									},
+								},
+							},
+							{ text: "Some roses may be red, but it is not guaranteed." },
+						],
+						role: "assistant",
+					},
+				},
+				stopReason: "end_turn",
+				usage: {
+					inputTokens: 100,
+					outputTokens: 200,
+					totalTokens: 300,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				json,
+			);
+
+			expect(result.content).toBe(
+				"Some roses may be red, but it is not guaranteed.",
+			);
+			expect(result.reasoningContent).toBe(
+				"First compare the sets. Then derive the conclusion.",
+			);
+		});
 	});
 
 	describe("novita finish reason mapping", () => {
