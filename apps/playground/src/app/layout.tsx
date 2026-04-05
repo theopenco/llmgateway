@@ -73,15 +73,16 @@ const webAppSchema = {
 	"@type": "WebApplication",
 	name: "LLM Gateway Playground",
 	url: "https://chat.llmgateway.io",
+	operatingSystem: "Any",
 	applicationCategory: "DeveloperApplication",
 	browserRequirements: "Requires JavaScript. Requires HTML5.",
 	description:
 		"Test and compare 210+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
+	screenshot: "https://chat.llmgateway.io/opengraph.png?v=1",
 	offers: {
 		"@type": "Offer",
 		price: "0",
 		priceCurrency: "USD",
-		availability: "https://schema.org/InStock",
 	},
 };
 

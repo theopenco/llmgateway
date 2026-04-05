@@ -70,17 +70,18 @@ const softwareAppSchema = {
 	"@type": "SoftwareApplication",
 	name: "DevPass by LLM Gateway",
 	url: "https://code.llmgateway.io",
+	operatingSystem: "Any",
 	applicationCategory: "DeveloperApplication",
 	browserRequirements: "Requires JavaScript. Requires HTML5.",
 	description:
 		"Fixed-price dev plans for AI-powered coding with Claude Code, Cursor, Cline, and any OpenAI-compatible tool. One subscription, every model.",
+	screenshot: "https://code.llmgateway.io/opengraph.png?v=1",
 	offers: {
 		"@type": "AggregateOffer",
 		priceCurrency: "USD",
 		lowPrice: "29",
 		highPrice: "179",
 		offerCount: "3",
-		availability: "https://schema.org/InStock",
 	},
 };
 
