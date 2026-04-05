@@ -922,6 +922,8 @@ export const chatSupportConversation = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
+		name: text(),
+		email: text(),
 		ipAddress: text(),
 		userAgent: text(),
 		messageCount: integer().notNull().default(0),

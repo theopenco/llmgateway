@@ -97,6 +97,8 @@ function getTextFromUIMessage(message: UIMessage): string {
 async function getOrCreateConversation(
 	ipAddress: string,
 	userAgent: string | undefined,
+	name: string | undefined,
+	email: string | undefined,
 ): Promise<string> {
 	const redisKey = `chat_support_conv:${ipAddress}`;
 	const existingId = await redisClient.get(redisKey);
@@ -107,7 +109,7 @@ async function getOrCreateConversation(
 	const t = tables.chatSupportConversation;
 	const [conv] = await db
 		.insert(t)
-		.values({ ipAddress, userAgent, messageCount: 0 })
+		.values({ ipAddress, userAgent, name, email, messageCount: 0 })
 		.returning({ id: t.id });
 	const conversationId = conv!.id;
 
@@ -187,8 +189,12 @@ publicChatSupport.post("/", async (c) => {
 		);
 	}
 
-	const body = await c.req.json<{ messages: UIMessage[] }>();
-	const { messages } = body;
+	const body = await c.req.json<{
+		messages: UIMessage[];
+		name?: string;
+		email?: string;
+	}>();
+	const { messages, name, email } = body;
 
 	if (!messages || !Array.isArray(messages) || messages.length === 0) {
 		return c.json({ error: "Missing messages" }, 400);
@@ -208,7 +214,12 @@ publicChatSupport.post("/", async (c) => {
 	}
 
 	const userAgent = c.req.header("User-Agent");
-	const conversationId = await getOrCreateConversation(ipAddress, userAgent);
+	const conversationId = await getOrCreateConversation(
+		ipAddress,
+		userAgent,
+		name,
+		email,
+	);
 
 	const llmgateway = createLLMGateway({
 		apiKey: supportApiKey,

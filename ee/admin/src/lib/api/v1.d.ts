@@ -3691,6 +3691,8 @@ export interface paths {
                                 id: string;
                                 createdAt: string;
                                 updatedAt: string;
+                                name: string | null;
+                                email: string | null;
                                 ipAddress: string | null;
                                 userAgent: string | null;
                                 messageCount: number;
@@ -3738,6 +3740,8 @@ export interface paths {
                             id: string;
                             createdAt: string;
                             updatedAt: string;
+                            name: string | null;
+                            email: string | null;
                             ipAddress: string | null;
                             userAgent: string | null;
                             messageCount: number;

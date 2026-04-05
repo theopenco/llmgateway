@@ -24,6 +24,9 @@ export function ChatSupport() {
 	const [isOpen, setIsOpen] = useState(false);
 	const [hasUnread, setHasUnread] = useState(false);
 	const [text, setText] = useState("");
+	const [userName, setUserName] = useState("");
+	const [userEmail, setUserEmail] = useState("");
+	const [hasIdentified, setHasIdentified] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const prevMessageCountRef = useRef(0);
@@ -33,9 +36,13 @@ export function ChatSupport() {
 			new Chat({
 				transport: new TextStreamChatTransport({
 					api: `${config.apiUrl}/public/chat-support`,
+					body: {
+						name: userName,
+						email: userEmail,
+					},
 				}),
 			}),
-		[config.apiUrl],
+		[config.apiUrl, userName, userEmail],
 	);
 
 	const { messages, sendMessage, status, setMessages, error } = useChat({
@@ -49,10 +56,10 @@ export function ChatSupport() {
 	}, [messages]);
 
 	useEffect(() => {
-		if (isOpen && inputRef.current) {
+		if (isOpen && hasIdentified && inputRef.current) {
 			inputRef.current.focus();
 		}
-	}, [isOpen]);
+	}, [isOpen, hasIdentified]);
 
 	// Show unread indicator when assistant responds while chat is closed
 	useEffect(() => {
@@ -76,6 +83,17 @@ export function ChatSupport() {
 
 	const handleReset = () => {
 		setMessages([]);
+		setHasIdentified(false);
+		setUserName("");
+		setUserEmail("");
+	};
+
+	const handleIdentify = (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!userName.trim()) {
+			return;
+		}
+		setHasIdentified(true);
 	};
 
 	const handleSubmit = (e: React.FormEvent) => {
@@ -141,101 +159,142 @@ export function ChatSupport() {
 					</div>
 				</div>
 
-				{/* Messages */}
-				<div className="flex-1 overflow-y-auto px-4 py-3">
-					<div className="flex flex-col gap-3">
-						{messages.length === 0 && (
-							<div className="flex justify-start">
-								<div className="max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm leading-relaxed text-foreground">
-									Hi! I&apos;m the LLM Gateway support assistant. How can I help
-									you today?
-								</div>
-							</div>
-						)}
-						{messages.map((message) => {
-							const content = getTextFromParts(message);
-							if (!content) {
-								return null;
-							}
-							const isAssistant = message.role === "assistant";
-							const isLastAssistant =
-								isAssistant && message.id === messages[messages.length - 1]?.id;
-							return (
-								<div
-									key={message.id}
-									className={cn(
-										"flex",
-										isAssistant ? "justify-start" : "justify-end",
-									)}
-								>
-									<div
-										className={cn(
-											"max-w-[85%] overflow-hidden rounded-xl px-3 py-2 text-sm leading-relaxed",
-											isAssistant
-												? "bg-muted text-foreground"
-												: "bg-primary text-primary-foreground",
-										)}
-									>
-										{isAssistant ? (
-											<Streamdown
-												isAnimating={isLastAssistant && isLoading}
-												controls={false}
-												className="overflow-x-auto [&_pre]:overflow-x-auto [&_code]:break-all"
-											>
-												{content}
-											</Streamdown>
-										) : (
-											content
-										)}
-									</div>
-								</div>
-							);
-						})}
-						{isLoading &&
-							(messages.length === 0 ||
-								messages[messages.length - 1]?.role !== "assistant") && (
-								<div className="flex justify-start">
-									<div className="flex items-center gap-1.5 rounded-xl bg-muted px-3 py-2">
-										<div className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.3s]" />
-										<div className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.15s]" />
-										<div className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50" />
-									</div>
-								</div>
-							)}
-						{error && (
-							<div className="flex justify-start">
-								<div className="max-w-[85%] rounded-xl bg-destructive/10 px-3 py-2 text-sm leading-relaxed text-destructive">
-									Something went wrong. Please try again.
-								</div>
-							</div>
-						)}
-						<div ref={messagesEndRef} />
+				{!hasIdentified ? (
+					<div className="flex flex-1 flex-col justify-center px-6 py-8">
+						<div className="mb-6 text-center">
+							<h4 className="text-base font-semibold text-foreground">
+								Welcome!
+							</h4>
+							<p className="mt-1 text-sm text-muted-foreground">
+								Please introduce yourself before we start.
+							</p>
+						</div>
+						<form onSubmit={handleIdentify} className="flex flex-col gap-3">
+							<input
+								type="text"
+								value={userName}
+								onChange={(e) => setUserName(e.target.value)}
+								placeholder="Your name *"
+								required
+								className="rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
+								autoFocus
+							/>
+							<input
+								type="email"
+								value={userEmail}
+								onChange={(e) => setUserEmail(e.target.value)}
+								placeholder="Your email (optional)"
+								className="rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
+							/>
+							<Button
+								type="submit"
+								disabled={!userName.trim()}
+								className="mt-1 w-full"
+							>
+								Start Chat
+							</Button>
+						</form>
 					</div>
-				</div>
+				) : (
+					<>
+						{/* Messages */}
+						<div className="flex-1 overflow-y-auto px-4 py-3">
+							<div className="flex flex-col gap-3">
+								{messages.length === 0 && (
+									<div className="flex justify-start">
+										<div className="max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm leading-relaxed text-foreground">
+											Hi{userName ? ` ${userName}` : ""}! I&apos;m the LLM
+											Gateway support assistant. How can I help you today?
+										</div>
+									</div>
+								)}
+								{messages.map((message) => {
+									const content = getTextFromParts(message);
+									if (!content) {
+										return null;
+									}
+									const isAssistant = message.role === "assistant";
+									const isLastAssistant =
+										isAssistant &&
+										message.id === messages[messages.length - 1]?.id;
+									return (
+										<div
+											key={message.id}
+											className={cn(
+												"flex",
+												isAssistant ? "justify-start" : "justify-end",
+											)}
+										>
+											<div
+												className={cn(
+													"max-w-[85%] overflow-hidden rounded-xl px-3 py-2 text-sm leading-relaxed",
+													isAssistant
+														? "bg-muted text-foreground"
+														: "bg-primary text-primary-foreground",
+												)}
+											>
+												{isAssistant ? (
+													<Streamdown
+														isAnimating={isLastAssistant && isLoading}
+														controls={false}
+														className="overflow-x-auto [&_pre]:overflow-x-auto [&_code]:break-all"
+													>
+														{content}
+													</Streamdown>
+												) : (
+													content
+												)}
+											</div>
+										</div>
+									);
+								})}
+								{isLoading &&
+									(messages.length === 0 ||
+										messages[messages.length - 1]?.role !== "assistant") && (
+										<div className="flex justify-start">
+											<div className="flex items-center gap-1.5 rounded-xl bg-muted px-3 py-2">
+												<div className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.3s]" />
+												<div className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.15s]" />
+												<div className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50" />
+											</div>
+										</div>
+									)}
+								{error && (
+									<div className="flex justify-start">
+										<div className="max-w-[85%] rounded-xl bg-destructive/10 px-3 py-2 text-sm leading-relaxed text-destructive">
+											Something went wrong. Please try again.
+										</div>
+									</div>
+								)}
+								<div ref={messagesEndRef} />
+							</div>
+						</div>
 
-				{/* Input */}
-				<div className="border-t border-border p-3">
-					<form onSubmit={handleSubmit} className="flex items-end gap-2">
-						<textarea
-							ref={inputRef}
-							value={text}
-							onChange={(e) => setText(e.target.value)}
-							onKeyDown={handleKeyDown}
-							placeholder="Ask about LLM Gateway..."
-							rows={1}
-							className="field-sizing-content max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
-						/>
-						<Button
-							type="submit"
-							size="icon"
-							disabled={!text.trim() || isLoading}
-							className="size-9 shrink-0 rounded-lg"
-						>
-							<Send className="size-4" />
-							<span className="sr-only">Send message</span>
-						</Button>
-					</form>
-				</div>
+						{/* Input */}
+						<div className="border-t border-border p-3">
+							<form onSubmit={handleSubmit} className="flex items-end gap-2">
+								<textarea
+									ref={inputRef}
+									value={text}
+									onChange={(e) => setText(e.target.value)}
+									onKeyDown={handleKeyDown}
+									placeholder="Ask about LLM Gateway..."
+									rows={1}
+									className="field-sizing-content max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
+								/>
+								<Button
+									type="submit"
+									size="icon"
+									disabled={!text.trim() || isLoading}
+									className="size-9 shrink-0 rounded-lg"
+								>
+									<Send className="size-4" />
+									<span className="sr-only">Send message</span>
+								</Button>
+							</form>
+						</div>
+					</>
+				)}
 			</div>
 
 			{/* Floating trigger button */}
