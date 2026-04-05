@@ -235,8 +235,6 @@ function getFinishReasonLabel(reason: string): string {
 			return "Response reached the maximum token limit";
 		case "content-filter":
 			return "Response was filtered by content policy";
-		case "error":
-			return "An error occurred during generation";
 		default:
 			return `Generation stopped: ${reason}`;
 	}
