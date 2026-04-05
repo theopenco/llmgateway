@@ -19,6 +19,32 @@ import {
 } from "./test-utils/test-helpers.js";
 
 describe("e2e individual tests", () => {
+	const autoRoutingModelIds = new Set([
+		"claude-opus-4-6",
+		"claude-sonnet-4-6",
+		"claude-haiku-4-5",
+	]);
+	const autoRoutingProviderIds = [
+		...new Set(
+			models
+				.filter((model) => autoRoutingModelIds.has(model.id))
+				.flatMap((model) =>
+					model.providers.map((provider) => provider.providerId),
+				),
+		),
+	];
+
+	function hasProviderEnvVar(providerId: string) {
+		const envVarName = getProviderEnvVar(providerId);
+		return envVarName ? !!process.env[envVarName] : false;
+	}
+
+	function hasAutoRoutingProviderEnv() {
+		return autoRoutingProviderIds.some((providerId) =>
+			hasProviderEnvVar(providerId),
+		);
+	}
+
 	// Helper to create unique test data for each test to avoid conflicts
 	async function createTestData(testId: string) {
 		const userId = `user-${testId}`;
@@ -372,7 +398,16 @@ describe("e2e individual tests", () => {
 		"completions with bare 'auto' model and credits",
 		getTestOptions({ completions: false }),
 		async () => {
-			const { orgId, projectId, token } = await createTestData("bare-auto");
+			if (!hasAutoRoutingProviderEnv()) {
+				console.log(
+					"Skipping bare auto test - no Claude auto-routing provider API key provided",
+				);
+				return;
+			}
+
+			const { orgId, projectId, token } = await createTestData(
+				`bare-auto-${Date.now()}`,
+			);
 
 			await db
 				.update(tables.organization)
@@ -642,11 +677,9 @@ describe("e2e individual tests", () => {
 		"Auto-routing sets reasoning_effort appropriately",
 		getTestOptions({ completions: false }),
 		async () => {
-			const envVarName = getProviderEnvVar("openai");
-			const envVarValue = envVarName ? process.env[envVarName] : undefined;
-			if (!envVarValue) {
+			if (!hasAutoRoutingProviderEnv()) {
 				console.log(
-					"Skipping auto-routing reasoning_effort test - no OpenAI API key provided",
+					"Skipping auto-routing reasoning_effort test - no Claude auto-routing provider API key provided",
 				);
 				return;
 			}
@@ -699,12 +732,16 @@ describe("e2e individual tests", () => {
 			const usedModel = log.usedModelMapping;
 			expect(usedModel).toBeDefined();
 
-			// Verify reasoningEffort is set and has the correct value based on model
-			expect(log.reasoningEffort).toBeDefined();
-			if (usedModel?.startsWith("gpt-5")) {
-				expect(log.reasoningEffort).toEqual("minimal");
-			} else {
+			const reasoningAutoRoutingModelIds = new Set([
+				"claude-opus-4-6",
+				"claude-sonnet-4-6",
+			]);
+
+			// Verify reasoningEffort is only auto-set for reasoning-capable Claude models
+			if (usedModel && reasoningAutoRoutingModelIds.has(usedModel)) {
 				expect(log.reasoningEffort).toEqual("low");
+			} else {
+				expect(log.reasoningEffort).toBeNull();
 			}
 
 			// Verify the response has valid usage information (if available)

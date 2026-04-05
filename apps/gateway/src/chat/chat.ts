@@ -1203,7 +1203,11 @@ chat.openapi(completions, async (c) => {
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
-		const allowedAutoModels = ["gpt-oss-120b", "gpt-5-nano", "gpt-4.1-nano"];
+		const allowedAutoModels = [
+			"claude-opus-4-6",
+			"claude-sonnet-4-6",
+			"claude-haiku-4-5",
+		];
 
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
@@ -1404,8 +1408,8 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 			// Default fallback if no suitable model is found - use cheapest allowed model
-			usedModel = "gpt-5-nano";
-			usedProvider = "openai";
+			usedModel = "claude-haiku-4-5";
+			usedProvider = "anthropic";
 		}
 		// Update modelInfo to the selected model so retry/fallback logic can find
 		// alternative providers. Without this, modelInfo still points to the "auto"
@@ -1417,7 +1421,7 @@ chat.openapi(completions, async (c) => {
 			};
 		} else {
 			// Fallback case: look up the default model definition
-			const fallbackModelDef = models.find((m) => m.id === "gpt-5-nano");
+			const fallbackModelDef = models.find((m) => m.id === "claude-haiku-4-5");
 			if (fallbackModelDef) {
 				modelInfo = {
 					...fallbackModelDef,
