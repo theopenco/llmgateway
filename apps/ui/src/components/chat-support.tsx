@@ -6,6 +6,7 @@ import { MessageCircle, X, Send, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 
+import { useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ function getTextFromParts(message: UIMessage): string {
 
 export function ChatSupport() {
 	const config = useAppConfig();
+	const { user } = useUser();
 	const [isOpen, setIsOpen] = useState(false);
 	const [hasUnread, setHasUnread] = useState(false);
 	const [text, setText] = useState("");
@@ -31,18 +33,23 @@ export function ChatSupport() {
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const prevMessageCountRef = useRef(0);
 
+	const isLoggedIn = !!user;
+	const effectiveName = isLoggedIn ? (user.name ?? "") : userName;
+	const effectiveEmail = isLoggedIn ? (user.email ?? "") : userEmail;
+	const isIdentified = isLoggedIn || hasIdentified;
+
 	const chat = useMemo(
 		() =>
 			new Chat({
 				transport: new TextStreamChatTransport({
 					api: `${config.apiUrl}/public/chat-support`,
 					body: {
-						name: userName,
-						email: userEmail,
+						name: effectiveName,
+						email: effectiveEmail,
 					},
 				}),
 			}),
-		[config.apiUrl, userName, userEmail],
+		[config.apiUrl, effectiveName, effectiveEmail],
 	);
 
 	const { messages, sendMessage, status, setMessages, error } = useChat({
@@ -56,10 +63,10 @@ export function ChatSupport() {
 	}, [messages]);
 
 	useEffect(() => {
-		if (isOpen && hasIdentified && inputRef.current) {
+		if (isOpen && isIdentified && inputRef.current) {
 			inputRef.current.focus();
 		}
-	}, [isOpen, hasIdentified]);
+	}, [isOpen, isIdentified]);
 
 	// Show unread indicator when assistant responds while chat is closed
 	useEffect(() => {
@@ -83,9 +90,11 @@ export function ChatSupport() {
 
 	const handleReset = () => {
 		setMessages([]);
-		setHasIdentified(false);
-		setUserName("");
-		setUserEmail("");
+		if (!isLoggedIn) {
+			setHasIdentified(false);
+			setUserName("");
+			setUserEmail("");
+		}
 	};
 
 	const handleIdentify = (e: React.FormEvent) => {
@@ -159,7 +168,7 @@ export function ChatSupport() {
 					</div>
 				</div>
 
-				{!hasIdentified ? (
+				{!isIdentified ? (
 					<div className="flex flex-1 flex-col justify-center px-6 py-8">
 						<div className="mb-6 text-center">
 							<h4 className="text-base font-semibold text-foreground">
@@ -203,8 +212,8 @@ export function ChatSupport() {
 								{messages.length === 0 && (
 									<div className="flex justify-start">
 										<div className="max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm leading-relaxed text-foreground">
-											Hi{userName ? ` ${userName}` : ""}! I&apos;m the LLM
-											Gateway support assistant. How can I help you today?
+											Hi{effectiveName ? ` ${effectiveName}` : ""}! I&apos;m the
+											LLM Gateway support assistant. How can I help you today?
 										</div>
 									</div>
 								)}
