@@ -216,7 +216,7 @@ keysProvider.openapi(create, async (c) => {
 	}
 
 	if (validationResult.error) {
-		const errorMessage = validationResult.error || "Upstream server error";
+		const errorMessage = validationResult.error ?? "Upstream server error";
 		logger.warn("Provider key validation failed", {
 			provider,
 			model: validationResult.model ?? "unknown",
