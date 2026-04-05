@@ -5,6 +5,7 @@ import { UnifiedFinishReason } from "@llmgateway/db";
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
+	isContentFilterFinishReason,
 	isExpectedUnknownFinishReason,
 } from "./logs.js";
 
@@ -93,6 +94,18 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps Glacier image content filter finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("IMAGE_PROHIBITED_CONTENT", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("IMAGE_SAFETY", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("NO_IMAGE", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
 	it("handles special cases", () => {
 		expect(getUnifiedFinishReason("canceled", "any-provider")).toBe(
 			UnifiedFinishReason.CANCELED,
@@ -152,6 +165,28 @@ describe("isExpectedUnknownFinishReason", () => {
 		expect(isExpectedUnknownFinishReason(undefined, "google-ai-studio")).toBe(
 			false,
 		);
+	});
+});
+
+describe("isContentFilterFinishReason", () => {
+	it("returns true for Google-compatible image filter finish reasons", () => {
+		expect(
+			isContentFilterFinishReason("IMAGE_PROHIBITED_CONTENT", "glacier"),
+		).toBe(true);
+		expect(
+			isContentFilterFinishReason(
+				"IMAGE_PROHIBITED_CONTENT",
+				"google-ai-studio",
+			),
+		).toBe(true);
+	});
+
+	it("returns false for Google OTHER finish reason", () => {
+		expect(isContentFilterFinishReason("OTHER", "glacier")).toBe(false);
+	});
+
+	it("returns true for OpenAI content filters", () => {
+		expect(isContentFilterFinishReason("content_filter", "openai")).toBe(true);
 	});
 });
 
