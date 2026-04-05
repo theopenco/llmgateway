@@ -97,13 +97,13 @@ export function Providers({ children, config }: ProvidersProps) {
 					{process.env.NODE_ENV === "development" && (
 						<ReactQueryDevtools buttonPosition="bottom-left" />
 					)}
+					<ChatSupport />
 				</QueryClientProvider>
 				<Toaster />
 				<SonnerToaster richColors position="bottom-right" />
 				<Suspense>
 					<ReferralHandler />
 				</Suspense>
-				<ChatSupport />
 			</ThemeProvider>
 		</AppConfigProvider>
 	);
