@@ -126,6 +126,7 @@ export default function ChatPageClient({
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [finishReason, setFinishReason] = useState<string | null>(null);
 	const [showTopUp, setShowTopUp] = useState(false);
 
 	// MCP servers management
@@ -178,9 +179,16 @@ export default function ChatPageClient({
 					}
 				}
 			},
-			onFinish: async ({ message }) => {
+			onFinish: async ({ message, finishReason: reason }) => {
 				isSendingRef.current = false;
 				isNewChatRef.current = false;
+
+				// Track finish reason for inline display
+				if (reason && reason !== "stop" && reason !== "tool-calls") {
+					setFinishReason(reason);
+				} else {
+					setFinishReason(null);
+				}
 
 				// If an error already occurred during streaming, skip saving the response
 				if (errorOccurredRef.current) {
@@ -655,6 +663,7 @@ export default function ChatPageClient({
 		}
 
 		setError(null);
+		setFinishReason(null);
 		setIsLoading(true);
 		posthog.capture("playground_chat_sent", {
 			model: selectedModel,
@@ -765,6 +774,7 @@ export default function ChatPageClient({
 
 	const clearMessages = () => {
 		setError(null);
+		setFinishReason(null);
 		shouldClearMessagesRef.current = true;
 		setMessages([]);
 		// Remove chat param from URL
@@ -779,6 +789,7 @@ export default function ChatPageClient({
 	const handleNewChat = async () => {
 		setIsLoading(true);
 		setError(null);
+		setFinishReason(null);
 		try {
 			shouldClearMessagesRef.current = true;
 			setMessages([]);
@@ -801,6 +812,7 @@ export default function ChatPageClient({
 
 	const handleChatSelect = (chatId: string) => {
 		setError(null);
+		setFinishReason(null);
 		shouldClearMessagesRef.current = true; // Request message clear on URL change
 		// Update URL with chat ID - this will trigger the useEffect to update state
 		const params = new URLSearchParams(searchParams.toString());
@@ -1058,6 +1070,7 @@ export default function ChatPageClient({
 											onUserMessage={handleUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
+											finishReason={finishReason}
 											setWebSearchEnabled={setWebSearchEnabled}
 											supportsWebSearch={supportsWebSearch}
 											webSearchEnabled={webSearchEnabled}
@@ -1094,6 +1107,7 @@ export default function ChatPageClient({
 										onUserMessage={handleUserMessage}
 										isLoading={isLoading || isChatLoading}
 										error={error}
+										finishReason={finishReason}
 										floatingInput
 									/>
 								</div>
