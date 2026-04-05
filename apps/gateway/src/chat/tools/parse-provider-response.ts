@@ -57,6 +57,29 @@ export function parseProviderResponse(
 					.map((block: any) => block.text)
 					.join("") ?? null;
 
+			// Bedrock reasoning-capable Anthropic models return reasoning in
+			// content blocks as reasoningContent.reasoningText.text.
+			reasoningContent =
+				contentBlocks
+					.map((block: any) => {
+						const reasoning = block.reasoningContent;
+						if (!reasoning) {
+							return null;
+						}
+						if (typeof reasoning === "string") {
+							return reasoning;
+						}
+						if (typeof reasoning.reasoningText?.text === "string") {
+							return reasoning.reasoningText.text;
+						}
+						if (typeof reasoning.text === "string") {
+							return reasoning.text;
+						}
+						return null;
+					})
+					.filter((value: string | null): value is string => value !== null)
+					.join("") ?? null;
+
 			// Map Bedrock stop reasons to OpenAI finish reasons
 			const stopReason = json.stopReason;
 			if (stopReason === "end_turn") {
