@@ -9,7 +9,12 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { db, tables, eq } from "@llmgateway/db";
-import { models, providers, getProviderEnvVar } from "@llmgateway/models";
+import {
+	hasProviderEnvironmentToken,
+	models,
+	providers,
+	getProviderEnvVar,
+} from "@llmgateway/models";
 
 import { app } from "./app.js";
 import {
@@ -106,10 +111,9 @@ describe("e2e individual tests", () => {
 	function hasConfiguredProviderForModel(modelId: string) {
 		const model = models.find((modelDef) => modelDef.id === modelId);
 		return (
-			model?.providers.some((provider) => {
-				const envVarName = getProviderEnvVar(provider.providerId);
-				return envVarName ? Boolean(process.env[envVarName]) : false;
-			}) ?? false
+			model?.providers.some((provider) =>
+				hasProviderEnvironmentToken(provider.providerId),
+			) ?? false
 		);
 	}
 

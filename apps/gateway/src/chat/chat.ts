@@ -111,10 +111,7 @@ import { extractErrorCause } from "./tools/extract-error-cause.js";
 import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
-import {
-	AUTO_ROUTE_OPUS_CONTEXT_THRESHOLD,
-	getDefaultAutoModelId,
-} from "./tools/get-default-auto-model-id.js";
+import { getDefaultAutoModelId } from "./tools/get-default-auto-model-id.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
@@ -1205,179 +1202,186 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
-		const autoModelIds = [
-			"claude-sonnet-4-6",
-			"claude-opus-4-6",
-			"claude-haiku-4-5",
-		] as const;
-
-		// Find the cheapest provider for the default auto-routed model that meets
-		// our request requirements. Free-model routing is handled separately below.
 		const defaultAutoModelId = getDefaultAutoModelId(requiredContextSize);
 
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
-		let lowestPrice = Number.MAX_VALUE;
-		const now = new Date(); // Cache current time for deprecation checks
 
-		for (const modelDef of models) {
-			if (modelDef.id === "auto" || modelDef.id === "custom") {
-				continue;
-			}
+		async function findBestAutoRoutingCandidate(
+			candidateModels: ModelDefinition[],
+		): Promise<{
+			selectedModel: ModelDefinition;
+			selectedProviders: ProviderModelMapping[];
+		} | null> {
+			let bestModel: ModelDefinition | undefined;
+			let bestProviders: ProviderModelMapping[] = [];
+			let lowestPrice = Number.MAX_VALUE;
+			const now = new Date(); // Cache current time for deprecation checks
 
-			// When free_models_only is true, only consider models marked as free.
-			// Otherwise, only consider the explicit auto model set for this route.
-			if (free_models_only) {
-				if (!("free" in modelDef && modelDef.free)) {
-					continue;
-				}
-			} else {
-				if (
-					!autoModelIds.includes(modelDef.id as (typeof autoModelIds)[number])
-				) {
+			for (const modelDef of candidateModels) {
+				if (modelDef.id === "auto" || modelDef.id === "custom") {
 					continue;
 				}
 
-				if (modelDef.id === "claude-haiku-4-5" && !no_reasoning) {
-					continue;
+				// When free_models_only is true, only consider models marked as free.
+				if (free_models_only) {
+					if (!("free" in modelDef && modelDef.free)) {
+						continue;
+					}
 				}
 
-				if (
-					modelDef.id === "claude-sonnet-4-6" &&
-					requiredContextSize > AUTO_ROUTE_OPUS_CONTEXT_THRESHOLD
-				) {
+				// Validate IAM rules for this candidate model and filter providers.
+				// We must re-evaluate per model because iamAllowedProviders was computed
+				// for the "auto" model which only has the "llmgateway" provider.
+				const candidateIam = await validateModelAccess(
+					apiKey.id,
+					modelDef.id,
+					undefined,
+					modelDef,
+				);
+				if (!candidateIam.allowed) {
 					continue;
 				}
+				const candidateAllowedProviders = candidateIam.allowedProviders;
 
-				if (
-					modelDef.id === "claude-opus-4-6" &&
-					requiredContextSize <= AUTO_ROUTE_OPUS_CONTEXT_THRESHOLD
-				) {
-					continue;
-				}
-			}
-
-			// Validate IAM rules for this candidate model and filter providers.
-			// We must re-evaluate per model because iamAllowedProviders was computed
-			// for the "auto" model which only has the "llmgateway" provider.
-			const candidateIam = await validateModelAccess(
-				apiKey.id,
-				modelDef.id,
-				undefined,
-				modelDef,
-			);
-			if (!candidateIam.allowed) {
-				continue;
-			}
-			const candidateAllowedProviders = candidateIam.allowedProviders;
-
-			const candidateProviders = preferConcreteRegionalMappings(
-				project.mode === "credits"
-					? filterRegionsByAvailableKeys(
-							expandAllProviderRegions(
+				const candidateProviders = preferConcreteRegionalMappings(
+					project.mode === "credits"
+						? filterRegionsByAvailableKeys(
+								expandAllProviderRegions(
+									modelDef.providers as ProviderModelMapping[],
+								),
+							)
+						: expandAllProviderRegions(
 								modelDef.providers as ProviderModelMapping[],
 							),
-						)
-					: expandAllProviderRegions(
-							modelDef.providers as ProviderModelMapping[],
-						),
-			);
-			// Check if any of the model's providers are available
-			const availableModelProviders = candidateProviders.filter(
-				(provider) =>
-					availableProviders.includes(provider.providerId) &&
-					(!candidateAllowedProviders ||
-						candidateAllowedProviders.includes(provider.providerId)),
-			);
+				);
+				// Check if any of the model's providers are available
+				const availableModelProviders = candidateProviders.filter(
+					(provider) =>
+						availableProviders.includes(provider.providerId) &&
+						(!candidateAllowedProviders ||
+							candidateAllowedProviders.includes(provider.providerId)),
+				);
 
-			// Filter by context size requirement, reasoning capability, and deprecation status
-			const suitableProviders = availableModelProviders.filter((provider) => {
-				// Skip deprecated provider mappings
-				if (provider.deprecatedAt && now > provider.deprecatedAt!) {
-					return false;
-				}
-
-				// Use the provider's context size, defaulting to a reasonable value if not specified
-				const modelContextSize = provider.contextSize ?? 8192;
-				const contextSizeMet = modelContextSize >= requiredContextSize;
-
-				// If no_reasoning is true, exclude reasoning models
-				if (no_reasoning && provider.reasoning === true) {
-					return false;
-				}
-
-				// Check reasoning capability if reasoning_effort is specified
-				if (reasoning_effort !== undefined && provider.reasoning !== true) {
-					return false;
-				}
-
-				// Check reasoning.max_tokens support if specified
-				if (
-					reasoning_max_tokens !== undefined &&
-					provider.reasoningMaxTokens !== true
-				) {
-					return false;
-				}
-
-				// Check tool capability if tools or tool_choice is specified
-				if (
-					(tools !== undefined || tool_choice !== undefined) &&
-					provider.tools !== true
-				) {
-					return false;
-				}
-
-				// Check web search capability if web search tool is requested
-				if (webSearchTool && provider.webSearch !== true) {
-					return false;
-				}
-
-				// Check JSON output capability if json_object or json_schema response format is requested
-				if (
-					response_format?.type === "json_object" ||
-					response_format?.type === "json_schema"
-				) {
-					if (provider.jsonOutput !== true) {
+				// Filter by context size requirement, reasoning capability, and deprecation status
+				const suitableProviders = availableModelProviders.filter((provider) => {
+					// Skip deprecated provider mappings
+					if (provider.deprecatedAt && now > provider.deprecatedAt!) {
 						return false;
 					}
-				}
 
-				// Check JSON schema output capability if json_schema response format is requested
-				if (response_format?.type === "json_schema") {
-					if (provider.jsonOutputSchema !== true) {
+					// Use the provider's context size, defaulting to a reasonable value if not specified
+					const modelContextSize = provider.contextSize ?? 8192;
+					const contextSizeMet = modelContextSize >= requiredContextSize;
+
+					// If no_reasoning is true, exclude reasoning models
+					if (no_reasoning && provider.reasoning === true) {
 						return false;
 					}
-				}
 
-				// Check vision capability if images are present in messages
-				if (hasImages && provider.vision !== true) {
-					return false;
-				}
+					// Check reasoning capability if reasoning_effort is specified
+					if (reasoning_effort !== undefined && provider.reasoning !== true) {
+						return false;
+					}
 
-				if (
-					max_tokens !== undefined &&
-					provider.maxOutput !== undefined &&
-					max_tokens > provider.maxOutput
-				) {
-					return false;
-				}
+					// Check reasoning.max_tokens support if specified
+					if (
+						reasoning_max_tokens !== undefined &&
+						provider.reasoningMaxTokens !== true
+					) {
+						return false;
+					}
 
-				return contextSizeMet;
-			});
+					// Check tool capability if tools or tool_choice is specified
+					if (
+						(tools !== undefined || tool_choice !== undefined) &&
+						provider.tools !== true
+					) {
+						return false;
+					}
 
-			if (suitableProviders.length > 0) {
-				// Find the cheapest among the suitable providers for this model
-				for (const provider of suitableProviders) {
-					const totalPrice =
-						((provider.inputPrice ?? 0) + (provider.outputPrice ?? 0)) / 2;
+					// Check web search capability if web search tool is requested
+					if (webSearchTool && provider.webSearch !== true) {
+						return false;
+					}
 
-					if (totalPrice < lowestPrice) {
-						lowestPrice = totalPrice;
-						selectedModel = modelDef;
-						selectedProviders = suitableProviders;
+					// Check JSON output capability if json_object or json_schema response format is requested
+					if (
+						response_format?.type === "json_object" ||
+						response_format?.type === "json_schema"
+					) {
+						if (provider.jsonOutput !== true) {
+							return false;
+						}
+					}
+
+					// Check JSON schema output capability if json_schema response format is requested
+					if (response_format?.type === "json_schema") {
+						if (provider.jsonOutputSchema !== true) {
+							return false;
+						}
+					}
+
+					// Check vision capability if images are present in messages
+					if (hasImages && provider.vision !== true) {
+						return false;
+					}
+
+					if (
+						max_tokens !== undefined &&
+						provider.maxOutput !== undefined &&
+						max_tokens > provider.maxOutput
+					) {
+						return false;
+					}
+
+					return contextSizeMet;
+				});
+
+				if (suitableProviders.length > 0) {
+					// Find the cheapest among the suitable providers for this model
+					for (const provider of suitableProviders) {
+						const totalPrice =
+							((provider.inputPrice ?? 0) + (provider.outputPrice ?? 0)) / 2;
+
+						if (totalPrice < lowestPrice) {
+							lowestPrice = totalPrice;
+							bestModel = modelDef;
+							bestProviders = suitableProviders;
+						}
 					}
 				}
 			}
+
+			if (!bestModel) {
+				return null;
+			}
+
+			return {
+				selectedModel: bestModel,
+				selectedProviders: bestProviders,
+			};
+		}
+
+		const preferredAutoCandidate = await findBestAutoRoutingCandidate(
+			models.filter((modelDef) => modelDef.id === defaultAutoModelId),
+		);
+		const fallbackAutoCandidate = preferredAutoCandidate
+			? null
+			: await findBestAutoRoutingCandidate(
+					models.filter(
+						(modelDef) =>
+							modelDef.id !== "auto" &&
+							modelDef.id !== "custom" &&
+							modelDef.id !== defaultAutoModelId,
+					),
+				);
+
+		const autoRoutingCandidate =
+			preferredAutoCandidate ?? fallbackAutoCandidate;
+		if (autoRoutingCandidate) {
+			selectedModel = autoRoutingCandidate.selectedModel;
+			selectedProviders = autoRoutingCandidate.selectedProviders;
 		}
 
 		let providerAgnosticSelectedProviders = selectedProviders;
@@ -1435,14 +1439,11 @@ chat.openapi(completions, async (c) => {
 						"No non-reasoning models are available for auto routing. Remove no_reasoning parameter or use a specific model.",
 				});
 			}
-			// Default fallback if no suitable model is found - use the default
-			// auto-routed model so auto stays anchored to Claude Sonnet 4.6.
-			const fallbackModelDef = models.find(
-				(modelDef) => modelDef.id === defaultAutoModelId,
-			);
-			const fallbackProvider = fallbackModelDef?.providers[0];
-			usedModel = fallbackProvider?.modelName ?? defaultAutoModelId;
-			usedProvider = fallbackProvider?.providerId ?? "anthropic";
+			// Default fallback if no suitable model is found - keep the preferred
+			// auto-routed model id and let the generic provider selection below pick
+			// an allowed provider for it.
+			usedModel = defaultAutoModelId;
+			usedProvider = undefined;
 		}
 		// Update modelInfo to the selected model so retry/fallback logic can find
 		// alternative providers. Without this, modelInfo still points to the "auto"
