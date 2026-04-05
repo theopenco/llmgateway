@@ -105,6 +105,11 @@ const nextConfig: NextConfig = {
 				destination: "https://docs.llmgateway.io/llms-full.txt",
 				permanent: true,
 			},
+			{
+				source: "/health",
+				destination: "https://docs.llmgateway.io/health",
+				permanent: false,
+			},
 		];
 	},
 	typescript: {
