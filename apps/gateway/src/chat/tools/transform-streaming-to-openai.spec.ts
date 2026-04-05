@@ -133,6 +133,57 @@ describe("transformStreamingToOpenai", () => {
 		expect(warn).not.toHaveBeenCalled();
 	});
 
+	it("treats known AWS Bedrock citation deltas as handled", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-6",
+			{
+				__aws_event_type: "contentBlockDelta",
+				contentBlockIndex: 0,
+				delta: {
+					citation: {
+						title: "Example citation",
+					},
+				},
+			},
+			[],
+		);
+
+		expect(result).toBeNull();
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("warns on unknown AWS Bedrock contentBlockDelta members", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-6",
+			{
+				__aws_event_type: "contentBlockDelta",
+				contentBlockIndex: 0,
+				delta: {
+					SDK_UNKNOWN_MEMBER: {
+						name: "futureDelta",
+					},
+				},
+			},
+			[],
+		);
+
+		expect(result).toBeNull();
+		expect(warn).toHaveBeenCalledWith(
+			"[streaming] Unrecognized AWS Bedrock event type",
+			expect.objectContaining({
+				provider: "aws-bedrock",
+				model: "anthropic.claude-sonnet-4-6",
+				eventType: "contentBlockDelta",
+			}),
+		);
+	});
+
 	it("treats AWS Bedrock contentBlockStop as handled", () => {
 		warn.mockClear();
 
