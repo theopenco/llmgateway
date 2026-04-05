@@ -106,6 +106,15 @@ async function getOrCreateConversation(
 		return existingId;
 	}
 
+	return await createNewConversation(ipAddress, userAgent, name, email);
+}
+
+async function createNewConversation(
+	ipAddress: string,
+	userAgent: string | undefined,
+	name: string | undefined,
+	email: string | undefined,
+): Promise<string> {
 	const t = tables.chatSupportConversation;
 	const [conv] = await db
 		.insert(t)
@@ -113,6 +122,7 @@ async function getOrCreateConversation(
 		.returning({ id: t.id });
 	const conversationId = conv!.id;
 
+	const redisKey = `chat_support_conv:${ipAddress}`;
 	await redisClient.set(
 		redisKey,
 		conversationId,
@@ -126,6 +136,10 @@ async function persistMessages(
 	conversationId: string,
 	messages: UIMessage[],
 	assistantContent: string,
+	ipAddress: string,
+	userAgent: string | undefined,
+	name: string | undefined,
+	email: string | undefined,
 ): Promise<void> {
 	try {
 		const t = tables.chatSupportConversation;
@@ -137,6 +151,35 @@ async function persistMessages(
 			.where(eq(mt.conversationId, conversationId));
 
 		const existingCount = existingMessages.length;
+
+		// User reset the widget — start a new conversation
+		if (existingCount > messages.length) {
+			const newConvId = await createNewConversation(
+				ipAddress,
+				userAgent,
+				name,
+				email,
+			);
+			const allMessages = messages.map((m, i) => ({
+				conversationId: newConvId,
+				role: m.role as "user" | "assistant",
+				content: getTextFromUIMessage(m),
+				sequence: i,
+			}));
+			allMessages.push({
+				conversationId: newConvId,
+				role: "assistant" as const,
+				content: assistantContent,
+				sequence: messages.length,
+			});
+			await db.insert(mt).values(allMessages);
+			await db
+				.update(t)
+				.set({ messageCount: allMessages.length })
+				.where(eq(t.id, newConvId));
+			return;
+		}
+
 		const newMessages: {
 			conversationId: string;
 			role: "user" | "assistant";
@@ -235,7 +278,15 @@ publicChatSupport.post("/", async (c) => {
 		messages: await convertToModelMessages(messages),
 		maxOutputTokens: 1024,
 		async onFinish({ text }) {
-			await persistMessages(conversationId, messages, text);
+			await persistMessages(
+				conversationId,
+				messages,
+				text,
+				ipAddress,
+				userAgent,
+				name,
+				email,
+			);
 		},
 	});
 
