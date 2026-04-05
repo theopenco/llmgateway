@@ -111,8 +111,10 @@ import { extractErrorCause } from "./tools/extract-error-cause.js";
 import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
-import { getAllowedAutoModelIds } from "./tools/get-default-auto-model-id.js";
-import { getDefaultAutoModelId } from "./tools/get-default-auto-model-id.js";
+import {
+	AUTO_ROUTE_OPUS_CONTEXT_THRESHOLD,
+	getDefaultAutoModelId,
+} from "./tools/get-default-auto-model-id.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
@@ -1203,13 +1205,15 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
+		const autoModelIds = [
+			"claude-sonnet-4-6",
+			"claude-opus-4-6",
+			"claude-haiku-4-5",
+		] as const;
+
 		// Find the cheapest provider for the default auto-routed model that meets
 		// our request requirements. Free-model routing is handled separately below.
 		const defaultAutoModelId = getDefaultAutoModelId(requiredContextSize);
-		const allowedAutoModels = getAllowedAutoModelIds(
-			requiredContextSize,
-			no_reasoning,
-		);
 
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
@@ -1221,14 +1225,36 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
-			// When free_models_only is true, only consider models marked as free
-			// Otherwise, only consider hardcoded allowed models
+			// When free_models_only is true, only consider models marked as free.
+			// Otherwise, only consider the explicit auto model set for this route.
 			if (free_models_only) {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
-			} else if (!allowedAutoModels.includes(modelDef.id)) {
-				continue;
+			} else {
+				if (
+					!autoModelIds.includes(modelDef.id as (typeof autoModelIds)[number])
+				) {
+					continue;
+				}
+
+				if (modelDef.id === "claude-haiku-4-5" && !no_reasoning) {
+					continue;
+				}
+
+				if (
+					modelDef.id === "claude-sonnet-4-6" &&
+					requiredContextSize > AUTO_ROUTE_OPUS_CONTEXT_THRESHOLD
+				) {
+					continue;
+				}
+
+				if (
+					modelDef.id === "claude-opus-4-6" &&
+					requiredContextSize <= AUTO_ROUTE_OPUS_CONTEXT_THRESHOLD
+				) {
+					continue;
+				}
 			}
 
 			// Validate IAM rules for this candidate model and filter providers.
