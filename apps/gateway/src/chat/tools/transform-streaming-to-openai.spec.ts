@@ -132,4 +132,21 @@ describe("transformStreamingToOpenai", () => {
 		expect(result).toBeNull();
 		expect(warn).not.toHaveBeenCalled();
 	});
+
+	it("treats AWS Bedrock contentBlockStop as handled", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-6",
+			{
+				__aws_event_type: "contentBlockStop",
+				contentBlockIndex: 0,
+			},
+			[],
+		);
+
+		expect(result).toBeNull();
+		expect(warn).not.toHaveBeenCalled();
+	});
 });

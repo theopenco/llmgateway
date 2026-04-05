@@ -1129,6 +1129,8 @@ export function transformStreamingToOpenai(
 				// reasoning signatures, citations, images, or tool results don't have a
 				// direct OpenAI chat chunk representation, so we treat them as handled.
 				transformedData = null;
+			} else if (eventType === "contentBlockStop") {
+				transformedData = null;
 			} else if (eventType === "messageStart") {
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
