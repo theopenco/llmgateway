@@ -920,6 +920,9 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	const validatedApiKey = apiKey;
+	const validatedProject = project;
+
 	// Check if project is deleted (archived)
 	if (project.status === "deleted") {
 		throw new HTTPException(410, {
@@ -1234,7 +1237,7 @@ chat.openapi(completions, async (c) => {
 				// We must re-evaluate per model because iamAllowedProviders was computed
 				// for the "auto" model which only has the "llmgateway" provider.
 				const candidateIam = await validateModelAccess(
-					apiKey.id,
+					validatedApiKey.id,
 					modelDef.id,
 					undefined,
 					modelDef,
@@ -1245,7 +1248,7 @@ chat.openapi(completions, async (c) => {
 				const candidateAllowedProviders = candidateIam.allowedProviders;
 
 				const candidateProviders = preferConcreteRegionalMappings(
-					project.mode === "credits"
+					validatedProject.mode === "credits"
 						? filterRegionsByAvailableKeys(
 								expandAllProviderRegions(
 									modelDef.providers as ProviderModelMapping[],
