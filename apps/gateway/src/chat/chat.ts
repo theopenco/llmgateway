@@ -1201,9 +1201,10 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
-		// Find the cheapest model that meets our context size requirements
-		// Only consider hardcoded models for auto selection
-		const allowedAutoModels = ["gpt-oss-120b", "gpt-5-nano", "gpt-4.1-nano"];
+		// Find the cheapest provider for the default auto-routed model that meets
+		// our request requirements. Free-model routing is handled separately below.
+		const defaultAutoModelId = "claude-sonnet-4-6";
+		const allowedAutoModels = [defaultAutoModelId];
 
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: any[] = [];
@@ -1403,9 +1404,14 @@ chat.openapi(completions, async (c) => {
 						"No non-reasoning models are available for auto routing. Remove no_reasoning parameter or use a specific model.",
 				});
 			}
-			// Default fallback if no suitable model is found - use cheapest allowed model
-			usedModel = "gpt-5-nano";
-			usedProvider = "openai";
+			// Default fallback if no suitable model is found - use the default
+			// auto-routed model so auto stays anchored to Claude Sonnet 4.6.
+			const fallbackModelDef = models.find(
+				(modelDef) => modelDef.id === defaultAutoModelId,
+			);
+			const fallbackProvider = fallbackModelDef?.providers[0];
+			usedModel = fallbackProvider?.modelName ?? defaultAutoModelId;
+			usedProvider = fallbackProvider?.providerId ?? "anthropic";
 		}
 		// Update modelInfo to the selected model so retry/fallback logic can find
 		// alternative providers. Without this, modelInfo still points to the "auto"
@@ -1417,7 +1423,9 @@ chat.openapi(completions, async (c) => {
 			};
 		} else {
 			// Fallback case: look up the default model definition
-			const fallbackModelDef = models.find((m) => m.id === "gpt-5-nano");
+			const fallbackModelDef = models.find(
+				(modelDef) => modelDef.id === defaultAutoModelId,
+			);
 			if (fallbackModelDef) {
 				modelInfo = {
 					...fallbackModelDef,
