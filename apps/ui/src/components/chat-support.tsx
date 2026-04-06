@@ -47,6 +47,9 @@ const ESCALATION_THRESHOLD = 3;
 const CLIENT_ID_KEY = "chat_support_client_id";
 
 function getOrCreateClientId(): string {
+	if (typeof window === "undefined") {
+		return "";
+	}
 	const existing = sessionStorage.getItem(CLIENT_ID_KEY);
 	if (existing) {
 		return existing;
