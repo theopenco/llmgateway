@@ -6,7 +6,8 @@ CREATE TABLE "chat_support_conversation" (
 	"email" text,
 	"ip_address" text,
 	"user_agent" text,
-	"message_count" integer DEFAULT 0 NOT NULL
+	"message_count" integer DEFAULT 0 NOT NULL,
+	"escalated_at" timestamp
 );
 --> statement-breakpoint
 CREATE TABLE "chat_support_message" (
