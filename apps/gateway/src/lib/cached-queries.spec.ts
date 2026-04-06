@@ -12,6 +12,11 @@ import {
 } from "@llmgateway/db";
 
 import {
+	reportTrackedKeyError,
+	reportTrackedKeySuccess,
+	resetKeyHealth,
+} from "./api-key-health.js";
+import {
 	findApiKeyByToken,
 	findProjectById,
 	findOrganizationById,
@@ -44,6 +49,8 @@ describe("Cached Queries - Gateway Database Access", () => {
 	const testIamRuleId = "test-iam-rule-cached-queries";
 
 	beforeEach(async () => {
+		resetKeyHealth();
+
 		// Clean up test data using regular db
 		await db.delete(apiKeyIamRule);
 		await db.delete(apiKey);
@@ -126,6 +133,8 @@ describe("Cached Queries - Gateway Database Access", () => {
 	});
 
 	afterEach(async () => {
+		resetKeyHealth();
+
 		// Clean up test data
 		await db.delete(apiKeyIamRule);
 		await db.delete(apiKey);
@@ -217,7 +226,7 @@ describe("Cached Queries - Gateway Database Access", () => {
 			expect(result?.status).toBe("active");
 		});
 
-		it("should deterministically load balance between provider keys", async () => {
+		it("should always prefer the first provider key", async () => {
 			const requestOne = await findProviderKey(
 				testOrgId,
 				"openai",
@@ -235,14 +244,44 @@ describe("Cached Queries - Gateway Database Access", () => {
 			);
 
 			expect(requestOne?.id).toBe(requestOneRepeat?.id);
-			expect([
-				testProviderKeyId,
-				"test-provider-key-cached-queries-2",
-			]).toContain(requestOne?.id);
-			expect([
-				testProviderKeyId,
-				"test-provider-key-cached-queries-2",
-			]).toContain(requestTwo?.id);
+			expect(requestOne?.id).toBe(testProviderKeyId);
+			expect(requestTwo?.id).toBe(testProviderKeyId);
+		});
+
+		it("should fail over when the primary key becomes unhealthy", async () => {
+			reportTrackedKeyError(testProviderKeyId, 500);
+			reportTrackedKeyError(testProviderKeyId, 500);
+			reportTrackedKeyError(testProviderKeyId, 500);
+
+			const result = await findProviderKey(testOrgId, "openai");
+
+			expect(result?.id).toBe("test-provider-key-cached-queries-2");
+		});
+
+		it("should fail over when a later key has materially better uptime", async () => {
+			reportTrackedKeySuccess(testProviderKeyId);
+			reportTrackedKeyError(testProviderKeyId, 500);
+			reportTrackedKeySuccess(testProviderKeyId);
+			reportTrackedKeyError(testProviderKeyId, 500);
+
+			for (let i = 0; i < 4; i++) {
+				reportTrackedKeySuccess("test-provider-key-cached-queries-2");
+			}
+
+			const result = await findProviderKey(testOrgId, "openai");
+
+			expect(result?.id).toBe("test-provider-key-cached-queries-2");
+		});
+
+		it("should select the next provider key when the current one is excluded", async () => {
+			const result = await findProviderKey(
+				testOrgId,
+				"openai",
+				"request-retry",
+				new Set([testProviderKeyId]),
+			);
+
+			expect(result?.id).toBe("test-provider-key-cached-queries-2");
 		});
 
 		it("should return undefined for non-existent provider", async () => {

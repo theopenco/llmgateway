@@ -365,7 +365,9 @@ async function runOpenAIContentFilterRequest(
 			headers: {
 				"Content-Type": "application/json",
 				"X-Client-Request-Id": context.requestId,
-				...getProviderHeaders("openai", providerToken),
+				...getProviderHeaders("openai", providerToken, {
+					requestId: context.requestId,
+				}),
 			},
 			body: JSON.stringify({
 				model: OPENAI_MODERATION_MODEL,

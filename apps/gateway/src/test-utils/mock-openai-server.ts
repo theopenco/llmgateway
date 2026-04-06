@@ -47,7 +47,10 @@ function extractTimeoutDelay(content: string): number | null {
 	if (match) {
 		return parseInt(match[1], 10);
 	}
-	if (content.includes("TRIGGER_TIMEOUT")) {
+	if (
+		content.includes("TRIGGER_TIMEOUT") &&
+		!content.includes("TRIGGER_TIMEOUT_FAIL_ONCE")
+	) {
 		// Default to 5 seconds if no specific delay is provided
 		return 5000;
 	}
@@ -748,6 +751,23 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	}
 
 	// Check if this request should fail on the first attempt but succeed on retry
+	if (userMessage.includes("TRIGGER_FAIL_ONCE_404")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(404);
+			return c.json({
+				error: {
+					message: "The model 'nonexistent-model' does not exist.",
+					type: "invalid_request_error",
+					param: "model",
+					code: "model_not_found",
+				},
+			});
+		}
+		// Subsequent requests succeed - fall through to normal response
+	}
+
+	// Check if this request should fail on the first attempt but succeed on retry
 	if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
 		failOnceCounter++;
 		if (failOnceCounter === 1) {
@@ -762,6 +782,13 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		}
 		// Subsequent requests succeed - fall through to normal response
+	}
+
+	if (userMessage.includes("TRIGGER_TIMEOUT_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			await delay(100);
+		}
 	}
 
 	// Check if this request should trigger a timeout (delay response)
@@ -787,12 +814,61 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"TRIGGER_STREAM_PROVIDER_ERROR",
 	);
+	const shouldReturnStreamedAuthError = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_AUTH_ERROR",
+	);
+	const shouldFailOnceWithImmediateStream404 = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_FAIL_ONCE_404",
+	);
+	const shouldFailOnceWithImmediateStreamServerErrorWithoutStatus =
+		hasUserMessageTrigger(chatMessages, "TRIGGER_STREAM_FAIL_ONCE_NO_STATUS");
 
 	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
 
 	if (body.stream === true) {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
+
+			if (shouldFailOnceWithImmediateStream404) {
+				failOnceCounter++;
+				if (failOnceCounter === 1) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-err-404",
+							error: {
+								code: "model_not_found",
+								message: "The model 'nonexistent-model' does not exist.",
+								param: "model",
+								type: "invalid_request_error",
+								status_code: 404,
+							},
+						}),
+						id: String(eventId++),
+					});
+					return;
+				}
+			}
+
+			if (shouldFailOnceWithImmediateStreamServerErrorWithoutStatus) {
+				failOnceCounter++;
+				if (failOnceCounter === 1) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-err-500",
+							error: {
+								code: "internal_server_error",
+								message: "Temporary upstream failure.",
+								param: null,
+								type: "server_error",
+							},
+						}),
+						id: String(eventId++),
+					});
+					return;
+				}
+			}
 
 			await stream.writeSSE({
 				data: JSON.stringify({
@@ -823,6 +899,22 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 								"Input data may contain inappropriate content. Please ensure that your input complies with the usage policy of DashScope LLM.",
 							param: null,
 							type: "data_inspection_failed",
+						},
+					}),
+					id: String(eventId++),
+				});
+				return;
+			}
+
+			if (shouldReturnStreamedAuthError) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-auth-err-123",
+						error: {
+							code: "invalid_api_key",
+							message: "Incorrect API key provided.",
+							param: null,
+							type: "authentication_error",
 						},
 					}),
 					id: String(eventId++),

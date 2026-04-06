@@ -40,6 +40,7 @@ import {
 
 interface RoutingMetadata {
 	selectionReason?: string;
+	usedApiKeyHash?: string;
 	availableProviders?: string[];
 	providerScores?: Array<{
 		providerId: string;
@@ -67,6 +68,8 @@ interface RoutingMetadata {
 		succeeded: boolean;
 		status_code?: number;
 		error_type?: string;
+		apiKeyHash?: string;
+		logId?: string;
 	}>;
 }
 
@@ -189,6 +192,10 @@ function formatDuration(ms: number) {
 		return `${ms}ms`;
 	}
 	return `${(ms / 1000).toFixed(2)}s`;
+}
+
+function formatApiKeyHash(hash: string) {
+	return hash.slice(0, 7);
 }
 
 function copyToClipboard(text: string) {
@@ -518,6 +525,14 @@ export function LogCard({
 												</span>
 											</div>
 										)}
+										{routingMetadata.usedApiKeyHash && (
+											<div className="flex justify-between">
+												<span className="text-muted-foreground">Key</span>
+												<span className="font-mono">
+													{formatApiKeyHash(routingMetadata.usedApiKeyHash)}
+												</span>
+											</div>
+										)}
 										{routingMetadata.availableProviders &&
 											routingMetadata.availableProviders.length > 0 && (
 												<div className="flex justify-between">
@@ -632,6 +647,24 @@ export function LogCard({
 																			({attempt.region})
 																		</span>
 																	)}
+																	{attempt.apiKeyHash && (
+																		<span className="text-muted-foreground">
+																			key {formatApiKeyHash(attempt.apiKeyHash)}
+																		</span>
+																	)}
+																	{attempt.logId &&
+																		(getDetailUrl ? (
+																			<LinkComponent
+																				href={getDetailUrl(attempt.logId)}
+																				className="text-muted-foreground hover:underline"
+																			>
+																				log {attempt.logId}
+																			</LinkComponent>
+																		) : (
+																			<span className="text-muted-foreground">
+																				log {attempt.logId}
+																			</span>
+																		))}
 																</span>
 																<span>
 																	{attempt.status_code}{" "}

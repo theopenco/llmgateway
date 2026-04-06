@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import {
 	getErrorType,
@@ -454,6 +455,7 @@ interface ProviderContext {
 	providerId: Provider;
 	baseUrl: string;
 	token: string;
+	requestId: string;
 	usedMode: "api-keys" | "credits";
 	configIndex: number | null;
 	vertexProjectId?: string;
@@ -662,11 +664,13 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
+	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
+
 	return {
 		apiKey,
 		project,
 		organization,
-		requestId: c.req.header("x-request-id") ?? shortid(40),
+		requestId,
 	};
 }
 
@@ -1147,6 +1151,7 @@ async function resolveProviderContext(
 			providerId,
 			baseUrl,
 			token: providerKey.token,
+			requestId: selectionKey,
 			usedMode: "api-keys",
 			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
@@ -1197,6 +1202,7 @@ async function resolveProviderContext(
 			providerId,
 			baseUrl,
 			token: env.token,
+			requestId: selectionKey,
 			usedMode: "credits",
 			configIndex: env.configIndex,
 			vertexProjectId,
@@ -1244,6 +1250,7 @@ async function resolveProviderContext(
 			providerId,
 			baseUrl,
 			token: providerKey.token,
+			requestId: selectionKey,
 			usedMode: "api-keys",
 			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
@@ -1299,6 +1306,7 @@ async function resolveProviderContext(
 		providerId,
 		baseUrl,
 		token: env.token,
+		requestId: selectionKey,
 		usedMode: "credits",
 		configIndex: env.configIndex,
 		vertexProjectId,
@@ -2144,6 +2152,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 	providerId: Provider;
 	baseUrl: string;
 	token: string;
+	requestId: string;
 }> {
 	const providerId = job.usedProvider as Provider;
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
@@ -2175,6 +2184,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 				providerId,
 				baseUrl,
 				token: providerKey.token,
+				requestId: job.requestId,
 			},
 			job.usedModel,
 			null,
@@ -2196,6 +2206,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 			providerId,
 			baseUrl,
 			token: env.token,
+			requestId: job.requestId,
 		},
 		job.usedModel,
 		env.configIndex,
@@ -2214,6 +2225,7 @@ async function streamDirectUpstreamVideoContent(
 		headers: getProviderHeaders(
 			providerContext.providerId,
 			providerContext.token,
+			{ requestId: providerContext.requestId },
 		),
 	});
 	if (!upstreamResponse.ok || !upstreamResponse.body) {
@@ -2514,7 +2526,9 @@ async function createObsidianVideoJob(
 		rawUpstreamResponse = await fetchUpstreamJson(upstreamUrl, {
 			method: "POST",
 			headers: {
-				...getProviderHeaders("obsidian", providerContext.token),
+				...getProviderHeaders("obsidian", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
 				...(inputReferenceImages.length === 0
 					? { "Content-Type": "application/json" }
 					: {}),
@@ -2595,7 +2609,9 @@ async function createOpenAIVideoJob(
 	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
 		method: "POST",
 		headers: {
-			...getProviderHeaders("openai", providerContext.token),
+			...getProviderHeaders("openai", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
 			...(referenceImages.length === 0
 				? { "Content-Type": "application/json" }
 				: {}),
@@ -2687,7 +2703,9 @@ async function createAvalancheVeoVideoJob(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token),
+			...getProviderHeaders("avalanche", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
 		},
 		body: JSON.stringify(upstreamRequest),
 	});
@@ -2761,7 +2779,9 @@ async function createAvalancheSoraVideoJob(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token),
+			...getProviderHeaders("avalanche", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
 		},
 		body: JSON.stringify(upstreamRequest),
 	});
@@ -2885,6 +2905,7 @@ async function createGoogleVertexVideoJob(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
+			"x-request-id": providerContext.requestId,
 		},
 		body: JSON.stringify(upstreamRequest),
 	});
@@ -3136,7 +3157,9 @@ async function uploadAvalancheBase64Image(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token),
+			...getProviderHeaders("avalanche", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
 		},
 		body: JSON.stringify({
 			base64Data: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
@@ -3402,6 +3425,10 @@ videos.openapi(createVideo, async (c) => {
 			break;
 		} catch (error) {
 			const statusCode = error instanceof HTTPException ? error.status : 0;
+			const retryErrorType =
+				statusCode === 0
+					? "network_error"
+					: getFinishReasonFromError(statusCode);
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
@@ -3418,7 +3445,7 @@ videos.openapi(createVideo, async (c) => {
 				!shouldRetryRequest({
 					requestedProvider,
 					noFallback,
-					statusCode,
+					errorType: retryErrorType,
 					retryCount,
 					remainingProviders,
 					usedProvider: selectedProviderContext.providerId,

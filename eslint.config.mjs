@@ -53,6 +53,7 @@ export default [
 			"@typescript-eslint/no-unnecessary-type-conversion": "off",
 			"@typescript-eslint/no-unnecessary-template-expression": "off",
 			"@typescript-eslint/no-unnecessary-boolean-literal-compare": "off",
+			"@typescript-eslint/prefer-nullish-coalescing": "off",
 			"@typescript-eslint/prefer-reduce-type-parameter": "off",
 			"@typescript-eslint/unbound-method": "off",
 			"@typescript-eslint/no-deprecated": "off",

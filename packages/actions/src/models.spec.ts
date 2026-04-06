@@ -712,10 +712,178 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
+	it("should include provider scores during random exploration", () => {
+		const videoModel = models.find(
+			(model) => model.id === "veo-3.1-generate-preview",
+		);
+
+		expect(videoModel).toBeDefined();
+
+		const avalancheProvider = videoModel?.providers.find(
+			(provider) => provider.providerId === "avalanche",
+		);
+		const vertexProvider = videoModel?.providers.find(
+			(provider) => provider.providerId === "google-vertex",
+		);
+
+		expect(avalancheProvider).toBeDefined();
+		expect(vertexProvider).toBeDefined();
+		if (!videoModel || !avalancheProvider || !vertexProvider) {
+			throw new Error("Missing Veo provider test fixtures");
+		}
+
+		const randomSpy = vi
+			.spyOn(Math, "random")
+			.mockReturnValueOnce(0)
+			.mockReturnValueOnce(0);
+		const originalArgv = process.argv;
+		const originalNodeEnv = process.env.NODE_ENV;
+		const originalVitest = process.env.VITEST;
+		delete process.env.NODE_ENV;
+		delete process.env.VITEST;
+		process.argv = ["node", "/tmp/not-a-test-run.mjs"];
+
+		try {
+			const result = getCheapestFromAvailableProviders(
+				[avalancheProvider, vertexProvider],
+				videoModel,
+				{
+					metricsMap: new Map([
+						[
+							metricsKey("veo-3.1-generate-preview", "avalanche"),
+							{
+								modelId: "veo-3.1-generate-preview",
+								providerId: "avalanche",
+								uptime: 99,
+								averageLatency: 300,
+								throughput: 50,
+								totalRequests: 100,
+							},
+						],
+						[
+							metricsKey("veo-3.1-generate-preview", "google-vertex"),
+							{
+								modelId: "veo-3.1-generate-preview",
+								providerId: "google-vertex",
+								uptime: 99.5,
+								averageLatency: 100,
+								throughput: 150,
+								totalRequests: 100,
+							},
+						],
+					]),
+					videoPricing: {
+						durationSeconds: 8,
+						includeAudio: true,
+						resolution: "default",
+					},
+				},
+			);
+
+			expect(result?.metadata.selectionReason).toBe("random-exploration");
+			expect(result?.metadata.providerScores).toHaveLength(2);
+			expect(result?.metadata.providerScores.map((p) => p.providerId)).toEqual(
+				expect.arrayContaining(["avalanche", "google-vertex"]),
+			);
+		} finally {
+			randomSpy.mockRestore();
+			process.argv = originalArgv;
+			if (originalNodeEnv !== undefined) {
+				process.env.NODE_ENV = originalNodeEnv;
+			} else {
+				delete process.env.NODE_ENV;
+			}
+			if (originalVitest !== undefined) {
+				process.env.VITEST = originalVitest;
+			} else {
+				delete process.env.VITEST;
+			}
+		}
+	});
+
 	it("should return null for empty provider list", () => {
 		const testModel = models[0];
 		const result = getCheapestFromAvailableProviders([], testModel);
 		expect(result).toBe(null);
+	});
+
+	it("should use the default exploration rate when EXPLORATION_RATE is empty", () => {
+		const originalExplorationRate = process.env.EXPLORATION_RATE;
+		process.env.EXPLORATION_RATE = "";
+
+		try {
+			const testModel = models.find((model) => model.id === "gpt-4o-mini");
+			if (!testModel) {
+				throw new Error("Missing gpt-4o-mini test fixture");
+			}
+
+			expect(() =>
+				getCheapestFromAvailableProviders(
+					[
+						{
+							providerId: "openai",
+							modelName: "gpt-4o-mini",
+						},
+					],
+					testModel,
+				),
+			).not.toThrow();
+		} finally {
+			if (originalExplorationRate === undefined) {
+				delete process.env.EXPLORATION_RATE;
+			} else {
+				process.env.EXPLORATION_RATE = originalExplorationRate;
+			}
+		}
+	});
+
+	it("should throw when EXPLORATION_RATE is outside the valid range", () => {
+		const originalExplorationRate = process.env.EXPLORATION_RATE;
+		const originalArgv = process.argv;
+		const originalNodeEnv = process.env.NODE_ENV;
+		const originalVitest = process.env.VITEST;
+		process.env.EXPLORATION_RATE = "1.5";
+		delete process.env.NODE_ENV;
+		delete process.env.VITEST;
+		process.argv = ["node", "/tmp/not-a-test-run.mjs"];
+
+		try {
+			const testModel = models.find((model) => model.id === "gpt-4o-mini");
+			if (!testModel) {
+				throw new Error("Missing gpt-4o-mini test fixture");
+			}
+
+			expect(() =>
+				getCheapestFromAvailableProviders(
+					[
+						{
+							providerId: "openai",
+							modelName: "gpt-4o-mini",
+						},
+					],
+					testModel,
+				),
+			).toThrow(
+				'Invalid EXPLORATION_RATE: "1.5". Expected a number between 0 and 1.',
+			);
+		} finally {
+			process.argv = originalArgv;
+			if (originalNodeEnv !== undefined) {
+				process.env.NODE_ENV = originalNodeEnv;
+			} else {
+				delete process.env.NODE_ENV;
+			}
+			if (originalVitest !== undefined) {
+				process.env.VITEST = originalVitest;
+			} else {
+				delete process.env.VITEST;
+			}
+			if (originalExplorationRate === undefined) {
+				delete process.env.EXPLORATION_RATE;
+			} else {
+				process.env.EXPLORATION_RATE = originalExplorationRate;
+			}
+		}
 	});
 
 	it("should prefer request pricing over zero token placeholders", () => {

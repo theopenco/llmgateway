@@ -186,7 +186,8 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 <Callout type="warn">
 	Using `X-No-Fallback: true` disables automatic provider failover. Your
 	requests will be sent to the specified provider even if it is experiencing
-	issues, which may result in higher error rates.
+	issues, which may result in higher error rates. Retries may still occur
+	against another key for the same provider when multiple keys are configured.
 </Callout>
 
 When the `X-No-Fallback` header is used, the routing metadata in logs will include `noFallback: true` to indicate that fallback was disabled for that request.
@@ -223,12 +224,15 @@ Retries are **not** triggered by:
 
 ### When Retry Is Disabled
 
-Automatic retry is disabled when:
+Automatic retry to a different provider is disabled when:
 
 - The `X-No-Fallback: true` header is set
 - A specific provider is requested (e.g., `openai/gpt-4o`)
 - No alternative providers are available for the requested model
 - The maximum retry count (2) has been exhausted
+
+Retries can still happen within the same provider when multiple keys are
+configured and the current key fails with a retryable error.
 
 ### Routing Transparency
 

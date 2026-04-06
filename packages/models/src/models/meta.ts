@@ -353,6 +353,7 @@ export const metaModels = [
 				jsonOutput: false,
 			},
 			{
+				stability: "unstable",
 				providerId: "novita",
 				modelName: "meta-llama/llama-4-scout-17b-16e-instruct",
 				inputPrice: 0.18 / 1e6,
