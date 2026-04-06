@@ -22,10 +22,10 @@
 	"dependencies": {
 		"babel-plugin-react-compiler": "1.0.0",
 		"class-variance-authority": "^0.7.1",
-		"fumadocs-core": "16.0.11",
+		"fumadocs-core": "16.7.10",
 		"fumadocs-mdx": "13.0.8",
-		"fumadocs-openapi": "10.0.6",
-		"fumadocs-ui": "16.0.11",
+		"fumadocs-openapi": "10.6.6",
+		"fumadocs-ui": "16.7.10",
 		"gateway": "workspace:*",
 		"lucide-react": "^0.544.0",
 		"next": "16.1.6",
