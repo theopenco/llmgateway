@@ -234,6 +234,7 @@ function getFinishReasonLabel(reason: string): string {
 		case "length":
 			return "Response reached the maximum token limit";
 		case "content-filter":
+		case "content_filter":
 			return "Response was filtered by content policy";
 		default:
 			return `Generation stopped: ${reason}`;
@@ -248,14 +249,12 @@ const AssistantMessage = memo(
 		status,
 		regenerate,
 		finishReason,
-		error,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
 		regenerate: () => void;
 		finishReason?: string | null;
-		error?: string | null;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -635,7 +634,6 @@ export const ChatUI = ({
 								status={status}
 								regenerate={regenerate}
 								finishReason={isLastMessage ? finishReason : null}
-								error={isLastMessage ? error : null}
 							/>
 						);
 					} else {

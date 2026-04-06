@@ -38,6 +38,15 @@ import { cn } from "@/lib/utils";
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 
+interface ImageConfig {
+	aspect_ratio?: string;
+	image_size?: string;
+	n?: number;
+	output_format?: string;
+	output_compression?: number;
+	seed?: number;
+}
+
 interface LogDetailClientProps {
 	initialData: LogDetailData | null;
 	orgId: string;
@@ -249,6 +258,9 @@ export function LogDetailClient({
 			: null,
 		videoDownloadCount: data.log.videoDownloadCount ?? 0,
 	} as Log;
+
+	const imageConfig = (log.params as { image_config?: ImageConfig } | null)
+		?.image_config;
 
 	const retentionEnabled =
 		log.dataStorageCost !== null &&
@@ -747,48 +759,34 @@ export function LogDetailClient({
 										label="Unified Finish Reason"
 										value={log.unifiedFinishReason ?? "-"}
 									/>
-									{(log.params as any)?.image_config?.aspect_ratio && (
+									{imageConfig?.aspect_ratio && (
 										<Field
 											label="Aspect Ratio"
-											value={(log.params as any).image_config.aspect_ratio}
+											value={imageConfig.aspect_ratio}
 										/>
 									)}
-									{(log.params as any)?.image_config?.image_size && (
-										<Field
-											label="Image Size"
-											value={(log.params as any).image_config.image_size}
-										/>
+									{imageConfig?.image_size && (
+										<Field label="Image Size" value={imageConfig.image_size} />
 									)}
-									{(log.params as any)?.image_config?.n !== undefined &&
-										(log.params as any)?.image_config?.n !== null && (
-											<Field
-												label="Image Count"
-												value={(log.params as any).image_config.n}
-											/>
-										)}
-									{(log.params as any)?.image_config?.output_format && (
+									{imageConfig?.n !== undefined && imageConfig.n !== null && (
+										<Field label="Image Count" value={imageConfig.n} />
+									)}
+									{imageConfig?.output_format && (
 										<Field
 											label="Output Format"
-											value={(log.params as any).image_config.output_format}
+											value={imageConfig.output_format}
 										/>
 									)}
-									{(log.params as any)?.image_config?.output_compression !==
-										undefined &&
-										(log.params as any)?.image_config?.output_compression !==
-											null && (
+									{imageConfig?.output_compression !== undefined &&
+										imageConfig.output_compression !== null && (
 											<Field
 												label="Compression"
-												value={
-													(log.params as any).image_config.output_compression
-												}
+												value={imageConfig.output_compression}
 											/>
 										)}
-									{(log.params as any)?.image_config?.seed !== undefined &&
-										(log.params as any)?.image_config?.seed !== null && (
-											<Field
-												label="Seed"
-												value={(log.params as any).image_config.seed}
-											/>
+									{imageConfig?.seed !== undefined &&
+										imageConfig.seed !== null && (
+											<Field label="Seed" value={imageConfig.seed} />
 										)}
 								</TooltipProvider>
 							</div>

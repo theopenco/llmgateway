@@ -1457,15 +1457,22 @@ export function LogCard({
 									disabled={imagePreviewLoading}
 									onClick={async () => {
 										setImagePreviewLoading(true);
-										const content = await fetchImageContent(log.id);
-										setImagePreviewLoading(false);
-										if (content) {
-											setImagePreviewSrc(
-												content.startsWith("data:")
-													? content
-													: `data:image/png;base64,${content}`,
-											);
-											setImagePreviewOpen(true);
+										try {
+											const content = await fetchImageContent(log.id);
+											if (content) {
+												if (content.startsWith("data:")) {
+													setImagePreviewSrc(content);
+												} else {
+													const fmt = imageConfig?.output_format
+														? String(imageConfig.output_format).toLowerCase()
+														: "png";
+													const mime = `image/${fmt === "jpg" ? "jpeg" : fmt}`;
+													setImagePreviewSrc(`data:${mime};base64,${content}`);
+												}
+												setImagePreviewOpen(true);
+											}
+										} finally {
+											setImagePreviewLoading(false);
 										}
 									}}
 								>
