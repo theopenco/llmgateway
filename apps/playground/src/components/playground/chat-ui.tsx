@@ -332,13 +332,10 @@ const AssistantMessage = memo(
 					</Sources>
 				) : null}
 
-				{isLastMessage && (error ?? finishReason) && (
+				{isLastMessage && finishReason && (
 					<div className="mt-2 flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200">
 						<AlertTriangle className="size-3.5 shrink-0" />
-						<span>
-							{error ??
-								(finishReason ? getFinishReasonLabel(finishReason) : null)}
-						</span>
+						<span>{getFinishReasonLabel(finishReason)}</span>
 					</div>
 				)}
 
