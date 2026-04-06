@@ -2,6 +2,7 @@
 
 import { Chat, useChat } from "@ai-sdk/react";
 import { createCodePlugin } from "@streamdown/code";
+import { useMutation } from "@tanstack/react-query";
 import { TextStreamChatTransport } from "ai";
 import {
 	MessageCircle,
@@ -17,6 +18,7 @@ import { Streamdown } from "streamdown";
 import { useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
+import { useFetchClient } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import type { UIMessage } from "ai";
@@ -51,6 +53,7 @@ function getTextFromParts(message: UIMessage): string {
 
 export function ChatSupport() {
 	const config = useAppConfig();
+	const fetchClient = useFetchClient();
 	const { user } = useUser();
 	const [isOpen, setIsOpen] = useState(false);
 	const [hasUnread, setHasUnread] = useState(false);
@@ -59,7 +62,6 @@ export function ChatSupport() {
 	const [userEmail, setUserEmail] = useState("");
 	const [hasIdentified, setHasIdentified] = useState(false);
 	const [escalated, setEscalated] = useState(false);
-	const [escalating, setEscalating] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const prevMessageCountRef = useRef(0);
@@ -122,28 +124,30 @@ export function ChatSupport() {
 	const userMessageCount = messages.filter((m) => m.role === "user").length;
 	const showEscalation = !escalated && userMessageCount >= ESCALATION_THRESHOLD;
 
-	const handleEscalate = async () => {
-		setEscalating(true);
-		try {
-			const res = await fetch(`${config.apiUrl}/public/chat-support/escalate`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					name: effectiveName,
-					email: effectiveEmail,
-					messages: messages.map((m) => ({
-						role: m.role,
-						content: getTextFromParts(m),
-					})),
-				}),
-			});
-			if (res.ok) {
-				setEscalated(true);
+	const escalateMutation = useMutation({
+		mutationFn: async () => {
+			const res = await fetchClient.POST(
+				"/public/chat-support/escalate" as never,
+				{
+					body: {
+						name: effectiveName,
+						email: effectiveEmail,
+						messages: messages.map((m) => ({
+							role: m.role,
+							content: getTextFromParts(m),
+						})),
+					},
+				} as never,
+			);
+			if (res.error) {
+				throw new Error("Escalation failed");
 			}
-		} finally {
-			setEscalating(false);
-		}
-	};
+			return res.data;
+		},
+		onSuccess: () => {
+			setEscalated(true);
+		},
+	});
 
 	const handleReset = () => {
 		setMessages([]);
@@ -348,11 +352,11 @@ export function ChatSupport() {
 								</p>
 								<button
 									type="button"
-									onClick={handleEscalate}
-									disabled={escalating}
+									onClick={() => escalateMutation.mutate()}
+									disabled={escalateMutation.isPending}
 									className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
 								>
-									{escalating ? (
+									{escalateMutation.isPending ? (
 										<Loader2 className="size-3 animate-spin" />
 									) : (
 										<UserRound className="size-3" />
