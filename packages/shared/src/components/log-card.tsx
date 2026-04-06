@@ -296,7 +296,7 @@ export function LogCard({
 		Number(log.dataStorageCost) > 0;
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
-	const [imagePreviewSrc, setImagePreviewSrc] = useState<string | null>(null);
+	const [imagePreviewSrcs, setImagePreviewSrcs] = useState<string[]>([]);
 	const [imagePreviewLoading, setImagePreviewLoading] = useState(false);
 
 	const formattedTime = formatDistanceToNow(new Date(log.createdAt), {
@@ -1493,14 +1493,22 @@ export function LogCard({
 										try {
 											const content = await fetchImageContent(log.id);
 											if (content) {
-												if (content.startsWith("data:")) {
-													setImagePreviewSrc(content);
+												// Extract all data URLs from the content
+												const dataUrlRegex =
+													/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
+												const matches = content.match(dataUrlRegex);
+												if (matches && matches.length > 0) {
+													setImagePreviewSrcs(matches);
+												} else if (content.startsWith("data:")) {
+													setImagePreviewSrcs([content]);
 												} else {
 													const fmt = imageConfig?.output_format
 														? String(imageConfig.output_format).toLowerCase()
 														: "png";
 													const mime = `image/${fmt === "jpg" ? "jpeg" : fmt}`;
-													setImagePreviewSrc(`data:${mime};base64,${content}`);
+													setImagePreviewSrcs([
+														`data:${mime};base64,${content}`,
+													]);
 												}
 												setImagePreviewOpen(true);
 											}
@@ -1555,18 +1563,25 @@ export function LogCard({
 			<Dialog open={imagePreviewOpen} onOpenChange={setImagePreviewOpen}>
 				<DialogContent className="max-w-2xl">
 					<DialogHeader>
-						<DialogTitle>Generated Image</DialogTitle>
+						<DialogTitle>
+							Generated Image{imagePreviewSrcs.length > 1 ? "s" : ""}
+						</DialogTitle>
 						<DialogDescription>
-							Preview of the generated image from this request.
+							Preview of the generated image
+							{imagePreviewSrcs.length > 1 ? "s" : ""} from this request.
 						</DialogDescription>
 					</DialogHeader>
-					{imagePreviewSrc && (
-						<div className="rounded-md border overflow-hidden">
-							<img
-								src={imagePreviewSrc}
-								alt="Generated image preview"
-								className="w-full h-auto"
-							/>
+					{imagePreviewSrcs.length > 0 && (
+						<div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+							{imagePreviewSrcs.map((src, i) => (
+								<div key={i} className="rounded-md border overflow-hidden">
+									<img
+										src={src}
+										alt={`Generated image ${i + 1}`}
+										className="w-full h-auto"
+									/>
+								</div>
+							))}
 						</div>
 					)}
 				</DialogContent>

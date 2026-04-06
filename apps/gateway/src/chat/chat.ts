@@ -8969,6 +8969,13 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// For image generation, store the base64 data URLs in content
+	// so the activity detail page can render the images
+	const logContent =
+		convertedImages && convertedImages.length > 0
+			? convertedImages.map((img) => img.image_url.url).join("\n")
+			: content;
+
 	await insertLogEntry({
 		...baseLogEntry,
 		id: routingAttempts.length > 0 ? finalLogId : undefined,
@@ -8976,7 +8983,7 @@ chat.openapi(completions, async (c) => {
 		timeToFirstToken: null, // Not applicable for non-streaming requests
 		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests
 		responseSize,
-		content: content,
+		content: logContent,
 		reasoningContent: reasoningContent,
 		finishReason: hasEmptyNonStreamingResponse
 			? "upstream_error"
