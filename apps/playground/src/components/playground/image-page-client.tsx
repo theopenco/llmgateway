@@ -269,29 +269,24 @@ export default function ImagePageClient({
 				const isProviderSpecific = modelId.includes("/");
 				void (async () => {
 					try {
-						const response = await fetch("/api/chat", {
+						const response = await fetch("/api/image", {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
 								...(isProviderSpecific ? { "x-no-fallback": "true" } : {}),
 							},
 							body: JSON.stringify({
-								messages: [
-									{
-										role: "user",
-										parts: [
-											...inputImages.map((img) => ({
-												type: "file" as const,
+								prompt: currentPrompt,
+								model: modelId,
+								image_config: imageConfigBody,
+								...(inputImages.length > 0
+									? {
+											input_images: inputImages.map((img) => ({
 												url: img.dataUrl,
 												mediaType: img.mediaType,
 											})),
-											{ type: "text", text: currentPrompt },
-										],
-									},
-								],
-								model: modelId,
-								is_image_gen: true,
-								image_config: imageConfigBody,
+										}
+									: {}),
 							}),
 						});
 
