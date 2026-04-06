@@ -44,6 +44,18 @@ const linkSafety: LinkSafetyConfig = {
 
 const ESCALATION_THRESHOLD = 3;
 
+const CLIENT_ID_KEY = "chat_support_client_id";
+
+function getOrCreateClientId(): string {
+	const existing = sessionStorage.getItem(CLIENT_ID_KEY);
+	if (existing) {
+		return existing;
+	}
+	const id = crypto.randomUUID();
+	sessionStorage.setItem(CLIENT_ID_KEY, id);
+	return id;
+}
+
 function getTextFromParts(message: UIMessage): string {
 	return message.parts
 		.filter((p): p is { type: "text"; text: string } => p.type === "text")
@@ -65,6 +77,7 @@ export function ChatSupport() {
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const prevMessageCountRef = useRef(0);
+	const [clientId] = useState(() => getOrCreateClientId());
 
 	const isLoggedIn = !!user;
 	const effectiveName = isLoggedIn ? (user.name ?? "") : userName;
@@ -79,10 +92,11 @@ export function ChatSupport() {
 					body: {
 						name: effectiveName,
 						email: effectiveEmail,
+						clientId,
 					},
 				}),
 			}),
-		[config.apiUrl, effectiveName, effectiveEmail],
+		[config.apiUrl, effectiveName, effectiveEmail, clientId],
 	);
 
 	const { messages, sendMessage, status, setMessages, error } = useChat({
@@ -132,6 +146,7 @@ export function ChatSupport() {
 					body: {
 						name: effectiveName,
 						email: effectiveEmail,
+						clientId,
 						messages: messages.map((m) => ({
 							role: m.role,
 							content: getTextFromParts(m),

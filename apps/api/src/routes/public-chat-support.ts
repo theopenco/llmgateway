@@ -108,21 +108,39 @@ function getTextFromUIMessage(message: UIMessage): string {
 }
 
 async function getOrCreateConversation(
+	clientId: string,
 	ipAddress: string,
 	userAgent: string | undefined,
 	name: string | undefined,
 	email: string | undefined,
 ): Promise<string> {
-	const redisKey = `chat_support_conv:${ipAddress}`;
+	const redisKey = `chat_support_conv:${clientId}`;
 	const existingId = await redisClient.get(redisKey);
 	if (existingId) {
+		if (name || email) {
+			const t = tables.chatSupportConversation;
+			await db
+				.update(t)
+				.set({
+					...(name ? { name } : {}),
+					...(email ? { email } : {}),
+				})
+				.where(eq(t.id, existingId));
+		}
 		return existingId;
 	}
 
-	return await createNewConversation(ipAddress, userAgent, name, email);
+	return await createNewConversation(
+		clientId,
+		ipAddress,
+		userAgent,
+		name,
+		email,
+	);
 }
 
 async function createNewConversation(
+	clientId: string,
 	ipAddress: string,
 	userAgent: string | undefined,
 	name: string | undefined,
@@ -135,7 +153,7 @@ async function createNewConversation(
 		.returning({ id: t.id });
 	const conversationId = conv!.id;
 
-	const redisKey = `chat_support_conv:${ipAddress}`;
+	const redisKey = `chat_support_conv:${clientId}`;
 	await redisClient.set(
 		redisKey,
 		conversationId,
@@ -149,6 +167,7 @@ async function persistMessages(
 	conversationId: string,
 	messages: UIMessage[],
 	assistantContent: string,
+	clientId: string,
 	ipAddress: string,
 	userAgent: string | undefined,
 	name: string | undefined,
@@ -173,6 +192,7 @@ async function persistMessages(
 		// User reset the widget — start a new conversation
 		if (existingCount > messages.length) {
 			const newConvId = await createNewConversation(
+				clientId,
 				ipAddress,
 				userAgent,
 				name,
@@ -254,8 +274,13 @@ publicChatSupport.post("/", async (c) => {
 		messages: UIMessage[];
 		name?: string;
 		email?: string;
+		clientId?: string;
 	}>();
-	const { messages, name, email } = body;
+	const { messages, name, email, clientId } = body;
+
+	if (!clientId || typeof clientId !== "string" || clientId.length > 64) {
+		return c.json({ error: "Missing or invalid clientId" }, 400);
+	}
 
 	if (!messages || !Array.isArray(messages) || messages.length === 0) {
 		return c.json({ error: "Missing messages" }, 400);
@@ -276,6 +301,7 @@ publicChatSupport.post("/", async (c) => {
 
 	const userAgent = c.req.header("User-Agent");
 	const conversationId = await getOrCreateConversation(
+		clientId,
 		ipAddress,
 		userAgent,
 		name,
@@ -300,6 +326,7 @@ publicChatSupport.post("/", async (c) => {
 				conversationId,
 				messages,
 				text,
+				clientId,
 				ipAddress,
 				userAgent,
 				name,
@@ -322,11 +349,17 @@ publicChatSupport.post("/escalate", async (c) => {
 	const body = await c.req.json<{
 		name?: string;
 		email?: string;
+		clientId?: string;
 		messages?: { role: string; content: string }[];
 	}>();
-	const { name, email, messages } = body;
+	const { name, email, clientId, messages } = body;
+
+	if (!clientId || typeof clientId !== "string" || clientId.length > 64) {
+		return c.json({ error: "Missing or invalid clientId" }, 400);
+	}
 
 	const conversationId = await getOrCreateConversation(
+		clientId,
 		ipAddress,
 		c.req.header("User-Agent"),
 		name,
