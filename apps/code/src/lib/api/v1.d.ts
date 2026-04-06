@@ -3696,6 +3696,7 @@ export interface paths {
                                 ipAddress: string | null;
                                 userAgent: string | null;
                                 messageCount: number;
+                                escalatedAt: string | null;
                                 firstMessage: string | null;
                             }[];
                             total: number;
@@ -3745,6 +3746,7 @@ export interface paths {
                             ipAddress: string | null;
                             userAgent: string | null;
                             messageCount: number;
+                            escalatedAt: string | null;
                             messages: {
                                 id: string;
                                 createdAt: string;
@@ -3759,6 +3761,52 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/chat-support-logs/{id}/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        content: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Reply sent successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;

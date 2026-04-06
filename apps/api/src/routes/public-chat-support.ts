@@ -2,10 +2,12 @@ import { streamText, convertToModelMessages, type UIMessage } from "ai";
 import { Hono } from "hono";
 
 import { redisClient } from "@/auth/config.js";
+import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { replyToEmail } from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -291,4 +293,83 @@ publicChatSupport.post("/", async (c) => {
 	});
 
 	return result.toTextStreamResponse();
+});
+
+publicChatSupport.post("/escalate", async (c) => {
+	const ipAddress = extractClientIP(c) ?? "unknown";
+	const canSubmit = await checkRateLimit(ipAddress);
+
+	if (!canSubmit) {
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
+	}
+
+	const body = await c.req.json<{
+		name?: string;
+		email?: string;
+		messages?: { role: string; content: string }[];
+	}>();
+	const { name, email, messages } = body;
+
+	const conversationId = await getOrCreateConversation(
+		ipAddress,
+		c.req.header("User-Agent"),
+		name,
+		email,
+	);
+
+	const t = tables.chatSupportConversation;
+	const existing = await db
+		.select({ escalatedAt: t.escalatedAt })
+		.from(t)
+		.where(eq(t.id, conversationId))
+		.limit(1);
+
+	if (existing[0]?.escalatedAt) {
+		return c.json({ success: true, message: "Already escalated." });
+	}
+
+	await db
+		.update(t)
+		.set({ escalatedAt: new Date() })
+		.where(eq(t.id, conversationId));
+
+	const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#fff;">
+<table role="presentation" style="width:100%;border-collapse:collapse;">
+<tr><td align="center" style="padding:40px 20px;">
+<table role="presentation" style="max-width:600px;width:100%;border-collapse:collapse;">
+<tr><td style="background-color:#000;padding:30px;text-align:center;border-radius:8px 8px 0 0;">
+<h1 style="margin:0;color:#fff;font-size:22px;font-weight:600;">Chat Support Escalation</h1>
+</td></tr>
+<tr><td style="background-color:#f8f9fa;padding:30px;border-radius:0 0 8px 8px;">
+<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Name:</strong> ${name ?? "Not provided"}</p>
+<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Email:</strong> ${email ?? "Not provided"}</p>
+<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Conversation ID:</strong> ${conversationId}</p>
+<hr style="border:none;border-top:1px solid #e9ecef;margin:20px 0;">
+<h2 style="margin:0 0 15px;font-size:16px;color:#333;">Conversation History</h2>
+<div style="background:#fff;border:1px solid #e9ecef;border-radius:6px;padding:15px;font-size:14px;line-height:1.6;color:#333;white-space:pre-wrap;">${(messages ?? []).map((m) => `${m.role === "user" ? (name ?? "User") : "AI"}: ${m.content}`).join("\n\n")}</div>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`.trim();
+
+	await sendTransactionalEmail({
+		to: replyToEmail,
+		subject: `[Chat Support Escalation] ${name ?? "Anonymous"} needs help`,
+		html: htmlBody,
+	});
+
+	logger.info("Chat support escalated", {
+		conversationId,
+		name,
+		email,
+		ipAddress,
+	});
+
+	return c.json({ success: true, message: "Escalation sent." });
 });

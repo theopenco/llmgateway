@@ -1,8 +1,16 @@
 "use client";
 
 import { Chat, useChat } from "@ai-sdk/react";
+import { createCodePlugin } from "@streamdown/code";
 import { TextStreamChatTransport } from "ai";
-import { MessageCircle, X, Send, RotateCcw } from "lucide-react";
+import {
+	MessageCircle,
+	X,
+	Send,
+	RotateCcw,
+	UserRound,
+	Loader2,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 
@@ -12,6 +20,27 @@ import { useAppConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 import type { UIMessage } from "ai";
+import type { LinkSafetyConfig } from "streamdown";
+
+const code = createCodePlugin({
+	themes: ["github-light", "github-dark"],
+});
+
+const linkSafety: LinkSafetyConfig = {
+	enabled: true,
+	onLinkCheck: (url: string) => {
+		try {
+			const hostname = new URL(url).hostname;
+			return (
+				hostname === "llmgateway.io" || hostname.endsWith(".llmgateway.io")
+			);
+		} catch {
+			return false;
+		}
+	},
+};
+
+const ESCALATION_THRESHOLD = 3;
 
 function getTextFromParts(message: UIMessage): string {
 	return message.parts
@@ -29,6 +58,8 @@ export function ChatSupport() {
 	const [userName, setUserName] = useState("");
 	const [userEmail, setUserEmail] = useState("");
 	const [hasIdentified, setHasIdentified] = useState(false);
+	const [escalated, setEscalated] = useState(false);
+	const [escalating, setEscalating] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const prevMessageCountRef = useRef(0);
@@ -88,8 +119,35 @@ export function ChatSupport() {
 		setHasUnread(false);
 	};
 
+	const userMessageCount = messages.filter((m) => m.role === "user").length;
+	const showEscalation = !escalated && userMessageCount >= ESCALATION_THRESHOLD;
+
+	const handleEscalate = async () => {
+		setEscalating(true);
+		try {
+			const res = await fetch(`${config.apiUrl}/public/chat-support/escalate`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: effectiveName,
+					email: effectiveEmail,
+					messages: messages.map((m) => ({
+						role: m.role,
+						content: getTextFromParts(m),
+					})),
+				}),
+			});
+			if (res.ok) {
+				setEscalated(true);
+			}
+		} finally {
+			setEscalating(false);
+		}
+	};
+
 	const handleReset = () => {
 		setMessages([]);
+		setEscalated(false);
 		if (!isLoggedIn) {
 			setHasIdentified(false);
 			setUserName("");
@@ -246,6 +304,8 @@ export function ChatSupport() {
 													<Streamdown
 														isAnimating={isLastAssistant && isLoading}
 														controls={false}
+														plugins={{ code }}
+														linkSafety={linkSafety}
 														className="overflow-x-auto [&_pre]:overflow-x-auto [&_code]:break-all"
 													>
 														{content}
@@ -259,7 +319,8 @@ export function ChatSupport() {
 								})}
 								{isLoading &&
 									(messages.length === 0 ||
-										messages[messages.length - 1]?.role !== "assistant") && (
+										messages[messages.length - 1]?.role !== "assistant" ||
+										!getTextFromParts(messages[messages.length - 1]!)) && (
 										<div className="flex justify-start">
 											<div className="flex items-center gap-1.5 rounded-xl bg-muted px-3 py-2">
 												<div className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.3s]" />
@@ -278,6 +339,36 @@ export function ChatSupport() {
 								<div ref={messagesEndRef} />
 							</div>
 						</div>
+
+						{/* Escalation banner */}
+						{showEscalation && (
+							<div className="border-t border-border bg-muted/50 px-4 py-2.5">
+								<p className="mb-1.5 text-xs text-muted-foreground">
+									Still need help?
+								</p>
+								<button
+									type="button"
+									onClick={handleEscalate}
+									disabled={escalating}
+									className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+								>
+									{escalating ? (
+										<Loader2 className="size-3 animate-spin" />
+									) : (
+										<UserRound className="size-3" />
+									)}
+									Talk to a human
+								</button>
+							</div>
+						)}
+						{escalated && (
+							<div className="border-t border-border bg-green-50 px-4 py-2.5 dark:bg-green-950/30">
+								<p className="text-xs text-green-700 dark:text-green-400">
+									We&apos;ve notified our team. We&apos;ll get back to you via
+									email shortly.
+								</p>
+							</div>
+						)}
 
 						{/* Input */}
 						<div className="border-t border-border p-3">

@@ -927,6 +927,7 @@ export const chatSupportConversation = pgTable(
 		ipAddress: text(),
 		userAgent: text(),
 		messageCount: integer().notNull().default(0),
+		escalatedAt: timestamp(),
 	},
 	(table) => [
 		index("chat_support_conversation_created_at_idx").on(table.createdAt),
@@ -942,7 +943,7 @@ export const chatSupportMessage = pgTable(
 			.notNull()
 			.references(() => chatSupportConversation.id, { onDelete: "cascade" }),
 		role: text({
-			enum: ["user", "assistant"],
+			enum: ["user", "assistant", "admin"],
 		}).notNull(),
 		content: text().notNull(),
 		sequence: integer().notNull(),

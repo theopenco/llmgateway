@@ -5577,6 +5577,7 @@ const chatSupportConversationSchema = z.object({
 	ipAddress: z.string().nullable(),
 	userAgent: z.string().nullable(),
 	messageCount: z.number(),
+	escalatedAt: z.string().nullable(),
 	firstMessage: z.string().nullable(),
 });
 
@@ -5602,6 +5603,7 @@ const chatSupportConversationDetailSchema = z.object({
 	ipAddress: z.string().nullable(),
 	userAgent: z.string().nullable(),
 	messageCount: z.number(),
+	escalatedAt: z.string().nullable(),
 	messages: z.array(chatSupportMessageSchema),
 });
 
@@ -5665,6 +5667,7 @@ admin.openapi(getChatSupportConversations, async (c) => {
 				ipAddress: t.ipAddress,
 				userAgent: t.userAgent,
 				messageCount: t.messageCount,
+				escalatedAt: t.escalatedAt,
 				firstMessage: firstMessageSubquery.content,
 			})
 			.from(t)
@@ -5687,6 +5690,7 @@ admin.openapi(getChatSupportConversations, async (c) => {
 			...conv,
 			createdAt: conv.createdAt.toISOString(),
 			updatedAt: conv.updatedAt.toISOString(),
+			escalatedAt: conv.escalatedAt?.toISOString() ?? null,
 			firstMessage: conv.firstMessage ?? null,
 		})),
 		total: Number(countResult[0]?.count ?? 0),
@@ -5727,6 +5731,7 @@ admin.openapi(getChatSupportConversation, async (c) => {
 			ipAddress: t.ipAddress,
 			userAgent: t.userAgent,
 			messageCount: t.messageCount,
+			escalatedAt: t.escalatedAt,
 		})
 		.from(t)
 		.where(eq(t.id, id))
@@ -5753,11 +5758,129 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		...conversation,
 		createdAt: conversation.createdAt.toISOString(),
 		updatedAt: conversation.updatedAt.toISOString(),
+		escalatedAt: conversation.escalatedAt?.toISOString() ?? null,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),
 		})),
 	});
+});
+
+// ── Chat Support Reply ─��────────────────────────────────────────────────────
+
+const replyChatSupportConversation = createRoute({
+	method: "post",
+	path: "/chat-support-logs/{id}/reply",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						content: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Reply sent successfully.",
+		},
+	},
+});
+
+admin.openapi(replyChatSupportConversation, async (c) => {
+	const { id } = c.req.valid("param");
+	const { content } = c.req.valid("json");
+
+	const t = tables.chatSupportConversation;
+	const mt = tables.chatSupportMessage;
+
+	const rows = await db
+		.select({
+			id: t.id,
+			name: t.name,
+			email: t.email,
+			messageCount: t.messageCount,
+		})
+		.from(t)
+		.where(eq(t.id, id))
+		.limit(1);
+
+	const conversation = rows[0];
+	if (!conversation) {
+		throw new HTTPException(404, { message: "Conversation not found" });
+	}
+
+	const lastMsg = await db
+		.select({ sequence: mt.sequence })
+		.from(mt)
+		.where(eq(mt.conversationId, id))
+		.orderBy(desc(mt.sequence))
+		.limit(1);
+
+	const nextSequence = (lastMsg[0]?.sequence ?? -1) + 1;
+
+	await db.insert(mt).values({
+		conversationId: id,
+		role: "admin",
+		content,
+		sequence: nextSequence,
+	});
+
+	await db
+		.update(t)
+		.set({ messageCount: conversation.messageCount + 1 })
+		.where(eq(t.id, id));
+
+	if (conversation.email) {
+		const { getResendClient, fromEmail, replyToEmail } = await import(
+			"@llmgateway/shared/email"
+		);
+
+		const resend = getResendClient();
+		if (resend) {
+			await resend.emails.send({
+				from: fromEmail,
+				to: [conversation.email],
+				replyTo: replyToEmail,
+				subject: `Reply to your support conversation — LLM Gateway`,
+				html: `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#fff;">
+<table role="presentation" style="width:100%;border-collapse:collapse;">
+<tr><td align="center" style="padding:40px 20px;">
+<table role="presentation" style="max-width:600px;width:100%;border-collapse:collapse;">
+<tr><td style="background-color:#000;padding:30px;text-align:center;border-radius:8px 8px 0 0;">
+<h1 style="margin:0;color:#fff;font-size:22px;font-weight:600;">LLM Gateway Support</h1>
+</td></tr>
+<tr><td style="background-color:#f8f9fa;padding:30px;border-radius:0 0 8px 8px;">
+<p style="margin:0 0 15px;font-size:16px;color:#333;">Hi${conversation.name ? ` ${conversation.name}` : ""},</p>
+<p style="margin:0 0 15px;font-size:16px;color:#333;">Our team has replied to your support conversation:</p>
+<div style="background:#fff;border:1px solid #e9ecef;border-radius:6px;padding:15px;font-size:14px;line-height:1.6;color:#333;white-space:pre-wrap;">${content}</div>
+<p style="margin:20px 0 0;font-size:14px;color:#666;">If you need further help, just reply to this email.</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`.trim(),
+			});
+		}
+	}
+
+	return c.json({ success: true, message: "Reply sent successfully." });
 });
 
 export default admin;

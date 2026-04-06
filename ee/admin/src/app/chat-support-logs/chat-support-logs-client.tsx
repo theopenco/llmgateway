@@ -1,13 +1,15 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+	AlertTriangle,
 	Clock,
 	Globe,
 	Mail,
 	MessageCircle,
 	Monitor,
 	Search,
+	Send,
 	User,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -111,6 +113,7 @@ interface ConversationDetail {
 	ipAddress: string | null;
 	userAgent: string | null;
 	messageCount: number;
+	escalatedAt: string | null;
 	messages: {
 		id: string;
 		createdAt: string;
@@ -122,10 +125,13 @@ interface ConversationDetail {
 
 export function ChatSupportLogsClient() {
 	const $fetch = useFetchClient();
+	const queryClient = useQueryClient();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [search, setSearch] = useState("");
 	const [debouncedSearch, setDebouncedSearch] = useState("");
+	const [replyText, setReplyText] = useState("");
 	const messagesEndRef = useRef<HTMLDivElement>(null);
+	const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
 	useEffect(() => {
 		const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -164,6 +170,28 @@ export function ChatSupportLogsClient() {
 		enabled: !!selectedId,
 	});
 
+	const replyMutation = useMutation({
+		mutationFn: async ({ id, content }: { id: string; content: string }) => {
+			const { data } = await $fetch.POST(
+				"/admin/chat-support-logs/{id}/reply",
+				{
+					params: { path: { id } },
+					body: { content },
+				},
+			);
+			return data;
+		},
+		onSuccess: () => {
+			setReplyText("");
+			void queryClient.invalidateQueries({
+				queryKey: ["chat-support-log", selectedId],
+			});
+			void queryClient.invalidateQueries({
+				queryKey: ["chat-support-logs"],
+			});
+		},
+	});
+
 	useEffect(() => {
 		if (detail?.messages) {
 			messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -172,7 +200,24 @@ export function ChatSupportLogsClient() {
 
 	const handleSelectConversation = useCallback((id: string) => {
 		setSelectedId(id);
+		setReplyText("");
 	}, []);
+
+	const handleReplySubmit = (e: React.FormEvent) => {
+		e.preventDefault();
+		const trimmed = replyText.trim();
+		if (!trimmed || !selectedId || replyMutation.isPending) {
+			return;
+		}
+		replyMutation.mutate({ id: selectedId, content: trimmed });
+	};
+
+	const handleReplyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			handleReplySubmit(e);
+		}
+	};
 
 	const selectedConv = conversations.find((c) => c.id === selectedId);
 
@@ -232,22 +277,29 @@ export function ChatSupportLogsClient() {
 											: "hover:bg-muted/60",
 									)}
 								>
-									<div
-										className={cn(
-											"mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium",
-											selectedId === conv.id
-												? "bg-primary text-primary-foreground"
-												: "bg-muted text-muted-foreground",
+									<div className="relative">
+										<div
+											className={cn(
+												"mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium",
+												selectedId === conv.id
+													? "bg-primary text-primary-foreground"
+													: "bg-muted text-muted-foreground",
+											)}
+										>
+											{conv.name
+												? conv.name
+														.split(" ")
+														.map((w) => w[0])
+														.join("")
+														.slice(0, 2)
+														.toUpperCase()
+												: "?"}
+										</div>
+										{conv.escalatedAt && (
+											<span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-amber-500">
+												<AlertTriangle className="h-2 w-2 text-white" />
+											</span>
 										)}
-									>
-										{conv.name
-											? conv.name
-													.split(" ")
-													.map((w) => w[0])
-													.join("")
-													.slice(0, 2)
-													.toUpperCase()
-											: "?"}
 									</div>
 									<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 										<div className="flex items-center justify-between gap-2">
@@ -331,12 +383,20 @@ export function ChatSupportLogsClient() {
 									{detail.messageCount} messages
 								</p>
 							</div>
+							{detail.escalatedAt && (
+								<div className="flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+									<AlertTriangle className="h-3 w-3" />
+									<span className="text-xs font-medium">Escalated</span>
+								</div>
+							)}
 						</div>
 
 						{/* Messages */}
 						<ScrollArea className="min-h-0 flex-1">
 							<div className="flex flex-col gap-4 px-6 py-4">
 								{detail.messages.map((message) => {
+									const isUser = message.role === "user";
+									const isAdmin = message.role === "admin";
 									const isAssistant = message.role === "assistant";
 									return (
 										<div
@@ -347,12 +407,20 @@ export function ChatSupportLogsClient() {
 											)}
 										>
 											<div className="flex max-w-[70%] flex-col gap-1">
+												{isAdmin && (
+													<span className="pr-1 text-right text-[11px] font-medium text-blue-600 dark:text-blue-400">
+														Admin
+													</span>
+												)}
 												<div
 													className={cn(
 														"rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-														isAssistant
-															? "rounded-bl-md bg-muted text-foreground"
-															: "rounded-br-md bg-primary text-primary-foreground",
+														isAssistant &&
+															"rounded-bl-md bg-muted text-foreground",
+														isUser &&
+															"rounded-br-md bg-primary text-primary-foreground",
+														isAdmin &&
+															"rounded-br-md bg-blue-600 text-white dark:bg-blue-700",
 													)}
 												>
 													<p className="whitespace-pre-wrap">
@@ -379,6 +447,41 @@ export function ChatSupportLogsClient() {
 								<div ref={messagesEndRef} />
 							</div>
 						</ScrollArea>
+
+						{/* Reply input */}
+						<div className="border-t border-border/60 px-4 py-3">
+							<form
+								onSubmit={handleReplySubmit}
+								className="flex items-end gap-2"
+							>
+								<textarea
+									ref={replyInputRef}
+									value={replyText}
+									onChange={(e) => setReplyText(e.target.value)}
+									onKeyDown={handleReplyKeyDown}
+									placeholder={
+										detail.email
+											? "Reply (will also be sent via email)..."
+											: "Reply..."
+									}
+									rows={1}
+									className="field-sizing-content max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
+								/>
+								<button
+									type="submit"
+									disabled={!replyText.trim() || replyMutation.isPending}
+									className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+								>
+									<Send className="h-4 w-4" />
+									<span className="sr-only">Send reply</span>
+								</button>
+							</form>
+							{replyMutation.isError && (
+								<p className="mt-1.5 text-xs text-destructive">
+									Failed to send reply. Please try again.
+								</p>
+							)}
+						</div>
 					</>
 				) : null}
 			</div>
@@ -414,6 +517,23 @@ export function ChatSupportLogsClient() {
 						{/* Details sections */}
 						<ScrollArea className="flex-1">
 							<div className="flex flex-col gap-0.5 p-4">
+								{/* Escalation status */}
+								{(detail?.escalatedAt ?? selectedConv?.escalatedAt) && (
+									<div className="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
+										<div className="flex items-center gap-2">
+											<AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+											<span className="text-xs font-semibold text-amber-800 dark:text-amber-400">
+												Escalated
+											</span>
+										</div>
+										<p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
+											{formatFullDate(
+												detail?.escalatedAt ?? selectedConv?.escalatedAt ?? "",
+											)}
+										</p>
+									</div>
+								)}
+
 								{/* Main information */}
 								<div className="mb-2">
 									<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
