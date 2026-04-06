@@ -234,6 +234,7 @@ function getFinishReasonLabel(reason: string): string {
 		case "length":
 			return "Response reached the maximum token limit";
 		case "content-filter":
+		case "content_filter":
 			return "Response was filtered by content policy";
 		default:
 			return `Generation stopped: ${reason}`;
@@ -248,14 +249,12 @@ const AssistantMessage = memo(
 		status,
 		regenerate,
 		finishReason,
-		error,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
 		regenerate: () => void;
 		finishReason?: string | null;
-		error?: string | null;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -332,13 +331,10 @@ const AssistantMessage = memo(
 					</Sources>
 				) : null}
 
-				{isLastMessage && (error ?? finishReason) && (
+				{isLastMessage && finishReason && (
 					<div className="mt-2 flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200">
 						<AlertTriangle className="size-3.5 shrink-0" />
-						<span>
-							{error ??
-								(finishReason ? getFinishReasonLabel(finishReason) : null)}
-						</span>
+						<span>{getFinishReasonLabel(finishReason)}</span>
 					</div>
 				)}
 
@@ -638,7 +634,6 @@ export const ChatUI = ({
 								status={status}
 								regenerate={regenerate}
 								finishReason={isLastMessage ? finishReason : null}
-								error={isLastMessage ? error : null}
 							/>
 						);
 					} else {

@@ -38,6 +38,15 @@ import { cn } from "@/lib/utils";
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 
+interface ImageConfig {
+	aspect_ratio?: string;
+	image_size?: string;
+	n?: number;
+	output_format?: string;
+	output_compression?: number;
+	seed?: number;
+}
+
 interface LogDetailClientProps {
 	initialData: LogDetailData | null;
 	orgId: string;
@@ -253,6 +262,9 @@ export function LogDetailClient({
 			: null,
 		videoDownloadCount: data.log.videoDownloadCount ?? 0,
 	} as Log;
+
+	const imageConfig = (log.params as { image_config?: ImageConfig } | null)
+		?.image_config;
 
 	const retentionEnabled =
 		log.dataStorageCost !== null &&
@@ -773,6 +785,35 @@ export function LogDetailClient({
 										label="Unified Finish Reason"
 										value={log.unifiedFinishReason ?? "-"}
 									/>
+									{imageConfig?.aspect_ratio && (
+										<Field
+											label="Aspect Ratio"
+											value={imageConfig.aspect_ratio}
+										/>
+									)}
+									{imageConfig?.image_size && (
+										<Field label="Image Size" value={imageConfig.image_size} />
+									)}
+									{imageConfig?.n !== undefined && imageConfig.n !== null && (
+										<Field label="Image Count" value={imageConfig.n} />
+									)}
+									{imageConfig?.output_format && (
+										<Field
+											label="Output Format"
+											value={imageConfig.output_format}
+										/>
+									)}
+									{imageConfig?.output_compression !== undefined &&
+										imageConfig.output_compression !== null && (
+											<Field
+												label="Compression"
+												value={imageConfig.output_compression}
+											/>
+										)}
+									{imageConfig?.seed !== undefined &&
+										imageConfig.seed !== null && (
+											<Field label="Seed" value={imageConfig.seed} />
+										)}
 								</TooltipProvider>
 							</div>
 						</Section>
@@ -1075,15 +1116,23 @@ export function LogDetailClient({
 					</div>
 				</Section>
 
-				{log.params && Object.keys(log.params).length > 0 && (
-					<Section title="Additional Parameters">
-						<div className="rounded-lg border bg-card p-4">
-							<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
-								{JSON.stringify(log.params, null, 2)}
-							</pre>
-						</div>
-					</Section>
-				)}
+				{log.params &&
+					(() => {
+						const remaining = Object.fromEntries(
+							Object.entries(log.params).filter(
+								([key]) => key !== "image_config",
+							),
+						);
+						return Object.keys(remaining).length > 0 ? (
+							<Section title="Additional Parameters">
+								<div className="rounded-lg border bg-card p-4">
+									<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
+										{JSON.stringify(remaining, null, 2)}
+									</pre>
+								</div>
+							</Section>
+						) : null;
+					})()}
 			</div>
 		</div>
 	);

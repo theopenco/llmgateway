@@ -11,9 +11,11 @@ import {
 	Clock,
 	Coins,
 	Copy,
+	Eye,
 	ExternalLink,
 	Globe,
 	Info,
+	Loader2,
 	Link as LinkIcon,
 	Package,
 	Plug,
@@ -28,6 +30,13 @@ import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import {
 	Tooltip,
 	TooltipContent,
@@ -181,6 +190,8 @@ export interface LogCardProps {
 	showLogId?: boolean;
 	/** When true, uses "your balance" / "your organization" wording. */
 	isUserFacing?: boolean;
+	/** Fetch full image content (base64) for a log. When provided, a Preview button appears for image logs. */
+	fetchImageContent?: (logId: string) => Promise<string | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +264,7 @@ export function LogCard({
 	showCopyButtons = false,
 	showLogId = false,
 	isUserFacing = false,
+	fetchImageContent,
 }: LogCardProps) {
 	const routingMetadata = log.routingMetadata as RoutingMetadata | undefined;
 	const errorDetails = log.errorDetails as ErrorDetails | undefined;
@@ -268,11 +280,24 @@ export function LogCard({
 	const params = log.params as Record<string, any> | undefined;
 	const customHeaders = log.customHeaders as Record<string, string> | undefined;
 
+	// Extract image_config from params and compute remaining params
+	const imageConfig = params?.image_config as
+		| Record<string, string | number>
+		| undefined;
+	const remainingParams = params
+		? Object.fromEntries(
+				Object.entries(params).filter(([key]) => key !== "image_config"),
+			)
+		: undefined;
+
 	const retentionEnabled =
 		log.dataStorageCost !== null &&
 		log.dataStorageCost !== undefined &&
 		Number(log.dataStorageCost) > 0;
 	const [isExpanded, setIsExpanded] = useState(false);
+	const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
+	const [imagePreviewSrc, setImagePreviewSrc] = useState<string | null>(null);
+	const [imagePreviewLoading, setImagePreviewLoading] = useState(false);
 
 	const formattedTime = formatDistanceToNow(new Date(log.createdAt), {
 		addSuffix: true,
@@ -1134,6 +1159,43 @@ export function LogCard({
 										: "-"}
 								</span>
 							</div>
+							{imageConfig?.aspect_ratio && (
+								<div className="flex items-center justify-between gap-2">
+									<span className="text-muted-foreground">Aspect Ratio</span>
+									<span>{String(imageConfig.aspect_ratio)}</span>
+								</div>
+							)}
+							{imageConfig?.image_size && (
+								<div className="flex items-center justify-between gap-2">
+									<span className="text-muted-foreground">Image Size</span>
+									<span>{String(imageConfig.image_size)}</span>
+								</div>
+							)}
+							{imageConfig?.n !== undefined && imageConfig.n !== null && (
+								<div className="flex items-center justify-between gap-2">
+									<span className="text-muted-foreground">Image Count</span>
+									<span>{String(imageConfig.n)}</span>
+								</div>
+							)}
+							{imageConfig?.output_format && (
+								<div className="flex items-center justify-between gap-2">
+									<span className="text-muted-foreground">Output Format</span>
+									<span>{String(imageConfig.output_format)}</span>
+								</div>
+							)}
+							{imageConfig?.output_compression !== undefined &&
+								imageConfig.output_compression !== null && (
+									<div className="flex items-center justify-between gap-2">
+										<span className="text-muted-foreground">Compression</span>
+										<span>{String(imageConfig.output_compression)}</span>
+									</div>
+								)}
+							{imageConfig?.seed !== undefined && imageConfig.seed !== null && (
+								<div className="flex items-center justify-between gap-2">
+									<span className="text-muted-foreground">Seed</span>
+									<span>{String(imageConfig.seed)}</span>
+								</div>
+							)}
 						</div>
 					</div>
 
@@ -1197,11 +1259,11 @@ export function LogCard({
 					)}
 
 					{/* Additional Parameters */}
-					{params && Object.keys(params).length > 0 && (
+					{remainingParams && Object.keys(remainingParams).length > 0 && (
 						<div className="space-y-2">
 							<h4 className="text-sm font-medium">Additional Parameters</h4>
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
-								{renderParams(params)}
+								{renderParams(remainingParams)}
 							</div>
 						</div>
 					)}
@@ -1418,7 +1480,44 @@ export function LogCard({
 
 					{/* Response */}
 					<div className="space-y-2">
-						<h4 className="text-sm font-medium">Response</h4>
+						<div className="flex items-center justify-between">
+							<h4 className="text-sm font-medium">Response</h4>
+							{log.content === "[image_generated]" && fetchImageContent && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="h-7 gap-1.5 text-xs"
+									disabled={imagePreviewLoading}
+									onClick={async () => {
+										setImagePreviewLoading(true);
+										try {
+											const content = await fetchImageContent(log.id);
+											if (content) {
+												if (content.startsWith("data:")) {
+													setImagePreviewSrc(content);
+												} else {
+													const fmt = imageConfig?.output_format
+														? String(imageConfig.output_format).toLowerCase()
+														: "png";
+													const mime = `image/${fmt === "jpg" ? "jpeg" : fmt}`;
+													setImagePreviewSrc(`data:${mime};base64,${content}`);
+												}
+												setImagePreviewOpen(true);
+											}
+										} finally {
+											setImagePreviewLoading(false);
+										}
+									}}
+								>
+									{imagePreviewLoading ? (
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+									) : (
+										<Eye className="h-3.5 w-3.5" />
+									)}
+									Preview Image
+								</Button>
+							)}
+						</div>
 						<div className="rounded-md border p-3">
 							{log.content === "[image_generated]" ? (
 								<div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1451,6 +1550,27 @@ export function LogCard({
 					</div>
 				</div>
 			)}
+
+			{/* Image Preview Dialog */}
+			<Dialog open={imagePreviewOpen} onOpenChange={setImagePreviewOpen}>
+				<DialogContent className="max-w-2xl">
+					<DialogHeader>
+						<DialogTitle>Generated Image</DialogTitle>
+						<DialogDescription>
+							Preview of the generated image from this request.
+						</DialogDescription>
+					</DialogHeader>
+					{imagePreviewSrc && (
+						<div className="rounded-md border overflow-hidden">
+							<img
+								src={imagePreviewSrc}
+								alt="Generated image preview"
+								className="w-full h-auto"
+							/>
+						</div>
+					)}
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }
