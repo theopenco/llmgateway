@@ -8971,9 +8971,12 @@ chat.openapi(completions, async (c) => {
 
 	// For image generation, store the base64 data URLs in content
 	// so the activity detail page can render the images
+	const base64Images =
+		convertedImages?.filter((img) => img.image_url.url.startsWith("data:")) ??
+		[];
 	const logContent =
-		convertedImages && convertedImages.length > 0
-			? convertedImages.map((img) => img.image_url.url).join("\n")
+		base64Images.length > 0
+			? base64Images.map((img) => img.image_url.url).join("\n")
 			: content;
 
 	await insertLogEntry({
