@@ -179,12 +179,19 @@ export function LogCard({ log }: { log: ProjectLogEntry }) {
 					<div className="flex items-start justify-between gap-4">
 						<div className="flex items-center gap-2 flex-1 min-w-0">
 							<p className="font-medium break-words max-w-none line-clamp-2">
-								{log.content ??
+								{log.content === "[image_generated]" ? (
+									<span className="text-muted-foreground inline-flex items-center gap-1">
+										<Sparkles className="h-3.5 w-3.5" />
+										Image generated
+									</span>
+								) : (
+									(log.content ??
 									(log.unifiedFinishReason === "tool_calls" && toolResults
 										? Array.isArray(toolResults)
 											? `Tool calls: ${toolResults.map((tr) => tr.function?.name ?? "unknown").join(", ")}`
 											: "Tool calls executed"
-										: "---")}
+										: "---"))
+								)}
 							</p>
 							{!log.content &&
 								log.unifiedFinishReason !== "tool_calls" &&
@@ -1116,7 +1123,20 @@ export function LogCard({ log }: { log: ProjectLogEntry }) {
 						<div className="rounded-md border p-3">
 							{messages ? (
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
-									{JSON.stringify(messages, null, 2)}
+									{JSON.stringify(
+										messages,
+										(_key, value) => {
+											if (
+												typeof value === "string" &&
+												value.length > 200 &&
+												/[A-Za-z0-9+/]{200,}/.test(value)
+											) {
+												return "[base64 image data truncated]";
+											}
+											return value;
+										},
+										2,
+									)}
 								</pre>
 							) : !retentionEnabled ? (
 								<p className="text-sm text-muted-foreground italic">
@@ -1155,7 +1175,14 @@ export function LogCard({ log }: { log: ProjectLogEntry }) {
 					<div className="space-y-2">
 						<h4 className="text-sm font-medium">Response</h4>
 						<div className="rounded-md border p-3">
-							{log.content ? (
+							{log.content === "[image_generated]" ? (
+								<div className="flex items-center gap-2 text-sm text-muted-foreground">
+									<Sparkles className="h-4 w-4" />
+									<span>
+										Image generated — view full log for image preview.
+									</span>
+								</div>
+							) : log.content ? (
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
 									{log.content}
 								</pre>

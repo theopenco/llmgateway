@@ -551,7 +551,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 							user: { email: string; name?: string | null };
 							token: string;
 						}) => {
-							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
+							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(`${uiUrl}/dashboard?emailVerified=true`)}`;
 
 							const text = `Hey${user.name ? ` ${user.name}` : ""}!
 

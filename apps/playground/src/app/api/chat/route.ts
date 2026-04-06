@@ -7,6 +7,8 @@ import {
 	type UIMessage,
 	convertToModelMessages,
 	JsonToSseTransformStream,
+	createUIMessageStream,
+	createUIMessageStreamResponse,
 } from "ai";
 import { cookies } from "next/headers";
 import { z } from "zod";
@@ -368,10 +370,9 @@ export async function POST(req: Request) {
 		}
 	}
 
-	// Use generateImage for dedicated image generation models
+	// Use generateImage for image generation models in chat mode
 	if (is_image_gen) {
 		try {
-			// Extract prompt and file parts from the last user message
 			const lastUserMessage = [...messages]
 				.reverse()
 				.find((m) => m.role === "user");
@@ -424,12 +425,20 @@ export async function POST(req: Request) {
 					: {}),
 			});
 
-			return Response.json({
-				images: result.images.map((image) => ({
-					base64: image.base64,
-					mediaType: image.mediaType || "image/png",
-				})),
+			const stream = createUIMessageStream({
+				execute: async ({ writer }) => {
+					for (const image of result.images) {
+						const mediaType = image.mediaType || "image/png";
+						writer.write({
+							type: "file",
+							url: `data:${mediaType};base64,${image.base64}`,
+							mediaType,
+						});
+					}
+				},
 			});
+
+			return createUIMessageStreamResponse({ stream });
 		} catch (error: unknown) {
 			const status =
 				typeof error === "object" &&
@@ -442,8 +451,6 @@ export async function POST(req: Request) {
 			const message =
 				error instanceof Error ? error.message : "Image generation failed";
 
-			// Try to extract a more detailed message from the provider response.
-			// AI SDK errors may embed the original gateway response in responseBody.
 			let detailedMessage: string | undefined;
 			if (typeof error === "object" && error !== null) {
 				const err = error as Record<string, unknown>;

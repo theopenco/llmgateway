@@ -39,6 +39,17 @@ describe("Models", () => {
 		expect(o1MiniModel?.family).toBe("openai");
 	});
 
+	it("should mark Claude Sonnet 4.6 provider mappings as vision-capable", () => {
+		const sonnet46 = models.find((model) => model.id === "claude-sonnet-4-6");
+
+		expect(sonnet46).toBeDefined();
+		expect(sonnet46?.providers.map((provider) => provider.vision)).toEqual([
+			true,
+			true,
+			true,
+		]);
+	});
+
 	it("should have free: true when provider mapping has zero pricing", () => {
 		// Filter models that have zero input/output pricing AND no request or per-second price
 		const modelsWithZeroPricing = models.filter((model) =>

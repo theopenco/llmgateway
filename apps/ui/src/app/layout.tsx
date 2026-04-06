@@ -27,6 +27,8 @@ const plusJakarta = Plus_Jakarta_Sans({
 	display: "swap",
 });
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
 	metadataBase: new URL("https://llmgateway.io"),
 	title: {

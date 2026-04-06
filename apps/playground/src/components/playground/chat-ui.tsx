@@ -1,5 +1,11 @@
 "use client";
-import { RefreshCcw, Copy, Brain, GlobeIcon } from "lucide-react";
+import {
+	RefreshCcw,
+	Copy,
+	Brain,
+	GlobeIcon,
+	AlertTriangle,
+} from "lucide-react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
 import { toast } from "sonner";
 
@@ -142,6 +148,7 @@ interface ChatUIProps {
 	) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
+	finishReason?: string | null;
 	floatingInput?: boolean;
 }
 
@@ -222,6 +229,17 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 	};
 }
 
+function getFinishReasonLabel(reason: string): string {
+	switch (reason) {
+		case "length":
+			return "Response reached the maximum token limit";
+		case "content-filter":
+			return "Response was filtered by content policy";
+		default:
+			return `Generation stopped: ${reason}`;
+	}
+}
+
 // rerender-memo: Memoize message component to prevent re-renders when only streaming status changes
 const AssistantMessage = memo(
 	({
@@ -229,11 +247,15 @@ const AssistantMessage = memo(
 		isLastMessage,
 		status,
 		regenerate,
+		finishReason,
+		error,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
 		regenerate: () => void;
+		finishReason?: string | null;
+		error?: string | null;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -309,6 +331,16 @@ const AssistantMessage = memo(
 						))}
 					</Sources>
 				) : null}
+
+				{isLastMessage && (error ?? finishReason) && (
+					<div className="mt-2 flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200">
+						<AlertTriangle className="size-3.5 shrink-0" />
+						<span>
+							{error ??
+								(finishReason ? getFinishReasonLabel(finishReason) : null)}
+						</span>
+					</div>
+				)}
 
 				{isLastMessage && (
 					<Actions className="mt-2">
@@ -418,6 +450,7 @@ export const ChatUI = ({
 	onUserMessage,
 	isLoading = false,
 	error = null,
+	finishReason = null,
 	floatingInput = false,
 }: ChatUIProps) => {
 	// Check if the model uses WIDTHxHEIGHT format (Alibaba or ZAI)
@@ -592,30 +625,42 @@ export const ChatUI = ({
 				)}
 			</div>
 		) : (
-			messages.map((m, messageIndex) => {
-				const isLastMessage = messageIndex === messages.length - 1;
+			<>
+				{messages.map((m, messageIndex) => {
+					const isLastMessage = messageIndex === messages.length - 1;
 
-				if (m.role === "assistant") {
-					return (
-						<AssistantMessage
-							key={m.id}
-							message={m}
-							isLastMessage={isLastMessage}
-							status={status}
-							regenerate={regenerate}
-						/>
-					);
-				} else {
-					return (
-						<UserMessage
-							key={m.id}
-							message={m}
-							isLastMessage={isLastMessage}
-							status={status}
-						/>
-					);
-				}
-			})
+					if (m.role === "assistant") {
+						return (
+							<AssistantMessage
+								key={m.id}
+								message={m}
+								isLastMessage={isLastMessage}
+								status={status}
+								regenerate={regenerate}
+								finishReason={isLastMessage ? finishReason : null}
+								error={isLastMessage ? error : null}
+							/>
+						);
+					} else {
+						return (
+							<UserMessage
+								key={m.id}
+								message={m}
+								isLastMessage={isLastMessage}
+								status={status}
+							/>
+						);
+					}
+				})}
+				{messages.length > 0 &&
+					messages[messages.length - 1].role === "user" &&
+					error && (
+						<div className="message-item mt-2 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+							<AlertTriangle className="size-3.5 shrink-0" />
+							<span>{error}</span>
+						</div>
+					)}
+			</>
 		);
 
 	const inputArea = (

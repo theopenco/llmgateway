@@ -131,6 +131,16 @@ export function getUnifiedFinishReason(
 	return UnifiedFinishReason.UNKNOWN;
 }
 
+export function isContentFilterFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	return (
+		getUnifiedFinishReason(finishReason, provider) ===
+		UnifiedFinishReason.CONTENT_FILTER
+	);
+}
+
 /**
  * Map unified finish reason to an error type for metrics (if applicable)
  */

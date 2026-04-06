@@ -131,9 +131,7 @@ export function LogCard({
 					<div className="flex items-start justify-between gap-4">
 						<div className="flex items-center gap-2 flex-1 min-w-0">
 							<p className="font-medium break-words max-w-none line-clamp-2">
-								{log.content &&
-								(log.content.includes("base64,") || log.content.length > 500) &&
-								/[A-Za-z0-9+/]{200,}/.test(log.content) ? (
+								{log.content === "[image_generated]" ? (
 									orgId && projectId && log.id ? (
 										<Link
 											href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
@@ -1147,19 +1145,17 @@ export function LogCard({
 					<div className="space-y-2">
 						<h4 className="text-sm font-medium">Response</h4>
 						<div className="rounded-md border p-3">
-							{log.content &&
-							(log.content.includes("base64,") || log.content.length > 500) &&
-							/[A-Za-z0-9+/]{200,}/.test(log.content) ? (
+							{log.content === "[image_generated]" ? (
 								<div className="flex items-center gap-2 text-sm text-muted-foreground">
 									<Sparkles className="h-4 w-4" />
-									<span>Image data ({prettyBytes(log.content.length)}).</span>
+									<span>Image generated.</span>
 									{orgId && projectId && log.id && (
 										<Link
 											href={`/dashboard/${orgId}/${projectId}/activity/${log.id}`}
 											className="text-blue-600 dark:text-blue-400 hover:underline"
 											prefetch={false}
 										>
-											View full response
+											View image
 										</Link>
 									)}
 								</div>

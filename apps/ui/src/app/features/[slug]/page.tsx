@@ -87,6 +87,7 @@ export default async function FeaturePage({ params }: PageProps) {
 		mainEntity: {
 			"@type": "SoftwareApplication",
 			name: `LLM Gateway - ${feature.title}`,
+			operatingSystem: "Any",
 			applicationCategory: "DeveloperApplication",
 			browserRequirements: "Requires JavaScript. Requires HTML5.",
 			description: feature.longDescription,
@@ -94,7 +95,6 @@ export default async function FeaturePage({ params }: PageProps) {
 				"@type": "Offer",
 				price: "0",
 				priceCurrency: "USD",
-				availability: "https://schema.org/InStock",
 			},
 			featureList: feature.benefits.map((b) => b.title),
 		},
