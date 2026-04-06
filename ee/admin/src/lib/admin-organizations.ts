@@ -78,3 +78,11 @@ export async function deleteUser(userId: string): Promise<boolean> {
 	});
 	return data?.success ?? false;
 }
+
+export async function getLogContent(logId: string): Promise<string | null> {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/logs/{id}", {
+		params: { path: { id: logId } },
+	});
+	return data?.log?.content ?? null;
+}

@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback } from "react";
+
+import { useFetchClient } from "@/lib/fetch-client";
 
 import {
 	LogCard as SharedLogCard,
@@ -34,6 +37,8 @@ export function LogCard({
 	orgId?: string;
 	projectId?: string;
 }) {
+	const fetchClient = useFetchClient();
+
 	const getDetailUrl =
 		orgId && projectId && log.id
 			? (logId: string) => `/dashboard/${orgId}/${projectId}/activity/${logId}`
@@ -44,6 +49,16 @@ export function LogCard({
 			? (logId: string) => `/dashboard/${orgId}/${projectId}/activity/${logId}`
 			: undefined;
 
+	const fetchImageContent = useCallback(
+		async (logId: string) => {
+			const { data } = await fetchClient.GET("/logs/{id}", {
+				params: { path: { id: logId } },
+			});
+			return data?.log?.content ?? null;
+		},
+		[fetchClient],
+	);
+
 	return (
 		<SharedLogCard
 			log={log as LogCardData}
@@ -51,6 +66,7 @@ export function LogCard({
 			getRetriedUrl={getRetriedUrl}
 			renderLink={NextLink}
 			isUserFacing
+			fetchImageContent={fetchImageContent}
 		/>
 	);
 }

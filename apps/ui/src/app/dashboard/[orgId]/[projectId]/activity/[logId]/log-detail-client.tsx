@@ -747,6 +747,49 @@ export function LogDetailClient({
 										label="Unified Finish Reason"
 										value={log.unifiedFinishReason ?? "-"}
 									/>
+									{(log.params as any)?.image_config?.aspect_ratio && (
+										<Field
+											label="Aspect Ratio"
+											value={(log.params as any).image_config.aspect_ratio}
+										/>
+									)}
+									{(log.params as any)?.image_config?.image_size && (
+										<Field
+											label="Image Size"
+											value={(log.params as any).image_config.image_size}
+										/>
+									)}
+									{(log.params as any)?.image_config?.n !== undefined &&
+										(log.params as any)?.image_config?.n !== null && (
+											<Field
+												label="Image Count"
+												value={(log.params as any).image_config.n}
+											/>
+										)}
+									{(log.params as any)?.image_config?.output_format && (
+										<Field
+											label="Output Format"
+											value={(log.params as any).image_config.output_format}
+										/>
+									)}
+									{(log.params as any)?.image_config?.output_compression !==
+										undefined &&
+										(log.params as any)?.image_config?.output_compression !==
+											null && (
+											<Field
+												label="Compression"
+												value={
+													(log.params as any).image_config.output_compression
+												}
+											/>
+										)}
+									{(log.params as any)?.image_config?.seed !== undefined &&
+										(log.params as any)?.image_config?.seed !== null && (
+											<Field
+												label="Seed"
+												value={(log.params as any).image_config.seed}
+											/>
+										)}
 								</TooltipProvider>
 							</div>
 						</Section>
@@ -1049,15 +1092,23 @@ export function LogDetailClient({
 					</div>
 				</Section>
 
-				{log.params && Object.keys(log.params).length > 0 && (
-					<Section title="Additional Parameters">
-						<div className="rounded-lg border bg-card p-4">
-							<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
-								{JSON.stringify(log.params, null, 2)}
-							</pre>
-						</div>
-					</Section>
-				)}
+				{log.params &&
+					(() => {
+						const remaining = Object.fromEntries(
+							Object.entries(log.params).filter(
+								([key]) => key !== "image_config",
+							),
+						);
+						return Object.keys(remaining).length > 0 ? (
+							<Section title="Additional Parameters">
+								<div className="rounded-lg border bg-card p-4">
+									<pre className="max-h-48 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
+										{JSON.stringify(remaining, null, 2)}
+									</pre>
+								</div>
+							</Section>
+						) : null;
+					})()}
 			</div>
 		</div>
 	);
