@@ -370,10 +370,9 @@ export async function POST(req: Request) {
 		}
 	}
 
-	// Use generateImage for dedicated image generation models
+	// Use generateImage for image generation models in chat mode
 	if (is_image_gen) {
 		try {
-			// Extract prompt and file parts from the last user message
 			const lastUserMessage = [...messages]
 				.reverse()
 				.find((m) => m.role === "user");
@@ -452,8 +451,6 @@ export async function POST(req: Request) {
 			const message =
 				error instanceof Error ? error.message : "Image generation failed";
 
-			// Try to extract a more detailed message from the provider response.
-			// AI SDK errors may embed the original gateway response in responseBody.
 			let detailedMessage: string | undefined;
 			if (typeof error === "object" && error !== null) {
 				const err = error as Record<string, unknown>;
