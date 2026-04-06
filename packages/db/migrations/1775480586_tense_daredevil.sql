@@ -1,0 +1,1 @@
+ALTER TABLE "chat_support_conversation" ADD COLUMN "escalated_at" timestamp;
