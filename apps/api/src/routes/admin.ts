@@ -26,8 +26,24 @@ import {
 	modelHistory,
 } from "@llmgateway/db";
 import { models, providers } from "@llmgateway/models";
+import {
+	getResendClient,
+	fromEmail,
+	replyToEmail,
+} from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";
+
+function escapeHtml(text: string): string {
+	const htmlEscapeMap: Record<string, string> = {
+		"&": "&amp;",
+		"<": "&lt;",
+		">": "&gt;",
+		'"': "&quot;",
+		"'": "&#x27;",
+	};
+	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
+}
 
 export const admin = new OpenAPIHono<ServerTypes>();
 
@@ -5712,6 +5728,9 @@ const getChatSupportConversation = createRoute({
 			},
 			description: "Single chat support conversation with messages.",
 		},
+		404: {
+			description: "Conversation not found.",
+		},
 	},
 });
 
@@ -5795,6 +5814,9 @@ const replyChatSupportConversation = createRoute({
 			},
 			description: "Reply sent successfully.",
 		},
+		404: {
+			description: "Conversation not found.",
+		},
 	},
 });
 
@@ -5810,7 +5832,6 @@ admin.openapi(replyChatSupportConversation, async (c) => {
 			id: t.id,
 			name: t.name,
 			email: t.email,
-			messageCount: t.messageCount,
 		})
 		.from(t)
 		.where(eq(t.id, id))
@@ -5821,40 +5842,41 @@ admin.openapi(replyChatSupportConversation, async (c) => {
 		throw new HTTPException(404, { message: "Conversation not found" });
 	}
 
-	const lastMsg = await db
-		.select({ sequence: mt.sequence })
-		.from(mt)
-		.where(eq(mt.conversationId, id))
-		.orderBy(desc(mt.sequence))
-		.limit(1);
+	await db.transaction(async (tx) => {
+		const [updated] = await tx
+			.update(t)
+			.set({ messageCount: sql`${t.messageCount} + 1` })
+			.where(eq(t.id, id))
+			.returning({ messageCount: t.messageCount });
 
-	const nextSequence = (lastMsg[0]?.sequence ?? -1) + 1;
+		const nextSequence = (updated?.messageCount ?? 1) - 1;
 
-	await db.insert(mt).values({
-		conversationId: id,
-		role: "admin",
-		content,
-		sequence: nextSequence,
+		await tx.insert(mt).values({
+			conversationId: id,
+			role: "admin",
+			content,
+			sequence: nextSequence,
+		});
 	});
 
-	await db
-		.update(t)
-		.set({ messageCount: conversation.messageCount + 1 })
-		.where(eq(t.id, id));
-
 	if (conversation.email) {
-		const { getResendClient, fromEmail, replyToEmail } = await import(
-			"@llmgateway/shared/email"
-		);
-
 		const resend = getResendClient();
-		if (resend) {
-			await resend.emails.send({
-				from: fromEmail,
-				to: [conversation.email],
-				replyTo: replyToEmail,
-				subject: `Reply to your support conversation — LLM Gateway`,
-				html: `
+		if (!resend) {
+			return c.json(
+				{ success: false, message: "Email service is not configured." },
+				200,
+			);
+		}
+
+		const escapedName = conversation.name ? escapeHtml(conversation.name) : "";
+		const escapedContent = escapeHtml(content);
+
+		const { error } = await resend.emails.send({
+			from: fromEmail,
+			to: [conversation.email],
+			replyTo: replyToEmail,
+			subject: `Reply to your support conversation — LLM Gateway`,
+			html: `
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"></head>
@@ -5866,9 +5888,9 @@ admin.openapi(replyChatSupportConversation, async (c) => {
 <h1 style="margin:0;color:#fff;font-size:22px;font-weight:600;">LLM Gateway Support</h1>
 </td></tr>
 <tr><td style="background-color:#f8f9fa;padding:30px;border-radius:0 0 8px 8px;">
-<p style="margin:0 0 15px;font-size:16px;color:#333;">Hi${conversation.name ? ` ${conversation.name}` : ""},</p>
+<p style="margin:0 0 15px;font-size:16px;color:#333;">Hi${escapedName ? ` ${escapedName}` : ""},</p>
 <p style="margin:0 0 15px;font-size:16px;color:#333;">Our team has replied to your support conversation:</p>
-<div style="background:#fff;border:1px solid #e9ecef;border-radius:6px;padding:15px;font-size:14px;line-height:1.6;color:#333;white-space:pre-wrap;">${content}</div>
+<div style="background:#fff;border:1px solid #e9ecef;border-radius:6px;padding:15px;font-size:14px;line-height:1.6;color:#333;white-space:pre-wrap;">${escapedContent}</div>
 <p style="margin:20px 0 0;font-size:14px;color:#666;">If you need further help, just reply to this email.</p>
 </td></tr>
 </table>
@@ -5876,7 +5898,13 @@ admin.openapi(replyChatSupportConversation, async (c) => {
 </table>
 </body>
 </html>`.trim(),
-			});
+		});
+
+		if (error) {
+			return c.json(
+				{ success: false, message: `Failed to send: ${error.message}` },
+				200,
+			);
 		}
 	}
 

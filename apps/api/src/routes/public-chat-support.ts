@@ -5,11 +5,22 @@ import { redisClient } from "@/auth/config.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import { db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { replyToEmail } from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";
+
+function escapeHtml(text: string): string {
+	const htmlEscapeMap: Record<string, string> = {
+		"&": "&amp;",
+		"<": "&lt;",
+		">": "&gt;",
+		'"': "&quot;",
+		"'": "&#x27;",
+	};
+	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
+}
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
@@ -150,7 +161,12 @@ async function persistMessages(
 		const existingMessages = await db
 			.select({ id: mt.id })
 			.from(mt)
-			.where(eq(mt.conversationId, conversationId));
+			.where(
+				and(
+					eq(mt.conversationId, conversationId),
+					inArray(mt.role, ["user", "assistant"]),
+				),
+			);
 
 		const existingCount = existingMessages.length;
 
@@ -333,6 +349,16 @@ publicChatSupport.post("/escalate", async (c) => {
 		.set({ escalatedAt: new Date() })
 		.where(eq(t.id, conversationId));
 
+	const escapedName = escapeHtml(name ?? "Not provided");
+	const escapedEmail = escapeHtml(email ?? "Not provided");
+	const escapedConversationId = escapeHtml(conversationId);
+	const escapedTranscript = (messages ?? [])
+		.map(
+			(m) =>
+				`${m.role === "user" ? escapeHtml(name ?? "User") : "AI"}: ${escapeHtml(m.content)}`,
+		)
+		.join("\n\n");
+
 	const htmlBody = `
 <!DOCTYPE html>
 <html lang="en">
@@ -345,12 +371,12 @@ publicChatSupport.post("/escalate", async (c) => {
 <h1 style="margin:0;color:#fff;font-size:22px;font-weight:600;">Chat Support Escalation</h1>
 </td></tr>
 <tr><td style="background-color:#f8f9fa;padding:30px;border-radius:0 0 8px 8px;">
-<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Name:</strong> ${name ?? "Not provided"}</p>
-<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Email:</strong> ${email ?? "Not provided"}</p>
-<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Conversation ID:</strong> ${conversationId}</p>
+<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Name:</strong> ${escapedName}</p>
+<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Email:</strong> ${escapedEmail}</p>
+<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Conversation ID:</strong> ${escapedConversationId}</p>
 <hr style="border:none;border-top:1px solid #e9ecef;margin:20px 0;">
 <h2 style="margin:0 0 15px;font-size:16px;color:#333;">Conversation History</h2>
-<div style="background:#fff;border:1px solid #e9ecef;border-radius:6px;padding:15px;font-size:14px;line-height:1.6;color:#333;white-space:pre-wrap;">${(messages ?? []).map((m) => `${m.role === "user" ? (name ?? "User") : "AI"}: ${m.content}`).join("\n\n")}</div>
+<div style="background:#fff;border:1px solid #e9ecef;border-radius:6px;padding:15px;font-size:14px;line-height:1.6;color:#333;white-space:pre-wrap;">${escapedTranscript}</div>
 </td></tr>
 </table>
 </td></tr>
