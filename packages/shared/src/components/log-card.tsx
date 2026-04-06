@@ -308,23 +308,23 @@ export function LogCard({
 	// Status icon logic
 	let StatusIcon = CheckCircle2;
 	let color = "text-green-500";
-	let bgColor = "bg-green-100";
+	let bgColor = "bg-green-100 dark:bg-green-900/30";
 
 	if (log.hasError || log.unifiedFinishReason === "error") {
 		StatusIcon = AlertCircle;
 		color = "text-red-500";
-		bgColor = "bg-red-100";
+		bgColor = "bg-red-100 dark:bg-red-900/30";
 	} else if (log.unifiedFinishReason === "content_filter") {
 		StatusIcon = TriangleAlert;
 		color = "text-orange-500";
-		bgColor = "bg-orange-100";
+		bgColor = "bg-orange-100 dark:bg-orange-900/30";
 	} else if (
 		log.unifiedFinishReason !== "completed" &&
 		log.unifiedFinishReason !== "tool_calls"
 	) {
 		StatusIcon = AlertCircle;
 		color = "text-yellow-500";
-		bgColor = "bg-yellow-100";
+		bgColor = "bg-yellow-100 dark:bg-yellow-900/30";
 	}
 
 	return (
@@ -333,8 +333,8 @@ export function LogCard({
 			<div
 				className={`flex items-start gap-4 p-4 ${isExpanded ? "border-b" : ""}`}
 			>
-				<div className={`mt-0.5 rounded-full p-1.5 ${bgColor} shrink-0`}>
-					<StatusIcon className={`h-5 w-5 ${color}`} />
+				<div className={`mt-0.5 rounded-full p-1 ${bgColor} shrink-0`}>
+					<StatusIcon className={`h-4 w-4 ${color}`} />
 				</div>
 				<div className="flex-1 space-y-1 min-w-0">
 					<div className="flex items-start justify-between gap-4">
@@ -364,7 +364,8 @@ export function LogCard({
 										: "---"))
 								)}
 							</p>
-							{!log.content &&
+							{isUserFacing &&
+								!log.content &&
 								log.unifiedFinishReason !== "tool_calls" &&
 								!log.hasError &&
 								!log.canceled &&
@@ -386,7 +387,7 @@ export function LogCard({
 							{log.retried && (
 								<Badge
 									variant="outline"
-									className="gap-1 text-amber-600 border-amber-300 bg-amber-50"
+									className="gap-1 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30"
 								>
 									<RefreshCw className="h-3 w-3" />
 									Retried
@@ -1387,18 +1388,18 @@ export function LogCard({
 							<h4 className="text-sm font-medium text-red-600">
 								Error Details
 							</h4>
-							<div className="grid grid-cols-2 gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm">
+							<div className="grid grid-cols-2 gap-2 rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-3 text-sm">
 								<div className="text-red-600">Status Code</div>
 								<div className="font-medium">{errorDetails.statusCode}</div>
 								<div className="text-red-600">Status Text</div>
 								<div className="font-medium">{errorDetails.statusText}</div>
 								<div className="text-red-600 col-span-2">Error Message</div>
-								<div className="col-span-2 rounded bg-white text-black p-2 text-xs">
+								<div className="col-span-2 rounded bg-white dark:bg-gray-900 text-black dark:text-gray-100 p-2 text-xs">
 									{errorDetails.responseText}
 								</div>
 							</div>
 							{log.retried && log.retriedByLogId && (
-								<div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+								<div className="flex items-center gap-2 rounded-md border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 p-3 text-sm">
 									<RefreshCw className="h-4 w-4 text-amber-600" />
 									<span className="text-amber-800">
 										This request was retried and succeeded.
@@ -1441,7 +1442,7 @@ export function LogCard({
 										2,
 									)}
 								</pre>
-							) : !retentionEnabled ? (
+							) : !retentionEnabled && isUserFacing ? (
 								<p className="text-sm text-muted-foreground italic">
 									Message data not retained. Enable retention in organization
 									policies to store request messages.
@@ -1544,7 +1545,7 @@ export function LogCard({
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-words">
 									{log.content}
 								</pre>
-							) : !retentionEnabled ? (
+							) : !retentionEnabled && isUserFacing ? (
 								<p className="text-sm text-muted-foreground italic">
 									Response content not retained. Enable retention in
 									organization policies to store response data.
