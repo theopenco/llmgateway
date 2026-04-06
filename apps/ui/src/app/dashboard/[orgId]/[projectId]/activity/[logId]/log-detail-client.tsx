@@ -216,6 +216,10 @@ function ImageContentRenderer({ content }: { content: string }) {
 	);
 }
 
+function formatApiKeyHash(hash: string) {
+	return hash.slice(0, 7);
+}
+
 export function LogDetailClient({
 	initialData,
 	orgId,
@@ -462,6 +466,15 @@ export function LogDetailClient({
 											mono
 										/>
 									)}
+									{log.routingMetadata.usedApiKeyHash && (
+										<Field
+											label="Key"
+											value={formatApiKeyHash(
+												log.routingMetadata.usedApiKeyHash,
+											)}
+											mono
+										/>
+									)}
 									{log.routingMetadata.availableProviders &&
 										log.routingMetadata.availableProviders.length > 0 && (
 											<Field
@@ -568,6 +581,19 @@ export function LogDetailClient({
 																	<span className="text-muted-foreground">
 																		({attempt.region})
 																	</span>
+																)}
+																{attempt.apiKeyHash && (
+																	<span className="text-muted-foreground">
+																		key {formatApiKeyHash(attempt.apiKeyHash)}
+																	</span>
+																)}
+																{attempt.logId && (
+																	<Link
+																		href={`/dashboard/${orgId}/${projectId}/activity/${attempt.logId}`}
+																		className="text-muted-foreground hover:underline"
+																	>
+																		log {attempt.logId}
+																	</Link>
 																)}
 															</span>
 															<span>

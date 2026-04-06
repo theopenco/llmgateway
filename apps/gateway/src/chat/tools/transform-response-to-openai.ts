@@ -13,6 +13,89 @@ export interface CostData {
 	totalCost: number | null;
 }
 
+function buildMetadata(
+	requestedModel: string,
+	requestedProvider: string | null,
+	baseModelName: string,
+	usedProvider: Provider,
+	usedModel: string,
+	requestId: string,
+	routing: RoutingAttempt[] | null,
+	usedRegion?: string,
+) {
+	return {
+		request_id: requestId,
+		requested_model: requestedModel,
+		requested_provider: requestedProvider,
+		used_model: baseModelName,
+		used_provider: usedProvider,
+		...(usedRegion && { used_region: usedRegion }),
+		underlying_used_model: usedModel,
+		...(routing && { routing }),
+	};
+}
+
+function sanitizeRoutingAttempts(
+	routing: RoutingAttempt[] | null | undefined,
+): RoutingAttempt[] | undefined {
+	if (!routing) {
+		return undefined;
+	}
+
+	return routing.map(
+		({ apiKeyHash: _apiKeyHash, logId: _logId, ...attempt }) => ({
+			...attempt,
+		}),
+	);
+}
+
+export function stripRequestScopedMetadataFromOpenAiResponse<
+	T extends {
+		metadata?: Record<string, unknown> | null;
+	},
+>(response: T): T {
+	const metadata = response.metadata;
+	if (!metadata || typeof metadata !== "object") {
+		return response;
+	}
+
+	const nextMetadata = { ...metadata };
+	delete nextMetadata.request_id;
+
+	if (Array.isArray(metadata.routing)) {
+		nextMetadata.routing = sanitizeRoutingAttempts(
+			metadata.routing as RoutingAttempt[],
+		);
+	}
+
+	return {
+		...response,
+		metadata: nextMetadata,
+	};
+}
+
+export function withCurrentRequestMetadataOnOpenAiResponse<
+	T extends {
+		metadata?: Record<string, unknown> | null;
+	},
+>(response: T, requestId: string): T {
+	const sanitizedResponse =
+		stripRequestScopedMetadataFromOpenAiResponse(response);
+	const metadata = sanitizedResponse.metadata;
+
+	if (!metadata || typeof metadata !== "object") {
+		return sanitizedResponse;
+	}
+
+	return {
+		...sanitizedResponse,
+		metadata: {
+			...metadata,
+			request_id: requestId,
+		},
+	};
+}
+
 /**
  * Helper function to build usage object with optional cost fields
  */
@@ -81,6 +164,7 @@ export function transformResponseToOpenai(
 	showUpgradeMessage = false,
 	annotations: Annotation[] | null = null,
 	routing: RoutingAttempt[] | null = null,
+	requestId = "",
 	usedRegion?: string | undefined,
 ) {
 	let transformedResponse = json;
@@ -142,15 +226,16 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 				),
-				metadata: {
-					requested_model: requestedModel,
-					requested_provider: requestedProvider,
-					used_model: baseModelName,
-					used_provider: usedProvider,
-					...(usedRegion && { used_region: usedRegion }),
-					underlying_used_model: usedModel,
-					...(routing && { routing }),
-				},
+				metadata: buildMetadata(
+					requestedModel,
+					requestedProvider,
+					baseModelName,
+					usedProvider,
+					usedModel,
+					requestId,
+					routing,
+					usedRegion,
+				),
 			};
 			break;
 		}
@@ -191,15 +276,16 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 				),
-				metadata: {
-					requested_model: requestedModel,
-					requested_provider: requestedProvider,
-					used_model: baseModelName,
-					used_provider: usedProvider,
-					...(usedRegion && { used_region: usedRegion }),
-					underlying_used_model: usedModel,
-					...(routing && { routing }),
-				},
+				metadata: buildMetadata(
+					requestedModel,
+					requestedProvider,
+					baseModelName,
+					usedProvider,
+					usedModel,
+					requestId,
+					routing,
+					usedRegion,
+				),
 			};
 			break;
 		}
@@ -234,14 +320,15 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 					),
-					metadata: {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					},
+					metadata: buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+					),
 				};
 			} else {
 				// Ensure reasoning field is present if we have reasoning content
@@ -264,15 +351,16 @@ export function transformResponseToOpenai(
 				}
 				// Add metadata and usage with costs to existing response
 				transformedResponse.model = `${usedProvider}/${baseModelName}`;
-				transformedResponse.metadata = {
-					requested_model: requestedModel,
-					requested_provider: requestedProvider,
-					used_model: baseModelName,
-					used_provider: usedProvider,
-					...(usedRegion && { used_region: usedRegion }),
-					underlying_used_model: usedModel,
-					...(routing && { routing }),
-				};
+				transformedResponse.metadata = buildMetadata(
+					requestedModel,
+					requestedProvider,
+					baseModelName,
+					usedProvider,
+					usedModel,
+					requestId,
+					routing,
+					usedRegion,
+				);
 				if (transformedResponse.usage) {
 					if (costs !== null) {
 						transformedResponse.usage = {
@@ -326,15 +414,16 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 				),
-				metadata: {
-					requested_model: requestedModel,
-					requested_provider: requestedProvider,
-					used_model: baseModelName,
-					used_provider: usedProvider,
-					...(usedRegion && { used_region: usedRegion }),
-					underlying_used_model: usedModel,
-					...(routing && { routing }),
-				},
+				metadata: buildMetadata(
+					requestedModel,
+					requestedProvider,
+					baseModelName,
+					usedProvider,
+					usedModel,
+					requestId,
+					routing,
+					usedRegion,
+				),
 			};
 			break;
 		}
@@ -367,15 +456,16 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 					),
-					metadata: {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						...(usedRegion && { used_region: usedRegion }),
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					},
+					metadata: buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+						usedRegion,
+					),
 				};
 			} else {
 				// Standard Alibaba chat completions format (OpenAI-compatible)
@@ -394,15 +484,16 @@ export function transformResponseToOpenai(
 						transformedResponse.choices[0].finish_reason = finishReason;
 					}
 					transformedResponse.model = `${usedProvider}/${baseModelName}`;
-					transformedResponse.metadata = {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						...(usedRegion && { used_region: usedRegion }),
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					};
+					transformedResponse.metadata = buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+						usedRegion,
+					);
 					if (transformedResponse.usage) {
 						if (costs !== null) {
 							transformedResponse.usage = {
@@ -463,14 +554,15 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 					),
-					metadata: {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					},
+					metadata: buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+					),
 				};
 			} else {
 				// For standard chat completions format, update model field and add metadata
@@ -498,15 +590,16 @@ export function transformResponseToOpenai(
 					}
 
 					transformedResponse.model = `${usedProvider}/${baseModelName}`;
-					transformedResponse.metadata = {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						...(usedRegion && { used_region: usedRegion }),
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					};
+					transformedResponse.metadata = buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+						usedRegion,
+					);
 					if (transformedResponse.usage) {
 						if (costs !== null) {
 							transformedResponse.usage = {
@@ -560,14 +653,15 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 					),
-					metadata: {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					},
+					metadata: buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+					),
 				};
 			} else {
 				// Standard ByteDance chat completions format (OpenAI-compatible)
@@ -586,15 +680,16 @@ export function transformResponseToOpenai(
 						transformedResponse.choices[0].finish_reason = finishReason;
 					}
 					transformedResponse.model = `${usedProvider}/${baseModelName}`;
-					transformedResponse.metadata = {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						...(usedRegion && { used_region: usedRegion }),
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					};
+					transformedResponse.metadata = buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+						usedRegion,
+					);
 					if (transformedResponse.usage) {
 						if (costs !== null) {
 							transformedResponse.usage = {
@@ -648,14 +743,15 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 					),
-					metadata: {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					},
+					metadata: buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+					),
 				};
 			} else {
 				// Standard xAI chat completions format (OpenAI-compatible)
@@ -674,15 +770,16 @@ export function transformResponseToOpenai(
 						transformedResponse.choices[0].finish_reason = finishReason;
 					}
 					transformedResponse.model = `${usedProvider}/${baseModelName}`;
-					transformedResponse.metadata = {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						...(usedRegion && { used_region: usedRegion }),
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					};
+					transformedResponse.metadata = buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+						usedRegion,
+					);
 					if (transformedResponse.usage) {
 						if (costs !== null) {
 							transformedResponse.usage = {
@@ -737,14 +834,15 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 					),
-					metadata: {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					},
+					metadata: buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+					),
 				};
 			} else {
 				// Standard ZAI chat completions format (OpenAI-compatible)
@@ -763,15 +861,16 @@ export function transformResponseToOpenai(
 						transformedResponse.choices[0].finish_reason = finishReason;
 					}
 					transformedResponse.model = `${usedProvider}/${baseModelName}`;
-					transformedResponse.metadata = {
-						requested_model: requestedModel,
-						requested_provider: requestedProvider,
-						used_model: baseModelName,
-						used_provider: usedProvider,
-						...(usedRegion && { used_region: usedRegion }),
-						underlying_used_model: usedModel,
-						...(routing && { routing }),
-					};
+					transformedResponse.metadata = buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+						usedRegion,
+					);
 					if (transformedResponse.usage) {
 						if (costs !== null) {
 							transformedResponse.usage = {
@@ -817,15 +916,16 @@ export function transformResponseToOpenai(
 					}
 				}
 				transformedResponse.model = `${usedProvider}/${baseModelName}`;
-				transformedResponse.metadata = {
-					requested_model: requestedModel,
-					requested_provider: requestedProvider,
-					used_model: baseModelName,
-					used_provider: usedProvider,
-					...(usedRegion && { used_region: usedRegion }),
-					underlying_used_model: usedModel,
-					...(routing && { routing }),
-				};
+				transformedResponse.metadata = buildMetadata(
+					requestedModel,
+					requestedProvider,
+					baseModelName,
+					usedProvider,
+					usedModel,
+					requestId,
+					routing,
+					usedRegion,
+				);
 				if (transformedResponse.usage) {
 					if (costs !== null) {
 						transformedResponse.usage = {

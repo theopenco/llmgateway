@@ -1,40 +1,28 @@
 import { describe, it, expect } from "vitest";
 
 import {
-	isRetryableError,
+	isRetryableErrorType,
 	shouldRetryRequest,
 	selectNextProvider,
 	getErrorType,
 	MAX_RETRIES,
 } from "./retry-with-fallback.js";
 
-describe("isRetryableError", () => {
-	it("retries on 5xx server errors", () => {
-		expect(isRetryableError(500)).toBe(true);
-		expect(isRetryableError(502)).toBe(true);
-		expect(isRetryableError(503)).toBe(true);
-		expect(isRetryableError(504)).toBe(true);
+describe("isRetryableErrorType", () => {
+	it("retries on upstream/provider error types", () => {
+		expect(isRetryableErrorType("upstream_error")).toBe(true);
+		expect(isRetryableErrorType("provider_error")).toBe(true);
 	});
 
-	it("retries on 429 rate limit", () => {
-		expect(isRetryableError(429)).toBe(true);
+	it("retries on network and timeout error types", () => {
+		expect(isRetryableErrorType("network_error")).toBe(true);
+		expect(isRetryableErrorType("upstream_timeout")).toBe(true);
 	});
 
-	it("retries on network errors (status 0)", () => {
-		expect(isRetryableError(0)).toBe(true);
-	});
-
-	it("does not retry on client errors", () => {
-		expect(isRetryableError(400)).toBe(false);
-		expect(isRetryableError(401)).toBe(false);
-		expect(isRetryableError(403)).toBe(false);
-		expect(isRetryableError(404)).toBe(false);
-		expect(isRetryableError(422)).toBe(false);
-	});
-
-	it("does not retry on success codes", () => {
-		expect(isRetryableError(200)).toBe(false);
-		expect(isRetryableError(201)).toBe(false);
+	it("does not retry on non-retryable error types", () => {
+		expect(isRetryableErrorType("client_error")).toBe(false);
+		expect(isRetryableErrorType("gateway_error")).toBe(false);
+		expect(isRetryableErrorType("content_filter")).toBe(false);
 	});
 });
 
@@ -42,7 +30,7 @@ describe("shouldRetryRequest", () => {
 	const defaultOpts = {
 		requestedProvider: undefined,
 		noFallback: false,
-		statusCode: 500,
+		errorType: "upstream_error",
 		retryCount: 0,
 		remainingProviders: 2,
 		usedProvider: "openai",
@@ -65,8 +53,12 @@ describe("shouldRetryRequest", () => {
 	});
 
 	it("does not retry on non-retryable status codes", () => {
-		expect(shouldRetryRequest({ ...defaultOpts, statusCode: 400 })).toBe(false);
-		expect(shouldRetryRequest({ ...defaultOpts, statusCode: 404 })).toBe(false);
+		expect(
+			shouldRetryRequest({ ...defaultOpts, errorType: "client_error" }),
+		).toBe(false);
+		expect(
+			shouldRetryRequest({ ...defaultOpts, errorType: "gateway_error" }),
+		).toBe(false);
 	});
 
 	it("does not retry when max retries exceeded", () => {
@@ -99,12 +91,28 @@ describe("shouldRetryRequest", () => {
 		).toBe(false);
 	});
 
-	it("retries on 429 rate limit", () => {
-		expect(shouldRetryRequest({ ...defaultOpts, statusCode: 429 })).toBe(true);
+	it("retries on provider-originated errors", () => {
+		expect(
+			shouldRetryRequest({ ...defaultOpts, errorType: "provider_error" }),
+		).toBe(true);
 	});
 
-	it("retries on network errors (status 0)", () => {
-		expect(shouldRetryRequest({ ...defaultOpts, statusCode: 0 })).toBe(true);
+	it("retries on upstream errors", () => {
+		expect(
+			shouldRetryRequest({ ...defaultOpts, errorType: "upstream_error" }),
+		).toBe(true);
+	});
+
+	it("retries on network errors", () => {
+		expect(
+			shouldRetryRequest({ ...defaultOpts, errorType: "network_error" }),
+		).toBe(true);
+	});
+
+	it("retries on upstream timeouts", () => {
+		expect(
+			shouldRetryRequest({ ...defaultOpts, errorType: "upstream_timeout" }),
+		).toBe(true);
 	});
 });
 

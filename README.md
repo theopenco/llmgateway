@@ -27,6 +27,7 @@ Use Docker-managed volumes for the unified image. Do not bind-mount a host direc
 
 ```bash
 export LLM_GATEWAY_SECRET="$(openssl rand -base64 32 | tr -d '\n')"
+export GATEWAY_API_KEY_HASH_SECRET="$(openssl rand -base64 32 | tr -d '\n')"
 ./scripts/run-unified-container.sh
 ```
 
@@ -48,6 +49,7 @@ docker run -d \
   -v llmgateway_postgres:/var/lib/postgresql/data \
   -v llmgateway_redis:/var/lib/redis \
   -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
+  -e GATEWAY_API_KEY_HASH_SECRET="$GATEWAY_API_KEY_HASH_SECRET" \
   ghcr.io/theopenco/llmgateway-unified:latest
 ```
 

@@ -26,6 +26,12 @@ import {
 	userOrganization as userOrganizationTable,
 } from "@llmgateway/db";
 
+import {
+	calculateUptimePenalty,
+	getTrackedKeyMetrics,
+	isTrackedKeyHealthy,
+} from "./api-key-health.js";
+
 import type { InferSelectModel } from "@llmgateway/db";
 import type {
 	apiKey,
@@ -46,29 +52,55 @@ type ProviderKey = InferSelectModel<typeof providerKey>;
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
 
-function getDeterministicHash(seed: string): number {
-	let hash = 5381;
-
-	for (const char of seed) {
-		hash = (hash * 33) ^ char.charCodeAt(0);
-	}
-
-	return Math.abs(hash >>> 0);
-}
-
-function selectLoadBalancedItem<T>(
+function selectProviderKeyWithFailover<T extends { id: string }>(
 	items: T[],
-	selectionKey?: string,
+	excludedKeyIds: ReadonlySet<string> = new Set(),
 ): T | undefined {
-	if (items.length === 0) {
+	const availableItems = items.filter((item) => !excludedKeyIds.has(item.id));
+
+	if (availableItems.length === 0) {
 		return undefined;
 	}
 
-	if (items.length === 1 || !selectionKey) {
-		return items[0];
+	if (availableItems.length === 1) {
+		return availableItems[0];
 	}
 
-	return items[getDeterministicHash(selectionKey) % items.length];
+	const healthyItems = availableItems
+		.map((item, index) => ({
+			item,
+			index,
+			metrics: getTrackedKeyMetrics(item.id),
+		}))
+		.filter(({ item }) => isTrackedKeyHealthy(item.id));
+
+	if (healthyItems.length === 0) {
+		return availableItems[0];
+	}
+
+	const primaryItem = healthyItems.find(({ index }) => index === 0);
+	const bestScore = Math.min(
+		...healthyItems.map(({ metrics }) =>
+			calculateUptimePenalty(metrics.uptime),
+		),
+	);
+	const SCORE_EPSILON = 0.01;
+
+	if (
+		primaryItem &&
+		calculateUptimePenalty(primaryItem.metrics.uptime) <=
+			bestScore + SCORE_EPSILON
+	) {
+		return primaryItem.item;
+	}
+
+	const selectedItem = [...healthyItems].sort(
+		(a, b) =>
+			calculateUptimePenalty(a.metrics.uptime) -
+				calculateUptimePenalty(b.metrics.uptime) || a.index - b.index,
+	)[0];
+
+	return selectedItem?.item;
 }
 
 /**
@@ -152,7 +184,8 @@ export async function findOrganizationById(
 export async function findCustomProviderKey(
 	organizationId: string,
 	customProviderName: string,
-	selectionKey?: string,
+	_selectionKey?: string,
+	excludedKeyIds?: ReadonlySet<string>,
 ): Promise<ProviderKey | undefined> {
 	const results = await db
 		.select()
@@ -166,7 +199,7 @@ export async function findCustomProviderKey(
 			),
 		)
 		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
-	return selectLoadBalancedItem(results, selectionKey);
+	return selectProviderKeyWithFailover(results, excludedKeyIds);
 }
 
 /**
@@ -175,7 +208,8 @@ export async function findCustomProviderKey(
 export async function findProviderKey(
 	organizationId: string,
 	provider: string,
-	selectionKey?: string,
+	_selectionKey?: string,
+	excludedKeyIds?: ReadonlySet<string>,
 ): Promise<ProviderKey | undefined> {
 	const results = await db
 		.select()
@@ -188,7 +222,7 @@ export async function findProviderKey(
 			),
 		)
 		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
-	return selectLoadBalancedItem(results, selectionKey);
+	return selectProviderKeyWithFailover(results, excludedKeyIds);
 }
 
 /**

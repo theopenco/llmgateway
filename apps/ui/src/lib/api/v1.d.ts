@@ -962,6 +962,7 @@ export interface paths {
                                     availableProviders?: string[];
                                     selectedProvider?: string;
                                     selectionReason?: string;
+                                    usedApiKeyHash?: string;
                                     providerScores?: {
                                         providerId: string;
                                         region?: string;
@@ -988,6 +989,8 @@ export interface paths {
                                         status_code: number;
                                         error_type: string;
                                         succeeded: boolean;
+                                        apiKeyHash?: string;
+                                        logId?: string;
                                     }[];
                                 } | null;
                                 retried?: boolean | null;
@@ -1203,6 +1206,7 @@ export interface paths {
                                     availableProviders?: string[];
                                     selectedProvider?: string;
                                     selectionReason?: string;
+                                    usedApiKeyHash?: string;
                                     providerScores?: {
                                         providerId: string;
                                         region?: string;
@@ -1229,6 +1233,8 @@ export interface paths {
                                         status_code: number;
                                         error_type: string;
                                         succeeded: boolean;
+                                        apiKeyHash?: string;
+                                        logId?: string;
                                     }[];
                                 } | null;
                                 retried?: boolean | null;

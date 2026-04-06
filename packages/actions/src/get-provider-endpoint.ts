@@ -121,7 +121,13 @@ export function getProviderEndpoint(
 				url = "https://api.anthropic.com";
 				break;
 			case "google-ai-studio":
-				url = "https://generativelanguage.googleapis.com";
+				url =
+					getProviderEnvValue(
+						"google-ai-studio",
+						"baseUrl",
+						configIndex,
+						"https://generativelanguage.googleapis.com",
+					) ?? "https://generativelanguage.googleapis.com";
 				break;
 			case "glacier":
 				url = getProviderEnvValue("glacier", "baseUrl", configIndex);
@@ -132,7 +138,13 @@ export function getProviderEndpoint(
 				}
 				break;
 			case "google-vertex":
-				url = "https://aiplatform.googleapis.com";
+				url =
+					getProviderEnvValue(
+						"google-vertex",
+						"baseUrl",
+						configIndex,
+						"https://aiplatform.googleapis.com",
+					) ?? "https://aiplatform.googleapis.com";
 				break;
 			case "quartz":
 				url = getProviderEnvValue("quartz", "baseUrl", configIndex);

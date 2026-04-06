@@ -23,6 +23,7 @@ docker run -d \
   -p 3002:3002 -p 3003:3003 -p 3005:3005 -p 3006:3006 -p 4001:4001 -p 4002:4002 \
   -v ~/llmgateway_data:/var/lib/postgresql/data \
   -e AUTH_SECRET=your-secret-key-here \
+  -e GATEWAY_API_KEY_HASH_SECRET=your-api-key-hash-secret-here \
   ghcr.io/theopenco/llmgateway-unified:latest
 ```
 

@@ -539,6 +539,7 @@ export const alibabaModels = [
 		releasedAt: new Date("2025-04-28"),
 		providers: [
 			{
+				stability: "unstable",
 				providerId: "novita",
 				modelName: "qwen/qwen3-235b-a22b-fp8",
 				inputPrice: 0.2 / 1e6,

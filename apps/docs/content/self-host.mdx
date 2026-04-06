@@ -20,6 +20,7 @@ This option uses a single Docker container that includes all services (UI, API, 
 ```bash
 # Set a strong secret first
 export LLM_GATEWAY_SECRET="your-secret-key-here"
+export GATEWAY_API_KEY_HASH_SECRET="your-api-key-hash-secret-here"
 
 # Run the container
 docker run -d \
@@ -34,6 +35,7 @@ docker run -d \
   -v llmgateway_postgres:/var/lib/postgresql/data \
   -v llmgateway_redis:/var/lib/redis \
   -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
+  -e GATEWAY_API_KEY_HASH_SECRET="$GATEWAY_API_KEY_HASH_SECRET" \
   ghcr.io/theopenco/llmgateway-unified:latest
 ```
 
@@ -96,6 +98,7 @@ POSTGRES_PASSWORD=your_secure_password_here
 
 # Authentication
 AUTH_SECRET=your-secret-key-here
+GATEWAY_API_KEY_HASH_SECRET=your-api-key-hash-secret-here
 
 # LLM Provider API Keys (add the ones you need)
 LLM_OPENAI_API_KEY=sk-...

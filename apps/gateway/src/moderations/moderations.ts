@@ -5,6 +5,12 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
+import {
+	reportKeyError,
+	reportKeySuccess,
+	reportTrackedKeyError,
+	reportTrackedKeySuccess,
+} from "@/lib/api-key-health.js";
 import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
@@ -282,7 +288,7 @@ const createModeration = createRoute({
 });
 
 moderations.openapi(createModeration, async (c): Promise<any> => {
-	const requestId = c.req.header("x-request-id") ?? shortid(40);
+	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	c.header("x-request-id", requestId);
 
 	let rawBody: unknown;
@@ -367,6 +373,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
+	let configIndex = 0;
+	let envVarName: string | undefined;
 
 	if (project.mode === "api-keys") {
 		providerKey = await findProviderKey(
@@ -382,14 +390,24 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		}
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
-		usedToken = getProviderEnv("openai").token;
+		const envResult = getProviderEnv("openai");
+		usedToken = envResult.token;
+		configIndex = envResult.configIndex;
+		envVarName = envResult.envVarName;
 	} else if (project.mode === "hybrid") {
 		providerKey = await findProviderKey(
 			project.organizationId,
 			"openai",
 			requestId,
 		);
-		usedToken = providerKey?.token ?? getProviderEnv("openai").token;
+		if (providerKey) {
+			usedToken = providerKey.token;
+		} else {
+			const envResult = getProviderEnv("openai");
+			usedToken = envResult.token;
+			configIndex = envResult.configIndex;
+			envVarName = envResult.envVarName;
+		}
 	} else {
 		throw new HTTPException(400, {
 			message: `Invalid project mode: ${project.mode}`,
@@ -444,7 +462,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				...getProviderHeaders("openai", usedToken),
+				...getProviderHeaders("openai", usedToken, { requestId }),
 			},
 			body: JSON.stringify(requestBody),
 			signal: fetchSignal,
@@ -455,6 +473,13 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		responseSize = upstreamText.length;
 	} catch (error) {
 		duration = Date.now() - startedAt;
+		if (envVarName !== undefined) {
+			reportKeyError(envVarName, configIndex, 0);
+		}
+		if (providerKey?.id) {
+			reportTrackedKeyError(providerKey.id, 0);
+		}
+
 		const isCanceled = error instanceof Error && error.name === "AbortError";
 		const isTimeout = isTimeoutError(error);
 
@@ -552,6 +577,22 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	}
 
 	if (!upstreamResponse.ok) {
+		if (envVarName !== undefined) {
+			reportKeyError(
+				envVarName,
+				configIndex,
+				upstreamResponse.status,
+				upstreamText,
+			);
+		}
+		if (providerKey?.id) {
+			reportTrackedKeyError(
+				providerKey.id,
+				upstreamResponse.status,
+				upstreamText,
+			);
+		}
+
 		await insertLog({
 			...baseLogEntry,
 			duration,
@@ -614,6 +655,13 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				| 503
 				| 504,
 		);
+	}
+
+	if (envVarName !== undefined) {
+		reportKeySuccess(envVarName, configIndex);
+	}
+	if (providerKey?.id) {
+		reportTrackedKeySuccess(providerKey.id);
 	}
 
 	await insertLog({

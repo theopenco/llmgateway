@@ -54,8 +54,28 @@ const DEFAULT_UPTIME = 100; // Assume 100% uptime if no data to avoid penalizing
 const DEFAULT_LATENCY = 1000; // Assume 1000ms latency if no data
 const DEFAULT_THROUGHPUT = 50; // Assume 50 tokens/second if no data
 
-// Epsilon-greedy exploration: 1% chance to randomly explore
-const EXPLORATION_RATE = 0.01;
+const DEFAULT_EXPLORATION_RATE = 0.01;
+
+function getExplorationRate(): number {
+	const rawExplorationRate = process.env.EXPLORATION_RATE;
+
+	if (rawExplorationRate === undefined || rawExplorationRate.trim() === "") {
+		return DEFAULT_EXPLORATION_RATE;
+	}
+
+	const explorationRate = Number(rawExplorationRate);
+	if (
+		!Number.isFinite(explorationRate) ||
+		explorationRate < 0 ||
+		explorationRate > 1
+	) {
+		throw new Error(
+			`Invalid EXPLORATION_RATE: "${rawExplorationRate}". Expected a number between 0 and 1.`,
+		);
+	}
+
+	return explorationRate;
+}
 
 function isTestProcess(): boolean {
 	if (process.env.NODE_ENV === "test" || Boolean(process.env.VITEST)) {
@@ -69,6 +89,7 @@ export interface RoutingMetadata {
 	availableProviders: string[];
 	selectedProvider: string;
 	selectionReason: string;
+	usedApiKeyHash?: string;
 	providerScores: Array<{
 		providerId: string;
 		region?: string;
@@ -106,9 +127,12 @@ export interface RoutingMetadata {
 	routing?: Array<{
 		provider: string;
 		model: string;
+		region?: string;
 		status_code: number;
 		error_type: string;
 		succeeded: boolean;
+		apiKeyHash?: string;
+		logId?: string;
 	}>;
 }
 
@@ -253,7 +277,7 @@ export function getCheapestFromAvailableProviders<
 	// Epsilon-greedy exploration: randomly select a provider 1% of the time
 	// This ensures all providers get periodic traffic and build up metrics
 	// Skip during tests to keep behavior deterministic
-	if (!isTestProcess() && Math.random() < EXPLORATION_RATE) {
+	if (!isTestProcess() && Math.random() < getExplorationRate()) {
 		const randomProvider =
 			stableProviders[Math.floor(Math.random() * stableProviders.length)];
 		return {
@@ -262,7 +286,33 @@ export function getCheapestFromAvailableProviders<
 				availableProviders: stableProviders.map((p) => p.providerId),
 				selectedProvider: randomProvider.providerId,
 				selectionReason: "random-exploration",
-				providerScores: [],
+				providerScores: stableProviders.map((provider) => {
+					const providerInfo = modelWithPricing.providers.find(
+						(p) =>
+							p.providerId === provider.providerId &&
+							p.region === provider.region,
+					);
+					const providerDef = getProviderDefinition(provider.providerId);
+					const priority = providerDef?.priority ?? 1;
+					const metrics = metricsMap?.get(
+						metricsKey(
+							modelWithPricing.id,
+							provider.providerId,
+							provider.region,
+						),
+					);
+
+					return {
+						providerId: provider.providerId,
+						region: provider.region,
+						score: 0,
+						uptime: metrics?.uptime,
+						latency: metrics?.averageLatency,
+						throughput: metrics?.throughput,
+						price: getProviderSelectionPrice(providerInfo, videoPricing),
+						priority,
+					};
+				}),
 			},
 		};
 	}

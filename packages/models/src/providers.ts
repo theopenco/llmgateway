@@ -109,6 +109,9 @@ export const providers = [
 			required: {
 				apiKey: "LLM_GOOGLE_AI_STUDIO_API_KEY",
 			},
+			optional: {
+				baseUrl: "LLM_GOOGLE_AI_STUDIO_BASE_URL",
+			},
 		},
 		streaming: true,
 		cancellation: true,
@@ -146,6 +149,7 @@ export const providers = [
 				project: "LLM_GOOGLE_CLOUD_PROJECT",
 			},
 			optional: {
+				baseUrl: "LLM_GOOGLE_VERTEX_BASE_URL",
 				region: "LLM_GOOGLE_VERTEX_REGION",
 			},
 		},
