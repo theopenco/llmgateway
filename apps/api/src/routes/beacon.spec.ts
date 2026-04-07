@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { posthog } from "@/posthog.js";
@@ -11,6 +11,10 @@ vi.mock("@/posthog", () => ({
 }));
 
 describe("beacon endpoint", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
 	it("should accept valid beacon data", async () => {
 		const beaconData = {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",
@@ -42,7 +46,7 @@ describe("beacon endpoint", () => {
 				installation: beaconData.type,
 				timestamp: beaconData.timestamp,
 				source: "self_hosted_api",
-				version: process.env.APP_VERSION ?? "v0.0.0-unknown",
+				version: beaconData.version,
 				client_ip: null, // No IP headers provided
 				country: undefined,
 				region: undefined,
@@ -82,7 +86,7 @@ describe("beacon endpoint", () => {
 				installation: beaconData.type,
 				timestamp: beaconData.timestamp,
 				source: "self_hosted_api",
-				version: process.env.APP_VERSION ?? "v0.0.0-unknown",
+				version: beaconData.version,
 				client_ip: "203.0.113.42",
 				country: "US",
 				region: "California",
@@ -121,7 +125,7 @@ describe("beacon endpoint", () => {
 				installation: beaconData.type,
 				timestamp: beaconData.timestamp,
 				source: "self_hosted_api",
-				version: process.env.APP_VERSION ?? "v0.0.0-unknown",
+				version: beaconData.version,
 				client_ip: "198.51.100.25", // First IP from X-Forwarded-For
 				country: undefined, // GCP doesn't provide country in standard headers
 				region: "us-central1",
@@ -158,7 +162,7 @@ describe("beacon endpoint", () => {
 				installation: beaconData.type,
 				timestamp: beaconData.timestamp,
 				source: "self_hosted_api",
-				version: process.env.APP_VERSION ?? "v0.0.0-unknown",
+				version: beaconData.version,
 				client_ip: "192.0.2.123",
 				country: undefined,
 				region: undefined,
@@ -195,7 +199,7 @@ describe("beacon endpoint", () => {
 				installation: beaconData.type,
 				timestamp: beaconData.timestamp,
 				source: "self_hosted_api",
-				version: process.env.APP_VERSION ?? "v0.0.0-unknown",
+				version: beaconData.version,
 				client_ip: null,
 				country: undefined,
 				region: undefined,
