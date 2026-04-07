@@ -1,25 +1,26 @@
 import { ArrowLeftIcon } from "lucide-react";
 import Markdown from "markdown-to-jsx";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
-import type { Legal } from "content-collections";
+import { allLegals } from "content-collections";
+
 import type { Metadata } from "next";
+
+const Footer = dynamic(() => import("@/components/landing/footer"));
 
 interface LegalEntryPageProps {
 	params: Promise<{ slug: string }>;
 }
 
 export default async function LegalEntryPage({ params }: LegalEntryPageProps) {
-	const { allLegals } = await import("content-collections");
-
 	const { slug } = await params;
 
-	const entry = allLegals.find((entry: Legal) => entry.slug === slug);
+	const entry = allLegals.find((entry) => entry.slug === slug);
 
 	if (!entry) {
 		notFound();
@@ -57,9 +58,7 @@ export default async function LegalEntryPage({ params }: LegalEntryPageProps) {
 }
 
 export async function generateStaticParams() {
-	const { allLegals } = await import("content-collections");
-
-	return allLegals.map((entry: Legal) => ({
+	return allLegals.map((entry) => ({
 		slug: entry.slug,
 	}));
 }
@@ -67,11 +66,9 @@ export async function generateStaticParams() {
 export async function generateMetadata({
 	params,
 }: LegalEntryPageProps): Promise<Metadata> {
-	const { allLegals } = await import("content-collections");
-
 	const { slug } = await params;
 
-	const entry = allLegals.find((entry: Legal) => entry.slug === slug);
+	const entry = allLegals.find((entry) => entry.slug === slug);
 
 	if (!entry) {
 		return {};

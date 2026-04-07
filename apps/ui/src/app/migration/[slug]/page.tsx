@@ -1,27 +1,26 @@
 import { ArrowLeftIcon } from "lucide-react";
 import Markdown from "markdown-to-jsx";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
-import type { Migration } from "content-collections";
+import { allMigrations } from "content-collections";
+
 import type { Metadata } from "next";
+
+const Footer = dynamic(() => import("@/components/landing/footer"));
 
 interface MigrationPageProps {
 	params: Promise<{ slug: string }>;
 }
 
 export default async function MigrationPage({ params }: MigrationPageProps) {
-	const { allMigrations } = await import("content-collections");
-
 	const { slug } = await params;
 
-	const migration = allMigrations.find(
-		(migration: Migration) => migration.slug === slug,
-	);
+	const migration = allMigrations.find((migration) => migration.slug === slug);
 
 	if (!migration) {
 		notFound();
@@ -71,9 +70,7 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 }
 
 export async function generateStaticParams() {
-	const { allMigrations } = await import("content-collections");
-
-	return allMigrations.map((migration: Migration) => ({
+	return allMigrations.map((migration) => ({
 		slug: migration.slug,
 	}));
 }
@@ -81,13 +78,9 @@ export async function generateStaticParams() {
 export async function generateMetadata({
 	params,
 }: MigrationPageProps): Promise<Metadata> {
-	const { allMigrations } = await import("content-collections");
-
 	const { slug } = await params;
 
-	const migration = allMigrations.find(
-		(migration: Migration) => migration.slug === slug,
-	);
+	const migration = allMigrations.find((migration) => migration.slug === slug);
 
 	if (!migration) {
 		return {};

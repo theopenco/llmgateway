@@ -1,9 +1,11 @@
 import dynamic from "next/dynamic";
 
-import Features from "@/components/landing/features";
 import { HeroRSC } from "@/components/landing/hero-rsc";
-import { Testimonials } from "@/components/landing/testimonials";
 
+const Features = dynamic(() => import("@/components/landing/features"));
+const Testimonials = dynamic(() =>
+	import("@/components/landing/testimonials").then((mod) => mod.Testimonials),
+);
 const Graph = dynamic(() =>
 	import("@/components/landing/graph").then((mod) => mod.Graph),
 );

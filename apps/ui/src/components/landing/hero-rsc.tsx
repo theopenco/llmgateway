@@ -2,6 +2,7 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 import { GitHubStars } from "./github-stars";
 import { Hero } from "./hero";
+import { allMigrations } from "content-collections";
 
 export const HeroRSC = async ({
 	navbarOnly,
@@ -19,8 +20,7 @@ export const HeroRSC = async ({
 		);
 	}
 
-	const [{ allMigrations }, models, providers] = await Promise.all([
-		import("content-collections"),
+	const [models, providers] = await Promise.all([
 		fetchModels(),
 		fetchProviders(),
 	]);
