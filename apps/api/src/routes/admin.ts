@@ -1846,12 +1846,8 @@ admin.openapi(getProjectLogs, async (c) => {
 	return c.json({
 		logs: paginatedLogs.map((l) => ({
 			...l,
-			// Strip large base64 image content from list responses to reduce payload size.
-			// Full content is available via GET /logs/{id}.
 			content:
-				l.content &&
-				l.content.length > 500 &&
-				/[A-Za-z0-9+/]{200,}/.test(l.content)
+				l.content && l.content.includes(";base64,")
 					? "[image_generated]"
 					: l.content,
 			promptTokens: l.promptTokens ? String(l.promptTokens) : null,

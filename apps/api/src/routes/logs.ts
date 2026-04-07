@@ -602,14 +602,8 @@ logs.openapi(get, async (c) => {
 
 	const enrichedLogs = await enrichLogsWithVideoContentUrls(paginatedLogs);
 
-	// Strip large base64 image content from list responses to reduce payload size.
-	// Full content is available via GET /logs/{id}.
 	const logsForResponse = enrichedLogs.map((log) => {
-		if (
-			log.content &&
-			log.content.length > 500 &&
-			/[A-Za-z0-9+/]{200,}/.test(log.content)
-		) {
+		if (log.content && log.content.includes(";base64,")) {
 			return { ...log, content: "[image_generated]" };
 		}
 		return log;
