@@ -589,7 +589,7 @@ function inferStreamingErrorStatusCode(
 	return 500;
 }
 
-async function inspectImmediateStreamingProviderError(
+export async function inspectImmediateStreamingProviderError(
 	response: Response,
 	provider: Provider,
 ): Promise<
@@ -712,9 +712,9 @@ async function inspectImmediateStreamingProviderError(
 				errorMessage:
 					error instanceof Error ? error.message : String(error ?? ""),
 				errorResponseText: "",
-				errorType: "stream",
-				inferredStatusCode: 0,
-				statusText: "",
+				errorType: "upstream_error",
+				inferredStatusCode: 502,
+				statusText: "stream_read_error",
 			},
 		};
 	}
