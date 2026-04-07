@@ -1209,6 +1209,14 @@ export function AllModels({
 	const totalPages = viewMode === "table" ? totalTablePages : totalGridPages;
 	const safePage = Math.min(currentPage, Math.max(1, totalPages));
 
+	useEffect(() => {
+		if (currentPage !== safePage) {
+			updateUrlWithFilters({
+				page: safePage > 1 ? String(safePage) : undefined,
+			});
+		}
+	}, [currentPage, safePage, updateUrlWithFilters]);
+
 	const paginatedFlattenedRows = flattenedRows.slice(
 		(safePage - 1) * MODELS_PER_PAGE,
 		safePage * MODELS_PER_PAGE,

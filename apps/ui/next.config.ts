@@ -108,7 +108,7 @@ const nextConfig: NextConfig = {
 				destination: "https://docs.llmgateway.io/llms-full.txt",
 			},
 			{
-				source: "/health",
+				source: "/docs-health",
 				destination: "https://docs.llmgateway.io/health",
 			},
 		];
