@@ -102,7 +102,7 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 		case "openai":
 			return "https://api.openai.com";
 		case "google-vertex":
-			return "https://us-central1-aiplatform.googleapis.com";
+			return "https://aiplatform.googleapis.com";
 		default:
 			return null;
 	}
