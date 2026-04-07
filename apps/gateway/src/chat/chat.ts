@@ -1134,20 +1134,20 @@ chat.openapi(completions, async (c) => {
 		(usedProvider === "llmgateway" && usedModel === "auto") ||
 		usedModel === "auto"
 	) {
-		// Estimate the context size needed based on the request
-		let requiredContextSize = 0;
+		// Estimate prompt/input tokens first so auto-routing can react to large prompts
+		let estimatedInputTokens = 0;
 
 		// Estimate prompt tokens from messages
 		if (messages && messages.length > 0) {
 			try {
-				requiredContextSize = encodeChatMessages(messages);
+				estimatedInputTokens = encodeChatMessages(messages);
 			} catch {
 				// Fallback to simple estimation if encoding fails
 				const messageTokens = messages.reduce(
 					(acc, m) => acc + (m.content?.length ?? 0),
 					0,
 				);
-				requiredContextSize = Math.max(1, Math.round(messageTokens / 4));
+				estimatedInputTokens = Math.max(1, Math.round(messageTokens / 4));
 			}
 		}
 
@@ -1156,12 +1156,15 @@ chat.openapi(completions, async (c) => {
 			try {
 				const toolsString = JSON.stringify(tools);
 				const toolTokens = Math.round(toolsString.length / 4);
-				requiredContextSize += toolTokens;
+				estimatedInputTokens += toolTokens;
 			} catch {
 				// Fallback estimation for tools
-				requiredContextSize += tools.length * 100; // Rough estimate per tool
+				estimatedInputTokens += tools.length * 100; // Rough estimate per tool
 			}
 		}
+
+		// Estimate the full context needed based on the request
+		let requiredContextSize = estimatedInputTokens;
 
 		// Add max_tokens if specified
 		if (max_tokens) {
@@ -1226,6 +1229,12 @@ chat.openapi(completions, async (c) => {
 					continue;
 				}
 			} else if (!allowedAutoModels.includes(modelDef.id)) {
+				continue;
+			} else if (
+				estimatedInputTokens > 10_000 &&
+				modelDef.id === "claude-haiku-4-5"
+			) {
+				// Prefer Sonnet over Haiku for larger prompts once the input crosses 10k tokens
 				continue;
 			}
 
