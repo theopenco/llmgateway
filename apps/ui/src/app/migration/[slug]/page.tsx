@@ -31,37 +31,35 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 			<HeroRSC navbarOnly />
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">
-					<div className="max-w-4xl mx-auto">
-						<div className="mb-8">
-							<Link
-								href="/migration"
-								className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-							>
-								<ArrowLeftIcon className="mr-2 h-4 w-4" />
-								Back to migration guides
-							</Link>
-						</div>
+					<nav className="max-w-4xl mx-auto mb-8" aria-label="Breadcrumb">
+						<Link
+							href="/migration"
+							className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+						>
+							<ArrowLeftIcon className="mr-2 h-4 w-4" />
+							Back to migration guides
+						</Link>
+					</nav>
 
-						<article className="prose prose-lg dark:prose-invert max-w-none">
-							<header className="mb-8">
-								<div className="mb-4 inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
-									From {migration.fromProvider}
-								</div>
-								<h1 className="text-4xl font-bold mb-4">{migration.title}</h1>
-								<div className="text-muted-foreground">
-									{migration.description && (
-										<p className="text-lg mb-2">{migration.description}</p>
-									)}
-								</div>
-							</header>
+					<article className="prose prose-lg dark:prose-invert max-w-none max-w-4xl mx-auto">
+						<header className="mb-8">
+							<span className="mb-4 inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+								From {migration.fromProvider}
+							</span>
+							<h1 className="text-4xl font-bold mb-4">{migration.title}</h1>
+							{migration.description && (
+								<p className="text-lg text-muted-foreground mb-2">
+									{migration.description}
+								</p>
+							)}
+						</header>
 
-							<div className="prose prose-lg dark:prose-invert max-w-none">
-								<Markdown options={getMarkdownOptions()}>
-									{migration.content}
-								</Markdown>
-							</div>
-						</article>
-					</div>
+						<section className="prose prose-lg dark:prose-invert max-w-none">
+							<Markdown options={getMarkdownOptions()}>
+								{migration.content}
+							</Markdown>
+						</section>
+					</article>
 				</main>
 				<Footer />
 			</div>
