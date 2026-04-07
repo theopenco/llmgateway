@@ -26,22 +26,54 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 		notFound();
 	}
 
+	const jsonLd = {
+		"@context": "https://schema.org",
+		"@type": "TechArticle",
+		headline: migration.title,
+		description: migration.description ?? "Migration guide for LLM Gateway",
+		author: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+		publisher: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+		mainEntityOfPage: {
+			"@type": "WebPage",
+			"@id": `https://llmgateway.io/migration/${slug}`,
+		},
+	};
+
 	return (
 		<>
 			<HeroRSC navbarOnly />
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">
+					<script
+						type="application/ld+json"
+						// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+						dangerouslySetInnerHTML={{
+							__html: JSON.stringify(jsonLd),
+						}}
+					/>
 					<nav className="max-w-4xl mx-auto mb-8" aria-label="Breadcrumb">
-						<Link
-							href="/migration"
-							className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-						>
-							<ArrowLeftIcon className="mr-2 h-4 w-4" />
-							Back to migration guides
-						</Link>
+						<ol>
+							<li>
+								<Link
+									href="/migration"
+									className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+								>
+									<ArrowLeftIcon className="mr-2 h-4 w-4" />
+									Back to migration guides
+								</Link>
+							</li>
+						</ol>
 					</nav>
 
-					<article className="prose prose-lg dark:prose-invert max-w-none max-w-4xl mx-auto">
+					<article className="prose prose-lg dark:prose-invert max-w-4xl mx-auto">
 						<header className="mb-8">
 							<span className="mb-4 inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
 								From {migration.fromProvider}

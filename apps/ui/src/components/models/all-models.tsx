@@ -1202,8 +1202,6 @@ export function AllModels({
 		1,
 		Math.floor(Number(searchParams.get("page")) || 1),
 	);
-	const isSearchOrFilterActive = searchQuery || hasActiveFilters;
-
 	const totalTablePages = Math.ceil(flattenedRows.length / MODELS_PER_PAGE);
 	const totalGridPages = Math.ceil(
 		modelsWithProviders.length / MODELS_PER_PAGE,
@@ -1211,19 +1209,15 @@ export function AllModels({
 	const totalPages = viewMode === "table" ? totalTablePages : totalGridPages;
 	const safePage = Math.min(currentPage, Math.max(1, totalPages));
 
-	const paginatedFlattenedRows = isSearchOrFilterActive
-		? flattenedRows
-		: flattenedRows.slice(
-				(safePage - 1) * MODELS_PER_PAGE,
-				safePage * MODELS_PER_PAGE,
-			);
+	const paginatedFlattenedRows = flattenedRows.slice(
+		(safePage - 1) * MODELS_PER_PAGE,
+		safePage * MODELS_PER_PAGE,
+	);
 
-	const paginatedModels = isSearchOrFilterActive
-		? modelsWithProviders
-		: modelsWithProviders.slice(
-				(safePage - 1) * MODELS_PER_PAGE,
-				safePage * MODELS_PER_PAGE,
-			);
+	const paginatedModels = modelsWithProviders.slice(
+		(safePage - 1) * MODELS_PER_PAGE,
+		safePage * MODELS_PER_PAGE,
+	);
 
 	const goToPage = useCallback(
 		(page: number) => {
@@ -1893,7 +1887,7 @@ export function AllModels({
 
 	return (
 		<div className="min-h-screen text-foreground bg-background">
-			{!isSearchOrFilterActive && totalPages > 1 && (
+			{totalPages > 1 && (
 				<>
 					{safePage > 1 && (
 						<link rel="prev" href={buildPageUrl(safePage - 1)} />
@@ -2096,7 +2090,7 @@ export function AllModels({
 
 							{viewMode === "table" ? renderTableView() : renderGridView()}
 
-							{!isSearchOrFilterActive && totalPages > 1 && (
+							{totalPages > 1 && (
 								<nav
 									aria-label="Pagination"
 									className="flex items-center justify-center gap-2 pt-4"
