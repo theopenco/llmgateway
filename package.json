@@ -40,6 +40,7 @@
 		"@steebchen/eslint-config": "^1.11.1",
 		"@steebchen/lint-base": "1.1.0",
 		"@steebchen/prettier-config": "^1.5.0",
+		"@types/canvas-confetti": "1.9.0",
 		"@types/node": "25.3.0",
 		"commitlint": "20.4.3",
 		"concurrently": "^9.2.1",
@@ -83,5 +84,8 @@
 				}
 			}
 		}
+	},
+	"dependencies": {
+		"canvas-confetti": "1.9.4"
 	}
 }

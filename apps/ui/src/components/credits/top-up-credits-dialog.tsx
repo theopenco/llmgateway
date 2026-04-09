@@ -7,6 +7,7 @@ import {
 	useStripe as useStripeElements,
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
+import confetti from "canvas-confetti";
 import { CreditCard, ExternalLink, Plus } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
@@ -567,6 +568,34 @@ function PaymentStep({
 }
 
 function SuccessStep({ onClose }: { onClose: () => void }) {
+	useEffect(() => {
+		const duration = 2000;
+		const end = Date.now() + duration;
+
+		const frame = () => {
+			void confetti({
+				particleCount: 3,
+				angle: 60,
+				spread: 55,
+				origin: { x: 0, y: 0.7 },
+				colors: ["#10b981", "#3b82f6", "#8b5cf6"],
+			});
+			void confetti({
+				particleCount: 3,
+				angle: 120,
+				spread: 55,
+				origin: { x: 1, y: 0.7 },
+				colors: ["#10b981", "#3b82f6", "#8b5cf6"],
+			});
+
+			if (Date.now() < end) {
+				requestAnimationFrame(frame);
+			}
+		};
+
+		frame();
+	}, []);
+
 	return (
 		<>
 			<DialogHeader>
@@ -575,13 +604,31 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 					Your credits have been added to your account.
 				</DialogDescription>
 			</DialogHeader>
-			<div className="py-4">
-				<p>
-					Thank you for your purchase. Your credits are now available for use.
+			<div className="py-6 text-center">
+				<div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
+					<svg
+						className="h-8 w-8 text-emerald-600 dark:text-emerald-400"
+						fill="none"
+						viewBox="0 0 24 24"
+						stroke="currentColor"
+						strokeWidth={2.5}
+					>
+						<path
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							d="M5 13l4 4L19 7"
+						/>
+					</svg>
+				</div>
+				<p className="text-lg font-semibold">You&apos;re all set!</p>
+				<p className="mt-1 text-sm text-muted-foreground">
+					Your credits are ready. Start making API calls now.
 				</p>
 			</div>
 			<DialogFooter>
-				<Button onClick={onClose}>Close</Button>
+				<Button onClick={onClose} className="w-full">
+					Start Building
+				</Button>
 			</DialogFooter>
 		</>
 	);

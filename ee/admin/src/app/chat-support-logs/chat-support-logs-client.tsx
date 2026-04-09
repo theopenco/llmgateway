@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	AlertTriangle,
+	ArrowLeft,
 	Clock,
 	Globe,
 	Mail,
@@ -123,6 +124,27 @@ interface ConversationDetail {
 	}[];
 }
 
+const STORAGE_KEY = "chat-support-read";
+
+function getReadMap(): Record<string, number> {
+	try {
+		return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+	} catch {
+		return {};
+	}
+}
+
+function markAsRead(conversationId: string, messageCount: number) {
+	const map = getReadMap();
+	map[conversationId] = messageCount;
+	localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+}
+
+function isUnread(conversationId: string, messageCount: number): boolean {
+	const map = getReadMap();
+	return (map[conversationId] ?? 0) < messageCount;
+}
+
 export function ChatSupportLogsClient() {
 	const $fetch = useFetchClient();
 	const queryClient = useQueryClient();
@@ -132,6 +154,11 @@ export function ChatSupportLogsClient() {
 	const [replyText, setReplyText] = useState("");
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const replyInputRef = useRef<HTMLTextAreaElement>(null);
+	const [readMap, setReadMap] = useState<Record<string, number>>({});
+
+	useEffect(() => {
+		setReadMap(getReadMap());
+	}, []);
 
 	useEffect(() => {
 		const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -193,15 +220,28 @@ export function ChatSupportLogsClient() {
 	});
 
 	useEffect(() => {
-		if (detail?.messages) {
+		if (detail?.messages && selectedId) {
 			messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+			markAsRead(selectedId, detail.messages.length);
+			setReadMap((prev) => ({
+				...prev,
+				[selectedId]: detail.messages.length,
+			}));
 		}
-	}, [detail?.messages]);
+	}, [detail?.messages, selectedId]);
 
-	const handleSelectConversation = useCallback((id: string) => {
-		setSelectedId(id);
-		setReplyText("");
-	}, []);
+	const handleSelectConversation = useCallback(
+		(id: string) => {
+			setSelectedId(id);
+			setReplyText("");
+			const conv = conversations.find((c) => c.id === id);
+			if (conv) {
+				markAsRead(id, conv.messageCount);
+				setReadMap((prev) => ({ ...prev, [id]: conv.messageCount }));
+			}
+		},
+		[conversations],
+	);
 
 	const handleReplySubmit = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -224,7 +264,12 @@ export function ChatSupportLogsClient() {
 	return (
 		<div className="flex h-[calc(100vh-3.5rem)] overflow-hidden md:h-screen">
 			{/* Left panel — Conversation list */}
-			<div className="flex w-80 shrink-0 flex-col border-r border-border/60 bg-card">
+			<div
+				className={cn(
+					"flex shrink-0 flex-col border-r border-border/60 bg-card",
+					selectedId ? "hidden md:flex md:w-80" : "w-full md:w-80",
+				)}
+			>
 				{/* Search header */}
 				<div className="border-b border-border/60 px-4 py-3">
 					<h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
@@ -300,6 +345,13 @@ export function ChatSupportLogsClient() {
 												<AlertTriangle className="h-2 w-2 text-white" />
 											</span>
 										)}
+										{isUnread(conv.id, conv.messageCount) &&
+											!(
+												readMap[conv.id] &&
+												readMap[conv.id] >= conv.messageCount
+											) && (
+												<span className="absolute -left-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-blue-500" />
+											)}
 									</div>
 									<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 										<div className="flex items-center justify-between gap-2">
@@ -336,7 +388,12 @@ export function ChatSupportLogsClient() {
 			</div>
 
 			{/* Middle panel — Chat thread */}
-			<div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+			<div
+				className={cn(
+					"flex min-w-0 flex-1 flex-col overflow-hidden bg-background",
+					!selectedId && "hidden md:flex",
+				)}
+			>
 				{!selectedId ? (
 					<div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
 						<MessageCircle className="h-12 w-12 opacity-20" />
@@ -365,6 +422,13 @@ export function ChatSupportLogsClient() {
 					<>
 						{/* Chat header */}
 						<div className="flex items-center gap-3 border-b border-border/60 px-6 py-3">
+							<button
+								type="button"
+								onClick={() => setSelectedId(null)}
+								className="mr-1 flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted md:hidden"
+							>
+								<ArrowLeft className="h-4 w-4" />
+							</button>
 							<div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
 								{detail.name
 									? detail.name
@@ -403,7 +467,7 @@ export function ChatSupportLogsClient() {
 											key={message.id}
 											className={cn(
 												"flex",
-												isAssistant ? "justify-start" : "justify-end",
+												isAdmin ? "justify-end" : "justify-start",
 											)}
 										>
 											<div className="flex max-w-[70%] flex-col gap-1">
@@ -412,13 +476,22 @@ export function ChatSupportLogsClient() {
 														Admin
 													</span>
 												)}
+												{isUser && (
+													<span className="pl-1 text-[11px] font-medium text-muted-foreground">
+														Visitor
+													</span>
+												)}
+												{isAssistant && (
+													<span className="pl-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+														Bot
+													</span>
+												)}
 												<div
 													className={cn(
 														"rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
 														isAssistant &&
-															"rounded-bl-md bg-muted text-foreground",
-														isUser &&
-															"rounded-br-md bg-primary text-primary-foreground",
+															"rounded-bl-md bg-muted/70 text-foreground",
+														isUser && "rounded-bl-md bg-muted text-foreground",
 														isAdmin &&
 															"rounded-br-md bg-blue-600 text-white dark:bg-blue-700",
 													)}
@@ -430,7 +503,7 @@ export function ChatSupportLogsClient() {
 												<span
 													className={cn(
 														"text-[11px] text-muted-foreground",
-														isAssistant ? "pl-1" : "pr-1 text-right",
+														isAdmin ? "pr-1 text-right" : "pl-1",
 													)}
 												>
 													{formatMessageTime(message.createdAt)}
