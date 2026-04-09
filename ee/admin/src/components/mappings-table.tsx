@@ -226,6 +226,8 @@ function MappingRow({
 						variant="ghost"
 						size="sm"
 						className="h-7 px-2 text-xs"
+						aria-expanded={expanded}
+						aria-controls={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
 						onClick={(e) => {
 							e.stopPropagation();
 							setExpanded(!expanded);
@@ -237,7 +239,11 @@ function MappingRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={15} className="p-4">
+					<TableCell
+						colSpan={15}
+						className="p-4"
+						id={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
+					>
 						<HistoryChart
 							title={`${mapping.providerName} / ${mapping.modelName !== mapping.modelId ? mapping.modelName : mapping.modelId} — History`}
 							description="Request volume, errors, latency, and tokens over time"

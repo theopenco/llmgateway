@@ -26,6 +26,7 @@ import { Input } from "@/lib/components/input";
 import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
+import { useFetchClient } from "@/lib/fetch-client";
 
 const createFormSchema = (isHosted: boolean) =>
 	z.object({
@@ -55,6 +56,7 @@ export default function Signup() {
 	const [showPassword, setShowPassword] = useState(false);
 	const { signUp, signIn } = useAuth();
 	const config = useAppConfig();
+	const fetchClient = useFetchClient();
 
 	const formSchema = createFormSchema(config.hosted);
 
@@ -99,11 +101,11 @@ export default function Signup() {
 					});
 
 					if (values.newsletter) {
-						fetch(`${config.apiUrl}/public/newsletter/subscribe`, {
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ email: values.email }),
-						}).catch(() => {});
+						fetchClient
+							.POST("/public/newsletter/subscribe", {
+								body: { email: values.email },
+							})
+							.catch(() => {});
 					}
 
 					toast({

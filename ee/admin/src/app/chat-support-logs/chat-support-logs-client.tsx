@@ -237,6 +237,7 @@ export function ChatSupportLogsClient() {
 				messageCount: detail.messages.length,
 			});
 		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- markReadMutation.mutate is stable from useMutation
 	}, [detail?.messages, selectedId]);
 
 	const handleSelectConversation = useCallback(
@@ -248,7 +249,7 @@ export function ChatSupportLogsClient() {
 				markReadMutation.mutate({ id, messageCount: conv.messageCount });
 			}
 		},
-		[conversations, markReadMutation],
+		[conversations, markReadMutation.mutate],
 	);
 
 	const handleReplySubmit = (e: React.FormEvent) => {

@@ -87,7 +87,7 @@ export default function Login() {
 				}
 			});
 		}
-	}, []);
+	}, [signIn, queryClient, posthog, router]);
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);

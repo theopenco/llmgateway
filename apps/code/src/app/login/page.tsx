@@ -102,7 +102,7 @@ function LoginForm() {
 				}
 			});
 		}
-	}, []);
+	}, [signIn, queryClient, posthogKey, posthog, router, returnUrl]);
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);

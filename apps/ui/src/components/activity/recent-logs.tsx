@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
 	useCallback,
 	useDeferredValue,
+	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -96,13 +97,33 @@ function toUiLog(log: ApiLog): Partial<Log> {
 
 const TOPUP_PROMPT_DISMISSED_KEY = "first-log-topup-dismissed";
 
+function getCookie(name: string): string | undefined {
+	if (typeof document === "undefined") {
+		return undefined;
+	}
+	const match = document.cookie.match(
+		new RegExp(
+			`(?:^|; )${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`,
+		),
+	);
+	return match ? decodeURIComponent(match[1]!) : undefined;
+}
+
+function setCookie(name: string, value: string, days = 365) {
+	const ms = days * 86_400_000;
+	const expires = new Date(Date.now() + ms).toUTCString();
+	document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
 function FirstLogTopUpPrompt() {
-	const [dismissed, setDismissed] = useState(() => {
-		if (typeof window === "undefined") {
-			return true;
+	const [dismissed, setDismissed] = useState(true);
+
+	useEffect(() => {
+		const stored = getCookie(TOPUP_PROMPT_DISMISSED_KEY);
+		if (stored !== "true") {
+			setDismissed(false);
 		}
-		return localStorage.getItem(TOPUP_PROMPT_DISMISSED_KEY) === "true";
-	});
+	}, []);
 
 	if (dismissed) {
 		return null;
@@ -112,9 +133,10 @@ function FirstLogTopUpPrompt() {
 		<div className="mt-4 relative overflow-hidden rounded-lg border border-primary/20 bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 p-4">
 			<button
 				type="button"
+				aria-label="Dismiss top-up prompt"
 				onClick={() => {
 					setDismissed(true);
-					localStorage.setItem(TOPUP_PROMPT_DISMISSED_KEY, "true");
+					setCookie(TOPUP_PROMPT_DISMISSED_KEY, "true");
 				}}
 				className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
 			>

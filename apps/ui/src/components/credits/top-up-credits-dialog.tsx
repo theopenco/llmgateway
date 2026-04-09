@@ -571,6 +571,7 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 	useEffect(() => {
 		const duration = 2000;
 		const end = Date.now() + duration;
+		let rafId: number;
 
 		const frame = () => {
 			void confetti({
@@ -589,11 +590,12 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 			});
 
 			if (Date.now() < end) {
-				requestAnimationFrame(frame);
+				rafId = requestAnimationFrame(frame);
 			}
 		};
 
 		frame();
+		return () => cancelAnimationFrame(rafId);
 	}, []);
 
 	return (

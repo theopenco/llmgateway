@@ -5965,8 +5965,8 @@ admin.openapi(markChatSupportRead, async (c) => {
 		await db
 			.update(rt)
 			.set({
-				lastReadMessageCount: messageCount,
-				readAt: new Date(),
+				lastReadMessageCount: sql<number>`GREATEST(${rt.lastReadMessageCount}, ${messageCount})`,
+				readAt: sql<Date>`CASE WHEN ${messageCount} >= ${rt.lastReadMessageCount} THEN NOW() ELSE ${rt.readAt} END`,
 			})
 			.where(eq(rt.id, existing[0]!.id));
 	} else {

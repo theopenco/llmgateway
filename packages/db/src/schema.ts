@@ -973,7 +973,7 @@ export const chatSupportReadStatus = pgTable(
 		readAt: timestamp().notNull().defaultNow(),
 	},
 	(table) => [
-		index("chat_support_read_status_conv_admin_idx").on(
+		uniqueIndex("chat_support_read_status_conv_admin_idx").on(
 			table.conversationId,
 			table.adminUserId,
 		),

@@ -124,7 +124,7 @@ export function UptimeVisualization() {
 										key={provider.name}
 										className="flex items-center gap-2 sm:gap-4"
 									>
-										<div className="w-18 shrink-0 text-right sm:w-28">
+										<div className="w-20 shrink-0 text-right sm:w-28">
 											<span className="text-xs font-medium text-muted-foreground sm:text-sm">
 												{provider.name}
 											</span>
@@ -169,7 +169,7 @@ export function UptimeVisualization() {
 
 						{/* Routing indicator */}
 						<div className="my-4 flex items-center gap-2 sm:my-6 sm:gap-4">
-							<div className="w-18 shrink-0 sm:w-28" />
+							<div className="w-20 shrink-0 sm:w-28" />
 							<div className="relative flex-1 border-t border-dashed border-border">
 								<div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 whitespace-nowrap bg-card px-3 py-0.5 text-xs font-mono text-muted-foreground">
 									<ArrowDown className="h-3 w-3 text-blue-500" />
@@ -181,7 +181,7 @@ export function UptimeVisualization() {
 
 						{/* Gateway combined bar — solid green */}
 						<div className="flex items-center gap-2 sm:gap-4">
-							<div className="w-18 shrink-0 text-right sm:w-28">
+							<div className="w-20 shrink-0 text-right sm:w-28">
 								<span className="text-xs font-bold text-foreground sm:text-sm">
 									LLM Gateway
 								</span>
