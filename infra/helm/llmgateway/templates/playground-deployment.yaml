@@ -1,0 +1,63 @@
+{{- if .Values.playground.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llmgateway.fullname" . }}-playground
+  labels:
+    {{- include "llmgateway.componentLabels" (dict "context" . "component" "playground") | nindent 4 }}
+spec:
+  replicas: {{ .Values.playground.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "playground") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "playground") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      {{- include "llmgateway.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: playground
+          image: {{ include "llmgateway.image" (dict "context" . "image" .Values.playground.image) }}
+          imagePullPolicy: {{ .Values.playground.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "llmgateway.configMapName" . }}
+            - secretRef:
+                name: {{ include "llmgateway.secretName" . }}
+          {{- with .Values.playground.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.playground.resources | nindent 12 }}
+      {{- with .Values.playground.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.playground.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

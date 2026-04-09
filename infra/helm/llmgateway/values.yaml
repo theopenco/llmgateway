@@ -1,0 +1,450 @@
+# -- LLM Gateway Helm Chart Values
+# Full documentation: https://llmgateway.io/docs
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+# -- Use an existing Kubernetes Secret instead of creating one (must contain all required keys)
+existingSecret: ""
+
+# =============================================================================
+# Global settings
+# =============================================================================
+global:
+  # -- Default image registry for all services
+  image:
+    registry: ghcr.io
+    # -- Default image tag (overrides appVersion from Chart.yaml)
+    tag: ""
+  # -- Additional labels applied to all resources
+  labels: {}
+  # -- Image pull secrets for private registries
+  imagePullSecrets: []
+  # -- Node environment
+  nodeEnv: production
+
+# =============================================================================
+# Public-facing URLs
+# Set these to match your Ingress hostnames or external load balancer URLs.
+# =============================================================================
+urls:
+  ui: ""
+  api: ""
+  gateway: ""
+  playground: ""
+  code: ""
+  docs: ""
+  admin: ""
+
+# =============================================================================
+# Authentication & Security
+# =============================================================================
+auth:
+  # -- (required) Secret used for signing auth tokens (32+ characters)
+  authSecret: "change-me-to-a-random-32-char-secret"
+  # -- (required) HMAC secret for hashing API keys
+  gatewayApiKeyHashSecret: "change-me-to-a-random-secret"
+  # -- Cookie domain for session cookies
+  cookieDomain: ""
+  # -- Comma-separated list of allowed CORS origins
+  originUrls: ""
+  # -- Enable hosted mode
+  hosted: ""
+  # -- GitHub OAuth
+  github:
+    clientId: ""
+    clientSecret: ""
+  # -- Google OAuth
+  google:
+    clientId: ""
+    clientSecret: ""
+  # -- Passkey / WebAuthn configuration
+  passkey:
+    rpId: ""
+    rpName: "LLMGateway"
+
+# =============================================================================
+# Database connection pool settings
+# =============================================================================
+database:
+  poolMax: 20
+  poolMin: 2
+  idleTimeoutMs: 30000
+  connectionTimeoutMs: 10000
+
+# =============================================================================
+# API Service
+# =============================================================================
+api:
+  enabled: true
+  replicas: 1
+  # -- Run database migrations on startup
+  runMigrations: true
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-api
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  config:
+    keepAliveTimeoutS: 60
+    timeoutMs: 5000
+  # -- Additional environment variables
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# Gateway Service
+# =============================================================================
+gateway:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-gateway
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  config:
+    gatewayTimeoutMs: 300000
+    aiStreamingTimeoutMs: 240000
+    aiTimeoutMs: 180000
+    keepAliveTimeoutS: 620
+    shutdownGracePeriodMs: 120000
+    healthCheckSkipDatabase: ""
+    healthCheckTimeoutMs: 15000
+    maxStreamingBufferMb: 50
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# UI Dashboard (Next.js)
+# =============================================================================
+ui:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-ui
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# Playground (Next.js)
+# =============================================================================
+playground:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-playground
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# Code App (Next.js)
+# =============================================================================
+code:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-code
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# Documentation (Next.js)
+# =============================================================================
+docs:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-docs
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# Admin Dashboard (Enterprise, Next.js)
+# =============================================================================
+admin:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-admin
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# Background Worker
+# =============================================================================
+worker:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-worker
+    tag: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  config:
+    backfillDurationSeconds: 300
+    enableDataRetentionCleanup: false
+    emailFollowUps: false
+    logQueueBatchSize: 100
+    creditBatchSize: 100
+    creditBatchInterval: 5
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# Built-in PostgreSQL
+# Set enabled: false to use an external database (configure externalPostgresql).
+# =============================================================================
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  user: postgres
+  password: "changeme"
+  database: llmgateway
+  port: 5432
+  persistence:
+    size: 10Gi
+    # -- Storage class (leave empty for cluster default)
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# -- External PostgreSQL (used when postgresql.enabled is false)
+externalPostgresql:
+  host: ""
+  port: 5432
+  user: postgres
+  password: ""
+  database: llmgateway
+
+# =============================================================================
+# Built-in Redis
+# Set enabled: false to use an external Redis (configure externalRedis).
+# =============================================================================
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "8-alpine"
+    pullPolicy: IfNotPresent
+  # -- Redis password (leave empty for no authentication)
+  password: ""
+  port: 6379
+  persistence:
+    size: 2Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# -- External Redis (used when redis.enabled is false)
+externalRedis:
+  host: ""
+  port: 6379
+  password: ""
+
+# =============================================================================
+# Ingress
+# =============================================================================
+ingress:
+  enabled: false
+  # -- Ingress class name (e.g., nginx, traefik)
+  className: ""
+  # -- Additional Ingress annotations
+  annotations: {}
+    # nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  # -- Per-service hostnames
+  hosts:
+    ui: ""
+    api: ""
+    gateway: ""
+    playground: ""
+    code: ""
+    docs: ""
+    admin: ""
+  # -- TLS configuration
+  tls: []
+  #  - secretName: llmgateway-tls
+  #    hosts:
+  #      - app.example.com
+  #      - api.example.com
+  #      - gateway.example.com
+
+# =============================================================================
+# LLM Provider API Keys
+# Only configure the providers you want to use. Keys map directly to env vars.
+# =============================================================================
+llmProviders:
+  # LLM_OPENAI_API_KEY: ""
+  # LLM_ANTHROPIC_API_KEY: ""
+  # LLM_GOOGLE_AI_STUDIO_API_KEY: ""
+  # LLM_GOOGLE_VERTEX_API_KEY: ""
+  # LLM_GROQ_API_KEY: ""
+  # LLM_X_AI_API_KEY: ""
+  # LLM_DEEPSEEK_API_KEY: ""
+  # LLM_MISTRAL_API_KEY: ""
+  # LLM_PERPLEXITY_API_KEY: ""
+  # LLM_TOGETHER_AI_API_KEY: ""
+  # LLM_ALIBABA_API_KEY: ""
+  # LLM_NEBIUS_API_KEY: ""
+  # LLM_CEREBRAS_API_KEY: ""
+  # LLM_MOONSHOT_API_KEY: ""
+  # LLM_NOVITA_AI_API_KEY: ""
+  # LLM_AWS_BEDROCK_API_KEY: ""
+  # LLM_AZURE_API_KEY: ""
+  # LLM_INFERENCE_NET_API_KEY: ""
+  # LLM_NANO_GPT_API_KEY: ""
+
+# =============================================================================
+# Stripe / Billing (optional)
+# =============================================================================
+stripe:
+  secretKey: ""
+  webhookSecret: ""
+  proMonthlyPriceId: ""
+  proYearlyPriceId: ""
+  devPlanLitePriceId: ""
+  devPlanProPriceId: ""
+  devPlanMaxPriceId: ""
+
+billing:
+  billCancelledRequests: ""
+  platformFeePercentage: ""
+
+# =============================================================================
+# Email (optional, Resend)
+# =============================================================================
+email:
+  resendApiKey: ""
+  resendAudienceId: ""
+
+# =============================================================================
+# Notifications (optional)
+# =============================================================================
+notifications:
+  discordWebhookUrl: ""
+
+# =============================================================================
+# Observability (optional)
+# =============================================================================
+observability:
+  otelServiceName: ""
+  posthogKey: ""
+  posthogHost: ""
+  telemetryActive: ""
+
+# =============================================================================
+# Content filtering (optional)
+# =============================================================================
+contentFilter:
+  mode: ""
+  method: ""
+  models: ""
