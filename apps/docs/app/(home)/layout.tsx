@@ -12,21 +12,17 @@ const docsOptions: DocsLayoutProps = {
 
 	tree: source.pageTree,
 
-	links: [
-		{
-			type: "custom",
-			children: (
-				<GithubInfo
-					owner="theopenco"
-					repo="llmgateway"
-					token={process.env.GITHUB_TOKEN}
-					className="lg:-mx-2"
-				/>
-			),
-		},
-	],
+	links: [],
 
 	sidebar: {
+		banner: (
+			<GithubInfo
+				owner="theopenco"
+				repo="llmgateway"
+				token={process.env.GITHUB_TOKEN}
+				className="lg:-mx-2"
+			/>
+		),
 		footer: (
 			<a
 				href="https://status.llmgateway.io/"

@@ -7,6 +7,7 @@ import { OpenSourceEnterprise } from "@/components/enterprise/open-source";
 import { PricingEnterprise } from "@/components/enterprise/pricing";
 import { ProductShowcase } from "@/components/enterprise/product-showcase";
 import { TrustBarEnterprise } from "@/components/enterprise/trust-bar";
+import { UptimeVisualization } from "@/components/enterprise/uptime";
 // import { SecurityEnterprise } from "@/components/enterprise/security";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
@@ -31,6 +32,7 @@ export default function EnterprisePage() {
 			<HeroRSC navbarOnly />
 			<HeroEnterprise />
 			<TrustBarEnterprise />
+			<UptimeVisualization />
 			<FeaturesEnterprise />
 			<CostCalculator />
 			<ProductShowcase />
