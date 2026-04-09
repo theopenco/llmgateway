@@ -1,2 +1,0 @@
-DROP INDEX "chat_support_read_status_conv_admin_idx";--> statement-breakpoint
-CREATE UNIQUE INDEX "chat_support_read_status_conv_admin_idx" ON "chat_support_read_status" ("conversation_id","admin_user_id");

@@ -813,13 +813,6 @@
       "when": 1775769351976,
       "tag": "1775769351_graceful_living_lightning",
       "breakpoints": true
-    },
-    {
-      "idx": 116,
-      "version": "8",
-      "when": 1775771052849,
-      "tag": "1775771052_bored_living_lightning",
-      "breakpoints": true
     }
   ]
 }
