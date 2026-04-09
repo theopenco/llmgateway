@@ -124,27 +124,6 @@ interface ConversationDetail {
 	}[];
 }
 
-const STORAGE_KEY = "chat-support-read";
-
-function getReadMap(): Record<string, number> {
-	try {
-		return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-	} catch {
-		return {};
-	}
-}
-
-function markAsRead(conversationId: string, messageCount: number) {
-	const map = getReadMap();
-	map[conversationId] = messageCount;
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-}
-
-function isUnread(conversationId: string, messageCount: number): boolean {
-	const map = getReadMap();
-	return (map[conversationId] ?? 0) < messageCount;
-}
-
 export function ChatSupportLogsClient() {
 	const $fetch = useFetchClient();
 	const queryClient = useQueryClient();
@@ -154,11 +133,42 @@ export function ChatSupportLogsClient() {
 	const [replyText, setReplyText] = useState("");
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const replyInputRef = useRef<HTMLTextAreaElement>(null);
-	const [readMap, setReadMap] = useState<Record<string, number>>({});
 
-	useEffect(() => {
-		setReadMap(getReadMap());
-	}, []);
+	const { data: readStatusData } = useQuery({
+		queryKey: ["chat-support-read-statuses"],
+		queryFn: async () => {
+			const { data } = await $fetch.GET(
+				"/admin/chat-support-logs/read-statuses",
+			);
+			return data?.readStatuses ?? {};
+		},
+	});
+
+	const readMap = readStatusData ?? {};
+
+	const markReadMutation = useMutation({
+		mutationFn: async ({
+			id,
+			messageCount,
+		}: {
+			id: string;
+			messageCount: number;
+		}) => {
+			await $fetch.POST("/admin/chat-support-logs/{id}/read", {
+				params: { path: { id } },
+				body: { messageCount },
+			});
+		},
+		onSuccess: (_data, variables) => {
+			queryClient.setQueryData<Record<string, number>>(
+				["chat-support-read-statuses"],
+				(old) => ({
+					...old,
+					[variables.id]: variables.messageCount,
+				}),
+			);
+		},
+	});
 
 	useEffect(() => {
 		const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -222,11 +232,10 @@ export function ChatSupportLogsClient() {
 	useEffect(() => {
 		if (detail?.messages && selectedId) {
 			messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-			markAsRead(selectedId, detail.messages.length);
-			setReadMap((prev) => ({
-				...prev,
-				[selectedId]: detail.messages.length,
-			}));
+			markReadMutation.mutate({
+				id: selectedId,
+				messageCount: detail.messages.length,
+			});
 		}
 	}, [detail?.messages, selectedId]);
 
@@ -236,11 +245,10 @@ export function ChatSupportLogsClient() {
 			setReplyText("");
 			const conv = conversations.find((c) => c.id === id);
 			if (conv) {
-				markAsRead(id, conv.messageCount);
-				setReadMap((prev) => ({ ...prev, [id]: conv.messageCount }));
+				markReadMutation.mutate({ id, messageCount: conv.messageCount });
 			}
 		},
-		[conversations],
+		[conversations, markReadMutation],
 	);
 
 	const handleReplySubmit = (e: React.FormEvent) => {
@@ -345,13 +353,9 @@ export function ChatSupportLogsClient() {
 												<AlertTriangle className="h-2 w-2 text-white" />
 											</span>
 										)}
-										{isUnread(conv.id, conv.messageCount) &&
-											!(
-												readMap[conv.id] &&
-												readMap[conv.id] >= conv.messageCount
-											) && (
-												<span className="absolute -left-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-blue-500" />
-											)}
+										{(readMap[conv.id] ?? 0) < conv.messageCount && (
+											<span className="absolute -left-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-blue-500" />
+										)}
 									</div>
 									<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 										<div className="flex items-center justify-between gap-2">

@@ -5915,4 +5915,111 @@ admin.openapi(replyChatSupportConversation, async (c) => {
 	return c.json({ success: true, message: "Reply sent successfully." });
 });
 
+// ── Chat Support Read Status ──────────────────────────────────────────────────
+
+const markChatSupportRead = createRoute({
+	method: "post",
+	path: "/chat-support-logs/{id}/read",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						messageCount: z.number().int().min(0),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }),
+				},
+			},
+			description: "Conversation marked as read.",
+		},
+	},
+});
+
+admin.openapi(markChatSupportRead, async (c) => {
+	const { id } = c.req.valid("param");
+	const { messageCount } = c.req.valid("json");
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const rt = tables.chatSupportReadStatus;
+
+	const existing = await db
+		.select({ id: rt.id })
+		.from(rt)
+		.where(and(eq(rt.conversationId, id), eq(rt.adminUserId, user.id)))
+		.limit(1);
+
+	if (existing.length > 0) {
+		await db
+			.update(rt)
+			.set({
+				lastReadMessageCount: messageCount,
+				readAt: new Date(),
+			})
+			.where(eq(rt.id, existing[0]!.id));
+	} else {
+		await db.insert(rt).values({
+			conversationId: id,
+			adminUserId: user.id,
+			lastReadMessageCount: messageCount,
+		});
+	}
+
+	return c.json({ success: true });
+});
+
+const getChatSupportReadStatuses = createRoute({
+	method: "get",
+	path: "/chat-support-logs/read-statuses",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						readStatuses: z.record(z.string(), z.number()),
+					}),
+				},
+			},
+			description:
+				"Map of conversationId to lastReadMessageCount for the current admin.",
+		},
+	},
+});
+
+admin.openapi(getChatSupportReadStatuses, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const rt = tables.chatSupportReadStatus;
+	const rows = await db
+		.select({
+			conversationId: rt.conversationId,
+			lastReadMessageCount: rt.lastReadMessageCount,
+		})
+		.from(rt)
+		.where(eq(rt.adminUserId, user.id));
+
+	const readStatuses: Record<string, number> = {};
+	for (const row of rows) {
+		readStatuses[row.conversationId] = row.lastReadMessageCount;
+	}
+
+	return c.json({ readStatuses });
+});
+
 export default admin;

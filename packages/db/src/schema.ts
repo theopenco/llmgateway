@@ -959,6 +959,27 @@ export const chatSupportMessage = pgTable(
 	],
 );
 
+export const chatSupportReadStatus = pgTable(
+	"chat_support_read_status",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		conversationId: text()
+			.notNull()
+			.references(() => chatSupportConversation.id, { onDelete: "cascade" }),
+		adminUserId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		lastReadMessageCount: integer().notNull().default(0),
+		readAt: timestamp().notNull().defaultNow(),
+	},
+	(table) => [
+		index("chat_support_read_status_conv_admin_idx").on(
+			table.conversationId,
+			table.adminUserId,
+		),
+	],
+);
+
 export const installation = pgTable("installation", {
 	id: text().primaryKey().$defaultFn(shortid),
 	createdAt: timestamp().notNull().defaultNow(),
