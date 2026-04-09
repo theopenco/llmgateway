@@ -79,9 +79,9 @@ export default function LandingPage() {
 								Start shipping code.
 							</h1>
 							<p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-muted-foreground">
-								One flat-rate subscription for Claude Code, Cursor, Cline, and
-								every OpenAI-compatible tool. 200+ models, one API key, zero
-								surprises on your bill.
+								One flat-rate subscription for Claude Code, SoulForge, Cursor,
+								Cline, and every OpenAI-compatible tool. 200+ models, one API
+								key, zero surprises on your bill.
 							</p>
 							<div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
 								<CodeCTATracker cta="start_coding" location="hero">

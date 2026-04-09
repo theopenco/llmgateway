@@ -7,12 +7,14 @@ import {
 	AutohandIcon,
 	ClineIcon,
 	OpenCodeIcon,
+	SoulForgeIcon,
 } from "@llmgateway/shared/components";
 
-type Tool = "claude-code" | "autohand" | "opencode" | "cline";
+type Tool = "claude-code" | "soulforge" | "autohand" | "opencode" | "cline";
 
 const tools: { id: Tool; name: string; icon: typeof AnthropicIcon }[] = [
 	{ id: "claude-code", name: "Claude Code", icon: AnthropicIcon },
+	{ id: "soulforge", name: "SoulForge", icon: SoulForgeIcon },
 	{ id: "autohand", name: "Autohand", icon: AutohandIcon },
 	{ id: "opencode", name: "OpenCode", icon: OpenCodeIcon },
 	{ id: "cline", name: "Cline", icon: ClineIcon },
@@ -41,6 +43,17 @@ const snippets: Record<
 		command: "claude",
 		comment: "# works with any model — switch freely",
 		modelLine: { key: "ANTHROPIC_MODEL=", value: "gpt-5" },
+	},
+	soulforge: {
+		lines: [
+			{
+				key: "LLM_GATEWAY_API_KEY=",
+				value: "llmgtwy_your_key",
+			},
+		],
+		command: "soulforge",
+		comment: "# built-in LLM Gateway support — saves ~50% tokens",
+		modelLine: { key: "MODEL=", value: "claude-sonnet-4-20250514" },
 	},
 	autohand: {
 		lines: [

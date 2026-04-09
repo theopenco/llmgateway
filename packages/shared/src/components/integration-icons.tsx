@@ -206,6 +206,30 @@ export const AutohandIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+// SoulForge Icon
+export const SoulForgeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 120 24"
+		fill="none"
+		{...props}
+	>
+		<text
+			x="0"
+			y="19"
+			fontFamily="system-ui, sans-serif"
+			fontWeight="800"
+			fontSize="20"
+			letterSpacing="2"
+			fill="#8B5CF6"
+		>
+			SOULFORGE
+		</text>
+	</svg>
+);
+
 // OpenClaw Icon
 export const OpenClawIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
