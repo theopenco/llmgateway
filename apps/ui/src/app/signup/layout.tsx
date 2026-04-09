@@ -1,3 +1,5 @@
+import { AuthBrandPanel } from "@/components/auth/auth-brand-panel";
+
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
@@ -8,5 +10,12 @@ export const metadata: Metadata = {
 };
 
 export default function SignupLayout({ children }: { children: ReactNode }) {
-	return children;
+	return (
+		<div className="flex min-h-screen">
+			<AuthBrandPanel variant="signup" />
+			<div className="flex w-full flex-col justify-center px-6 py-10 sm:px-12 lg:w-1/2 lg:px-16 xl:px-24">
+				{children}
+			</div>
+		</div>
+	);
 }
