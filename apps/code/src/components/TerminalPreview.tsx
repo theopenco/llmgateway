@@ -26,7 +26,7 @@ const snippets: Record<
 		lines: { prefix?: string; key: string; value: string }[];
 		command: string;
 		comment: string;
-		modelLine: { key: string; value: string };
+		modelLine?: { key: string; value: string };
 	}
 > = {
 	"claude-code": {
@@ -45,15 +45,9 @@ const snippets: Record<
 		modelLine: { key: "ANTHROPIC_MODEL=", value: "gpt-5" },
 	},
 	soulforge: {
-		lines: [
-			{
-				key: "LLM_GATEWAY_API_KEY=",
-				value: "llmgtwy_your_key",
-			},
-		],
+		lines: [],
 		command: "soulforge",
-		comment: "# built-in LLM Gateway support — saves ~50% tokens",
-		modelLine: { key: "MODEL=", value: "claude-sonnet-4-20250514" },
+		comment: "# type /keys to set your LLM Gateway key — saves ~50% tokens",
 	},
 	autohand: {
 		lines: [
@@ -137,11 +131,15 @@ export function TerminalPreview() {
 						<div className="mt-3 text-muted-foreground/60">
 							{snippet.comment}
 						</div>
-						<div className="mt-1 text-muted-foreground whitespace-nowrap">
-							<span className="text-foreground/70">$</span> export{" "}
-							{snippet.modelLine.key}
-							<span className="text-foreground">{snippet.modelLine.value}</span>
-						</div>
+						{snippet.modelLine && (
+							<div className="mt-1 text-muted-foreground whitespace-nowrap">
+								<span className="text-foreground/70">$</span> export{" "}
+								{snippet.modelLine.key}
+								<span className="text-foreground">
+									{snippet.modelLine.value}
+								</span>
+							</div>
+						)}
 					</div>
 				</div>
 			</div>
