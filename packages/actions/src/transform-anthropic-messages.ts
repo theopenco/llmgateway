@@ -287,5 +287,51 @@ export async function transformAnthropicMessages(
 			role: anthropicRole,
 		});
 	}
+	// Turn-boundary caching: in a multi-turn conversation the entire prefix
+	// (everything before the last user message) is identical between requests.
+	// Placing cache_control on the last content block of the message just before
+	// the final user turn lets Anthropic cache the entire prefix, dramatically
+	// improving the cache hit ratio for long conversations (e.g. Claude Code
+	// sessions with 100k+ token context).
+	if (shouldApplyCacheControl && results.length >= 3) {
+		// Find the last user message index — that's the "new" turn.
+		let lastUserIdx = -1;
+		for (let i = results.length - 1; i >= 0; i--) {
+			if (results[i]!.role === "user") {
+				lastUserIdx = i;
+				break;
+			}
+		}
+
+		// The turn boundary is the message right before the last user message.
+		const boundaryIdx = lastUserIdx > 0 ? lastUserIdx - 1 : -1;
+		if (boundaryIdx >= 0 && cacheControlCount < maxCacheControlBlocks) {
+			const boundaryMsg = results[boundaryIdx]!;
+			if (
+				Array.isArray(boundaryMsg.content) &&
+				boundaryMsg.content.length > 0
+			) {
+				// Find the last text content block in the boundary message.
+				let lastTextIdx = -1;
+				for (let i = boundaryMsg.content.length - 1; i >= 0; i--) {
+					const part = boundaryMsg.content[i];
+					if (part && isTextContent(part as MessageContent)) {
+						lastTextIdx = i;
+						break;
+					}
+				}
+				if (lastTextIdx >= 0) {
+					const target = boundaryMsg.content[lastTextIdx] as TextContent;
+					if (!target.cache_control) {
+						(boundaryMsg.content[lastTextIdx] as TextContent).cache_control = {
+							type: "ephemeral",
+						};
+						cacheControlCount++;
+					}
+				}
+			}
+		}
+	}
+
 	return results;
 }

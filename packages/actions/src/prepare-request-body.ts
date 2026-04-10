@@ -1605,6 +1605,44 @@ export async function prepareRequestBody(
 			}
 
 			flushPendingToolResults();
+
+			// Turn-boundary caching: place a cachePoint after the last content
+			// block of the message just before the final user turn. This caches
+			// the entire conversation prefix (all prior turns) so only the
+			// newest user message is uncached. This mirrors the Anthropic
+			// turn-boundary logic in transformAnthropicMessages.
+			if (bedrockMessages.length >= 3) {
+				let lastUserIdx = -1;
+				for (let i = bedrockMessages.length - 1; i >= 0; i--) {
+					if (bedrockMessages[i].role === "user") {
+						lastUserIdx = i;
+						break;
+					}
+				}
+
+				const boundaryIdx = lastUserIdx > 0 ? lastUserIdx - 1 : -1;
+				if (
+					boundaryIdx >= 0 &&
+					bedrockCacheControlCount < bedrockMaxCacheControlBlocks
+				) {
+					const boundaryMsg = bedrockMessages[boundaryIdx];
+					if (
+						Array.isArray(boundaryMsg.content) &&
+						boundaryMsg.content.length > 0
+					) {
+						const lastBlock =
+							boundaryMsg.content[boundaryMsg.content.length - 1];
+						// Only add if the last block isn't already a cachePoint.
+						if (!lastBlock.cachePoint) {
+							boundaryMsg.content.push({
+								cachePoint: { type: "default" },
+							});
+							bedrockCacheControlCount++;
+						}
+					}
+				}
+			}
+
 			requestBody.messages = bedrockMessages;
 
 			// Transform tools from OpenAI format to Bedrock format

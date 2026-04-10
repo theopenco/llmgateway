@@ -856,7 +856,8 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			content: [{ text: "What is the weather and time in Berlin?" }],
 		});
 		expect(requestBody.messages[1].role).toBe("assistant");
-		expect(requestBody.messages[1].content).toHaveLength(2);
+		// 2 toolUse blocks + 1 turn-boundary cachePoint
+		expect(requestBody.messages[1].content).toHaveLength(3);
 		expect(requestBody.messages[1].content[0]).toEqual({
 			toolUse: {
 				toolUseId: "tool_1",
@@ -870,6 +871,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 				name: "get_time",
 				input: { city: "Berlin" },
 			},
+		});
+		expect(requestBody.messages[1].content[2]).toEqual({
+			cachePoint: { type: "default" },
 		});
 		expect(requestBody.messages[2]).toEqual({
 			role: "user",
