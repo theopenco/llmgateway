@@ -11,7 +11,7 @@ import {
 	Zap,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { LogCard } from "@/components/dashboard/log-card";
 import {
@@ -19,6 +19,7 @@ import {
 	getDateRangeFromParams,
 } from "@/components/date-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { Button } from "@/lib/components/button";
 import { useApi } from "@/lib/fetch-client";
 
 import {
@@ -578,12 +579,6 @@ export function AgentsView({
 		},
 	);
 
-	useEffect(() => {
-		if (hasNextPage && !isFetchingNextPage) {
-			void fetchNextPage();
-		}
-	}, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
 	const allLogs = useMemo(
 		() =>
 			(data?.pages.flatMap((page) => page?.logs ?? []) ?? []).filter(
@@ -654,10 +649,15 @@ export function AgentsView({
 						))}
 					</div>
 
-					{isFetchingNextPage && (
-						<div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-							<div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground/70" />
-							<span>Loading more data...</span>
+					{hasNextPage && (
+						<div className="flex justify-center pt-4">
+							<Button
+								onClick={() => fetchNextPage()}
+								disabled={isFetchingNextPage}
+								variant="outline"
+							>
+								{isFetchingNextPage ? "Loading more..." : "Load More"}
+							</Button>
 						</div>
 					)}
 				</>

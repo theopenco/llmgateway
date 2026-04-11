@@ -28,12 +28,17 @@ export default async function AgentsPage({
 	const { orgId, projectId } = await params;
 	const searchParamsData = await searchParams;
 
-	const from = searchParamsData?.from
+	const parsedFrom = searchParamsData?.from
 		? new Date(searchParamsData.from + "T00:00:00")
-		: subDays(new Date(), 6);
-	const to = searchParamsData?.to
+		: null;
+	const parsedTo = searchParamsData?.to
 		? new Date(searchParamsData.to + "T00:00:00")
-		: new Date();
+		: null;
+	const from =
+		parsedFrom && !isNaN(parsedFrom.getTime())
+			? parsedFrom
+			: subDays(new Date(), 6);
+	const to = parsedTo && !isNaN(parsedTo.getTime()) ? parsedTo : new Date();
 
 	const initialData = await fetchServerData<LogsData>("GET", "/logs", {
 		params: {
