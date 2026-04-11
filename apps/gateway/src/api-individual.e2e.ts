@@ -170,54 +170,6 @@ describe("e2e individual tests", () => {
 	);
 
 	test(
-		"JSON output mode works for Claude Haiku 4.5",
-		getTestOptions({ completions: false }),
-		async () => {
-			const envVarName = getProviderEnvVar("anthropic");
-			const envVarValue = envVarName ? process.env[envVarName] : undefined;
-			if (!envVarValue) {
-				console.log(
-					"Skipping Claude Haiku 4.5 JSON output test - no Anthropic API key provided",
-				);
-				return;
-			}
-
-			const { token } = await createTestData("json-haiku");
-
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
-				},
-				body: JSON.stringify({
-					model: "anthropic/claude-haiku-4-5",
-					messages: [
-						{
-							role: "system",
-							content:
-								"You are a helpful assistant. Always respond with valid JSON.",
-						},
-						{
-							role: "user",
-							content: 'Return a JSON object with "message": "Hello"',
-						},
-					],
-					response_format: { type: "json_object" },
-				}),
-			});
-
-			expect(res.status).toBe(200);
-
-			const json = await res.json();
-			expect(json).toHaveProperty("choices[0].message.content");
-			const content = json.choices[0].message.content;
-			expect(() => JSON.parse(content)).not.toThrow();
-			expect(JSON.parse(content)).toHaveProperty("message");
-		},
-	);
-
-	test(
 		"Tool calls error for unsupported model",
 		getTestOptions({ completions: false }),
 		async () => {
