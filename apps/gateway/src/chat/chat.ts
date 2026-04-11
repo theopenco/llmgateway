@@ -39,6 +39,7 @@ import {
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
+import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
 	createCombinedSignal,
 	createStreamingCombinedSignal,
@@ -453,16 +454,6 @@ function addContentFilterRoutingMetadata(
 				? contentFilterExcludedProviders
 				: undefined,
 		providerScores,
-	};
-}
-
-function getNoFallbackRoutingMetadata(
-	noFallback: boolean,
-	xNoFallbackHeaderSet: boolean,
-): Pick<RoutingMetadata, "noFallback" | "xNoFallbackHeaderSet"> {
-	return {
-		...(noFallback ? { noFallback: true } : {}),
-		...(xNoFallbackHeaderSet ? { xNoFallbackHeaderSet: true } : {}),
 	};
 }
 
@@ -2090,6 +2081,10 @@ chat.openapi(completions, async (c) => {
 									originalProviderScore,
 									...cheapestResult.metadata.providerScores,
 								],
+								...getNoFallbackRoutingMetadata(
+									noFallback,
+									xNoFallbackHeaderSet,
+								),
 							};
 						}
 					}
@@ -2252,6 +2247,10 @@ chat.openapi(completions, async (c) => {
 										originalProviderScore,
 										...cheapestResult.metadata.providerScores,
 									],
+									...getNoFallbackRoutingMetadata(
+										noFallback,
+										xNoFallbackHeaderSet,
+									),
 								};
 							}
 						}

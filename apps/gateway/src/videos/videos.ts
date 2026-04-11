@@ -17,6 +17,7 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { validateModelAccess } from "@/lib/iam.js";
+import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -608,16 +609,6 @@ function isNoFallbackEnabled(c: Context): boolean {
 		c.req.raw.headers.get("x-no-fallback") === "true" ||
 		c.req.raw.headers.get("x-no-fallback") === "1"
 	);
-}
-
-function getNoFallbackRoutingMetadata(
-	noFallback: boolean,
-	xNoFallbackHeaderSet: boolean,
-): Pick<RoutingMetadata, "noFallback" | "xNoFallbackHeaderSet"> {
-	return {
-		...(noFallback ? { noFallback: true } : {}),
-		...(xNoFallbackHeaderSet ? { xNoFallbackHeaderSet: true } : {}),
-	};
 }
 
 function extractToken(c: Context): string {
