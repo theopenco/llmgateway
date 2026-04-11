@@ -5434,6 +5434,10 @@ chat.openapi(completions, async (c) => {
 				const shouldBufferForHealing =
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
+						(usedProvider === "anthropic" &&
+							response_format?.type === "json_object") ||
+						(usedProvider === "aws-bedrock" &&
+							response_format?.type === "json_object") ||
 						usedProvider === "novita" ||
 						splitTaggedReasoning);
 
@@ -8744,6 +8748,10 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
+			(usedProvider === "anthropic" &&
+				response_format?.type === "json_object") ||
+			(usedProvider === "aws-bedrock" &&
+				response_format?.type === "json_object") ||
 			usedProvider === "novita" ||
 			splitTaggedReasoning);
 

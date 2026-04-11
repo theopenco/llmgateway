@@ -413,6 +413,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 				jsonOutputSchema: true,
 				webSearch: true,
 				webSearchPrice: 0.01, // $10 per 1000 searches
@@ -431,6 +432,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
 		],
@@ -456,6 +458,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 				jsonOutputSchema: true,
 				webSearch: true,
 				webSearchPrice: 0.01, // $10 per 1000 searches
@@ -474,6 +477,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
 		],
