@@ -16,6 +16,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { AspectRatio, GalleryItem } from "@/lib/image-gen";
@@ -266,14 +267,14 @@ export default function ImagePageClient({
 			pendingRef.current = selectedModels.length;
 
 			for (const modelId of selectedModels) {
-				const isProviderSpecific = modelId.includes("/");
+				const noFallback = shouldDisableFallback(modelId);
 				void (async () => {
 					try {
 						const response = await fetch("/api/image", {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								...(isProviderSpecific ? { "x-no-fallback": "true" } : {}),
+								...(noFallback ? { "x-no-fallback": "true" } : {}),
 							},
 							body: JSON.stringify({
 								prompt: currentPrompt,

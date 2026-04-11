@@ -15,6 +15,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -299,11 +300,7 @@ export default function GroupChatClient({
 			],
 		};
 
-		const isProviderSpecific = currentModel.includes("/");
-		const localStorageOverride =
-			typeof window !== "undefined" &&
-			localStorage.getItem("llmgateway_no_fallback") === "true";
-		const noFallback = isProviderSpecific || localStorageOverride;
+		const noFallback = shouldDisableFallback(currentModel);
 
 		try {
 			await sendMessage(userUiMessage as any, {
