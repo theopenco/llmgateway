@@ -32,7 +32,7 @@ export default async function AgentsPage({
 		? new Date(searchParamsData.from + "T00:00:00")
 		: null;
 	const parsedTo = searchParamsData?.to
-		? new Date(searchParamsData.to + "T00:00:00")
+		? new Date(searchParamsData.to + "T23:59:59.999")
 		: null;
 	const from =
 		parsedFrom && !isNaN(parsedFrom.getTime())
