@@ -6,8 +6,7 @@ import { Loader2, KeySquare } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useState, useEffect } from "react";
-import { Suspense } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod/v3";
@@ -58,6 +57,7 @@ function Login() {
 	const [isLoading, setIsLoading] = useState(false);
 	const { signIn } = useAuth();
 	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
+	const didAttemptPasskeyAutofillRef = useRef(false);
 
 	useUser({
 		redirectTo: returnUrl,
@@ -77,27 +77,29 @@ function Login() {
 	});
 
 	useEffect(() => {
-		if (window.PublicKeyCredential) {
-			void signIn.passkey({ autoFill: true }).then((res) => {
-				if (res?.data) {
-					queryClient.clear();
-					posthog.capture("user_logged_in", { method: "passkey" });
-					router.push(returnUrl);
-				} else if (res?.error) {
-					// Don't show error for user cancellation - this is expected when user dismisses passkey prompt
-					if (res.error.message?.toLowerCase().includes("cancelled")) {
-						return;
-					}
-					toast.error(res.error.message ?? "Failed to sign in with passkey", {
-						style: {
-							backgroundColor: "var(--destructive)",
-							color: "var(--destructive-foreground)",
-						},
-					});
-				}
-			});
+		if (didAttemptPasskeyAutofillRef.current || !window.PublicKeyCredential) {
+			return;
 		}
-	}, []); // Only run once on mount for autofill
+		didAttemptPasskeyAutofillRef.current = true;
+		void signIn.passkey({ autoFill: true }).then((res) => {
+			if (res?.data) {
+				queryClient.clear();
+				posthog.capture("user_logged_in", { method: "passkey" });
+				router.push(returnUrl);
+			} else if (res?.error) {
+				// Don't show error for user cancellation - this is expected when user dismisses passkey prompt
+				if (res.error.message?.toLowerCase().includes("cancelled")) {
+					return;
+				}
+				toast.error(res.error.message ?? "Failed to sign in with passkey", {
+					style: {
+						backgroundColor: "var(--destructive)",
+						color: "var(--destructive-foreground)",
+					},
+				});
+			}
+		});
+	}, [posthog, queryClient, returnUrl, router, signIn]);
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);

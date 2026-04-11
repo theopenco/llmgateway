@@ -533,36 +533,56 @@ export const PromptInput = ({
 		[matchesAccept, maxFiles, maxFileSize, onError],
 	);
 
-	const add = usingProvider
-		? (files: File[] | FileList) => controller.attachments.add(files)
-		: addLocal;
+	const add = useCallback(
+		(files: File[] | FileList) => {
+			if (usingProvider) {
+				controller.attachments.add(files);
+				return;
+			}
+			addLocal(files);
+		},
+		[addLocal, controller, usingProvider],
+	);
 
-	const remove = usingProvider
-		? (id: string) => controller.attachments.remove(id)
-		: (id: string) =>
-				setItems((prev) => {
-					const found = prev.find((file) => file.id === id);
-					if (found?.url) {
-						URL.revokeObjectURL(found.url);
-					}
-					return prev.filter((file) => file.id !== id);
-				});
+	const remove = useCallback(
+		(id: string) => {
+			if (usingProvider) {
+				controller.attachments.remove(id);
+				return;
+			}
+			setItems((prev) => {
+				const found = prev.find((file) => file.id === id);
+				if (found?.url) {
+					URL.revokeObjectURL(found.url);
+				}
+				return prev.filter((file) => file.id !== id);
+			});
+		},
+		[controller, usingProvider],
+	);
 
-	const clear = usingProvider
-		? () => controller.attachments.clear()
-		: () =>
-				setItems((prev) => {
-					for (const file of prev) {
-						if (file.url) {
-							URL.revokeObjectURL(file.url);
-						}
-					}
-					return [];
-				});
+	const clear = useCallback(() => {
+		if (usingProvider) {
+			controller.attachments.clear();
+			return;
+		}
+		setItems((prev) => {
+			for (const file of prev) {
+				if (file.url) {
+					URL.revokeObjectURL(file.url);
+				}
+			}
+			return [];
+		});
+	}, [controller, usingProvider]);
 
-	const openFileDialog = usingProvider
-		? () => controller.attachments.openFileDialog()
-		: openFileDialogLocal;
+	const openFileDialog = useCallback(() => {
+		if (usingProvider) {
+			controller.attachments.openFileDialog();
+			return;
+		}
+		openFileDialogLocal();
+	}, [controller, openFileDialogLocal, usingProvider]);
 
 	// Let provider know about our hidden file input so external menus can call openFileDialog()
 	useEffect(() => {
@@ -697,7 +717,7 @@ export const PromptInput = ({
 
 		// Convert blob URLs to data URLs asynchronously
 		void Promise.all(
-			files.map(async ({ id, ...item }) => {
+			files.map(async ({ id: _id, ...item }) => {
 				if (item.url && item.url.startsWith("blob:")) {
 					return {
 						...item,

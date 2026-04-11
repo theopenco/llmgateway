@@ -20,9 +20,9 @@ const FREE_RANGES = [
 
 const PRO_RANGES = [{ value: "30d", label: "30d" }] as const;
 
-const ALL_RANGES = [...FREE_RANGES, ...PRO_RANGES] as const;
-
-export type TimeRangeValue = (typeof ALL_RANGES)[number]["value"];
+export type TimeRangeValue =
+	| (typeof FREE_RANGES)[number]["value"]
+	| (typeof PRO_RANGES)[number]["value"];
 
 interface TimeRangePickerProps {
 	value: TimeRangeValue;

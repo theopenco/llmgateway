@@ -131,7 +131,7 @@ export function ChatSupport() {
 			}
 		}
 		prevMessageCountRef.current = messages.length;
-	});
+	}, [isOpen, messages]);
 
 	const handleOpen = () => {
 		setIsOpen(true);
