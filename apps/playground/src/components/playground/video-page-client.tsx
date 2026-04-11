@@ -15,6 +15,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 import {
 	getNormalizedVideoRequestSelection,
 	getSupportedVideoRequestOptions,
@@ -427,7 +428,7 @@ export default function VideoPageClient({
 			pendingRef.current = selectedModels.length;
 
 			for (const modelId of selectedModels) {
-				const isProviderSpecific = modelId.includes("/");
+				const noFallback = shouldDisableFallback(modelId);
 				const controllerKey = `${itemId}-${modelId}`;
 				const controller = new AbortController();
 				abortControllersRef.current.set(controllerKey, controller);
@@ -438,7 +439,7 @@ export default function VideoPageClient({
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								...(isProviderSpecific ? { "x-no-fallback": "true" } : {}),
+								...(noFallback ? { "x-no-fallback": "true" } : {}),
 							},
 							body: JSON.stringify({
 								model: modelId,

@@ -39,6 +39,7 @@ import {
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
+import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
 	createCombinedSignal,
 	createStreamingCombinedSignal,
@@ -1099,6 +1100,9 @@ chat.openapi(completions, async (c) => {
 		);
 
 	// Check for X-No-Fallback header to disable provider fallback on low uptime
+	const xNoFallbackHeaderSet =
+		c.req.raw.headers.has("x-no-fallback") ||
+		c.req.raw.headers.has("X-No-Fallback");
 	const noFallback =
 		c.req.raw.headers.get("x-no-fallback") === "true" ||
 		c.req.raw.headers.get("X-No-Fallback") === "true";
@@ -1711,7 +1715,7 @@ chat.openapi(completions, async (c) => {
 				usedRegion = cheapestResult.provider.region;
 				routingMetadata = {
 					...cheapestResult.metadata,
-					...(noFallback ? { noFallback: true } : {}),
+					...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 				};
 			} else {
 				// Fallback to first available provider if price comparison fails
@@ -2077,6 +2081,10 @@ chat.openapi(completions, async (c) => {
 									originalProviderScore,
 									...cheapestResult.metadata.providerScores,
 								],
+								...getNoFallbackRoutingMetadata(
+									noFallback,
+									xNoFallbackHeaderSet,
+								),
 							};
 						}
 					}
@@ -2239,6 +2247,10 @@ chat.openapi(completions, async (c) => {
 										originalProviderScore,
 										...cheapestResult.metadata.providerScores,
 									],
+									...getNoFallbackRoutingMetadata(
+										noFallback,
+										xNoFallbackHeaderSet,
+									),
 								};
 							}
 						}
@@ -2392,7 +2404,7 @@ chat.openapi(completions, async (c) => {
 					routingMetadata = addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
-							...(noFallback ? { noFallback: true } : {}),
+							...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 						},
 						contentFilterMatched,
 						contentFilterRoutingExcludedProviders,
@@ -2579,7 +2591,7 @@ chat.openapi(completions, async (c) => {
 				selectedProvider: usedProvider,
 				selectionReason,
 				providerScores: allProviderScores,
-				...(noFallback ? { noFallback: true } : {}),
+				...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 			},
 			contentFilterMatched,
 			contentFilterRoutingExcludedProviders,

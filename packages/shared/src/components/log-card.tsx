@@ -51,6 +51,8 @@ interface RoutingMetadata {
 	selectionReason?: string;
 	usedApiKeyHash?: string;
 	availableProviders?: string[];
+	xNoFallbackHeaderSet?: boolean;
+	noFallback?: boolean;
 	providerScores?: Array<{
 		providerId: string;
 		region?: string;
@@ -556,6 +558,19 @@ export function LogCard({
 												<span className="text-muted-foreground">Key</span>
 												<span className="font-mono">
 													{formatApiKeyHash(routingMetadata.usedApiKeyHash)}
+												</span>
+											</div>
+										)}
+										{routingMetadata.xNoFallbackHeaderSet !== undefined && (
+											<div className="flex justify-between">
+												<span className="text-muted-foreground">
+													X-No-Fallback
+												</span>
+												<span className="font-mono">
+													{routingMetadata.xNoFallbackHeaderSet
+														? "set"
+														: "unset"}
+													{routingMetadata.noFallback ? " (active)" : ""}
 												</span>
 											</div>
 										)}

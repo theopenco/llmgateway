@@ -117,6 +117,8 @@ export interface RoutingMetadata {
 	originalProviderRateLimited?: boolean;
 	// Whether fallback was disabled via X-No-Fallback header
 	noFallback?: boolean;
+	// Whether the request explicitly included an X-No-Fallback header
+	xNoFallbackHeaderSet?: boolean;
 	// Whether the gateway content filter matched for the request before upstream routing
 	contentFilterMatched?: boolean;
 	// Whether routing excluded content-filter providers in favor of alternatives
