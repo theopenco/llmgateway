@@ -130,6 +130,46 @@ describe("e2e individual tests", () => {
 	}
 
 	test(
+		"JSON output mode error for unsupported model",
+		getTestOptions({ completions: false }),
+		async () => {
+			const envVarName = getProviderEnvVar("openai");
+			const envVarValue = envVarName ? process.env[envVarName] : undefined;
+			if (!envVarValue) {
+				console.log(
+					"Skipping JSON output error test - no OpenAI API key provided",
+				);
+				return;
+			}
+
+			const { token } = await createTestData("json-error");
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini-search-preview",
+					messages: [
+						{
+							role: "user",
+							content: "Hello",
+						},
+					],
+					response_format: { type: "json_object" },
+				}),
+			});
+
+			expect(res.status).toBe(400);
+
+			const text = await res.text();
+			expect(text).toContain("does not support JSON output mode");
+		},
+	);
+
+	test(
 		"JSON output mode works for Claude Haiku 4.5",
 		getTestOptions({ completions: false }),
 		async () => {
