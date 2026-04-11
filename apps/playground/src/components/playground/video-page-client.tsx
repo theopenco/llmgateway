@@ -15,6 +15,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 import {
 	getNormalizedVideoRequestSelection,
 	getSupportedVideoRequestOptions,
@@ -56,9 +57,9 @@ interface VideoPageClientProps {
 export default function VideoPageClient({
 	models,
 	providers,
-	organizations,
+	organizations: _organizations,
 	selectedOrganization,
-	projects,
+	projects: _projects,
 	selectedProject,
 }: VideoPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
@@ -243,8 +244,9 @@ export default function VideoPageClient({
 
 	// Cleanup abort controllers on unmount
 	useEffect(() => {
+		const abortControllers = abortControllersRef.current;
 		return () => {
-			Array.from(abortControllersRef.current.values()).forEach((controller) => {
+			Array.from(abortControllers.values()).forEach((controller) => {
 				controller.abort();
 			});
 		};
@@ -336,7 +338,7 @@ export default function VideoPageClient({
 		}
 		const qs = params.toString();
 		router.replace(qs ? `?${qs}` : "");
-	}, [selectedModels, comparisonMode]);
+	}, [comparisonMode, router, searchParams, selectedModels]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
@@ -427,7 +429,7 @@ export default function VideoPageClient({
 			pendingRef.current = selectedModels.length;
 
 			for (const modelId of selectedModels) {
-				const isProviderSpecific = modelId.includes("/");
+				const noFallback = shouldDisableFallback(modelId);
 				const controllerKey = `${itemId}-${modelId}`;
 				const controller = new AbortController();
 				abortControllersRef.current.set(controllerKey, controller);
@@ -438,7 +440,7 @@ export default function VideoPageClient({
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								...(isProviderSpecific ? { "x-no-fallback": "true" } : {}),
+								...(noFallback ? { "x-no-fallback": "true" } : {}),
 							},
 							body: JSON.stringify({
 								model: modelId,
@@ -536,6 +538,7 @@ export default function VideoPageClient({
 			}
 		},
 		[
+			comparisonMode,
 			prompt,
 			selectedModels,
 			isGenerating,
@@ -545,6 +548,7 @@ export default function VideoPageClient({
 			videoDuration,
 			effectiveAudioEnabled,
 			frameInputs,
+			posthog,
 			referenceImages,
 			updateGalleryModel,
 		],

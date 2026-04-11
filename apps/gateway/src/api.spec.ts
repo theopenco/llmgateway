@@ -517,6 +517,180 @@ describe("api", () => {
 		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
 	});
 
+	test("/v1/images/generations forwards X-No-Fallback to chat completions", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-no-fallback",
+			token: "real-token-image-no-fallback",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const originalRequest: typeof app.request = app.request.bind(app);
+		let forwardedNoFallbackHeader: string | null | undefined;
+
+		const requestSpy = vi
+			.spyOn(app, "request")
+			.mockImplementation(
+				async (...args: Parameters<typeof app.request>): Promise<Response> => {
+					const [input, init] = args;
+					if (input === "/v1/chat/completions") {
+						const headers = new Headers(init?.headers);
+						forwardedNoFallbackHeader = headers.get("x-no-fallback");
+
+						return new Response(
+							JSON.stringify({
+								id: "chatcmpl-image-no-fallback",
+								object: "chat.completion",
+								created: 1774549411,
+								model: "gemini-3-pro-image-preview",
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: null,
+											images: [
+												{
+													image_url: {
+														url: "data:image/png;base64,aGVsbG8=",
+													},
+												},
+											],
+										},
+										finish_reason: "stop",
+									},
+								],
+								usage: {
+									prompt_tokens: 1,
+									completion_tokens: 1,
+									total_tokens: 2,
+								},
+							}),
+							{
+								status: 200,
+								headers: {
+									"Content-Type": "application/json",
+								},
+							},
+						);
+					}
+
+					return await originalRequest(...args);
+				},
+			);
+
+		try {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-image-no-fallback",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "gemini-3-pro-image-preview",
+					prompt: "Generate a mountain at sunrise",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(forwardedNoFallbackHeader).toBe("true");
+		} finally {
+			requestSpy.mockRestore();
+		}
+	});
+
+	test("/v1/images/edits forwards X-No-Fallback to chat completions", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-edits-no-fallback",
+			token: "real-token-image-edits-no-fallback",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const originalRequest: typeof app.request = app.request.bind(app);
+		let forwardedNoFallbackHeader: string | null | undefined;
+
+		const requestSpy = vi
+			.spyOn(app, "request")
+			.mockImplementation(
+				async (...args: Parameters<typeof app.request>): Promise<Response> => {
+					const [input, init] = args;
+					if (input === "/v1/chat/completions") {
+						const headers = new Headers(init?.headers);
+						forwardedNoFallbackHeader = headers.get("x-no-fallback");
+
+						return new Response(
+							JSON.stringify({
+								id: "chatcmpl-image-edit-no-fallback",
+								object: "chat.completion",
+								created: 1774549411,
+								model: "gemini-3-pro-image-preview",
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: null,
+											images: [
+												{
+													image_url: {
+														url: "data:image/png;base64,aGVsbG8=",
+													},
+												},
+											],
+										},
+										finish_reason: "stop",
+									},
+								],
+								usage: {
+									prompt_tokens: 1,
+									completion_tokens: 1,
+									total_tokens: 2,
+								},
+							}),
+							{
+								status: 200,
+								headers: {
+									"Content-Type": "application/json",
+								},
+							},
+						);
+					}
+
+					return await originalRequest(...args);
+				},
+			);
+
+		try {
+			const res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-image-edits-no-fallback",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "gemini-3-pro-image-preview",
+					prompt: "Add a neon city reflection to this image",
+					images: [
+						{
+							image_url:
+								"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAJFBMVEX///////9MaXH///////////////////////////////////8ZR3RTAAAADHRSTlP+jgB78KRmvTse21aub7wnAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAc0lEQVR42l3PWRIDIQgE0G5Z1fvfN7hMKhO+5BWtgraqU933qWG1BkCg0jfkahcAyt4QQOiFKmJI+oWhezRwI0Zx1rzRZ44C7gRIMws8oKDFiT4QdHvBNMUL1LKu3KAnUu+fCWndp/98Xf6Xm1846+dZ/wNI2AJy5D7oXAAAAABJRU5ErkJggg==",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(forwardedNoFallbackHeader).toBe("true");
+		} finally {
+			requestSpy.mockRestore();
+		}
+	});
+
 	test("/v1/images/generations returns empty data for content filter", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-generation-content-filter",

@@ -16,6 +16,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { AspectRatio, GalleryItem } from "@/lib/image-gen";
@@ -33,9 +34,9 @@ interface ImagePageClientProps {
 export default function ImagePageClient({
 	models,
 	providers,
-	organizations,
+	organizations: _organizations,
 	selectedOrganization,
-	projects,
+	projects: _projects,
 	selectedProject,
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
@@ -166,7 +167,7 @@ export default function ImagePageClient({
 		}
 		const qs = params.toString();
 		router.replace(qs ? `?${qs}` : "");
-	}, [selectedModels, comparisonMode]);
+	}, [comparisonMode, router, searchParams, selectedModels]);
 
 	// Reset imageSize when model changes, clear input images when switching away from edit model
 	useEffect(() => {
@@ -266,14 +267,14 @@ export default function ImagePageClient({
 			pendingRef.current = selectedModels.length;
 
 			for (const modelId of selectedModels) {
-				const isProviderSpecific = modelId.includes("/");
+				const noFallback = shouldDisableFallback(modelId);
 				void (async () => {
 					try {
 						const response = await fetch("/api/image", {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								...(isProviderSpecific ? { "x-no-fallback": "true" } : {}),
+								...(noFallback ? { "x-no-fallback": "true" } : {}),
 							},
 							body: JSON.stringify({
 								prompt: currentPrompt,
@@ -363,6 +364,7 @@ export default function ImagePageClient({
 			}
 		},
 		[
+			comparisonMode,
 			prompt,
 			selectedModels,
 			isGenerating,
@@ -372,6 +374,7 @@ export default function ImagePageClient({
 			imageSize,
 			imageCount,
 			inputImages,
+			posthog,
 			requiresImageInput,
 		],
 	);

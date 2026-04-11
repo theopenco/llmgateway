@@ -27,6 +27,7 @@ import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
 import type {
@@ -424,12 +425,7 @@ export default function ChatPageClient({
 						}
 				: undefined;
 
-			// Automatically disable provider fallback for provider-specific model selections
-			const isProviderSpecific = selectedModel.includes("/");
-			const localStorageOverride =
-				typeof window !== "undefined" &&
-				localStorage.getItem("llmgateway_no_fallback") === "true";
-			const noFallback = isProviderSpecific || localStorageOverride;
+			const noFallback = shouldDisableFallback(selectedModel);
 
 			// Get enabled MCP servers
 			const enabledMcpServers = getEnabledMcpServers();
@@ -1298,11 +1294,7 @@ function ExtraChatPanel({
 						}
 				: undefined;
 
-			const isProviderSpecific = selectedModel.includes("/");
-			const localStorageOverride =
-				typeof window !== "undefined" &&
-				localStorage.getItem("llmgateway_no_fallback") === "true";
-			const noFallback = isProviderSpecific || localStorageOverride;
+			const noFallback = shouldDisableFallback(selectedModel);
 
 			const mergedOptions = {
 				...options,

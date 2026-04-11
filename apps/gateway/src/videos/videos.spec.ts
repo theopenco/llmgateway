@@ -90,6 +90,49 @@ describe("videos", () => {
 		).toBe("1280x720");
 	});
 
+	test("/v1/videos records X-No-Fallback routing metadata", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-video-no-fallback",
+			token: "real-token-video-no-fallback",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-video-no-fallback",
+			token: "sk-test-key-video-no-fallback",
+			provider: "obsidian",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-video-no-fallback",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "veo-3.1-generate-preview",
+				prompt: "A robot dancing in the rain",
+				seconds: 8,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: json.id } },
+		});
+		expect(videoJob?.routingMetadata).toMatchObject({
+			noFallback: true,
+			xNoFallbackHeaderSet: true,
+		});
+	});
+
 	test("/v1/videos rejects sizes that obsidian does not support", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

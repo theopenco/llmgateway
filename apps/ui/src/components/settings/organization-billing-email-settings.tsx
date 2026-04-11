@@ -53,7 +53,7 @@ export function OrganizationBillingEmailSettings() {
 		setBillingTaxId(selectedOrganization.billingTaxId ?? "");
 		setBillingNotes(selectedOrganization.billingNotes ?? "");
 		setEmailError("");
-	}, [selectedOrganization?.id]);
+	}, [selectedOrganization]);
 
 	const validateEmail = (email: string): boolean => {
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -54,7 +54,7 @@ export function ImageSidebar({
 	galleryItems,
 	onNewChat,
 	onItemClick,
-	selectedOrganization,
+	selectedOrganization: _selectedOrganization,
 	className,
 }: ImageSidebarProps) {
 	const router = useRouter();

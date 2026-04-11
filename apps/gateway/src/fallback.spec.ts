@@ -1561,6 +1561,7 @@ describe("fallback and error status code handling", () => {
 			const log = logs[0];
 			expect(log.routingMetadata).toBeTruthy();
 			expect(log.routingMetadata).toHaveProperty("noFallback", true);
+			expect(log.routingMetadata).toHaveProperty("xNoFallbackHeaderSet", true);
 		});
 
 		test("content filter hit reroutes away from content-filter providers and records it in routing metadata", async () => {

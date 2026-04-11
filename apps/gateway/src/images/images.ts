@@ -278,6 +278,10 @@ async function extractImagesFromChatResponse(
 }
 
 function forwardHeaders(c: Context): Record<string, string> {
+	const noFallbackHeader =
+		c.req.raw.headers.get("x-no-fallback") ??
+		c.req.raw.headers.get("X-No-Fallback");
+
 	return {
 		"Content-Type": "application/json",
 		Authorization: c.req.header("Authorization") ?? "",
@@ -286,6 +290,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		"x-request-id": c.req.header("x-request-id") ?? "",
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
+		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 	};
 }

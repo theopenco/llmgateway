@@ -133,11 +133,11 @@ describe("e2e individual tests", () => {
 		"JSON output mode error for unsupported model",
 		getTestOptions({ completions: false }),
 		async () => {
-			const envVarName = getProviderEnvVar("anthropic");
+			const envVarName = getProviderEnvVar("openai");
 			const envVarValue = envVarName ? process.env[envVarName] : undefined;
 			if (!envVarValue) {
 				console.log(
-					"Skipping JSON output error test - no Anthropic API key provided",
+					"Skipping JSON output error test - no OpenAI API key provided",
 				);
 				return;
 			}
@@ -151,7 +151,7 @@ describe("e2e individual tests", () => {
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
-					model: "anthropic/claude-haiku-4-5",
+					model: "openai/gpt-4o-mini-search-preview",
 					messages: [
 						{
 							role: "user",
