@@ -13,7 +13,7 @@ import {
 	Send,
 	User,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useFetchClient } from "@/lib/fetch-client";
@@ -169,6 +169,7 @@ export function ChatSupportLogsClient() {
 			);
 		},
 	});
+	const markRead = markReadMutation.mutate;
 
 	useEffect(() => {
 		const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -191,7 +192,10 @@ export function ChatSupportLogsClient() {
 		},
 	});
 
-	const conversations = listData?.conversations ?? [];
+	const conversations = useMemo(
+		() => listData?.conversations ?? [],
+		[listData?.conversations],
+	);
 
 	const { data: detail, isLoading: detailLoading } = useQuery({
 		queryKey: ["chat-support-log", selectedId],
@@ -232,13 +236,12 @@ export function ChatSupportLogsClient() {
 	useEffect(() => {
 		if (detail?.messages && selectedId) {
 			messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-			markReadMutation.mutate({
+			markRead({
 				id: selectedId,
 				messageCount: detail.messages.length,
 			});
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- markReadMutation.mutate is stable from useMutation
-	}, [detail?.messages, selectedId]);
+	}, [detail?.messages, selectedId, markRead]);
 
 	const handleSelectConversation = useCallback(
 		(id: string) => {
@@ -246,10 +249,10 @@ export function ChatSupportLogsClient() {
 			setReplyText("");
 			const conv = conversations.find((c) => c.id === id);
 			if (conv) {
-				markReadMutation.mutate({ id, messageCount: conv.messageCount });
+				markRead({ id, messageCount: conv.messageCount });
 			}
 		},
-		[conversations, markReadMutation.mutate],
+		[conversations, markRead],
 	);
 
 	const handleReplySubmit = (e: React.FormEvent) => {

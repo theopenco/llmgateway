@@ -88,7 +88,7 @@ export function VideoSidebar({
 	galleryItems,
 	onNewChat,
 	onItemClick,
-	selectedOrganization,
+	selectedOrganization: _selectedOrganization,
 	className,
 }: VideoSidebarProps) {
 	const router = useRouter();

@@ -34,9 +34,9 @@ interface ImagePageClientProps {
 export default function ImagePageClient({
 	models,
 	providers,
-	organizations,
+	organizations: _organizations,
 	selectedOrganization,
-	projects,
+	projects: _projects,
 	selectedProject,
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
@@ -167,7 +167,7 @@ export default function ImagePageClient({
 		}
 		const qs = params.toString();
 		router.replace(qs ? `?${qs}` : "");
-	}, [selectedModels, comparisonMode]);
+	}, [comparisonMode, router, searchParams, selectedModels]);
 
 	// Reset imageSize when model changes, clear input images when switching away from edit model
 	useEffect(() => {
@@ -364,6 +364,7 @@ export default function ImagePageClient({
 			}
 		},
 		[
+			comparisonMode,
 			prompt,
 			selectedModels,
 			isGenerating,
@@ -373,6 +374,7 @@ export default function ImagePageClient({
 			imageSize,
 			imageCount,
 			inputImages,
+			posthog,
 			requiresImageInput,
 		],
 	);
