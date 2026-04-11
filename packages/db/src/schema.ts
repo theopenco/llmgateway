@@ -564,6 +564,7 @@ export const log = pgTable(
 			originalProviderUptime?: number;
 			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
+			xNoFallbackHeaderSet?: boolean;
 			contentFilterMatched?: boolean;
 			contentFilterRerouted?: boolean;
 			contentFilterExcludedProviders?: string[];
@@ -728,6 +729,7 @@ export const videoJob = pgTable(
 			originalProviderUptime?: number;
 			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
+			xNoFallbackHeaderSet?: boolean;
 			contentFilterMatched?: boolean;
 			contentFilterRerouted?: boolean;
 			contentFilterExcludedProviders?: string[];

@@ -286,6 +286,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		"x-request-id": c.req.header("x-request-id") ?? "",
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
+		"x-no-fallback": c.req.header("x-no-fallback") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 	};
 }

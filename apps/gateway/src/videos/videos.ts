@@ -610,6 +610,16 @@ function isNoFallbackEnabled(c: Context): boolean {
 	);
 }
 
+function getNoFallbackRoutingMetadata(
+	noFallback: boolean,
+	xNoFallbackHeaderSet: boolean,
+): Pick<RoutingMetadata, "noFallback" | "xNoFallbackHeaderSet"> {
+	return {
+		...(noFallback ? { noFallback: true } : {}),
+		...(xNoFallbackHeaderSet ? { xNoFallbackHeaderSet: true } : {}),
+	};
+}
+
 function extractToken(c: Context): string {
 	const auth = c.req.header("Authorization");
 	const xApiKey = c.req.header("x-api-key");
@@ -1405,6 +1415,7 @@ async function resolveVideoExecution(
 	organizationId: string,
 	requestId: string,
 	noFallback: boolean,
+	xNoFallbackHeaderSet: boolean,
 ): Promise<ResolvedVideoExecution> {
 	const videoPricing: VideoPricingContext = {
 		durationSeconds: videoDurationSeconds,
@@ -1553,7 +1564,7 @@ async function resolveVideoExecution(
 								},
 								...betterResult.metadata.providerScores,
 							],
-							...(noFallback ? { noFallback: true } : {}),
+							...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 						};
 
 						const orderedProviderIds = [
@@ -1589,7 +1600,7 @@ async function resolveVideoExecution(
 			if (cheapestResult) {
 				routingMetadata = {
 					...cheapestResult.metadata,
-					...(noFallback ? { noFallback: true } : {}),
+					...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 				};
 				const orderedProviderIds = [
 					cheapestResult.provider.providerId,
@@ -1629,7 +1640,7 @@ async function resolveVideoExecution(
 			score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
 			price: getProviderSelectionPrice(provider, videoPricing),
 		})),
-		...(noFallback ? { noFallback: true } : {}),
+		...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 	};
 
 	const providerMapping = orderedMappings[0];
@@ -3220,6 +3231,9 @@ videos.openapi(createVideo, async (c) => {
 	);
 	const debugMode = isDebugMode(c);
 	const noFallback = isNoFallbackEnabled(c);
+	const xNoFallbackHeaderSet =
+		c.req.raw.headers.has("x-no-fallback") ||
+		c.req.raw.headers.has("X-No-Fallback");
 
 	const modelInfo = models.find((model) => model.id === normalizedModel);
 	if (!modelInfo) {
@@ -3264,6 +3278,7 @@ videos.openapi(createVideo, async (c) => {
 		organization.id,
 		requestId,
 		noFallback,
+		xNoFallbackHeaderSet,
 	);
 
 	const videoId = shortid();
