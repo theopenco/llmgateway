@@ -8,8 +8,8 @@ categories: ["Guides"]
 image:
   src: "/blog/llm-gateway-vs-openrouter.png"
   alt: "LLM Gateway vs OpenRouter: An Honest Comparison"
-  width: 1408
-  height: 768
+  width: 1024
+  height: 1024
 ---
 
 LLM Gateway and OpenRouter solve the same core problem: give developers a single API to access multiple LLM providers. But they solve it differently, with different trade-offs.

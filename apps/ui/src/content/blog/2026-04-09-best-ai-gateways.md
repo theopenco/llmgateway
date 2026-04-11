@@ -5,6 +5,11 @@ date: 2026-04-09
 title: "7 Best AI Gateways in 2026 (Compared)"
 summary: "An honest comparison of the top AI gateways — features, pricing, and trade-offs — so you can pick the right one for your stack."
 categories: ["Guides"]
+image:
+  src: "/blog/best-ai-gateways.png"
+  alt: "7 Best AI Gateways in 2026 (Compared)"
+  width: 1024
+  height: 1024
 ---
 
 Calling LLM providers directly works until it doesn't. The moment you're managing multiple API keys, tracking costs across providers, or scrambling during a provider outage, you need a gateway.

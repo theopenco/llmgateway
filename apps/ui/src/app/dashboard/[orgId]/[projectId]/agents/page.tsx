@@ -1,11 +1,52 @@
+import { subDays } from "date-fns";
+
 import { AgentsView } from "@/components/activity/agents-view";
+import { fetchServerData } from "@/lib/server-api";
+
+import type { LogsData } from "@/types/activity";
+
+const AGENT_SOURCES = [
+	"claude.com/claude-code",
+	"opencode",
+	"open-code",
+	"cursor",
+	"autohand",
+	"soulforge",
+	"cline",
+	"codex",
+	"n8n",
+	"openclaw",
+];
 
 export default async function AgentsPage({
 	params,
+	searchParams,
 }: {
 	params: Promise<{ orgId: string; projectId: string }>;
+	searchParams?: Promise<{ from?: string; to?: string }>;
 }) {
 	const { orgId, projectId } = await params;
+	const searchParamsData = await searchParams;
+
+	const from = searchParamsData?.from
+		? new Date(searchParamsData.from + "T00:00:00")
+		: subDays(new Date(), 6);
+	const to = searchParamsData?.to
+		? new Date(searchParamsData.to + "T00:00:00")
+		: new Date();
+
+	const initialData = await fetchServerData<LogsData>("GET", "/logs", {
+		params: {
+			query: {
+				orderBy: "createdAt_desc",
+				projectId,
+				limit: "100",
+				source: AGENT_SOURCES.join(","),
+				startDate: from.toISOString(),
+				endDate: to.toISOString(),
+			},
+		},
+	});
 
 	return (
 		<div className="flex flex-col">
@@ -16,7 +57,11 @@ export default async function AgentsPage({
 						Monitor your AI coding agents and their activity
 					</p>
 				</div>
-				<AgentsView projectId={projectId} orgId={orgId} />
+				<AgentsView
+					projectId={projectId}
+					orgId={orgId}
+					initialData={initialData ?? undefined}
+				/>
 			</div>
 		</div>
 	);

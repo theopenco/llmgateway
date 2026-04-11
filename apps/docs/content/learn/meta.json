@@ -6,6 +6,7 @@
 		"index",
 		"dashboard",
 		"activity",
+		"agents",
 		"model-usage",
 		"usage-metrics",
 		"api-keys",

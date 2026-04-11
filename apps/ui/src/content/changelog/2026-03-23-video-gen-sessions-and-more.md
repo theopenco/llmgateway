@@ -23,14 +23,14 @@ LLM Gateway now supports **video generation** via the API. Generate videos from 
 
 ---
 
-## Sessions
+## Agents (formerly Sessions)
 
-**Sessions** let you track and organize conversations across multiple requests:
+**Agents** let you track and organize conversations across multiple requests:
 
-- Group related requests into named sessions
-- Filter activity logs by session
-- View streaming cost breakdowns per session
-- Improved empty state UI when no sessions exist
+- Group related requests by coding agent
+- Filter activity logs by agent
+- View streaming cost breakdowns per agent
+- Improved empty state UI when no agents exist
 
 ---
 
