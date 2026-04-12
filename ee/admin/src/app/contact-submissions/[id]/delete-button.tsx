@@ -13,23 +13,23 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { useFetchClient } from "@/lib/fetch-client";
+import { useApi } from "@/lib/fetch-client";
 
 export function DeleteSubmissionButton({ id }: { id: string }) {
-	const $fetch = useFetchClient();
+	const $api = useApi();
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
-	const [deleting, setDeleting] = useState(false);
 
-	const handleDelete = async () => {
-		setDeleting(true);
-		await $fetch.DELETE("/admin/contact-submissions/{id}", {
-			params: { path: { id } },
-		});
-		setDeleting(false);
-		setOpen(false);
-		router.push("/contact-submissions");
-	};
+	const deleteMutation = $api.useMutation(
+		"delete",
+		"/admin/contact-submissions/{id}",
+		{
+			onSuccess: () => {
+				setOpen(false);
+				router.push("/contact-submissions");
+			},
+		},
+	);
 
 	return (
 		<>
@@ -53,10 +53,14 @@ export function DeleteSubmissionButton({ id }: { id: string }) {
 						</Button>
 						<Button
 							variant="destructive"
-							disabled={deleting}
-							onClick={handleDelete}
+							disabled={deleteMutation.isPending}
+							onClick={() => {
+								deleteMutation.mutate({
+									params: { path: { id } },
+								});
+							}}
 						>
-							{deleting ? "Deleting..." : "Delete"}
+							{deleteMutation.isPending ? "Deleting..." : "Delete"}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

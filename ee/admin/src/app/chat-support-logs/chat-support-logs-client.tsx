@@ -26,7 +26,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useFetchClient } from "@/lib/fetch-client";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 function timeAgo(dateString: string): string {
@@ -136,6 +136,7 @@ interface ConversationDetail {
 
 export function ChatSupportLogsClient() {
 	const $fetch = useFetchClient();
+	const $api = useApi();
 	const queryClient = useQueryClient();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [search, setSearch] = useState("");
@@ -244,23 +245,22 @@ export function ChatSupportLogsClient() {
 		},
 	});
 
-	const deleteMutation = useMutation({
-		mutationFn: async (id: string) => {
-			await $fetch.DELETE("/admin/chat-support-logs/{id}", {
-				params: { path: { id } },
-			});
+	const deleteMutation = $api.useMutation(
+		"delete",
+		"/admin/chat-support-logs/{id}",
+		{
+			onSuccess: () => {
+				setSelectedId(null);
+				setDeleteDialogOpen(false);
+				void queryClient.invalidateQueries({
+					queryKey: ["chat-support-logs"],
+				});
+				void queryClient.invalidateQueries({
+					queryKey: ["chat-support-read-statuses"],
+				});
+			},
 		},
-		onSuccess: () => {
-			setSelectedId(null);
-			setDeleteDialogOpen(false);
-			void queryClient.invalidateQueries({
-				queryKey: ["chat-support-logs"],
-			});
-			void queryClient.invalidateQueries({
-				queryKey: ["chat-support-read-statuses"],
-			});
-		},
-	});
+	);
 
 	useEffect(() => {
 		if (detail?.messages && selectedId) {
@@ -802,7 +802,9 @@ export function ChatSupportLogsClient() {
 							disabled={deleteMutation.isPending}
 							onClick={() => {
 								if (selectedId) {
-									deleteMutation.mutate(selectedId);
+									deleteMutation.mutate({
+										params: { path: { id: selectedId } },
+									});
 								}
 							}}
 						>
