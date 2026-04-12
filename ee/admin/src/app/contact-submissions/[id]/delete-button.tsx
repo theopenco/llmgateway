@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -17,6 +18,7 @@ import { useApi } from "@/lib/fetch-client";
 
 export function DeleteSubmissionButton({ id }: { id: string }) {
 	const $api = useApi();
+	const queryClient = useQueryClient();
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
 
@@ -26,6 +28,10 @@ export function DeleteSubmissionButton({ id }: { id: string }) {
 		{
 			onSuccess: () => {
 				setOpen(false);
+				void queryClient.invalidateQueries({
+					queryKey: $api.queryOptions("get", "/admin/contact-submissions")
+						.queryKey,
+				});
 				router.push("/contact-submissions");
 			},
 		},

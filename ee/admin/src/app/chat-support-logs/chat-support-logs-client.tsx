@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	AlertTriangle,
 	ArrowLeft,
@@ -26,7 +26,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useApi, useFetchClient } from "@/lib/fetch-client";
+import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 function timeAgo(dateString: string): string {
@@ -115,27 +115,7 @@ function parseDevice(userAgent: string): string {
 	return `${browser} on ${os}`;
 }
 
-interface ConversationDetail {
-	id: string;
-	createdAt: string;
-	updatedAt: string;
-	name: string | null;
-	email: string | null;
-	ipAddress: string | null;
-	userAgent: string | null;
-	messageCount: number;
-	escalatedAt: string | null;
-	messages: {
-		id: string;
-		createdAt: string;
-		role: string;
-		content: string;
-		sequence: number;
-	}[];
-}
-
 export function ChatSupportLogsClient() {
-	const $fetch = useFetchClient();
 	const $api = useApi();
 	const queryClient = useQueryClient();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -146,41 +126,27 @@ export function ChatSupportLogsClient() {
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
-	const { data: readStatusData } = useQuery({
-		queryKey: ["chat-support-read-statuses"],
-		queryFn: async () => {
-			const { data } = await $fetch.GET(
-				"/admin/chat-support-logs/read-statuses",
-			);
-			return data?.readStatuses ?? {};
-		},
-	});
+	const { data: readStatusData } = $api.useQuery(
+		"get",
+		"/admin/chat-support-logs/read-statuses",
+	);
 
-	const readMap = readStatusData ?? {};
+	const readMap = readStatusData?.readStatuses ?? {};
 
-	const markReadMutation = useMutation({
-		mutationFn: async ({
-			id,
-			messageCount,
-		}: {
-			id: string;
-			messageCount: number;
-		}) => {
-			await $fetch.POST("/admin/chat-support-logs/{id}/read", {
-				params: { path: { id } },
-				body: { messageCount },
-			});
+	const markReadMutation = $api.useMutation(
+		"post",
+		"/admin/chat-support-logs/{id}/read",
+		{
+			onSuccess: () => {
+				void queryClient.invalidateQueries({
+					queryKey: $api.queryOptions(
+						"get",
+						"/admin/chat-support-logs/read-statuses",
+					).queryKey,
+				});
+			},
 		},
-		onSuccess: (_data, variables) => {
-			queryClient.setQueryData<Record<string, number>>(
-				["chat-support-read-statuses"],
-				(old) => ({
-					...old,
-					[variables.id]: variables.messageCount,
-				}),
-			);
-		},
-	});
+	);
 	const markRead = markReadMutation.mutate;
 
 	useEffect(() => {
@@ -188,62 +154,54 @@ export function ChatSupportLogsClient() {
 		return () => clearTimeout(timer);
 	}, [search]);
 
-	const { data: listData, isLoading: listLoading } = useQuery({
-		queryKey: ["chat-support-logs", debouncedSearch],
-		queryFn: async () => {
-			const { data } = await $fetch.GET("/admin/chat-support-logs", {
-				params: {
-					query: {
-						limit: 100,
-						offset: 0,
-						search: debouncedSearch || undefined,
-					},
+	const { data: listData, isLoading: listLoading } = $api.useQuery(
+		"get",
+		"/admin/chat-support-logs",
+		{
+			params: {
+				query: {
+					limit: 100,
+					offset: 0,
+					search: debouncedSearch || undefined,
 				},
-			});
-			return data ?? { conversations: [], total: 0 };
+			},
 		},
-	});
+	);
 
 	const conversations = useMemo(
 		() => listData?.conversations ?? [],
 		[listData?.conversations],
 	);
 
-	const { data: detail, isLoading: detailLoading } = useQuery({
-		queryKey: ["chat-support-log", selectedId],
-		queryFn: async () => {
-			if (!selectedId) {
-				return null;
-			}
-			const { data } = await $fetch.GET("/admin/chat-support-logs/{id}", {
-				params: { path: { id: selectedId } },
-			});
-			return (data as ConversationDetail | undefined) ?? null;
+	const { data: detail, isLoading: detailLoading } = $api.useQuery(
+		"get",
+		"/admin/chat-support-logs/{id}",
+		{
+			params: { path: { id: selectedId! } },
 		},
-		enabled: !!selectedId,
-	});
+		{
+			enabled: !!selectedId,
+		},
+	);
 
-	const replyMutation = useMutation({
-		mutationFn: async ({ id, content }: { id: string; content: string }) => {
-			const { data } = await $fetch.POST(
-				"/admin/chat-support-logs/{id}/reply",
-				{
-					params: { path: { id } },
-					body: { content },
-				},
-			);
-			return data;
+	const replyMutation = $api.useMutation(
+		"post",
+		"/admin/chat-support-logs/{id}/reply",
+		{
+			onSuccess: () => {
+				setReplyText("");
+				void queryClient.invalidateQueries({
+					queryKey: $api.queryOptions("get", "/admin/chat-support-logs/{id}", {
+						params: { path: { id: selectedId! } },
+					}).queryKey,
+				});
+				void queryClient.invalidateQueries({
+					queryKey: $api.queryOptions("get", "/admin/chat-support-logs")
+						.queryKey,
+				});
+			},
 		},
-		onSuccess: () => {
-			setReplyText("");
-			void queryClient.invalidateQueries({
-				queryKey: ["chat-support-log", selectedId],
-			});
-			void queryClient.invalidateQueries({
-				queryKey: ["chat-support-logs"],
-			});
-		},
-	});
+	);
 
 	const deleteMutation = $api.useMutation(
 		"delete",
@@ -253,10 +211,14 @@ export function ChatSupportLogsClient() {
 				setSelectedId(null);
 				setDeleteDialogOpen(false);
 				void queryClient.invalidateQueries({
-					queryKey: ["chat-support-logs"],
+					queryKey: $api.queryOptions("get", "/admin/chat-support-logs")
+						.queryKey,
 				});
 				void queryClient.invalidateQueries({
-					queryKey: ["chat-support-read-statuses"],
+					queryKey: $api.queryOptions(
+						"get",
+						"/admin/chat-support-logs/read-statuses",
+					).queryKey,
 				});
 			},
 		},
@@ -266,8 +228,8 @@ export function ChatSupportLogsClient() {
 		if (detail?.messages && selectedId) {
 			messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 			markRead({
-				id: selectedId,
-				messageCount: detail.messages.length,
+				params: { path: { id: selectedId } },
+				body: { messageCount: detail.messages.length },
 			});
 		}
 	}, [detail?.messages, selectedId, markRead]);
@@ -278,7 +240,10 @@ export function ChatSupportLogsClient() {
 			setReplyText("");
 			const conv = conversations.find((c) => c.id === id);
 			if (conv) {
-				markRead({ id, messageCount: conv.messageCount });
+				markRead({
+					params: { path: { id } },
+					body: { messageCount: conv.messageCount },
+				});
 			}
 		},
 		[conversations, markRead],
@@ -290,7 +255,10 @@ export function ChatSupportLogsClient() {
 		if (!trimmed || !selectedId || replyMutation.isPending) {
 			return;
 		}
-		replyMutation.mutate({ id: selectedId, content: trimmed });
+		replyMutation.mutate({
+			params: { path: { id: selectedId } },
+			body: { content: trimmed },
+		});
 	};
 
 	const handleReplyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
