@@ -6022,4 +6022,86 @@ admin.openapi(markChatSupportRead, async (c) => {
 	return c.json({ success: true });
 });
 
+// ── Delete Chat Support Conversation ──────────────────────────────────────────
+
+const deleteChatSupportConversation = createRoute({
+	method: "delete",
+	path: "/chat-support-logs/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Conversation deleted.",
+		},
+		404: {
+			description: "Conversation not found.",
+		},
+	},
+});
+
+admin.openapi(deleteChatSupportConversation, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const existing = await db.query.chatSupportConversation.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (!existing) {
+		throw new HTTPException(404, { message: "Conversation not found" });
+	}
+
+	await db
+		.delete(tables.chatSupportConversation)
+		.where(eq(tables.chatSupportConversation.id, id));
+
+	return c.json({ success: true });
+});
+
+// ── Delete Contact Submission ─────────────────────────────────────────────────
+
+const deleteContactSubmission = createRoute({
+	method: "delete",
+	path: "/contact-submissions/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Submission deleted.",
+		},
+		404: {
+			description: "Submission not found.",
+		},
+	},
+});
+
+admin.openapi(deleteContactSubmission, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const existing = await db.query.enterpriseContactSubmission.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (!existing) {
+		throw new HTTPException(404, { message: "Submission not found" });
+	}
+
+	await db
+		.delete(tables.enterpriseContactSubmission)
+		.where(eq(tables.enterpriseContactSubmission.id, id));
+
+	return c.json({ success: true });
+});
+
 export default admin;

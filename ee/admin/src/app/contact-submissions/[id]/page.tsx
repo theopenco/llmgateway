@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
+import { DeleteSubmissionButton } from "./delete-button";
 import { ReplyForm } from "./reply-form";
 
 function formatDate(dateString: string) {
@@ -89,6 +90,7 @@ export default async function ContactSubmissionDetailPage({
 					<Badge variant={getStatusBadgeVariant(data.spamFilterStatus)}>
 						{getStatusLabel(data.spamFilterStatus)}
 					</Badge>
+					<DeleteSubmissionButton id={data.id} />
 				</div>
 				<p className="text-sm text-muted-foreground">
 					Submitted {formatDate(data.createdAt)}

@@ -11,10 +11,20 @@ import {
 	Monitor,
 	Search,
 	Send,
+	Trash2,
 	User,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useFetchClient } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
@@ -131,6 +141,7 @@ export function ChatSupportLogsClient() {
 	const [search, setSearch] = useState("");
 	const [debouncedSearch, setDebouncedSearch] = useState("");
 	const [replyText, setReplyText] = useState("");
+	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -229,6 +240,24 @@ export function ChatSupportLogsClient() {
 			});
 			void queryClient.invalidateQueries({
 				queryKey: ["chat-support-logs"],
+			});
+		},
+	});
+
+	const deleteMutation = useMutation({
+		mutationFn: async (id: string) => {
+			await $fetch.DELETE("/admin/chat-support-logs/{id}", {
+				params: { path: { id } },
+			});
+		},
+		onSuccess: () => {
+			setSelectedId(null);
+			setDeleteDialogOpen(false);
+			void queryClient.invalidateQueries({
+				queryKey: ["chat-support-logs"],
+			});
+			void queryClient.invalidateQueries({
+				queryKey: ["chat-support-read-statuses"],
 			});
 		},
 	});
@@ -727,6 +756,19 @@ export function ChatSupportLogsClient() {
 								</div>
 							</div>
 						</ScrollArea>
+
+						{/* Delete conversation */}
+						<div className="border-t border-border/60 p-4">
+							<Button
+								variant="destructive"
+								size="sm"
+								className="w-full"
+								onClick={() => setDeleteDialogOpen(true)}
+							>
+								<Trash2 className="mr-2 h-3.5 w-3.5" />
+								Delete Conversation
+							</Button>
+						</div>
 					</>
 				) : (
 					<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-muted-foreground">
@@ -737,6 +779,38 @@ export function ChatSupportLogsClient() {
 					</div>
 				)}
 			</div>
+
+			{/* Delete confirmation dialog */}
+			<Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Delete Conversation</DialogTitle>
+						<DialogDescription>
+							This will permanently delete the conversation and all its
+							messages. This action cannot be undone.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setDeleteDialogOpen(false)}
+						>
+							Cancel
+						</Button>
+						<Button
+							variant="destructive"
+							disabled={deleteMutation.isPending}
+							onClick={() => {
+								if (selectedId) {
+									deleteMutation.mutate(selectedId);
+								}
+							}}
+						>
+							{deleteMutation.isPending ? "Deleting..." : "Delete"}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }
