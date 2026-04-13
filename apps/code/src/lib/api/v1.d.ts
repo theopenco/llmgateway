@@ -3482,6 +3482,7 @@ export interface paths {
                     status?: "pending" | "rejected" | "delivered" | "delivery_failed";
                     sortBy?: "createdAt" | "name" | "email" | "spamFilterStatus";
                     sortOrder?: "asc" | "desc";
+                    archived?: "true" | "false";
                 };
                 header?: never;
                 path?: never;
@@ -3508,6 +3509,7 @@ export interface paths {
                                 userAgent: string | null;
                                 spamFilterStatus: string;
                                 rejectionReason: string | null;
+                                archivedAt: string | null;
                             }[];
                             total: number;
                         };
@@ -3559,6 +3561,7 @@ export interface paths {
                             userAgent: string | null;
                             spamFilterStatus: string;
                             rejectionReason: string | null;
+                            archivedAt: string | null;
                         };
                     };
                 };
@@ -3709,6 +3712,7 @@ export interface paths {
                     limit?: number;
                     offset?: number | null;
                     search?: string;
+                    archived?: "true" | "false";
                 };
                 header?: never;
                 path?: never;
@@ -3733,6 +3737,7 @@ export interface paths {
                                 userAgent: string | null;
                                 messageCount: number;
                                 escalatedAt: string | null;
+                                archivedAt: string | null;
                                 firstMessage: string | null;
                             }[];
                             total: number;
@@ -3822,6 +3827,7 @@ export interface paths {
                             userAgent: string | null;
                             messageCount: number;
                             escalatedAt: string | null;
+                            archivedAt: string | null;
                             messages: {
                                 id: string;
                                 createdAt: string;
@@ -3975,6 +3981,110 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/admin/contact-submissions/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        archived: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Submission archived/unarchived. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Submission not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/admin/chat-support-logs/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        archived: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Conversation archived/unarchived. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Conversation not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         trace?: never;
     };
     "/keys/api": {
