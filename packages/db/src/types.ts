@@ -125,6 +125,7 @@ export type SerializedOrganization = Omit<
 	| "devPlanStripeSubscriptionId"
 	| "devPlanCancelled"
 	| "devPlanExpiresAt"
+	| "lastTopUpAmount"
 > & {
 	createdAt: string;
 	updatedAt: string;

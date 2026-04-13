@@ -26,6 +26,7 @@ import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
 import { useStripe } from "@/lib/stripe";
@@ -226,6 +227,12 @@ function AmountStep({
 
 	const hasBonus = feeData?.bonusAmount && feeData.bonusAmount > 0;
 
+	useEffect(() => {
+		if (feeData?.bonusType === "second_topup" && feeData.bonusEligible) {
+			posthog.capture("second_topup_bonus_eligible_viewed");
+		}
+	}, [feeData?.bonusType, feeData?.bonusEligible, posthog]);
+
 	const handleStripeCheckout = async () => {
 		posthog.capture("topup_stripe_checkout_started", { amount });
 		setCheckoutLoading(true);
@@ -257,6 +264,21 @@ function AmountStep({
 				</DialogDescription>
 			</DialogHeader>
 			<div className="space-y-4 py-4">
+				{feeData?.bonusType === "second_topup" &&
+					feeData.secondTopupBonusExpiresInDays !== undefined && (
+						<div className="border rounded-lg p-3 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
+							<p className="text-sm font-medium text-green-800 dark:text-green-200">
+								Get +
+								{Math.round(
+									((feeData.bonusAmount ?? 0) / (feeData.baseAmount || 1)) *
+										100,
+								)}
+								% bonus on this top-up — expires in{" "}
+								{feeData.secondTopupBonusExpiresInDays} day
+								{feeData.secondTopupBonusExpiresInDays !== 1 ? "s" : ""}
+							</p>
+						</div>
+					)}
 				<div className="space-y-2">
 					<Label htmlFor="amount">Amount (USD)</Label>
 					<Input
@@ -318,7 +340,12 @@ function AmountStep({
 								</div>
 								{hasBonus && feeData.bonusAmount && (
 									<div className="flex justify-between text-green-600 font-semibold bg-green-50 dark:bg-green-950/50 -mx-2 px-2 py-1 rounded">
-										<span>🎉 First-time bonus</span>
+										<span>
+											🎉{" "}
+											{feeData.bonusType === "second_topup"
+												? "Second top-up bonus"
+												: "First-time bonus"}
+										</span>
 										<span>+${feeData.bonusAmount.toFixed(2)}</span>
 									</div>
 								)}
@@ -568,6 +595,18 @@ function PaymentStep({
 }
 
 function SuccessStep({ onClose }: { onClose: () => void }) {
+	const { selectedOrganization } = useDashboardState();
+	const api = useApi();
+	const queryClient = useQueryClient();
+	const { toast } = useToast();
+	const posthog = usePostHog();
+	const updateOrganization = api.useMutation("patch", "/orgs/{id}");
+	const [autoTopUpEnabled, setAutoTopUpEnabled] = useState(true);
+	const [saving, setSaving] = useState(false);
+
+	const alreadyHasAutoTopUp = selectedOrganization?.autoTopUpEnabled ?? false;
+	const showNudge = !alreadyHasAutoTopUp;
+
 	useEffect(() => {
 		const duration = 2000;
 		const end = Date.now() + duration;
@@ -598,6 +637,48 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 		return () => cancelAnimationFrame(rafId);
 	}, []);
 
+	useEffect(() => {
+		if (showNudge) {
+			posthog.capture("auto_topup_nudge_shown");
+		}
+	}, [showNudge, posthog]);
+
+	const handleContinue = async () => {
+		if (showNudge && autoTopUpEnabled && selectedOrganization) {
+			setSaving(true);
+			try {
+				await updateOrganization.mutateAsync({
+					params: { path: { id: selectedOrganization.id } },
+					body: {
+						autoTopUpEnabled: true,
+						autoTopUpThreshold: 5,
+						autoTopUpAmount: 20,
+					},
+				});
+				await queryClient.invalidateQueries({
+					queryKey: api.queryOptions("get", "/orgs").queryKey,
+				});
+				posthog.capture("auto_topup_nudge_enabled");
+				toast({
+					title: "Auto top-up enabled",
+					description:
+						"Credits will automatically reload $20 when your balance drops below $5.",
+				});
+			} catch {
+				toast({
+					title: "Could not enable auto top-up",
+					description: "You can enable it later in billing settings.",
+					variant: "destructive",
+				});
+			} finally {
+				setSaving(false);
+			}
+		} else if (showNudge) {
+			posthog.capture("auto_topup_nudge_dismissed");
+		}
+		onClose();
+	};
+
 	return (
 		<>
 			<DialogHeader>
@@ -627,9 +708,29 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 					Your credits are ready. Start making API calls now.
 				</p>
 			</div>
+
+			{showNudge && (
+				<div className="border rounded-lg p-4 bg-muted/50 space-y-3">
+					<div className="flex items-center justify-between">
+						<div className="space-y-1">
+							<p className="font-medium text-sm">Never run out of credits</p>
+							<p className="text-xs text-muted-foreground">
+								Auto-reload $20 when balance drops below $5
+							</p>
+						</div>
+						<Switch
+							checked={autoTopUpEnabled}
+							onCheckedChange={(checked) =>
+								setAutoTopUpEnabled(checked as boolean)
+							}
+						/>
+					</div>
+				</div>
+			)}
+
 			<DialogFooter>
-				<Button onClick={onClose} className="w-full">
-					Start Building
+				<Button onClick={handleContinue} className="w-full" disabled={saving}>
+					{saving ? "Saving..." : "Continue"}
 				</Button>
 			</DialogFooter>
 		</>
@@ -868,7 +969,12 @@ function ConfirmPaymentStep({
 							</div>
 							{hasBonus && feeData.bonusAmount && (
 								<div className="flex justify-between text-green-600 font-semibold bg-green-50 dark:bg-green-950/50 -mx-2 px-2 py-1 rounded">
-									<span>🎉 First-time bonus</span>
+									<span>
+										🎉{" "}
+										{feeData.bonusType === "second_topup"
+											? "Second top-up bonus"
+											: "First-time bonus"}
+									</span>
 									<span>+${feeData.bonusAmount.toFixed(2)}</span>
 								</div>
 							)}

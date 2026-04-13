@@ -501,35 +501,71 @@ async function applyFirstTimeBonus({
 	organizationId: string;
 	creditAmount: number;
 	isEmailVerified: boolean;
-}): Promise<{ finalCreditAmount: number; bonusAmount: number }> {
+}): Promise<{
+	finalCreditAmount: number;
+	bonusAmount: number;
+	bonusType: "first_purchase" | "second_topup" | null;
+}> {
 	let bonusAmount = 0;
 	let finalCreditAmount = creditAmount;
+	let bonusType: "first_purchase" | "second_topup" | null = null;
+
 	const bonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
 		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
 		: 0;
 
 	if (bonusMultiplier && bonusMultiplier > 1 && isEmailVerified) {
-		const previousPurchases = await db.query.transaction.findFirst({
+		const previousPurchases = await db.query.transaction.findMany({
 			where: {
 				organizationId: { eq: organizationId },
 				type: { eq: "credit_topup" },
 				status: { eq: "completed" },
 			},
+			orderBy: { createdAt: "asc" },
+			limit: 2,
 		});
 
-		if (!previousPurchases) {
+		if (previousPurchases.length === 0) {
+			// First purchase bonus
 			const potentialBonus = creditAmount * (bonusMultiplier - 1);
 			const maxBonus = 50;
 			bonusAmount = Math.min(potentialBonus, maxBonus);
 			finalCreditAmount = creditAmount + bonusAmount;
+			bonusType = "first_purchase";
 
 			logger.info(
 				`Applied first-time bonus of $${bonusAmount} to organization ${organizationId} (${bonusMultiplier}x multiplier, max $${maxBonus})`,
 			);
+		} else if (previousPurchases.length === 1) {
+			// Second top-up bonus check
+			const secondBonusMultiplier = process.env.SECOND_TOPUP_BONUS_MULTIPLIER
+				? parseFloat(process.env.SECOND_TOPUP_BONUS_MULTIPLIER)
+				: 0;
+			const secondBonusWindowDays = Number(
+				process.env.SECOND_TOPUP_BONUS_WINDOW_DAYS ?? "30",
+			);
+			const secondBonusMax = Number(process.env.SECOND_TOPUP_BONUS_MAX ?? "25");
+
+			if (secondBonusMultiplier && secondBonusMultiplier > 1) {
+				const firstPurchaseDate = previousPurchases[0].createdAt;
+				const daysSinceFirst =
+					(Date.now() - firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24);
+
+				if (daysSinceFirst <= secondBonusWindowDays) {
+					const potentialBonus = creditAmount * (secondBonusMultiplier - 1);
+					bonusAmount = Math.min(potentialBonus, secondBonusMax);
+					finalCreditAmount = creditAmount + bonusAmount;
+					bonusType = "second_topup";
+
+					logger.info(
+						`Applied second top-up bonus of $${bonusAmount} to organization ${organizationId} (${secondBonusMultiplier}x multiplier, max $${secondBonusMax}, ${Math.round(daysSinceFirst)} days since first purchase)`,
+					);
+				}
+			}
 		}
 	}
 
-	return { finalCreditAmount, bonusAmount };
+	return { finalCreditAmount, bonusAmount, bonusType };
 }
 
 async function recordCreditTopUp({
@@ -543,6 +579,7 @@ async function recordCreditTopUp({
 	description,
 	organization,
 	source,
+	bonusType,
 }: {
 	organizationId: string;
 	finalCreditAmount: number;
@@ -561,6 +598,7 @@ async function recordCreditTopUp({
 		billingNotes: string | null;
 	};
 	source: string;
+	bonusType?: "first_purchase" | "second_topup" | null;
 }) {
 	await db
 		.update(tables.organization)
@@ -569,8 +607,16 @@ async function recordCreditTopUp({
 			paymentFailureCount: 0,
 			lastPaymentFailureAt: null,
 			paymentFailureStartedAt: null,
+			lastTopUpAmount: creditAmount.toString(),
 		})
 		.where(eq(tables.organization.id, organizationId));
+
+	// Reset low-balance email dedup so alerts can fire again on next cycle
+	await db
+		.delete(tables.followUpEmail)
+		.where(
+			sql`${tables.followUpEmail.organizationId} = ${organizationId} AND ${tables.followUpEmail.emailType} IN ('low_balance_20', 'low_balance_5')`,
+		);
 
 	const [completedTransaction] = await db
 		.insert(tables.transaction)
@@ -594,8 +640,10 @@ async function recordCreditTopUp({
 	];
 
 	if (bonusAmount > 0) {
+		const bonusLabel =
+			bonusType === "second_topup" ? "Second top-up bonus" : "First-time bonus";
 		lineItems.push({
-			description: `First-time bonus (+$${bonusAmount.toFixed(2)})`,
+			description: `${bonusLabel} (+$${bonusAmount.toFixed(2)})`,
 			amount: 0,
 		});
 	}
@@ -640,6 +688,19 @@ async function recordCreditTopUp({
 			organization: organizationId,
 		},
 	});
+
+	if (bonusType === "second_topup" && bonusAmount > 0) {
+		posthog.capture({
+			distinctId: "organization",
+			event: "second_topup_bonus_applied",
+			groups: { organization: organizationId },
+			properties: {
+				bonusAmount,
+				creditAmount,
+				organization: organizationId,
+			},
+		});
+	}
 }
 
 async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
@@ -712,11 +773,15 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 			})
 		: null;
 
-	const { finalCreditAmount, bonusAmount } = await applyFirstTimeBonus({
-		organizationId,
-		creditAmount,
-		isEmailVerified: resolvedUser?.emailVerified ?? false,
-	});
+	const { finalCreditAmount, bonusAmount, bonusType } =
+		await applyFirstTimeBonus({
+			organizationId,
+			creditAmount,
+			isEmailVerified: resolvedUser?.emailVerified ?? false,
+		});
+
+	const bonusLabel =
+		bonusType === "second_topup" ? "second top-up bonus" : "first-time bonus";
 
 	await recordCreditTopUp({
 		organizationId,
@@ -728,10 +793,11 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		stripePaymentIntentId,
 		description:
 			bonusAmount > 0
-				? `Credit top-up via Stripe Checkout (+$${bonusAmount.toFixed(2)} first-time bonus)`
+				? `Credit top-up via Stripe Checkout (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
 				: "Credit top-up via Stripe Checkout",
 		organization,
 		source: "stripe_checkout",
+		bonusType,
 	});
 
 	if (userEmail) {
@@ -796,18 +862,21 @@ async function handlePaymentIntentSucceeded(
 			})
 		: null;
 
-	const { finalCreditAmount, bonusAmount } = await applyFirstTimeBonus({
-		organizationId,
-		creditAmount,
-		isEmailVerified: resolvedUser?.emailVerified ?? false,
-	});
+	const { finalCreditAmount, bonusAmount, bonusType } =
+		await applyFirstTimeBonus({
+			organizationId,
+			creditAmount,
+			isEmailVerified: resolvedUser?.emailVerified ?? false,
+		});
 
 	// Check if this is an auto top-up with an existing pending transaction
 	const transactionId = metadata?.transactionId;
 
+	const bonusLabel =
+		bonusType === "second_topup" ? "second top-up bonus" : "first-time bonus";
 	const transactionDescription =
 		bonusAmount > 0
-			? `Credit top-up via Stripe (+$${bonusAmount.toFixed(2)} first-time bonus)`
+			? `Credit top-up via Stripe (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
 			: "Credit top-up via Stripe";
 
 	if (transactionId) {
@@ -818,8 +887,16 @@ async function handlePaymentIntentSucceeded(
 				paymentFailureCount: 0,
 				lastPaymentFailureAt: null,
 				paymentFailureStartedAt: null,
+				lastTopUpAmount: creditAmount.toString(),
 			})
 			.where(eq(tables.organization.id, organizationId));
+
+		// Reset low-balance email dedup so alerts can fire again on next cycle
+		await db
+			.delete(tables.followUpEmail)
+			.where(
+				sql`${tables.followUpEmail.organizationId} = ${organizationId} AND ${tables.followUpEmail.emailType} IN ('low_balance_20', 'low_balance_5')`,
+			);
 
 		const updatedTransaction = await db
 			.update(tables.transaction)
@@ -869,8 +946,12 @@ async function handlePaymentIntentSucceeded(
 		];
 
 		if (bonusAmount > 0) {
+			const autoBonusLabel =
+				bonusType === "second_topup"
+					? "Second top-up bonus"
+					: "First-time bonus";
 			lineItems.push({
-				description: `First-time bonus (+$${bonusAmount.toFixed(2)})`,
+				description: `${autoBonusLabel} (+$${bonusAmount.toFixed(2)})`,
 				amount: 0,
 			});
 		}
@@ -927,6 +1008,7 @@ async function handlePaymentIntentSucceeded(
 			description: transactionDescription,
 			organization,
 			source: "payment_intent",
+			bonusType,
 		});
 	}
 
@@ -970,6 +1052,19 @@ async function handlePaymentIntentFailed(
 	const errorMessage = lastPaymentError?.message ?? "Unknown error";
 	const errorCode = lastPaymentError?.code;
 	const declineCode = lastPaymentError?.decline_code;
+
+	// Record payment failure for admin dashboard
+	await db.insert(tables.paymentFailure).values({
+		organizationId,
+		userEmail: metadata?.userEmail ?? null,
+		amount: totalAmountInDollars.toString(),
+		currency: paymentIntent.currency.toUpperCase(),
+		declineCode: declineCode ?? null,
+		errorCode: errorCode ?? null,
+		failureMessage: errorMessage,
+		stripePaymentIntentId: paymentIntent.id,
+		source: metadata?.autoTopUp === "true" ? "auto_topup" : "manual",
+	});
 
 	// Log warning for payment failure
 	logger.warn("Payment intent failed", {

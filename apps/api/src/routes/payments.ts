@@ -820,6 +820,8 @@ const calculateFeesRoute = createRoute({
 						bonusEnabled: z.boolean(),
 						bonusEligible: z.boolean(),
 						bonusIneligibilityReason: z.string().optional(),
+						bonusType: z.enum(["first_purchase", "second_topup"]).optional(),
+						secondTopupBonusExpiresInDays: z.number().optional(),
 					}),
 				},
 			},
@@ -859,12 +861,14 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		amount,
 	});
 
-	// Calculate bonus for first-time credit purchases
+	// Calculate bonus for first-time and second top-up credit purchases
 	let bonusAmount = 0;
 	let finalCreditAmount = amount;
 	let bonusEnabled = false;
 	let bonusEligible = false;
 	let bonusIneligibilityReason: string | undefined;
+	let bonusType: "first_purchase" | "second_topup" | undefined;
+	let secondTopupBonusExpiresInDays: number | undefined;
 
 	const bonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
 		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
@@ -873,29 +877,60 @@ payments.openapi(calculateFeesRoute, async (c) => {
 	bonusEnabled = bonusMultiplier > 1;
 
 	if (bonusEnabled) {
-		// Check email verification
 		if (!userOrganization.user || !userOrganization.user.emailVerified) {
 			bonusIneligibilityReason = "email_not_verified";
 		} else {
-			// Check if this is the first credit purchase
-			const previousPurchases = await db.query.transaction.findFirst({
+			const previousPurchases = await db.query.transaction.findMany({
 				where: {
 					organizationId: { eq: userOrganization.organization.id },
 					type: { eq: "credit_topup" },
 					status: { eq: "completed" },
 				},
+				orderBy: { createdAt: "asc" },
+				limit: 2,
 			});
 
-			if (previousPurchases) {
-				bonusIneligibilityReason = "already_purchased";
-			} else {
-				// This is the first credit purchase, apply bonus
+			if (previousPurchases.length === 0) {
 				bonusEligible = true;
+				bonusType = "first_purchase";
 				const potentialBonus = amount * (bonusMultiplier - 1);
-				const maxBonus = 50; // Max $50 bonus
-
+				const maxBonus = 50;
 				bonusAmount = Math.min(potentialBonus, maxBonus);
 				finalCreditAmount = amount + bonusAmount;
+			} else if (previousPurchases.length === 1) {
+				// Check second top-up bonus eligibility
+				const secondBonusMultiplier = process.env.SECOND_TOPUP_BONUS_MULTIPLIER
+					? parseFloat(process.env.SECOND_TOPUP_BONUS_MULTIPLIER)
+					: 0;
+				const secondBonusWindowDays = Number(
+					process.env.SECOND_TOPUP_BONUS_WINDOW_DAYS ?? "30",
+				);
+				const secondBonusMax = Number(
+					process.env.SECOND_TOPUP_BONUS_MAX ?? "25",
+				);
+
+				if (secondBonusMultiplier && secondBonusMultiplier > 1) {
+					const firstPurchaseDate = previousPurchases[0].createdAt;
+					const daysSinceFirst =
+						(Date.now() - firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24);
+
+					if (daysSinceFirst <= secondBonusWindowDays) {
+						bonusEligible = true;
+						bonusType = "second_topup";
+						const potentialBonus = amount * (secondBonusMultiplier - 1);
+						bonusAmount = Math.min(potentialBonus, secondBonusMax);
+						finalCreditAmount = amount + bonusAmount;
+						secondTopupBonusExpiresInDays = Math.ceil(
+							secondBonusWindowDays - daysSinceFirst,
+						);
+					} else {
+						bonusIneligibilityReason = "second_topup_window_expired";
+					}
+				} else {
+					bonusIneligibilityReason = "already_purchased";
+				}
+			} else {
+				bonusIneligibilityReason = "already_purchased";
 			}
 		}
 	}
@@ -907,5 +942,7 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		bonusEnabled,
 		bonusEligible,
 		bonusIneligibilityReason,
+		bonusType,
+		secondTopupBonusExpiresInDays,
 	});
 });

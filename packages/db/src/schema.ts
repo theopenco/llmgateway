@@ -164,6 +164,8 @@ export const organization = pgTable("organization", {
 	devPlanCancelled: boolean().notNull().default(false),
 	devPlanExpiresAt: timestamp(),
 	devPlanAllowAllModels: boolean().notNull().default(false),
+	// Last top-up amount (used for low balance alert thresholds)
+	lastTopUpAmount: decimal(),
 });
 
 export const referral = pgTable(
@@ -249,13 +251,43 @@ export const followUpEmail = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
 		emailType: text({
-			enum: ["no_purchase", "low_usage", "no_repurchase"],
+			enum: [
+				"no_purchase",
+				"low_usage",
+				"no_repurchase",
+				"low_balance_20",
+				"low_balance_5",
+			],
 		}).notNull(),
 		sentTo: text().notNull(),
 	},
 	(table) => [
 		unique().on(table.organizationId, table.emailType),
 		index("follow_up_email_organization_id_idx").on(table.organizationId),
+	],
+);
+
+export const paymentFailure = pgTable(
+	"payment_failure",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userEmail: text(),
+		amount: decimal(),
+		currency: text().notNull().default("USD"),
+		declineCode: text(),
+		errorCode: text(),
+		failureMessage: text(),
+		stripePaymentIntentId: text(),
+		source: text(), // "auto_topup" | "manual" | "checkout"
+	},
+	(table) => [
+		index("payment_failure_organization_id_idx").on(table.organizationId),
+		index("payment_failure_created_at_idx").on(table.createdAt),
+		index("payment_failure_decline_code_idx").on(table.declineCode),
 	],
 );
 

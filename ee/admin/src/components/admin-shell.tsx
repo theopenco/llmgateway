@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	AlertTriangle,
 	Building2,
 	Cpu,
 	Gauge,
@@ -89,6 +90,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
 	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
+	const isPaymentFailures = pathname.startsWith("/payment-failures");
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -198,6 +200,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isChatSupportLogs} size="lg">
 										<MessageCircle className="h-4 w-4" />
 										<span>Chat Support Logs</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/payment-failures" className="block">
+									<SidebarMenuButton isActive={isPaymentFailures} size="lg">
+										<AlertTriangle className="h-4 w-4" />
+										<span>Payment Failures</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

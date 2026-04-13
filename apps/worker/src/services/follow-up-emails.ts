@@ -399,6 +399,41 @@ async function processNoRepurchaseEmails(): Promise<void> {
 	}
 }
 
+// ─── Low Balance Alert Emails ─────────────────────────────────────────────────
+
+export async function sendLowBalanceEmail(opts: {
+	to: string;
+	currentBalance: number;
+	threshold: string;
+	organizationId: string;
+}): Promise<void> {
+	const thresholdLabel = opts.threshold === "20" ? "20%" : "5%";
+	const subject =
+		opts.threshold === "5"
+			? "Urgent: Your LLM Gateway credits are almost gone"
+			: "Your LLM Gateway credits are running low";
+
+	const text = `Hi there,
+
+Your LLM Gateway credit balance has dropped below ${thresholdLabel} of your last top-up.
+
+Current balance: $${opts.currentBalance.toFixed(2)}
+
+To keep your API access uninterrupted:
+
+1. Top up now: https://llmgateway.io/dashboard
+2. Enable auto-reload: https://llmgateway.io/dashboard/${opts.organizationId}/org/billing (scroll to Auto Top-Up)
+
+Auto-reload ensures you never run out — your card is charged automatically when credits get low.
+
+Best,
+The LLM Gateway Team`;
+
+	await sendFollowUpEmail({ to: opts.to, subject, text });
+}
+
+export { getOrgRecipientEmail };
+
 // ─── Main orchestrator ───────────────────────────────────────────────────────
 
 async function processFollowUpEmails(): Promise<void> {

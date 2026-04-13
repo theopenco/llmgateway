@@ -5,7 +5,18 @@ import { z } from "zod";
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { and, db, desc, eq, gte, isNull, or, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	desc,
+	eq,
+	gte,
+	isNull,
+	or,
+	sql,
+	tables,
+	projectHourlyStats,
+} from "@llmgateway/db";
 import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
@@ -858,6 +869,90 @@ organization.openapi(getOrgDiscounts, async (c) => {
 	return c.json({
 		orgDiscounts,
 		globalDiscounts,
+	});
+});
+
+// ─── Credits Runway ──────────────────────────────────────────────────────────
+
+const getCreditsRunway = createRoute({
+	method: "get",
+	path: "/{id}/credits-runway",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						avgDailySpend7d: z.number(),
+						runwayDays: z.number().nullable(),
+						balance: z.number(),
+					}),
+				},
+			},
+			description: "Credits runway computed successfully",
+		},
+	},
+});
+
+organization.openapi(getCreditsRunway, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	if (!hasAccess) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const balance = Number(org.credits ?? 0);
+
+	// Rolling 7-day average daily spend from projectHourlyStats
+	// eslint-disable-next-line no-mixed-operators
+	const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+	const result = await db
+		.select({
+			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`,
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(tables.project.id, projectHourlyStats.projectId),
+		)
+		.where(
+			and(
+				eq(tables.project.organizationId, id),
+				gte(projectHourlyStats.hourTimestamp, sevenDaysAgo),
+			),
+		);
+
+	const totalCost7d = Number(result[0]?.totalCost ?? 0);
+	const avgDailySpend7d = totalCost7d / 7;
+
+	let runwayDays: number | null = null;
+	if (avgDailySpend7d > 0) {
+		const raw = balance / avgDailySpend7d;
+		runwayDays = raw > 30 ? 31 : Math.round(raw); // 31 = "30+"
+	}
+
+	return c.json({
+		avgDailySpend7d: Math.round(avgDailySpend7d * 100) / 100,
+		runwayDays,
+		balance,
 	});
 });
 

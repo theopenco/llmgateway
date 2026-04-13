@@ -644,6 +644,8 @@ export async function batchProcessLogs(): Promise<void> {
 		return;
 	}
 
+	let deductedOrgIds: string[] = [];
+
 	try {
 		await db.transaction(async (tx) => {
 			// Get unprocessed logs with row-level locking to prevent concurrent processing
@@ -861,6 +863,9 @@ export async function batchProcessLogs(): Promise<void> {
 				}
 			}
 
+			// Capture org IDs with credit deductions for low-balance alerts
+			deductedOrgIds = Array.from(orgCosts.keys());
+
 			// Apply referral earnings to referrer organizations
 			for (const [referrerOrgId, earnings] of referralEarnings.entries()) {
 				if (earnings.greaterThan(0)) {
@@ -940,6 +945,11 @@ export async function batchProcessLogs(): Promise<void> {
 
 			logger.debug(`Marked ${logIds.length} logs as processed`);
 		});
+
+		// Async low-balance alert check (outside transaction, non-blocking)
+		if (deductedOrgIds.length > 0) {
+			void checkLowBalanceAlerts(deductedOrgIds);
+		}
 	} catch (error) {
 		logger.error(
 			"Error processing batch credit deductions",
@@ -948,6 +958,104 @@ export async function batchProcessLogs(): Promise<void> {
 	} finally {
 		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
 	}
+}
+
+async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
+	try {
+		const orgs = await db
+			.select()
+			.from(organization)
+			.where(inArray(organization.id, orgIds));
+
+		for (const org of orgs) {
+			const lastTopUp = Number(org.lastTopUpAmount ?? 0);
+			if (lastTopUp <= 0) {
+				continue;
+			}
+
+			const currentBalance = Number(org.credits ?? 0);
+			const ratio = currentBalance / lastTopUp;
+
+			// Check 20% threshold
+			if (ratio < 0.2) {
+				await enqueueLowBalanceEmail(org.id, "low_balance_20", currentBalance);
+			}
+
+			// Check 5% threshold
+			if (ratio < 0.05) {
+				await enqueueLowBalanceEmail(org.id, "low_balance_5", currentBalance);
+			}
+		}
+	} catch (error) {
+		logger.error(
+			"Error checking low balance alerts",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+}
+
+async function enqueueLowBalanceEmail(
+	organizationId: string,
+	emailType: "low_balance_20" | "low_balance_5",
+	currentBalance: number,
+): Promise<void> {
+	const { getOrgRecipientEmail, sendLowBalanceEmail } = await import(
+		"./services/follow-up-emails.js"
+	);
+
+	const email = await getOrgRecipientEmail(organizationId);
+	if (!email) {
+		return;
+	}
+
+	// Insert dedup record — will no-op if already sent for this cycle
+	const result = await db
+		.insert(tables.followUpEmail)
+		.values({
+			organizationId,
+			emailType,
+			sentTo: email,
+		})
+		.onConflictDoNothing();
+
+	if (result.rowCount === 0) {
+		return;
+	}
+
+	const threshold = emailType === "low_balance_20" ? "20" : "5";
+
+	if (process.env.EMAIL_FOLLOW_UPS === "true") {
+		await sendLowBalanceEmail({
+			to: email,
+			currentBalance,
+			threshold,
+			organizationId,
+		});
+	} else {
+		logger.info("Low balance alert (dry run)", {
+			kind: "low_balance_alert",
+			emailType,
+			organizationId,
+			to: email,
+			currentBalance,
+			threshold,
+		});
+	}
+
+	const { posthog } = await import("./posthog.js");
+	posthog.capture({
+		distinctId: "organization",
+		event: "low_balance_alert_sent",
+		groups: { organization: organizationId },
+		properties: { threshold, currentBalance, organization: organizationId },
+	});
+
+	logger.info("Low balance alert sent", {
+		emailType,
+		organizationId,
+		currentBalance,
+		threshold,
+	});
 }
 
 export async function processLogQueue(): Promise<void> {

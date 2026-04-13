@@ -4087,6 +4087,72 @@ export interface paths {
         };
         trace?: never;
     };
+    "/admin/payment-failures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    days?: string;
+                    declineCode?: string;
+                    search?: string;
+                    limit?: string;
+                    offset?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Payment failures retrieved successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            failures: {
+                                id: string;
+                                createdAt: string;
+                                organizationId: string;
+                                userEmail: string | null;
+                                amount: string | null;
+                                currency: string;
+                                declineCode: string | null;
+                                errorCode: string | null;
+                                failureMessage: string | null;
+                                stripePaymentIntentId: string | null;
+                                source: string | null;
+                                organizationName: string;
+                                billingEmail: string;
+                            }[];
+                            summary: {
+                                total7d: number;
+                                total30d: number;
+                                byDeclineCode: {
+                                    declineCode: string | null;
+                                    count: number;
+                                }[];
+                            };
+                            totalCount: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/keys/api": {
         parameters: {
             query?: never;
@@ -5808,6 +5874,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs/{id}/credits-runway": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Credits runway computed successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            avgDailySpend7d: number;
+                            runwayDays: number | null;
+                            balance: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/team/{organizationId}/members": {
         parameters: {
             query?: never;
@@ -6322,6 +6429,9 @@ export interface paths {
                             bonusEnabled: boolean;
                             bonusEligible: boolean;
                             bonusIneligibilityReason?: string;
+                            /** @enum {string} */
+                            bonusType?: "first_purchase" | "second_topup";
+                            secondTopupBonusExpiresInDays?: number;
                         };
                     };
                 };
