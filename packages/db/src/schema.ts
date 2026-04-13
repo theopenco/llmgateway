@@ -283,6 +283,7 @@ export const enterpriseContactSubmission = pgTable(
 			.notNull()
 			.default("pending"),
 		rejectionReason: text(),
+		archivedAt: timestamp(),
 	},
 	(table) => [
 		index("enterprise_contact_submission_created_at_idx").on(table.createdAt),
@@ -936,6 +937,7 @@ export const chatSupportConversation = pgTable(
 		userAgent: text(),
 		messageCount: integer().notNull().default(0),
 		escalatedAt: timestamp(),
+		archivedAt: timestamp(),
 	},
 	(table) => [
 		index("chat_support_conversation_created_at_idx").on(table.createdAt),

@@ -90,7 +90,7 @@ export default async function ContactSubmissionDetailPage({
 					<Badge variant={getStatusBadgeVariant(data.spamFilterStatus)}>
 						{getStatusLabel(data.spamFilterStatus)}
 					</Badge>
-					<DeleteSubmissionButton id={data.id} />
+					<DeleteSubmissionButton id={data.id} archivedAt={data.archivedAt} />
 				</div>
 				<p className="text-sm text-muted-foreground">
 					Submitted {formatDate(data.createdAt)}

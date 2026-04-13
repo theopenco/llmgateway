@@ -122,6 +122,7 @@ export default async function ContactSubmissionsPage({
 		status?: string;
 		sortBy?: string;
 		sortOrder?: string;
+		archived?: string;
 	}>;
 }) {
 	await requireSession();
@@ -132,6 +133,7 @@ export default async function ContactSubmissionsPage({
 	const status = (params?.status as Status) || "";
 	const sortBy = (params?.sortBy as SortBy) || "createdAt";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
+	const archived = params?.archived === "true";
 	const limit = 25;
 	const offset = (page - 1) * limit;
 
@@ -143,6 +145,7 @@ export default async function ContactSubmissionsPage({
 				offset,
 				search: search || undefined,
 				status: (status as Status) || undefined,
+				archived: archived ? "true" : "false",
 				sortBy,
 				sortOrder,
 			},
@@ -175,6 +178,7 @@ export default async function ContactSubmissionsPage({
 		const statusValue = formData.get("status") as string;
 		const sortByValue = formData.get("sortBy") as string;
 		const sortOrderValue = formData.get("sortOrder") as string;
+		const archivedValue = formData.get("archived") as string;
 		const searchParam = searchValue
 			? `&search=${encodeURIComponent(searchValue)}`
 			: "";
@@ -182,8 +186,9 @@ export default async function ContactSubmissionsPage({
 			? `&status=${encodeURIComponent(statusValue)}`
 			: "";
 		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
+		const archivedParam = archivedValue === "true" ? "&archived=true" : "";
 		redirect(
-			`/contact-submissions?page=1${searchParam}${statusParam}${sortParam}`,
+			`/contact-submissions?page=1${searchParam}${statusParam}${sortParam}${archivedParam}`,
 		);
 	}
 
@@ -204,6 +209,11 @@ export default async function ContactSubmissionsPage({
 				>
 					<input type="hidden" name="sortBy" value={sortBy} />
 					<input type="hidden" name="sortOrder" value={sortOrder} />
+					<input
+						type="hidden"
+						name="archived"
+						value={archived ? "true" : "false"}
+					/>
 					<select
 						name="status"
 						defaultValue={status}
@@ -227,6 +237,13 @@ export default async function ContactSubmissionsPage({
 					</div>
 					<Button type="submit" size="sm">
 						Search
+					</Button>
+					<Button variant={archived ? "default" : "outline"} size="sm" asChild>
+						<Link
+							href={`/contact-submissions?page=1${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "" : "&archived=true"}`}
+						>
+							Archived
+						</Link>
 					</Button>
 				</form>
 			</header>

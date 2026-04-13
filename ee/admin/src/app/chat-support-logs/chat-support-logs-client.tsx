@@ -3,6 +3,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	AlertTriangle,
+	Archive,
+	ArchiveRestore,
 	ArrowLeft,
 	Clock,
 	Globe,
@@ -123,6 +125,7 @@ export function ChatSupportLogsClient() {
 	const [debouncedSearch, setDebouncedSearch] = useState("");
 	const [replyText, setReplyText] = useState("");
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+	const [showArchived, setShowArchived] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -163,6 +166,7 @@ export function ChatSupportLogsClient() {
 					limit: 100,
 					offset: 0,
 					search: debouncedSearch || undefined,
+					archived: showArchived ? "true" : "false",
 				},
 			},
 		},
@@ -203,6 +207,18 @@ export function ChatSupportLogsClient() {
 		},
 	);
 
+	const invalidateChatLists = () => {
+		void queryClient.invalidateQueries({
+			queryKey: $api.queryOptions("get", "/admin/chat-support-logs").queryKey,
+		});
+		void queryClient.invalidateQueries({
+			queryKey: $api.queryOptions(
+				"get",
+				"/admin/chat-support-logs/read-statuses",
+			).queryKey,
+		});
+	};
+
 	const deleteMutation = $api.useMutation(
 		"delete",
 		"/admin/chat-support-logs/{id}",
@@ -210,16 +226,18 @@ export function ChatSupportLogsClient() {
 			onSuccess: () => {
 				setSelectedId(null);
 				setDeleteDialogOpen(false);
-				void queryClient.invalidateQueries({
-					queryKey: $api.queryOptions("get", "/admin/chat-support-logs")
-						.queryKey,
-				});
-				void queryClient.invalidateQueries({
-					queryKey: $api.queryOptions(
-						"get",
-						"/admin/chat-support-logs/read-statuses",
-					).queryKey,
-				});
+				invalidateChatLists();
+			},
+		},
+	);
+
+	const archiveMutation = $api.useMutation(
+		"patch",
+		"/admin/chat-support-logs/{id}/archive",
+		{
+			onSuccess: () => {
+				setSelectedId(null);
+				invalidateChatLists();
 			},
 		},
 	);
@@ -281,9 +299,27 @@ export function ChatSupportLogsClient() {
 			>
 				{/* Search header */}
 				<div className="border-b border-border/60 px-4 py-3">
-					<h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
-						Conversations
-					</h2>
+					<div className="mb-3 flex items-center justify-between">
+						<h2 className="text-sm font-semibold tracking-tight text-foreground">
+							Conversations
+						</h2>
+						<button
+							type="button"
+							onClick={() => {
+								setShowArchived((v) => !v);
+								setSelectedId(null);
+							}}
+							className={cn(
+								"flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
+								showArchived
+									? "bg-primary text-primary-foreground"
+									: "text-muted-foreground hover:text-foreground",
+							)}
+						>
+							<Archive className="h-3 w-3" />
+							Archived
+						</button>
+					</div>
 					<div className="relative">
 						<Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
 						<input
@@ -480,7 +516,7 @@ export function ChatSupportLogsClient() {
 											key={message.id}
 											className={cn(
 												"flex",
-												isAdmin ? "justify-end" : "justify-start",
+												isUser ? "justify-start" : "justify-end",
 											)}
 										>
 											<div className="flex max-w-[70%] flex-col gap-1">
@@ -495,7 +531,7 @@ export function ChatSupportLogsClient() {
 													</span>
 												)}
 												{isAssistant && (
-													<span className="pl-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+													<span className="pr-1 text-right text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
 														Bot
 													</span>
 												)}
@@ -516,7 +552,7 @@ export function ChatSupportLogsClient() {
 												<span
 													className={cn(
 														"text-[11px] text-muted-foreground",
-														isAdmin ? "pr-1 text-right" : "pl-1",
+														isUser ? "pl-1" : "pr-1 text-right",
 													)}
 												>
 													{formatMessageTime(message.createdAt)}
@@ -735,6 +771,36 @@ export function ChatSupportLogsClient() {
 
 						{/* Delete conversation */}
 						<div className="border-t border-border/60 p-4">
+							<Button
+								variant="outline"
+								size="sm"
+								className="w-full"
+								disabled={archiveMutation.isPending}
+								onClick={() => {
+									if (selectedId) {
+										archiveMutation.mutate({
+											params: { path: { id: selectedId } },
+											body: {
+												archived: !(
+													detail?.archivedAt ?? selectedConv?.archivedAt
+												),
+											},
+										});
+									}
+								}}
+							>
+								{(detail?.archivedAt ?? selectedConv?.archivedAt) ? (
+									<>
+										<ArchiveRestore className="mr-2 h-3.5 w-3.5" />
+										Unarchive
+									</>
+								) : (
+									<>
+										<Archive className="mr-2 h-3.5 w-3.5" />
+										Archive
+									</>
+								)}
+							</Button>
 							<Button
 								variant="destructive"
 								size="sm"
