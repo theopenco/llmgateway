@@ -6303,18 +6303,17 @@ admin.openapi(getPaymentFailures, async (c) => {
 	// eslint-disable-next-line no-mixed-operators
 	const since30d = new Date(Date.now() - 30 * MS_PER_DAY);
 
-	// Conditions that only reference paymentFailure columns (safe for all queries)
+	// Base conditions reference only paymentFailure columns (safe without JOIN)
 	const baseConditions = [gte(tables.paymentFailure.createdAt, sinceDate)];
 
 	if (declineCode) {
 		baseConditions.push(eq(tables.paymentFailure.declineCode, declineCode));
 	}
 
-	if (search) {
-		baseConditions.push(
-			sql`${tables.paymentFailure.userEmail} ILIKE ${"%" + search + "%"}`,
-		);
-	}
+	// Search condition requires the org JOIN (checks both userEmail and billingEmail)
+	const searchCondition = search
+		? sql`(${tables.paymentFailure.userEmail} ILIKE ${"%" + search + "%"} OR ${tables.organization.billingEmail} ILIKE ${"%" + search + "%"})`
+		: undefined;
 
 	const failures = await db
 		.select({
@@ -6337,7 +6336,7 @@ admin.openapi(getPaymentFailures, async (c) => {
 			tables.organization,
 			eq(tables.organization.id, tables.paymentFailure.organizationId),
 		)
-		.where(and(...baseConditions))
+		.where(and(...baseConditions, searchCondition))
 		.orderBy(desc(tables.paymentFailure.createdAt))
 		.limit(limitNum)
 		.offset(offsetNum);
@@ -6363,10 +6362,21 @@ admin.openapi(getPaymentFailures, async (c) => {
 		.groupBy(tables.paymentFailure.declineCode)
 		.orderBy(sql`COUNT(*) DESC`);
 
-	const [totalCountResult] = await db
+	// totalCount needs the JOIN when search references org columns
+	const totalCountQuery = db
 		.select({ count: sql<number>`COUNT(*)` })
-		.from(tables.paymentFailure)
-		.where(and(...baseConditions));
+		.from(tables.paymentFailure);
+
+	if (searchCondition) {
+		totalCountQuery.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, tables.paymentFailure.organizationId),
+		);
+	}
+
+	const [totalCountResult] = await totalCountQuery.where(
+		and(...baseConditions, searchCondition),
+	);
 
 	return c.json({
 		failures,

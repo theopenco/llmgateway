@@ -905,7 +905,13 @@ async function handlePaymentIntentSucceeded(
 		await db
 			.delete(tables.followUpEmail)
 			.where(
-				sql`${tables.followUpEmail.organizationId} = ${organizationId} AND ${tables.followUpEmail.emailType} IN ('low_balance_20', 'low_balance_5')`,
+				and(
+					eq(tables.followUpEmail.organizationId, organizationId),
+					inArray(tables.followUpEmail.emailType, [
+						"low_balance_20",
+						"low_balance_5",
+					]),
+				),
 			);
 
 		const updatedTransaction = await db

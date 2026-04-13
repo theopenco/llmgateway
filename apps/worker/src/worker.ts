@@ -1034,15 +1034,7 @@ async function enqueueLowBalanceEmail(
 
 	const threshold = emailType === "low_balance_20" ? "20" : "5";
 
-	// Send first, then persist dedup record on success
-	if (process.env.EMAIL_FOLLOW_UPS === "true") {
-		await sendLowBalanceEmail({
-			to: email,
-			currentBalance,
-			threshold,
-			organizationId,
-		});
-	} else {
+	if (process.env.EMAIL_FOLLOW_UPS !== "true") {
 		logger.info("Low balance alert (dry run)", {
 			kind: "low_balance_alert",
 			emailType,
@@ -1051,7 +1043,16 @@ async function enqueueLowBalanceEmail(
 			currentBalance,
 			threshold,
 		});
+		return;
 	}
+
+	// Send first, then persist dedup record on success
+	await sendLowBalanceEmail({
+		to: email,
+		currentBalance,
+		threshold,
+		organizationId,
+	});
 
 	posthog.capture({
 		distinctId: "organization",

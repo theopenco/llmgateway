@@ -34,7 +34,10 @@ export default async function PaymentFailuresPage({
 	await requireSession();
 
 	const params = await searchParams;
-	const days = Number(params.days ?? "30") || 30;
+	const rawDays = Number(params.days ?? "30");
+	const days = Number.isFinite(rawDays)
+		? Math.min(Math.max(Math.round(rawDays), 1), 365)
+		: 30;
 	const declineCode = params.declineCode ?? "";
 	const search = params.search ?? "";
 
@@ -59,7 +62,7 @@ export default async function PaymentFailuresPage({
 		);
 	}
 
-	const { failures, summary } = data;
+	const { failures, summary, totalCount } = data;
 
 	return (
 		<div className="flex flex-col gap-6 p-4 md:p-8">
@@ -199,6 +202,13 @@ export default async function PaymentFailuresPage({
 					</TableBody>
 				</Table>
 			</div>
+
+			{totalCount > 100 && (
+				<p className="text-sm text-muted-foreground text-center">
+					Showing 100 of {totalCount} results. Narrow your search or reduce the
+					date range to see more.
+				</p>
+			)}
 		</div>
 	);
 }
