@@ -235,9 +235,15 @@ export function ChatSupportLogsClient() {
 		"patch",
 		"/admin/chat-support-logs/{id}/archive",
 		{
-			onSuccess: () => {
+			onSuccess: (_data, { params }) => {
+				const archivedId = params.path.id;
 				setSelectedId(null);
 				invalidateChatLists();
+				void queryClient.invalidateQueries({
+					queryKey: $api.queryOptions("get", "/admin/chat-support-logs/{id}", {
+						params: { path: { id: archivedId } },
+					}).queryKey,
+				});
 			},
 		},
 	);

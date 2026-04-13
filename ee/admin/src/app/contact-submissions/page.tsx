@@ -34,6 +34,7 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	status,
+	archived,
 }: {
 	label: string;
 	sortKey: SortBy;
@@ -41,13 +42,15 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	status: string;
+	archived: boolean;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const statusParam = status ? `&status=${encodeURIComponent(status)}` : "";
-	const href = `/contact-submissions?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${statusParam}`;
+	const archivedParam = archived ? "&archived=true" : "";
+	const href = `/contact-submissions?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${statusParam}${archivedParam}`;
 
 	return (
 		<Link
@@ -260,6 +263,7 @@ export default async function ContactSubmissionsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									status={status}
+									archived={archived}
 								/>
 							</TableHead>
 							<TableHead>
@@ -270,6 +274,7 @@ export default async function ContactSubmissionsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									status={status}
+									archived={archived}
 								/>
 							</TableHead>
 							<TableHead>
@@ -280,6 +285,7 @@ export default async function ContactSubmissionsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									status={status}
+									archived={archived}
 								/>
 							</TableHead>
 							<TableHead>Country</TableHead>
@@ -293,6 +299,7 @@ export default async function ContactSubmissionsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									status={status}
+									archived={archived}
 								/>
 							</TableHead>
 							<TableHead>Reason</TableHead>
@@ -372,7 +379,7 @@ export default async function ContactSubmissionsPage({
 					<div className="flex items-center gap-2">
 						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
 							<Link
-								href={`/contact-submissions?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}`}
+								href={`/contact-submissions?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
 								<ChevronLeft className="h-4 w-4" />
@@ -389,7 +396,7 @@ export default async function ContactSubmissionsPage({
 							disabled={page >= totalPages}
 						>
 							<Link
-								href={`/contact-submissions?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}`}
+								href={`/contact-submissions?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""
 								}

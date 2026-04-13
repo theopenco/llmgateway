@@ -59,6 +59,7 @@ export function DeleteSubmissionButton({
 						{ params: { path: { id } } },
 					).queryKey,
 				});
+				router.refresh();
 			},
 		},
 	);

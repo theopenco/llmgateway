@@ -6168,18 +6168,15 @@ admin.openapi(archiveContactSubmission, async (c) => {
 	const { id } = c.req.valid("param");
 	const { archived } = c.req.valid("json");
 
-	const existing = await db.query.enterpriseContactSubmission.findFirst({
-		where: { id: { eq: id } },
-	});
-
-	if (!existing) {
-		throw new HTTPException(404, { message: "Submission not found" });
-	}
-
-	await db
+	const rows = await db
 		.update(tables.enterpriseContactSubmission)
 		.set({ archivedAt: archived ? new Date() : null })
-		.where(eq(tables.enterpriseContactSubmission.id, id));
+		.where(eq(tables.enterpriseContactSubmission.id, id))
+		.returning();
+
+	if (rows.length === 0) {
+		throw new HTTPException(404, { message: "Submission not found" });
+	}
 
 	return c.json({ success: true });
 });
@@ -6218,18 +6215,15 @@ admin.openapi(archiveChatSupportConversation, async (c) => {
 	const { id } = c.req.valid("param");
 	const { archived } = c.req.valid("json");
 
-	const existing = await db.query.chatSupportConversation.findFirst({
-		where: { id: { eq: id } },
-	});
-
-	if (!existing) {
-		throw new HTTPException(404, { message: "Conversation not found" });
-	}
-
-	await db
+	const rows = await db
 		.update(tables.chatSupportConversation)
 		.set({ archivedAt: archived ? new Date() : null })
-		.where(eq(tables.chatSupportConversation.id, id));
+		.where(eq(tables.chatSupportConversation.id, id))
+		.returning();
+
+	if (rows.length === 0) {
+		throw new HTTPException(404, { message: "Conversation not found" });
+	}
 
 	return c.json({ success: true });
 });
