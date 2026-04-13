@@ -9,9 +9,8 @@ function nonEmpty(value: string | undefined): string | undefined {
 
 const posthogKey = nonEmpty(process.env.POSTHOG_KEY);
 const posthogHost = nonEmpty(process.env.POSTHOG_HOST);
-const posthogDisabled = !posthogKey || !posthogHost;
 
 export const posthog = new PostHog(posthogKey ?? "phc_placeholder", {
-	host: posthogHost ?? "https://localhost",
-	disabled: posthogDisabled,
+	host: posthogHost ?? "https://app.posthog.com",
+	disabled: !posthogKey,
 });

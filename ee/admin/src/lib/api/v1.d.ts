@@ -4097,11 +4097,11 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    days?: string;
+                    days?: number;
                     declineCode?: string;
                     search?: string;
-                    limit?: string;
-                    offset?: string;
+                    limit?: number;
+                    offset?: number | null;
                 };
                 header?: never;
                 path?: never;
@@ -4118,6 +4118,7 @@ export interface paths {
                         "application/json": {
                             failures: {
                                 id: string;
+                                /** Format: date-time */
                                 createdAt: string;
                                 organizationId: string;
                                 userEmail: string | null;

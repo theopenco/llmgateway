@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { db, eq, sql, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
 
@@ -510,58 +510,62 @@ async function applyFirstTimeBonus({
 	let finalCreditAmount = creditAmount;
 	let bonusType: "first_purchase" | "second_topup" | null = null;
 
-	const bonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
+	if (!isEmailVerified) {
+		return { finalCreditAmount, bonusAmount, bonusType };
+	}
+
+	const firstBonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
 		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
 		: 0;
+	const secondBonusMultiplier = process.env.SECOND_TOPUP_BONUS_MULTIPLIER
+		? parseFloat(process.env.SECOND_TOPUP_BONUS_MULTIPLIER)
+		: 0;
 
-	if (bonusMultiplier && bonusMultiplier > 1 && isEmailVerified) {
-		const previousPurchases = await db.query.transaction.findMany({
-			where: {
-				organizationId: { eq: organizationId },
-				type: { eq: "credit_topup" },
-				status: { eq: "completed" },
-			},
-			orderBy: { createdAt: "asc" },
-			limit: 2,
-		});
+	const eitherBonusEnabled =
+		firstBonusMultiplier > 1 || secondBonusMultiplier > 1;
 
-		if (previousPurchases.length === 0) {
-			// First purchase bonus
-			const potentialBonus = creditAmount * (bonusMultiplier - 1);
-			const maxBonus = 50;
-			bonusAmount = Math.min(potentialBonus, maxBonus);
+	if (!eitherBonusEnabled) {
+		return { finalCreditAmount, bonusAmount, bonusType };
+	}
+
+	const previousPurchases = await db.query.transaction.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			type: { eq: "credit_topup" },
+			status: { eq: "completed" },
+		},
+		orderBy: { createdAt: "asc" },
+		limit: 2,
+	});
+
+	if (previousPurchases.length === 0 && firstBonusMultiplier > 1) {
+		const potentialBonus = creditAmount * (firstBonusMultiplier - 1);
+		const maxBonus = 50;
+		bonusAmount = Math.min(potentialBonus, maxBonus);
+		finalCreditAmount = creditAmount + bonusAmount;
+		bonusType = "first_purchase";
+
+		logger.info(
+			`Applied first-time bonus of $${bonusAmount} to organization ${organizationId} (${firstBonusMultiplier}x multiplier, max $${maxBonus})`,
+		);
+	} else if (previousPurchases.length === 1 && secondBonusMultiplier > 1) {
+		const secondBonusWindowDays = Number(
+			process.env.SECOND_TOPUP_BONUS_WINDOW_DAYS ?? "30",
+		);
+		const secondBonusMax = Number(process.env.SECOND_TOPUP_BONUS_MAX ?? "25");
+		const firstPurchaseDate = previousPurchases[0].createdAt;
+		const daysSinceFirst =
+			(Date.now() - firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24);
+
+		if (daysSinceFirst <= secondBonusWindowDays) {
+			const potentialBonus = creditAmount * (secondBonusMultiplier - 1);
+			bonusAmount = Math.min(potentialBonus, secondBonusMax);
 			finalCreditAmount = creditAmount + bonusAmount;
-			bonusType = "first_purchase";
+			bonusType = "second_topup";
 
 			logger.info(
-				`Applied first-time bonus of $${bonusAmount} to organization ${organizationId} (${bonusMultiplier}x multiplier, max $${maxBonus})`,
+				`Applied second top-up bonus of $${bonusAmount} to organization ${organizationId} (${secondBonusMultiplier}x multiplier, max $${secondBonusMax}, ${Math.round(daysSinceFirst)} days since first purchase)`,
 			);
-		} else if (previousPurchases.length === 1) {
-			// Second top-up bonus check
-			const secondBonusMultiplier = process.env.SECOND_TOPUP_BONUS_MULTIPLIER
-				? parseFloat(process.env.SECOND_TOPUP_BONUS_MULTIPLIER)
-				: 0;
-			const secondBonusWindowDays = Number(
-				process.env.SECOND_TOPUP_BONUS_WINDOW_DAYS ?? "30",
-			);
-			const secondBonusMax = Number(process.env.SECOND_TOPUP_BONUS_MAX ?? "25");
-
-			if (secondBonusMultiplier && secondBonusMultiplier > 1) {
-				const firstPurchaseDate = previousPurchases[0].createdAt;
-				const daysSinceFirst =
-					(Date.now() - firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24);
-
-				if (daysSinceFirst <= secondBonusWindowDays) {
-					const potentialBonus = creditAmount * (secondBonusMultiplier - 1);
-					bonusAmount = Math.min(potentialBonus, secondBonusMax);
-					finalCreditAmount = creditAmount + bonusAmount;
-					bonusType = "second_topup";
-
-					logger.info(
-						`Applied second top-up bonus of $${bonusAmount} to organization ${organizationId} (${secondBonusMultiplier}x multiplier, max $${secondBonusMax}, ${Math.round(daysSinceFirst)} days since first purchase)`,
-					);
-				}
-			}
 		}
 	}
 
@@ -615,7 +619,13 @@ async function recordCreditTopUp({
 	await db
 		.delete(tables.followUpEmail)
 		.where(
-			sql`${tables.followUpEmail.organizationId} = ${organizationId} AND ${tables.followUpEmail.emailType} IN ('low_balance_20', 'low_balance_5')`,
+			and(
+				eq(tables.followUpEmail.organizationId, organizationId),
+				inArray(tables.followUpEmail.emailType, [
+					"low_balance_20",
+					"low_balance_5",
+				]),
+			),
 		);
 
 	const [completedTransaction] = await db
@@ -1053,7 +1063,20 @@ async function handlePaymentIntentFailed(
 	const errorCode = lastPaymentError?.code;
 	const declineCode = lastPaymentError?.decline_code;
 
-	// Record payment failure for admin dashboard
+	// Record payment failure for admin dashboard (idempotent via stripePaymentIntentId)
+	const existingFailure = await db.query.paymentFailure.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: paymentIntent.id },
+		},
+	});
+
+	if (existingFailure) {
+		logger.info(
+			`Skipping duplicate payment failure for payment intent ${paymentIntent.id}`,
+		);
+		return;
+	}
+
 	await db.insert(tables.paymentFailure).values({
 		organizationId,
 		userEmail: metadata?.userEmail ?? null,

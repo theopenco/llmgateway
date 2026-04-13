@@ -34,7 +34,7 @@ export default async function PaymentFailuresPage({
 	await requireSession();
 
 	const params = await searchParams;
-	const days = params.days ?? "30";
+	const days = Number(params.days ?? "30") || 30;
 	const declineCode = params.declineCode ?? "";
 	const search = params.search ?? "";
 
@@ -46,7 +46,7 @@ export default async function PaymentFailuresPage({
 				days,
 				...(declineCode && { declineCode }),
 				...(search && { search }),
-				limit: "100",
+				limit: 100,
 			},
 		},
 	});

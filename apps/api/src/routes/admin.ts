@@ -6232,7 +6232,7 @@ admin.openapi(archiveChatSupportConversation, async (c) => {
 
 const paymentFailureSchema = z.object({
 	id: z.string(),
-	createdAt: z.date(),
+	createdAt: z.string().datetime(),
 	organizationId: z.string(),
 	userEmail: z.string().nullable(),
 	amount: z.string().nullable(),
@@ -6249,11 +6249,11 @@ const getPaymentFailures = createRoute({
 	path: "/payment-failures",
 	request: {
 		query: z.object({
-			days: z.string().optional(),
+			days: z.coerce.number().int().min(1).max(365).optional(),
 			declineCode: z.string().optional(),
 			search: z.string().optional(),
-			limit: z.string().optional(),
-			offset: z.string().optional(),
+			limit: z.coerce.number().int().min(1).max(200).optional(),
+			offset: z.coerce.number().int().min(0).optional(),
 		}),
 	},
 	responses: {
@@ -6288,33 +6288,31 @@ const getPaymentFailures = createRoute({
 
 admin.openapi(getPaymentFailures, async (c) => {
 	const {
-		days = "30",
+		days = 30,
 		declineCode,
 		search,
-		limit: limitStr = "50",
-		offset: offsetStr = "0",
+		limit: limitNum = 50,
+		offset: offsetNum = 0,
 	} = c.req.valid("query");
 
-	const daysNum = Number(days);
-	const limitNum = Math.min(Number(limitStr), 200);
-	const offsetNum = Number(offsetStr);
 	const MS_PER_DAY = 24 * 60 * 60 * 1000;
 	// eslint-disable-next-line no-mixed-operators
-	const sinceDate = new Date(Date.now() - daysNum * MS_PER_DAY);
+	const sinceDate = new Date(Date.now() - days * MS_PER_DAY);
 	// eslint-disable-next-line no-mixed-operators
 	const since7d = new Date(Date.now() - 7 * MS_PER_DAY);
 	// eslint-disable-next-line no-mixed-operators
 	const since30d = new Date(Date.now() - 30 * MS_PER_DAY);
 
-	const conditions = [gte(tables.paymentFailure.createdAt, sinceDate)];
+	// Conditions that only reference paymentFailure columns (safe for all queries)
+	const baseConditions = [gte(tables.paymentFailure.createdAt, sinceDate)];
 
 	if (declineCode) {
-		conditions.push(eq(tables.paymentFailure.declineCode, declineCode));
+		baseConditions.push(eq(tables.paymentFailure.declineCode, declineCode));
 	}
 
 	if (search) {
-		conditions.push(
-			sql`(${tables.paymentFailure.userEmail} ILIKE ${"%" + search + "%"} OR ${tables.organization.billingEmail} ILIKE ${"%" + search + "%"})`,
+		baseConditions.push(
+			sql`${tables.paymentFailure.userEmail} ILIKE ${"%" + search + "%"}`,
 		);
 	}
 
@@ -6339,7 +6337,7 @@ admin.openapi(getPaymentFailures, async (c) => {
 			tables.organization,
 			eq(tables.organization.id, tables.paymentFailure.organizationId),
 		)
-		.where(and(...conditions))
+		.where(and(...baseConditions))
 		.orderBy(desc(tables.paymentFailure.createdAt))
 		.limit(limitNum)
 		.offset(offsetNum);
@@ -6368,7 +6366,7 @@ admin.openapi(getPaymentFailures, async (c) => {
 	const [totalCountResult] = await db
 		.select({ count: sql<number>`COUNT(*)` })
 		.from(tables.paymentFailure)
-		.where(and(...conditions));
+		.where(and(...baseConditions));
 
 	return c.json({
 		failures,

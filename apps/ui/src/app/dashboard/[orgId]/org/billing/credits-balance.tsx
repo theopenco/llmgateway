@@ -31,7 +31,7 @@ export function CreditsBalance() {
 						? "30+"
 						: runwayData.runwayDays > 14
 							? "14+"
-							: runwayData.runwayDays > 3
+							: runwayData.runwayDays >= 3
 								? "3-14"
 								: "0-3";
 			posthog.capture("runway_display_viewed", { runway_bucket: bucket });
