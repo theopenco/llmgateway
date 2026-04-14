@@ -1,1 +1,0 @@
-ALTER TABLE "payment_failure" ADD CONSTRAINT "payment_failure_stripe_pi_idx" UNIQUE("stripe_payment_intent_id");

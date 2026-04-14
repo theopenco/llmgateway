@@ -8,7 +8,7 @@ CREATE TABLE "payment_failure" (
 	"decline_code" text,
 	"error_code" text,
 	"failure_message" text,
-	"stripe_payment_intent_id" text,
+	"stripe_payment_intent_id" text CONSTRAINT "payment_failure_stripe_pi_idx" UNIQUE,
 	"source" text
 );
 --> statement-breakpoint
