@@ -1069,31 +1069,21 @@ async function handlePaymentIntentFailed(
 	const errorCode = lastPaymentError?.code;
 	const declineCode = lastPaymentError?.decline_code;
 
-	// Record payment failure for admin dashboard (idempotent via stripePaymentIntentId)
-	const existingFailure = await db.query.paymentFailure.findFirst({
-		where: {
-			stripePaymentIntentId: { eq: paymentIntent.id },
-		},
-	});
-
-	if (existingFailure) {
-		logger.info(
-			`Skipping duplicate payment failure for payment intent ${paymentIntent.id}`,
-		);
-		return;
-	}
-
-	await db.insert(tables.paymentFailure).values({
-		organizationId,
-		userEmail: metadata?.userEmail ?? null,
-		amount: totalAmountInDollars.toString(),
-		currency: paymentIntent.currency.toUpperCase(),
-		declineCode: declineCode ?? null,
-		errorCode: errorCode ?? null,
-		failureMessage: errorMessage,
-		stripePaymentIntentId: paymentIntent.id,
-		source: metadata?.autoTopUp === "true" ? "auto_topup" : "manual",
-	});
+	// Record payment failure for admin dashboard (idempotent — no-op on duplicate)
+	await db
+		.insert(tables.paymentFailure)
+		.values({
+			organizationId,
+			userEmail: metadata?.userEmail ?? null,
+			amount: totalAmountInDollars.toString(),
+			currency: paymentIntent.currency.toUpperCase(),
+			declineCode: declineCode ?? null,
+			errorCode: errorCode ?? null,
+			failureMessage: errorMessage,
+			stripePaymentIntentId: paymentIntent.id,
+			source: metadata?.autoTopUp === "true" ? "auto_topup" : "manual",
+		})
+		.onConflictDoNothing();
 
 	// Log warning for payment failure
 	logger.warn("Payment intent failed", {

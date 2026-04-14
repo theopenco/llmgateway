@@ -288,6 +288,7 @@ export const paymentFailure = pgTable(
 		index("payment_failure_organization_id_idx").on(table.organizationId),
 		index("payment_failure_created_at_idx").on(table.createdAt),
 		index("payment_failure_decline_code_idx").on(table.declineCode),
+		unique("payment_failure_stripe_pi_idx").on(table.stripePaymentIntentId),
 	],
 );
 
