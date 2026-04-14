@@ -16,6 +16,7 @@ import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 const apiUrl = process.env.API_URL ?? "http://localhost:4002";
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
+const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
 const originUrls =
 	process.env.ORIGIN_URLS ??
 	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
@@ -483,7 +484,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				passkey({
 					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
 					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
-					origin: uiUrl,
+					origin: codeUrl !== uiUrl ? [uiUrl, codeUrl] : uiUrl,
 				}),
 			],
 			emailAndPassword: {
