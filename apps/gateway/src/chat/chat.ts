@@ -5857,6 +5857,17 @@ chat.openapi(completions, async (c) => {
 														0) +
 													(reasoningTokens ?? 0),
 											),
+											...((cachedTokens !== null ||
+												(cacheCreationTokens !== null &&
+													cacheCreationTokens > 0)) && {
+												prompt_tokens_details: {
+													cached_tokens: cachedTokens ?? 0,
+													...(cacheCreationTokens !== null &&
+														cacheCreationTokens > 0 && {
+															cache_creation_tokens: cacheCreationTokens,
+														}),
+												},
+											}),
 											...(shouldIncludeCosts && {
 												cost_usd_total: streamingCosts.totalCost,
 												cost_usd_input: streamingCosts.inputCost,
