@@ -23,7 +23,7 @@
 	},
 	"dependencies": {
 		"@llmgateway/db": "workspace:*",
-		"drizzle-orm": "1.0.0-beta.1"
+		"drizzle-orm": "1.0.0-beta.22-41a7d21"
 	},
 	"devDependencies": {}
 }
