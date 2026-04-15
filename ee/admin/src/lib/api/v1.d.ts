@@ -4881,6 +4881,7 @@ export interface paths {
                             azure_validation_model?: string;
                             /** @enum {string} */
                             alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
+                            google_vertex_project_id?: string;
                         };
                         organizationId: string;
                     };
