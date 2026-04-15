@@ -135,7 +135,7 @@ export const anthropicModels = [
 				jsonOutputSchema: true,
 				webSearch: true,
 				webSearchPrice: 0.01, // $10 per 1000 searches
-				deactivatedAt: new Date("2025-10-22T00:00:00Z"),
+				deactivatedAt: new Date("2025-10-28"),
 			},
 			{
 				test: "skip",
@@ -590,7 +590,7 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-3-5-sonnet-20240620",
-				deactivatedAt: new Date("2026-02-19"),
+				deactivatedAt: new Date("2025-10-28"),
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				cachedInputPrice: 0.3 / 1e6,
@@ -616,6 +616,7 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-3-5-sonnet-latest",
+				deactivatedAt: new Date("2025-10-28"),
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				cachedInputPrice: 0.3 / 1e6,

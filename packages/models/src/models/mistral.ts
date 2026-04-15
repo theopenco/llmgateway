@@ -31,7 +31,7 @@ export const mistralModels = [
 		releasedAt: new Date("2023-12-10"),
 		providers: [
 			{
-				deprecatedAt: new Date("2026-04-14"),
+				deactivatedAt: new Date("2026-04-16"),
 				providerId: "together.ai",
 				modelName: "mistralai/mixtral-8x7b-instruct-v0.1",
 				inputPrice: 0.06 / 1e6,
