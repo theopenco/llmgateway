@@ -44,6 +44,7 @@ export const zaiModels = [
 				jsonOutput: false,
 			},
 			{
+				deprecatedAt: new Date("2026-04-22"),
 				providerId: "together.ai",
 				modelName: "zai-org/GLM-5",
 				inputPrice: 1 / 1e6,
