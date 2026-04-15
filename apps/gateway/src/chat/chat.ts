@@ -3188,6 +3188,7 @@ chat.openapi(completions, async (c) => {
 			configIndex,
 			isImageGeneration,
 			usedRegion,
+			providerKey !== undefined,
 		);
 
 		// If region is still unset but the provider supports regions, resolve the

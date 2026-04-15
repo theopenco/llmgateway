@@ -196,6 +196,7 @@ export async function validateProviderKey(
 			undefined, // configIndex
 			undefined, // imageGenerations
 			validationRegion,
+			true, // skipEnvVars - provider key validation is always BYOK context
 		);
 
 		// Check if max_tokens is supported

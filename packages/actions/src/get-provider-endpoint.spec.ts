@@ -169,4 +169,115 @@ describe("getProviderEndpoint", () => {
 			"https://vertex-2.example/v1/projects/project-b/locations/us-central1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
 		);
 	});
+
+	describe("skipEnvVars (BYOK mode)", () => {
+		it("uses hardcoded default for google-ai-studio instead of env var", () => {
+			process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL =
+				"https://studio-override.example";
+
+			const endpoint = getProviderEndpoint(
+				"google-ai-studio",
+				undefined, // no baseUrl
+				"gemini-2.5-flash",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe(
+				"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+			);
+		});
+
+		it("uses hardcoded default for openai regardless of skipEnvVars", () => {
+			const endpoint = getProviderEndpoint(
+				"openai",
+				undefined,
+				"gpt-4o",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe("https://api.openai.com/v1/chat/completions");
+		});
+
+		it("uses hardcoded default for google-vertex base URL in skipEnvVars mode", () => {
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL =
+				"https://vertex-override.example";
+
+			const endpoint = getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-flash-lite",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash-lite:generateContent",
+			);
+		});
+
+		it("uses hardcoded default for aws-bedrock base URL in skipEnvVars mode", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-3-5-sonnet-20241022-v2:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-3-5-sonnet-20241022-v2:0/converse",
+			);
+		});
+
+		it("still uses explicit baseUrl even when skipEnvVars is true", () => {
+			const endpoint = getProviderEndpoint(
+				"google-ai-studio",
+				"https://my-custom-base.example",
+				"gemini-2.5-flash",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe(
+				"https://my-custom-base.example/v1beta/models/gemini-2.5-flash:generateContent",
+			);
+		});
+	});
 });

@@ -275,6 +275,9 @@ export async function resolveProviderContext(
 		providerMappingForSelected?.imageGenerations === true;
 
 	// --- URL resolution ---
+	// When using a provider key (BYOK), skip env vars entirely —
+	// only the provider key's baseUrl or hardcoded provider defaults should be used.
+	const isBYOK = providerKey !== undefined;
 	const url = getProviderEndpoint(
 		usedProvider as Provider,
 		providerKey?.baseUrl ?? undefined,
@@ -292,6 +295,7 @@ export async function resolveProviderContext(
 		configIndex,
 		isImageGeneration,
 		usedRegion,
+		isBYOK,
 	);
 
 	if (!url) {
