@@ -61,6 +61,7 @@ export function CreateProviderKeyDialog({
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
 	const [selectedRegion, setSelectedRegion] = useState("");
+	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -177,6 +178,13 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
+		if (selectedProvider === "google-vertex" && googleVertexProjectId) {
+			payload.options = {
+				...payload.options,
+				google_vertex_project_id: googleVertexProjectId,
+			};
+		}
+
 		setIsValidating(true);
 		toast({ title: "Validating API Key", description: "Please wait..." });
 
@@ -222,6 +230,7 @@ export function CreateProviderKeyDialog({
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
 			setSelectedRegion("");
+			setGoogleVertexProjectId("");
 		}, 300);
 	};
 
@@ -408,6 +417,25 @@ export function CreateProviderKeyDialog({
 								</p>
 							</div>
 						</>
+					)}
+
+					{selectedProvider === "google-vertex" && (
+						<div className="space-y-2">
+							<Label htmlFor="google-vertex-project-id">
+								Google Cloud Project ID
+							</Label>
+							<Input
+								id="google-vertex-project-id"
+								type="text"
+								placeholder="my-project-id"
+								value={googleVertexProjectId}
+								onChange={(e) => setGoogleVertexProjectId(e.target.value)}
+							/>
+							<p className="text-sm text-muted-foreground">
+								Your Google Cloud project ID, found in the Google Cloud Console.
+								Required for non-lite Vertex AI models.
+							</p>
+						</div>
 					)}
 
 					{selectedProviderDef?.regionConfig && (

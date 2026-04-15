@@ -17,6 +17,7 @@ function buildVertexCompatibleEndpoint(
 	token: string | undefined,
 	stream: boolean | undefined,
 	configIndex: number | undefined,
+	providerKeyOptions?: ProviderKeyOptions,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = modelName ?? "gemini-2.5-flash-lite";
@@ -35,7 +36,9 @@ function buildVertexCompatibleEndpoint(
 			: baseEndpoint;
 	}
 
-	const projectId = getProviderEnvValue(provider, "project", configIndex);
+	const projectId =
+		providerKeyOptions?.google_vertex_project_id ??
+		getProviderEnvValue(provider, "project", configIndex);
 	const region =
 		getProviderEnvValue(provider, "region", configIndex, "global") ?? "global";
 
@@ -319,6 +322,7 @@ export function getProviderEndpoint(
 				token,
 				stream,
 				configIndex,
+				providerKeyOptions,
 			);
 		case "perplexity":
 			return `${url}/chat/completions`;

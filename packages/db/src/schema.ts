@@ -471,6 +471,7 @@ export interface ProviderKeyOptions {
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
+	google_vertex_project_id?: string;
 }
 
 export const providerKey = pgTable(

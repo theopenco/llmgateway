@@ -66,6 +66,7 @@ const createProviderKeySchema = z.object({
 			alibaba_region: z
 				.enum(["singapore", "us-virginia", "cn-beijing"])
 				.optional(),
+			google_vertex_project_id: z.string().optional(),
 		})
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
