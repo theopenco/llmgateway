@@ -17,7 +17,6 @@ function buildVertexCompatibleEndpoint(
 	token: string | undefined,
 	stream: boolean | undefined,
 	configIndex: number | undefined,
-	skipEnvVars?: boolean,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = modelName ?? "gemini-2.5-flash-lite";
@@ -36,13 +35,9 @@ function buildVertexCompatibleEndpoint(
 			: baseEndpoint;
 	}
 
-	const projectId = skipEnvVars
-		? undefined
-		: getProviderEnvValue(provider, "project", configIndex);
-	const region = skipEnvVars
-		? "global"
-		: (getProviderEnvValue(provider, "region", configIndex, "global") ??
-			"global");
+	const projectId = getProviderEnvValue(provider, "project", configIndex);
+	const region =
+		getProviderEnvValue(provider, "region", configIndex, "global") ?? "global";
 
 	if (!projectId) {
 		const providerEnv = getProviderEnvConfig(provider);
@@ -342,7 +337,6 @@ export function getProviderEndpoint(
 				token,
 				stream,
 				configIndex,
-				skipEnvVars,
 			);
 		case "perplexity":
 			return `${url}/chat/completions`;
@@ -356,14 +350,8 @@ export function getProviderEndpoint(
 		case "aws-bedrock": {
 			const prefix =
 				providerKeyOptions?.aws_bedrock_region_prefix ??
-				(skipEnvVars
-					? "global."
-					: (getProviderEnvValue(
-							"aws-bedrock",
-							"region",
-							configIndex,
-							"global.",
-						) ?? "global."));
+				getProviderEnvValue("aws-bedrock", "region", configIndex, "global.") ??
+				"global.";
 
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${modelName}/${endpoint}`;
@@ -371,39 +359,35 @@ export function getProviderEndpoint(
 		case "azure": {
 			const deploymentType =
 				providerKeyOptions?.azure_deployment_type ??
-				(skipEnvVars
-					? "ai-foundry"
-					: (getProviderEnvValue(
-							"azure",
-							"deploymentType",
-							configIndex,
-							"ai-foundry",
-						) ?? "ai-foundry"));
+				getProviderEnvValue(
+					"azure",
+					"deploymentType",
+					configIndex,
+					"ai-foundry",
+				) ??
+				"ai-foundry";
 
 			if (deploymentType === "openai") {
 				// Traditional Azure (deployment-based)
 				const apiVersion =
 					providerKeyOptions?.azure_api_version ??
-					(skipEnvVars
-						? "2024-10-21"
-						: (getProviderEnvValue(
-								"azure",
-								"apiVersion",
-								configIndex,
-								"2024-10-21",
-							) ?? "2024-10-21"));
+					getProviderEnvValue(
+						"azure",
+						"apiVersion",
+						configIndex,
+						"2024-10-21",
+					) ??
+					"2024-10-21";
 
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
-				const useResponsesApiEnv = skipEnvVars
-					? "true"
-					: getProviderEnvValue(
-							"azure",
-							"useResponsesApi",
-							configIndex,
-							"true",
-						);
+				const useResponsesApiEnv = getProviderEnvValue(
+					"azure",
+					"useResponsesApi",
+					configIndex,
+					"true",
+				);
 
 				if (model && useResponsesApiEnv !== "false") {
 					const modelDef = models.find(
