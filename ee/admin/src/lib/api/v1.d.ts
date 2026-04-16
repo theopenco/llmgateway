@@ -8363,12 +8363,11 @@ export interface operations {
                             providerName: string;
                             logsCount: number;
                             errorsCount: number;
-                            clientErrorsCount: number;
-                            gatewayErrorsCount: number;
-                            upstreamErrorsCount: number;
                             cachedCount: number;
                             avgTimeToFirstToken: number | null;
                             errorRate: number;
+                            uptime: number | null;
+                            windowHours: number;
                         }[];
                         arena: {
                             text: {
