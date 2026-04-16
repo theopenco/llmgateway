@@ -25,7 +25,7 @@ function Stat({
 }: StatProps) {
 	return (
 		<div className="flex flex-col items-center rounded-2xl border border-border bg-card/50 p-6 backdrop-blur-sm transition-all duration-300 hover:border-primary/50">
-			<div className="text-2xl font-bold text-primary sm:text-3xl">
+			<div className="flex items-baseline justify-center whitespace-nowrap text-xl font-bold text-primary sm:text-2xl lg:text-3xl">
 				{prefix}
 				<NumberTicker
 					value={value}
