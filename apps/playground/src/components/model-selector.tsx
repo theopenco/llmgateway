@@ -401,11 +401,10 @@ function estimateImageCost(
 		: 0;
 	const tokensMap = mapping.imageOutputTokensByResolution;
 	const tokens =
-		tokensMap?.default ??
-		tokensMap?.["1024x1024"] ??
-		tokensMap?.["1K"] ??
-		(tokensMap ? Object.values(tokensMap)[0] : undefined) ??
-		0;
+		tokensMap?.default ?? tokensMap?.["1024x1024"] ?? tokensMap?.["1K"];
+	if (tokens === undefined) {
+		return null;
+	}
 	const outputCost = imageOut * tokens;
 	const base = request + outputCost;
 	if (!Number.isFinite(base) || base <= 0) {
@@ -419,8 +418,13 @@ function estimateImageCost(
 function getMinImageCostEstimate(
 	mappings: ApiModelProviderMapping[],
 ): { base: number; discounted: number } | null {
+	const now = new Date();
 	let best: { base: number; discounted: number } | null = null;
 	for (const m of mappings) {
+		const isDeactivated = m.deactivatedAt && new Date(m.deactivatedAt) <= now;
+		if (isDeactivated) {
+			continue;
+		}
 		const est = estimateImageCost(m);
 		if (!est) {
 			continue;
@@ -440,6 +444,41 @@ function formatImageCost(cost: number): string {
 		return `$${cost.toFixed(4)}`;
 	}
 	return `$${cost.toFixed(5)}`;
+}
+
+function ImageEstimateCard({
+	estimate,
+	labelClassName,
+	valueClassName,
+	captionClassName,
+}: {
+	estimate: { base: number; discounted: number };
+	labelClassName?: string;
+	valueClassName?: string;
+	captionClassName?: string;
+}) {
+	return (
+		<div className="rounded-md border border-primary/30 bg-primary/5 p-2.5">
+			<span
+				className={
+					labelClassName ??
+					"text-[11px] font-medium text-muted-foreground uppercase tracking-wide"
+				}
+			>
+				Est. per Image
+			</span>
+			<p
+				className={
+					valueClassName ?? "text-sm font-mono font-semibold text-primary"
+				}
+			>
+				~{formatImageCost(estimate.discounted)}
+			</p>
+			<p className={captionClassName ?? "text-[10px] text-muted-foreground"}>
+				Typical 1024×1024 output
+			</p>
+		</div>
+	);
 }
 
 function getMinPerSecondPrice(
@@ -1424,17 +1463,7 @@ export function ModelSelector({
 													return (
 														<div className="space-y-3 pt-3 border-t border-dashed">
 															{imageEstimate && (
-																<div className="rounded-md border border-primary/30 bg-primary/5 p-2.5">
-																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																		Est. per Image
-																	</span>
-																	<p className="text-sm font-mono font-semibold text-primary">
-																		~{formatImageCost(imageEstimate.discounted)}
-																	</p>
-																	<p className="text-[10px] text-muted-foreground">
-																		Typical 1024×1024 output
-																	</p>
-																</div>
+																<ImageEstimateCard estimate={imageEstimate} />
 															)}
 															{hasPricingOrLimits &&
 																(isVideo ? (
@@ -1964,6 +1993,10 @@ export function ModelSelector({
 												selectedDetails.model,
 											);
 
+											const imageEstimate = getMinImageCostEstimate(
+												selectedDetails.model.mappings,
+											);
+
 											const hasPricingOrLimits =
 												aggregate.minInputPrice !== undefined ||
 												aggregate.minOutputPrice !== undefined ||
@@ -1981,13 +2014,17 @@ export function ModelSelector({
 											if (
 												!hasPricingOrLimits &&
 												!hasImagePricing &&
-												!hasCapabilities
+												!hasCapabilities &&
+												!imageEstimate
 											) {
 												return null;
 											}
 
 											return (
 												<div className="space-y-4">
+													{imageEstimate && (
+														<ImageEstimateCard estimate={imageEstimate} />
+													)}
 													{hasPricingOrLimits && (
 														<div className="space-y-3">
 															<h5 className="font-medium text-sm">
@@ -2115,6 +2152,15 @@ export function ModelSelector({
 												<Separator />
 											</>
 										)}
+
+										{(() => {
+											const imageEstimate = selectedDetails.mapping
+												? estimateImageCost(selectedDetails.mapping)
+												: null;
+											return imageEstimate ? (
+												<ImageEstimateCard estimate={imageEstimate} />
+											) : null;
+										})()}
 
 										<div className="space-y-3">
 											<h5 className="font-medium text-sm">Pricing & Limits</h5>

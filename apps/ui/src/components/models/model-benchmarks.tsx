@@ -218,8 +218,9 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 						</h2>
 					</div>
 					<p className="text-sm text-muted-foreground mb-4">
-						Real latency and uptime data from LLM Gateway over the last 24
-						hours. Lower TTFT (time to first token) is better.
+						Real latency and uptime data from LLM Gateway over the last{" "}
+						{sorted[0]?.windowHours ?? 24} hours. Lower TTFT (time to first
+						token) is better.
 					</p>
 
 					<div className="grid gap-3">

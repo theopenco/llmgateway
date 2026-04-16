@@ -446,8 +446,23 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 								const credits = selectedOrganization
 									? Number(selectedOrganization.credits)
 									: 0;
+								// Cohort-safe: only treat this as onboarding for orgs created
+								// recently. An org with 0 credits and 0 recent requests may be
+								// a returning user that has since run out — the date-windowed
+								// totalRequests alone cannot distinguish them from a brand-new
+								// org. Using createdAt avoids showing onboarding copy to
+								// returning users.
+								const createdAtMs = selectedOrganization?.createdAt
+									? new Date(selectedOrganization.createdAt).getTime()
+									: null;
+								const isNewOrganization =
+									createdAtMs !== null &&
+									Date.now() - createdAtMs < 7 * 24 * 60 * 60 * 1000;
 								const needsTopUp =
-									!Number.isNaN(credits) && credits <= 0 && totalRequests === 0;
+									!Number.isNaN(credits) &&
+									credits <= 0 &&
+									totalRequests === 0 &&
+									isNewOrganization;
 
 								if (needsTopUp) {
 									return (

@@ -40,9 +40,9 @@ export function ReliabilityFailover() {
 							</div>
 							<h3 className="mb-2 text-lg font-semibold">Instant re-route</h3>
 							<p className="text-sm text-muted-foreground">
-								The Gateway retries the same prompt against the next healthy
-								provider for that model — no retries, no extra latency visible
-								to your app.
+								The Gateway automatically retries the same prompt against the
+								next healthy provider for that model, so your app does not
+								experience additional latency.
 							</p>
 						</div>
 						<div className="rounded-xl border border-border bg-card p-6">
