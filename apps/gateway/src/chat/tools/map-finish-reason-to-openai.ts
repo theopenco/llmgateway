@@ -7,6 +7,9 @@ import type { Provider } from "@llmgateway/models";
  * Without this mapping, OpenAI-compatible clients (such as the Vercel AI
  * SDK) fall back to "other" when they receive raw provider values like
  * Google's "STOP" / "MAX_TOKENS" or Anthropic's "end_turn" / "tool_use".
+ *
+ * This function is idempotent: passing an already-canonical value returns
+ * it unchanged, regardless of the provider.
  */
 export function mapFinishReasonToOpenai(
 	finishReason: string | null | undefined,
@@ -24,6 +27,14 @@ export function mapFinishReasonToOpenai(
 			default:
 				return "stop";
 		}
+	}
+
+	switch (finishReason) {
+		case "stop":
+		case "length":
+		case "tool_calls":
+		case "content_filter":
+			return finishReason;
 	}
 
 	switch (usedProvider) {
@@ -54,6 +65,7 @@ export function mapFinishReasonToOpenai(
 				case "IMAGE_RECITATION":
 				case "IMAGE_OTHER":
 				case "NO_IMAGE":
+				case "OTHER":
 					return "content_filter";
 				default:
 					return "stop";
@@ -75,6 +87,7 @@ export function mapFinishReasonToOpenai(
 			}
 		default:
 			// OpenAI-format providers already emit canonical values
+			// (the idempotency switch above handles the canonical cases)
 			if (!finishReason) {
 				return hasToolCalls ? "tool_calls" : "stop";
 			}
