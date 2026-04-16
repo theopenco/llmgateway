@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
 	Activity,
 	AlertTriangle,
+	CheckCircle2,
 	Clock,
 	Code,
 	ExternalLink,
@@ -23,12 +24,11 @@ interface ProviderBenchmark {
 	providerName: string;
 	logsCount: number;
 	errorsCount: number;
-	clientErrorsCount: number;
-	gatewayErrorsCount: number;
-	upstreamErrorsCount: number;
 	cachedCount: number;
 	avgTimeToFirstToken: number | null;
 	errorRate: number;
+	uptime: number | null;
+	windowHours: number;
 }
 
 interface ArenaScore {
@@ -218,8 +218,8 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 						</h2>
 					</div>
 					<p className="text-sm text-muted-foreground mb-4">
-						Real latency and error data from LLM Gateway. Lower TTFT (time to
-						first token) is better.
+						Real latency and uptime data from LLM Gateway over the last 24
+						hours. Lower TTFT (time to first token) is better.
 					</p>
 
 					<div className="grid gap-3">
@@ -291,6 +291,30 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 
 											<div className="text-center">
 												<div className="flex items-center gap-1 text-muted-foreground mb-0.5">
+													<CheckCircle2 className="h-3 w-3" />
+													<span className="text-xs">Uptime</span>
+												</div>
+												<span
+													className={cn(
+														"font-mono font-medium",
+														provider.uptime === null
+															? "text-muted-foreground"
+															: provider.uptime >= 99
+																? "text-green-600"
+																: provider.uptime >= 95
+																	? "text-amber-500"
+																	: "text-red-500",
+													)}
+													title={`Uptime over last ${provider.windowHours}h`}
+												>
+													{provider.uptime !== null
+														? `${provider.uptime.toFixed(2)}%`
+														: "\u2014"}
+												</span>
+											</div>
+
+											<div className="text-center hidden sm:block">
+												<div className="flex items-center gap-1 text-muted-foreground mb-0.5">
 													<AlertTriangle className="h-3 w-3" />
 													<span className="text-xs">Errors</span>
 												</div>
@@ -307,33 +331,6 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 													{provider.errorRate}%
 												</span>
 											</div>
-
-											{(provider.clientErrorsCount > 0 ||
-												provider.gatewayErrorsCount > 0 ||
-												provider.upstreamErrorsCount > 0) && (
-												<div className="text-center hidden sm:block">
-													<div className="text-xs text-muted-foreground mb-0.5">
-														Breakdown
-													</div>
-													<div className="flex gap-2 text-xs font-mono">
-														{provider.clientErrorsCount > 0 && (
-															<span title="Client errors">
-																C:{provider.clientErrorsCount}
-															</span>
-														)}
-														{provider.gatewayErrorsCount > 0 && (
-															<span title="Gateway errors">
-																G:{provider.gatewayErrorsCount}
-															</span>
-														)}
-														{provider.upstreamErrorsCount > 0 && (
-															<span title="Upstream errors">
-																U:{provider.upstreamErrorsCount}
-															</span>
-														)}
-													</div>
-												</div>
-											)}
 										</div>
 									</div>
 								</div>

@@ -206,10 +206,14 @@ export function ChatSupport() {
 		<>
 			{/* Chat window */}
 			<div
+				style={{
+					bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))",
+					right: "calc(1rem + env(safe-area-inset-right, 0px))",
+				}}
 				className={cn(
-					"fixed bottom-20 right-4 z-50 flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl transition-all duration-300 ease-out sm:right-6",
+					"fixed z-[60] flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl transition-all duration-300 ease-out sm:!right-6",
 					isOpen
-						? "h-[min(32rem,calc(100vh-7rem))] w-[min(24rem,calc(100vw-2rem))] scale-100 opacity-100"
+						? "h-[min(32rem,calc(100svh-7rem))] w-[min(24rem,calc(100vw-2rem))] scale-100 opacity-100"
 						: "pointer-events-none h-0 w-0 scale-95 opacity-0",
 				)}
 			>
@@ -423,8 +427,13 @@ export function ChatSupport() {
 			<button
 				type="button"
 				onClick={isOpen ? () => setIsOpen(false) : handleOpen}
+				style={{
+					bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))",
+					right: "calc(1rem + env(safe-area-inset-right, 0px))",
+					touchAction: "manipulation",
+				}}
 				className={cn(
-					"fixed bottom-4 right-4 z-50 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-all duration-300 hover:bg-primary/90 hover:shadow-xl active:scale-95 sm:right-6",
+					"fixed z-[60] flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-all duration-300 hover:bg-primary/90 hover:shadow-xl active:scale-95 sm:!right-6",
 					isOpen && "rotate-90",
 				)}
 				aria-label={isOpen ? "Close chat" : "Open chat support"}

@@ -3,7 +3,17 @@ import { z } from "zod";
 
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
 
-import { and, db, eq, gte, isNull, or, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	eq,
+	gte,
+	isNull,
+	modelProviderMappingHistory,
+	or,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import {
 	models as modelDefinitions,
 	type ProviderModelMapping,
@@ -275,12 +285,11 @@ const providerBenchmarkSchema = z.object({
 	providerName: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
-	clientErrorsCount: z.number(),
-	gatewayErrorsCount: z.number(),
-	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	errorRate: z.number(),
+	uptime: z.number().nullable(),
+	windowHours: z.number(),
 });
 
 const arenaScoreSchema = z.object({
@@ -327,45 +336,75 @@ const modelBenchmarksRoute = createRoute({
 internalModels.openapi(modelBenchmarksRoute, async (c) => {
 	const { modelId } = c.req.valid("param");
 
-	const mappings = await db
+	const WINDOW_HOURS = 24;
+	const WINDOW_MS = WINDOW_HOURS * 60 * 60 * 1000;
+	const since = new Date(Date.now() - WINDOW_MS);
+
+	const windowed = await db
 		.select({
-			providerId: tables.modelProviderMapping.providerId,
+			providerId: modelProviderMappingHistory.providerId,
 			providerName: tables.provider.name,
-			logsCount: tables.modelProviderMapping.logsCount,
-			errorsCount: tables.modelProviderMapping.errorsCount,
-			clientErrorsCount: tables.modelProviderMapping.clientErrorsCount,
-			gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
-			upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
-			cachedCount: tables.modelProviderMapping.cachedCount,
-			avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+			logsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+					"logsCount",
+				),
+			errorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+					"errorsCount",
+				),
+			upstreamErrorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+					"upstreamErrorsCount",
+				),
+			cachedCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+					"cachedCount",
+				),
+			avgTimeToFirstToken: sql<
+				number | null
+			>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+				"avgTimeToFirstToken",
+			),
 		})
-		.from(tables.modelProviderMapping)
+		.from(modelProviderMappingHistory)
 		.innerJoin(
 			tables.provider,
-			eq(tables.modelProviderMapping.providerId, tables.provider.id),
+			eq(modelProviderMappingHistory.providerId, tables.provider.id),
 		)
 		.where(
 			and(
-				eq(tables.modelProviderMapping.modelId, modelId),
-				eq(tables.modelProviderMapping.status, "active"),
+				eq(modelProviderMappingHistory.modelId, modelId),
+				gte(modelProviderMappingHistory.minuteTimestamp, since),
 			),
-		);
+		)
+		.groupBy(modelProviderMappingHistory.providerId, tables.provider.name);
 
-	const providers = mappings.map((m) => ({
-		providerId: m.providerId,
-		providerName: m.providerName ?? m.providerId,
-		logsCount: m.logsCount,
-		errorsCount: m.errorsCount,
-		clientErrorsCount: m.clientErrorsCount,
-		gatewayErrorsCount: m.gatewayErrorsCount,
-		upstreamErrorsCount: m.upstreamErrorsCount,
-		cachedCount: m.cachedCount,
-		avgTimeToFirstToken: m.avgTimeToFirstToken,
-		errorRate:
-			m.logsCount > 0
-				? Math.round((m.errorsCount / m.logsCount) * 1000) / 10
-				: 0,
-	}));
+	const providers = windowed.map((m) => {
+		const logsCount = Number(m.logsCount);
+		const errorsCount = Number(m.errorsCount);
+		const upstreamErrorsCount = Number(m.upstreamErrorsCount);
+		const cachedCount = Number(m.cachedCount);
+		// Uptime only counts upstream/provider-side failures against the provider —
+		// client errors (4xx from user) or gateway errors aren't the provider's fault.
+		const uptime =
+			logsCount > 0
+				? Math.round(((logsCount - upstreamErrorsCount) / logsCount) * 1000) /
+					10
+				: null;
+		return {
+			providerId: m.providerId,
+			providerName: m.providerName ?? m.providerId,
+			logsCount,
+			errorsCount,
+			cachedCount,
+			avgTimeToFirstToken:
+				m.avgTimeToFirstToken !== null ? Number(m.avgTimeToFirstToken) : null,
+			errorRate:
+				logsCount > 0 ? Math.round((errorsCount / logsCount) * 1000) / 10 : 0,
+			uptime,
+			windowHours: WINDOW_HOURS,
+		};
+	});
 
 	// Fetch Arena benchmarks
 	const arenaBenchmarks = await getArenaBenchmarks();

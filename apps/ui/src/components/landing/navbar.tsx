@@ -162,6 +162,15 @@ export const Navbar = ({
 				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
 			external: true,
 		},
+		{
+			title: "Reliability",
+			href: "/reliability",
+			description:
+				"Automatic failover and 99.9999% effective uptime across providers.",
+			icon: ShieldCheck,
+			gradient:
+				"hover:from-emerald-500/20 hover:to-green-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
+		},
 	];
 
 	const resourcesLinks: Array<{
