@@ -11,6 +11,9 @@ export interface FeeCalculationInput {
 export const CREDIT_TOP_UP_MIN_AMOUNT = 5;
 export const CREDIT_TOP_UP_MAX_AMOUNT = 5000;
 
+export const AUTO_TOP_UP_DEFAULT_THRESHOLD = 5;
+export const AUTO_TOP_UP_DEFAULT_AMOUNT = 20;
+
 export function isCreditTopUpAmountInRange(amount: number): boolean {
 	return (
 		Number.isInteger(amount) &&

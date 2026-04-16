@@ -32,6 +32,8 @@ import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
 import {
+	AUTO_TOP_UP_DEFAULT_AMOUNT,
+	AUTO_TOP_UP_DEFAULT_THRESHOLD,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	isCreditTopUpAmountInRange,
@@ -64,7 +66,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<
 		string | null
 	>(null);
-	const [autoTopUpIntent, setAutoTopUpIntent] = useState(true);
+	const [autoTopUpIntent, setAutoTopUpIntent] = useState(false);
 	const { selectedOrganization } = useDashboardState();
 	const alreadyHasAutoTopUp = selectedOrganization?.autoTopUpEnabled ?? false;
 	const { stripe, isLoading: stripeLoading } = useStripe();
@@ -444,7 +446,8 @@ function AmountStep({
 						<div className="space-y-0.5 pr-3">
 							<p className="text-sm font-medium">Never run out of credits</p>
 							<p className="text-xs text-muted-foreground">
-								Auto-reload $20 when balance drops below $5
+								Auto-reload ${AUTO_TOP_UP_DEFAULT_AMOUNT} when balance drops
+								below ${AUTO_TOP_UP_DEFAULT_THRESHOLD}
 							</p>
 						</div>
 						<Switch
@@ -712,7 +715,7 @@ function SuccessStep({
 	const [saving, setSaving] = useState(false);
 	const [autoTopUpApplied, setAutoTopUpApplied] = useState(false);
 
-	const shouldApplyAutoTopUp = !alreadyHasAutoTopUp && autoTopUpIntent;
+	const shouldOfferAutoTopUp = !alreadyHasAutoTopUp && autoTopUpIntent;
 
 	useEffect(() => {
 		const duration = 2000;
@@ -744,27 +747,27 @@ function SuccessStep({
 		return () => cancelAnimationFrame(rafId);
 	}, []);
 
-	useEffect(() => {
-		if (!shouldApplyAutoTopUp || !selectedOrganization || autoTopUpApplied) {
+	const handleEnableAutoTopUp = () => {
+		if (!selectedOrganization || saving || autoTopUpApplied) {
 			return;
 		}
-		setAutoTopUpApplied(true);
 		setSaving(true);
-		posthog.capture("auto_topup_from_topup_applied");
 		void updateOrganization
 			.mutateAsync({
 				params: { path: { id: selectedOrganization.id } },
 				body: {
 					autoTopUpEnabled: true,
-					autoTopUpThreshold: 5,
-					autoTopUpAmount: 20,
+					autoTopUpThreshold: AUTO_TOP_UP_DEFAULT_THRESHOLD,
+					autoTopUpAmount: AUTO_TOP_UP_DEFAULT_AMOUNT,
 				},
 			})
-			.then(() =>
-				queryClient.invalidateQueries({
+			.then(() => {
+				setAutoTopUpApplied(true);
+				posthog.capture("auto_topup_from_topup_applied");
+				return queryClient.invalidateQueries({
 					queryKey: api.queryOptions("get", "/orgs").queryKey,
-				}),
-			)
+				});
+			})
 			.catch(() => {
 				toast({
 					title: "Could not enable auto top-up",
@@ -775,16 +778,7 @@ function SuccessStep({
 			.finally(() => {
 				setSaving(false);
 			});
-	}, [
-		shouldApplyAutoTopUp,
-		selectedOrganization,
-		autoTopUpApplied,
-		updateOrganization,
-		queryClient,
-		api,
-		posthog,
-		toast,
-	]);
+	};
 
 	return (
 		<>
@@ -816,14 +810,36 @@ function SuccessStep({
 				</p>
 			</div>
 
-			{shouldApplyAutoTopUp ? (
+			{shouldOfferAutoTopUp && !autoTopUpApplied ? (
+				<div className="rounded-lg border border-dashed p-3 text-sm">
+					<p className="font-medium">Enable auto-reload?</p>
+					<p className="mt-0.5 text-xs text-muted-foreground">
+						Automatically reload ${AUTO_TOP_UP_DEFAULT_AMOUNT} when your balance
+						drops below ${AUTO_TOP_UP_DEFAULT_THRESHOLD}. You can turn it off
+						anytime in billing settings.
+					</p>
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						className="mt-2"
+						onClick={handleEnableAutoTopUp}
+						disabled={saving}
+					>
+						{saving ? "Enabling…" : "Enable auto-reload"}
+					</Button>
+				</div>
+			) : null}
+
+			{autoTopUpApplied ? (
 				<div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/30">
 					<p className="font-medium text-emerald-800 dark:text-emerald-200">
 						Auto-reload enabled ✓
 					</p>
 					<p className="mt-0.5 text-xs text-emerald-700/80 dark:text-emerald-300/80">
-						Credits will reload $20 when your balance drops below $5. Manage in
-						billing settings.
+						Credits will reload ${AUTO_TOP_UP_DEFAULT_AMOUNT} when your balance
+						drops below ${AUTO_TOP_UP_DEFAULT_THRESHOLD}. Manage in billing
+						settings.
 					</p>
 				</div>
 			) : null}
