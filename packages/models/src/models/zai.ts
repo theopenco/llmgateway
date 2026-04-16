@@ -2,6 +2,34 @@ import type { ModelDefinition } from "@/models.js";
 
 export const zaiModels = [
 	{
+		id: "glm-5.1",
+		name: "GLM-5.1",
+		description:
+			"Zhipu GLM-5.1 flagship model engineered for long-horizon autonomous tasks with enhanced coding and agentic capabilities.",
+		family: "glm",
+		releasedAt: new Date("2026-04-07"),
+		providers: [
+			{
+				providerId: "zai",
+				modelName: "glm-5.1",
+				inputPrice: 1.4 / 1e6,
+				cachedInputPrice: 0.26 / 1e6,
+				outputPrice: 4.4 / 1e6,
+				discount: 0.1,
+				requestPrice: 0,
+				contextSize: 200000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: 0.01,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "glm-5",
 		name: "GLM-5",
 		description: "Zhipu GLM-5 with advanced reasoning capabilities.",
