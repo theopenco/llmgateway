@@ -893,12 +893,11 @@ export const anthropicModels = [
 		id: "claude-opus-4-7",
 		name: "Claude Opus 4.7",
 		description:
-			"Claude Opus 4.7 is Anthropic's latest flagship model with enhanced coding and vision capabilities, advanced reasoning, and improved performance on complex agentic workflows.",
+			"Claude Opus 4.7 is Anthropic's latest flagship model with enhanced coding and vision capabilities, adaptive reasoning, and improved performance on complex agentic workflows.",
 		family: "anthropic",
 		releasedAt: new Date("2026-04-16"),
 		providers: [
 			{
-				test: "skip",
 				providerId: "anthropic",
 				modelName: "claude-opus-4-7",
 				inputPrice: 5.0 / 1e6,
@@ -925,7 +924,10 @@ export const anthropicModels = [
 				contextSize: 1000000,
 				maxOutput: 128000,
 				reasoning: true,
-				reasoningMaxTokens: true,
+				reasoningMode: "adaptive",
+				// Adaptive thinking may skip thinking for simpler prompts, so reasoning content
+				// is not guaranteed in every response.
+				reasoningOutput: "omit",
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -933,25 +935,6 @@ export const anthropicModels = [
 				supportedParameters: ["temperature", "max_tokens", "top_p", "effort"],
 				webSearch: true,
 				webSearchPrice: 0.01, // $10 per 1000 searches
-			},
-			{
-				test: "skip",
-				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-opus-4-7-v1",
-				inputPrice: 5.0 / 1e6,
-				outputPrice: 25.0 / 1e6,
-				cachedInputPrice: 0.5 / 1e6,
-				minCacheableTokens: 4096,
-				requestPrice: 0,
-				discount: 0.3,
-				contextSize: 1000000,
-				maxOutput: 128000,
-				reasoning: true,
-				reasoningMaxTokens: true,
-				streaming: true,
-				vision: true,
-				tools: true,
-				jsonOutputSchema: true,
 			},
 		],
 	},

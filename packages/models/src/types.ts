@@ -275,12 +275,16 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 	system?: string | AnthropicSystemContent[];
 	tools?: AnthropicTool[];
 	tool_choice?: AnthropicToolChoice;
-	thinking?: {
-		type: "enabled";
-		budget_tokens: number;
-	};
+	thinking?:
+		| {
+				type: "enabled";
+				budget_tokens: number;
+		  }
+		| {
+				type: "adaptive";
+		  };
 	output_config?: {
-		effort?: "low" | "medium" | "high";
+		effort?: "low" | "medium" | "high" | "xhigh" | "max";
 	};
 }
 

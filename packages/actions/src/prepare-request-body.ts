@@ -1323,10 +1323,38 @@ export async function prepareRequestBody(
 
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
 			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				requestBody.thinking = {
-					type: "enabled",
-					budget_tokens: thinkingBudget,
-				};
+				if (providerMapping?.reasoningMode === "adaptive") {
+					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
+					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
+					// The model decides whether to engage thinking based on prompt complexity.
+					requestBody.thinking = { type: "adaptive" };
+					if (effort === undefined && reasoning_effort) {
+						const mapEffort = (
+							e: typeof reasoning_effort,
+						): "low" | "medium" | "high" | "xhigh" | "max" => {
+							switch (e) {
+								case "minimal":
+								case "low":
+									return "low";
+								case "medium":
+									return "medium";
+								case "high":
+									return "high";
+								case "xhigh":
+									return "xhigh";
+								default:
+									return "high";
+							}
+						};
+						requestBody.output_config ??= {};
+						requestBody.output_config.effort = mapEffort(reasoning_effort);
+					}
+				} else {
+					requestBody.thinking = {
+						type: "enabled",
+						budget_tokens: thinkingBudget,
+					};
+				}
 				// Anthropic requires temperature to be exactly 1 when thinking is enabled
 				temperature = 1;
 			}

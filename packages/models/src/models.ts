@@ -215,7 +215,9 @@ export interface ProviderModelMapping {
 	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
-	 * - "omit": Don't expect reasoning output even if reasoning is true (for models like o1 that don't return reasoning content)
+	 * - "omit": Don't expect reasoning output even if reasoning is true (for models like o1 that
+	 *   don't return reasoning content, or adaptive-thinking models that may skip thinking for
+	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
 	/**
@@ -224,6 +226,12 @@ export interface ProviderModelMapping {
 	 * Supported by Anthropic and Google thinking models.
 	 */
 	reasoningMaxTokens?: boolean;
+	/**
+	 * Reasoning/thinking API variant for Anthropic models.
+	 * - undefined / "enabled": legacy `thinking: { type: "enabled", budget_tokens }` format (default)
+	 * - "adaptive": new `thinking: { type: "adaptive" }` + `output_config.effort` format (Opus 4.7+)
+	 */
+	reasoningMode?: "enabled" | "adaptive";
 	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
