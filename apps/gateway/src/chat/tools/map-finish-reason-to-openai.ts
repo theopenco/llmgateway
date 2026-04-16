@@ -18,15 +18,7 @@ export function mapFinishReasonToOpenai(
 	promptBlockReason?: string,
 ): string {
 	if (promptBlockReason) {
-		switch (promptBlockReason) {
-			case "SAFETY":
-			case "PROHIBITED_CONTENT":
-			case "BLOCKLIST":
-			case "OTHER":
-				return "content_filter";
-			default:
-				return "stop";
-		}
+		return "content_filter";
 	}
 
 	switch (finishReason) {
