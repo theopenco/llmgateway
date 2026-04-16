@@ -125,6 +125,7 @@ import { getProviderEnv } from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
+import { mapFinishReasonToOpenai } from "./tools/map-finish-reason-to-openai.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
@@ -7034,7 +7035,11 @@ chat.openapi(completions, async (c) => {
 										{
 											index: 0,
 											delta: {},
-											finish_reason: finishReason,
+											finish_reason: mapFinishReasonToOpenai(
+												finishReason,
+												usedProvider,
+												!!streamingToolCalls && streamingToolCalls.length > 0,
+											),
 										},
 									],
 								};
@@ -7227,7 +7232,11 @@ chat.openapi(completions, async (c) => {
 										{
 											index: 0,
 											delta: {},
-											finish_reason: finishReason ?? "stop",
+											finish_reason: mapFinishReasonToOpenai(
+												finishReason,
+												usedProvider,
+												!!streamingToolCalls && streamingToolCalls.length > 0,
+											),
 										},
 									],
 								};
