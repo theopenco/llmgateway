@@ -1,3 +1,5 @@
+import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
+
 import type { RoutingAttempt } from "./retry-with-fallback.js";
 import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
@@ -201,28 +203,11 @@ export function transformResponseToOpenai(
 							...(images && images.length > 0 && { images }),
 							...(annotations && annotations.length > 0 && { annotations }),
 						},
-						finish_reason: (() => {
-							// Map Google finish reasons to OpenAI format for the response
-							if (!finishReason) {
-								return "stop";
-							}
-							if (finishReason === "STOP") {
-								return toolResults ? "tool_calls" : "stop";
-							}
-							if (finishReason === "MAX_TOKENS") {
-								return "length";
-							}
-							if (
-								finishReason === "SAFETY" ||
-								finishReason === "PROHIBITED_CONTENT" ||
-								finishReason === "RECITATION" ||
-								finishReason === "BLOCKLIST" ||
-								finishReason === "SPII"
-							) {
-								return "content_filter";
-							}
-							return "stop";
-						})(),
+						finish_reason: mapFinishReasonToOpenai(
+							finishReason,
+							usedProvider,
+							!!toolResults,
+						),
 					},
 				],
 				usage: buildUsageObject(
@@ -266,14 +251,11 @@ export function transformResponseToOpenai(
 							...(toolResults && { tool_calls: toolResults }),
 							...(annotations && annotations.length > 0 && { annotations }),
 						},
-						finish_reason:
-							finishReason === "end_turn"
-								? "stop"
-								: finishReason === "tool_use"
-									? "tool_calls"
-									: finishReason === "max_tokens"
-										? "length"
-										: "stop",
+						finish_reason: mapFinishReasonToOpenai(
+							finishReason,
+							usedProvider,
+							!!toolResults,
+						),
 					},
 				],
 				usage: buildUsageObject(
