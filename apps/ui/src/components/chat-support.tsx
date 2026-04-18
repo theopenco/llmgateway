@@ -17,6 +17,7 @@ import { Streamdown } from "streamdown";
 
 import { useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
+import { useFetchClient } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import type { UIMessage } from "ai";
@@ -65,6 +66,7 @@ function getTextFromParts(message: UIMessage): string {
 }
 
 export function ChatSupport() {
+	const fetchClient = useFetchClient();
 	const { user } = useUser();
 	const [isOpen, setIsOpen] = useState(false);
 	const [hasUnread, setHasUnread] = useState(false);
@@ -157,23 +159,24 @@ export function ChatSupport() {
 
 	const escalateMutation = useMutation({
 		mutationFn: async () => {
-			const res = await fetch("/api/chat-support/escalate", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					name: effectiveName,
-					email: effectiveEmail,
-					clientId,
-					messages: messages.map((m) => ({
-						role: m.role,
-						content: getTextFromParts(m),
-					})),
-				}),
-			});
-			if (!res.ok) {
+			const res = await fetchClient.POST(
+				"/public/chat-support/escalate" as never,
+				{
+					body: {
+						name: effectiveName,
+						email: effectiveEmail,
+						clientId,
+						messages: messages.map((m) => ({
+							role: m.role,
+							content: getTextFromParts(m),
+						})),
+					},
+				} as never,
+			);
+			if (res.error) {
 				throw new Error("Escalation failed");
 			}
-			return await res.json();
+			return res.data;
 		},
 		onSuccess: () => {
 			setEscalated(true);
@@ -218,13 +221,15 @@ export function ChatSupport() {
 	return (
 		<>
 			<div
+				aria-hidden={!isOpen}
+				inert={!isOpen}
 				className={cn(
 					"fixed z-[60] flex flex-col overflow-hidden border-border bg-background shadow-2xl transition-all duration-200 ease-out",
 					"inset-0 rounded-none border-0",
 					"sm:inset-auto sm:bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:right-6 sm:h-[min(32rem,calc(100svh-7rem))] sm:w-[24rem] sm:rounded-xl sm:border",
 					isOpen
-						? "translate-y-0 opacity-100"
-						: "pointer-events-none translate-y-4 opacity-0",
+						? "visible translate-y-0 opacity-100"
+						: "invisible pointer-events-none translate-y-4 opacity-0",
 				)}
 			>
 				<div
