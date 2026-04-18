@@ -1,4 +1,9 @@
-import { streamText, convertToModelMessages, type UIMessage } from "ai";
+import {
+	streamText,
+	convertToModelMessages,
+	JsonToSseTransformStream,
+	type UIMessage,
+} from "ai";
 import { Hono } from "hono";
 
 import { redisClient } from "@/auth/config.js";
@@ -335,11 +340,66 @@ publicChatSupport.post("/", async (c) => {
 		},
 	});
 
-	return result.toTextStreamResponse({
+	// Pipe the UI message stream through SSE. SSE (`text/event-stream`) is far
+	// more reliable than raw `text/plain` streams on mobile Safari and through
+	// intermediate proxies, which tend to buffer `text/plain` responses and
+	// surface as "Load failed" errors on iOS.
+	const uiStream = result.toUIMessageStream({
+		onError: (error) => {
+			logger.error("Chat support streaming error", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return error instanceof Error
+				? error.message
+				: "Something went wrong. Please try again.";
+		},
+	});
+	const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
+
+	// Emit keepalive SSE comments so long-running streams aren't torn down by
+	// proxies/load balancers before the first chunk is flushed.
+	const KEEPALIVE_INTERVAL_MS = 15_000;
+	const encoder = new TextEncoder();
+	const reader = sseStream.getReader();
+	const streamWithKeepalive = new ReadableStream<Uint8Array>({
+		start(controller) {
+			const keepalive = setInterval(() => {
+				try {
+					controller.enqueue(encoder.encode(": ping\n\n"));
+				} catch {
+					clearInterval(keepalive);
+				}
+			}, KEEPALIVE_INTERVAL_MS);
+
+			void (async () => {
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) {
+							clearInterval(keepalive);
+							controller.close();
+							return;
+						}
+						controller.enqueue(encoder.encode(value));
+					}
+				} catch (err) {
+					clearInterval(keepalive);
+					controller.error(err);
+				}
+			})();
+		},
+		cancel() {
+			void reader.cancel();
+		},
+	});
+
+	return new Response(streamWithKeepalive, {
 		headers: {
-			"Cache-Control": "no-cache, no-store, no-transform",
-			"X-Accel-Buffering": "no",
-			"Content-Type": "text/plain; charset=utf-8",
+			"content-type": "text/event-stream",
+			"cache-control": "no-cache, no-transform",
+			connection: "keep-alive",
+			"x-vercel-ai-ui-message-stream": "v1",
+			"x-accel-buffering": "no",
 		},
 	});
 });

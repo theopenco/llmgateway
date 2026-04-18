@@ -3,7 +3,7 @@
 import { Chat, useChat } from "@ai-sdk/react";
 import { createCodePlugin } from "@streamdown/code";
 import { useMutation } from "@tanstack/react-query";
-import { TextStreamChatTransport } from "ai";
+import { DefaultChatTransport } from "ai";
 import {
 	MessageCircle,
 	X,
@@ -94,12 +94,8 @@ export function ChatSupport() {
 	const chat = useMemo(
 		() =>
 			new Chat({
-				transport: new TextStreamChatTransport({
+				transport: new DefaultChatTransport({
 					api: `${config.apiUrl}/public/chat-support`,
-					credentials: "include",
-					headers: {
-						"Content-Type": "application/json",
-					},
 					body: {
 						name: effectiveName,
 						email: effectiveEmail,
