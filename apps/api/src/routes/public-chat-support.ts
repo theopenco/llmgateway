@@ -349,9 +349,7 @@ publicChatSupport.post("/", async (c) => {
 			logger.error("Chat support streaming error", {
 				error: error instanceof Error ? error.message : String(error),
 			});
-			return error instanceof Error
-				? error.message
-				: "Something went wrong. Please try again.";
+			return "Something went wrong. Please try again.";
 		},
 	});
 	const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
