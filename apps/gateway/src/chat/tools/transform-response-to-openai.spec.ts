@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	applyExtendedUsageFields,
 	transformResponseToOpenai,
 	stripRequestScopedMetadataFromOpenAiResponse,
 	withCurrentRequestMetadataOnOpenAiResponse,
@@ -91,6 +92,111 @@ describe("transformResponseToOpenai", () => {
 				},
 			],
 		});
+	});
+
+	test("emits extended usage fields", () => {
+		const response = transformResponseToOpenai(
+			"openai",
+			"gpt-4o-mini",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion",
+				created: 1,
+				model: "gpt-4o-mini",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "hi" },
+						finish_reason: "stop",
+					},
+				],
+				usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+			},
+			"hi",
+			null,
+			"stop",
+			10,
+			20,
+			30,
+			5,
+			3,
+			null,
+			[],
+			"openai/gpt-4o-mini",
+			"openai",
+			"gpt-4o-mini",
+			{
+				inputCost: 0.001,
+				outputCost: 0.004,
+				cachedInputCost: 0.0002,
+				requestCost: 0,
+				webSearchCost: 0,
+				imageInputCost: null,
+				imageOutputCost: null,
+				totalCost: 0.0052,
+			},
+			false,
+			null,
+			null,
+			"req_or_1",
+			undefined,
+			2,
+			false,
+		);
+
+		expect(response.usage).toMatchObject({
+			prompt_tokens: 10,
+			completion_tokens: 20,
+			total_tokens: 30,
+			cost: 0.0052,
+			is_byok: false,
+			cost_details: {
+				upstream_inference_cost: 0.001 + 0.0002 + 0.004,
+				upstream_inference_prompt_cost: 0.001 + 0.0002,
+				upstream_inference_completions_cost: 0.004,
+			},
+			prompt_tokens_details: {
+				cached_tokens: 3,
+				cache_write_tokens: 2,
+				cache_creation_tokens: 2,
+				audio_tokens: 0,
+				video_tokens: 0,
+			},
+			completion_tokens_details: {
+				reasoning_tokens: 5,
+				image_tokens: 0,
+				audio_tokens: 0,
+			},
+		});
+	});
+
+	test("applyExtendedUsageFields defaults zeros when nothing is set", () => {
+		const usage: Record<string, any> = {
+			prompt_tokens: 5,
+			completion_tokens: 7,
+			total_tokens: 12,
+		};
+		applyExtendedUsageFields(usage, {
+			costs: null,
+			isByok: true,
+			cachedTokens: null,
+			cacheCreationTokens: null,
+			reasoningTokens: null,
+		});
+		expect(usage.is_byok).toBe(true);
+		expect(usage.prompt_tokens_details).toEqual({
+			cached_tokens: 0,
+			cache_write_tokens: 0,
+			audio_tokens: 0,
+			video_tokens: 0,
+		});
+		expect(usage.completion_tokens_details).toEqual({
+			reasoning_tokens: 0,
+			image_tokens: 0,
+			audio_tokens: 0,
+		});
+		expect(usage.cost).toBeUndefined();
+		expect(usage.cost_details).toBeUndefined();
 	});
 
 	test("applies the current request id to cached responses", () => {

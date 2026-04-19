@@ -28,10 +28,13 @@ interface StreamingState {
 		output_tokens: number;
 		total_tokens: number;
 		input_tokens_details?: { cached_tokens: number };
-		cost_usd_total?: number;
-		cost_usd_input?: number;
-		cost_usd_output?: number;
-		cost_usd_cached_input?: number;
+		cost?: number;
+		is_byok?: boolean;
+		cost_details?: {
+			upstream_inference_cost: number;
+			upstream_inference_prompt_cost: number;
+			upstream_inference_completions_cost: number;
+		};
 	};
 }
 
@@ -133,18 +136,15 @@ export function processStreamChunk(
 					cached_tokens: ptd.cached_tokens as number,
 				};
 			}
-			if (usage.cost_usd_total !== undefined) {
-				state.usage.cost_usd_total = usage.cost_usd_total as number;
+			if (usage.cost !== undefined) {
+				state.usage.cost = usage.cost as number;
 			}
-			if (usage.cost_usd_input !== undefined) {
-				state.usage.cost_usd_input = usage.cost_usd_input as number;
+			if (usage.is_byok !== undefined) {
+				state.usage.is_byok = usage.is_byok as boolean;
 			}
-			if (usage.cost_usd_output !== undefined) {
-				state.usage.cost_usd_output = usage.cost_usd_output as number;
-			}
-			if (usage.cost_usd_cached_input !== undefined) {
-				state.usage.cost_usd_cached_input =
-					usage.cost_usd_cached_input as number;
+			if (usage.cost_details !== undefined) {
+				state.usage.cost_details =
+					usage.cost_details as StreamingState["usage"]["cost_details"];
 			}
 		}
 		return events;
@@ -291,17 +291,15 @@ export function processStreamChunk(
 				cached_tokens: ptd.cached_tokens as number,
 			};
 		}
-		if (usage.cost_usd_total !== undefined) {
-			state.usage.cost_usd_total = usage.cost_usd_total as number;
+		if (usage.cost !== undefined) {
+			state.usage.cost = usage.cost as number;
 		}
-		if (usage.cost_usd_input !== undefined) {
-			state.usage.cost_usd_input = usage.cost_usd_input as number;
+		if (usage.is_byok !== undefined) {
+			state.usage.is_byok = usage.is_byok as boolean;
 		}
-		if (usage.cost_usd_output !== undefined) {
-			state.usage.cost_usd_output = usage.cost_usd_output as number;
-		}
-		if (usage.cost_usd_cached_input !== undefined) {
-			state.usage.cost_usd_cached_input = usage.cost_usd_cached_input as number;
+		if (usage.cost_details !== undefined) {
+			state.usage.cost_details =
+				usage.cost_details as StreamingState["usage"]["cost_details"];
 		}
 	}
 

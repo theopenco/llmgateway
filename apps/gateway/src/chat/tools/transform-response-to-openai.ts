@@ -15,6 +15,78 @@ export interface CostData {
 	totalCost: number | null;
 }
 
+export function applyExtendedUsageFields(
+	usage: Record<string, any>,
+	options: {
+		costs?: CostData | null;
+		isByok?: boolean;
+		cachedTokens?: number | null;
+		cacheCreationTokens?: number | null;
+		reasoningTokens?: number | null;
+	},
+): Record<string, any> {
+	const { costs, isByok, cachedTokens, cacheCreationTokens, reasoningTokens } =
+		options;
+
+	if (costs) {
+		if (costs.totalCost !== null && costs.totalCost !== undefined) {
+			usage.cost = costs.totalCost;
+		}
+		const inputCost = costs.inputCost ?? 0;
+		const cachedInputCost = costs.cachedInputCost ?? 0;
+		const outputCost = costs.outputCost ?? 0;
+		const promptCost = inputCost + cachedInputCost;
+		const completionsCost = outputCost;
+		usage.cost_details = {
+			upstream_inference_cost: promptCost + completionsCost,
+			upstream_inference_prompt_cost: promptCost,
+			upstream_inference_completions_cost: completionsCost,
+		};
+	}
+
+	if (typeof isByok === "boolean") {
+		usage.is_byok = isByok;
+	}
+
+	const existingPromptDetails =
+		(usage.prompt_tokens_details as Record<string, any> | undefined) ?? {};
+	const resolvedCacheRead =
+		existingPromptDetails.cached_tokens ?? cachedTokens ?? 0;
+	const resolvedCacheWrite =
+		existingPromptDetails.cache_write_tokens ??
+		existingPromptDetails.cache_creation_tokens ??
+		cacheCreationTokens ??
+		0;
+	usage.prompt_tokens_details = {
+		...existingPromptDetails,
+		cached_tokens: resolvedCacheRead,
+		cache_write_tokens: resolvedCacheWrite,
+		audio_tokens: existingPromptDetails.audio_tokens ?? 0,
+		video_tokens: existingPromptDetails.video_tokens ?? 0,
+		...(resolvedCacheWrite > 0 && {
+			cache_creation_tokens: resolvedCacheWrite,
+		}),
+	};
+
+	const existingCompletionDetails =
+		(usage.completion_tokens_details as Record<string, any> | undefined) ?? {};
+	const resolvedReasoning =
+		existingCompletionDetails.reasoning_tokens ??
+		(typeof usage.reasoning_tokens === "number"
+			? usage.reasoning_tokens
+			: undefined) ??
+		reasoningTokens ??
+		0;
+	usage.completion_tokens_details = {
+		...existingCompletionDetails,
+		reasoning_tokens: resolvedReasoning,
+		image_tokens: existingCompletionDetails.image_tokens ?? 0,
+		audio_tokens: existingCompletionDetails.audio_tokens ?? 0,
+	};
+
+	return usage;
+}
+
 function buildMetadata(
 	requestedModel: string,
 	requestedProvider: string | null,
@@ -110,11 +182,9 @@ function buildUsageObject(
 	costs: CostData | null,
 	showUpgradeMessage = false,
 	cacheCreationTokens: number | null = null,
+	isByok?: boolean,
 ) {
-	const hasCacheRead = cachedTokens !== null;
-	const hasCacheCreation =
-		cacheCreationTokens !== null && cacheCreationTokens > 0;
-	return {
+	const usage: Record<string, any> = {
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
 		completion_tokens: completionTokens ?? 0,
 		total_tokens: (() => {
@@ -122,31 +192,20 @@ function buildUsageObject(
 				(promptTokens ?? 0) + (completionTokens ?? 0) + (reasoningTokens ?? 0);
 			return Math.max(1, totalTokens ?? fallbackTotal);
 		})(),
-		...(reasoningTokens !== null && {
-			reasoning_tokens: reasoningTokens,
-		}),
-		...((hasCacheRead || hasCacheCreation) && {
-			prompt_tokens_details: {
-				cached_tokens: cachedTokens ?? 0,
-				...(hasCacheCreation && {
-					cache_creation_tokens: cacheCreationTokens,
-				}),
-			},
-		}),
-		...(costs !== null && {
-			cost_usd_total: costs.totalCost,
-			cost_usd_input: costs.inputCost,
-			cost_usd_output: costs.outputCost,
-			cost_usd_cached_input: costs.cachedInputCost,
-			cost_usd_request: costs.requestCost,
-			cost_usd_web_search: costs.webSearchCost,
-			cost_usd_image_input: costs.imageInputCost,
-			cost_usd_image_output: costs.imageOutputCost,
-		}),
 		...(showUpgradeMessage && {
 			info: "upgrade to pro to include usd cost breakdown",
 		}),
 	};
+
+	applyExtendedUsageFields(usage, {
+		costs,
+		isByok,
+		cachedTokens,
+		cacheCreationTokens,
+		reasoningTokens,
+	});
+
+	return usage;
 }
 
 /**
@@ -176,6 +235,7 @@ export function transformResponseToOpenai(
 	requestId = "",
 	usedRegion?: string | undefined,
 	cacheCreationTokens: number | null = null,
+	isByok?: boolean,
 ) {
 	let transformedResponse = json;
 
@@ -219,6 +279,7 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 					cacheCreationTokens,
+					isByok,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -267,6 +328,7 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 					cacheCreationTokens,
+					isByok,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -312,6 +374,7 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -355,24 +418,19 @@ export function transformResponseToOpenai(
 					usedRegion,
 				);
 				if (transformedResponse.usage) {
-					if (costs !== null) {
-						transformedResponse.usage = {
-							...transformedResponse.usage,
-							cost_usd_total: costs.totalCost,
-							cost_usd_input: costs.inputCost,
-							cost_usd_output: costs.outputCost,
-							cost_usd_cached_input: costs.cachedInputCost,
-							cost_usd_request: costs.requestCost,
-							cost_usd_image_input: costs.imageInputCost,
-							cost_usd_image_output: costs.imageOutputCost,
-						};
-					}
 					if (showUpgradeMessage) {
 						transformedResponse.usage = {
 							...transformedResponse.usage,
 							info: "upgrade to pro to include usd cost breakdown",
 						};
 					}
+					applyExtendedUsageFields(transformedResponse.usage, {
+						costs,
+						isByok,
+						cachedTokens,
+						cacheCreationTokens,
+						reasoningTokens,
+					});
 				}
 			}
 			break;
@@ -407,6 +465,7 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 					cacheCreationTokens,
+					isByok,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -450,6 +509,7 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -490,24 +550,19 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
 								info: "upgrade to pro to include usd cost breakdown",
 							};
 						}
+						applyExtendedUsageFields(transformedResponse.usage, {
+							costs,
+							isByok,
+							cachedTokens,
+							cacheCreationTokens,
+							reasoningTokens,
+						});
 					}
 				}
 			}
@@ -549,6 +604,7 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -597,24 +653,19 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
 								info: "upgrade to pro to include usd cost breakdown",
 							};
 						}
+						applyExtendedUsageFields(transformedResponse.usage, {
+							costs,
+							isByok,
+							cachedTokens,
+							cacheCreationTokens,
+							reasoningTokens,
+						});
 					}
 				}
 			}
@@ -649,6 +700,7 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -688,24 +740,19 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
 								info: "upgrade to pro to include usd cost breakdown",
 							};
 						}
+						applyExtendedUsageFields(transformedResponse.usage, {
+							costs,
+							isByok,
+							cachedTokens,
+							cacheCreationTokens,
+							reasoningTokens,
+						});
 					}
 				}
 			}
@@ -740,6 +787,7 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -779,24 +827,19 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
 								info: "upgrade to pro to include usd cost breakdown",
 							};
 						}
+						applyExtendedUsageFields(transformedResponse.usage, {
+							costs,
+							isByok,
+							cachedTokens,
+							cacheCreationTokens,
+							reasoningTokens,
+						});
 					}
 				}
 			}
@@ -832,6 +875,7 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -871,24 +915,19 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
 								info: "upgrade to pro to include usd cost breakdown",
 							};
 						}
+						applyExtendedUsageFields(transformedResponse.usage, {
+							costs,
+							isByok,
+							cachedTokens,
+							cacheCreationTokens,
+							reasoningTokens,
+						});
 					}
 				}
 			}
@@ -926,24 +965,19 @@ export function transformResponseToOpenai(
 					usedRegion,
 				);
 				if (transformedResponse.usage) {
-					if (costs !== null) {
-						transformedResponse.usage = {
-							...transformedResponse.usage,
-							cost_usd_total: costs.totalCost,
-							cost_usd_input: costs.inputCost,
-							cost_usd_output: costs.outputCost,
-							cost_usd_cached_input: costs.cachedInputCost,
-							cost_usd_request: costs.requestCost,
-							cost_usd_image_input: costs.imageInputCost,
-							cost_usd_image_output: costs.imageOutputCost,
-						};
-					}
 					if (showUpgradeMessage) {
 						transformedResponse.usage = {
 							...transformedResponse.usage,
 							info: "upgrade to pro to include usd cost breakdown",
 						};
 					}
+					applyExtendedUsageFields(transformedResponse.usage, {
+						costs,
+						isByok,
+						cachedTokens,
+						cacheCreationTokens,
+						reasoningTokens,
+					});
 				}
 			}
 			break;
