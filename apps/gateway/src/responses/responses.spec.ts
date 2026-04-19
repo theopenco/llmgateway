@@ -353,6 +353,15 @@ describe("convertChatResponseToResponses", () => {
 					upstream_inference_prompt_cost: 0.0005,
 					upstream_inference_completions_cost: 0.0005,
 				},
+				cost_usd_total: 0.001,
+				cost_usd_input: 0.0005,
+				cost_usd_output: 0.0005,
+				cost_usd_cached_input: 0,
+				cost_usd_request: 0,
+				cost_usd_web_search: 0,
+				cost_usd_image_input: null,
+				cost_usd_image_output: null,
+				cost_usd_data_storage: 0.00000015,
 			},
 		};
 
@@ -365,6 +374,15 @@ describe("convertChatResponseToResponses", () => {
 			upstream_inference_prompt_cost: 0.0005,
 			upstream_inference_completions_cost: 0.0005,
 		});
+		expect(result.usage.cost_usd_total).toBe(0.001);
+		expect(result.usage.cost_usd_input).toBe(0.0005);
+		expect(result.usage.cost_usd_output).toBe(0.0005);
+		expect(result.usage.cost_usd_cached_input).toBe(0);
+		expect(result.usage.cost_usd_request).toBe(0);
+		expect(result.usage.cost_usd_web_search).toBe(0);
+		expect(result.usage.cost_usd_image_input).toBeNull();
+		expect(result.usage.cost_usd_image_output).toBeNull();
+		expect(result.usage.cost_usd_data_storage).toBe(0.00000015);
 	});
 });
 

@@ -46,6 +46,15 @@ When cost breakdown is enabled, your API responses will include additional cost 
 			"upstream_inference_prompt_cost": 0.000025,
 			"upstream_inference_completions_cost": 0.0001
 		},
+		"cost_usd_total": 0.000125,
+		"cost_usd_input": 0.000025,
+		"cost_usd_output": 0.0001,
+		"cost_usd_cached_input": 0,
+		"cost_usd_request": 0,
+		"cost_usd_web_search": 0,
+		"cost_usd_image_input": null,
+		"cost_usd_image_output": null,
+		"cost_usd_data_storage": 0.00000025,
 		"prompt_tokens_details": {
 			"cached_tokens": 0,
 			"cache_write_tokens": 0,
@@ -70,6 +79,15 @@ When cost breakdown is enabled, your API responses will include additional cost 
 | `cost_details.upstream_inference_cost`             | Combined upstream inference cost in USD (prompt + completions)           |
 | `cost_details.upstream_inference_prompt_cost`      | Upstream cost for prompt tokens in USD (includes cached prompt discount) |
 | `cost_details.upstream_inference_completions_cost` | Upstream cost for completion tokens in USD                               |
+| `cost_usd_total`                                   | Total request cost in USD (LLM Gateway extended field)                   |
+| `cost_usd_input`                                   | Cost for non-cached prompt tokens in USD                                 |
+| `cost_usd_output`                                  | Cost for completion tokens in USD                                        |
+| `cost_usd_cached_input`                            | Cost for cached prompt tokens in USD                                     |
+| `cost_usd_request`                                 | Per-request flat fee in USD (when the model applies one)                 |
+| `cost_usd_web_search`                              | Cost for web search tool calls in USD                                    |
+| `cost_usd_image_input`                             | Cost for image inputs in USD                                             |
+| `cost_usd_image_output`                            | Cost for image outputs in USD                                            |
+| `cost_usd_data_storage`                            | Storage cost for retained request/response payloads in USD               |
 
 ## Token Detail Fields
 
@@ -90,7 +108,7 @@ The `usage` object also includes detailed token counters that mirror OpenAI's ex
 Cost information is also available in streaming responses. The cost fields are included in the final usage chunk sent before the `[DONE]` message:
 
 ```
-data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[...],"usage":{"prompt_tokens":10,"completion_tokens":15,"total_tokens":25,"cost":0.000125,"cost_details":{"upstream_inference_cost":0.000125,"upstream_inference_prompt_cost":0.000025,"upstream_inference_completions_cost":0.0001}}}
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[...],"usage":{"prompt_tokens":10,"completion_tokens":15,"total_tokens":25,"cost":0.000125,"cost_details":{"upstream_inference_cost":0.000125,"upstream_inference_prompt_cost":0.000025,"upstream_inference_completions_cost":0.0001},"cost_usd_total":0.000125,"cost_usd_input":0.000025,"cost_usd_output":0.0001,"cost_usd_cached_input":0,"cost_usd_request":0,"cost_usd_web_search":0,"cost_usd_image_input":null,"cost_usd_image_output":null,"cost_usd_data_storage":0.00000025}}
 
 data: [DONE]
 ```

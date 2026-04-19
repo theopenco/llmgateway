@@ -155,6 +155,14 @@ describe("transformResponseToOpenai", () => {
 				upstream_inference_prompt_cost: 0.001 + 0.0002,
 				upstream_inference_completions_cost: 0.004,
 			},
+			cost_usd_total: 0.0052,
+			cost_usd_input: 0.001,
+			cost_usd_output: 0.004,
+			cost_usd_cached_input: 0.0002,
+			cost_usd_request: 0,
+			cost_usd_web_search: 0,
+			cost_usd_image_input: null,
+			cost_usd_image_output: null,
 			prompt_tokens_details: {
 				cached_tokens: 3,
 				cache_write_tokens: 2,
@@ -167,6 +175,59 @@ describe("transformResponseToOpenai", () => {
 				image_tokens: 0,
 				audio_tokens: 0,
 			},
+		});
+	});
+
+	test("emits cost_usd_data_storage when provided", () => {
+		const response = transformResponseToOpenai(
+			"openai",
+			"gpt-4o-mini",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion",
+				created: 1,
+				model: "gpt-4o-mini",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "hi" },
+						finish_reason: "stop",
+					},
+				],
+				usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+			},
+			"hi",
+			null,
+			"stop",
+			10,
+			20,
+			30,
+			null,
+			null,
+			null,
+			[],
+			"openai/gpt-4o-mini",
+			"openai",
+			"gpt-4o-mini",
+			{
+				inputCost: 0.001,
+				outputCost: 0.004,
+				cachedInputCost: 0,
+				requestCost: 0,
+				webSearchCost: 0,
+				imageInputCost: null,
+				imageOutputCost: null,
+				totalCost: 0.005,
+				dataStorageCost: 0.000003,
+			},
+			false,
+			null,
+			null,
+			"req_or_2",
+		);
+
+		expect(response.usage).toMatchObject({
+			cost_usd_data_storage: 0.000003,
 		});
 	});
 

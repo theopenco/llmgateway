@@ -62,6 +62,19 @@ function assertCacheBilled(usage: any) {
 	}
 	expect(typeof promptCost).toBe("number");
 	expect(promptCost).toBeGreaterThan(0);
+
+	const promptTokens = usage?.prompt_tokens ?? 0;
+	const nonCachedTokens = Math.max(0, promptTokens - cachedTokens);
+	const inputCost = usage?.cost_usd_input;
+	const cachedInputCost = usage?.cost_usd_cached_input;
+	expect(typeof inputCost).toBe("number");
+	expect(typeof cachedInputCost).toBe("number");
+	expect(cachedInputCost).toBeGreaterThan(0);
+	if (nonCachedTokens > 0) {
+		const perTokenInput = inputCost / nonCachedTokens;
+		const perTokenCached = cachedInputCost / cachedTokens;
+		expect(perTokenCached).toBeLessThan(perTokenInput);
+	}
 }
 
 async function readSseChunks(stream: ReadableStream<Uint8Array> | null) {

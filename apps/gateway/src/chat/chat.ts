@@ -176,6 +176,27 @@ import type { ServerTypes } from "@/vars.js";
  * - Non-default regions only pass if a region-specific env key exists
  *   (e.g. LLM_ALIBABA_API_KEY__US_VIRGINIA).
  */
+function toDataStorageCostNumber(
+	promptTokens: number | string | null | undefined,
+	cachedTokens: number | string | null | undefined,
+	completionTokens: number | string | null | undefined,
+	reasoningTokens: number | string | null | undefined,
+	retentionLevel: "retain" | "none" | null,
+): number | null {
+	if (retentionLevel === "none") {
+		return null;
+	}
+	const str = calculateDataStorageCost(
+		promptTokens,
+		cachedTokens,
+		completionTokens,
+		reasoningTokens,
+		retentionLevel,
+	);
+	const num = Number(str);
+	return Number.isFinite(num) ? num : null;
+}
+
 function filterRegionsByAvailableKeys(
 	expandedProviders: ProviderModelMapping[],
 ): ProviderModelMapping[] {
@@ -858,6 +879,15 @@ const completions = createRoute({
 									upstream_inference_completions_cost: z.number(),
 								})
 								.optional(),
+							cost_usd_total: z.number().nullable().optional(),
+							cost_usd_input: z.number().nullable().optional(),
+							cost_usd_output: z.number().nullable().optional(),
+							cost_usd_cached_input: z.number().nullable().optional(),
+							cost_usd_request: z.number().nullable().optional(),
+							cost_usd_web_search: z.number().nullable().optional(),
+							cost_usd_image_input: z.number().nullable().optional(),
+							cost_usd_image_output: z.number().nullable().optional(),
+							cost_usd_data_storage: z.number().nullable().optional(),
 							info: z.string().optional(),
 						}),
 						metadata: z.object({
@@ -4120,6 +4150,13 @@ chat.openapi(completions, async (c) => {
 						0,
 						project.organizationId,
 					);
+					streamingCosts.dataStorageCost = toDataStorageCostNumber(
+						streamingCosts.promptTokens ?? promptTokenCount,
+						null,
+						0,
+						null,
+						retentionLevel,
+					);
 
 					await writeSSEAndCache({
 						data: JSON.stringify({
@@ -4143,6 +4180,18 @@ chat.openapi(completions, async (c) => {
 						prompt_tokens: promptTokenCount,
 						completion_tokens: 0,
 						total_tokens: promptTokenCount,
+						cost_usd_total: streamingCosts.totalCost,
+						cost_usd_input: streamingCosts.inputCost,
+						cost_usd_output: streamingCosts.outputCost,
+						cost_usd_cached_input: streamingCosts.cachedInputCost,
+						cost_usd_request: streamingCosts.requestCost,
+						cost_usd_web_search: streamingCosts.webSearchCost,
+						cost_usd_image_input: streamingCosts.imageInputCost,
+						cost_usd_image_output: streamingCosts.imageOutputCost,
+						...(streamingCosts.dataStorageCost !== null &&
+							streamingCosts.dataStorageCost !== undefined && {
+								cost_usd_data_storage: streamingCosts.dataStorageCost,
+							}),
 					};
 					applyExtendedUsageFields(contentFilterUsage, {
 						costs: {
@@ -4154,6 +4203,7 @@ chat.openapi(completions, async (c) => {
 							imageInputCost: streamingCosts.imageInputCost,
 							imageOutputCost: streamingCosts.imageOutputCost,
 							totalCost: streamingCosts.totalCost,
+							dataStorageCost: streamingCosts.dataStorageCost,
 						},
 						isByok: Boolean(providerKey),
 						cachedTokens: null,
@@ -5866,6 +5916,13 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 									);
+									streamingCosts.dataStorageCost = toDataStorageCostNumber(
+										streamingCosts.promptTokens ?? finalPromptTokens,
+										cachedTokens,
+										streamingCosts.completionTokens ?? finalCompletionTokens,
+										reasoningTokens,
+										retentionLevel,
+									);
 
 									// Include costs in response for all users
 									const shouldIncludeCosts = true;
@@ -5902,6 +5959,20 @@ chat.openapi(completions, async (c) => {
 													}),
 											},
 										}),
+										...(shouldIncludeCosts && {
+											cost_usd_total: streamingCosts.totalCost,
+											cost_usd_input: streamingCosts.inputCost,
+											cost_usd_output: streamingCosts.outputCost,
+											cost_usd_cached_input: streamingCosts.cachedInputCost,
+											cost_usd_request: streamingCosts.requestCost,
+											cost_usd_web_search: streamingCosts.webSearchCost,
+											cost_usd_image_input: streamingCosts.imageInputCost,
+											cost_usd_image_output: streamingCosts.imageOutputCost,
+											...(streamingCosts.dataStorageCost !== null &&
+												streamingCosts.dataStorageCost !== undefined && {
+													cost_usd_data_storage: streamingCosts.dataStorageCost,
+												}),
+										}),
 									};
 									applyExtendedUsageFields(finalStreamUsage, {
 										costs: shouldIncludeCosts
@@ -5914,6 +5985,7 @@ chat.openapi(completions, async (c) => {
 													imageInputCost: streamingCosts.imageInputCost,
 													imageOutputCost: streamingCosts.imageOutputCost,
 													totalCost: streamingCosts.totalCost,
+													dataStorageCost: streamingCosts.dataStorageCost,
 												}
 											: null,
 										isByok: Boolean(providerKey),
@@ -7116,6 +7188,7 @@ chat.openapi(completions, async (c) => {
 										estimatedCost: false,
 										discount: undefined,
 										pricingTier: undefined,
+										dataStorageCost: null as number | null,
 									}
 								: await calculateCosts(
 										usedModel,
@@ -7137,6 +7210,16 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 									);
+						if (streamingCostsEarly.totalCost !== null) {
+							streamingCostsEarly.dataStorageCost = toDataStorageCostNumber(
+								streamingCostsEarly.promptTokens ?? calculatedPromptTokens,
+								cachedTokens,
+								streamingCostsEarly.completionTokens ??
+									calculatedCompletionTokens,
+								reasoningTokens,
+								retentionLevel,
+							);
+						}
 
 						// Always send final usage chunk with cost data for SDK compatibility
 						try {
@@ -7193,6 +7276,19 @@ chat.openapi(completions, async (c) => {
 													}),
 											},
 										}),
+										cost_usd_total: streamingCostsEarly.totalCost,
+										cost_usd_input: streamingCostsEarly.inputCost,
+										cost_usd_output: streamingCostsEarly.outputCost,
+										cost_usd_cached_input: streamingCostsEarly.cachedInputCost,
+										cost_usd_request: streamingCostsEarly.requestCost,
+										cost_usd_web_search: streamingCostsEarly.webSearchCost,
+										cost_usd_image_input: streamingCostsEarly.imageInputCost,
+										cost_usd_image_output: streamingCostsEarly.imageOutputCost,
+										...(streamingCostsEarly.dataStorageCost !== null &&
+											streamingCostsEarly.dataStorageCost !== undefined && {
+												cost_usd_data_storage:
+													streamingCostsEarly.dataStorageCost,
+											}),
 									};
 									applyExtendedUsageFields(earlyUsage, {
 										costs: {
@@ -7204,6 +7300,7 @@ chat.openapi(completions, async (c) => {
 											imageInputCost: streamingCostsEarly.imageInputCost,
 											imageOutputCost: streamingCostsEarly.imageOutputCost,
 											totalCost: streamingCostsEarly.totalCost,
+											dataStorageCost: streamingCostsEarly.dataStorageCost,
 										},
 										isByok: Boolean(providerKey),
 										cachedTokens,
@@ -7394,6 +7491,7 @@ chat.openapi(completions, async (c) => {
 									estimatedCost: false,
 									discount: undefined,
 									pricingTier: undefined,
+									dataStorageCost: null as number | null,
 								}
 							: await calculateCosts(
 									usedModel,
@@ -8946,6 +9044,13 @@ chat.openapi(completions, async (c) => {
 		webSearchCount,
 		project.organizationId,
 	);
+	costs.dataStorageCost = toDataStorageCostNumber(
+		costs.promptTokens ?? calculatedPromptTokens,
+		cachedTokens,
+		costs.completionTokens ?? calculatedCompletionTokens,
+		calculatedReasoningTokens,
+		retentionLevel,
+	);
 
 	// Use costs.promptTokens as canonical value (includes image input
 	// tokens for providers that exclude them from upstream usage)
@@ -8994,6 +9099,7 @@ chat.openapi(completions, async (c) => {
 					imageInputCost: costs.imageInputCost,
 					imageOutputCost: costs.imageOutputCost,
 					totalCost: costs.totalCost,
+					dataStorageCost: costs.dataStorageCost,
 				}
 			: null,
 		false, // showUpgradeMessage - never show since Pro plan is removed

@@ -33,7 +33,7 @@ When full data retention is enabled, storage is billed at **$0.01 per 1 million 
 - Output tokens (completion)
 - Reasoning tokens
 
-Storage costs are calculated per request and billed separately from inference. See [Cost Breakdown](/features/cost-breakdown) for details on tracking inference costs programmatically.
+Storage costs are calculated per request and billed separately from inference. When "Retain All Data" is enabled, each response's `usage` object includes a `cost_usd_data_storage` field with the per-request storage cost in USD. See [Cost Breakdown](/features/cost-breakdown) for the full list of cost fields.
 
 ### Example Cost Calculation
 

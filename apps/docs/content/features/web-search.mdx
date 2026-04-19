@@ -228,12 +228,16 @@ Web search costs are rolled into the total `cost` reported in the usage object:
 			"upstream_inference_cost": 0.0115,
 			"upstream_inference_prompt_cost": 0.0015,
 			"upstream_inference_completions_cost": 0.01
-		}
+		},
+		"cost_usd_total": 0.0125,
+		"cost_usd_input": 0.0015,
+		"cost_usd_output": 0.01,
+		"cost_usd_web_search": 0.001
 	}
 }
 ```
 
-Web search is billed at $0.01 per search call for reasoning models (GPT-5, o-series) and $0.025 per call for non-reasoning models. The web search charge is included in the top-level `cost` value.
+Web search is billed at $0.01 per search call for reasoning models (GPT-5, o-series) and $0.025 per call for non-reasoning models. The web search charge is included in the top-level `cost` value and surfaced separately as `cost_usd_web_search`.
 
 ## Combining with Function Tools
 

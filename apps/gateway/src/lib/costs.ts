@@ -130,6 +130,7 @@ export async function calculateCosts(
 			imageInputCost: null,
 			imageOutputCost: null,
 			totalCost: null,
+			dataStorageCost: null as number | null,
 			promptTokens,
 			completionTokens,
 			cachedTokens,
@@ -219,6 +220,7 @@ export async function calculateCosts(
 			imageInputCost: null,
 			imageOutputCost: null,
 			totalCost: null,
+			dataStorageCost: null as number | null,
 			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
@@ -257,6 +259,7 @@ export async function calculateCosts(
 			imageInputCost: null,
 			imageOutputCost: null,
 			totalCost: null,
+			dataStorageCost: null as number | null,
 			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
@@ -415,6 +418,7 @@ export async function calculateCosts(
 		imageInputCost: imageInputCost?.toNumber() ?? null,
 		imageOutputCost: imageOutputCost?.toNumber() ?? null,
 		totalCost: totalCost.toNumber(),
+		dataStorageCost: null as number | null,
 		// Only add image input tokens to promptTokens for providers whose upstream
 		// usage excludes them (Google). Other providers (OpenAI, xAI) already
 		// include image tokens in their reported prompt_tokens.
