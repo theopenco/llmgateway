@@ -404,6 +404,49 @@ jobs:
           chmod +x .github/test-unified-docker.sh
           .github/test-unified-docker.sh test-unified-image:latest
 
+  publish-helm:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - merge-split
+    if: github.event_name == 'release' && needs.merge-split.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username ${{ github.actor }} \
+            --password-stdin
+
+      - name: Set chart version
+        working-directory: infra/helm/llmgateway
+        run: |
+          IMAGE_TAG="${{ needs.setup.outputs.image_tag }}"
+          CHART_VERSION="${IMAGE_TAG#v}"
+          sed -i "s/^version:.*/version: ${CHART_VERSION}/" Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${IMAGE_TAG}\"/" Chart.yaml
+          cat Chart.yaml
+
+      - name: Package chart
+        working-directory: infra/helm
+        run: helm package llmgateway
+
+      - name: Push chart to GHCR
+        working-directory: infra/helm
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          helm push llmgateway-*.tgz "oci://ghcr.io/${OWNER}/charts"
+
   trigger-infra-update:
     runs-on: ubuntu-latest
     needs:

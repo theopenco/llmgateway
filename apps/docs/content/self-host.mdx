@@ -186,12 +186,12 @@ Once your LLMGateway is running:
 
 ## Helm Chart
 
-You can also deploy LLMGateway using the Helm chart.
+You can also deploy LLMGateway to Kubernetes using the Helm chart, which is published as an OCI artifact on GitHub Container Registry:
 
 ```bash
-helm repo add llmgateway https://llmgateway.io/helm
-helm repo update
-helm install llmgateway llmgateway/llmgateway
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway --version <version>
 ```
 
-See the [Helm chart documentation](https://llmgateway.io/helm) for more information.
+Replace `<version>` with the chart version you want to install (matching a published release tag without the `v` prefix, e.g. `1.2.3`).
+
+See the [Helm chart README](https://github.com/theopenco/llmgateway/tree/main/infra/helm) for configuration and the [list of available versions](https://github.com/theopenco/llmgateway/pkgs/container/charts%2Fllmgateway).
