@@ -7,10 +7,10 @@ The chart is published as an OCI artifact to GitHub Container Registry on every 
 ## Installation
 
 ```bash
-helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway --version <version>
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway
 ```
 
-Replace `<version>` with the chart version you want to install (matching a published release tag without the `v` prefix, e.g. `1.2.3`). Available versions are listed at https://github.com/theopenco/llmgateway/pkgs/container/charts%2Fllmgateway.
+This installs the latest published version. To pin to a specific release, append `--version <version>` (matching a published release tag without the `v` prefix, e.g. `1.2.3`). Available versions are listed at https://github.com/theopenco/llmgateway/pkgs/container/charts%2Fllmgateway.
 
 ## Local development
 
