@@ -156,7 +156,7 @@ export function MappingDetailClient({
 
 			<section className="space-y-4">
 				<HistoryChart
-					title={`${mapping.providerName} / ${displayName} — History`}
+					title={`${mapping.providerId}/${mapping.modelId} — History`}
 					description="Request volume, errors, latency, and tokens over time"
 					fetchData={fetchHistory}
 					externalWindow={window}

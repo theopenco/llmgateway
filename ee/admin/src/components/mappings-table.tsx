@@ -251,7 +251,7 @@ function MappingRow({
 						id={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
 					>
 						<HistoryChart
-							title={`${mapping.providerName} / ${mapping.modelName !== mapping.modelId ? mapping.modelName : mapping.modelId} — History`}
+							title={`${mapping.providerId}/${mapping.modelId} — History`}
 							description="Request volume, errors, latency, and tokens over time"
 							fetchData={fetchData}
 							externalWindow={externalWindow}
