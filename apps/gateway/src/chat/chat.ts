@@ -2238,6 +2238,7 @@ chat.openapi(completions, async (c) => {
 							if (cheapestResult) {
 								usedProvider = cheapestResult.provider.providerId;
 								usedModel = cheapestResult.provider.modelName;
+								usedRegion = cheapestResult.provider.region;
 								routingMetadata = {
 									...cheapestResult.metadata,
 									selectionReason: "low-uptime-fallback",
