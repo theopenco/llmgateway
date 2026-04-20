@@ -98,7 +98,6 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 
 	return (
 		providerId === undefined ||
-		providerId === "obsidian" ||
 		providerId === "google-vertex" ||
 		providerId === "avalanche"
 	);
@@ -115,13 +114,6 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 
 	if (providerId === "avalanche") {
 		return rootModelId === "veo-3.1-fast-generate-preview";
-	}
-
-	if (providerId === "obsidian") {
-		return (
-			rootModelId === "veo-3.1-generate-preview" ||
-			rootModelId === "veo-3.1-fast-generate-preview"
-		);
 	}
 
 	return (
@@ -179,8 +171,7 @@ function mappingSupportsVideoRequest(
 	if (
 		inputMode === "frames" &&
 		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "avalanche" &&
-		mapping.providerId !== "obsidian"
+		mapping.providerId !== "avalanche"
 	) {
 		return false;
 	}
@@ -194,8 +185,6 @@ function mappingSupportsVideoRequest(
 			if (mapping.modelName !== "veo3_fast") {
 				return false;
 			}
-		} else if (mapping.providerId === "obsidian") {
-			// Obsidian remaps image inputs onto the provider's -fl variants.
 		} else {
 			return false;
 		}

@@ -34,7 +34,6 @@ export function mapFinishReasonToOpenai(
 		case "glacier":
 		case "google-vertex":
 		case "quartz":
-		case "obsidian":
 			if (!finishReason) {
 				return hasToolCalls ? "tool_calls" : "stop";
 			}

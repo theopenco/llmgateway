@@ -52,7 +52,6 @@ export function extractTokenUsage(
 		case "glacier":
 		case "google-vertex":
 		case "quartz":
-		case "obsidian":
 			if (data.usageMetadata) {
 				promptTokens = data.usageMetadata.promptTokenCount ?? null;
 				let rawCandidates = data.usageMetadata.candidatesTokenCount ?? null;

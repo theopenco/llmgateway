@@ -335,8 +335,7 @@ export function transformStreamingToOpenai(
 		case "google-ai-studio":
 		case "glacier":
 		case "google-vertex":
-		case "quartz":
-		case "obsidian": {
+		case "quartz": {
 			const buildUsage = (
 				usageMetadata: any | undefined,
 				messagesForFallback: any[],

@@ -349,8 +349,7 @@ export async function calculateCosts(
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
 		provider === "google-vertex" ||
-		provider === "quartz" ||
-		provider === "obsidian";
+		provider === "quartz";
 	const totalOutputTokens = isGoogleProvider
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
@@ -427,8 +426,7 @@ export async function calculateCosts(
 			(provider === "google-ai-studio" ||
 				provider === "glacier" ||
 				provider === "google-vertex" ||
-				provider === "quartz" ||
-				provider === "obsidian")
+				provider === "quartz")
 				? (calculatedPromptTokens || 0) + imageInputTokens
 				: calculatedPromptTokens,
 		completionTokens: calculatedCompletionTokens,

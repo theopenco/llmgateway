@@ -459,51 +459,6 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6));
 	});
 
-	it("should apply per-resolution discount overriding provider mapping discount", async () => {
-		// obsidian provider has discount: 0.2 on the provider mapping AND 0.2 in each resolution config
-		// With no DB discount active, the resolution-level discount (0.2) should apply
-		const result = await calculateCosts(
-			"gemini-3.1-flash-image-preview",
-			"obsidian",
-			1000,
-			1200, // includes 1120 image tokens
-			null,
-			undefined,
-			null,
-			1, // 1 output image
-			"1K",
-			0,
-		);
-
-		// imageOutputCost with 20% discount: 1120 * (60/1M) * 0.8 = 0.00005376
-		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6) * 0.8);
-		// text output also discounted: (1200 - 1120) * (1.5/1M) * 0.8
-		const textTokens = 1200 - 1120;
-		const expectedTextCost = textTokens * (1.5 / 1e6) * 0.8;
-		const expectedImageCost = 1120 * (60 / 1e6) * 0.8;
-		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
-	});
-
-	it("should apply per-resolution discount for image input on obsidian", async () => {
-		// gemini-3-pro-image-preview on obsidian: resolution discount 0.2 for input
-		const result = await calculateCosts(
-			"gemini-3-pro-image-preview",
-			"obsidian",
-			1000,
-			500,
-			null,
-			undefined,
-			null,
-			0,
-			undefined,
-			2, // 2 input images
-		);
-
-		// imageInputCost: 2 * 560 * (2/1M) * 0.8 = 1120 * 2e-6 * 0.8
-		expect(result.imageInputTokens).toBe(1120); // 2 * 560
-		expect(result.imageInputCost).toBeCloseTo(1120 * (2 / 1e6) * 0.8);
-	});
-
 	it("should include image costs in totalCost sum", async () => {
 		// totalCost = inputCost + outputCost + cachedInputCost + requestCost + webSearchCost
 		// (inputCost already includes imageInputCost, outputCost already includes imageOutputCost)

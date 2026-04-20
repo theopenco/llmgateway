@@ -1064,16 +1064,6 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 		c.status(statusTrigger.statusCode as any);
 		return c.json(statusTrigger.errorResponse);
 	}
-	if (prompt.includes("TRIGGER_OBSIDIAN_NO_CHANNEL")) {
-		c.status(503);
-		return c.json({
-			error: {
-				message:
-					"当前分组 default 下对于模型 sora-2-pro 计费模式 [按量计费,按次计费] 无可用渠道 (request id: 2026032422002539193536177450876)",
-				type: "shell_api_error",
-			},
-		});
-	}
 	videoCounter++;
 	const id = `video_${videoCounter}`;
 	const videoSize = getMockVideoSizeMetadata(body.size);
@@ -1096,8 +1086,7 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 		object: "video",
 		model: body.model ?? "veo-3.1",
 		status:
-			(authorization.includes("avalanche") ||
-				authorization.includes("obsidian")) &&
+			authorization.includes("avalanche") &&
 			typeof body.model === "string" &&
 			body.model.startsWith("sora-2")
 				? "submitted"

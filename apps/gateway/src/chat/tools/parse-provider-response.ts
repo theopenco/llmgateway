@@ -222,8 +222,7 @@ export function parseProviderResponse(
 		case "google-ai-studio":
 		case "glacier":
 		case "google-vertex":
-		case "quartz":
-		case "obsidian": {
+		case "quartz": {
 			// Check if response is missing candidates - treat as content filter
 			if (!json.candidates || json.candidates.length === 0) {
 				// Only log warning if there's no blockReason explaining why
