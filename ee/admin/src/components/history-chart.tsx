@@ -145,6 +145,21 @@ export function HistoryChart({
 
 	const ttftPoints = data.filter((d) => d.avgTtft !== null);
 	const durationPoints = data.filter((d) => d.avgDuration !== null);
+	const throughputPoints = data.filter(
+		(d) =>
+			d.avgDuration !== null &&
+			(d.avgDuration ?? 0) > 0 &&
+			d.logsCount > 0 &&
+			d.totalTokens > 0,
+	);
+	const throughputTotalMs = throughputPoints.reduce((sum, d) => {
+		const durationMs = (d.avgDuration ?? 0) * d.logsCount;
+		return sum + durationMs;
+	}, 0);
+	const throughputTotalTokens = throughputPoints.reduce(
+		(sum, d) => sum + d.totalTokens,
+		0,
+	);
 	const summaryStats = {
 		totalRequests: data.reduce((sum, d) => sum + d.logsCount, 0),
 		totalErrors: data.reduce((sum, d) => sum + d.errorsCount, 0),
@@ -163,6 +178,10 @@ export function HistoryChart({
 						durationPoints.reduce((sum, d) => sum + (d.avgDuration ?? 0), 0) /
 							durationPoints.length,
 					)
+				: null,
+		tokensPerSecond:
+			throughputTotalMs > 0
+				? Math.round(throughputTotalTokens / (throughputTotalMs / 1000))
 				: null,
 		errorRate:
 			data.reduce((sum, d) => sum + d.logsCount, 0) > 0
@@ -250,6 +269,14 @@ export function HistoryChart({
 							Avg Duration:{" "}
 							<strong className="text-foreground">
 								{summaryStats.avgDuration}ms
+							</strong>
+						</span>
+					)}
+					{summaryStats.tokensPerSecond !== null && (
+						<span>
+							t/s:{" "}
+							<strong className="text-foreground">
+								{summaryStats.tokensPerSecond.toLocaleString()}
 							</strong>
 						</span>
 					)}

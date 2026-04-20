@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
 import { ProviderModelsTable } from "@/components/provider-models-table";
 import { Badge } from "@/components/ui/badge";
@@ -15,10 +16,6 @@ import type { HistoryWindow } from "@/components/history-chart";
 import type { ProviderDetailResponse, ProviderModelStats } from "@/lib/types";
 
 type ProviderInfo = ProviderDetailResponse["provider"];
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
 
 const validWindows = new Set<HistoryWindow>(windowOptions.map((o) => o.value));
 
@@ -74,10 +71,6 @@ export function ProviderDetailClient({
 	);
 
 	const ProviderIcon = getProviderIcon(providerId);
-	const errorRate =
-		info.logsCount > 0
-			? ((info.errorsCount / info.logsCount) * 100).toFixed(1)
-			: "0.0";
 
 	return (
 		<>
@@ -114,57 +107,7 @@ export function ProviderDetailClient({
 				))}
 			</div>
 
-			<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-				<StatCard
-					label="Total Requests"
-					value={formatNumber(info.logsCount)}
-					loading={loading}
-				/>
-				<StatCard
-					label="Errors"
-					value={
-						<>
-							{formatNumber(info.errorsCount)}{" "}
-							<span className="text-sm text-muted-foreground">
-								({errorRate}%)
-							</span>
-						</>
-					}
-					loading={loading}
-				/>
-				<StatCard
-					label="Cached"
-					value={formatNumber(info.cachedCount)}
-					loading={loading}
-				/>
-				<StatCard
-					label="Avg TTFT"
-					value={
-						info.avgTimeToFirstToken !== null
-							? `${Math.round(info.avgTimeToFirstToken)}ms`
-							: "\u2014"
-					}
-					loading={loading}
-				/>
-			</section>
-
-			<section className="grid gap-4 sm:grid-cols-3">
-				<StatCard
-					label="Client Errors"
-					value={formatNumber(info.clientErrorsCount)}
-					loading={loading}
-				/>
-				<StatCard
-					label="Gateway Errors"
-					value={formatNumber(info.gatewayErrorsCount)}
-					loading={loading}
-				/>
-				<StatCard
-					label="Upstream Errors"
-					value={formatNumber(info.upstreamErrorsCount)}
-					loading={loading}
-				/>
-			</section>
+			<DetailStatCards stats={info} loading={loading} />
 
 			<section className="space-y-4">
 				<HistoryChart
@@ -187,28 +130,5 @@ export function ProviderDetailClient({
 				</div>
 			</section>
 		</>
-	);
-}
-
-function StatCard({
-	label,
-	value,
-	loading,
-}: {
-	label: string;
-	value: React.ReactNode;
-	loading?: boolean;
-}) {
-	return (
-		<div className="rounded-xl border border-border/60 p-4 shadow-sm">
-			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				{label}
-			</p>
-			<p
-				className={`mt-1 text-2xl font-semibold tabular-nums ${loading ? "opacity-50" : ""}`}
-			>
-				{value}
-			</p>
-		</div>
 	);
 }

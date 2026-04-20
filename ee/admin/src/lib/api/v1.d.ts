@@ -2946,6 +2946,9 @@ export interface paths {
                                 status: string;
                                 logsCount: number;
                                 errorsCount: number;
+                                clientErrorsCount: number;
+                                gatewayErrorsCount: number;
+                                upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 providerCount: number;
