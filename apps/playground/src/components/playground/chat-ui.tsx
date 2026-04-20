@@ -500,7 +500,7 @@ export const ChatUI = ({
 			filename?: string | null;
 		}>,
 	) => {
-		if (isLoading || status === "streaming") {
+		if (isLoading || status === "streaming" || status === "submitted") {
 			return;
 		}
 
@@ -679,7 +679,9 @@ export const ChatUI = ({
 					accept={supportsImages ? "image/*" : undefined}
 					multiple
 					globalDrop={supportsImages}
-					aria-disabled={isLoading || status === "streaming"}
+					aria-disabled={
+						isLoading || status === "streaming" || status === "submitted"
+					}
 					onSubmit={(message) => {
 						void handlePromptSubmit(message.text ?? "", message.files);
 					}}
@@ -852,14 +854,22 @@ export const ChatUI = ({
 									</SelectContent>
 								</Select>
 							)}
-							{status === "streaming" ? (
+							{status === "streaming" || status === "submitted" ? (
 								<PromptInputButton onClick={() => stop()} variant="ghost">
 									Stop
 								</PromptInputButton>
 							) : null}
 							<PromptInputSubmit
-								status={status === "streaming" ? "streaming" : "ready"}
-								disabled={isLoading}
+								status={
+									status === "streaming"
+										? "streaming"
+										: status === "submitted"
+											? "submitted"
+											: "ready"
+								}
+								disabled={
+									isLoading || status === "streaming" || status === "submitted"
+								}
 							/>
 						</div>
 					</PromptInputToolbar>

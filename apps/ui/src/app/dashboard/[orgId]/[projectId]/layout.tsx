@@ -1,6 +1,5 @@
-import { notFound } from "next/navigation";
-
 import { LastUsedProjectTracker } from "@/components/dashboard/last-used-project-tracker";
+import { UnauthorizedView } from "@/components/dashboard/unauthorized-view";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project } from "@/lib/types";
@@ -47,10 +46,13 @@ export default async function ProjectLayout({
 		const projects = (initialProjectsData as { projects: Project[] }).projects;
 		const currentProject = projects.find((p: Project) => p.id === projectId);
 
-		// If project is not found in the active projects list, it's either deleted or doesn't exist
+		// If project is not found in the active projects list, the user either doesn't have access or it doesn't exist
 		if (!currentProject) {
-			notFound();
+			return <UnauthorizedView resource="project" />;
 		}
+	} else if (projectId) {
+		// Projects list could not be loaded (e.g. user doesn't have access to the org)
+		return <UnauthorizedView resource="project" />;
 	}
 
 	return (

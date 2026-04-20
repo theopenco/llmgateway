@@ -2946,9 +2946,6 @@ export interface paths {
                                 status: string;
                                 logsCount: number;
                                 errorsCount: number;
-                                clientErrorsCount: number;
-                                gatewayErrorsCount: number;
-                                upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 providerCount: number;
@@ -3111,9 +3108,6 @@ export interface paths {
                                 timestamp: string;
                                 logsCount: number;
                                 errorsCount: number;
-                                clientErrorsCount: number;
-                                gatewayErrorsCount: number;
-                                upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTtft: number | null;
                                 avgDuration: number | null;
@@ -3165,9 +3159,6 @@ export interface paths {
                                 timestamp: string;
                                 logsCount: number;
                                 errorsCount: number;
-                                clientErrorsCount: number;
-                                gatewayErrorsCount: number;
-                                upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTtft: number | null;
                                 avgDuration: number | null;
@@ -3220,153 +3211,12 @@ export interface paths {
                                 timestamp: string;
                                 logsCount: number;
                                 errorsCount: number;
-                                clientErrorsCount: number;
-                                gatewayErrorsCount: number;
-                                upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTtft: number | null;
                                 avgDuration: number | null;
                                 totalTokens: number;
                                 totalCost: number;
                             }[];
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/providers/{providerId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: {
-                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
-                };
-                header?: never;
-                path: {
-                    providerId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Provider detail with per-model stats. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            provider: {
-                                id: string;
-                                name: string;
-                                color: string | null;
-                                description: string;
-                                website: string | null;
-                                status: string;
-                                logsCount: number;
-                                errorsCount: number;
-                                clientErrorsCount: number;
-                                gatewayErrorsCount: number;
-                                upstreamErrorsCount: number;
-                                cachedCount: number;
-                                avgTimeToFirstToken: number | null;
-                                modelCount: number;
-                                updatedAt: string;
-                            };
-                            models: {
-                                modelId: string;
-                                modelName: string;
-                                mappingId: string;
-                                region: string | null;
-                                status: string;
-                                logsCount: number;
-                                errorsCount: number;
-                                clientErrorsCount: number;
-                                gatewayErrorsCount: number;
-                                upstreamErrorsCount: number;
-                                cachedCount: number;
-                                avgTimeToFirstToken: number | null;
-                                updatedAt: string;
-                            }[];
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/providers/{providerId}/models/{modelId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: {
-                    window?: "1m" | "2m" | "5m" | "15m" | "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
-                };
-                header?: never;
-                path: {
-                    providerId: string;
-                    modelId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Mapping detail with aggregated stats for the window. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            mapping: {
-                                id: string;
-                                modelId: string;
-                                modelName: string;
-                                providerId: string;
-                                providerName: string;
-                                region: string | null;
-                                status: string;
-                                inputPrice: string | null;
-                                outputPrice: string | null;
-                                cachedInputPrice: string | null;
-                                imageInputPrice: string | null;
-                                requestPrice: string | null;
-                                contextSize: number | null;
-                                maxOutput: number | null;
-                                streaming: boolean;
-                                logsCount: number;
-                                errorsCount: number;
-                                clientErrorsCount: number;
-                                gatewayErrorsCount: number;
-                                upstreamErrorsCount: number;
-                                cachedCount: number;
-                                avgTimeToFirstToken: number | null;
-                                updatedAt: string;
-                            };
                         };
                     };
                 };

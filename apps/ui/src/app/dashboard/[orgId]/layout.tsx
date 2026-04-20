@@ -1,11 +1,12 @@
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client";
+import { UnauthorizedView } from "@/components/dashboard/unauthorized-view";
 import { UserProvider } from "@/components/providers/user-provider";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { getLastUsedProjectId } from "@/lib/last-used-project-server";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { AnnouncementEntry } from "@/components/dashboard/changelog-notifications";
-import type { User, Project } from "@/lib/types";
+import type { User, Organization, Project } from "@/lib/types";
 import type { Blog, Changelog } from "content-collections";
 import type { ReactNode } from "react";
 
@@ -21,7 +22,20 @@ export default async function OrgLayout({ children, params }: OrgLayoutProps) {
 		{ user: User } | undefined | null
 	>("GET", "/user/me");
 
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
+	const initialOrganizationsData = await fetchServerData<{
+		organizations: Organization[];
+	}>("GET", "/orgs");
+
+	const orgs = initialOrganizationsData?.organizations ?? [];
+	const isAuthorizedForOrg = orgs.some((org) => org.id === orgId);
+
+	if (orgId && !isAuthorizedForOrg) {
+		return (
+			<UserProvider initialUserData={initialUserData}>
+				<UnauthorizedView resource="organization" />
+			</UserProvider>
+		);
+	}
 
 	let initialProjectsData = null;
 	let lastUsedProjectId: string | undefined;

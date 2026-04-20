@@ -107,6 +107,10 @@ function StabilityDot({ stability }: { stability: string | null | undefined }) {
 	);
 }
 
+function isImageGenModel(model: Pick<ApiModel, "output">): boolean {
+	return Array.isArray(model.output) && model.output.includes("image");
+}
+
 export function ModelCard({
 	model,
 	shouldShowStabilityWarning,
@@ -358,6 +362,7 @@ export function ModelCard({
 									formatPrice={formatPrice}
 									copyToClipboard={copyToClipboard}
 									copiedModel={copiedModel}
+									isImageGen={isImageGenModel(model)}
 								/>
 							);
 						})}
@@ -479,6 +484,7 @@ export function ProviderSection({
 	formatPrice,
 	copyToClipboard,
 	copiedModel,
+	isImageGen = false,
 }: {
 	modelId: string;
 	providerInfo: ApiProvider;
@@ -493,8 +499,10 @@ export function ProviderSection({
 	) => string | React.JSX.Element;
 	copyToClipboard: (text: string) => void;
 	copiedModel: string | null;
+	isImageGen?: boolean;
 }) {
 	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
+	const [showTokenPricing, setShowTokenPricing] = useState(false);
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
 	const providerModelId = activeMapping.region
 		? `${providerId}/${modelId}:${activeMapping.region}`
@@ -623,9 +631,69 @@ export function ProviderSection({
 					</div>
 				)}
 
-				{/* Pricing */}
-				{activeMapping.perSecondPrice &&
-				Object.keys(activeMapping.perSecondPrice).length > 0 ? (
+				{/* Per-image summary for image-gen models */}
+				{isImageGen &&
+					(() => {
+						const discountNum = activeMapping.discount
+							? parseFloat(activeMapping.discount)
+							: 0;
+						const requestPriceNum =
+							activeMapping.requestPrice !== null &&
+							activeMapping.requestPrice !== undefined
+								? parseFloat(activeMapping.requestPrice)
+								: 0;
+						let perImage: number | null = null;
+						let label = "Per image";
+						if (requestPriceNum > 0) {
+							perImage = requestPriceNum;
+						} else if (
+							activeMapping.imageOutputPrice &&
+							activeMapping.imageOutputTokensByResolution
+						) {
+							const outPrice = parseFloat(activeMapping.imageOutputPrice);
+							const entries = Object.entries(
+								activeMapping.imageOutputTokensByResolution,
+							);
+							const preferred =
+								entries.find(([k]) => k !== "default") ?? entries[0];
+							if (preferred) {
+								perImage = preferred[1] * outPrice;
+								label = `Per image (${preferred[0]})`;
+							}
+						}
+						if (perImage === null) {
+							return null;
+						}
+						const discounted = perImage * (1 - discountNum);
+						return (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-3">
+								<div className="flex items-center justify-between gap-2">
+									<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+										{label}
+									</div>
+									<div className="font-semibold tabular-nums text-sm">
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground mr-1 text-xs">
+													${perImage.toFixed(4)}
+												</span>
+												<span className="text-green-600">
+													${discounted.toFixed(4)}
+												</span>
+											</>
+										) : (
+											`$${perImage.toFixed(4)}`
+										)}
+									</div>
+								</div>
+							</div>
+						);
+					})()}
+
+				{/* Token pricing (hidden by default for image-gen models) */}
+				{isImageGen &&
+				!showTokenPricing ? null : activeMapping.perSecondPrice &&
+				  Object.keys(activeMapping.perSecondPrice).length > 0 ? (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
 							Per Second Pricing
@@ -822,14 +890,16 @@ export function ProviderSection({
 				)}
 
 				{/* Per-request / per-search price (if applicable) */}
-				{(activeMapping.requestPrice !== null &&
+				{(!isImageGen &&
+					activeMapping.requestPrice !== null &&
 					activeMapping.requestPrice !== undefined &&
 					parseFloat(activeMapping.requestPrice) > 0) ||
 				(activeMapping.webSearchPrice !== null &&
 					activeMapping.webSearchPrice !== undefined &&
 					parseFloat(activeMapping.webSearchPrice) > 0) ? (
 					<div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-						{activeMapping.requestPrice !== null &&
+						{!isImageGen &&
+							activeMapping.requestPrice !== null &&
 							activeMapping.requestPrice !== undefined &&
 							parseFloat(activeMapping.requestPrice) > 0 && (
 								<span>
@@ -847,6 +917,29 @@ export function ProviderSection({
 							)}
 					</div>
 				) : null}
+
+				{isImageGen && (
+					<button
+						type="button"
+						className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+						onClick={(e) => {
+							e.stopPropagation();
+							setShowTokenPricing((v) => !v);
+						}}
+					>
+						{showTokenPricing ? (
+							<>
+								<ChevronUp className="h-3 w-3" />
+								Hide token pricing
+							</>
+						) : (
+							<>
+								<ChevronDown className="h-3 w-3" />
+								Expand details
+							</>
+						)}
+					</button>
+				)}
 			</div>
 		</div>
 	);
