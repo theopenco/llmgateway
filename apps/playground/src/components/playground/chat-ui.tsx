@@ -492,6 +492,11 @@ export const ChatUI = ({
 		}
 		return () => observer.disconnect();
 	}, [updateInputHeight]);
+	// Centralized busy/active gates: isBusy blocks new submissions; isActive
+	// governs the Stop button which should only show while a request is in flight.
+	const isActive = status === "streaming" || status === "submitted";
+	const isBusy = isLoading || isActive;
+
 	const handlePromptSubmit = async (
 		textContent: string,
 		files?: Array<{
@@ -500,7 +505,7 @@ export const ChatUI = ({
 			filename?: string | null;
 		}>,
 	) => {
-		if (isLoading || status === "streaming" || status === "submitted") {
+		if (isBusy) {
 			return;
 		}
 
@@ -679,9 +684,7 @@ export const ChatUI = ({
 					accept={supportsImages ? "image/*" : undefined}
 					multiple
 					globalDrop={supportsImages}
-					aria-disabled={
-						isLoading || status === "streaming" || status === "submitted"
-					}
+					aria-disabled={isBusy}
 					onSubmit={(message) => {
 						void handlePromptSubmit(message.text ?? "", message.files);
 					}}
@@ -854,7 +857,7 @@ export const ChatUI = ({
 									</SelectContent>
 								</Select>
 							)}
-							{status === "streaming" || status === "submitted" ? (
+							{isActive ? (
 								<PromptInputButton onClick={() => stop()} variant="ghost">
 									Stop
 								</PromptInputButton>
@@ -867,9 +870,7 @@ export const ChatUI = ({
 											? "submitted"
 											: "ready"
 								}
-								disabled={
-									isLoading || status === "streaming" || status === "submitted"
-								}
+								disabled={isBusy}
 							/>
 						</div>
 					</PromptInputToolbar>

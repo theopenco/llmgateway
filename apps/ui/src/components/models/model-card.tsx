@@ -644,9 +644,9 @@ export function ProviderSection({
 								: 0;
 						let perImage: number | null = null;
 						let label = "Per image";
-						if (requestPriceNum > 0) {
-							perImage = requestPriceNum;
-						} else if (
+						let outputCost = 0;
+						let resolutionKey: string | null = null;
+						if (
 							activeMapping.imageOutputPrice &&
 							activeMapping.imageOutputTokensByResolution
 						) {
@@ -657,8 +657,14 @@ export function ProviderSection({
 							const preferred =
 								entries.find(([k]) => k !== "default") ?? entries[0];
 							if (preferred) {
-								perImage = preferred[1] * outPrice;
-								label = `Per image (${preferred[0]})`;
+								outputCost = preferred[1] * outPrice;
+								resolutionKey = preferred[0];
+							}
+						}
+						if (requestPriceNum > 0 || outputCost > 0) {
+							perImage = requestPriceNum + outputCost;
+							if (resolutionKey) {
+								label = `Per image (${resolutionKey})`;
 							}
 						}
 						if (perImage === null) {

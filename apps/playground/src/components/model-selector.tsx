@@ -557,6 +557,14 @@ export function ModelSelector({
 	const previewIsImageGen = isImageGenModel(previewEntry?.model);
 	const selectedIsImageGen = isImageGenModel(selectedDetails?.model);
 
+	React.useEffect(() => {
+		setPreviewExpandTokens(false);
+	}, [previewEntry?.model]);
+
+	React.useEffect(() => {
+		setSelectedExpandTokens(false);
+	}, [selectedDetails?.model]);
+
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
 	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
 	const raw = value ?? "";

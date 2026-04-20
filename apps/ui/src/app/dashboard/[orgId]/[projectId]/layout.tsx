@@ -41,7 +41,8 @@ export default async function ProjectLayout({
 		projectId &&
 		initialProjectsData &&
 		typeof initialProjectsData === "object" &&
-		"projects" in initialProjectsData
+		"projects" in initialProjectsData &&
+		Array.isArray((initialProjectsData as { projects: unknown }).projects)
 	) {
 		const projects = (initialProjectsData as { projects: Project[] }).projects;
 		const currentProject = projects.find((p: Project) => p.id === projectId);

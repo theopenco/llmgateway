@@ -401,6 +401,14 @@ export function ModelSelector({
 	const previewIsImageGen = isImageGen(previewEntry?.model);
 	const selectedIsImageGen = isImageGen(selectedDetails?.model);
 
+	React.useEffect(() => {
+		setPreviewExpandTokens(false);
+	}, [previewEntry?.model]);
+
+	React.useEffect(() => {
+		setSelectedExpandTokens(false);
+	}, [selectedDetails?.model]);
+
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
 	const raw = value ?? "";
 	const [selectedProviderId, selectedModelId] = raw.includes("/")
