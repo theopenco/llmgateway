@@ -2326,7 +2326,26 @@ chat.openapi(completions, async (c) => {
 						),
 				);
 
-				if (availableModelProviders.length > 0) {
+				// Exclude alternatives that are already at their RPM/RPD cap so the
+				// low-uptime fallback doesn't route into a rate-limited provider.
+				// Fail-open: if all alternatives are rate-limited, keep them all.
+				const rateLimitedAlternatives = await filterRateLimitedProviders(
+					project.organizationId,
+					availableModelProviders.map((p) => ({
+						providerId: p.providerId,
+						model: baseModelId,
+						providerModelName: p.modelName,
+					})),
+				);
+				const nonRateLimitedAlternatives = availableModelProviders.filter(
+					(p) => !rateLimitedAlternatives.has(p.providerId),
+				);
+				const uptimeFallbackCandidates =
+					nonRateLimitedAlternatives.length > 0
+						? nonRateLimitedAlternatives
+						: availableModelProviders;
+
+				if (uptimeFallbackCandidates.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
 					const modelWithPricing = rawModelForFallback
 						? {
@@ -2339,7 +2358,7 @@ chat.openapi(completions, async (c) => {
 
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
-						const metricsCombinations = availableModelProviders.map((p) => ({
+						const metricsCombinations = uptimeFallbackCandidates.map((p) => ({
 							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
 							providerId: p.providerId,
 							region: p.region,
@@ -2349,7 +2368,7 @@ chat.openapi(completions, async (c) => {
 							await getProviderMetricsForCombinations(metricsCombinations);
 						const providerAgnosticCandidates =
 							collapseProvidersToBestRegionPerProvider(
-								availableModelProviders,
+								uptimeFallbackCandidates,
 								modelWithPricing,
 								{
 									metricsMap: allMetricsMap,
