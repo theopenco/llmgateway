@@ -21,7 +21,7 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 	if (value && validWindows.has(value as HistoryWindow)) {
 		return value as HistoryWindow;
 	}
-	return "24h";
+	return "4h";
 }
 
 export function ModelDetailClient({

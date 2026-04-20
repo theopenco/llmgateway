@@ -3684,7 +3684,7 @@ const getModelDetail = createRoute({
 	request: {
 		params: z.object({ modelId: z.string() }),
 		query: z.object({
-			window: historyWindowSchema.default("24h").optional(),
+			window: historyWindowSchema.default("4h").optional(),
 			projectId: z.string().optional(),
 		}),
 	},
@@ -3701,7 +3701,7 @@ const getModelDetail = createRoute({
 admin.openapi(getModelDetail, async (c) => {
 	const { modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
-	const window = query.window ?? "24h";
+	const window = query.window ?? "4h";
 	const projectId = query.projectId;
 	const startDate = getHistoryStartDate(window);
 
@@ -4181,7 +4181,7 @@ const getProviderHistory = createRoute({
 	request: {
 		params: z.object({ providerId: z.string() }),
 		query: z.object({
-			window: historyWindowSchema.default("24h").optional(),
+			window: historyWindowSchema.default("4h").optional(),
 		}),
 	},
 	responses: {
@@ -4197,7 +4197,7 @@ const getProviderHistory = createRoute({
 admin.openapi(getProviderHistory, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const query = c.req.valid("query");
-	const window = query.window ?? "24h";
+	const window = query.window ?? "4h";
 	const startDate = getHistoryStartDate(window);
 	const hourStartDate = new Date(startDate);
 	hourStartDate.setMinutes(0, 0, 0);
@@ -4285,7 +4285,7 @@ const getModelHistory = createRoute({
 	request: {
 		params: z.object({ modelId: z.string() }),
 		query: z.object({
-			window: historyWindowSchema.default("24h").optional(),
+			window: historyWindowSchema.default("4h").optional(),
 			projectId: z.string().optional(),
 		}),
 	},
@@ -4302,7 +4302,7 @@ const getModelHistory = createRoute({
 admin.openapi(getModelHistory, async (c) => {
 	const { modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
-	const window = query.window ?? "24h";
+	const window = query.window ?? "4h";
 	const projectId = query.projectId;
 	const startDate = getHistoryStartDate(window);
 
@@ -4411,7 +4411,7 @@ const getMappingHistory = createRoute({
 			modelId: z.string(),
 		}),
 		query: z.object({
-			window: historyWindowSchema.default("24h").optional(),
+			window: historyWindowSchema.default("4h").optional(),
 			projectId: z.string().optional(),
 		}),
 	},
@@ -4428,7 +4428,7 @@ const getMappingHistory = createRoute({
 admin.openapi(getMappingHistory, async (c) => {
 	const { providerId, modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
-	const window = query.window ?? "24h";
+	const window = query.window ?? "4h";
 	const projectId = query.projectId;
 	const startDate = getHistoryStartDate(window);
 	const hourStartDate = new Date(startDate);
@@ -4742,7 +4742,7 @@ const getProviderDetail = createRoute({
 	request: {
 		params: z.object({ providerId: z.string() }),
 		query: z.object({
-			window: historyWindowSchema.default("24h").optional(),
+			window: historyWindowSchema.default("4h").optional(),
 		}),
 	},
 	responses: {
@@ -4758,7 +4758,7 @@ const getProviderDetail = createRoute({
 admin.openapi(getProviderDetail, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const query = c.req.valid("query");
-	const window = query.window ?? "24h";
+	const window = query.window ?? "4h";
 	const startDate = getHistoryStartDate(window);
 
 	const providerRow = await db.query.provider.findFirst({
@@ -4943,7 +4943,7 @@ const getMappingDetail = createRoute({
 			modelId: z.string(),
 		}),
 		query: z.object({
-			window: historyWindowSchema.default("24h").optional(),
+			window: historyWindowSchema.default("4h").optional(),
 		}),
 	},
 	responses: {
@@ -4959,7 +4959,7 @@ const getMappingDetail = createRoute({
 admin.openapi(getMappingDetail, async (c) => {
 	const { providerId, modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
-	const window = query.window ?? "24h";
+	const window = query.window ?? "4h";
 	const startDate = getHistoryStartDate(window);
 
 	const mappingRow = await db
