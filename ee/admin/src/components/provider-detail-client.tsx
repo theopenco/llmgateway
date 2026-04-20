@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
@@ -42,6 +42,7 @@ export function ProviderDetailClient({
 	const [loading, setLoading] = useState(false);
 	const [info, setInfo] = useState<ProviderInfo>(providerInfo);
 	const [models, setModels] = useState<ProviderModelStats[]>(initialModels);
+	const initialWindowRef = useRef(window);
 
 	const loadDetail = useCallback(
 		async (w: HistoryWindow) => {
@@ -60,6 +61,9 @@ export function ProviderDetailClient({
 	);
 
 	useEffect(() => {
+		if (window === initialWindowRef.current) {
+			return;
+		}
 		void loadDetail(window);
 	}, [loadDetail, window]);
 

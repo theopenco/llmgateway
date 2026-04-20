@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
@@ -37,10 +37,11 @@ export function ModelDetailClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	const [loading, setLoading] = useState(true);
+	const [loading, setLoading] = useState(false);
 	const [info, setInfo] = useState<ModelInfo>(allTimeStats);
 	const [providers, setProviders] =
 		useState<ModelProviderStats[]>(initialProviders);
+	const initialWindowRef = useRef(window);
 
 	const loadStats = useCallback(
 		async (w: HistoryWindow) => {
@@ -59,6 +60,9 @@ export function ModelDetailClient({
 	);
 
 	useEffect(() => {
+		if (window === initialWindowRef.current) {
+			return;
+		}
 		void loadStats(window);
 	}, [loadStats, window]);
 
