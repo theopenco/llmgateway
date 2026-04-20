@@ -1722,26 +1722,29 @@ export async function prepareRequestBody(
 					requestBody.additionalModelRequestFields.thinking = {
 						type: "adaptive",
 					};
-					if (effort === undefined && reasoning_effort) {
-						const mapEffort = (
-							e: typeof reasoning_effort,
-						): "low" | "medium" | "high" | "xhigh" | "max" => {
-							switch (e) {
-								case "minimal":
-								case "low":
-									return "low";
-								case "medium":
-									return "medium";
-								case "high":
-									return "high";
-								case "xhigh":
-									return "xhigh";
-								default:
-									return "high";
-							}
-						};
+					const mapEffort = (
+						e: typeof reasoning_effort,
+					): "low" | "medium" | "high" | "xhigh" | "max" => {
+						switch (e) {
+							case "minimal":
+							case "low":
+								return "low";
+							case "medium":
+								return "medium";
+							case "high":
+								return "high";
+							case "xhigh":
+								return "xhigh";
+							default:
+								return "high";
+						}
+					};
+					const adaptiveEffort =
+						effort ??
+						(reasoning_effort ? mapEffort(reasoning_effort) : undefined);
+					if (adaptiveEffort !== undefined) {
 						requestBody.additionalModelRequestFields.output_config = {
-							effort: mapEffort(reasoning_effort),
+							effort: adaptiveEffort,
 						};
 					}
 				} else {
@@ -1769,8 +1772,6 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
-					// Anthropic requires temperature to be exactly 1 when thinking is enabled
-					inferenceConfig.temperature = 1;
 					// Ensure max_tokens is sufficient for thinking + response
 					const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
 					if (
@@ -1780,6 +1781,8 @@ export async function prepareRequestBody(
 						inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
 					}
 				}
+				// Anthropic requires temperature to be exactly 1 when thinking is enabled
+				inferenceConfig.temperature = 1;
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
 				}
@@ -1795,12 +1798,13 @@ export async function prepareRequestBody(
 					...response_format.json_schema.schema,
 					additionalProperties: false,
 				} as Record<string, unknown>;
-				requestBody.additionalModelRequestFields = {
-					anthropic_beta: ["structured-outputs-2025-11-13"],
-					output_format: {
-						type: "json_schema",
-						schema,
-					},
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.anthropic_beta = [
+					"structured-outputs-2025-11-13",
+				];
+				requestBody.additionalModelRequestFields.output_format = {
+					type: "json_schema",
+					schema,
 				};
 				requestBody.additionalModelResponseFieldPaths = ["/output_format"];
 			}
