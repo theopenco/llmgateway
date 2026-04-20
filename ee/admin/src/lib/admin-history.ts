@@ -61,6 +61,42 @@ export async function getModelDetail(modelId: string, window?: HistoryWindow) {
 	return data ?? null;
 }
 
+export async function getProviderDetail(
+	providerId: string,
+	window?: HistoryWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/providers/{providerId}", {
+		params: {
+			path: { providerId },
+			query: {
+				...(window ? { window } : {}),
+			} as any,
+		},
+	});
+	return data ?? null;
+}
+
+export async function getMappingDetail(
+	providerId: string,
+	modelId: string,
+	window?: HistoryWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/providers/{providerId}/models/{modelId}",
+		{
+			params: {
+				path: { providerId, modelId: encodeURIComponent(modelId) },
+				query: {
+					...(window ? { window } : {}),
+				} as any,
+			},
+		},
+	);
+	return data ?? null;
+}
+
 export async function getGlobalCostByModel(window: TokenWindow) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/metrics/cost-by-model", {

@@ -153,14 +153,20 @@ function MappingRow({
 							<p className="text-xs text-muted-foreground">
 								{mapping.providerId}
 							</p>
-							<span className="font-medium">{mapping.providerName}</span>
+							<Link
+								href={`/providers/${encodeURIComponent(mapping.providerId)}`}
+								className="font-medium hover:underline"
+								onClick={(e) => e.stopPropagation()}
+							>
+								{mapping.providerName}
+							</Link>
 						</div>
 					</div>
 				</TableCell>
 				<TableCell>
 					<div>
 						<Link
-							href={`/models/${encodeURIComponent(mapping.modelId)}`}
+							href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}`}
 							className="font-medium hover:underline"
 							onClick={(e) => e.stopPropagation()}
 						>
