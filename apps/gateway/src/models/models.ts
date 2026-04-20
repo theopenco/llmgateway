@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { logger } from "@llmgateway/logger";
 import {
 	models as modelsList,
+	embeddingModels as embeddingModelsList,
 	providers,
 	type ProviderModelMapping,
 	type ModelDefinition,
@@ -21,8 +22,8 @@ const modelSchema = z.object({
 	description: z.string().optional(),
 	family: z.string(),
 	architecture: z.object({
-		input_modalities: z.array(z.enum(["text", "image", "video"])),
-		output_modalities: z.array(z.enum(["text", "image", "video"])),
+		input_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
+		output_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
 		tokenizer: z.string().optional(),
 	}),
 	top_provider: z.object({
@@ -121,8 +122,10 @@ modelsApi.openapi(listModels, async (c) => {
 		const excludeDeprecated = query.exclude_deprecated || false;
 		const currentDate = new Date();
 
+		const allModels = [...modelsList, ...embeddingModelsList];
+
 		// Filter models based on deactivation and deprecation status of their provider mappings
-		const filteredModels = modelsList.filter((model: ModelDefinition) => {
+		const filteredModels = allModels.filter((model: ModelDefinition) => {
 			// Check if all provider mappings are deactivated
 			const allDeactivated = model.providers.every(
 				(provider) =>
@@ -152,7 +155,9 @@ modelsApi.openapi(listModels, async (c) => {
 
 		const modelData = filteredModels.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
-			const inputModalities: ("text" | "image" | "video")[] = ["text"];
+			const inputModalities: ("text" | "image" | "video" | "embedding")[] = [
+				"text",
+			];
 
 			// Check if any provider has vision support
 			if (model.providers.some((p) => p.vision)) {
@@ -160,9 +165,8 @@ modelsApi.openapi(listModels, async (c) => {
 			}
 
 			// Determine output modalities from model definition or default to text only
-			const outputModalities: ("text" | "image" | "video")[] = model.output ?? [
-				"text",
-			];
+			const outputModalities: ("text" | "image" | "video" | "embedding")[] =
+				model.output ?? ["text"];
 
 			const firstProviderWithPricing = model.providers.find(
 				(p: ProviderModelMapping) =>
@@ -245,7 +249,7 @@ modelsApi.openapi(listModels, async (c) => {
 								Object.entries(firstProviderWithPricing.perSecondPrice).map(
 									([resolution, price]) => [resolution, price.toString()],
 								),
-							)
+						  )
 						: undefined,
 					request: firstProviderWithPricing?.requestPrice?.toString() ?? "0",
 					input_cache_read:
@@ -291,7 +295,7 @@ modelsApi.openapi(listModels, async (c) => {
 	} catch (error) {
 		logger.error(
 			"Error in models endpoint",
-			error instanceof Error ? error : new Error(String(error)),
+		error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, { message: "Internal server error" });
 	}
