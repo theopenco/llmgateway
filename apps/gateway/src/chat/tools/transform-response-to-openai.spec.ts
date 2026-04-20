@@ -154,15 +154,15 @@ describe("transformResponseToOpenai", () => {
 				upstream_inference_cost: 0.001 + 0.0002 + 0.004,
 				upstream_inference_prompt_cost: 0.001 + 0.0002,
 				upstream_inference_completions_cost: 0.004,
+				total_cost: 0.0052,
+				input_cost: 0.001,
+				output_cost: 0.004,
+				cached_input_cost: 0.0002,
+				request_cost: 0,
+				web_search_cost: 0,
+				image_input_cost: null,
+				image_output_cost: null,
 			},
-			cost_usd_total: 0.0052,
-			cost_usd_input: 0.001,
-			cost_usd_output: 0.004,
-			cost_usd_cached_input: 0.0002,
-			cost_usd_request: 0,
-			cost_usd_web_search: 0,
-			cost_usd_image_input: null,
-			cost_usd_image_output: null,
 			prompt_tokens_details: {
 				cached_tokens: 3,
 				cache_write_tokens: 2,
@@ -178,7 +178,7 @@ describe("transformResponseToOpenai", () => {
 		});
 	});
 
-	test("emits cost_usd_data_storage when provided", () => {
+	test("emits data_storage_cost when provided", () => {
 		const response = transformResponseToOpenai(
 			"openai",
 			"gpt-4o-mini",
@@ -227,7 +227,9 @@ describe("transformResponseToOpenai", () => {
 		);
 
 		expect(response.usage).toMatchObject({
-			cost_usd_data_storage: 0.000003,
+			cost_details: {
+				data_storage_cost: 0.000003,
+			},
 		});
 	});
 

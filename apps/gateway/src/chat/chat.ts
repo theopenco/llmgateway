@@ -877,17 +877,17 @@ const completions = createRoute({
 									upstream_inference_cost: z.number(),
 									upstream_inference_prompt_cost: z.number(),
 									upstream_inference_completions_cost: z.number(),
+									total_cost: z.number().nullable().optional(),
+									input_cost: z.number().nullable().optional(),
+									output_cost: z.number().nullable().optional(),
+									cached_input_cost: z.number().nullable().optional(),
+									request_cost: z.number().nullable().optional(),
+									web_search_cost: z.number().nullable().optional(),
+									image_input_cost: z.number().nullable().optional(),
+									image_output_cost: z.number().nullable().optional(),
+									data_storage_cost: z.number().nullable().optional(),
 								})
 								.optional(),
-							cost_usd_total: z.number().nullable().optional(),
-							cost_usd_input: z.number().nullable().optional(),
-							cost_usd_output: z.number().nullable().optional(),
-							cost_usd_cached_input: z.number().nullable().optional(),
-							cost_usd_request: z.number().nullable().optional(),
-							cost_usd_web_search: z.number().nullable().optional(),
-							cost_usd_image_input: z.number().nullable().optional(),
-							cost_usd_image_output: z.number().nullable().optional(),
-							cost_usd_data_storage: z.number().nullable().optional(),
 							info: z.string().optional(),
 						}),
 						metadata: z.object({
@@ -4180,18 +4180,6 @@ chat.openapi(completions, async (c) => {
 						prompt_tokens: promptTokenCount,
 						completion_tokens: 0,
 						total_tokens: promptTokenCount,
-						cost_usd_total: streamingCosts.totalCost,
-						cost_usd_input: streamingCosts.inputCost,
-						cost_usd_output: streamingCosts.outputCost,
-						cost_usd_cached_input: streamingCosts.cachedInputCost,
-						cost_usd_request: streamingCosts.requestCost,
-						cost_usd_web_search: streamingCosts.webSearchCost,
-						cost_usd_image_input: streamingCosts.imageInputCost,
-						cost_usd_image_output: streamingCosts.imageOutputCost,
-						...(streamingCosts.dataStorageCost !== null &&
-							streamingCosts.dataStorageCost !== undefined && {
-								cost_usd_data_storage: streamingCosts.dataStorageCost,
-							}),
 					};
 					applyExtendedUsageFields(contentFilterUsage, {
 						costs: {
@@ -5959,20 +5947,6 @@ chat.openapi(completions, async (c) => {
 													}),
 											},
 										}),
-										...(shouldIncludeCosts && {
-											cost_usd_total: streamingCosts.totalCost,
-											cost_usd_input: streamingCosts.inputCost,
-											cost_usd_output: streamingCosts.outputCost,
-											cost_usd_cached_input: streamingCosts.cachedInputCost,
-											cost_usd_request: streamingCosts.requestCost,
-											cost_usd_web_search: streamingCosts.webSearchCost,
-											cost_usd_image_input: streamingCosts.imageInputCost,
-											cost_usd_image_output: streamingCosts.imageOutputCost,
-											...(streamingCosts.dataStorageCost !== null &&
-												streamingCosts.dataStorageCost !== undefined && {
-													cost_usd_data_storage: streamingCosts.dataStorageCost,
-												}),
-										}),
 									};
 									applyExtendedUsageFields(finalStreamUsage, {
 										costs: shouldIncludeCosts
@@ -7276,19 +7250,6 @@ chat.openapi(completions, async (c) => {
 													}),
 											},
 										}),
-										cost_usd_total: streamingCostsEarly.totalCost,
-										cost_usd_input: streamingCostsEarly.inputCost,
-										cost_usd_output: streamingCostsEarly.outputCost,
-										cost_usd_cached_input: streamingCostsEarly.cachedInputCost,
-										cost_usd_request: streamingCostsEarly.requestCost,
-										cost_usd_web_search: streamingCostsEarly.webSearchCost,
-										cost_usd_image_input: streamingCostsEarly.imageInputCost,
-										cost_usd_image_output: streamingCostsEarly.imageOutputCost,
-										...(streamingCostsEarly.dataStorageCost !== null &&
-											streamingCostsEarly.dataStorageCost !== undefined && {
-												cost_usd_data_storage:
-													streamingCostsEarly.dataStorageCost,
-											}),
 									};
 									applyExtendedUsageFields(earlyUsage, {
 										costs: {

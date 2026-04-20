@@ -34,16 +34,16 @@ interface StreamingState {
 			upstream_inference_cost: number;
 			upstream_inference_prompt_cost: number;
 			upstream_inference_completions_cost: number;
+			total_cost?: number | null;
+			input_cost?: number | null;
+			output_cost?: number | null;
+			cached_input_cost?: number | null;
+			request_cost?: number | null;
+			web_search_cost?: number | null;
+			image_input_cost?: number | null;
+			image_output_cost?: number | null;
+			data_storage_cost?: number | null;
 		};
-		cost_usd_total?: number | null;
-		cost_usd_input?: number | null;
-		cost_usd_output?: number | null;
-		cost_usd_cached_input?: number | null;
-		cost_usd_request?: number | null;
-		cost_usd_web_search?: number | null;
-		cost_usd_image_input?: number | null;
-		cost_usd_image_output?: number | null;
-		cost_usd_data_storage?: number | null;
 	};
 }
 

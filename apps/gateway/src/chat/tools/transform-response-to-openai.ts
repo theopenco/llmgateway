@@ -42,6 +42,18 @@ export function applyExtendedUsageFields(
 			upstream_inference_cost: promptCost + completionsCost,
 			upstream_inference_prompt_cost: promptCost,
 			upstream_inference_completions_cost: completionsCost,
+			total_cost: costs.totalCost,
+			input_cost: costs.inputCost,
+			output_cost: costs.outputCost,
+			cached_input_cost: costs.cachedInputCost,
+			request_cost: costs.requestCost,
+			web_search_cost: costs.webSearchCost,
+			image_input_cost: costs.imageInputCost,
+			image_output_cost: costs.imageOutputCost,
+			...(costs.dataStorageCost !== null &&
+				costs.dataStorageCost !== undefined && {
+					data_storage_cost: costs.dataStorageCost,
+				}),
 		};
 	}
 
@@ -195,20 +207,6 @@ function buildUsageObject(
 		})(),
 		...(reasoningTokens !== null && {
 			reasoning_tokens: reasoningTokens,
-		}),
-		...(costs !== null && {
-			cost_usd_total: costs.totalCost,
-			cost_usd_input: costs.inputCost,
-			cost_usd_output: costs.outputCost,
-			cost_usd_cached_input: costs.cachedInputCost,
-			cost_usd_request: costs.requestCost,
-			cost_usd_web_search: costs.webSearchCost,
-			cost_usd_image_input: costs.imageInputCost,
-			cost_usd_image_output: costs.imageOutputCost,
-			...(costs.dataStorageCost !== null &&
-				costs.dataStorageCost !== undefined && {
-					cost_usd_data_storage: costs.dataStorageCost,
-				}),
 		}),
 		...(showUpgradeMessage && {
 			info: "upgrade to pro to include usd cost breakdown",
@@ -436,23 +434,6 @@ export function transformResponseToOpenai(
 					usedRegion,
 				);
 				if (transformedResponse.usage) {
-					if (costs !== null) {
-						transformedResponse.usage = {
-							...transformedResponse.usage,
-							cost_usd_total: costs.totalCost,
-							cost_usd_input: costs.inputCost,
-							cost_usd_output: costs.outputCost,
-							cost_usd_cached_input: costs.cachedInputCost,
-							cost_usd_request: costs.requestCost,
-							cost_usd_web_search: costs.webSearchCost,
-							cost_usd_image_input: costs.imageInputCost,
-							cost_usd_image_output: costs.imageOutputCost,
-							...(costs.dataStorageCost !== null &&
-								costs.dataStorageCost !== undefined && {
-									cost_usd_data_storage: costs.dataStorageCost,
-								}),
-						};
-					}
 					if (showUpgradeMessage) {
 						transformedResponse.usage = {
 							...transformedResponse.usage,
@@ -585,23 +566,6 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_web_search: costs.webSearchCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-								...(costs.dataStorageCost !== null &&
-									costs.dataStorageCost !== undefined && {
-										cost_usd_data_storage: costs.dataStorageCost,
-									}),
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
@@ -705,23 +669,6 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_web_search: costs.webSearchCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-								...(costs.dataStorageCost !== null &&
-									costs.dataStorageCost !== undefined && {
-										cost_usd_data_storage: costs.dataStorageCost,
-									}),
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
@@ -809,23 +756,6 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_web_search: costs.webSearchCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-								...(costs.dataStorageCost !== null &&
-									costs.dataStorageCost !== undefined && {
-										cost_usd_data_storage: costs.dataStorageCost,
-									}),
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
@@ -913,23 +843,6 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_web_search: costs.webSearchCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-								...(costs.dataStorageCost !== null &&
-									costs.dataStorageCost !== undefined && {
-										cost_usd_data_storage: costs.dataStorageCost,
-									}),
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
@@ -1018,23 +931,6 @@ export function transformResponseToOpenai(
 						usedRegion,
 					);
 					if (transformedResponse.usage) {
-						if (costs !== null) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								cost_usd_total: costs.totalCost,
-								cost_usd_input: costs.inputCost,
-								cost_usd_output: costs.outputCost,
-								cost_usd_cached_input: costs.cachedInputCost,
-								cost_usd_request: costs.requestCost,
-								cost_usd_web_search: costs.webSearchCost,
-								cost_usd_image_input: costs.imageInputCost,
-								cost_usd_image_output: costs.imageOutputCost,
-								...(costs.dataStorageCost !== null &&
-									costs.dataStorageCost !== undefined && {
-										cost_usd_data_storage: costs.dataStorageCost,
-									}),
-							};
-						}
 						if (showUpgradeMessage) {
 							transformedResponse.usage = {
 								...transformedResponse.usage,
@@ -1085,23 +981,6 @@ export function transformResponseToOpenai(
 					usedRegion,
 				);
 				if (transformedResponse.usage) {
-					if (costs !== null) {
-						transformedResponse.usage = {
-							...transformedResponse.usage,
-							cost_usd_total: costs.totalCost,
-							cost_usd_input: costs.inputCost,
-							cost_usd_output: costs.outputCost,
-							cost_usd_cached_input: costs.cachedInputCost,
-							cost_usd_request: costs.requestCost,
-							cost_usd_web_search: costs.webSearchCost,
-							cost_usd_image_input: costs.imageInputCost,
-							cost_usd_image_output: costs.imageOutputCost,
-							...(costs.dataStorageCost !== null &&
-								costs.dataStorageCost !== undefined && {
-									cost_usd_data_storage: costs.dataStorageCost,
-								}),
-						};
-					}
 					if (showUpgradeMessage) {
 						transformedResponse.usage = {
 							...transformedResponse.usage,

@@ -65,8 +65,8 @@ function assertCacheBilled(usage: any) {
 
 	const promptTokens = usage?.prompt_tokens ?? 0;
 	const nonCachedTokens = Math.max(0, promptTokens - cachedTokens);
-	const inputCost = usage?.cost_usd_input;
-	const cachedInputCost = usage?.cost_usd_cached_input;
+	const inputCost = usage?.cost_details?.input_cost;
+	const cachedInputCost = usage?.cost_details?.cached_input_cost;
 	expect(typeof inputCost).toBe("number");
 	expect(typeof cachedInputCost).toBe("number");
 	expect(cachedInputCost).toBeGreaterThan(0);
