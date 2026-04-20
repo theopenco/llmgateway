@@ -20,14 +20,12 @@ export function applyExtendedUsageFields(
 	usage: Record<string, any>,
 	options: {
 		costs?: CostData | null;
-		isByok?: boolean;
 		cachedTokens?: number | null;
 		cacheCreationTokens?: number | null;
 		reasoningTokens?: number | null;
 	},
 ): Record<string, any> {
-	const { costs, isByok, cachedTokens, cacheCreationTokens, reasoningTokens } =
-		options;
+	const { costs, cachedTokens, cacheCreationTokens, reasoningTokens } = options;
 
 	if (costs) {
 		if (costs.totalCost !== null && costs.totalCost !== undefined) {
@@ -55,10 +53,6 @@ export function applyExtendedUsageFields(
 					data_storage_cost: costs.dataStorageCost,
 				}),
 		};
-	}
-
-	if (typeof isByok === "boolean") {
-		usage.is_byok = isByok;
 	}
 
 	const existingPromptDetails =
@@ -195,7 +189,6 @@ function buildUsageObject(
 	costs: CostData | null,
 	showUpgradeMessage = false,
 	cacheCreationTokens: number | null = null,
-	isByok?: boolean,
 ) {
 	const usage: Record<string, any> = {
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
@@ -215,7 +208,6 @@ function buildUsageObject(
 
 	applyExtendedUsageFields(usage, {
 		costs,
-		isByok,
 		cachedTokens,
 		cacheCreationTokens,
 		reasoningTokens,
@@ -251,7 +243,6 @@ export function transformResponseToOpenai(
 	requestId = "",
 	usedRegion?: string | undefined,
 	cacheCreationTokens: number | null = null,
-	isByok?: boolean,
 ) {
 	let transformedResponse = json;
 
@@ -295,7 +286,6 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 					cacheCreationTokens,
-					isByok,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -344,7 +334,6 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 					cacheCreationTokens,
-					isByok,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -390,7 +379,6 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
-						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -442,7 +430,6 @@ export function transformResponseToOpenai(
 					}
 					applyExtendedUsageFields(transformedResponse.usage, {
 						costs,
-						isByok,
 						cachedTokens,
 						cacheCreationTokens,
 						reasoningTokens,
@@ -481,7 +468,6 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 					cacheCreationTokens,
-					isByok,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -525,7 +511,6 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
-						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -574,7 +559,6 @@ export function transformResponseToOpenai(
 						}
 						applyExtendedUsageFields(transformedResponse.usage, {
 							costs,
-							isByok,
 							cachedTokens,
 							cacheCreationTokens,
 							reasoningTokens,
@@ -620,7 +604,6 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
-						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -677,7 +660,6 @@ export function transformResponseToOpenai(
 						}
 						applyExtendedUsageFields(transformedResponse.usage, {
 							costs,
-							isByok,
 							cachedTokens,
 							cacheCreationTokens,
 							reasoningTokens,
@@ -716,7 +698,6 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
-						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -764,7 +745,6 @@ export function transformResponseToOpenai(
 						}
 						applyExtendedUsageFields(transformedResponse.usage, {
 							costs,
-							isByok,
 							cachedTokens,
 							cacheCreationTokens,
 							reasoningTokens,
@@ -803,7 +783,6 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
-						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -851,7 +830,6 @@ export function transformResponseToOpenai(
 						}
 						applyExtendedUsageFields(transformedResponse.usage, {
 							costs,
-							isByok,
 							cachedTokens,
 							cacheCreationTokens,
 							reasoningTokens,
@@ -891,7 +869,6 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
-						isByok,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -939,7 +916,6 @@ export function transformResponseToOpenai(
 						}
 						applyExtendedUsageFields(transformedResponse.usage, {
 							costs,
-							isByok,
 							cachedTokens,
 							cacheCreationTokens,
 							reasoningTokens,
@@ -989,7 +965,6 @@ export function transformResponseToOpenai(
 					}
 					applyExtendedUsageFields(transformedResponse.usage, {
 						costs,
-						isByok,
 						cachedTokens,
 						cacheCreationTokens,
 						reasoningTokens,

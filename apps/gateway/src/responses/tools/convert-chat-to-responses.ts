@@ -41,7 +41,6 @@ interface ChatCompletionsResponse {
 			audio_tokens?: number;
 		};
 		cost?: number;
-		is_byok?: boolean;
 		cost_details?: {
 			upstream_inference_cost: number;
 			upstream_inference_prompt_cost: number;
@@ -83,7 +82,6 @@ export interface ResponsesApiResponse {
 			cached_tokens: number;
 		};
 		cost?: number;
-		is_byok?: boolean;
 		cost_details?: {
 			upstream_inference_cost: number;
 			upstream_inference_prompt_cost: number;
@@ -184,9 +182,6 @@ export function convertChatResponseToResponses(
 
 	if (chatResponse.usage?.cost !== undefined) {
 		usage.cost = chatResponse.usage.cost;
-	}
-	if (chatResponse.usage?.is_byok !== undefined) {
-		usage.is_byok = chatResponse.usage.is_byok;
 	}
 	if (chatResponse.usage?.cost_details !== undefined) {
 		usage.cost_details = chatResponse.usage.cost_details;

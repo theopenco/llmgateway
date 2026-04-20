@@ -40,7 +40,6 @@ When cost breakdown is enabled, your API responses will include additional cost 
 		"completion_tokens": 15,
 		"total_tokens": 25,
 		"cost": 0.000125,
-		"is_byok": false,
 		"cost_details": {
 			"upstream_inference_cost": 0.000125,
 			"upstream_inference_prompt_cost": 0.000025,
@@ -75,7 +74,6 @@ When cost breakdown is enabled, your API responses will include additional cost 
 | Field                                              | Description                                                              |
 | -------------------------------------------------- | ------------------------------------------------------------------------ |
 | `cost`                                             | Total inference cost for the request in USD                              |
-| `is_byok`                                          | `true` when the request used a bring-your-own provider key               |
 | `cost_details.upstream_inference_cost`             | Combined upstream inference cost in USD (prompt + completions)           |
 | `cost_details.upstream_inference_prompt_cost`      | Upstream cost for prompt tokens in USD (includes cached prompt discount) |
 | `cost_details.upstream_inference_completions_cost` | Upstream cost for completion tokens in USD                               |

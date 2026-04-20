@@ -141,7 +141,6 @@ describe("transformResponseToOpenai", () => {
 			"req_or_1",
 			undefined,
 			2,
-			false,
 		);
 
 		expect(response.usage).toMatchObject({
@@ -149,7 +148,6 @@ describe("transformResponseToOpenai", () => {
 			completion_tokens: 20,
 			total_tokens: 30,
 			cost: 0.0052,
-			is_byok: false,
 			cost_details: {
 				upstream_inference_cost: 0.001 + 0.0002 + 0.004,
 				upstream_inference_prompt_cost: 0.001 + 0.0002,
@@ -241,12 +239,11 @@ describe("transformResponseToOpenai", () => {
 		};
 		applyExtendedUsageFields(usage, {
 			costs: null,
-			isByok: true,
 			cachedTokens: null,
 			cacheCreationTokens: null,
 			reasoningTokens: null,
 		});
-		expect(usage.is_byok).toBe(true);
+		expect(usage.is_byok).toBeUndefined();
 		expect(usage.prompt_tokens_details).toEqual({
 			cached_tokens: 0,
 			cache_write_tokens: 0,

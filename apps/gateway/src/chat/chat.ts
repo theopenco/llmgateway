@@ -871,7 +871,6 @@ const completions = createRoute({
 								})
 								.optional(),
 							cost: z.number().nullable().optional(),
-							is_byok: z.boolean().optional(),
 							cost_details: z
 								.object({
 									upstream_inference_cost: z.number(),
@@ -4193,7 +4192,6 @@ chat.openapi(completions, async (c) => {
 							totalCost: streamingCosts.totalCost,
 							dataStorageCost: streamingCosts.dataStorageCost,
 						},
-						isByok: Boolean(providerKey),
 						cachedTokens: null,
 						cacheCreationTokens: null,
 						reasoningTokens: null,
@@ -5962,7 +5960,6 @@ chat.openapi(completions, async (c) => {
 													dataStorageCost: streamingCosts.dataStorageCost,
 												}
 											: null,
-										isByok: Boolean(providerKey),
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens,
@@ -7263,7 +7260,6 @@ chat.openapi(completions, async (c) => {
 											totalCost: streamingCostsEarly.totalCost,
 											dataStorageCost: streamingCostsEarly.dataStorageCost,
 										},
-										isByok: Boolean(providerKey),
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens,
@@ -9069,7 +9065,6 @@ chat.openapi(completions, async (c) => {
 		requestId,
 		usedRegion,
 		cacheCreationTokens,
-		Boolean(providerKey),
 	);
 
 	// Extract plugin IDs for logging

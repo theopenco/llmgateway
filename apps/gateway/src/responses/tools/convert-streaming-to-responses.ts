@@ -29,7 +29,6 @@ interface StreamingState {
 		total_tokens: number;
 		input_tokens_details?: { cached_tokens: number };
 		cost?: number;
-		is_byok?: boolean;
 		cost_details?: {
 			upstream_inference_cost: number;
 			upstream_inference_prompt_cost: number;
@@ -147,9 +146,6 @@ export function processStreamChunk(
 			}
 			if (usage.cost !== undefined) {
 				state.usage.cost = usage.cost as number;
-			}
-			if (usage.is_byok !== undefined) {
-				state.usage.is_byok = usage.is_byok as boolean;
 			}
 			if (usage.cost_details !== undefined) {
 				state.usage.cost_details =
@@ -302,9 +298,6 @@ export function processStreamChunk(
 		}
 		if (usage.cost !== undefined) {
 			state.usage.cost = usage.cost as number;
-		}
-		if (usage.is_byok !== undefined) {
-			state.usage.is_byok = usage.is_byok as boolean;
 		}
 		if (usage.cost_details !== undefined) {
 			state.usage.cost_details =

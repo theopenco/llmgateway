@@ -347,7 +347,6 @@ describe("convertChatResponseToResponses", () => {
 				completion_tokens: 5,
 				total_tokens: 15,
 				cost: 0.001,
-				is_byok: false,
 				cost_details: {
 					upstream_inference_cost: 0.001,
 					upstream_inference_prompt_cost: 0.0005,
@@ -368,7 +367,6 @@ describe("convertChatResponseToResponses", () => {
 		const result = convertChatResponseToResponses(chatResponse, "gpt-4o-mini");
 
 		expect(result.usage.cost).toBe(0.001);
-		expect(result.usage.is_byok).toBe(false);
 		expect(result.usage.cost_details).toEqual({
 			upstream_inference_cost: 0.001,
 			upstream_inference_prompt_cost: 0.0005,
