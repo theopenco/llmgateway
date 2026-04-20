@@ -31,28 +31,35 @@ export function applyExtendedUsageFields(
 		if (costs.totalCost !== null && costs.totalCost !== undefined) {
 			usage.cost = costs.totalCost;
 		}
-		const inputCost = costs.inputCost ?? 0;
-		const cachedInputCost = costs.cachedInputCost ?? 0;
-		const outputCost = costs.outputCost ?? 0;
-		const promptCost = inputCost + cachedInputCost;
-		const completionsCost = outputCost;
-		usage.cost_details = {
-			upstream_inference_cost: promptCost + completionsCost,
-			upstream_inference_prompt_cost: promptCost,
-			upstream_inference_completions_cost: completionsCost,
-			total_cost: costs.totalCost,
-			input_cost: costs.inputCost,
-			output_cost: costs.outputCost,
-			cached_input_cost: costs.cachedInputCost,
-			request_cost: costs.requestCost,
-			web_search_cost: costs.webSearchCost,
-			image_input_cost: costs.imageInputCost,
-			image_output_cost: costs.imageOutputCost,
-			...(costs.dataStorageCost !== null &&
-				costs.dataStorageCost !== undefined && {
-					data_storage_cost: costs.dataStorageCost,
-				}),
-		};
+		const hasInferenceCosts =
+			costs.inputCost !== null ||
+			costs.cachedInputCost !== null ||
+			costs.outputCost !== null;
+		if (hasInferenceCosts) {
+			const inputCost = costs.inputCost ?? 0;
+			const cachedInputCost = costs.cachedInputCost ?? 0;
+			const outputCost = costs.outputCost ?? 0;
+			const promptCost = inputCost + cachedInputCost;
+			const completionsCost = outputCost;
+			// upstream_inference_cost intentionally excludes requestCost/webSearchCost, so usage.cost may be larger.
+			usage.cost_details = {
+				upstream_inference_cost: promptCost + completionsCost,
+				upstream_inference_prompt_cost: promptCost,
+				upstream_inference_completions_cost: completionsCost,
+				total_cost: costs.totalCost,
+				input_cost: costs.inputCost,
+				output_cost: costs.outputCost,
+				cached_input_cost: costs.cachedInputCost,
+				request_cost: costs.requestCost,
+				web_search_cost: costs.webSearchCost,
+				image_input_cost: costs.imageInputCost,
+				image_output_cost: costs.imageOutputCost,
+				...(costs.dataStorageCost !== null &&
+					costs.dataStorageCost !== undefined && {
+						data_storage_cost: costs.dataStorageCost,
+					}),
+			};
+		}
 	}
 
 	const existingPromptDetails =
