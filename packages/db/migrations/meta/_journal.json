@@ -827,6 +827,13 @@
       "when": 1776181887059,
       "tag": "1776181887_messy_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "8",
+      "when": 1776700673967,
+      "tag": "1776700673_sleepy_goliath",
+      "breakpoints": true
     }
   ]
 }
