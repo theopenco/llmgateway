@@ -117,7 +117,7 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: `${migration.title} - Migration Guides - LLM Gateway`,
+		title: `${migration.title} - Migration Guides`,
 		description: migration.description ?? "Migration guide for LLM Gateway",
 		openGraph: {
 			title: `${migration.title} - Migration Guides - LLM Gateway`,

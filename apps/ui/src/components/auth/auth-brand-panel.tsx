@@ -46,11 +46,11 @@ export async function AuthBrandPanel({
 					</p>
 					{variant === "signup" ? (
 						<>
-							<h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-zinc-900 dark:text-white xl:text-5xl">
+							<p className="font-display text-4xl font-bold leading-tight tracking-tight text-zinc-900 dark:text-white xl:text-5xl">
 								One API for
 								<br />
 								every LLM.
-							</h1>
+							</p>
 							<p className="mt-4 max-w-md text-lg text-zinc-500 dark:text-zinc-400">
 								Route requests across providers, cut costs with smart caching,
 								and ship AI features without vendor lock-in.
@@ -58,9 +58,9 @@ export async function AuthBrandPanel({
 						</>
 					) : (
 						<>
-							<h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-zinc-900 dark:text-white xl:text-5xl">
+							<p className="font-display text-4xl font-bold leading-tight tracking-tight text-zinc-900 dark:text-white xl:text-5xl">
 								Welcome back.
-							</h1>
+							</p>
 							<p className="mt-4 max-w-md text-lg text-zinc-500 dark:text-zinc-400">
 								Pick up where you left off. Your AI infrastructure is running
 								smoothly.

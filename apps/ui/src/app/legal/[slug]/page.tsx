@@ -75,7 +75,7 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: `${entry.title} - LLM Gateway`,
+		title: entry.title,
 		description: entry.description ?? "LLM Gateway legal post",
 		openGraph: {
 			title: `${entry.title} - LLM Gateway`,

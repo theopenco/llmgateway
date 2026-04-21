@@ -912,6 +912,9 @@ export default function ChatPageClient({
 
 	return (
 		<SidebarProvider>
+			<h1 className="sr-only">
+				LLM Gateway Playground - Chat with 210+ AI Models
+			</h1>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				<ChatSidebar
 					onNewChat={handleNewChat}
@@ -928,8 +931,8 @@ export default function ChatPageClient({
 					onSelectProject={handleSelectProject}
 					onProjectCreated={handleProjectCreated}
 				/>
-				<div className="flex flex-1 flex-col w-full min-h-0 overflow-hidden">
-					<div className="shrink-0">
+				<main className="flex flex-1 flex-col w-full min-h-0 overflow-hidden">
+					<header className="shrink-0">
 						<ChatHeader
 							models={models}
 							providers={providers}
@@ -953,7 +956,7 @@ export default function ChatPageClient({
 							onRemoveMcpServer={removeMcpServer}
 							onToggleMcpServer={toggleMcpServer}
 						/>
-					</div>
+					</header>
 					{comparisonEnabled ? (
 						<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
 							<div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1013,7 +1016,7 @@ export default function ChatPageClient({
 							</div>
 						</div>
 					) : null}
-					<div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
+					<section className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
 						<div
 							className={`grid h-full ${
 								!comparisonEnabled || extraPanelIds.length === 0
@@ -1132,8 +1135,8 @@ export default function ChatPageClient({
 									))
 								: null}
 						</div>
-					</div>
-				</div>
+					</section>
+				</main>
 			</div>
 			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />

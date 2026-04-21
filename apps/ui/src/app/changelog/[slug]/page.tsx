@@ -189,7 +189,7 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: `${entry.title} - Changelog - LLM Gateway`,
+		title: `${entry.title} - Changelog`,
 		description: entry.summary ?? "LLM Gateway changelog entry",
 		openGraph: {
 			title: `${entry.title} - Changelog - LLM Gateway`,
