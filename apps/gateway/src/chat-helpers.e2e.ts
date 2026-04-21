@@ -524,6 +524,7 @@ export async function createProviderKey(
 	provider: string,
 	token: string,
 	keyType: "api-keys" | "credits" = "api-keys",
+	baseUrl?: string,
 ) {
 	const keyId =
 		keyType === "credits" ? `env-${provider}` : `provider-key-${provider}`;
@@ -534,6 +535,7 @@ export async function createProviderKey(
 			token,
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId: "org-id",
+			baseUrl,
 		})
 		.onConflictDoNothing();
 }
@@ -630,9 +632,25 @@ export async function beforeAllHook() {
 	for (const provider of providers) {
 		const envVarName = getProviderEnvVar(provider.id);
 		const envVarValue = envVarName ? process.env[envVarName] : undefined;
+		const baseUrlEnvName = (
+			provider.env.required as Record<string, string | undefined>
+		).baseUrl;
+		const baseUrlValue = baseUrlEnvName
+			? process.env[baseUrlEnvName]
+			: undefined;
 		if (envVarValue) {
-			await createProviderKey(provider.id, envVarValue, "api-keys");
-			await createProviderKey(provider.id, envVarValue, "credits");
+			await createProviderKey(
+				provider.id,
+				envVarValue,
+				"api-keys",
+				baseUrlValue,
+			);
+			await createProviderKey(
+				provider.id,
+				envVarValue,
+				"credits",
+				baseUrlValue,
+			);
 		}
 	}
 }

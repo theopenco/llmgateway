@@ -1210,6 +1210,7 @@ export function transformStreamingToOpenai(
 		case "cerebras":
 		case "xai":
 		case "deepseek":
+		case "bluestone":
 		case "alibaba":
 		case "moonshot":
 		case "perplexity":

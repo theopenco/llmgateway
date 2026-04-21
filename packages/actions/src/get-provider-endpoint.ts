@@ -193,6 +193,16 @@ export function getProviderEndpoint(
 			case "deepseek":
 				url = "https://api.deepseek.com";
 				break;
+			case "bluestone":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("bluestone", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Bluestone provider requires LLM_BLUESTONE_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "perplexity":
 				url = "https://api.perplexity.ai";
 				break;
@@ -436,6 +446,7 @@ export function getProviderEndpoint(
 		case "groq":
 		case "cerebras":
 		case "deepseek":
+		case "bluestone":
 		case "moonshot":
 		case "nebius":
 		case "nanogpt":
