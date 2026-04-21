@@ -118,7 +118,7 @@ export function ImageControls({
 			};
 			reader.readAsDataURL(file);
 		},
-		[isEditModel, setInputImages],
+		[isEditModel, setInputImages, maxInputImages],
 	);
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -160,7 +160,7 @@ export function ImageControls({
 				}
 			}
 		},
-		[isEditModel, inputImages.length, addImageFile],
+		[isEditModel, inputImages.length, addImageFile, maxInputImages],
 	);
 
 	// Drag-and-drop handlers
@@ -172,7 +172,7 @@ export function ImageControls({
 				setIsDragging(true);
 			}
 		},
-		[isEditModel, inputImages.length],
+		[isEditModel, inputImages.length, maxInputImages],
 	);
 
 	const handleDragLeave = useCallback((e: React.DragEvent) => {
@@ -202,7 +202,7 @@ export function ImageControls({
 				}
 			}
 		},
-		[isEditModel, inputImages.length, addImageFile],
+		[isEditModel, inputImages.length, addImageFile, maxInputImages],
 	);
 
 	// Reset drag state when mouse leaves the window

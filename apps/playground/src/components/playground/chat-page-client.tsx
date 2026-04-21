@@ -758,11 +758,11 @@ export default function ChatPageClient({
 			);
 			for (const result of results) {
 				if (result.status === "rejected") {
-					// Don't surface comparison errors as hard failures
-					console.warn(
-						"Failed to mirror prompt to comparison window",
-						result.reason,
-					);
+					// Don't surface comparison errors as hard failures;
+					// capture as telemetry instead of logging to console.
+					posthog.capture("playground_mirror_prompt_failure", {
+						reason: String(result.reason),
+					});
 				}
 			}
 		}
