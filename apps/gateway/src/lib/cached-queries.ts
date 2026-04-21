@@ -10,8 +10,6 @@
  *
  * See: packages/db/src/cdb-resilience.spec.ts for documentation of this behavior.
  */
-import crypto from "crypto";
-
 import { swrWrap } from "@llmgateway/cache";
 import {
 	and,
@@ -30,6 +28,7 @@ import {
 	userOrganization as userOrganizationTable,
 } from "@llmgateway/db";
 
+import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
 import {
 	calculateUptimePenalty,
 	getTrackedKeyMetrics,
@@ -63,10 +62,6 @@ const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const userTableName = getTableName(userTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
-
-function hashToken(token: string): string {
-	return crypto.createHash("sha256").update(token).digest("hex");
-}
 
 function selectProviderKeyWithFailover<T extends { id: string }>(
 	items: T[],
@@ -126,7 +121,7 @@ export async function findApiKeyByToken(
 	token: string,
 ): Promise<ApiKey | undefined> {
 	return await swrWrap(
-		`apiKey:token:${hashToken(token)}`,
+		`apiKey:token:${getApiKeyFingerprint(token)}`,
 		[apiKeyTableName],
 		async () => {
 			const results = await db

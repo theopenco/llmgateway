@@ -1,5 +1,3 @@
-import crypto from "crypto";
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { redisClient, SWR_PREFIX } from "@llmgateway/cache";
@@ -16,6 +14,7 @@ import {
 	userOrganization,
 } from "@llmgateway/db";
 
+import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
 import {
 	findActiveIamRules,
 	findActiveProviderKeys,
@@ -36,10 +35,6 @@ const testApiKeyToken = "sk-test-swr-token";
 const testProviderKeyOpenAi = "test-provider-key-swr-openai";
 const testProviderKeyAnthropic = "test-provider-key-swr-anthropic";
 const testIamRuleId = "test-iam-rule-swr";
-
-function hashToken(token: string): string {
-	return crypto.createHash("sha256").update(token).digest("hex");
-}
 
 async function flushDrizzleCache(): Promise<void> {
 	const keys = await redisClient.keys("drizzle:cache:*");
@@ -164,7 +159,7 @@ describe("cached-queries SWR integration", () => {
 			expect(result?.id).toBe(testApiKeyId);
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}apiKey:token:${hashToken(testApiKeyToken)}`,
+				`${SWR_PREFIX}apiKey:token:${getApiKeyFingerprint(testApiKeyToken)}`,
 			);
 			expect(mirror).not.toBeNull();
 			const raw = await redisClient.get(
