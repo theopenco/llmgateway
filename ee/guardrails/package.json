@@ -22,6 +22,7 @@
 		"lint": "eslint . && prettier --check ."
 	},
 	"dependencies": {
+		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"drizzle-orm": "1.0.0-beta.1"
 	},
