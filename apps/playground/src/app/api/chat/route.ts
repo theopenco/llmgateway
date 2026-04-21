@@ -403,6 +403,46 @@ export async function POST(req: Request) {
 				}
 			}
 
+			// If the current user message did not upload any images, fall back to
+			// the most recent assistant-generated image(s) so that follow-up prompts
+			// can edit the previously generated output.
+			if (fileParts.length === 0) {
+				const lastAssistantWithImage = [...messages]
+					.reverse()
+					.find(
+						(m) =>
+							m.role === "assistant" &&
+							Array.isArray(m.parts) &&
+							m.parts.some(
+								(p: any) =>
+									p?.type === "file" &&
+									typeof p?.url === "string" &&
+									typeof p?.mediaType === "string" &&
+									p.mediaType.startsWith("image/"),
+							),
+					);
+				if (
+					lastAssistantWithImage &&
+					Array.isArray(lastAssistantWithImage.parts)
+				) {
+					for (const p of lastAssistantWithImage.parts) {
+						if (
+							p.type === "file" &&
+							"url" in p &&
+							typeof p.url === "string" &&
+							"mediaType" in p &&
+							typeof p.mediaType === "string" &&
+							p.mediaType.startsWith("image/")
+						) {
+							fileParts.push({
+								url: p.url,
+								mediaType: p.mediaType,
+							});
+						}
+					}
+				}
+			}
+
 			if (!prompt.trim()) {
 				return new Response(
 					JSON.stringify({ error: "Missing prompt for image generation" }),

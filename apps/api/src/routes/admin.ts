@@ -398,9 +398,12 @@ admin.openapi(getMetrics, async (c) => {
 	const { from, to } = query;
 
 	let startDate: Date | null = null;
+	let endDate: Date | null = null;
 	if (from && to) {
 		startDate = new Date(from + "T00:00:00");
 		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(to + "T23:59:59");
+		endDate.setUTCHours(23, 59, 59, 999);
 	} else {
 		const range = query.range ?? "all";
 		const rangeDays: Record<string, number | null> = {
@@ -418,13 +421,50 @@ admin.openapi(getMetrics, async (c) => {
 		}
 	}
 
+	const userDateFilter =
+		startDate && endDate
+			? and(
+					gte(tables.user.createdAt, startDate),
+					lte(tables.user.createdAt, endDate),
+				)
+			: startDate
+				? gte(tables.user.createdAt, startDate)
+				: undefined;
+	const transactionDateFilter =
+		startDate && endDate
+			? and(
+					gte(tables.transaction.createdAt, startDate),
+					lte(tables.transaction.createdAt, endDate),
+				)
+			: startDate
+				? gte(tables.transaction.createdAt, startDate)
+				: undefined;
+	const orgDateFilter =
+		startDate && endDate
+			? and(
+					gte(tables.organization.createdAt, startDate),
+					lte(tables.organization.createdAt, endDate),
+				)
+			: startDate
+				? gte(tables.organization.createdAt, startDate)
+				: undefined;
+	const projectStatsDateFilter =
+		startDate && endDate
+			? and(
+					gte(projectHourlyStats.hourTimestamp, startDate),
+					lte(projectHourlyStats.hourTimestamp, endDate),
+				)
+			: startDate
+				? gte(projectHourlyStats.hourTimestamp, startDate)
+				: undefined;
+
 	// Total signups
 	const [signupsRow] = await db
 		.select({
 			count: sql<number>`COUNT(*)`.as("count"),
 		})
 		.from(tables.user)
-		.where(startDate ? gte(tables.user.createdAt, startDate) : undefined);
+		.where(userDateFilter);
 
 	const totalSignups = Number(signupsRow?.count ?? 0);
 
@@ -434,14 +474,7 @@ admin.openapi(getMetrics, async (c) => {
 			count: sql<number>`COUNT(*)`.as("count"),
 		})
 		.from(tables.user)
-		.where(
-			startDate
-				? and(
-						eq(tables.user.emailVerified, true),
-						gte(tables.user.createdAt, startDate),
-					)
-				: eq(tables.user.emailVerified, true),
-		);
+		.where(and(eq(tables.user.emailVerified, true), userDateFilter));
 
 	const verifiedUsers = Number(verifiedRow?.count ?? 0);
 
@@ -455,12 +488,7 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			startDate
-				? and(
-						eq(tables.transaction.status, "completed"),
-						gte(tables.transaction.createdAt, startDate),
-					)
-				: eq(tables.transaction.status, "completed"),
+			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
 		);
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
@@ -475,16 +503,11 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			startDate
-				? and(
-						eq(tables.transaction.status, "completed"),
-						ne(tables.transaction.type, "credit_gift"),
-						gte(tables.transaction.createdAt, startDate),
-					)
-				: and(
-						eq(tables.transaction.status, "completed"),
-						ne(tables.transaction.type, "credit_gift"),
-					),
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
+				transactionDateFilter,
+			),
 		);
 
 	const totalRevenue = Number(revenueRow?.value ?? 0);
@@ -495,9 +518,7 @@ admin.openapi(getMetrics, async (c) => {
 			count: sql<number>`COUNT(*)`.as("count"),
 		})
 		.from(tables.organization)
-		.where(
-			startDate ? gte(tables.organization.createdAt, startDate) : undefined,
-		);
+		.where(orgDateFilter);
 
 	const totalOrganizations = Number(orgsRow?.count ?? 0);
 
@@ -511,12 +532,7 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			startDate
-				? and(
-						eq(tables.transaction.status, "completed"),
-						gte(tables.transaction.createdAt, startDate),
-					)
-				: eq(tables.transaction.status, "completed"),
+			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
 		);
 
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
@@ -530,9 +546,7 @@ admin.openapi(getMetrics, async (c) => {
 				),
 		})
 		.from(projectHourlyStats)
-		.where(
-			startDate ? gte(projectHourlyStats.hourTimestamp, startDate) : undefined,
-		);
+		.where(projectStatsDateFilter);
 
 	const totalSpent = Number(spentRow?.value ?? 0);
 
@@ -546,16 +560,11 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			startDate
-				? and(
-						eq(tables.transaction.status, "completed"),
-						ne(tables.transaction.type, "credit_gift"),
-						gte(tables.transaction.createdAt, startDate),
-					)
-				: and(
-						eq(tables.transaction.status, "completed"),
-						ne(tables.transaction.type, "credit_gift"),
-					),
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
+				transactionDateFilter,
+			),
 		);
 
 	const totalProcessed = Number(processedRow?.value ?? 0);

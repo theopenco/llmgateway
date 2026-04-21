@@ -56,13 +56,43 @@ export function getModelImageConfig(model: string) {
 
 	const defaultSize = isSeedream ? "2K" : "1K";
 
+	const maxInputImages = getMaxInputImages(lower);
+
 	return {
 		usesPixelDimensions,
 		isSeedream,
 		isGemini31FlashImage,
 		availableSizes,
 		defaultSize,
+		maxInputImages,
 	};
+}
+
+function getMaxInputImages(lowerModel: string): number {
+	// xAI Grok Imagine only supports a single reference image per generation.
+	if (lowerModel.includes("grok-imagine")) {
+		return 1;
+	}
+	// Google Gemini image models (Nano Banana family) support up to 3 reference images.
+	if (
+		lowerModel.includes("gemini") &&
+		(lowerModel.includes("-image") || lowerModel.includes("flash-image"))
+	) {
+		return 3;
+	}
+	// ByteDance Seedream 4.x accepts up to 10 reference images.
+	if (lowerModel.includes("seedream")) {
+		return 10;
+	}
+	// Alibaba Qwen-Image-Edit (plus/max) supports multi-image editing.
+	if (lowerModel.includes("qwen-image-edit")) {
+		return 5;
+	}
+	// ZAI CogView / GLM-Image: single-image conditioning at most.
+	if (lowerModel.includes("cogview") || lowerModel.includes("glm-image")) {
+		return 1;
+	}
+	return 4;
 }
 
 export async function parseImageStream(

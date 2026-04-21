@@ -24,8 +24,6 @@ import { getModelImageConfig } from "@/lib/image-gen";
 
 import type { AspectRatio } from "@/lib/image-gen";
 
-const MAX_INPUT_IMAGES = 4;
-
 interface InputImage {
 	dataUrl: string;
 	mediaType: string;
@@ -96,6 +94,7 @@ export function ImageControls({
 	// Derive config from first selected model (settings apply globally)
 	const primaryModel = selectedModels[0] ?? "";
 	const config = getModelImageConfig(primaryModel);
+	const maxInputImages = config.maxInputImages;
 
 	const addImageFile = useCallback(
 		(file: File) => {
@@ -108,7 +107,7 @@ export function ImageControls({
 			const reader = new FileReader();
 			reader.onload = () => {
 				setInputImages((prev) => {
-					if (prev.length >= MAX_INPUT_IMAGES) {
+					if (prev.length >= maxInputImages) {
 						return prev;
 					}
 					return [
@@ -134,7 +133,7 @@ export function ImageControls({
 	const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const files = Array.from(e.target.files ?? []);
 		for (const file of files) {
-			if (inputImages.length >= MAX_INPUT_IMAGES) {
+			if (inputImages.length >= maxInputImages) {
 				break;
 			}
 			addImageFile(file);
@@ -146,7 +145,7 @@ export function ImageControls({
 	// Paste handler for images
 	const handlePaste = useCallback(
 		(e: React.ClipboardEvent) => {
-			if (!isEditModel || inputImages.length >= MAX_INPUT_IMAGES) {
+			if (!isEditModel || inputImages.length >= maxInputImages) {
 				return;
 			}
 			const items = Array.from(e.clipboardData.items);
@@ -169,7 +168,7 @@ export function ImageControls({
 		(e: React.DragEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
-			if (isEditModel && inputImages.length < MAX_INPUT_IMAGES) {
+			if (isEditModel && inputImages.length < maxInputImages) {
 				setIsDragging(true);
 			}
 		},
@@ -193,7 +192,7 @@ export function ImageControls({
 			e.preventDefault();
 			e.stopPropagation();
 			setIsDragging(false);
-			if (!isEditModel || inputImages.length >= MAX_INPUT_IMAGES) {
+			if (!isEditModel || inputImages.length >= maxInputImages) {
 				return;
 			}
 			const files = Array.from(e.dataTransfer.files);
@@ -213,6 +212,14 @@ export function ImageControls({
 		return () => window.removeEventListener("dragend", handleWindowDragEnd);
 	}, []);
 
+	// Trim attached images if the selected model's per-model upload limit
+	// is lower than the number of currently attached images.
+	useEffect(() => {
+		setInputImages((prev) =>
+			prev.length > maxInputImages ? prev.slice(0, maxInputImages) : prev,
+		);
+	}, [maxInputImages, setInputImages]);
+
 	const removeImage = (index: number) => {
 		setInputImages((prev) => prev.filter((_, i) => i !== index));
 	};
@@ -231,14 +238,12 @@ export function ImageControls({
 						isDragging ? "border-primary bg-primary/5 ring-1 ring-primary" : ""
 					}`}
 				>
-					{isDragging &&
-						isEditModel &&
-						inputImages.length < MAX_INPUT_IMAGES && (
-							<div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
-								<ImagePlus className="h-4 w-4 mr-2" />
-								Drop image here
-							</div>
-						)}
+					{isDragging && isEditModel && inputImages.length < maxInputImages && (
+						<div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
+							<ImagePlus className="h-4 w-4 mr-2" />
+							Drop image here
+						</div>
+					)}
 					{isEditModel && inputImages.length > 0 && (
 						<div className="flex flex-wrap gap-2 px-3 pt-3">
 							{inputImages.map((img, i) => (
@@ -296,7 +301,7 @@ export function ImageControls({
 						disabled={
 							isGenerating ||
 							!isEditModel ||
-							inputImages.length >= MAX_INPUT_IMAGES
+							inputImages.length >= maxInputImages
 						}
 						title={
 							!isEditModel
@@ -307,7 +312,7 @@ export function ImageControls({
 						<ImagePlus className="h-4 w-4 mr-1.5" />
 						{inputImages.length === 0
 							? "Add image"
-							: `${inputImages.length}/${MAX_INPUT_IMAGES}`}
+							: `${inputImages.length}/${maxInputImages}`}
 					</Button>
 					{!config.usesPixelDimensions && (
 						<>

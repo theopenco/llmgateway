@@ -68,6 +68,11 @@ function buildPresets(): DatePreset[] {
 			getRange: () => ({ from: subDays(today, 6), to: today }),
 		},
 		{
+			label: "Today",
+			value: "today",
+			getRange: () => ({ from: today, to: today }),
+		},
+		{
 			label: "This week",
 			value: "this_week",
 			getRange: () => ({

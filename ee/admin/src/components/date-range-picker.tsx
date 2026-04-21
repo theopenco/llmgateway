@@ -63,6 +63,11 @@ function buildPresets(): DatePreset[] {
 			getRange: () => ({ from: subDays(today, 6), to: today }),
 		},
 		{
+			label: "Today",
+			value: "today",
+			getRange: () => ({ from: today, to: today }),
+		},
+		{
 			label: "This week",
 			value: "this_week",
 			getRange: () => ({
@@ -192,7 +197,7 @@ export function getDateRangeFromParams(searchParams: URLSearchParams) {
 
 	const today = new Date();
 	return {
-		from: subDays(today, 30),
+		from: new Date(2020, 0, 1),
 		to: today,
 	};
 }
