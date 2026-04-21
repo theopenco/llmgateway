@@ -142,7 +142,7 @@ export const deepseekModels = [
 				inputPrice: 0.28 / 1e6,
 				outputPrice: 0.42 / 1e6,
 				cachedInputPrice: 0.028 / 1e6,
-				discount: 0.6,
+				discount: 0.3,
 				requestPrice: 0,
 				contextSize: 163840,
 				maxOutput: 32768,
