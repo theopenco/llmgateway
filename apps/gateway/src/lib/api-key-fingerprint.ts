@@ -19,6 +19,7 @@ function getApiKeyHashSecret(): string {
 }
 
 export function getApiKeyFingerprint(token: string): string {
+	// lgtm[js/insufficient-password-hash]
 	return createHmac("sha256", getApiKeyHashSecret())
 		.update(token)
 		.digest("hex");
