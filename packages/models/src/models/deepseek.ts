@@ -139,9 +139,9 @@ export const deepseekModels = [
 			{
 				providerId: "bluestone",
 				modelName: "deepseek-v3.2",
-				inputPrice: 0.42 / 1e6,
-				outputPrice: 1.26 / 1e6,
-				cachedInputPrice: 0.084 / 1e6,
+				inputPrice: 0.28 / 1e6,
+				outputPrice: 0.42 / 1e6,
+				cachedInputPrice: 0.028 / 1e6,
 				discount: 0.6,
 				requestPrice: 0,
 				contextSize: 163840,
