@@ -35,7 +35,9 @@ async function addDescriptionsFromContent() {
 		if (!description) {
 			continue;
 		}
-		const sanitized = description.replace(/"/g, '\\"');
+		const sanitized = description
+			.replace(/\\/g, "\\\\")
+			.replace(/"/g, '\\"');
 		const updatedFrontmatter = `title: ${
 			frontmatter.match(/^title:\s*(.+)$/m)?.[1] ?? entry
 		}\ndescription: "${sanitized}"\n${frontmatter
