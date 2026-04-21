@@ -78,11 +78,17 @@ export function ChatSupport() {
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const prevMessageCountRef = useRef(0);
-	const [clientId] = useState(() => getOrCreateClientId());
+	const [clientId, setClientId] = useState("");
+	const [mounted, setMounted] = useState(false);
 
-	const isLoggedIn = !!user;
-	const effectiveName = isLoggedIn ? (user.name ?? "") : userName;
-	const effectiveEmail = isLoggedIn ? (user.email ?? "") : userEmail;
+	useEffect(() => {
+		setClientId(getOrCreateClientId());
+		setMounted(true);
+	}, []);
+
+	const isLoggedIn = mounted && !!user;
+	const effectiveName = isLoggedIn ? (user?.name ?? "") : userName;
+	const effectiveEmail = isLoggedIn ? (user?.email ?? "") : userEmail;
 	const isIdentified = isLoggedIn || hasIdentified;
 
 	const chat = useMemo(
