@@ -1205,6 +1205,9 @@ export async function processLogQueue(): Promise<void> {
 			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
 		}
 	} catch (error) {
+		// Opens the circuit when the pre-insert postgres read (cdb.select) throws,
+		// so we stop draining the queue while postgres is down.
+		recordLogInsertFailure();
 		logger.error(
 			"Error processing log message",
 			error instanceof Error ? error : new Error(String(error)),
