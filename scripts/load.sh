@@ -227,6 +227,7 @@ while true; do
 		curl -N "$REQUEST_URL" -s \
 			-H "Content-Type: application/json" \
 			-H "Authorization: Bearer ${LLM_GATEWAY_API_KEY}" \
+			-H "X-Debug: true" \
 			-H "X-No-Fallback: true" \
 			-d "@${request_payload}" \
 			>"$output_file"

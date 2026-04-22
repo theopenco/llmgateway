@@ -1079,7 +1079,43 @@ async function enqueueLowBalanceEmail(
 	});
 }
 
+// Circuit breaker: skip queue consumption while postgres is known-down.
+export const logInsertCircuit = {
+	consecutiveFailures: 0,
+	nextAttemptAt: 0,
+};
+
+const LOG_INSERT_BACKOFF_BASE_MS = 1000;
+const LOG_INSERT_BACKOFF_MAX_MS = 5 * 60 * 1000;
+
+function recordLogInsertFailure(): void {
+	logInsertCircuit.consecutiveFailures += 1;
+	const backoff = Math.min(
+		LOG_INSERT_BACKOFF_BASE_MS *
+			Math.pow(2, logInsertCircuit.consecutiveFailures - 1),
+		LOG_INSERT_BACKOFF_MAX_MS,
+	);
+	logInsertCircuit.nextAttemptAt = Date.now() + backoff;
+	logger.warn(
+		`Postgres log insertion failing; backing off for ${backoff}ms (consecutive failures: ${logInsertCircuit.consecutiveFailures})`,
+	);
+}
+
+function recordLogInsertSuccess(): void {
+	if (logInsertCircuit.consecutiveFailures > 0) {
+		logger.info(
+			`Postgres log insertion recovered after ${logInsertCircuit.consecutiveFailures} consecutive failures`,
+		);
+	}
+	logInsertCircuit.consecutiveFailures = 0;
+	logInsertCircuit.nextAttemptAt = 0;
+}
+
 export async function processLogQueue(): Promise<void> {
+	if (Date.now() < logInsertCircuit.nextAttemptAt) {
+		return;
+	}
+
 	const message = await consumeFromQueue(LOG_QUEUE, LOG_QUEUE_BATCH_SIZE);
 
 	if (!message) {
@@ -1136,6 +1172,7 @@ export async function processLogQueue(): Promise<void> {
 			try {
 				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
 				await db.insert(log).values(processedLogData as LogInsertData[]);
+				recordLogInsertSuccess();
 				return; // Success, exit function
 			} catch (insertError) {
 				lastError =
@@ -1157,6 +1194,7 @@ export async function processLogQueue(): Promise<void> {
 		}
 
 		// All retries exhausted, push messages back to queue for later processing
+		recordLogInsertFailure();
 		logger.error(
 			`Failed to insert logs after ${MAX_RETRIES + 1} attempts, pushing back to queue`,
 			lastError,
@@ -1167,6 +1205,9 @@ export async function processLogQueue(): Promise<void> {
 			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
 		}
 	} catch (error) {
+		// Opens the circuit when the pre-insert postgres read (cdb.select) throws,
+		// so we stop draining the queue while postgres is down.
+		recordLogInsertFailure();
 		logger.error(
 			"Error processing log message",
 			error instanceof Error ? error : new Error(String(error)),

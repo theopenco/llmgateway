@@ -257,7 +257,7 @@ export const moonshotModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "together.ai",
+				providerId: "together-ai",
 				modelName: "moonshotai/Kimi-K2.5",
 				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
 				// Ref: https://status.together.ai
@@ -356,6 +356,21 @@ export const moonshotModels = [
 				requestPrice: 0,
 				contextSize: 262144,
 				maxOutput: 32768,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "novita",
+				modelName: "moonshotai/kimi-k2.6",
+				inputPrice: 0.95 / 1e6,
+				cachedInputPrice: 0.16 / 1e6,
+				outputPrice: 4.0 / 1e6,
+				requestPrice: 0,
+				contextSize: 262144,
+				maxOutput: 262144,
 				streaming: true,
 				reasoning: true,
 				vision: true,

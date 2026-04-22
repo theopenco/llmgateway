@@ -375,6 +375,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
+				stability: "unstable" as const,
 				modelName: "claude-sonnet-4-6",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
@@ -806,6 +807,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
+				stability: "unstable" as const,
 				modelName: "claude-opus-4-5@20251101",
 				inputPrice: 5.0 / 1e6,
 				outputPrice: 25.0 / 1e6,

@@ -1217,7 +1217,7 @@ export function transformStreamingToOpenai(
 		case "nebius":
 		case "canopywave":
 		case "inference.net":
-		case "together.ai":
+		case "together-ai":
 		case "custom":
 		case "nanogpt":
 		case "bytedance":

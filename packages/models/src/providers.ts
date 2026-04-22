@@ -483,7 +483,7 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "together.ai",
+		id: "together-ai",
 		name: "Together AI",
 		description:
 			"Together AI is a platform for running large language models in the cloud with fast inference.",

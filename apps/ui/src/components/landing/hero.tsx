@@ -42,7 +42,7 @@ const transitionVariants: { item: Variants } = {
 const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "OpenAI", providerId: "openai" },
 	{ name: "Anthropic", providerId: "anthropic" },
-	{ name: "Together AI", providerId: "together.ai" },
+	{ name: "Together AI", providerId: "together-ai" },
 	{ name: "Groq", providerId: "groq" },
 	{ name: "xAI", providerId: "xai" },
 	{ name: "DeepSeek", providerId: "deepseek" },

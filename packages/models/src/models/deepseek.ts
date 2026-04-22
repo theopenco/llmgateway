@@ -148,6 +148,8 @@ export const deepseekModels = [
 				maxOutput: 32768,
 				jsonOutput: true,
 				streaming: true,
+				reasoning: true,
+				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
 			},

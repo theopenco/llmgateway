@@ -13,14 +13,14 @@ PROMPT=${PROMPT:-"Combine these images into one polished product-style scene. Ke
 
 GATEWAY_URL=${GATEWAY_URL:-http://localhost:4001}
 TOKEN=${TOKEN:-test-token}
-MODEL=${MODEL:-glacier/gemini-3.1-flash-image-preview}
+MODEL=${MODEL:-google-vertex/gemini-3.1-flash-image-preview}
 MODEL_FILENAME=${MODEL//\//--}
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 OUTPUT_FILE=${OUTPUT_FILE:-.context/${MODEL_FILENAME}-${TIMESTAMP}.png}
 ASPECT_RATIO=${ASPECT_RATIO:-1:1}
 SIZE=${SIZE:-2K}
 QUALITY=${QUALITY:-high}
-RESPONSE_FILE=${RESPONSE_FILE:-.context/image-edit-response.json}
+RESPONSE_FILE=${RESPONSE_FILE:-.context/image-edit-response-${TIMESTAMP}.json}
 
 mkdir -p "$(dirname "$OUTPUT_FILE")"
 mkdir -p "$(dirname "$RESPONSE_FILE")"

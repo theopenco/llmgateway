@@ -790,6 +790,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
+				stability: "unstable",
 				modelName: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
 				inputPrice: 0.4 / 1e6,
 				outputPrice: 1.8 / 1e6,
@@ -815,6 +816,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
+				stability: "unstable",
 				modelName: "qwen/qwen3-coder-480b-a35b-instruct",
 				inputPrice: 0.3 / 1e6,
 				outputPrice: 1.3 / 1e6,
@@ -828,6 +830,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "canopywave",
+				stability: "unstable",
 				deactivatedAt: new Date("2026-02-01"),
 				modelName: "qwen/qwen3-coder-480b-a35b-instruct",
 				inputPrice: 0.3 / 1e6,

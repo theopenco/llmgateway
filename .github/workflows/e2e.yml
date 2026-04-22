@@ -36,7 +36,7 @@ jobs:
         with:
           version: ${{ env.pnpm_version }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6.3.0
         with:
           node-version: ${{ env.nodejs_version }}
           cache: pnpm
@@ -81,6 +81,8 @@ jobs:
           LLM_EMBERCLOUD_API_KEY: ${{ secrets.LLM_EMBERCLOUD_API_KEY }}
           LLM_ALIBABA_API_KEY__US_VIRGINIA: ${{ secrets.LLM_ALIBABA_API_KEY__US_VIRGINIA }}
           LLM_ALIBABA_API_KEY__CN_BEIJING: ${{ secrets.LLM_ALIBABA_API_KEY__CN_BEIJING }}
+          LLM_BLUESTONE_API_KEY: ${{ secrets.LLM_BLUESTONE_API_KEY }}
+          LLM_BLUESTONE_BASE_URL: ${{ secrets.LLM_BLUESTONE_BASE_URL }}
 
       - name: Upload shard results
         if: always()
@@ -110,7 +112,7 @@ jobs:
         with:
           version: ${{ env.pnpm_version }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6.3.0
         with:
           node-version: ${{ env.nodejs_version }}
           cache: pnpm

@@ -1,6 +1,8 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { eq, getTableName } from "drizzle-orm";
 
-import { db } from "./db.js";
+import { swrWrap } from "@llmgateway/cache";
+
+import { cdb } from "./cdb.js";
 import { modelProviderMapping } from "./schema.js";
 
 export interface ProviderMetrics {
@@ -24,6 +26,57 @@ export function metricsKey(
 	return `${modelId}:${providerId}:${region ?? ""}`;
 }
 
+const modelProviderMappingTableName = getTableName(modelProviderMapping);
+
+interface ProviderMetricsRow {
+	modelId: string;
+	providerId: string;
+	region: string | null;
+	routingUptime: number | null;
+	routingLatency: number | null;
+	routingThroughput: number | null;
+	routingTotalRequests: number | null;
+}
+
+async function fetchAllProviderMetricsRows(): Promise<ProviderMetricsRow[]> {
+	return await swrWrap(
+		"providerMetrics:allActive",
+		[modelProviderMappingTableName],
+		async () =>
+			await cdb
+				.select({
+					modelId: modelProviderMapping.modelId,
+					providerId: modelProviderMapping.providerId,
+					region: modelProviderMapping.region,
+					routingUptime: modelProviderMapping.routingUptime,
+					routingLatency: modelProviderMapping.routingLatency,
+					routingThroughput: modelProviderMapping.routingThroughput,
+					routingTotalRequests: modelProviderMapping.routingTotalRequests,
+				})
+				.from(modelProviderMapping)
+				.where(eq(modelProviderMapping.status, "active")),
+	);
+}
+
+function rowToMetrics(row: ProviderMetricsRow): ProviderMetrics | undefined {
+	if (
+		row.routingTotalRequests === null ||
+		row.routingTotalRequests === undefined ||
+		row.routingTotalRequests <= 0
+	) {
+		return undefined;
+	}
+	return {
+		providerId: row.providerId,
+		modelId: row.modelId,
+		region: row.region ?? undefined,
+		uptime: row.routingUptime ?? undefined,
+		averageLatency: row.routingLatency ?? undefined,
+		throughput: row.routingThroughput ?? undefined,
+		totalRequests: row.routingTotalRequests,
+	};
+}
+
 /**
  * Fetches pre-computed routing metrics for all model-provider mappings.
  * Metrics are computed by the worker with time-tier weighting
@@ -34,51 +87,25 @@ export function metricsKey(
 export async function getProviderMetrics(): Promise<
 	Map<string, ProviderMetrics>
 > {
-	const results = await db
-		.select({
-			modelId: modelProviderMapping.modelId,
-			providerId: modelProviderMapping.providerId,
-			region: modelProviderMapping.region,
-			routingUptime: modelProviderMapping.routingUptime,
-			routingLatency: modelProviderMapping.routingLatency,
-			routingThroughput: modelProviderMapping.routingThroughput,
-			routingTotalRequests: modelProviderMapping.routingTotalRequests,
-		})
-		.from(modelProviderMapping)
-		.where(eq(modelProviderMapping.status, "active"));
-
+	const rows = await fetchAllProviderMetricsRows();
 	const metricsMap = new Map<string, ProviderMetrics>();
-
-	for (const row of results) {
-		if (
-			row.routingTotalRequests === null ||
-			row.routingTotalRequests === undefined ||
-			row.routingTotalRequests <= 0
-		) {
+	for (const row of rows) {
+		const metrics = rowToMetrics(row);
+		if (!metrics) {
 			continue;
 		}
-
-		const key = metricsKey(row.modelId, row.providerId, row.region);
-		metricsMap.set(key, {
-			providerId: row.providerId,
-			modelId: row.modelId,
-			region: row.region ?? undefined,
-			uptime: row.routingUptime ?? undefined,
-			averageLatency: row.routingLatency ?? undefined,
-			throughput: row.routingThroughput ?? undefined,
-			totalRequests: row.routingTotalRequests,
-		});
+		metricsMap.set(
+			metricsKey(row.modelId, row.providerId, row.region),
+			metrics,
+		);
 	}
-
 	return metricsMap;
 }
 
 /**
  * Fetches pre-computed routing metrics for specific model-provider combinations.
- * More efficient when you only need metrics for a subset of providers.
- *
- * Metrics are computed by the worker with time-tier weighting
- * (last 1 min = 10x, last 5 min = 3x, last hour = 1x).
+ * Uses the same cached "all active mappings" query as getProviderMetrics so
+ * every request hits a single SWR mirror that survives Postgres outages.
  *
  * @param combinations - Array of {modelId, providerId, region?} to fetch metrics for
  * @returns Map of "modelId:providerId:region" to metrics
@@ -94,56 +121,25 @@ export async function getProviderMetricsForCombinations(
 		return new Map();
 	}
 
-	// Build OR conditions for each combination
-	const conditions = combinations.map((combo) =>
-		and(
-			sql`${modelProviderMapping.modelId} = ${combo.modelId}`,
-			sql`${modelProviderMapping.providerId} = ${combo.providerId}`,
-			combo.region
-				? sql`${modelProviderMapping.region} = ${combo.region}`
-				: isNull(modelProviderMapping.region),
+	const wanted = new Set(
+		combinations.map((combo) =>
+			metricsKey(combo.modelId, combo.providerId, combo.region ?? null),
 		),
 	);
 
-	const results = await db
-		.select({
-			modelId: modelProviderMapping.modelId,
-			providerId: modelProviderMapping.providerId,
-			region: modelProviderMapping.region,
-			routingUptime: modelProviderMapping.routingUptime,
-			routingLatency: modelProviderMapping.routingLatency,
-			routingThroughput: modelProviderMapping.routingThroughput,
-			routingTotalRequests: modelProviderMapping.routingTotalRequests,
-		})
-		.from(modelProviderMapping)
-		.where(
-			and(
-				eq(modelProviderMapping.status, "active"),
-				sql`(${sql.join(conditions, sql` OR `)})`,
-			),
-		);
-
+	const rows = await fetchAllProviderMetricsRows();
 	const metricsMap = new Map<string, ProviderMetrics>();
 
-	for (const row of results) {
-		if (
-			row.routingTotalRequests === null ||
-			row.routingTotalRequests === undefined ||
-			row.routingTotalRequests <= 0
-		) {
+	for (const row of rows) {
+		const key = metricsKey(row.modelId, row.providerId, row.region);
+		if (!wanted.has(key)) {
 			continue;
 		}
-
-		const key = metricsKey(row.modelId, row.providerId, row.region);
-		metricsMap.set(key, {
-			providerId: row.providerId,
-			modelId: row.modelId,
-			region: row.region ?? undefined,
-			uptime: row.routingUptime ?? undefined,
-			averageLatency: row.routingLatency ?? undefined,
-			throughput: row.routingThroughput ?? undefined,
-			totalRequests: row.routingTotalRequests,
-		});
+		const metrics = rowToMetrics(row);
+		if (!metrics) {
+			continue;
+		}
+		metricsMap.set(key, metrics);
 	}
 
 	return metricsMap;
