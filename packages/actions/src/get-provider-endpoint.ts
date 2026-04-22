@@ -175,7 +175,7 @@ export function getProviderEndpoint(
 			case "inference.net":
 				url = "https://api.inference.net";
 				break;
-			case "together.ai":
+			case "together-ai":
 				url = "https://api.together.ai";
 				break;
 			case "mistral":

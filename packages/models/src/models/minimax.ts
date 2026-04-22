@@ -40,7 +40,7 @@ export const minimaxModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "together.ai",
+				providerId: "together-ai",
 				modelName: "MiniMaxAI/MiniMax-M2.7",
 				inputPrice: 0.3 / 1e6,
 				cachedInputPrice: 0.06 / 1e6,
@@ -139,7 +139,7 @@ export const minimaxModels = [
 			},
 			{
 				deactivatedAt: new Date("2026-04-27"),
-				providerId: "together.ai",
+				providerId: "together-ai",
 				modelName: "MiniMaxAI/MiniMax-M2.5",
 				inputPrice: 0.3 / 1e6,
 				outputPrice: 1.2 / 1e6,

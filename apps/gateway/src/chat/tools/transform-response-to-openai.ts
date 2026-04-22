@@ -355,7 +355,7 @@ export function transformResponseToOpenai(
 			break;
 		}
 		case "inference.net":
-		case "together.ai":
+		case "together-ai":
 		case "groq": {
 			if (!transformedResponse.id) {
 				transformedResponse = {

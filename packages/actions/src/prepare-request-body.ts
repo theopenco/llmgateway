@@ -1971,7 +1971,7 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "inference.net":
-		case "together.ai": {
+		case "together-ai": {
 			if (usedModel.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedModel.substring(usedProvider.length + 1);
 			}

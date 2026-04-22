@@ -88,7 +88,7 @@ export const zaiModels = [
 			},
 			{
 				deactivatedAt: new Date("2026-04-22"),
-				providerId: "together.ai",
+				providerId: "together-ai",
 				modelName: "zai-org/GLM-5",
 				inputPrice: 1 / 1e6,
 				outputPrice: 3.2 / 1e6,
@@ -520,7 +520,7 @@ export const zaiModels = [
 				jsonOutput: false, // Returns JSON wrapped in markdown code blocks
 			},
 			{
-				providerId: "together.ai",
+				providerId: "together-ai",
 				test: "skip", // skip tests due to reasoning issues
 				modelName: "zai-org/GLM-4.7",
 				inputPrice: 0.45 / 1e6,

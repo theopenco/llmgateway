@@ -1253,7 +1253,7 @@ export const ProviderIcons = {
 	mistral: MistralIcon,
 	openai: OpenAIIcon,
 	perplexity: PerplexityIcon,
-	"together.ai": TogetherAIIcon,
+	"together-ai": TogetherAIIcon,
 	xai: XAIIcon,
 	moonshot: MoonshotIcon,
 	novita: NovitaIcon,
@@ -1283,7 +1283,7 @@ export const providerLogoUrls: Partial<
 	"google-vertex": ProviderIcons["google-vertex"],
 	quartz: ProviderIcons.quartz,
 	"inference.net": ProviderIcons["inference.net"],
-	"together.ai": ProviderIcons["together.ai"],
+	"together-ai": ProviderIcons["together-ai"],
 	mistral: ProviderIcons.mistral,
 	groq: ProviderIcons.groq,
 	xai: ProviderIcons.xai,
@@ -1311,7 +1311,7 @@ export const getProviderLogoDarkModeClasses = () => {
 export const getProviderIcon = (
 	provider: string,
 ): React.FC<React.SVGProps<SVGSVGElement>> => {
-	// First try the exact provider name (for keys like "together.ai", "inference.net")
+	// First try the exact provider name (for keys like "together-ai", "inference.net")
 	if (ProviderIcons[provider as ProviderIconKey]) {
 		return ProviderIcons[provider as ProviderIconKey];
 	}
