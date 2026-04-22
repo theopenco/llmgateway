@@ -403,6 +403,9 @@ export function getProviderEndpoint(
 			}
 		}
 		case "openai": {
+			if (imageGenerations) {
+				return `${url}/v1/images/generations`;
+			}
 			// Use responses endpoint for models that support responses API
 			if (model) {
 				// Look up by model ID first, then fall back to provider modelName

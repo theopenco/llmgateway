@@ -579,6 +579,86 @@ export async function prepareRequestBody(
 	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
 ): Promise<ProviderRequestBody> {
+	// Handle OpenAI image generation models (e.g. gpt-image-2)
+	if (imageGenerations && usedProvider === "openai") {
+		// Extract prompt and image URLs from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		const imageUrls: string[] = [];
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
+			}
+		}
+
+		// Normalize size to OpenAI gpt-image accepted values.
+		// gpt-image-1/2 accepts: "1024x1024", "1024x1536", "1536x1024", "auto".
+		const rawSize = image_config?.image_size;
+		const aspectRatio = image_config?.aspect_ratio;
+		let openaiSize: string | undefined;
+		if (rawSize) {
+			const normalized = rawSize.toLowerCase();
+			if (
+				normalized === "1024x1024" ||
+				normalized === "1024x1536" ||
+				normalized === "1536x1024" ||
+				normalized === "auto"
+			) {
+				openaiSize = rawSize;
+			} else if (normalized === "1k") {
+				// Map resolution presets with aspect ratio when available
+				if (aspectRatio === "16:9" || aspectRatio === "3:2") {
+					openaiSize = "1536x1024";
+				} else if (aspectRatio === "9:16" || aspectRatio === "2:3") {
+					openaiSize = "1024x1536";
+				} else {
+					openaiSize = "1024x1024";
+				}
+			} else {
+				openaiSize = "auto";
+			}
+		} else if (aspectRatio && aspectRatio !== "auto") {
+			if (aspectRatio === "16:9" || aspectRatio === "3:2") {
+				openaiSize = "1536x1024";
+			} else if (aspectRatio === "9:16" || aspectRatio === "2:3") {
+				openaiSize = "1024x1536";
+			} else if (aspectRatio === "1:1") {
+				openaiSize = "1024x1024";
+			}
+		}
+
+		const openaiImageRequest: any = {
+			model: usedModel,
+			prompt,
+			...(openaiSize && { size: openaiSize }),
+			...(image_config?.n && { n: image_config.n }),
+		};
+
+		if (imageUrls.length > 0) {
+			// For edits flow (handled by URL swap in chat.ts)
+			openaiImageRequest.image =
+				imageUrls.length === 1 ? imageUrls[0] : imageUrls;
+		}
+
+		return openaiImageRequest;
+	}
+
 	// Handle xAI image generation models
 	if (imageGenerations && usedProvider === "xai") {
 		// Extract prompt and image URLs from last user message

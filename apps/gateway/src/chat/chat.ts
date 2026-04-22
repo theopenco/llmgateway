@@ -3897,6 +3897,16 @@ chat.openapi(completions, async (c) => {
 		url = url.replace("/v1/images/generations", "/v1/images/edits");
 	}
 
+	// Switch OpenAI image generation endpoint to /edits when input images are present
+	if (
+		isImageGeneration &&
+		usedProvider === "openai" &&
+		url &&
+		"image" in requestBody
+	) {
+		url = url.replace("/v1/images/generations", "/v1/images/edits");
+	}
+
 	const startTime = Date.now();
 	const failedEnvKeyIndicesByProvider = new Map<string, Set<number>>();
 	const failedTrackedKeyIdsByProvider = new Map<string, Set<string>>();
