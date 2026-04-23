@@ -32,6 +32,9 @@ describe("getUnifiedFinishReason", () => {
 		expect(getUnifiedFinishReason("end_turn", "anthropic")).toBe(
 			UnifiedFinishReason.COMPLETED,
 		);
+		expect(getUnifiedFinishReason("refusal", "anthropic")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
 	});
 
 	it("maps Google AI Studio finish reasons correctly (original Google format)", () => {

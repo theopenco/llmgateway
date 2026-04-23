@@ -78,6 +78,9 @@ export function getUnifiedFinishReason(
 			if (finishReason === "tool_use") {
 				return UnifiedFinishReason.TOOL_CALLS;
 			}
+			if (finishReason === "refusal") {
+				return UnifiedFinishReason.CONTENT_FILTER;
+			}
 			break;
 		case "google-ai-studio":
 		case "glacier":

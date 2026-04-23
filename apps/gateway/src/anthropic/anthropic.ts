@@ -137,7 +137,14 @@ const anthropicResponseSchema = z.object({
 	model: z.string(),
 	content: z.array(anthropicContentBlockSchema),
 	stop_reason: z
-		.enum(["end_turn", "max_tokens", "stop_sequence", "tool_use"])
+		.enum([
+			"end_turn",
+			"max_tokens",
+			"stop_sequence",
+			"tool_use",
+			"pause_turn",
+			"refusal",
+		])
 		.nullable(),
 	stop_sequence: z.string().nullable(),
 	usage: z.object({
