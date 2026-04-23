@@ -578,6 +578,54 @@ export function transformResponseToOpenai(
 		case "mistral":
 		case "novita":
 		case "openai": {
+			// Handle OpenAI image generation responses (e.g. gpt-image-2)
+			// Format: { created: number, data: [{ b64_json?: string, url?: string }], usage?: {...} }
+			if (
+				usedProvider === "openai" &&
+				json.data &&
+				Array.isArray(json.data) &&
+				!json.choices &&
+				!json.output
+			) {
+				transformedResponse = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: json.created ?? Math.floor(Date.now() / 1000),
+					model: `${usedProvider}/${baseModelName}`,
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: content,
+								...(images && images.length > 0 && { images }),
+							},
+							finish_reason: finishReason ?? "stop",
+						},
+					],
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+						showUpgradeMessage,
+						cacheCreationTokens,
+					),
+					metadata: buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+						usedRegion,
+					),
+				};
+				break;
+			}
 			// Handle OpenAI responses format transformation to chat completions format
 			if (json.output && Array.isArray(json.output)) {
 				// This is from the responses endpoint - transform to chat completions format
