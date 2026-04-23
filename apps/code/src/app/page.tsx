@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
+import { Faq } from "@/components/Faq";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import {
@@ -26,15 +27,22 @@ const plans = [
 	{
 		name: "Lite",
 		price: 29,
+		usage: 87,
 		description: "For occasional AI-assisted coding",
-		features: ["All 200+ models included", "Usage resets monthly"],
+		features: [
+			"$87 in monthly model usage",
+			"All 200+ models included",
+			"Usage resets monthly",
+		],
 		tier: "lite",
 	},
 	{
 		name: "Pro",
 		price: 79,
+		usage: 237,
 		description: "For daily development workflows",
 		features: [
+			"$237 in monthly model usage",
 			"All 200+ models included",
 			"Usage resets monthly",
 			"Best value for developers",
@@ -45,8 +53,10 @@ const plans = [
 	{
 		name: "Max",
 		price: 179,
+		usage: 537,
 		description: "For power users and heavy sessions",
 		features: [
+			"$537 in monthly model usage",
 			"All 200+ models included",
 			"Usage resets monthly",
 			"Maximum throughput",
@@ -305,6 +315,9 @@ export default function LandingPage() {
 						<CodingModelsShowcase uiUrl={config.uiUrl} />
 					</div>
 				</section>
+
+				{/* FAQ */}
+				<Faq />
 
 				{/* Final CTA */}
 				<section className="py-20 px-4">
