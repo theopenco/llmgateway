@@ -18,6 +18,55 @@ import {
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
+interface OpenAIImageRequest {
+	model: string;
+	prompt: string;
+	size?: string;
+	n?: number;
+	image?: string | string[];
+}
+
+/**
+ * Decode an input image URL (https URL or data URL) into a Blob for multipart upload.
+ * Returns the Blob with the mime type and a filename with a matching extension.
+ */
+async function fetchImageAsBlob(
+	url: string,
+	index: number,
+): Promise<{ blob: Blob; filename: string }> {
+	const dataUrlMatch = url.match(/^data:([^;,]+)(?:;[^,]*)?,(.*)$/);
+	if (dataUrlMatch) {
+		const mimeType = dataUrlMatch[1] || "image/png";
+		const payload = dataUrlMatch[2] ?? "";
+		const isBase64 = /;base64,/i.test(url.slice(0, url.indexOf(",") + 1));
+		const raw = isBase64
+			? Buffer.from(payload, "base64")
+			: Buffer.from(decodeURIComponent(payload), "utf-8");
+		const buffer = new ArrayBuffer(raw.byteLength);
+		new Uint8Array(buffer).set(raw);
+		const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+		return {
+			blob: new Blob([buffer], { type: mimeType }),
+			filename: `image-${index}.${ext}`,
+		};
+	}
+
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new Error(
+			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
+		);
+	}
+	const mimeType =
+		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
+	const buffer = await response.arrayBuffer();
+	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+	return {
+		blob: new Blob([buffer], { type: mimeType }),
+		filename: `image-${index}.${ext}`,
+	};
+}
+
 /**
  * Type guard to check if a tool is a function tool
  */
@@ -578,7 +627,7 @@ export async function prepareRequestBody(
 	webSearchTool?: WebSearchTool,
 	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
-): Promise<ProviderRequestBody> {
+): Promise<ProviderRequestBody | FormData> {
 	// Handle OpenAI image generation models (e.g. gpt-image-2)
 	if (imageGenerations && usedProvider === "openai") {
 		// Extract prompt and image URLs from last user message
@@ -643,7 +692,7 @@ export async function prepareRequestBody(
 			}
 		}
 
-		const openaiImageRequest: any = {
+		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedModel,
 			prompt,
 			...(openaiSize && { size: openaiSize }),
@@ -651,12 +700,29 @@ export async function prepareRequestBody(
 		};
 
 		if (imageUrls.length > 0) {
-			// For edits flow (handled by URL swap in chat.ts)
-			openaiImageRequest.image =
-				imageUrls.length === 1 ? imageUrls[0] : imageUrls;
+			// Edits flow: chat.ts swaps the URL to /v1/images/edits, which requires
+			// multipart/form-data with binary image files rather than JSON.
+			const formData = new FormData();
+			formData.append("model", openaiImageRequest.model);
+			formData.append("prompt", openaiImageRequest.prompt);
+			if (openaiImageRequest.size) {
+				formData.append("size", openaiImageRequest.size);
+			}
+			if (openaiImageRequest.n !== undefined) {
+				formData.append("n", String(openaiImageRequest.n));
+			}
+
+			const decoded = await Promise.all(
+				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+			);
+			const fieldName = decoded.length === 1 ? "image" : "image[]";
+			for (const { blob, filename } of decoded) {
+				formData.append(fieldName, blob, filename);
+			}
+			return formData;
 		}
 
-		return openaiImageRequest;
+		return openaiImageRequest as unknown as ProviderRequestBody;
 	}
 
 	// Handle xAI image generation models
