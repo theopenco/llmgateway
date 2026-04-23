@@ -394,6 +394,7 @@ export async function resolveProviderContext(
 
 	// Post-validation of max_tokens in request body
 	if (
+		!(requestBody instanceof FormData) &&
 		hasMaxTokens(requestBody) &&
 		requestBody.max_tokens !== undefined &&
 		providerMappingForSelected
