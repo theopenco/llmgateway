@@ -5,6 +5,11 @@ date: 2026-04-26
 title: "LLM Gateway vs Direct API: When the Provider SDK Stops Scaling"
 summary: "Calling OpenAI or Anthropic directly is the right first call. Here's the honest case for when a gateway starts paying for itself — and when you don't need one yet."
 categories: ["Guides"]
+image:
+  src: "/blog/llm-gateway-vs-direct-api.png"
+  alt: "LLM Gateway vs Direct API: When the Provider SDK Stops Scaling"
+  width: 1672
+  height: 941
 ---
 
 The best first integration with an LLM is the simplest one. Install the provider SDK, paste your API key into an environment variable, call `chat.completions.create()`, ship the feature. If you're on day one of adding AI to an app, stop reading this and go do that.

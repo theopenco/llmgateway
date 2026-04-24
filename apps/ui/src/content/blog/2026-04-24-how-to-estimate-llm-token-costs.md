@@ -3,8 +3,13 @@ id: blog-how-to-estimate-llm-token-costs
 slug: how-to-estimate-llm-token-costs
 date: 2026-04-24
 title: "How to Estimate LLM Token Costs Before You Ship"
-summary: "A practical guide to forecasting LLM costs: the token formula, real-world examples across GPT-5, Claude, and Gemini, and a free calculator to run the numbers."
+summary: "A practical guide to forecasting LLM costs: the token formula, real-world examples across GPT-5.4, Claude, and Gemini, and a free calculator to run the numbers."
 categories: ["Guides"]
+image:
+  src: "/blog/how-to-estimate-llm-token-costs.png"
+  alt: "How to Estimate LLM Token Costs Before You Ship"
+  width: 1672
+  height: 941
 ---
 
 The first time a bill from OpenAI or Anthropic lands, most teams have the same reaction: "how did we spend that?" Not because the providers hid anything — the pricing is public — but because cost per token is a fiddly unit. A 1,200-token prompt feels abstract until it becomes 10 million of them in a month.
@@ -37,28 +42,28 @@ If you don't know (2) or (3) yet, estimate from a prototype: log 100 real reques
 
 A realistic chatbot request: **1,000 input tokens, 500 output tokens**. Prices as of April 2026:
 
-| Model                 | Cost per request | 10K/day | 1M/day  |
-| --------------------- | ---------------- | ------- | ------- |
-| **GPT-5**             | $0.00625         | $62.50  | $6,250  |
-| **Claude Opus 4.6**   | $0.01750         | $175.00 | $17,500 |
-| **Gemini 2.5 Pro**    | $0.00625         | $62.50  | $6,250  |
-| **GPT-4o**            | $0.00750         | $75.00  | $7,500  |
-| **Claude Sonnet 4.5** | $0.01050         | $105.00 | $10,500 |
-| **Gemini 2.5 Flash**  | $0.00155         | $15.50  | $1,550  |
-| **Claude Haiku 4.5**  | $0.00350         | $35.00  | $3,500  |
-| **GPT-4.1 Nano**      | $0.00030         | $3.00   | $300    |
+| Model                     | Cost per request | 10K/day | 1M/day  |
+| ------------------------- | ---------------- | ------- | ------- |
+| **Claude Opus 4.7**       | $0.01750         | $175.00 | $17,500 |
+| **GPT-5.4**               | $0.01000         | $100.00 | $10,000 |
+| **Gemini 3.1 Pro**        | $0.00800         | $80.00  | $8,000  |
+| **Claude Sonnet 4.6**     | $0.01050         | $105.00 | $10,500 |
+| **GPT-5.4 Mini**          | $0.00300         | $30.00  | $3,000  |
+| **Claude Haiku 4.5**      | $0.00350         | $35.00  | $3,500  |
+| **Gemini 3.1 Flash Lite** | $0.00100         | $10.00  | $1,000  |
+| **GPT-5.4 Nano**          | $0.00083         | $8.25   | $825    |
 
 A few things jump out from the math, not the marketing:
 
 - The gap between flagship and budget tiers is **20x**, not 2x. A model choice that "doesn't matter for the prototype" becomes a six-figure line item at scale.
 - Output tokens dominate total cost on any chat workload. If you're optimizing, cut response length before you cut prompt length.
-- Mid-tier models (Sonnet 4.5, GPT-4o, Gemini 2.5 Flash) are where the quality-to-cost ratio is best for most real apps.
+- Mid-tier models (Sonnet 4.6, GPT-5.4 Mini, Gemini 3.1 Flash Lite) are where the quality-to-cost ratio is best for most real apps.
 
 ## Where Estimates Go Wrong
 
 Four things that quietly inflate real bills beyond the estimate:
 
-**1. System prompts count.** Every request pays for the full system prompt. A 2,000-token system prompt adds $0.0025 per request on GPT-5 — trivial once, $25,000/year at 10 requests per second.
+**1. System prompts count.** Every request pays for the full system prompt. A 2,000-token system prompt adds $0.005 per request on GPT-5.4 — trivial once, $50,000/year at 10 requests per second.
 
 **2. RAG chunks are huge.** Retrieval-augmented apps commonly inject 4–8k tokens of context. That input can outweigh the user's message by 10x.
 
@@ -95,7 +100,7 @@ The same model is often sold by multiple providers at different prices. DeepSeek
 
 ### 3. Match the model to the task
 
-Don't call GPT-5 to classify sentiment. A three-tier setup — Nano for classification, Flash/Haiku for structured extraction, flagship for reasoning — typically cuts total spend 60–80% with no user-visible quality drop.
+Don't call GPT-5.4 to classify sentiment. A three-tier setup — Nano or Flash Lite for classification, Haiku or Mini for structured extraction, flagship for reasoning — typically cuts total spend 60–80% with no user-visible quality drop.
 
 ## TL;DR
 

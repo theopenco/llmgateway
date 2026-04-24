@@ -5,6 +5,11 @@ date: 2026-04-25
 title: "Prompt Caching Explained: How to Cut LLM Costs by 30–99%"
 summary: "How LLM response caching actually works, where it helps, where it doesn't, and how to turn it on without rewriting your app."
 categories: ["Guides"]
+image:
+  src: "/blog/prompt-caching-explained.png"
+  alt: "Prompt Caching Explained: How to Cut LLM Costs by 30–99%"
+  width: 1672
+  height: 941
 ---
 
 The cheapest LLM request is the one you don't send. If the same question shows up twice, there's no reason to pay twice — the model's answer hasn't changed, and the user doesn't care where it came from.

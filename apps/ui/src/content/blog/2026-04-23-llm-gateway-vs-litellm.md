@@ -5,6 +5,11 @@ date: 2026-04-23
 title: "LLM Gateway vs LiteLLM: An Honest Comparison"
 summary: "A straightforward comparison of LLM Gateway and LiteLLM — features, operational cost, and trade-offs — so you can pick the right one for your stack."
 categories: ["Guides"]
+image:
+  src: "/blog/llm-gateway-vs-litellm.png"
+  alt: "LLM Gateway vs LiteLLM: An Honest Comparison"
+  width: 1024
+  height: 572
 ---
 
 LLM Gateway and LiteLLM solve the same core problem: give developers a single API to access many LLM providers. But they approach it from opposite ends. LiteLLM is a Python library and self-hosted proxy you run yourself. LLM Gateway is a managed (or self-hosted) platform with the proxy, dashboard, billing, caching, routing, and audit logs already wired together.
@@ -27,10 +32,9 @@ We built LLM Gateway, so we're biased — but we'll tell you where LiteLLM is th
 | Analytics dashboard   | Per-request detail, cost, latency, cache hit rate     | Basic via callbacks/plugins         |
 | Audit logs            | Yes (90-day retention)                                | Config file + manual logging        |
 | Team management       | Roles, permissions, projects                          | Virtual keys + budgets              |
-| Image & video gen     | Yes (DALL-E, Gemini, Veo 3.1, Seedream, Qwen)         | Image yes, video limited            |
+| Image & video gen     | Yes (gpt-image, Gemini, Veo 3.1, Seedream, Qwen)      | Image yes, video limited            |
 | AI SDK provider       | Yes (`@llmgateway/ai-sdk-provider`)                   | Community SDK                       |
-| Pricing model         | 5% platform fee or BYOK (0% fee)                      | Free (self-host); infra costs apply |
-| Free tier             | Yes (3 free models, 20 req/min)                       | N/A (self-hosted)                   |
+| Pricing model         | Free (self-host) or 5% platform fee / BYOK (0% fee)   | Free (self-host); infra costs apply |
 
 ## Where LLM Gateway Wins
 
