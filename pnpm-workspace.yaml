@@ -3,6 +3,17 @@ packages:
   - packages/*
   - ee/*
 
+overrides:
+  shiki: 3.22.0
+  flatted: '>=3.4.0'
+  rollup: '>=4.59.0'
+  handlebars: '>=4.7.9'
+
+packageExtensions:
+  '@hookform/resolvers':
+    peerDependencies:
+      zod: '*'
+
 ignoredBuiltDependencies:
   - protobufjs
   - unrs-resolver
