@@ -15,6 +15,16 @@ packageExtensions:
     peerDependencies:
       zod: '*'
 
+allowBuilds:
+  '@parcel/watcher': true
+  '@tailwindcss/oxide': true
+  better-sqlite3: true
+  core-js: true
+  esbuild: true
+  sharp: true
+  protobufjs: false
+  unrs-resolver: false
+
 ignoredBuiltDependencies:
   - protobufjs
   - unrs-resolver
