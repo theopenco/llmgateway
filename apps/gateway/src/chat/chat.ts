@@ -3834,7 +3834,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	let requestBody: ProviderRequestBody = await prepareRequestBody(
+	let requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
 		usedProvider,
 		upstreamModelName,
 		messages as BaseMessage[],
@@ -3863,6 +3863,7 @@ chat.openapi(completions, async (c) => {
 
 	// Validate effective max_tokens value after prepareRequestBody
 	if (
+		!(requestBody instanceof FormData) &&
 		hasMaxTokens(requestBody) &&
 		requestBody.max_tokens !== undefined &&
 		finalModelInfo
@@ -3892,7 +3893,19 @@ chat.openapi(completions, async (c) => {
 		isImageGeneration &&
 		usedProvider === "xai" &&
 		url &&
+		!(requestBody instanceof FormData) &&
 		("image" in requestBody || "images" in requestBody)
+	) {
+		url = url.replace("/v1/images/generations", "/v1/images/edits");
+	}
+
+	// Switch OpenAI image generation endpoint to /edits when input images are present.
+	// prepareRequestBody returns a FormData (multipart/form-data) only for this edits flow.
+	if (
+		isImageGeneration &&
+		usedProvider === "openai" &&
+		url &&
+		requestBody instanceof FormData
 	) {
 		url = url.replace("/v1/images/generations", "/v1/images/edits");
 	}
@@ -7811,7 +7824,9 @@ chat.openapi(completions, async (c) => {
 				requestId,
 				webSearchEnabled: !!webSearchTool,
 			});
-			headers["Content-Type"] = "application/json";
+			if (!(requestBody instanceof FormData)) {
+				headers["Content-Type"] = "application/json";
+			}
 
 			// Add effort beta header for Anthropic if effort parameter is specified
 			if (usedProvider === "anthropic" && effort !== undefined) {
@@ -7841,7 +7856,10 @@ chat.openapi(completions, async (c) => {
 			res = await fetch(url, {
 				method: "POST",
 				headers,
-				body: JSON.stringify(requestBody),
+				body:
+					requestBody instanceof FormData
+						? requestBody
+						: JSON.stringify(requestBody),
 				signal: fetchSignal,
 			});
 		} catch (error) {

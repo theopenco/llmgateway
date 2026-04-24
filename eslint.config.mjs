@@ -122,6 +122,10 @@ export default [
 							group: "internal",
 							position: "before",
 						},
+						{
+							pattern: "content-collections",
+							group: "internal",
+						},
 					],
 					pathGroupsExcludedImportTypes: ["builtin", "type"],
 				},

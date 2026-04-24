@@ -1807,4 +1807,33 @@ export const openaiModels = [
 			},
 		],
 	},
+	{
+		id: "gpt-image-2",
+		name: "GPT Image 2",
+		description:
+			"OpenAI's next-generation image model with improved quality and prompt adherence, supporting text and image inputs.",
+		family: "openai",
+		output: ["image"],
+		releasedAt: new Date("2026-04-21"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "openai",
+				modelName: "gpt-image-2",
+				inputPrice: 5 / 1e6,
+				outputPrice: 10 / 1e6,
+				cachedInputPrice: 1.25 / 1e6,
+				imageInputPrice: 8 / 1e6,
+				imageOutputPrice: 30 / 1e6,
+				requestPrice: 0,
+				contextSize: 128000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

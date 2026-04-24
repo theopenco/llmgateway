@@ -526,6 +526,39 @@ export function parseProviderResponse(
 			break;
 		}
 		default: // OpenAI format
+			// Check if this is an OpenAI image generation response (e.g. gpt-image-2)
+			// Format: { created: number, data: [{ b64_json?: string, url?: string, revised_prompt?: string }], usage?: {...} }
+			if (
+				usedProvider === "openai" &&
+				json.data &&
+				Array.isArray(json.data) &&
+				json.data.length > 0 &&
+				(json.data[0]?.b64_json || json.data[0]?.url)
+			) {
+				const imageData = json.data;
+				images = imageData.map((item: any): ImageObject => {
+					let url: string;
+					if (item.b64_json) {
+						url = `data:image/png;base64,${item.b64_json}`;
+					} else {
+						url = item.url;
+					}
+					return {
+						type: "image_url",
+						image_url: { url },
+					};
+				});
+				content = imageLabel;
+				finishReason = "stop";
+				// OpenAI gpt-image models return usage with input/output tokens
+				promptTokens = json.usage?.input_tokens ?? 0;
+				completionTokens = json.usage?.output_tokens ?? 0;
+				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
+				totalTokens =
+					json.usage?.total_tokens ??
+					(promptTokens ?? 0) + (completionTokens ?? 0);
+				break;
+			}
 			// Check if this is an xAI Grok Imagine image generation response
 			// Format: { data: [{ url: "..." }] }
 			if (usedProvider === "xai" && json.data && Array.isArray(json.data)) {

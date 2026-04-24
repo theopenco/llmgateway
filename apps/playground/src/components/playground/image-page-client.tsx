@@ -152,22 +152,30 @@ export default function ImagePageClient({
 
 	// Keep URL in sync with selected model(s)
 	useEffect(() => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		// Read current URL params directly to avoid stale searchParams closure
+		// and to prevent an infinite loop where router.replace produces a new
+		// searchParams reference that re-triggers this effect (each such cycle
+		// causes Next.js to refetch the RSC, re-hitting /orgs forever).
+		const currentParams = new URLSearchParams(window.location.search);
 		if (comparisonMode) {
-			params.set("model", selectedModels.join(","));
-			params.set("compare", "1");
+			currentParams.set("model", selectedModels.join(","));
+			currentParams.set("compare", "1");
 		} else {
 			const primary = selectedModels[0];
 			if (primary) {
-				params.set("model", primary);
+				currentParams.set("model", primary);
 			} else {
-				params.delete("model");
+				currentParams.delete("model");
 			}
-			params.delete("compare");
+			currentParams.delete("compare");
 		}
-		const qs = params.toString();
-		router.replace(qs ? `?${qs}` : "");
-	}, [comparisonMode, router, searchParams, selectedModels]);
+		const qs = currentParams.toString();
+		const nextUrl = `${pathname}${qs ? `?${qs}` : ""}`;
+		const currentUrl = `${window.location.pathname}${window.location.search}`;
+		if (nextUrl !== currentUrl) {
+			router.replace(nextUrl, { scroll: false });
+		}
+	}, [comparisonMode, pathname, router, selectedModels]);
 
 	// Reset imageSize when model changes, clear input images when switching away from edit model
 	useEffect(() => {
