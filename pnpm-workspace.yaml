@@ -3,6 +3,8 @@ packages:
   - packages/*
   - ee/*
 
+verifyDepsBeforeRun: false
+
 overrides:
   shiki: 3.22.0
   flatted: '>=3.4.0'
