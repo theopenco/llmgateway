@@ -95,7 +95,7 @@
 		"@types/react-dom": "^19.2.3",
 		"autoprefixer": "^10.4.21",
 		"openapi-typescript": "7.10.1",
-		"postcss": "^8.5.6",
+		"postcss": "^8.5.10",
 		"tailwindcss": "^4.1.12",
 		"zod": "3.25.75"
 	}
