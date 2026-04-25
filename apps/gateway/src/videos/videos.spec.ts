@@ -473,7 +473,7 @@ describe("videos", () => {
 			});
 			expect(videoJob).toBeTruthy();
 			expect(videoJob?.usedProvider).toBe("google-vertex");
-			expect(videoJob?.usedModel).toBe("veo-3.1-generate-preview");
+			expect(videoJob?.usedModel).toBe("veo-3.1-generate-001");
 			expect(videoJob?.upstreamId).toContain("projects/runtime-project/");
 			expect(
 				(
@@ -513,7 +513,7 @@ describe("videos", () => {
 				`mock-video-${videoJob!.upstreamId}`,
 			);
 
-			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-preview");
+			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-001");
 			expect(logs[0].content).toBe(
 				`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
 			);
@@ -820,7 +820,7 @@ describe("videos", () => {
 				where: { id: { eq: created.id } },
 			});
 			expect(videoJob?.usedProvider).toBe("google-vertex");
-			expect(videoJob?.usedModel).toBe("veo-3.1-generate-preview");
+			expect(videoJob?.usedModel).toBe("veo-3.1-generate-001");
 
 			const mockVideo = getMockVideo(videoJob!.upstreamId);
 			expect(mockVideo?.referenceImages).toEqual([
