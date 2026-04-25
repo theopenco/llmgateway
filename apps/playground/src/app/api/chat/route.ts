@@ -476,6 +476,11 @@ export async function POST(req: Request) {
 
 			const stream = createUIMessageStream({
 				execute: async ({ writer }) => {
+					writer.write({
+						type: "start",
+						messageId: crypto.randomUUID(),
+					});
+					writer.write({ type: "start-step" });
 					for (const image of result.images) {
 						const mediaType = image.mediaType || "image/png";
 						writer.write({
@@ -484,6 +489,8 @@ export async function POST(req: Request) {
 							mediaType,
 						});
 					}
+					writer.write({ type: "finish-step" });
+					writer.write({ type: "finish", finishReason: "stop" });
 				},
 			});
 
