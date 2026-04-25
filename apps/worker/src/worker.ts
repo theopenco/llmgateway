@@ -976,7 +976,20 @@ async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
 
 		for (const org of orgs) {
 			try {
-				const lastTopUp = Number(org.lastTopUpAmount ?? 0);
+				let lastTopUp = Number(org.lastTopUpAmount ?? 0);
+
+				if (lastTopUp <= 0) {
+					const lastCompletedTopUp = await db.query.transaction.findFirst({
+						where: {
+							organizationId: { eq: org.id },
+							type: { eq: "credit_topup" },
+							status: { eq: "completed" },
+						},
+						orderBy: { createdAt: "desc" },
+					});
+					lastTopUp = Number(lastCompletedTopUp?.creditAmount ?? 0);
+				}
+
 				if (lastTopUp <= 0) {
 					continue;
 				}
@@ -1033,8 +1046,21 @@ async function enqueueLowBalanceEmail(
 	}
 
 	const threshold = emailType === "low_balance_20" ? "20" : "5";
+	const dryRun = process.env.EMAIL_FOLLOW_UPS !== "true";
 
-	if (process.env.EMAIL_FOLLOW_UPS !== "true") {
+	posthog.capture({
+		distinctId: "organization",
+		event: "low_balance_alert_fired",
+		groups: { organization: organizationId },
+		properties: {
+			threshold,
+			currentBalance,
+			organization: organizationId,
+			dryRun,
+		},
+	});
+
+	if (dryRun) {
 		logger.info("Low balance alert (dry run)", {
 			kind: "low_balance_alert",
 			emailType,
@@ -1043,6 +1069,14 @@ async function enqueueLowBalanceEmail(
 			currentBalance,
 			threshold,
 		});
+		await db
+			.insert(tables.followUpEmail)
+			.values({
+				organizationId,
+				emailType,
+				sentTo: "(dry-run)",
+			})
+			.onConflictDoNothing();
 		return;
 	}
 
