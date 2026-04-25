@@ -722,9 +722,6 @@ payments.openapi(createCheckoutSession, async (c) => {
 
 	const defaultBillingUrl = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organizationId}/org/billing`;
 
-	let successUrl: string;
-	let cancelUrl: string;
-
 	const isAllowedReturn = (() => {
 		if (!returnUrl) {
 			return false;
@@ -739,12 +736,12 @@ payments.openapi(createCheckoutSession, async (c) => {
 		}
 	})();
 
+	const successUrl = `${defaultBillingUrl}?success=true`;
+	let cancelUrl: string;
 	if (isAllowedReturn && returnUrl) {
 		const separator = returnUrl.includes("?") ? "&" : "?";
-		successUrl = `${returnUrl}${separator}success=true`;
 		cancelUrl = `${returnUrl}${separator}canceled=true`;
 	} else {
-		successUrl = `${defaultBillingUrl}?success=true`;
 		cancelUrl = `${defaultBillingUrl}?canceled=true`;
 	}
 
