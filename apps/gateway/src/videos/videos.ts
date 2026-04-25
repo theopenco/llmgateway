@@ -776,7 +776,7 @@ function getVideoProviderConstraintReasons(
 		}
 
 		if (isGoogleVertexVideoProvider(provider.providerId)) {
-			if (provider.modelName !== "veo-3.1-generate-preview") {
+			if (provider.modelName !== "veo-3.1-generate-001") {
 				reasons.push(
 					`reference images are currently only supported on ${provider.providerId}/veo-3.1-generate-preview`,
 				);

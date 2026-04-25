@@ -178,7 +178,7 @@ function mappingSupportsVideoRequest(
 
 	if (inputMode === "reference") {
 		if (mapping.providerId === "google-vertex") {
-			if (mapping.modelName !== "veo-3.1-generate-preview") {
+			if (mapping.modelName !== "veo-3.1-generate-001") {
 				return false;
 			}
 		} else if (mapping.providerId === "avalanche") {
