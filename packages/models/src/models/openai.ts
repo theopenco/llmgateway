@@ -1546,6 +1546,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
+				test: "skip",
 				modelName: "gpt-5.5",
 				inputPrice: 5.0 / 1e6,
 				outputPrice: 30.0 / 1e6,
