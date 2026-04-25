@@ -70,6 +70,22 @@
 	"disabledLinters": [
 		"eslint-plugin-tailwindcss"
 	],
+	"pnpm": {
+		"overrides": {
+			"shiki": "3.22.0",
+			"flatted": ">=3.4.0",
+			"rollup": ">=4.59.0",
+			"handlebars": ">=4.7.9",
+			"protobufjs": "^7.5.5"
+		},
+		"packageExtensions": {
+			"@hookform/resolvers": {
+				"peerDependencies": {
+					"zod": "*"
+				}
+			}
+		}
+	},
 	"dependencies": {
 		"canvas-confetti": "1.9.4"
 	}
