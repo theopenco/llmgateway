@@ -122,6 +122,7 @@ async function findActiveProviderKey(
 	organizationId: string,
 	providerId: string,
 	selectionKey?: string,
+	filter?: (key: InferSelectModel<typeof tables.providerKey>) => boolean,
 ): Promise<InferSelectModel<typeof tables.providerKey> | undefined> {
 	const providerKeys = await db
 		.select()
@@ -135,7 +136,18 @@ async function findActiveProviderKey(
 		)
 		.orderBy(asc(tables.providerKey.createdAt), asc(tables.providerKey.id));
 
-	return selectLoadBalancedItem(providerKeys, selectionKey);
+	const filtered = filter ? providerKeys.filter(filter) : providerKeys;
+	return selectLoadBalancedItem(filtered, selectionKey);
+}
+
+function getVideoProviderKeyFilter(
+	providerId: Provider,
+): ((key: InferSelectModel<typeof tables.providerKey>) => boolean) | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+	return (key) => !key.baseUrl || key.baseUrl === defaultBaseUrl;
 }
 
 function resolveProviderEnvToken(
@@ -197,6 +209,7 @@ async function resolveVideoProviderContext(
 			job.organizationId,
 			job.usedProvider,
 			job.requestId,
+			getVideoProviderKeyFilter(providerId),
 		);
 		if (!providerKey) {
 			throw new Error(`No API key set for provider: ${job.usedProvider}`);

@@ -967,6 +967,16 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	}
 }
 
+function getVideoProviderKeyFilter(
+	providerId: Provider,
+): ((key: { baseUrl: string | null }) => boolean) | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+	return (key) => !key.baseUrl || key.baseUrl === defaultBaseUrl;
+}
+
 function addRequestedVideoMetadata(
 	body: Record<string, unknown>,
 	videoSize: VideoSizeConfig,
@@ -1012,6 +1022,8 @@ async function resolveProviderContext(
 			organizationId,
 			providerId,
 			selectionKey,
+			undefined,
+			getVideoProviderKeyFilter(providerId),
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -1108,6 +1120,8 @@ async function resolveProviderContext(
 		organizationId,
 		providerId,
 		selectionKey,
+		undefined,
+		getVideoProviderKeyFilter(providerId),
 	);
 	if (providerKey) {
 		const baseUrl =
@@ -1204,7 +1218,13 @@ async function hasVideoProviderConfiguration(
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 
 	if (project.mode === "api-keys") {
-		const providerKey = await findProviderKey(organizationId, providerId);
+		const providerKey = await findProviderKey(
+			organizationId,
+			providerId,
+			undefined,
+			undefined,
+			getVideoProviderKeyFilter(providerId),
+		);
 		return Boolean(
 			providerKey &&
 				(providerKey.baseUrl ??
@@ -1235,7 +1255,13 @@ async function hasVideoProviderConfiguration(
 		);
 	}
 
-	const providerKey = await findProviderKey(organizationId, providerId);
+	const providerKey = await findProviderKey(
+		organizationId,
+		providerId,
+		undefined,
+		undefined,
+		getVideoProviderKeyFilter(providerId),
+	);
 	if (providerKey) {
 		return Boolean(
 			(providerKey.baseUrl ??
@@ -2034,6 +2060,8 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 			job.organizationId,
 			providerId,
 			job.requestId,
+			undefined,
+			getVideoProviderKeyFilter(providerId),
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
