@@ -4304,6 +4304,194 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/devpass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                    search?: string;
+                    tier?: "lite" | "pro" | "max" | "none";
+                    status?: "active" | "cancelled_pending" | "expired" | "churned";
+                    utilization?: "low" | "healthy" | "high" | "over";
+                    marginNegative?: boolean | null;
+                    showChurned?: boolean | null;
+                    sortBy?: "name" | "billingEmail" | "tier" | "createdAt" | "cycleStart" | "expiresAt" | "subscribedSince" | "utilizationPct" | "realCost" | "margin" | "mrr" | "creditsUsed";
+                    sortOrder?: "asc" | "desc";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of DevPass subscribers. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            subscribers: {
+                                id: string;
+                                name: string;
+                                billingEmail: string;
+                                ownerUserId: string | null;
+                                ownerName: string | null;
+                                ownerEmail: string | null;
+                                /** @enum {string} */
+                                tier: "lite" | "pro" | "max" | "none";
+                                /** @enum {string} */
+                                status: "active" | "cancelled_pending" | "expired" | "churned";
+                                hasPaymentIssue: boolean;
+                                creditsUsed: string;
+                                creditsLimit: string;
+                                utilizationPct: number | null;
+                                cycleStart: string | null;
+                                cycleDaysIn: number | null;
+                                expiresAt: string | null;
+                                cancelled: boolean;
+                                allowAllModels: boolean;
+                                mrr: number;
+                                realCost: number;
+                                margin: number;
+                                subscribedSince: string | null;
+                                tierChanges: number;
+                                lastPaymentFailureAt: string | null;
+                                createdAt: string;
+                            }[];
+                            total: number;
+                            kpis: {
+                                activeByTier: {
+                                    lite: number;
+                                    pro: number;
+                                    max: number;
+                                };
+                                totalActive: number;
+                                cancelledPending: number;
+                                churned: number;
+                                grossMrr: number;
+                                startsThisMonth: number;
+                                endsThisMonth: number;
+                                netNewThisMonth: number;
+                                weightedAvgUtilization: number;
+                                totalRealCostCycle: number;
+                                totalMrrCycle: number;
+                                totalMargin: number;
+                            };
+                            limit: number;
+                            offset: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/devpass/{orgId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description DevPass subscriber detail. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            subscriber: {
+                                id: string;
+                                name: string;
+                                billingEmail: string;
+                                ownerUserId: string | null;
+                                ownerName: string | null;
+                                ownerEmail: string | null;
+                                /** @enum {string} */
+                                tier: "lite" | "pro" | "max" | "none";
+                                /** @enum {string} */
+                                status: "active" | "cancelled_pending" | "expired" | "churned";
+                                hasPaymentIssue: boolean;
+                                creditsUsed: string;
+                                creditsLimit: string;
+                                utilizationPct: number | null;
+                                cycleStart: string | null;
+                                cycleDaysIn: number | null;
+                                expiresAt: string | null;
+                                cancelled: boolean;
+                                allowAllModels: boolean;
+                                mrr: number;
+                                realCost: number;
+                                margin: number;
+                                subscribedSince: string | null;
+                                tierChanges: number;
+                                lastPaymentFailureAt: string | null;
+                                createdAt: string;
+                            };
+                            transactions: {
+                                id: string;
+                                createdAt: string;
+                                type: string;
+                                amount: string | null;
+                                creditAmount: string | null;
+                                currency: string;
+                                status: string;
+                                description: string | null;
+                            }[];
+                            paymentFailures: {
+                                id: string;
+                                createdAt: string;
+                                amount: string | null;
+                                currency: string;
+                                declineCode: string | null;
+                                failureMessage: string | null;
+                                source: string | null;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Subscriber not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/keys/api": {
         parameters: {
             query?: never;
