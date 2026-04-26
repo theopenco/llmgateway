@@ -10,14 +10,14 @@ overrides:
   rollup: '>=4.59.0'
   handlebars: '>=4.7.9'
   protobufjs: ^7.5.5
-  minimatch@<3.1.3: ^3.1.3
-  minimatch@>=4 <4.2.4: ^4.2.4
-  minimatch@>=5 <5.1.7: ^5.1.7
-  minimatch@>=6 <6.2.1: ^6.2.1
-  minimatch@>=7 <7.4.7: ^7.4.7
-  minimatch@>=8 <8.0.5: ^8.0.5
-  minimatch@>=9 <9.0.6: ^9.0.6
-  minimatch@>=10 <10.2.1: ^10.2.1
+  minimatch@>=3 <3.1.4: ^3.1.4
+  minimatch@>=4 <4.2.5: ^4.2.5
+  minimatch@>=5 <5.1.8: ^5.1.8
+  minimatch@>=6 <6.2.2: ^6.2.2
+  minimatch@>=7 <7.4.8: ^7.4.8
+  minimatch@>=8 <8.0.6: ^8.0.6
+  minimatch@>=9 <9.0.7: ^9.0.7
+  minimatch@>=10 <10.2.3: ^10.2.3
 
 packageExtensionsChecksum: sha256-7EyWhva5Lcamo6pe18OzfUc27A7xbWt39+G/ofluF9k=
 
