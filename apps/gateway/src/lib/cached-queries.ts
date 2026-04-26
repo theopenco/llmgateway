@@ -238,6 +238,7 @@ export async function findProviderKey(
 	provider: string,
 	_selectionKey?: string,
 	excludedKeyIds?: ReadonlySet<string>,
+	filter?: (key: ProviderKey) => boolean,
 ): Promise<ProviderKey | undefined> {
 	const results = await swrWrap(
 		`providerKey:${organizationId}:${provider}`,
@@ -255,7 +256,8 @@ export async function findProviderKey(
 				)
 				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
 	);
-	return selectProviderKeyWithFailover(results, excludedKeyIds);
+	const filtered = filter ? results.filter(filter) : results;
+	return selectProviderKeyWithFailover(filtered, excludedKeyIds);
 }
 
 /**
