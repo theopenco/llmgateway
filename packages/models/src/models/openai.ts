@@ -693,6 +693,20 @@ export const openaiModels = [
 				reasoning: true,
 				jsonOutput: false, // BytePlus doesn't support response_format
 			},
+			{
+				providerId: "nebius",
+				modelName: "openai/gpt-oss-120b",
+				inputPrice: 0.15 / 1e6,
+				outputPrice: 0.6 / 1e6,
+				requestPrice: 0,
+				contextSize: 131072,
+				maxOutput: 32768,
+				streaming: true,
+				vision: false,
+				tools: true,
+				reasoning: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
