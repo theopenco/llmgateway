@@ -305,22 +305,7 @@ export function transformStreamingToOpenai(
 					usage: normalizeAnthropicUsage(data.usage),
 				};
 			} else if (data.type === "ping") {
-				transformedData = {
-					id: data.id ?? `chatcmpl-${Date.now()}`,
-					object: "chat.completion.chunk",
-					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
-					choices: [
-						{
-							index: 0,
-							delta: {
-								role: "assistant",
-							},
-							finish_reason: null,
-						},
-					],
-					usage: normalizeAnthropicUsage(data.usage),
-				};
+				return null;
 			} else {
 				logger.warn("[streaming] Unrecognized Anthropic chunk", {
 					provider: usedProvider,
