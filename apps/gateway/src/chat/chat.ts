@@ -3802,43 +3802,6 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// For Moonshot/DeepSeek providers, enrich assistant messages with cached reasoning_content
-	// This is needed for multi-turn tool call conversations with thinking models
-	// because these providers require reasoning_content in assistant messages with tool_calls
-	if (usedProvider === "moonshot" || usedProvider === "deepseek") {
-		const { redisClient } = await import("@llmgateway/cache");
-		for (const message of messages) {
-			if (
-				message.role === "assistant" &&
-				message.tool_calls &&
-				Array.isArray(message.tool_calls) &&
-				message.tool_calls.length > 0 &&
-				!(message as any).reasoning_content // Only add if not already present
-			) {
-				// Get reasoning_content from the first tool call (all tool calls share the same reasoning)
-				const firstToolCall = message.tool_calls[0];
-				let cachedReasoningContent: string | null = null;
-				if (firstToolCall?.id) {
-					try {
-						cachedReasoningContent = await redisClient.get(
-							`reasoning_content:${firstToolCall.id}`,
-						);
-					} catch {
-						// Silently fail - reasoning_content caching is optional
-					}
-				}
-				if (cachedReasoningContent) {
-					(message as any).reasoning_content = cachedReasoningContent;
-				} else if (usedProvider === "deepseek") {
-					// DeepSeek rejects assistant tool_call messages without reasoning_content
-					// in thinking mode. Fall back to an empty string so the request is accepted
-					// even when no cached reasoning is available (e.g., cache miss or first call).
-					(message as any).reasoning_content = "";
-				}
-			}
-		}
-	}
-
 	let requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
 		usedProvider,
 		upstreamModelName,
