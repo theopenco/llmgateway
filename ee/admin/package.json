@@ -43,7 +43,7 @@
 		"ai": "6.0.27",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
-		"better-auth": "1.5.5",
+		"better-auth": "1.6.9",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
