@@ -34,8 +34,8 @@ export function detectCodingAgentFromUserAgent(
 		return "opencode";
 	}
 
-	// Cline (VS Code extension)
-	if (/\bcline\b/i.test(ua) || /^Cline-VSCode\//i.test(ua)) {
+	// Cline (VS Code extension) — \bcline\b also matches "Cline-VSCode/…"
+	if (/\bcline\b/i.test(ua)) {
 		return "cline";
 	}
 

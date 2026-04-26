@@ -5778,6 +5778,8 @@ export interface paths {
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
+                                /** @enum {string} */
+                                devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
                                 devPlanBillingCycleStart: string | null;
@@ -5837,6 +5839,8 @@ export interface paths {
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
+                                /** @enum {string} */
+                                devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
                                 devPlanBillingCycleStart: string | null;
@@ -6024,6 +6028,8 @@ export interface paths {
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
+                                /** @enum {string} */
+                                devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
                                 devPlanBillingCycleStart: string | null;
@@ -7574,6 +7580,8 @@ export interface paths {
                             hasPersonalOrg: boolean;
                             /** @enum {string} */
                             devPlan: "none" | "lite" | "pro" | "max";
+                            /** @enum {string} */
+                            devPlanCycle: "monthly" | "annual";
                             devPlanCreditsUsed: string;
                             devPlanCreditsLimit: string;
                             devPlanCreditsRemaining: string;

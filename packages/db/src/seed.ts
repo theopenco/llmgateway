@@ -5,18 +5,13 @@ import {
 	models as allModels,
 	providers as allProviders,
 } from "@llmgateway/models";
+import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 
 import { closeDatabase, db, tables } from "./index.js";
 import { logs } from "./logs.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { PgTable } from "drizzle-orm/pg-core";
-
-const DEV_PLAN_PRICES = { lite: 29, pro: 79, max: 179 } as const;
-function devPlanCreditsLimit(tier: keyof typeof DEV_PLAN_PRICES): number {
-	const multiplier = parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER ?? "3");
-	return DEV_PLAN_PRICES[tier] * multiplier;
-}
 
 /**
  * Universal upsert function that handles inserting data with conflict resolution
@@ -1241,8 +1236,9 @@ async function seed() {
 		plan: "free",
 		isPersonal: true,
 		devPlan: "pro",
+		devPlanCycle: "monthly",
 		devPlanCreditsUsed: "0",
-		devPlanCreditsLimit: String(devPlanCreditsLimit("pro")),
+		devPlanCreditsLimit: String(getDevPlanCreditsLimit("pro")),
 		devPlanBillingCycleStart: new Date(),
 	});
 
@@ -1301,6 +1297,12 @@ async function seed() {
 			model: "gemini-2.0-flash",
 			provider: "google-ai-studio",
 			weight: 0.04,
+		},
+		{
+			source: "openclaw",
+			model: "claude-3-haiku",
+			provider: "anthropic",
+			weight: 0.02,
 		},
 		{ source: "n8n", model: "gpt-4o-mini", provider: "openai", weight: 0.02 },
 	];
@@ -1446,7 +1448,7 @@ async function seed() {
 	// so the usage bar in the dashboard reflects this activity.
 	const usedCredits = Math.min(
 		devpassRunningCost,
-		devPlanCreditsLimit("pro") * 0.65,
+		getDevPlanCreditsLimit("pro") * 0.65,
 	);
 	await upsert(tables.organization, {
 		id: "test-personal-org-id",
@@ -1457,8 +1459,9 @@ async function seed() {
 		plan: "free",
 		isPersonal: true,
 		devPlan: "pro",
+		devPlanCycle: "monthly",
 		devPlanCreditsUsed: usedCredits.toFixed(4),
-		devPlanCreditsLimit: String(devPlanCreditsLimit("pro")),
+		devPlanCreditsLimit: String(getDevPlanCreditsLimit("pro")),
 		devPlanBillingCycleStart: daysAgo(12),
 	});
 

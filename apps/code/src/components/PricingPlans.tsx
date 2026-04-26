@@ -58,13 +58,13 @@ interface CycleToggleProps {
 function CycleToggle({ cycle, onChange }: CycleToggleProps) {
 	return (
 		<div
-			role="tablist"
+			role="radiogroup"
 			aria-label="Billing cycle"
 			className="inline-flex items-center rounded-full border bg-card p-1 text-sm shadow-sm"
 		>
 			<button
-				role="tab"
-				aria-selected={cycle === "monthly"}
+				role="radio"
+				aria-checked={cycle === "monthly"}
 				type="button"
 				onClick={() => onChange("monthly")}
 				className={`relative rounded-full px-4 py-1.5 font-medium transition-colors ${
@@ -76,8 +76,8 @@ function CycleToggle({ cycle, onChange }: CycleToggleProps) {
 				Monthly
 			</button>
 			<button
-				role="tab"
-				aria-selected={cycle === "annual"}
+				role="radio"
+				aria-checked={cycle === "annual"}
 				type="button"
 				onClick={() => onChange("annual")}
 				className={`relative rounded-full px-4 py-1.5 font-medium transition-colors ${

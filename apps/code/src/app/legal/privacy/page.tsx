@@ -69,9 +69,11 @@ export default function PrivacyPage() {
 			<h3>c. Cookies and Local Storage</h3>
 			<p>
 				We use first-party cookies and local storage to keep you signed in,
-				remember your UI preferences, and operate basic analytics. We use
-				PostHog for product analytics; you can disable analytics via your
-				browser&rsquo;s do-not-track signal.
+				remember your UI preferences, and operate basic product analytics
+				(PostHog). Browser-level Do Not Track signals are not currently a
+				supported opt-out mechanism. To opt out of analytics, contact us at{" "}
+				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a>; we are
+				working on a self-serve in-app toggle.
 			</p>
 			<hr />
 			<h2>2. How We Use Information</h2>
@@ -133,9 +135,9 @@ export default function PrivacyPage() {
 					accounting obligations
 				</li>
 				<li>
-					<strong>Request metadata</strong> — kept according to your plan and
-					retention setting; 3 days by default for free tiers, longer for paid
-					tiers
+					<strong>Request metadata</strong> — kept for the life of your active
+					DevPass subscription according to your retention setting (default:
+					retained on Lite, Pro, and Max)
 				</li>
 				<li>
 					<strong>Request payloads</strong> — only stored if you opt in; you can

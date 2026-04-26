@@ -42,6 +42,7 @@ describe("detectCodingAgentFromUserAgent", () => {
 
 	it("detects Cursor", () => {
 		expect(detectCodingAgentFromUserAgent("Cursor/0.45.0")).toBe("cursor");
+		expect(detectCodingAgentFromUserAgent("cursor-llm/1.0")).toBe("cursor");
 	});
 
 	it("detects Autohand", () => {

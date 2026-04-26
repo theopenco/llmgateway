@@ -1096,8 +1096,6 @@ chat.openapi(completions, async (c) => {
 	// Extract User-Agent header for logging
 	const userAgent = c.req.header("User-Agent") ?? undefined;
 
-	// Match specific user agents and set source if x-source header is not specified.
-	// Centralized in detect-coding-agent.ts so adding a new tool is a one-file change.
 	if (!source) {
 		source = detectCodingAgentFromUserAgent(userAgent);
 	}

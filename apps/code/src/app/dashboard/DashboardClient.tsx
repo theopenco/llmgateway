@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -178,6 +178,7 @@ function QuickStart({ apiKey }: { apiKey: string }) {
 
 export default function DashboardClient() {
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const posthog = usePostHog();
 	const { signOut } = useAuth();
 	const config = useAppConfig();
@@ -267,6 +268,9 @@ export default function DashboardClient() {
 	};
 
 	const handleChangeTier = async (newTier: PlanTier): Promise<void> => {
+		// Cycle is intentionally not sent — the server preserves the existing
+		// monthly/annual cadence by reading it from the org's stored devPlanCycle
+		// and looks up the matching annual or monthly Stripe price ID.
 		setSubscribingTier(newTier);
 		try {
 			await changeTierMutation.mutateAsync({
@@ -381,6 +385,7 @@ export default function DashboardClient() {
 								devPlanStatus?.devPlanBillingCycleStart ?? null
 							}
 							cancelledAtPeriodEnd={devPlanStatus?.devPlanCancelled ?? false}
+							cycle={devPlanStatus?.devPlanCycle ?? "monthly"}
 						/>
 
 						{/* API Key + Quick start */}
@@ -452,6 +457,9 @@ export default function DashboardClient() {
 							plans={plans}
 							subscribingTier={subscribingTier}
 							onSubscribe={handleSubscribe}
+							initialCycle={
+								searchParams.get("cycle") === "annual" ? "annual" : "monthly"
+							}
 						/>
 					</div>
 				)}

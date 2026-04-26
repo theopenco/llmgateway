@@ -18,6 +18,7 @@ interface InactivePlanChooserProps {
 	plans: PlanOption[];
 	subscribingTier: PlanTier | null;
 	onSubscribe: (tier: PlanTier, cycle: DevPlanCycle) => void;
+	initialCycle?: DevPlanCycle;
 }
 
 function CycleToggle({
@@ -29,14 +30,14 @@ function CycleToggle({
 }) {
 	return (
 		<div
-			role="tablist"
+			role="radiogroup"
 			aria-label="Billing cycle"
 			className="inline-flex items-center rounded-full border bg-card p-1 text-sm"
 		>
 			<button
 				type="button"
-				role="tab"
-				aria-selected={cycle === "monthly"}
+				role="radio"
+				aria-checked={cycle === "monthly"}
 				onClick={() => onChange("monthly")}
 				className={`rounded-full px-4 py-1.5 font-medium transition-colors ${
 					cycle === "monthly"
@@ -48,8 +49,8 @@ function CycleToggle({
 			</button>
 			<button
 				type="button"
-				role="tab"
-				aria-selected={cycle === "annual"}
+				role="radio"
+				aria-checked={cycle === "annual"}
 				onClick={() => onChange("annual")}
 				className={`rounded-full px-4 py-1.5 font-medium transition-colors ${
 					cycle === "annual"
@@ -76,8 +77,9 @@ export default function InactivePlanChooser({
 	plans,
 	subscribingTier,
 	onSubscribe,
+	initialCycle = "monthly",
 }: InactivePlanChooserProps) {
-	const [cycle, setCycle] = useState<DevPlanCycle>("monthly");
+	const [cycle, setCycle] = useState<DevPlanCycle>(initialCycle);
 
 	return (
 		<div className="space-y-8">

@@ -147,9 +147,11 @@ function formatLastActive(date: Date): string {
 function computeAgentStats(logs: ApiLog[]): AgentStats[] {
 	const stats: AgentStats[] = [];
 	for (const agent of AGENTS) {
-		const agentLogs = logs.filter(
-			(log) => log.source && agent.sources.includes(log.source),
-		);
+		const sources = agent.sources.map((s) => s.toLowerCase());
+		const agentLogs = logs.filter((log) => {
+			const src = String(log.source ?? "").toLowerCase();
+			return src.length > 0 && sources.includes(src);
+		});
 		if (agentLogs.length === 0) {
 			continue;
 		}

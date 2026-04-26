@@ -10,6 +10,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
+	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
@@ -110,11 +111,9 @@ async function getOrCreatePersonalOrgApiKey(
 	return token;
 }
 
-type BillingCycle = "monthly" | "annual";
-
 function getDevPlanPriceId(
 	tier: DevPlanTier,
-	cycle: BillingCycle = "monthly",
+	cycle: DevPlanCycle = "monthly",
 ): string | undefined {
 	const monthlyKeys: Record<DevPlanTier, string> = {
 		lite: "STRIPE_DEV_PLAN_LITE_PRICE_ID",
@@ -580,10 +579,15 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
-	const newPriceId = getDevPlanPriceId(newTier);
+	// Preserve the subscriber's existing billing cadence so an annual
+	// subscriber doesn't silently get switched to monthly when changing tier.
+	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
+	const newPriceId = getDevPlanPriceId(newTier, existingCycle);
 	if (!newPriceId) {
+		const envSuffix =
+			existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}_PRICE_ID environment variable is not set`,
+			message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}${envSuffix} environment variable is not set`,
 		});
 	}
 
@@ -606,6 +610,7 @@ devPlans.openapi(changeTier, async (c) => {
 				metadata: {
 					...subscription.metadata,
 					devPlan: newTier,
+					devPlanCycle: existingCycle,
 				},
 			},
 		);
@@ -671,6 +676,7 @@ const getStatus = createRoute({
 					schema: z.object({
 						hasPersonalOrg: z.boolean(),
 						devPlan: z.enum(["none", "lite", "pro", "max"]),
+						devPlanCycle: z.enum(["monthly", "annual"]),
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
 						devPlanCreditsRemaining: z.string(),
@@ -716,6 +722,7 @@ devPlans.openapi(getStatus, async (c) => {
 		return c.json({
 			hasPersonalOrg: false,
 			devPlan: "none" as const,
+			devPlanCycle: "monthly" as const,
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
 			devPlanCreditsRemaining: "0",
@@ -738,12 +745,17 @@ devPlans.openapi(getStatus, async (c) => {
 	let apiKey: string | null = null;
 	let projectId: string | null = null;
 	if (personalOrg.devPlan !== "none") {
-		// Find the default project for this org
+		// Find the default project for this org. Order by createdAt asc so we
+		// always return the original "Default Project" rather than whichever
+		// row Postgres happens to surface first.
 		const project = await db.query.project.findFirst({
 			where: {
 				organizationId: {
 					eq: personalOrg.id,
 				},
+			},
+			orderBy: {
+				createdAt: "asc",
 			},
 		});
 
@@ -760,6 +772,7 @@ devPlans.openapi(getStatus, async (c) => {
 	return c.json({
 		hasPersonalOrg: true,
 		devPlan: personalOrg.devPlan,
+		devPlanCycle: personalOrg.devPlanCycle,
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),

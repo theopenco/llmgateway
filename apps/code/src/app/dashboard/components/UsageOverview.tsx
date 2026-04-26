@@ -14,6 +14,7 @@ import {
 import { useApi } from "@/lib/fetch-client";
 
 import type { paths } from "@/lib/api/v1";
+import type { DevPlanCycle } from "@llmgateway/shared";
 
 type ActivityResponse =
 	paths["/activity"]["get"]["responses"][200]["content"]["application/json"];
@@ -27,6 +28,7 @@ interface UsageOverviewProps {
 	planPrice?: number;
 	billingCycleStart: string | null;
 	cancelledAtPeriodEnd: boolean;
+	cycle?: DevPlanCycle;
 }
 
 function MetricCard({
@@ -178,6 +180,7 @@ export default function UsageOverview({
 	planPrice,
 	billingCycleStart,
 	cancelledAtPeriodEnd,
+	cycle = "monthly",
 }: UsageOverviewProps) {
 	const api = useApi();
 
@@ -230,13 +233,15 @@ export default function UsageOverview({
 	const cycleEndsHint = cancelledAtPeriodEnd
 		? "Cancels at period end"
 		: billingCycleStart
-			? `Renews in ${formatDistanceToNowStrict(
-					new Date(
-						new Date(billingCycleStart).setMonth(
-							new Date(billingCycleStart).getMonth() + 1,
-						),
-					),
-				)}`
+			? (() => {
+					const renewAt = new Date(billingCycleStart);
+					if (cycle === "annual") {
+						renewAt.setFullYear(renewAt.getFullYear() + 1);
+					} else {
+						renewAt.setMonth(renewAt.getMonth() + 1);
+					}
+					return `Renews in ${formatDistanceToNowStrict(renewAt)}`;
+				})()
 			: "—";
 
 	return (

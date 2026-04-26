@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -111,7 +113,7 @@ export default function TermsPage() {
 			<h2>5. Data and Privacy</h2>
 			<p>
 				Your data is handled according to our{" "}
-				<a href="/legal/privacy">Privacy Policy</a>. Request payloads,
+				<Link href="/legal/privacy">Privacy Policy</Link>. Request payloads,
 				responses, and per-agent metadata are stored to power your dashboard,
 				usage reporting, and per-tool insights, subject to the retention options
 				available in your account settings.
