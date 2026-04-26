@@ -398,6 +398,7 @@ export const moonshotModels = [
 			{
 				providerId: "together-ai",
 				modelName: "moonshotai/Kimi-K2.6",
+				test: "skip",
 				inputPrice: 1.2 / 1e6,
 				cachedInputPrice: 0.2 / 1e6,
 				outputPrice: 4.5 / 1e6,

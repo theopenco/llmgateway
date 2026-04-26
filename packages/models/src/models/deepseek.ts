@@ -286,6 +286,7 @@ export const deepseekModels = [
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
+				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
