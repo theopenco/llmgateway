@@ -7402,6 +7402,11 @@ export interface paths {
                     "application/json": {
                         /** @enum {string} */
                         tier: "lite" | "pro" | "max";
+                        /**
+                         * @default monthly
+                         * @enum {string}
+                         */
+                        cycle?: "monthly" | "annual";
                     };
                 };
             };
@@ -7577,6 +7582,7 @@ export interface paths {
                             devPlanExpiresAt: string | null;
                             regularCredits: string;
                             organizationId: string | null;
+                            projectId: string | null;
                             apiKey: string | null;
                             devPlanAllowAllModels: boolean;
                         };

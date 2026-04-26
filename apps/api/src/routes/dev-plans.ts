@@ -110,13 +110,24 @@ async function getOrCreatePersonalOrgApiKey(
 	return token;
 }
 
-function getDevPlanPriceId(tier: DevPlanTier): string | undefined {
-	const envKeys: Record<DevPlanTier, string> = {
+type BillingCycle = "monthly" | "annual";
+
+function getDevPlanPriceId(
+	tier: DevPlanTier,
+	cycle: BillingCycle = "monthly",
+): string | undefined {
+	const monthlyKeys: Record<DevPlanTier, string> = {
 		lite: "STRIPE_DEV_PLAN_LITE_PRICE_ID",
 		pro: "STRIPE_DEV_PLAN_PRO_PRICE_ID",
 		max: "STRIPE_DEV_PLAN_MAX_PRICE_ID",
 	};
-	return process.env[envKeys[tier]];
+	const annualKeys: Record<DevPlanTier, string> = {
+		lite: "STRIPE_DEV_PLAN_LITE_ANNUAL_PRICE_ID",
+		pro: "STRIPE_DEV_PLAN_PRO_ANNUAL_PRICE_ID",
+		max: "STRIPE_DEV_PLAN_MAX_ANNUAL_PRICE_ID",
+	};
+	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
+	return process.env[key];
 }
 
 // Get or create personal organization for user
@@ -183,6 +194,7 @@ const subscribe = createRoute({
 				"application/json": {
 					schema: z.object({
 						tier: z.enum(["lite", "pro", "max"]),
+						cycle: z.enum(["monthly", "annual"]).optional().default("monthly"),
 					}),
 				},
 			},
@@ -204,7 +216,7 @@ const subscribe = createRoute({
 
 devPlans.openapi(subscribe, async (c) => {
 	const user = c.get("user");
-	const { tier } = c.req.valid("json");
+	const { tier, cycle } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -233,10 +245,11 @@ devPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
-	const priceId = getDevPlanPriceId(tier);
+	const priceId = getDevPlanPriceId(tier, cycle);
 	if (!priceId) {
+		const envSuffix = cycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}_PRICE_ID environment variable is not set`,
+			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}${envSuffix} environment variable is not set`,
 		});
 	}
 
@@ -259,6 +272,7 @@ devPlans.openapi(subscribe, async (c) => {
 				organizationId: personalOrg.id,
 				subscriptionType: "dev_plan",
 				devPlan: tier,
+				devPlanCycle: cycle,
 				userEmail: user.email,
 			},
 			subscription_data: {
@@ -266,6 +280,7 @@ devPlans.openapi(subscribe, async (c) => {
 					organizationId: personalOrg.id,
 					subscriptionType: "dev_plan",
 					devPlan: tier,
+					devPlanCycle: cycle,
 					userEmail: user.email,
 				},
 			},
@@ -284,6 +299,7 @@ devPlans.openapi(subscribe, async (c) => {
 			resourceType: "dev_plan",
 			metadata: {
 				tier,
+				cycle,
 			},
 		});
 
@@ -663,6 +679,7 @@ const getStatus = createRoute({
 						devPlanExpiresAt: z.string().nullable(),
 						regularCredits: z.string(),
 						organizationId: z.string().nullable(),
+						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanAllowAllModels: z.boolean(),
 					}),
@@ -707,6 +724,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanExpiresAt: null,
 			regularCredits: "0",
 			organizationId: null,
+			projectId: null,
 			apiKey: null,
 			devPlanAllowAllModels: false,
 		});
@@ -716,8 +734,9 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
 
-	// Get API key if user has an active dev plan
+	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
+	let projectId: string | null = null;
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org
 		const project = await db.query.project.findFirst({
@@ -729,6 +748,7 @@ devPlans.openapi(getStatus, async (c) => {
 		});
 
 		if (project) {
+			projectId = project.id;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -749,6 +769,7 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
 		regularCredits: personalOrg.credits,
 		organizationId: personalOrg.id,
+		projectId,
 		apiKey,
 		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
 	});

@@ -10,8 +10,12 @@ export {
 } from "./fees.js";
 
 export {
+	DEV_PLAN_ANNUAL_DISCOUNT_MONTHS,
 	DEV_PLAN_PRICES,
+	type DevPlanCycle,
 	type DevPlanTier,
+	getDevPlanAnnualMonthlyPrice,
+	getDevPlanAnnualPrice,
 	getDevPlanCreditsLimit,
 } from "./dev-plans.js";
 
