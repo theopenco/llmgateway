@@ -14,6 +14,7 @@ import {
 	MessageCircle,
 	Percent,
 	Server,
+	Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -83,6 +84,7 @@ export function AdminShell({ children }: AdminShellProps) {
 
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
+	const isDevpass = pathname.startsWith("/devpass");
 	const isDiscounts = pathname === "/discounts";
 	const isRateLimits = pathname === "/rate-limits";
 	const isProviders = pathname === "/providers";
@@ -141,6 +143,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isOrganizations} size="lg">
 										<Building2 className="h-4 w-4" />
 										<span>Organizations</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/devpass" className="block">
+									<SidebarMenuButton isActive={isDevpass} size="lg">
+										<Sparkles className="h-4 w-4" />
+										<span>DevPass</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

@@ -27,6 +27,7 @@ import {
 	modelHistory,
 } from "@llmgateway/db";
 import { models, providers } from "@llmgateway/models";
+import { DEV_PLAN_PRICES } from "@llmgateway/shared";
 import {
 	getResendClient,
 	fromEmail,
@@ -6925,6 +6926,895 @@ admin.openapi(getPaymentFailures, async (c) => {
 			})),
 		},
 		totalCount: Number(totalCountResult?.count ?? 0),
+	});
+});
+
+// =============================================================================
+// DevPass admin routes
+// =============================================================================
+
+const devpassTierSchema = z.enum(["lite", "pro", "max", "none"]);
+const devpassStatusSchema = z.enum([
+	"active",
+	"cancelled_pending",
+	"expired",
+	"churned",
+]);
+
+const devpassSubscriberSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	billingEmail: z.string(),
+	ownerUserId: z.string().nullable(),
+	ownerName: z.string().nullable(),
+	ownerEmail: z.string().nullable(),
+	tier: devpassTierSchema,
+	status: devpassStatusSchema,
+	hasPaymentIssue: z.boolean(),
+	creditsUsed: z.string(),
+	creditsLimit: z.string(),
+	utilizationPct: z.number().nullable(),
+	cycleStart: z.string().nullable(),
+	cycleDaysIn: z.number().nullable(),
+	expiresAt: z.string().nullable(),
+	cancelled: z.boolean(),
+	allowAllModels: z.boolean(),
+	mrr: z.number(),
+	realCost: z.number(),
+	margin: z.number(),
+	subscribedSince: z.string().nullable(),
+	tierChanges: z.number(),
+	lastPaymentFailureAt: z.string().nullable(),
+	createdAt: z.string(),
+});
+
+const devpassKpisSchema = z.object({
+	activeByTier: z.object({
+		lite: z.number(),
+		pro: z.number(),
+		max: z.number(),
+	}),
+	totalActive: z.number(),
+	cancelledPending: z.number(),
+	churned: z.number(),
+	grossMrr: z.number(),
+	startsThisMonth: z.number(),
+	endsThisMonth: z.number(),
+	netNewThisMonth: z.number(),
+	weightedAvgUtilization: z.number(),
+	totalRealCostCycle: z.number(),
+	totalMrrCycle: z.number(),
+	totalMargin: z.number(),
+});
+
+const devpassListSchema = z.object({
+	subscribers: z.array(devpassSubscriberSchema),
+	total: z.number(),
+	kpis: devpassKpisSchema,
+	limit: z.number(),
+	offset: z.number(),
+});
+
+const devpassSortBySchema = z.enum([
+	"name",
+	"billingEmail",
+	"tier",
+	"createdAt",
+	"cycleStart",
+	"expiresAt",
+	"subscribedSince",
+	"utilizationPct",
+	"realCost",
+	"margin",
+	"mrr",
+	"creditsUsed",
+]);
+
+const devpassUtilizationSchema = z.enum(["low", "healthy", "high", "over"]);
+
+const getDevpassSubscribers = createRoute({
+	method: "get",
+	path: "/devpass",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+			search: z.string().optional(),
+			tier: devpassTierSchema.optional(),
+			status: devpassStatusSchema.optional(),
+			utilization: devpassUtilizationSchema.optional(),
+			marginNegative: z.coerce.boolean().optional(),
+			showChurned: z.coerce.boolean().default(false).optional(),
+			sortBy: devpassSortBySchema.default("subscribedSince").optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: devpassListSchema.openapi({}),
+				},
+			},
+			description: "List of DevPass subscribers.",
+		},
+	},
+});
+
+const devpassTransactionSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	type: z.string(),
+	amount: z.string().nullable(),
+	creditAmount: z.string().nullable(),
+	currency: z.string(),
+	status: z.string(),
+	description: z.string().nullable(),
+});
+
+const devpassPaymentFailureSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	amount: z.string().nullable(),
+	currency: z.string(),
+	declineCode: z.string().nullable(),
+	failureMessage: z.string().nullable(),
+	source: z.string().nullable(),
+});
+
+const devpassDetailSchema = z.object({
+	subscriber: devpassSubscriberSchema,
+	transactions: z.array(devpassTransactionSchema),
+	paymentFailures: z.array(devpassPaymentFailureSchema),
+});
+
+const getDevpassSubscriber = createRoute({
+	method: "get",
+	path: "/devpass/{orgId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: devpassDetailSchema.openapi({}),
+				},
+			},
+			description: "DevPass subscriber detail.",
+		},
+		404: {
+			description: "Subscriber not found.",
+		},
+	},
+});
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+function tierPriceOf(tier: string): number {
+	if (tier === "lite" || tier === "pro" || tier === "max") {
+		return DEV_PLAN_PRICES[tier];
+	}
+	return 0;
+}
+
+function deriveStatus(
+	tier: string,
+	cancelled: boolean,
+	expiresAt: Date | null,
+	now: Date,
+): "active" | "cancelled_pending" | "expired" | "churned" {
+	if (tier === "none") {
+		return "churned";
+	}
+	if (expiresAt && expiresAt.getTime() <= now.getTime()) {
+		return "expired";
+	}
+	if (cancelled) {
+		return "cancelled_pending";
+	}
+	return "active";
+}
+
+admin.openapi(getDevpassSubscribers, async (c) => {
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+	const offset = query.offset ?? 0;
+	const search = query.search;
+	const tierFilter = query.tier;
+	const statusFilter = query.status;
+	const utilizationFilter = query.utilization;
+	const marginNegative = query.marginNegative ?? false;
+	const showChurned = query.showChurned ?? false;
+	const sortBy = query.sortBy ?? "subscribedSince";
+	const sortOrder = query.sortOrder ?? "desc";
+
+	const now = new Date();
+	const monthStart = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+	);
+
+	// Subquery: real provider cost in current cycle, per org
+	const realCostSub = db
+		.select({
+			organizationId: tables.project.organizationId,
+			realCost:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+					"real_cost",
+				),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.project.organizationId, tables.organization.id),
+				isNotNull(tables.organization.devPlanBillingCycleStart),
+				sql`${projectHourlyStats.hourTimestamp} >= ${tables.organization.devPlanBillingCycleStart}`,
+			),
+		)
+		.groupBy(tables.project.organizationId)
+		.as("real_cost_sub");
+
+	// Subquery: first dev_plan_start (subscribedSince) and tier change count
+	const subscribedSinceSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			firstStart: sql<string>`MIN(${tables.transaction.createdAt})`.as(
+				"first_start",
+			),
+		})
+		.from(tables.transaction)
+		.where(eq(tables.transaction.type, "dev_plan_start"))
+		.groupBy(tables.transaction.organizationId)
+		.as("subscribed_since_sub");
+
+	const tierChangesSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			count: sql<number>`COUNT(*)`.as("tier_change_count"),
+		})
+		.from(tables.transaction)
+		.where(
+			inArray(tables.transaction.type, [
+				"dev_plan_upgrade",
+				"dev_plan_downgrade",
+			]),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("tier_changes_sub");
+
+	const lastPaymentFailureSub = db
+		.select({
+			organizationId: tables.paymentFailure.organizationId,
+			lastFailureAt: sql<string>`MAX(${tables.paymentFailure.createdAt})`.as(
+				"last_failure_at",
+			),
+		})
+		.from(tables.paymentFailure)
+		.groupBy(tables.paymentFailure.organizationId)
+		.as("last_payment_failure_sub");
+
+	const ownerSub = db
+		.select({
+			organizationId: tables.userOrganization.organizationId,
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.role, "owner"))
+		.as("owner_sub");
+
+	const tierPriceExpr = sql<number>`CASE
+		WHEN ${tables.organization.devPlan} = 'lite' THEN ${DEV_PLAN_PRICES.lite}
+		WHEN ${tables.organization.devPlan} = 'pro' THEN ${DEV_PLAN_PRICES.pro}
+		WHEN ${tables.organization.devPlan} = 'max' THEN ${DEV_PLAN_PRICES.max}
+		ELSE 0
+	END`;
+
+	const utilizationExpr = sql<number | null>`CASE
+		WHEN CAST(${tables.organization.devPlanCreditsLimit} AS NUMERIC) > 0
+		THEN (CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)
+			/ CAST(${tables.organization.devPlanCreditsLimit} AS NUMERIC)) * 100
+		ELSE NULL
+	END`;
+
+	const realCostExpr = sql<number>`COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
+	const marginExpr = sql<number>`(${tierPriceExpr}) - COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
+
+	const conditions = [];
+
+	// DevPass scope: subscribers (devPlan != 'none') OR (showChurned && has past dev_plan_start)
+	if (showChurned) {
+		conditions.push(
+			or(
+				ne(tables.organization.devPlan, "none"),
+				isNotNull(subscribedSinceSub.firstStart),
+			)!,
+		);
+	} else {
+		conditions.push(ne(tables.organization.devPlan, "none"));
+	}
+
+	if (tierFilter) {
+		conditions.push(eq(tables.organization.devPlan, tierFilter));
+	}
+
+	if (statusFilter === "active") {
+		conditions.push(ne(tables.organization.devPlan, "none"));
+		conditions.push(eq(tables.organization.devPlanCancelled, false));
+		conditions.push(
+			or(
+				isNull(tables.organization.devPlanExpiresAt),
+				sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+			)!,
+		);
+	} else if (statusFilter === "cancelled_pending") {
+		conditions.push(ne(tables.organization.devPlan, "none"));
+		conditions.push(eq(tables.organization.devPlanCancelled, true));
+		conditions.push(
+			or(
+				isNull(tables.organization.devPlanExpiresAt),
+				sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+			)!,
+		);
+	} else if (statusFilter === "expired") {
+		conditions.push(ne(tables.organization.devPlan, "none"));
+		conditions.push(isNotNull(tables.organization.devPlanExpiresAt));
+		conditions.push(sql`${tables.organization.devPlanExpiresAt} <= NOW()`);
+	} else if (statusFilter === "churned") {
+		conditions.push(eq(tables.organization.devPlan, "none"));
+		conditions.push(isNotNull(subscribedSinceSub.firstStart));
+	}
+
+	if (utilizationFilter === "low") {
+		conditions.push(sql`${utilizationExpr} < 20`);
+	} else if (utilizationFilter === "healthy") {
+		conditions.push(sql`${utilizationExpr} >= 20 AND ${utilizationExpr} <= 80`);
+	} else if (utilizationFilter === "high") {
+		conditions.push(sql`${utilizationExpr} > 80 AND ${utilizationExpr} <= 100`);
+	} else if (utilizationFilter === "over") {
+		conditions.push(sql`${utilizationExpr} > 100`);
+	}
+
+	if (marginNegative) {
+		conditions.push(sql`${marginExpr} < 0`);
+	}
+
+	if (search) {
+		const searchLower = search.toLowerCase();
+		conditions.push(
+			or(
+				sql`LOWER(${tables.organization.name}) LIKE ${`%${searchLower}%`}`,
+				sql`LOWER(${tables.organization.billingEmail}) LIKE ${`%${searchLower}%`}`,
+				sql`${tables.organization.id} LIKE ${`%${search}%`}`,
+				sql`LOWER(${ownerSub.userEmail}) LIKE ${`%${searchLower}%`}`,
+			)!,
+		);
+	}
+
+	const whereClause = and(...conditions);
+
+	const orderFn = sortOrder === "asc" ? asc : desc;
+	const sortColumnMap = {
+		name: tables.organization.name,
+		billingEmail: tables.organization.billingEmail,
+		tier: tables.organization.devPlan,
+		createdAt: tables.organization.createdAt,
+		cycleStart: tables.organization.devPlanBillingCycleStart,
+		expiresAt: tables.organization.devPlanExpiresAt,
+		subscribedSince: sql`${subscribedSinceSub.firstStart}`,
+		utilizationPct: sql`${utilizationExpr}`,
+		realCost: sql`${realCostExpr}`,
+		margin: sql`${marginExpr}`,
+		mrr: sql`${tierPriceExpr}`,
+		creditsUsed: sql`CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)`,
+	} as const;
+	const sortColumn = sortColumnMap[sortBy];
+
+	const baseSelect = db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			billingEmail: tables.organization.billingEmail,
+			tier: tables.organization.devPlan,
+			creditsUsed: tables.organization.devPlanCreditsUsed,
+			creditsLimit: tables.organization.devPlanCreditsLimit,
+			cycleStart: tables.organization.devPlanBillingCycleStart,
+			expiresAt: tables.organization.devPlanExpiresAt,
+			cancelled: tables.organization.devPlanCancelled,
+			allowAllModels: tables.organization.devPlanAllowAllModels,
+			createdAt: tables.organization.createdAt,
+			paymentFailureCount: tables.organization.paymentFailureCount,
+			utilizationPct: utilizationExpr,
+			mrr: tierPriceExpr,
+			realCost: realCostExpr,
+			margin: marginExpr,
+			subscribedSince: subscribedSinceSub.firstStart,
+			tierChanges: sql<number>`COALESCE(${tierChangesSub.count}, 0)`,
+			lastPaymentFailureAt: lastPaymentFailureSub.lastFailureAt,
+			ownerUserId: ownerSub.userId,
+			ownerName: ownerSub.userName,
+			ownerEmail: ownerSub.userEmail,
+		})
+		.from(tables.organization)
+		.leftJoin(
+			realCostSub,
+			eq(tables.organization.id, realCostSub.organizationId),
+		)
+		.leftJoin(
+			subscribedSinceSub,
+			eq(tables.organization.id, subscribedSinceSub.organizationId),
+		)
+		.leftJoin(
+			tierChangesSub,
+			eq(tables.organization.id, tierChangesSub.organizationId),
+		)
+		.leftJoin(
+			lastPaymentFailureSub,
+			eq(tables.organization.id, lastPaymentFailureSub.organizationId),
+		)
+		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId));
+
+	const rows = await baseSelect
+		.where(whereClause)
+		.orderBy(orderFn(sortColumn))
+		.limit(limit)
+		.offset(offset);
+
+	// Total count with same filters
+	const countSelect = db
+		.select({ count: sql<number>`COUNT(*)` })
+		.from(tables.organization)
+		.leftJoin(
+			realCostSub,
+			eq(tables.organization.id, realCostSub.organizationId),
+		)
+		.leftJoin(
+			subscribedSinceSub,
+			eq(tables.organization.id, subscribedSinceSub.organizationId),
+		)
+		.leftJoin(
+			tierChangesSub,
+			eq(tables.organization.id, tierChangesSub.organizationId),
+		)
+		.leftJoin(
+			lastPaymentFailureSub,
+			eq(tables.organization.id, lastPaymentFailureSub.organizationId),
+		)
+		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId));
+
+	const [countRow] = await countSelect.where(whereClause);
+	const total = Number(countRow?.count ?? 0);
+
+	// KPI strip — always over the full active subscriber base, unfiltered
+	const activeRows = await db
+		.select({
+			tier: tables.organization.devPlan,
+			count: sql<number>`COUNT(*)`,
+		})
+		.from(tables.organization)
+		.where(
+			and(
+				ne(tables.organization.devPlan, "none"),
+				eq(tables.organization.devPlanCancelled, false),
+				or(
+					isNull(tables.organization.devPlanExpiresAt),
+					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+				)!,
+			),
+		)
+		.groupBy(tables.organization.devPlan);
+
+	const activeByTier = { lite: 0, pro: 0, max: 0 };
+	for (const r of activeRows) {
+		const tierKey = r.tier as keyof typeof activeByTier;
+		if (tierKey in activeByTier) {
+			activeByTier[tierKey] = Number(r.count);
+		}
+	}
+	const totalActive = activeByTier.lite + activeByTier.pro + activeByTier.max;
+	const liteMrr = activeByTier.lite * DEV_PLAN_PRICES.lite;
+	const proMrr = activeByTier.pro * DEV_PLAN_PRICES.pro;
+	const maxMrr = activeByTier.max * DEV_PLAN_PRICES.max;
+	const grossMrr = liteMrr + proMrr + maxMrr;
+
+	const [cancelledPendingRow] = await db
+		.select({ count: sql<number>`COUNT(*)` })
+		.from(tables.organization)
+		.where(
+			and(
+				ne(tables.organization.devPlan, "none"),
+				eq(tables.organization.devPlanCancelled, true),
+				or(
+					isNull(tables.organization.devPlanExpiresAt),
+					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+				)!,
+			),
+		);
+	const cancelledPending = Number(cancelledPendingRow?.count ?? 0);
+
+	const [churnedRow] = await db
+		.select({
+			count: sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "dev_plan_start"),
+				eq(tables.organization.devPlan, "none"),
+			),
+		);
+	const churned = Number(churnedRow?.count ?? 0);
+
+	const [startsRow] = await db
+		.select({ count: sql<number>`COUNT(*)` })
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.type, "dev_plan_start"),
+				gte(tables.transaction.createdAt, monthStart),
+			),
+		);
+	const startsThisMonth = Number(startsRow?.count ?? 0);
+
+	const [endsRow] = await db
+		.select({ count: sql<number>`COUNT(*)` })
+		.from(tables.transaction)
+		.where(
+			and(
+				inArray(tables.transaction.type, ["dev_plan_cancel", "dev_plan_end"]),
+				gte(tables.transaction.createdAt, monthStart),
+			),
+		);
+	const endsThisMonth = Number(endsRow?.count ?? 0);
+
+	// Weighted utilization across active subscribers
+	const [utilRow] = await db
+		.select({
+			totalUsed: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)), 0)`,
+			totalLimit: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsLimit} AS NUMERIC)), 0)`,
+		})
+		.from(tables.organization)
+		.where(
+			and(
+				ne(tables.organization.devPlan, "none"),
+				or(
+					isNull(tables.organization.devPlanExpiresAt),
+					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+				)!,
+			),
+		);
+	const totalUsed = Number(utilRow?.totalUsed ?? 0);
+	const totalLimit = Number(utilRow?.totalLimit ?? 0);
+	const weightedAvgUtilization =
+		totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
+
+	// Cycle-windowed totals across all current subscribers (sum of rows already covers this)
+	let totalRealCostCycle = 0;
+	let totalMrrCycle = 0;
+	for (const r of rows) {
+		totalRealCostCycle += Number(r.realCost ?? 0);
+		totalMrrCycle += Number(r.mrr ?? 0);
+	}
+	// For total margin, compute against the active universe — a separate query
+	const [marginRow] = await db
+		.select({
+			totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
+			totalMrr: sql<string>`COALESCE(SUM(${tierPriceExpr}), 0)`,
+		})
+		.from(tables.organization)
+		.leftJoin(
+			realCostSub,
+			eq(tables.organization.id, realCostSub.organizationId),
+		)
+		.where(ne(tables.organization.devPlan, "none"));
+	const universeRealCost = Number(marginRow?.totalCost ?? 0);
+	const universeMrr = Number(marginRow?.totalMrr ?? 0);
+	const totalMargin = universeMrr - universeRealCost;
+
+	const subscribers = rows.map((row) => {
+		const tier = row.tier;
+		const cancelled = row.cancelled;
+		const expiresAt = row.expiresAt;
+		const status = deriveStatus(tier, cancelled, expiresAt, now);
+
+		const cycleStart = row.cycleStart;
+		const cycleDaysIn = cycleStart
+			? Math.max(
+					0,
+					Math.floor(
+						(now.getTime() - cycleStart.getTime()) / (1000 * 60 * 60 * 24),
+					),
+				)
+			: null;
+
+		const utilizationPctRaw = row.utilizationPct;
+		const utilizationPct =
+			utilizationPctRaw === null || utilizationPctRaw === undefined
+				? null
+				: Number(utilizationPctRaw);
+
+		const lastPaymentFailureAt = row.lastPaymentFailureAt
+			? new Date(row.lastPaymentFailureAt).toISOString()
+			: null;
+		const hasPaymentIssue =
+			(row.paymentFailureCount ?? 0) > 0 ||
+			(lastPaymentFailureAt !== null &&
+				new Date(lastPaymentFailureAt).getTime() >
+					now.getTime() - THIRTY_DAYS_MS);
+
+		return {
+			id: row.id,
+			name: row.name,
+			billingEmail: row.billingEmail,
+			ownerUserId: row.ownerUserId ?? null,
+			ownerName: row.ownerName ?? null,
+			ownerEmail: row.ownerEmail ?? null,
+			tier,
+			status,
+			hasPaymentIssue,
+			creditsUsed: String(row.creditsUsed),
+			creditsLimit: String(row.creditsLimit),
+			utilizationPct,
+			cycleStart: cycleStart ? cycleStart.toISOString() : null,
+			cycleDaysIn,
+			expiresAt: expiresAt ? expiresAt.toISOString() : null,
+			cancelled,
+			allowAllModels: row.allowAllModels,
+			mrr: Number(row.mrr ?? 0),
+			realCost: Number(row.realCost ?? 0),
+			margin: Number(row.margin ?? 0),
+			subscribedSince: row.subscribedSince
+				? new Date(row.subscribedSince).toISOString()
+				: null,
+			tierChanges: Number(row.tierChanges ?? 0),
+			lastPaymentFailureAt,
+			createdAt: row.createdAt.toISOString(),
+		};
+	});
+
+	return c.json({
+		subscribers,
+		total,
+		kpis: {
+			activeByTier,
+			totalActive,
+			cancelledPending,
+			churned,
+			grossMrr,
+			startsThisMonth,
+			endsThisMonth,
+			netNewThisMonth: startsThisMonth - endsThisMonth,
+			weightedAvgUtilization,
+			totalRealCostCycle,
+			totalMrrCycle,
+			totalMargin,
+		},
+		limit,
+		offset,
+	});
+});
+
+admin.openapi(getDevpassSubscriber, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const now = new Date();
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const owner = await db
+		.select({
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(
+			and(
+				eq(tables.userOrganization.organizationId, orgId),
+				eq(tables.userOrganization.role, "owner"),
+			),
+		)
+		.limit(1);
+
+	const [firstStartRow] = await db
+		.select({
+			firstStart: sql<string>`MIN(${tables.transaction.createdAt})`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "dev_plan_start"),
+			),
+		);
+
+	const [tierChangesRow] = await db
+		.select({
+			count: sql<number>`COUNT(*)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				inArray(tables.transaction.type, [
+					"dev_plan_upgrade",
+					"dev_plan_downgrade",
+				]),
+			),
+		);
+
+	const [realCostRow] = org.devPlanBillingCycleStart
+		? await db
+				.select({
+					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+				})
+				.from(projectHourlyStats)
+				.innerJoin(
+					tables.project,
+					eq(projectHourlyStats.projectId, tables.project.id),
+				)
+				.where(
+					and(
+						eq(tables.project.organizationId, orgId),
+						gte(projectHourlyStats.hourTimestamp, org.devPlanBillingCycleStart),
+					),
+				)
+		: [{ total: "0" }];
+
+	const realCost = Number(realCostRow?.total ?? 0);
+	const mrr = tierPriceOf(org.devPlan);
+	const margin = mrr - realCost;
+
+	const status = deriveStatus(
+		org.devPlan,
+		org.devPlanCancelled,
+		org.devPlanExpiresAt,
+		now,
+	);
+	const utilizationPct =
+		Number(org.devPlanCreditsLimit) > 0
+			? (Number(org.devPlanCreditsUsed) / Number(org.devPlanCreditsLimit)) * 100
+			: null;
+	const cycleDaysIn = org.devPlanBillingCycleStart
+		? Math.max(
+				0,
+				Math.floor(
+					(now.getTime() - org.devPlanBillingCycleStart.getTime()) /
+						(1000 * 60 * 60 * 24),
+				),
+			)
+		: null;
+
+	const [lastFailureRow] = await db
+		.select({
+			lastFailureAt: sql<string>`MAX(${tables.paymentFailure.createdAt})`,
+		})
+		.from(tables.paymentFailure)
+		.where(eq(tables.paymentFailure.organizationId, orgId));
+
+	const hasPaymentIssue =
+		(org.paymentFailureCount ?? 0) > 0 ||
+		(lastFailureRow?.lastFailureAt !== undefined &&
+			lastFailureRow.lastFailureAt !== null &&
+			new Date(lastFailureRow.lastFailureAt).getTime() >
+				now.getTime() - THIRTY_DAYS_MS);
+
+	const subscriber = {
+		id: org.id,
+		name: org.name,
+		billingEmail: org.billingEmail,
+		ownerUserId: owner[0]?.userId ?? null,
+		ownerName: owner[0]?.userName ?? null,
+		ownerEmail: owner[0]?.userEmail ?? null,
+		tier: org.devPlan,
+		status,
+		hasPaymentIssue,
+		creditsUsed: String(org.devPlanCreditsUsed),
+		creditsLimit: String(org.devPlanCreditsLimit),
+		utilizationPct,
+		cycleStart: org.devPlanBillingCycleStart
+			? org.devPlanBillingCycleStart.toISOString()
+			: null,
+		cycleDaysIn,
+		expiresAt: org.devPlanExpiresAt ? org.devPlanExpiresAt.toISOString() : null,
+		cancelled: org.devPlanCancelled,
+		allowAllModels: org.devPlanAllowAllModels,
+		mrr,
+		realCost,
+		margin,
+		subscribedSince: firstStartRow?.firstStart
+			? new Date(firstStartRow.firstStart).toISOString()
+			: null,
+		tierChanges: Number(tierChangesRow?.count ?? 0),
+		lastPaymentFailureAt: lastFailureRow?.lastFailureAt
+			? new Date(lastFailureRow.lastFailureAt).toISOString()
+			: null,
+		createdAt: org.createdAt.toISOString(),
+	};
+
+	const transactions = await db
+		.select({
+			id: tables.transaction.id,
+			createdAt: tables.transaction.createdAt,
+			type: tables.transaction.type,
+			amount: tables.transaction.amount,
+			creditAmount: tables.transaction.creditAmount,
+			currency: tables.transaction.currency,
+			status: tables.transaction.status,
+			description: tables.transaction.description,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				inArray(tables.transaction.type, [
+					"dev_plan_start",
+					"dev_plan_upgrade",
+					"dev_plan_downgrade",
+					"dev_plan_cancel",
+					"dev_plan_end",
+					"dev_plan_renewal",
+				]),
+			),
+		)
+		.orderBy(desc(tables.transaction.createdAt))
+		.limit(100);
+
+	const paymentFailures = await db
+		.select({
+			id: tables.paymentFailure.id,
+			createdAt: tables.paymentFailure.createdAt,
+			amount: tables.paymentFailure.amount,
+			currency: tables.paymentFailure.currency,
+			declineCode: tables.paymentFailure.declineCode,
+			failureMessage: tables.paymentFailure.failureMessage,
+			source: tables.paymentFailure.source,
+		})
+		.from(tables.paymentFailure)
+		.where(eq(tables.paymentFailure.organizationId, orgId))
+		.orderBy(desc(tables.paymentFailure.createdAt))
+		.limit(50);
+
+	return c.json({
+		subscriber,
+		transactions: transactions.map((t) => ({
+			id: t.id,
+			createdAt: t.createdAt.toISOString(),
+			type: t.type,
+			amount: t.amount ?? null,
+			creditAmount: t.creditAmount ?? null,
+			currency: t.currency,
+			status: t.status,
+			description: t.description ?? null,
+		})),
+		paymentFailures: paymentFailures.map((p) => ({
+			id: p.id,
+			createdAt: p.createdAt.toISOString(),
+			amount: p.amount ?? null,
+			currency: p.currency,
+			declineCode: p.declineCode ?? null,
+			failureMessage: p.failureMessage ?? null,
+			source: p.source ?? null,
+		})),
 	});
 });
 
