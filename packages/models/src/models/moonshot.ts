@@ -277,6 +277,8 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "nebius",
+				// Streaming tool calls and response_format: json_object are unreliable on Nebius
+				stability: "unstable",
 				modelName: "moonshotai/Kimi-K2.5",
 				inputPrice: 0.5 / 1e6,
 				cachedInputPrice: 0.02 / 1e6,
@@ -287,8 +289,8 @@ export const moonshotModels = [
 				streaming: true,
 				reasoning: true,
 				vision: true,
-				tools: false,
-				jsonOutput: false,
+				tools: true,
+				jsonOutput: true,
 			},
 			{
 				test: "skip",
