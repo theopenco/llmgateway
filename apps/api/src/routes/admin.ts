@@ -7501,15 +7501,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const weightedAvgUtilization =
 		totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
 
-	// Cycle-windowed totals across all current subscribers (sum of rows already covers this)
-	let totalRealCostCycle = 0;
-	let totalMrrCycle = 0;
-	for (const r of rows) {
-		totalRealCostCycle += Number(r.realCost ?? 0);
-		totalMrrCycle += Number(r.mrr ?? 0);
-	}
-	// For total margin, compute against the active universe — a separate query
-	const [marginRow] = await db
+	// Cycle-windowed totals across the active subscriber universe (not paginated)
+	const [universeRow] = await db
 		.select({
 			totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
 			totalMrr: sql<string>`COALESCE(SUM(${tierPriceExpr}), 0)`,
@@ -7520,9 +7513,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			eq(tables.organization.id, realCostSub.organizationId),
 		)
 		.where(ne(tables.organization.devPlan, "none"));
-	const universeRealCost = Number(marginRow?.totalCost ?? 0);
-	const universeMrr = Number(marginRow?.totalMrr ?? 0);
-	const totalMargin = universeMrr - universeRealCost;
+	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
+	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
+	const totalMargin = totalMrrCycle - totalRealCostCycle;
 
 	const subscribers = rows.map((row) => {
 		const tier = row.tier;
@@ -7646,6 +7639,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				eq(tables.transaction.type, "dev_plan_start"),
 			),
 		);
+
+	if (org.devPlan === "none" && !firstStartRow?.firstStart) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
 
 	const [tierChangesRow] = await db
 		.select({

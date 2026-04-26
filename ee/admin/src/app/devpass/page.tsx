@@ -28,24 +28,51 @@ import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
-type SortBy =
-	| "name"
-	| "billingEmail"
-	| "tier"
-	| "createdAt"
-	| "cycleStart"
-	| "expiresAt"
-	| "subscribedSince"
-	| "utilizationPct"
-	| "realCost"
-	| "margin"
-	| "mrr"
-	| "creditsUsed";
-type SortOrder = "asc" | "desc";
+const SORT_BY_VALUES = [
+	"name",
+	"billingEmail",
+	"tier",
+	"createdAt",
+	"cycleStart",
+	"expiresAt",
+	"subscribedSince",
+	"utilizationPct",
+	"realCost",
+	"margin",
+	"mrr",
+	"creditsUsed",
+] as const;
+type SortBy = (typeof SORT_BY_VALUES)[number];
 
-type TierFilter = "lite" | "pro" | "max" | "none" | "";
-type StatusFilter = "active" | "cancelled_pending" | "expired" | "churned" | "";
-type UtilFilter = "low" | "healthy" | "high" | "over" | "";
+const SORT_ORDER_VALUES = ["asc", "desc"] as const;
+type SortOrder = (typeof SORT_ORDER_VALUES)[number];
+
+const TIER_VALUES = ["lite", "pro", "max", "none"] as const;
+type TierFilter = (typeof TIER_VALUES)[number] | "";
+
+const STATUS_VALUES = [
+	"active",
+	"cancelled_pending",
+	"expired",
+	"churned",
+] as const;
+type StatusFilter = (typeof STATUS_VALUES)[number] | "";
+
+const UTIL_VALUES = ["low", "healthy", "high", "over"] as const;
+type UtilFilter = (typeof UTIL_VALUES)[number] | "";
+
+function pickEnum<T extends readonly string[]>(
+	allowed: T,
+	raw: string | undefined,
+	fallback: T[number] | "",
+): T[number] | "" {
+	if (!raw) {
+		return fallback;
+	}
+	return (allowed as readonly string[]).includes(raw)
+		? (raw as T[number])
+		: fallback;
+}
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -285,13 +312,22 @@ export default async function DevpassPage({
 	await requireSession();
 
 	const params = await searchParams;
-	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
+	const rawPage = parseInt(params?.page ?? "1", 10);
+	const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
 	const search = params?.search ?? "";
-	const sortBy = (params?.sortBy as SortBy) || "subscribedSince";
-	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
-	const tier = (params?.tier as TierFilter) || "";
-	const status = (params?.status as StatusFilter) || "";
-	const utilization = (params?.utilization as UtilFilter) || "";
+	const sortBy =
+		(pickEnum(SORT_BY_VALUES, params?.sortBy, "subscribedSince") as SortBy) ||
+		"subscribedSince";
+	const sortOrder =
+		(pickEnum(SORT_ORDER_VALUES, params?.sortOrder, "desc") as SortOrder) ||
+		"desc";
+	const tier = pickEnum(TIER_VALUES, params?.tier, "") as TierFilter;
+	const status = pickEnum(STATUS_VALUES, params?.status, "") as StatusFilter;
+	const utilization = pickEnum(
+		UTIL_VALUES,
+		params?.utilization,
+		"",
+	) as UtilFilter;
 	const marginNegative = params?.marginNegative === "true";
 	const showChurned = params?.showChurned === "true";
 	const limit = 25;
@@ -461,7 +497,8 @@ export default async function DevpassPage({
 						{currencyFormatter.format(kpis.totalMargin)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						{currencyFormatter.format(kpis.totalRealCostCycle)} cost / page
+						{currencyFormatter.format(kpis.totalRealCostCycle)} provider cost
+						this cycle
 					</div>
 				</div>
 			</section>
