@@ -244,6 +244,7 @@ function collapseProvidersToBestRegionPerProvider(
 	options: {
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
+		promptTokens?: number;
 	},
 ): ProviderModelMapping[] {
 	const providersById = new Map<string, ProviderModelMapping[]>();
@@ -1086,6 +1087,28 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Estimate prompt tokens once so all routing decisions can reuse the
+	// same value (e.g. cache-support weighting kicks in for large prompts).
+	let routingPromptTokens = 0;
+	if (messages && messages.length > 0) {
+		try {
+			routingPromptTokens = encodeChatMessages(messages);
+		} catch {
+			const messageTokens = messages.reduce(
+				(acc, m) => acc + (m.content?.length ?? 0),
+				0,
+			);
+			routingPromptTokens = Math.max(1, Math.round(messageTokens / 4));
+		}
+	}
+	if (tools && tools.length > 0) {
+		try {
+			routingPromptTokens += Math.round(JSON.stringify(tools).length / 4);
+		} catch {
+			routingPromptTokens += tools.length * 100;
+		}
+	}
+
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
 		c.req.header("x-source"),
@@ -1500,34 +1523,9 @@ chat.openapi(completions, async (c) => {
 		(usedProvider === "llmgateway" && usedModel === "auto") ||
 		usedModel === "auto"
 	) {
-		// Estimate prompt/input tokens first so auto-routing can react to large prompts
-		let estimatedInputTokens = 0;
-
-		// Estimate prompt tokens from messages
-		if (messages && messages.length > 0) {
-			try {
-				estimatedInputTokens = encodeChatMessages(messages);
-			} catch {
-				// Fallback to simple estimation if encoding fails
-				const messageTokens = messages.reduce(
-					(acc, m) => acc + (m.content?.length ?? 0),
-					0,
-				);
-				estimatedInputTokens = Math.max(1, Math.round(messageTokens / 4));
-			}
-		}
-
-		// Add tool definitions to context estimation
-		if (tools && tools.length > 0) {
-			try {
-				const toolsString = JSON.stringify(tools);
-				const toolTokens = Math.round(toolsString.length / 4);
-				estimatedInputTokens += toolTokens;
-			} catch {
-				// Fallback estimation for tools
-				estimatedInputTokens += tools.length * 100; // Rough estimate per tool
-			}
-		}
+		// Reuse the prompt-token estimate computed earlier so auto-routing can
+		// react to large prompts when picking a model.
+		const estimatedInputTokens = routingPromptTokens;
 
 		// Estimate the full context needed based on the request
 		let requiredContextSize = estimatedInputTokens;
@@ -1746,13 +1744,18 @@ chat.openapi(completions, async (c) => {
 					{
 						metricsMap,
 						isStreaming: stream,
+						promptTokens: routingPromptTokens,
 					},
 				);
 
 			const cheapestResult = getCheapestFromAvailableProviders(
 				providerAgnosticSelectedProviders,
 				selectedModel,
-				{ metricsMap, isStreaming: stream },
+				{
+					metricsMap,
+					isStreaming: stream,
+					promptTokens: routingPromptTokens,
+				},
 			);
 
 			if (cheapestResult) {
@@ -1912,6 +1915,7 @@ chat.openapi(completions, async (c) => {
 						{
 							metricsMap,
 							isStreaming: stream,
+							promptTokens: routingPromptTokens,
 						},
 					);
 
@@ -2096,6 +2100,7 @@ chat.openapi(completions, async (c) => {
 							{
 								metricsMap: allMetricsMap,
 								isStreaming: stream,
+								promptTokens: routingPromptTokens,
 							},
 						);
 
@@ -2233,7 +2238,11 @@ chat.openapi(completions, async (c) => {
 							collapseProvidersToBestRegionPerProvider(
 								availableModelProviders,
 								modelWithPricing,
-								{ metricsMap: allMetricsMap, isStreaming: stream },
+								{
+									metricsMap: allMetricsMap,
+									isStreaming: stream,
+									promptTokens: routingPromptTokens,
+								},
 							);
 
 						// Filter to only providers with better uptime than the original
@@ -2258,7 +2267,11 @@ chat.openapi(completions, async (c) => {
 							const cheapestResult = getCheapestFromAvailableProviders(
 								betterUptimeProviders,
 								modelWithPricing,
-								{ metricsMap: allMetricsMap, isStreaming: stream },
+								{
+									metricsMap: allMetricsMap,
+									isStreaming: stream,
+									promptTokens: routingPromptTokens,
+								},
 							);
 
 							// Get price info for the original requested provider to include in scores
@@ -2435,13 +2448,21 @@ chat.openapi(completions, async (c) => {
 					collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
 						modelWithPricing,
-						{ metricsMap, isStreaming: stream },
+						{
+							metricsMap,
+							isStreaming: stream,
+							promptTokens: routingPromptTokens,
+						},
 					);
 
 				const cheapestResult = getCheapestFromAvailableProviders(
 					providerAgnosticCandidates,
 					modelWithPricing,
-					{ metricsMap, isStreaming: stream },
+					{
+						metricsMap,
+						isStreaming: stream,
+						promptTokens: routingPromptTokens,
+					},
 				);
 
 				if (cheapestResult) {
@@ -2608,6 +2629,7 @@ chat.openapi(completions, async (c) => {
 						{
 							metricsMap,
 							isStreaming: stream,
+							promptTokens: routingPromptTokens,
 						},
 					);
 
