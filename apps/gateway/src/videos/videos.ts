@@ -41,6 +41,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	getProviderEnvValue,
+	getProviderEnvVar,
 	hasProviderEnvironmentToken,
 	models,
 	type ModelDefinition,
@@ -977,6 +978,38 @@ function getVideoProviderKeyFilter(
 	return (key) => !key.baseUrl || key.baseUrl === defaultBaseUrl;
 }
 
+function getVideoExcludedConfigIndices(
+	providerId: Provider,
+): ReadonlySet<number> | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const apiKeyEnvVar = getProviderEnvVar(providerId);
+	if (!apiKeyEnvVar) {
+		return undefined;
+	}
+	const apiKeyValue = process.env[apiKeyEnvVar];
+	if (!apiKeyValue) {
+		return undefined;
+	}
+	const valueCount = apiKeyValue
+		.split(",")
+		.map((value) => value.trim())
+		.filter((value) => value.length > 0).length;
+	if (valueCount === 0) {
+		return undefined;
+	}
+	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+	const excluded = new Set<number>();
+	for (let index = 0; index < valueCount; index += 1) {
+		const baseUrl = getProviderEnvValue(providerId, "baseUrl", index);
+		if (baseUrl && baseUrl !== defaultBaseUrl) {
+			excluded.add(index);
+		}
+	}
+	return excluded.size > 0 ? excluded : undefined;
+}
+
 function addRequestedVideoMetadata(
 	body: Record<string, unknown>,
 	videoSize: VideoSizeConfig,
@@ -1066,7 +1099,9 @@ async function resolveProviderContext(
 	}
 
 	if (project.mode === "credits") {
-		const env = getProviderEnv(providerId);
+		const env = getProviderEnv(providerId, {
+			excludedIndices: getVideoExcludedConfigIndices(providerId),
+		});
 		const baseUrl =
 			getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
 			defaultBaseUrl;
@@ -1164,7 +1199,9 @@ async function resolveProviderContext(
 		});
 	}
 
-	const env = getProviderEnv(providerId);
+	const env = getProviderEnv(providerId, {
+		excludedIndices: getVideoExcludedConfigIndices(providerId),
+	});
 	const baseUrl =
 		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
 		defaultBaseUrl;
@@ -1236,12 +1273,13 @@ async function hasVideoProviderConfiguration(
 	}
 
 	if (project.mode === "credits") {
+		const excludedIndices = getVideoExcludedConfigIndices(providerId);
 		return Boolean(
 			hasProviderEnvironmentToken(providerId) &&
 				(getProviderEnvValue(
 					providerId,
 					"baseUrl",
-					getProviderEnv(providerId).configIndex,
+					getProviderEnv(providerId, { excludedIndices }).configIndex,
 				) ??
 					defaultBaseUrl) &&
 				(!isGoogleVertexVideoProvider(providerId) ||
@@ -1249,7 +1287,7 @@ async function hasVideoProviderConfiguration(
 						getProviderEnvValue(
 							providerId,
 							"project",
-							getProviderEnv(providerId).configIndex,
+							getProviderEnv(providerId, { excludedIndices }).configIndex,
 						),
 					)),
 		);
@@ -1272,12 +1310,13 @@ async function hasVideoProviderConfiguration(
 		);
 	}
 
+	const excludedIndices = getVideoExcludedConfigIndices(providerId);
 	return Boolean(
 		hasProviderEnvironmentToken(providerId) &&
 			(getProviderEnvValue(
 				providerId,
 				"baseUrl",
-				getProviderEnv(providerId).configIndex,
+				getProviderEnv(providerId, { excludedIndices }).configIndex,
 			) ??
 				defaultBaseUrl) &&
 			(!isGoogleVertexVideoProvider(providerId) ||
@@ -1285,7 +1324,7 @@ async function hasVideoProviderConfiguration(
 					getProviderEnvValue(
 						providerId,
 						"project",
-						getProviderEnv(providerId).configIndex,
+						getProviderEnv(providerId, { excludedIndices }).configIndex,
 					),
 				)),
 	);
@@ -2087,7 +2126,9 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		};
 	}
 
-	const env = getProviderEnv(providerId);
+	const env = getProviderEnv(providerId, {
+		excludedIndices: getVideoExcludedConfigIndices(providerId),
+	});
 	const baseUrl =
 		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
 		defaultBaseUrl;
