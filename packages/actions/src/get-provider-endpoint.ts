@@ -224,7 +224,7 @@ export function getProviderEndpoint(
 				break;
 			}
 			case "nebius":
-				url = "https://api.studio.nebius.com";
+				url = "https://api.tokenfactory.nebius.com";
 				break;
 			case "zai":
 				url = "https://api.z.ai";
