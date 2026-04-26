@@ -835,11 +835,11 @@ export function parseProviderResponse(
 		}
 	}
 
-	// Cache reasoning_content for Moonshot thinking models when tool_calls are present
-	// This is needed for multi-turn tool call conversations because Moonshot requires
+	// Cache reasoning_content for Moonshot/DeepSeek thinking models when tool_calls are present
+	// This is needed for multi-turn tool call conversations because these providers require
 	// reasoning_content to be included in assistant messages with tool_calls
 	if (
-		usedProvider === "moonshot" &&
+		(usedProvider === "moonshot" || usedProvider === "deepseek") &&
 		reasoningContent &&
 		toolResults &&
 		Array.isArray(toolResults) &&

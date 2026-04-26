@@ -3802,10 +3802,10 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// For Moonshot provider, enrich assistant messages with cached reasoning_content
+	// For Moonshot/DeepSeek providers, enrich assistant messages with cached reasoning_content
 	// This is needed for multi-turn tool call conversations with thinking models
-	// Moonshot requires reasoning_content in assistant messages with tool_calls
-	if (usedProvider === "moonshot") {
+	// because these providers require reasoning_content in assistant messages with tool_calls
+	if (usedProvider === "moonshot" || usedProvider === "deepseek") {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -3817,18 +3817,23 @@ chat.openapi(completions, async (c) => {
 			) {
 				// Get reasoning_content from the first tool call (all tool calls share the same reasoning)
 				const firstToolCall = message.tool_calls[0];
+				let cachedReasoningContent: string | null = null;
 				if (firstToolCall?.id) {
 					try {
-						const cachedReasoningContent = await redisClient.get(
+						cachedReasoningContent = await redisClient.get(
 							`reasoning_content:${firstToolCall.id}`,
 						);
-						if (cachedReasoningContent) {
-							// Add reasoning_content to the message for Moonshot
-							(message as any).reasoning_content = cachedReasoningContent;
-						}
 					} catch {
 						// Silently fail - reasoning_content caching is optional
 					}
+				}
+				if (cachedReasoningContent) {
+					(message as any).reasoning_content = cachedReasoningContent;
+				} else if (usedProvider === "deepseek") {
+					// DeepSeek rejects assistant tool_call messages without reasoning_content
+					// in thinking mode. Fall back to an empty string so the request is accepted
+					// even when no cached reasoning is available (e.g., cache miss or first call).
+					(message as any).reasoning_content = "";
 				}
 			}
 		}
