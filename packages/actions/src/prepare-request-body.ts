@@ -1001,7 +1001,20 @@ export async function prepareRequestBody(
 	}
 
 	if (forcesToolUse && usedProvider === "moonshot") {
-		requestBody.thinking = { enabled: false };
+		const providerMapping = modelDef?.providers.find(
+			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+		);
+		const isReasoningModel =
+			providerMapping &&
+			"reasoning" in providerMapping &&
+			providerMapping.reasoning === true;
+		if (isReasoningModel) {
+			// Moonshot rejects tool_choice="required" (and forced function choice)
+			// when thinking is enabled, and thinking cannot be disabled on
+			// reasoning models. Downgrade to "auto" so the request still works.
+			resolvedToolChoice = "auto";
+			requestBody.tool_choice = "auto";
+		}
 	}
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
