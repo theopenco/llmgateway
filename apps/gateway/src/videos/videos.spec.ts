@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { processPendingVideoJobs } from "worker";
 
 import { app } from "@/app.js";
@@ -15,9 +15,20 @@ describe("videos", () => {
 		mockServerPort: 3002,
 	});
 	let mockServerUrl: string;
+	let originalGoogleVertexBaseUrl: string | undefined;
 
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
+		originalGoogleVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+	});
+
+	afterAll(() => {
+		if (originalGoogleVertexBaseUrl !== undefined) {
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL = originalGoogleVertexBaseUrl;
+		} else {
+			delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		}
 	});
 
 	async function setRoutingMetrics(

@@ -146,8 +146,16 @@ function getVideoProviderKeyFilter(
 	if (!isGoogleVertexVideoProvider(providerId)) {
 		return undefined;
 	}
+	const allowedBaseUrls = new Set<string>();
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
-	return (key) => !key.baseUrl || key.baseUrl === defaultBaseUrl;
+	if (defaultBaseUrl) {
+		allowedBaseUrls.add(defaultBaseUrl);
+	}
+	const envBaseUrl = getProviderEnvValue(providerId, "baseUrl");
+	if (envBaseUrl) {
+		allowedBaseUrls.add(envBaseUrl);
+	}
+	return (key) => !key.baseUrl || allowedBaseUrls.has(key.baseUrl);
 }
 
 function resolveProviderEnvToken(

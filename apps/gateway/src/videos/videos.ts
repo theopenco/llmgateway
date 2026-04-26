@@ -974,8 +974,16 @@ function getVideoProviderKeyFilter(
 	if (!isGoogleVertexVideoProvider(providerId)) {
 		return undefined;
 	}
+	const allowedBaseUrls = new Set<string>();
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
-	return (key) => !key.baseUrl || key.baseUrl === defaultBaseUrl;
+	if (defaultBaseUrl) {
+		allowedBaseUrls.add(defaultBaseUrl);
+	}
+	const envBaseUrl = getProviderEnvValue(providerId, "baseUrl");
+	if (envBaseUrl) {
+		allowedBaseUrls.add(envBaseUrl);
+	}
+	return (key) => !key.baseUrl || allowedBaseUrls.has(key.baseUrl);
 }
 
 function getVideoExcludedConfigIndices(
@@ -1273,24 +1281,7 @@ async function hasVideoProviderConfiguration(
 	}
 
 	if (project.mode === "credits") {
-		const excludedIndices = getVideoExcludedConfigIndices(providerId);
-		return Boolean(
-			hasProviderEnvironmentToken(providerId) &&
-				(getProviderEnvValue(
-					providerId,
-					"baseUrl",
-					getProviderEnv(providerId, { excludedIndices }).configIndex,
-				) ??
-					defaultBaseUrl) &&
-				(!isGoogleVertexVideoProvider(providerId) ||
-					Boolean(
-						getProviderEnvValue(
-							providerId,
-							"project",
-							getProviderEnv(providerId, { excludedIndices }).configIndex,
-						),
-					)),
-		);
+		return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
 	}
 
 	const providerKey = await findProviderKey(
@@ -1310,24 +1301,38 @@ async function hasVideoProviderConfiguration(
 		);
 	}
 
-	const excludedIndices = getVideoExcludedConfigIndices(providerId);
-	return Boolean(
-		hasProviderEnvironmentToken(providerId) &&
-			(getProviderEnvValue(
-				providerId,
-				"baseUrl",
-				getProviderEnv(providerId, { excludedIndices }).configIndex,
-			) ??
-				defaultBaseUrl) &&
-			(!isGoogleVertexVideoProvider(providerId) ||
-				Boolean(
-					getProviderEnvValue(
-						providerId,
-						"project",
-						getProviderEnv(providerId, { excludedIndices }).configIndex,
-					),
-				)),
-	);
+	return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
+}
+
+function hasVideoEnvConfiguration(
+	providerId: Provider,
+	defaultBaseUrl: string | null,
+): boolean {
+	if (!hasProviderEnvironmentToken(providerId)) {
+		return false;
+	}
+	let env;
+	try {
+		env = getProviderEnv(providerId, {
+			advanceRoundRobin: false,
+			excludedIndices: getVideoExcludedConfigIndices(providerId),
+		});
+	} catch {
+		return false;
+	}
+	const baseUrl =
+		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
+		defaultBaseUrl;
+	if (!baseUrl) {
+		return false;
+	}
+	if (
+		isGoogleVertexVideoProvider(providerId) &&
+		!getProviderEnvValue(providerId, "project", env.configIndex)
+	) {
+		return false;
+	}
+	return true;
 }
 
 async function resolveVideoExecution(
