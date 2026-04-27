@@ -49,6 +49,10 @@ The algorithm calculates a weighted score for each available provider and select
 
 For non-streaming requests, the latency weight (10%) is redistributed proportionally to the other factors since time-to-first-token is less relevant when waiting for the complete response.
 
+**Cache Support for Large Prompts**:
+
+When the estimated prompt is at least 5,000 tokens, an additional 20% weight is added to the score for whether each provider supports prompt caching (advertised via a cached input price). Providers that support caching score better than ones that do not, since caching can substantially reduce the cost of large or repeated prompts. Below the 5k threshold, this weight is dropped entirely — caching has little impact on small prompts, so cache support is ignored. The selected provider's cache support is exposed as `cacheSupported` on the routing metadata.
+
 **Exponential Uptime Penalty**:
 
 Providers with uptime below 95% receive an additional exponential penalty that increases rapidly as uptime drops:
