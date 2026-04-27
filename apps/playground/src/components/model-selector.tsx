@@ -642,21 +642,20 @@ export function ModelSelector({
 		}[] = [];
 		const now = new Date();
 
-		// Sort models by releasedAt (provider release date), newest first.
-		// Falls back to createdAt (when added to LLM Gateway) if releasedAt is
-		// missing. This mirrors how /models in apps/ui orders models so users
-		// see the newest releases at the top regardless of when the row was
-		// inserted in the gateway DB.
+		// Sort models by createdAt (when added to LLM Gateway), newest first.
+		// Falls back to releasedAt if createdAt is not available. Mirrors the
+		// default sort used by /models in apps/ui so the two surfaces show the
+		// same order.
 		const sortedModels = [...models].sort((a, b) => {
-			const dateA = a.releasedAt
-				? new Date(a.releasedAt).getTime()
-				: "createdAt" in a && a.createdAt
-					? new Date(a.createdAt as string | Date).getTime()
+			const dateA = a.createdAt
+				? new Date(a.createdAt).getTime()
+				: a.releasedAt
+					? new Date(a.releasedAt).getTime()
 					: 0;
-			const dateB = b.releasedAt
-				? new Date(b.releasedAt).getTime()
-				: "createdAt" in b && b.createdAt
-					? new Date(b.createdAt as string | Date).getTime()
+			const dateB = b.createdAt
+				? new Date(b.createdAt).getTime()
+				: b.releasedAt
+					? new Date(b.releasedAt).getTime()
 					: 0;
 			return dateB - dateA;
 		});
