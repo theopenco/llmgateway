@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "apps/gateway/**"
+      - "packages/actions/**"
       - "packages/models/**"
       - "packages/shared/**"
       - "**/*.e2e.ts"

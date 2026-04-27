@@ -3,6 +3,7 @@ import { encode } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
+import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
 import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
@@ -1095,11 +1096,8 @@ chat.openapi(completions, async (c) => {
 	// Extract User-Agent header for logging
 	const userAgent = c.req.header("User-Agent") ?? undefined;
 
-	// Match specific user agents and set source if x-source header is not specified
 	if (!source) {
-		if (userAgent && /^claude-cli\/.+/.test(userAgent)) {
-			source = "claude.com/claude-code";
-		}
+		source = detectCodingAgentFromUserAgent(userAgent);
 	}
 
 	// Check if debug mode is enabled via x-debug header
@@ -3796,38 +3794,6 @@ chat.openapi(completions, async (c) => {
 						} catch {
 							// Silently fail - thought_signature is optional
 						}
-					}
-				}
-			}
-		}
-	}
-
-	// For Moonshot provider, enrich assistant messages with cached reasoning_content
-	// This is needed for multi-turn tool call conversations with thinking models
-	// Moonshot requires reasoning_content in assistant messages with tool_calls
-	if (usedProvider === "moonshot") {
-		const { redisClient } = await import("@llmgateway/cache");
-		for (const message of messages) {
-			if (
-				message.role === "assistant" &&
-				message.tool_calls &&
-				Array.isArray(message.tool_calls) &&
-				message.tool_calls.length > 0 &&
-				!(message as any).reasoning_content // Only add if not already present
-			) {
-				// Get reasoning_content from the first tool call (all tool calls share the same reasoning)
-				const firstToolCall = message.tool_calls[0];
-				if (firstToolCall?.id) {
-					try {
-						const cachedReasoningContent = await redisClient.get(
-							`reasoning_content:${firstToolCall.id}`,
-						);
-						if (cachedReasoningContent) {
-							// Add reasoning_content to the message for Moonshot
-							(message as any).reasoning_content = cachedReasoningContent;
-						}
-					} catch {
-						// Silently fail - reasoning_content caching is optional
 					}
 				}
 			}

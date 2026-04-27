@@ -1,6 +1,5 @@
 import {
 	ArrowRight,
-	Check,
 	Layers,
 	RotateCcw,
 	Shield,
@@ -16,54 +15,12 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import {
 	CodeCTATracker,
-	CodePlanTracker,
 	LandingPageTracker,
 } from "@/components/LandingTracker";
+import { PricingPlans } from "@/components/PricingPlans";
 import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
-
-const plans = [
-	{
-		name: "Lite",
-		price: 29,
-		usage: 87,
-		description: "For occasional AI-assisted coding",
-		features: [
-			"$87 in monthly model usage",
-			"All 200+ models included",
-			"Usage resets monthly",
-		],
-		tier: "lite",
-	},
-	{
-		name: "Pro",
-		price: 79,
-		usage: 237,
-		description: "For daily development workflows",
-		features: [
-			"$237 in monthly model usage",
-			"All 200+ models included",
-			"Usage resets monthly",
-			"Best value for developers",
-		],
-		tier: "pro",
-		popular: true,
-	},
-	{
-		name: "Max",
-		price: 179,
-		usage: 537,
-		description: "For power users and heavy sessions",
-		features: [
-			"$537 in monthly model usage",
-			"All 200+ models included",
-			"Usage resets monthly",
-			"Maximum throughput",
-		],
-		tier: "max",
-	},
-];
 
 export default function LandingPage() {
 	const config = getConfig();
@@ -202,57 +159,7 @@ export default function LandingPage() {
 								your workflow.
 							</p>
 						</div>
-						<div className="grid gap-6 md:grid-cols-3">
-							{plans.map((plan) => (
-								<div
-									key={plan.tier}
-									className={`relative flex flex-col rounded-xl border bg-card p-7 transition-shadow ${
-										plan.popular
-											? "border-foreground/20 shadow-lg ring-1 ring-foreground/5"
-											: "hover:shadow-md"
-									}`}
-								>
-									{plan.popular && (
-										<div className="absolute -top-3 left-6">
-											<span className="rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background">
-												Most popular
-											</span>
-										</div>
-									)}
-									<div className="mb-6">
-										<h3 className="text-lg font-semibold">{plan.name}</h3>
-										<p className="mt-1 text-sm text-muted-foreground">
-											{plan.description}
-										</p>
-									</div>
-									<div className="mb-6 flex items-baseline gap-1">
-										<span className="text-4xl font-bold">${plan.price}</span>
-										<span className="text-muted-foreground">/mo</span>
-									</div>
-									<ul className="mb-8 flex-1 space-y-3">
-										{plan.features.map((feature) => (
-											<li key={feature} className="flex items-start gap-2.5">
-												<Check className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
-												<span className="text-sm text-muted-foreground">
-													{feature}
-												</span>
-											</li>
-										))}
-									</ul>
-									<CodePlanTracker plan={plan.tier} price={plan.price}>
-										<Button
-											className="w-full"
-											variant={plan.popular ? "default" : "outline"}
-											asChild
-										>
-											<Link href={`/signup?plan=${plan.tier}`}>
-												Get started
-											</Link>
-										</Button>
-									</CodePlanTracker>
-								</div>
-							))}
-						</div>
+						<PricingPlans />
 					</div>
 				</section>
 

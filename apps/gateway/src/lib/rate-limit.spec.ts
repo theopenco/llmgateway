@@ -108,6 +108,7 @@ describe("Rate Limiting", () => {
 				devPlanStripeSubscriptionId: null,
 				devPlanCancelled: false,
 				devPlanExpiresAt: null,
+				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
 				lastTopUpAmount: null,
 			});
@@ -167,6 +168,7 @@ describe("Rate Limiting", () => {
 				devPlanStripeSubscriptionId: null,
 				devPlanCancelled: false,
 				devPlanExpiresAt: null,
+				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
 				lastTopUpAmount: null,
 			});
@@ -227,6 +229,7 @@ describe("Rate Limiting", () => {
 				devPlanStripeSubscriptionId: null,
 				devPlanCancelled: false,
 				devPlanExpiresAt: null,
+				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
 				lastTopUpAmount: null,
 			});
@@ -281,6 +284,7 @@ describe("Rate Limiting", () => {
 				devPlanStripeSubscriptionId: null,
 				devPlanCancelled: false,
 				devPlanExpiresAt: null,
+				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
 				lastTopUpAmount: null,
 			});
@@ -343,6 +347,7 @@ describe("Rate Limiting", () => {
 				devPlanStripeSubscriptionId: null,
 				devPlanCancelled: false,
 				devPlanExpiresAt: null,
+				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
 				lastTopUpAmount: null,
 			});
@@ -405,6 +410,7 @@ describe("Rate Limiting", () => {
 				devPlanStripeSubscriptionId: null,
 				devPlanCancelled: false,
 				devPlanExpiresAt: null,
+				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
 				lastTopUpAmount: null,
 			});

@@ -5,6 +5,7 @@ import {
 	models as allModels,
 	providers as allProviders,
 } from "@llmgateway/models";
+import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 
 import { closeDatabase, db, tables } from "./index.js";
 import { logs } from "./logs.js";
@@ -1223,6 +1224,245 @@ async function seed() {
 		projectId: "test-project-id",
 		description: "Test API Key",
 		createdBy: "test-user-id",
+	});
+
+	// Personal org for the test admin so DevPass Pro is available locally
+	await upsert(tables.organization, {
+		id: "test-personal-org-id",
+		name: "Test User's Workspace",
+		billingEmail: "admin@example.com",
+		credits: 0,
+		retentionLevel: "retain",
+		plan: "free",
+		isPersonal: true,
+		devPlan: "pro",
+		devPlanCycle: "monthly",
+		devPlanCreditsUsed: "0",
+		devPlanCreditsLimit: String(getDevPlanCreditsLimit("pro")),
+		devPlanBillingCycleStart: new Date(),
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "test-personal-user-org-id",
+		userId: "test-user-id",
+		organizationId: "test-personal-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "test-personal-project-id",
+		name: "Default Project",
+		organizationId: "test-personal-org-id",
+		mode: "credits",
+	});
+
+	await upsert(tables.apiKey, {
+		id: "test-devpass-api-key-id",
+		token: "llmgdev_devpass_test_token",
+		projectId: "test-personal-project-id",
+		description: "Dev Plan API Key",
+		createdBy: "test-user-id",
+	});
+
+	// Realistic per-agent activity for the DevPass dashboard
+	const DEVPASS_AGENTS = [
+		{
+			source: "claude.com/claude-code",
+			model: "claude-3.5-sonnet",
+			provider: "anthropic",
+			weight: 0.32,
+		},
+		{ source: "cursor", model: "gpt-4o", provider: "openai", weight: 0.18 },
+		{
+			source: "cline",
+			model: "claude-3.5-sonnet",
+			provider: "anthropic",
+			weight: 0.16,
+		},
+		{ source: "codex", model: "o1", provider: "openai", weight: 0.12 },
+		{
+			source: "opencode",
+			model: "claude-3-haiku",
+			provider: "anthropic",
+			weight: 0.1,
+		},
+		{
+			source: "autohand",
+			model: "deepseek-chat",
+			provider: "deepseek",
+			weight: 0.06,
+		},
+		{
+			source: "soulforge",
+			model: "gemini-2.0-flash",
+			provider: "google-ai-studio",
+			weight: 0.04,
+		},
+		{
+			source: "openclaw",
+			model: "claude-3-haiku",
+			provider: "anthropic",
+			weight: 0.02,
+		},
+		{ source: "n8n", model: "gpt-4o-mini", provider: "openai", weight: 0.02 },
+	];
+	const DEVPASS_LOG_COUNT = 240;
+	const devpassLogs: Array<Record<string, any>> = [];
+	let devpassRunningCost = 0;
+	for (let i = 0; i < DEVPASS_LOG_COUNT; i++) {
+		const r = Math.random();
+		let acc = 0;
+		const agent =
+			DEVPASS_AGENTS.find((a) => {
+				acc += a.weight;
+				return r <= acc;
+			}) ?? DEVPASS_AGENTS[0];
+		const modelDef = MODELS.find((m) => m.model === agent.model) ?? MODELS[0];
+		const finishDef = weightedRandomChoice(FINISH_REASONS);
+		const isError =
+			finishDef.unified === "upstream_error" ||
+			finishDef.unified === "gateway_error" ||
+			finishDef.unified === "client_error";
+		const minutesBack = randomInt(0, 30 * 24 * 60);
+		/* eslint-disable no-mixed-operators */
+		const createdAt = new Date(Date.now() - minutesBack * 60 * 1000);
+		/* eslint-enable no-mixed-operators */
+		const promptTokens = randomInt(800, 18000);
+		const completionTokens = isError ? 0 : randomInt(60, 4500);
+		const totalTokens = promptTokens + completionTokens;
+		const cachedTokens =
+			Math.random() < 0.3 ? randomInt(50, promptTokens / 2) : 0;
+		const isStreamed = Math.random() < 0.85;
+		const duration = isError ? randomInt(80, 600) : randomInt(450, 22000);
+		const inputCost = (promptTokens / 1000) * modelDef.inputPrice;
+		const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
+		const cost = Number((inputCost + outputCost).toFixed(6));
+		devpassRunningCost += cost;
+		devpassLogs.push({
+			id: `devpass-log-${i}`,
+			requestId: `devpass-req-${i}`,
+			createdAt,
+			updatedAt: createdAt,
+			organizationId: "test-personal-org-id",
+			projectId: "test-personal-project-id",
+			apiKeyId: "test-devpass-api-key-id",
+			duration,
+			timeToFirstToken:
+				isStreamed && !isError ? randomInt(80, Math.min(duration, 2200)) : null,
+			requestedModel: modelDef.model,
+			usedModel: modelDef.model,
+			usedProvider: modelDef.provider,
+			source: agent.source,
+			responseSize: isError ? 0 : randomInt(500, 18000),
+			content: isError ? null : "Generated coding response.",
+			finishReason: finishDef.reason,
+			unifiedFinishReason: finishDef.unified,
+			promptTokens: String(promptTokens),
+			completionTokens: String(completionTokens),
+			totalTokens: String(totalTokens),
+			cachedTokens: String(cachedTokens),
+			temperature: randomFloat(0, 0.4, 2),
+			maxTokens: randomChoice([2048, 4096, 8192, 16384]),
+			messages: JSON.stringify([
+				{ role: "user", content: "Refactor the auth middleware…" },
+			]),
+			cost,
+			inputCost: Number(inputCost.toFixed(6)),
+			outputCost: Number(outputCost.toFixed(6)),
+			hasError: isError,
+			errorDetails: isError
+				? {
+						statusCode: randomChoice([429, 500, 502, 503]),
+						statusText: "Error",
+						responseText: "Provider returned an error",
+					}
+				: undefined,
+			mode: "credits" as const,
+			usedMode: "credits" as const,
+			streamed: isStreamed,
+			cached: cachedTokens > 0,
+			discount: 0,
+		});
+	}
+	await bulkInsert(tables.log, devpassLogs);
+
+	// Hourly stats so /activity (used by the usage chart) returns data
+	const devpassHourlyStats: Array<Record<string, any>> = [];
+	for (let h = 0; h < 30 * 24; h++) {
+		const hourTs = hoursAgo(h);
+		hourTs.setMinutes(0, 0, 0);
+		const baseRequests = randomInt(0, 14);
+		if (baseRequests === 0) {
+			continue;
+		}
+		const errorCount = Math.floor(baseRequests * randomFloat(0, 0.06));
+		const cacheCount = Math.floor(baseRequests * randomFloat(0, 0.25));
+		const streamedCount = Math.floor(baseRequests * randomFloat(0.6, 0.95));
+		const inputTokens = baseRequests * randomInt(900, 6000);
+		const outputTokens = baseRequests * randomInt(200, 2200);
+		const costPerReq = randomFloat(0.02, 0.18);
+		const totalCost = baseRequests * costPerReq;
+		devpassHourlyStats.push({
+			id: `devpass-phs-${h}`,
+			projectId: "test-personal-project-id",
+			hourTimestamp: hourTs,
+			requestCount: baseRequests,
+			errorCount,
+			cacheCount,
+			streamedCount,
+			nonStreamedCount: baseRequests - streamedCount,
+			completedCount: baseRequests - errorCount,
+			lengthLimitCount: 0,
+			contentFilterCount: 0,
+			toolCallsCount: randomInt(0, Math.floor(baseRequests * 0.3)),
+			canceledCount: 0,
+			unknownFinishCount: 0,
+			clientErrorCount: 0,
+			gatewayErrorCount: 0,
+			upstreamErrorCount: errorCount,
+			inputTokens: String(inputTokens),
+			outputTokens: String(outputTokens),
+			totalTokens: String(inputTokens + outputTokens),
+			reasoningTokens: "0",
+			cachedTokens: String(Math.floor(inputTokens * 0.15)),
+			cost: Number(totalCost.toFixed(4)),
+			inputCost: Number((totalCost * 0.55).toFixed(4)),
+			outputCost: Number((totalCost * 0.4).toFixed(4)),
+			requestCost: Number((totalCost * 0.05).toFixed(4)),
+			dataStorageCost: 0,
+			discountSavings: 0,
+			imageInputCost: 0,
+			imageOutputCost: 0,
+			cachedInputCost: 0,
+			creditsRequestCount: baseRequests,
+			apiKeysRequestCount: 0,
+			creditsCost: Number(totalCost.toFixed(4)),
+			apiKeysCost: 0,
+			creditsDataStorageCost: 0,
+			apiKeysDataStorageCost: 0,
+		});
+	}
+	await bulkInsert(tables.projectHourlyStats, devpassHourlyStats);
+
+	// Sync the personal org's used-credits to roughly match the seeded spend
+	// so the usage bar in the dashboard reflects this activity.
+	const usedCredits = Math.min(
+		devpassRunningCost,
+		getDevPlanCreditsLimit("pro") * 0.65,
+	);
+	await upsert(tables.organization, {
+		id: "test-personal-org-id",
+		name: "Test User's Workspace",
+		billingEmail: "admin@example.com",
+		credits: 0,
+		retentionLevel: "retain",
+		plan: "free",
+		isPersonal: true,
+		devPlan: "pro",
+		devPlanCycle: "monthly",
+		devPlanCreditsUsed: usedCredits.toFixed(4),
+		devPlanCreditsLimit: String(getDevPlanCreditsLimit("pro")),
+		devPlanBillingCycleStart: daysAgo(12),
 	});
 
 	await upsert(tables.user, {

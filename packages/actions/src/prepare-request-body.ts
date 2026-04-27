@@ -951,6 +951,30 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
+	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
+	// clients usually drop reasoning between turns, so translate the OpenAI-style
+	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek
+	// accepts an empty string, but Moonshot's newer reasoning models (kimi-k2.5,
+	// kimi-k2.6) treat an empty string as missing — use a single space as a
+	// non-empty placeholder there.
+	if (usedProvider === "deepseek" || usedProvider === "moonshot") {
+		const fallback = usedProvider === "moonshot" ? " " : "";
+		processedMessages = processedMessages.map((m) => {
+			if (
+				m.role !== "assistant" ||
+				!m.tool_calls ||
+				!Array.isArray(m.tool_calls) ||
+				m.tool_calls.length === 0 ||
+				m.reasoning_content !== undefined
+			) {
+				return m;
+			}
+			const reasoning = m.reasoning ?? fallback;
+			return { ...m, reasoning_content: reasoning || fallback };
+		});
+	}
+
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedModel,

@@ -21,6 +21,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 			{
 				providerId: "nebius",
@@ -34,6 +35,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 			{
 				providerId: "inference.net",
@@ -48,6 +50,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 			{
 				providerId: "together-ai",
@@ -84,6 +87,7 @@ export const metaModels = [
 					"top_p",
 					"response_format",
 				],
+				deactivatedAt: new Date("2026-04-25"),
 			},
 			{
 				providerId: "novita",
@@ -97,6 +101,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 		],
 	},
@@ -327,6 +332,7 @@ export const metaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 		],
 	},
