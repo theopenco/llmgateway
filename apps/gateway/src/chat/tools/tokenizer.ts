@@ -1,12 +1,6 @@
-import { encodeChat } from "gpt-tokenizer";
-
-import { logger } from "@llmgateway/logger";
-
-import { DEFAULT_TOKENIZER_MODEL } from "./types.js";
-
 /**
  * Converts a message content value (string, array of content parts, null, or
- * undefined) to a plain string suitable for the gpt-tokenizer library.
+ * undefined) to a plain string suitable for length-based token estimation.
  */
 export function messageContentToString(
 	content: string | unknown[] | null | undefined,
@@ -20,37 +14,31 @@ export function messageContentToString(
 	return JSON.stringify(content);
 }
 
+const CHARS_PER_TOKEN = 4;
+
 /**
- * Encodes an array of chat messages and returns the token count. Handles
- * messages whose content may be a string, an array of content parts, null, or
- * undefined – all of which are valid shapes in the OpenAI chat format but
- * would otherwise crash gpt-tokenizer.
+ * Rough length-based token estimate. Avoids running a tokenizer on the
+ * gateway hot path — accuracy is intentionally traded for throughput.
+ */
+export function estimateTokensFromLength(length: number): number {
+	if (length <= 0) {
+		return 0;
+	}
+	return Math.max(1, Math.round(length / CHARS_PER_TOKEN));
+}
+
+/**
+ * Estimates the prompt token count for an array of chat messages using a
+ * cheap length-based heuristic (chars/4). Used in the gateway hot path
+ * where the cost of running gpt-tokenizer is not justified.
  */
 export function encodeChatMessages(messages: any[]): number {
-	try {
-		const chatMessages = messages.map((m) => ({
-			role: m.role as "user" | "assistant" | "system" | undefined,
-			content: messageContentToString(m.content),
-			...(m.name !== null && m.name !== undefined && { name: m.name }),
-		}));
-		return encodeChat(chatMessages, DEFAULT_TOKENIZER_MODEL).length;
-	} catch (error) {
-		logger.error("Failed to encode chat messages", {
-			error: error instanceof Error ? error.message : String(error),
-			messageCount: messages.length,
-			messageRoles: messages.map((m) => m.role),
-			messageContentTypes: messages.map((m) => typeof m.content),
-		});
-		// Fallback: rough 4-chars-per-token estimate
-		return Math.max(
-			1,
-			Math.round(
-				messages.reduce(
-					(acc: number, m: any) =>
-						acc + messageContentToString(m.content).length,
-					0,
-				) / 4,
-			),
-		);
+	if (!messages || messages.length === 0) {
+		return 0;
 	}
+	const totalLength = messages.reduce(
+		(acc: number, m: any) => acc + messageContentToString(m.content).length,
+		0,
+	);
+	return estimateTokensFromLength(totalLength);
 }

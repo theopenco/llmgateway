@@ -1,8 +1,9 @@
 import { Decimal } from "decimal.js";
-import { encode, encodeChat } from "gpt-tokenizer";
+
+import { estimateTokensFromContent } from "@/chat/tools/estimate-tokens-from-content.js";
+import { encodeChatMessages } from "@/chat/tools/tokenizer.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	type ProviderModelMapping,
@@ -12,14 +13,11 @@ import {
 	expandAllProviderRegions,
 } from "@llmgateway/models";
 
-// Define ChatMessage type to match what gpt-tokenizer expects
 interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
 	content: string;
 	name?: string;
 }
-
-const DEFAULT_TOKENIZER_MODEL = "gpt-4";
 
 /**
  * Check if billing for cancelled requests is enabled via environment variable.
@@ -149,29 +147,16 @@ export async function calculateCosts(
 	if ((!promptTokens || !completionTokens) && fullOutput) {
 		// We're going to estimate at least some of the tokens
 		isEstimated = true;
-		// Calculate prompt tokens
+		// Calculate prompt tokens using a cheap length-based estimate.
+		// Accuracy is intentionally traded for throughput so we never run
+		// gpt-tokenizer on the gateway hot path.
 		if (!promptTokens && fullOutput) {
 			if (fullOutput.messages) {
-				// For chat messages
-				try {
-					calculatedPromptTokens = encodeChat(
-						fullOutput.messages,
-						DEFAULT_TOKENIZER_MODEL,
-					).length;
-				} catch (error) {
-					// If encoding fails, leave as null
-					logger.error(`Failed to encode chat messages in costs: ${error}`);
-				}
+				calculatedPromptTokens = encodeChatMessages(fullOutput.messages);
 			} else if (fullOutput.prompt) {
-				// For text prompt
-				try {
-					calculatedPromptTokens = encode(
-						JSON.stringify(fullOutput.prompt),
-					).length;
-				} catch (error) {
-					// If encoding fails, leave as null
-					logger.error(`Failed to encode prompt text: ${error}`);
-				}
+				calculatedPromptTokens = estimateTokensFromContent(
+					JSON.stringify(fullOutput.prompt),
+				);
 			}
 		}
 
@@ -197,12 +182,7 @@ export async function calculateCosts(
 			}
 
 			if (completionText) {
-				try {
-					calculatedCompletionTokens = encode(completionText).length;
-				} catch (error) {
-					// If encoding fails, leave as null
-					logger.error(`Failed to encode completion text: ${error}`);
-				}
+				calculatedCompletionTokens = estimateTokensFromContent(completionText);
 			}
 		}
 	}

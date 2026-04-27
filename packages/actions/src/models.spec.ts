@@ -895,4 +895,123 @@ describe("getCheapestFromAvailableProviders", () => {
 			}),
 		).toBe(0.03);
 	});
+
+	describe("cache support weighting", () => {
+		const cacheTestModel = {
+			id: "cache-test-model",
+			name: "Cache Test Model",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					modelName: "cache-test",
+					inputPrice: 1.0 / 1e6,
+					outputPrice: 2.0 / 1e6,
+					cachedInputPrice: 0.1 / 1e6,
+					streaming: true as const,
+				},
+				{
+					providerId: "deepseek" as const,
+					modelName: "cache-test",
+					inputPrice: 1.0 / 1e6,
+					outputPrice: 2.0 / 1e6,
+					streaming: true as const,
+				},
+			],
+		};
+
+		const equalMetrics = new Map([
+			[
+				metricsKey("cache-test-model", "openai"),
+				{
+					modelId: "cache-test-model",
+					providerId: "openai",
+					uptime: 99.5,
+					averageLatency: 200,
+					throughput: 100,
+					totalRequests: 100,
+				},
+			],
+			[
+				metricsKey("cache-test-model", "deepseek"),
+				{
+					modelId: "cache-test-model",
+					providerId: "deepseek",
+					uptime: 99.5,
+					averageLatency: 200,
+					throughput: 100,
+					totalRequests: 100,
+				},
+			],
+		]);
+
+		it("does not factor cache support when prompt is below the threshold", () => {
+			const result = getCheapestFromAvailableProviders(
+				cacheTestModel.providers,
+				cacheTestModel,
+				{ metricsMap: equalMetrics, promptTokens: 1000 },
+			);
+
+			const openai = result?.metadata.providerScores.find(
+				(p) => p.providerId === "openai",
+			);
+			const deepseek = result?.metadata.providerScores.find(
+				(p) => p.providerId === "deepseek",
+			);
+
+			expect(openai?.score).toBe(deepseek?.score);
+		});
+
+		it("prefers a cache-supporting provider when prompt is large", () => {
+			const result = getCheapestFromAvailableProviders(
+				cacheTestModel.providers,
+				cacheTestModel,
+				{ metricsMap: equalMetrics, promptTokens: 8000 },
+			);
+
+			expect(result?.provider.providerId).toBe("openai");
+
+			const openai = result?.metadata.providerScores.find(
+				(p) => p.providerId === "openai",
+			);
+			const deepseek = result?.metadata.providerScores.find(
+				(p) => p.providerId === "deepseek",
+			);
+
+			expect(openai?.cacheSupported).toBe(true);
+			expect(deepseek?.cacheSupported).toBe(false);
+			expect((openai?.score ?? 0) < (deepseek?.score ?? 0)).toBe(true);
+		});
+
+		it("does not override a much cheaper non-cache provider for large prompts", () => {
+			const cheapNoCacheModel = {
+				...cacheTestModel,
+				providers: [
+					{
+						providerId: "openai" as const,
+						modelName: "cache-test",
+						inputPrice: 10.0 / 1e6,
+						outputPrice: 20.0 / 1e6,
+						cachedInputPrice: 1.0 / 1e6,
+						streaming: true as const,
+					},
+					{
+						providerId: "deepseek" as const,
+						modelName: "cache-test",
+						inputPrice: 1.0 / 1e6,
+						outputPrice: 2.0 / 1e6,
+						streaming: true as const,
+					},
+				],
+			};
+
+			const result = getCheapestFromAvailableProviders(
+				cheapNoCacheModel.providers,
+				cheapNoCacheModel,
+				{ metricsMap: equalMetrics, promptTokens: 10_000 },
+			);
+
+			expect(result?.provider.providerId).toBe("deepseek");
+		});
+	});
 });

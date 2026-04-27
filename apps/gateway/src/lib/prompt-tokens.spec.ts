@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 
 import { calculatePromptTokensFromMessages } from "@/chat/tools/calculate-prompt-tokens.js";
 import { estimateTokensFromContent } from "@/chat/tools/estimate-tokens-from-content.js";
@@ -26,7 +26,7 @@ describe("Prompt token calculation", () => {
 	});
 
 	describe("calculatePromptTokensFromMessages", () => {
-		it("should calculate tokens using gpt-tokenizer", () => {
+		it("should estimate tokens from message content length", () => {
 			const messages = [
 				{ role: "user", content: "Hello, how are you?" },
 				{ role: "assistant", content: "I'm doing well, thanks!" },
@@ -37,30 +37,20 @@ describe("Prompt token calculation", () => {
 			expect(typeof result).toBe("number");
 		});
 
-		it("should handle empty messages array", () => {
-			const result = calculatePromptTokensFromMessages([]);
-			expect(result).toBeGreaterThan(0); // gpt-tokenizer returns base tokens even for empty chat
+		it("should return 0 for empty messages array", () => {
+			expect(calculatePromptTokensFromMessages([])).toBe(0);
 		});
 
-		it("should handle messages with empty content", () => {
-			const messages = [{ role: "user", content: "" }];
-			const result = calculatePromptTokensFromMessages(messages);
-			expect(result).toBeGreaterThan(0); // gpt-tokenizer counts role tokens
+		it("should return 0 for messages with empty content", () => {
+			expect(
+				calculatePromptTokensFromMessages([{ role: "user", content: "" }]),
+			).toBe(0);
 		});
 
 		it("should handle non-string content by stringifying", () => {
 			const messages = [
 				{ role: "user", content: { type: "text", text: "Hello" } },
 			];
-			const result = calculatePromptTokensFromMessages(messages);
-			expect(result).toBeGreaterThan(0);
-		});
-
-		it("should fallback to simple estimation on encoding error", () => {
-			// Mock encodeChat to throw an error
-			vi.spyOn(console, "error").mockImplementation(() => {});
-
-			const messages = [{ role: "user", content: "Test message" }];
 			const result = calculatePromptTokensFromMessages(messages);
 			expect(result).toBeGreaterThan(0);
 		});
@@ -95,9 +85,7 @@ describe("Prompt token calculation", () => {
 			expect(result.calculatedCompletionTokens).toBeNull();
 		});
 
-		it("should fallback to simple estimation on encoding errors", () => {
-			vi.spyOn(console, "error").mockImplementation(() => {});
-
+		it("should estimate both prompt and completion tokens together", () => {
 			const messages = [{ role: "user", content: "Test" }];
 			const content = "Response";
 			const result = estimateTokens("openai", messages, content, null, null);
