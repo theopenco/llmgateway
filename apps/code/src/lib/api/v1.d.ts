@@ -8623,6 +8623,13 @@ export interface operations {
                                 imageOutputTokensByResolution: {
                                     [key: string]: number;
                                 } | null;
+                                imageGenerationPriceMatrix: {
+                                    [key: string]: {
+                                        [key: string]: number;
+                                    };
+                                } | null;
+                                supportedImageSizes: string[] | null;
+                                supportedImageQualities: string[] | null;
                                 requestPrice: string | null;
                                 contextSize: number | null;
                                 maxOutput: number | null;
