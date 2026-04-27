@@ -102,6 +102,32 @@ const generations = createRoute({
 });
 
 /**
+ * Normalize OpenAI's legacy DALL-E quality values ("standard", "hd") into the
+ * gpt-image-2 vocabulary ("low" | "medium" | "high" | "auto") so downstream
+ * provider request preparation only ever sees supported strings.
+ */
+function normalizeQuality(
+	quality: string | undefined,
+): "low" | "medium" | "high" | "auto" | undefined {
+	if (!quality) {
+		return undefined;
+	}
+	switch (quality) {
+		case "standard":
+			return "medium";
+		case "hd":
+			return "high";
+		case "low":
+		case "medium":
+		case "high":
+		case "auto":
+			return quality;
+		default:
+			return undefined;
+	}
+}
+
+/**
  * Parse a size string like "1024x1024" into an aspect ratio string.
  */
 function sizeToAspectRatio(size: string): string | undefined {
@@ -382,12 +408,14 @@ images.openapi(generations, async (c) => {
 		stream: false,
 	};
 
+	const normalizedQuality = normalizeQuality(request.quality);
+
 	// Pass image configuration if we have an aspect ratio, size, quality, or n > 1
-	if (aspectRatio || request.size || request.quality || request.n > 1) {
+	if (aspectRatio || request.size || normalizedQuality || request.n > 1) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(request.size && { image_size: request.size }),
-			...(request.quality && { image_quality: request.quality }),
+			...(normalizedQuality && { image_quality: normalizedQuality }),
 			n: request.n,
 		};
 	}
@@ -396,7 +424,7 @@ images.openapi(generations, async (c) => {
 		model: request.model,
 		prompt: request.prompt.slice(0, 200),
 		size: request.size,
-		quality: request.quality,
+		quality: normalizedQuality,
 		n: request.n,
 	});
 
@@ -752,17 +780,19 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 		stream: false,
 	};
 
+	const normalizedEditQuality = normalizeQuality(request.quality);
+
 	if (
 		aspectRatio ||
 		requestedSize ||
 		(request.n !== undefined && request.n > 1) ||
 		request.output_format ||
-		request.quality
+		normalizedEditQuality
 	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(requestedSize && { image_size: requestedSize }),
-			...(request.quality && { image_quality: request.quality }),
+			...(normalizedEditQuality && { image_quality: normalizedEditQuality }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.output_compression !== undefined && {

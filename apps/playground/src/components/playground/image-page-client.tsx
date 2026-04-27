@@ -178,34 +178,34 @@ export default function ImagePageClient({
 		}
 	}, [comparisonMode, pathname, router, selectedModels]);
 
-	// Reset imageSize/quality when model changes, clear input images when switching away from edit model
+	// Reset image size/quality when the selected model changes and the current
+	// value isn't valid for the new model. Including the value itself in deps
+	// would clobber the user's explicit selection on every re-render.
 	useEffect(() => {
 		const primaryModel = selectedModels[0] ?? "";
 		const config = getModelImageConfig(primaryModel);
 		if (config.usesPixelDimensions) {
-			if (!config.availableSizes.includes(alibabaImageSize as never)) {
+			if (
+				!(config.availableSizes as readonly string[]).includes(alibabaImageSize)
+			) {
 				setAlibabaImageSize(config.defaultSize);
 			}
-		} else if (!config.availableSizes.includes(imageSize as never)) {
+		} else if (
+			!(config.availableSizes as readonly string[]).includes(imageSize)
+		) {
 			setImageSize(config.defaultSize);
 		}
 		if (
 			!config.supportsQuality ||
-			!config.availableQualities.includes(imageQuality as never)
+			!(config.availableQualities as readonly string[]).includes(imageQuality)
 		) {
-			setImageQuality(config.defaultQuality);
+			setImageQuality(config.defaultQuality ?? "auto");
 		}
 		if (!isEditModel) {
 			setInputImages([]);
 		}
-	}, [
-		selectedModels,
-		imageSize,
-		alibabaImageSize,
-		imageQuality,
-		imageGenModels,
-		isEditModel,
-	]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedModels, isEditModel]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {

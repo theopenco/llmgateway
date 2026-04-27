@@ -476,15 +476,13 @@ export const ChatUI = ({
 		.toLowerCase()
 		.includes("gemini-3.1-flash-image");
 
+	// Keep this list in sync with `supportedImageSizes` for the gpt-image-2
+	// provider mapping in packages/models/src/models/openai.ts.
 	const gptImageSizes = [
 		"auto",
 		"1024x1024",
 		"1536x1024",
 		"1024x1536",
-		"2048x2048",
-		"2048x1152",
-		"3840x2160",
-		"2160x3840",
 	] as const;
 
 	const availableSizes = isSeedream

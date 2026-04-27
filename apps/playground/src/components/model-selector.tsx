@@ -399,12 +399,26 @@ function estimateImageCost(
 	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
 	const matrix = mapping.imageGenerationPriceMatrix;
 	if (matrix) {
-		// Pick the cheapest entry as the headline (e.g., low/1024x1024).
+		// Prefer the lowest quality at 1024x1024 ("typical" output) as the
+		// headline; fall back to the global min if no 1024x1024 entry exists.
+		const qualityPreference = ["low", "medium", "high", "auto", "default"];
+		let typical: number | undefined;
+		for (const q of qualityPreference) {
+			const entry = matrix[q];
+			if (entry && Number.isFinite(entry["1024x1024"])) {
+				typical = entry["1024x1024"];
+				break;
+			}
+		}
 		let cheapest: number | null = null;
-		for (const sizes of Object.values(matrix)) {
-			for (const price of Object.values(sizes)) {
-				if (cheapest === null || price < cheapest) {
-					cheapest = price;
+		if (typical !== undefined) {
+			cheapest = typical;
+		} else {
+			for (const sizes of Object.values(matrix)) {
+				for (const price of Object.values(sizes)) {
+					if (cheapest === null || price < cheapest) {
+						cheapest = price;
+					}
 				}
 			}
 		}
@@ -628,22 +642,22 @@ export function ModelSelector({
 		}[] = [];
 		const now = new Date();
 
-		// Sort models by createdAt (when added to LLM Gateway), newest first
-		// Falls back to releasedAt if createdAt is not available
-		// Note: createdAt comes from API response, releasedAt is in the models package
+		// Sort models by releasedAt (provider release date), newest first.
+		// Falls back to createdAt (when added to LLM Gateway) if releasedAt is
+		// missing. This mirrors how /models in apps/ui orders models so users
+		// see the newest releases at the top regardless of when the row was
+		// inserted in the gateway DB.
 		const sortedModels = [...models].sort((a, b) => {
-			const dateA =
-				"createdAt" in a && a.createdAt
+			const dateA = a.releasedAt
+				? new Date(a.releasedAt).getTime()
+				: "createdAt" in a && a.createdAt
 					? new Date(a.createdAt as string | Date).getTime()
-					: a.releasedAt
-						? new Date(a.releasedAt).getTime()
-						: 0;
-			const dateB =
-				"createdAt" in b && b.createdAt
+					: 0;
+			const dateB = b.releasedAt
+				? new Date(b.releasedAt).getTime()
+				: "createdAt" in b && b.createdAt
 					? new Date(b.createdAt as string | Date).getTime()
-					: b.releasedAt
-						? new Date(b.releasedAt).getTime()
-						: 0;
+					: 0;
 			return dateB - dateA;
 		});
 

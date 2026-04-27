@@ -37,8 +37,7 @@ export type AspectRatio =
 export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
-	const isGptImage =
-		lower.includes("gpt-image") || lower.includes("openai/gpt-image");
+	const isGptImage = lower.includes("gpt-image");
 
 	const usesPixelDimensions =
 		isGptImage ||
@@ -52,17 +51,10 @@ export function getModelImageConfig(model: string) {
 
 	const isGemini31FlashImage = lower.includes("gemini-3.1-flash-image");
 
+	// Keep this list in sync with `supportedImageSizes` on the gpt-image-2
+	// provider mapping in packages/models/src/models/openai.ts.
 	const availableSizes = isGptImage
-		? ([
-				"auto",
-				"1024x1024",
-				"1536x1024",
-				"1024x1536",
-				"2048x2048",
-				"2048x1152",
-				"3840x2160",
-				"2160x3840",
-			] as const)
+		? (["auto", "1024x1024", "1536x1024", "1024x1536"] as const)
 		: isSeedream
 			? (["2K", "4K"] as const)
 			: isGemini31FlashImage
@@ -75,7 +67,7 @@ export function getModelImageConfig(model: string) {
 	const availableQualities = isGptImage
 		? (["auto", "low", "medium", "high"] as const)
 		: ([] as readonly string[]);
-	const defaultQuality = "auto";
+	const defaultQuality: string | undefined = isGptImage ? "auto" : undefined;
 
 	const maxInputImages = getMaxInputImages(lower);
 

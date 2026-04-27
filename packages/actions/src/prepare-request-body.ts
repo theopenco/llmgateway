@@ -18,13 +18,37 @@ import {
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
+type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+
 interface OpenAIImageRequest {
 	model: string;
 	prompt: string;
 	size?: string;
-	quality?: string;
+	quality?: OpenAIImageQuality;
 	n?: number;
 	image?: string | string[];
+}
+
+/**
+ * Narrow a free-form quality string to the values gpt-image-2 accepts.
+ * Returns undefined for unknown values so they get dropped from the request.
+ */
+function normalizeImageQuality(
+	quality: string | undefined,
+): OpenAIImageQuality | undefined {
+	if (!quality) {
+		return undefined;
+	}
+	const normalized = quality.toLowerCase();
+	if (
+		normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high" ||
+		normalized === "auto"
+	) {
+		return normalized;
+	}
+	return undefined;
 }
 
 /**
@@ -694,22 +718,7 @@ export async function prepareRequestBody(
 			}
 		}
 
-		const openaiQuality = (() => {
-			const raw = image_config?.image_quality;
-			if (!raw) {
-				return undefined;
-			}
-			const normalized = raw.toLowerCase();
-			if (
-				normalized === "low" ||
-				normalized === "medium" ||
-				normalized === "high" ||
-				normalized === "auto"
-			) {
-				return normalized;
-			}
-			return undefined;
-		})();
+		const openaiQuality = normalizeImageQuality(image_config?.image_quality);
 
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedModel,

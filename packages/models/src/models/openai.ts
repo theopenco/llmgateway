@@ -1950,16 +1950,12 @@ export const openaiModels = [
 				tools: false,
 				jsonOutput: false,
 				imageGenerations: true,
-				supportedImageSizes: [
-					"1024x1024",
-					"1536x1024",
-					"1024x1536",
-					"2048x2048",
-					"2048x1152",
-					"3840x2160",
-					"2160x3840",
-					"auto",
-				],
+				// Limited to the sizes that prepareRequestBody accepts and that we
+				// have priced in imageGenerationPriceMatrix. Larger OpenAI sizes
+				// (2048x2048, 2048x1152, 3840x2160, 2160x3840) currently fall back
+				// to "auto" upstream and have no matrix entry, so we don't expose
+				// them yet to avoid silent underbilling.
+				supportedImageSizes: ["auto", "1024x1024", "1536x1024", "1024x1536"],
 				supportedImageQualities: ["low", "medium", "high", "auto"],
 				imageGenerationPriceMatrix: {
 					low: {

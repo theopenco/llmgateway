@@ -25,6 +25,7 @@ import {
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
+import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 import { shouldDisableFallback } from "@/lib/no-fallback";
@@ -859,33 +860,23 @@ export default function ChatPageClient({
 		}
 	}, [supportsReasoning, reasoningEffort]);
 
-	// Reset image size when switching models with different supported sizes
+	// Reset image size/quality only when the selected model changes and the
+	// current value is not valid for the new model. Including alibabaImageSize
+	// or imageQuality in the deps would clobber a user's explicit selection.
 	useEffect(() => {
-		const isSeedream =
-			selectedModel.toLowerCase().includes("seedream") ||
-			selectedModel.toLowerCase().includes("bytedance/seedream");
-		const isGemini31FlashImage = selectedModel
-			.toLowerCase()
-			.includes("gemini-3.1-flash-image");
-		const isGptImage =
-			selectedModel.toLowerCase().includes("gpt-image") ||
-			selectedModel.toLowerCase().includes("openai/gpt-image");
-		if (isSeedream && (imageSize === "1K" || imageSize === "0.5K")) {
-			setImageSize("2K");
+		const config = getModelImageConfig(selectedModel);
+		if (config.usesPixelDimensions) {
+			if (!config.availableSizes.includes(alibabaImageSize as never)) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (!config.availableSizes.includes(imageSize as never)) {
+			setImageSize(config.defaultSize);
 		}
-		if (!isGemini31FlashImage && imageSize === "0.5K") {
-			setImageSize("1K");
-		}
-		// gpt-image-2 uses pixel dimensions; default alibabaImageSize to "auto"
-		// when switching in. Reset quality to "auto" when switching to a model
-		// that doesn't support quality selection.
-		if (isGptImage && alibabaImageSize === "1024x1024") {
-			setAlibabaImageSize("auto");
-		}
-		if (!isGptImage && imageQuality !== "auto") {
+		if (!config.supportsQuality && imageQuality !== "auto") {
 			setImageQuality("auto");
 		}
-	}, [selectedModel, imageSize, alibabaImageSize, imageQuality]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
 		const params = new URLSearchParams(Array.from(searchParams.entries()));
