@@ -303,6 +303,7 @@ interface ChatRequestBody {
 			| "1:8"
 			| "8:1";
 		image_size?: "0.5K" | "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
+		image_quality?: "auto" | "low" | "medium" | "high" | string;
 		n?: number;
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
@@ -365,6 +366,7 @@ export async function POST(req: Request) {
 			? "http://localhost:4001/v1"
 			: "https://api.llmgateway.io/v1");
 
+	const imageQuality = image_config?.image_quality;
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
 		baseURL: gatewayUrl,
@@ -376,6 +378,9 @@ export async function POST(req: Request) {
 			reasoning_effort,
 			image_config,
 			web_search,
+			// `/v1/images/generations` reads `quality` as a top-level field; pass it
+			// alongside `image_config.image_quality` so both endpoints see it.
+			...(is_image_gen && imageQuality ? { quality: imageQuality } : {}),
 		},
 	}) as any;
 

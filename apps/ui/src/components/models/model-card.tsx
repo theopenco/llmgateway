@@ -646,7 +646,26 @@ export function ProviderSection({
 						let label = "Per image";
 						let outputCost = 0;
 						let resolutionKey: string | null = null;
-						if (
+						const matrix = activeMapping.imageGenerationPriceMatrix;
+						if (matrix) {
+							// Pick the cheapest (quality, size) entry as the headline price
+							let best: {
+								price: number;
+								quality: string;
+								size: string;
+							} | null = null;
+							for (const [quality, sizes] of Object.entries(matrix)) {
+								for (const [size, price] of Object.entries(sizes)) {
+									if (best === null || price < best.price) {
+										best = { price, quality, size };
+									}
+								}
+							}
+							if (best) {
+								perImage = best.price + requestPriceNum;
+								label = `Per image (${best.quality} ${best.size})`;
+							}
+						} else if (
 							activeMapping.imageOutputPrice &&
 							activeMapping.imageOutputTokensByResolution
 						) {
@@ -660,11 +679,11 @@ export function ProviderSection({
 								outputCost = preferred[1] * outPrice;
 								resolutionKey = preferred[0];
 							}
-						}
-						if (requestPriceNum > 0 || outputCost > 0) {
-							perImage = requestPriceNum + outputCost;
-							if (resolutionKey) {
-								label = `Per image (${resolutionKey})`;
+							if (requestPriceNum > 0 || outputCost > 0) {
+								perImage = requestPriceNum + outputCost;
+								if (resolutionKey) {
+									label = `Per image (${resolutionKey})`;
+								}
 							}
 						}
 						if (perImage === null) {
@@ -779,121 +798,210 @@ export function ProviderSection({
 					</div>
 				)}
 
+				{/* Image generation price matrix (per image, by quality × size) */}
+				{activeMapping.imageGenerationPriceMatrix &&
+					(() => {
+						const matrix = activeMapping.imageGenerationPriceMatrix!;
+						const qualityKeys = Object.keys(matrix);
+						if (qualityKeys.length === 0) {
+							return null;
+						}
+						const sizeSet = new Set<string>();
+						for (const sizes of Object.values(matrix)) {
+							for (const size of Object.keys(sizes)) {
+								sizeSet.add(size);
+							}
+						}
+						const sizes = Array.from(sizeSet);
+						const discountNum = activeMapping.discount
+							? parseFloat(activeMapping.discount)
+							: 0;
+						return (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+									Image Pricing (per image)
+								</div>
+								<div className="overflow-x-auto -mx-2.5 px-2.5">
+									<table className="text-xs w-full">
+										<thead>
+											<tr className="text-[10px] text-muted-foreground">
+												<th className="text-left font-normal pr-3 py-1">
+													Quality
+												</th>
+												{sizes.map((size) => (
+													<th
+														key={size}
+														className="text-right font-normal pl-3 py-1"
+													>
+														{size}
+													</th>
+												))}
+											</tr>
+										</thead>
+										<tbody>
+											{qualityKeys.map((q) => (
+												<tr key={q} className="border-t border-border/30">
+													<td className="text-muted-foreground capitalize pr-3 py-1">
+														{q}
+													</td>
+													{sizes.map((size) => {
+														const price = matrix[q]?.[size];
+														if (price === undefined) {
+															return (
+																<td
+																	key={size}
+																	className="text-right font-mono tabular-nums pl-3 py-1 text-muted-foreground/40"
+																>
+																	—
+																</td>
+															);
+														}
+														const discounted = price * (1 - discountNum);
+														return (
+															<td
+																key={size}
+																className="text-right font-mono tabular-nums pl-3 py-1"
+															>
+																{discountNum > 0 ? (
+																	<>
+																		<span className="line-through text-muted-foreground/60 mr-1">
+																			${price.toFixed(3)}
+																		</span>
+																		<span className="text-green-600 font-semibold">
+																			${discounted.toFixed(3)}
+																		</span>
+																	</>
+																) : (
+																	`$${price.toFixed(3)}`
+																)}
+															</td>
+														);
+													})}
+												</tr>
+											))}
+										</tbody>
+									</table>
+								</div>
+							</div>
+						);
+					})()}
+
 				{/* Image pricing (if applicable) */}
-				{(activeMapping.imageInputTokensByResolution ??
-					activeMapping.imageOutputTokensByResolution) && (
-					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
-							Image Pricing (est. per image)
+				{!activeMapping.imageGenerationPriceMatrix &&
+					(activeMapping.imageInputTokensByResolution ??
+						activeMapping.imageOutputTokensByResolution) && (
+						<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+							<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+								Image Pricing (est. per image)
+							</div>
+							{activeMapping.imageInputPrice &&
+								activeMapping.imageInputTokensByResolution &&
+								(() => {
+									const imageInputPriceNum = parseFloat(
+										activeMapping.imageInputPrice!,
+									);
+									const named = Object.entries(
+										activeMapping.imageInputTokensByResolution!,
+									).filter(([k]) => k !== "default");
+									const defaultTokens =
+										activeMapping.imageInputTokensByResolution!["default"];
+									const entries: Array<[string, number]> =
+										named.length > 0
+											? named
+											: defaultTokens !== undefined
+												? [["any size", defaultTokens]]
+												: [];
+									if (entries.length === 0) {
+										return null;
+									}
+									const discountNum = activeMapping.discount
+										? parseFloat(activeMapping.discount)
+										: 0;
+									return (
+										<div className="mb-1.5">
+											<div className="text-[10px] text-muted-foreground mb-0.5">
+												Input
+											</div>
+											{entries.map(([res, tokensPerImage]) => {
+												const raw = tokensPerImage * imageInputPriceNum;
+												const discounted = raw * (1 - discountNum);
+												return (
+													<div
+														key={res}
+														className="flex justify-between items-center text-xs py-0.5"
+													>
+														<span className="text-muted-foreground">{res}</span>
+														<span className="font-mono tabular-nums">
+															{discountNum > 0 ? (
+																<>
+																	<span className="line-through text-muted-foreground mr-1">
+																		~${raw.toFixed(4)}
+																	</span>
+																	<span className="text-green-600 font-semibold">
+																		~${discounted.toFixed(4)}
+																	</span>
+																</>
+															) : (
+																`~$${raw.toFixed(4)}`
+															)}
+														</span>
+													</div>
+												);
+											})}
+										</div>
+									);
+								})()}
+							{activeMapping.imageOutputPrice &&
+								activeMapping.imageOutputTokensByResolution &&
+								(() => {
+									const imageOutputPriceNum = parseFloat(
+										activeMapping.imageOutputPrice!,
+									);
+									const entries = Object.entries(
+										activeMapping.imageOutputTokensByResolution!,
+									).filter(([k]) => k !== "default");
+									if (entries.length === 0) {
+										return null;
+									}
+									const discountNum = activeMapping.discount
+										? parseFloat(activeMapping.discount)
+										: 0;
+									return (
+										<div>
+											<div className="text-[10px] text-muted-foreground mb-0.5">
+												Output
+											</div>
+											{entries.map(([res, tokensPerImage]) => {
+												const raw = tokensPerImage * imageOutputPriceNum;
+												const discounted = raw * (1 - discountNum);
+												return (
+													<div
+														key={res}
+														className="flex justify-between items-center text-xs py-0.5"
+													>
+														<span className="text-muted-foreground">{res}</span>
+														<span className="font-mono tabular-nums">
+															{discountNum > 0 ? (
+																<>
+																	<span className="line-through text-muted-foreground mr-1">
+																		~${raw.toFixed(4)}
+																	</span>
+																	<span className="text-green-600 font-semibold">
+																		~${discounted.toFixed(4)}
+																	</span>
+																</>
+															) : (
+																`~$${raw.toFixed(4)}`
+															)}
+														</span>
+													</div>
+												);
+											})}
+										</div>
+									);
+								})()}
 						</div>
-						{activeMapping.imageInputPrice &&
-							activeMapping.imageInputTokensByResolution &&
-							(() => {
-								const imageInputPriceNum = parseFloat(
-									activeMapping.imageInputPrice!,
-								);
-								const named = Object.entries(
-									activeMapping.imageInputTokensByResolution!,
-								).filter(([k]) => k !== "default");
-								const defaultTokens =
-									activeMapping.imageInputTokensByResolution!["default"];
-								const entries: Array<[string, number]> =
-									named.length > 0
-										? named
-										: defaultTokens !== undefined
-											? [["any size", defaultTokens]]
-											: [];
-								if (entries.length === 0) {
-									return null;
-								}
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
-								return (
-									<div className="mb-1.5">
-										<div className="text-[10px] text-muted-foreground mb-0.5">
-											Input
-										</div>
-										{entries.map(([res, tokensPerImage]) => {
-											const raw = tokensPerImage * imageInputPriceNum;
-											const discounted = raw * (1 - discountNum);
-											return (
-												<div
-													key={res}
-													className="flex justify-between items-center text-xs py-0.5"
-												>
-													<span className="text-muted-foreground">{res}</span>
-													<span className="font-mono tabular-nums">
-														{discountNum > 0 ? (
-															<>
-																<span className="line-through text-muted-foreground mr-1">
-																	~${raw.toFixed(4)}
-																</span>
-																<span className="text-green-600 font-semibold">
-																	~${discounted.toFixed(4)}
-																</span>
-															</>
-														) : (
-															`~$${raw.toFixed(4)}`
-														)}
-													</span>
-												</div>
-											);
-										})}
-									</div>
-								);
-							})()}
-						{activeMapping.imageOutputPrice &&
-							activeMapping.imageOutputTokensByResolution &&
-							(() => {
-								const imageOutputPriceNum = parseFloat(
-									activeMapping.imageOutputPrice!,
-								);
-								const entries = Object.entries(
-									activeMapping.imageOutputTokensByResolution!,
-								).filter(([k]) => k !== "default");
-								if (entries.length === 0) {
-									return null;
-								}
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
-								return (
-									<div>
-										<div className="text-[10px] text-muted-foreground mb-0.5">
-											Output
-										</div>
-										{entries.map(([res, tokensPerImage]) => {
-											const raw = tokensPerImage * imageOutputPriceNum;
-											const discounted = raw * (1 - discountNum);
-											return (
-												<div
-													key={res}
-													className="flex justify-between items-center text-xs py-0.5"
-												>
-													<span className="text-muted-foreground">{res}</span>
-													<span className="font-mono tabular-nums">
-														{discountNum > 0 ? (
-															<>
-																<span className="line-through text-muted-foreground mr-1">
-																	~${raw.toFixed(4)}
-																</span>
-																<span className="text-green-600 font-semibold">
-																	~${discounted.toFixed(4)}
-																</span>
-															</>
-														) : (
-															`~$${raw.toFixed(4)}`
-														)}
-													</span>
-												</div>
-											);
-										})}
-									</div>
-								);
-							})()}
-					</div>
-				)}
+					)}
 
 				{/* Per-request / per-search price (if applicable) */}
 				{(!isImageGen &&

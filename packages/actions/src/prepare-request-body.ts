@@ -22,6 +22,7 @@ interface OpenAIImageRequest {
 	model: string;
 	prompt: string;
 	size?: string;
+	quality?: string;
 	n?: number;
 	image?: string | string[];
 }
@@ -619,6 +620,7 @@ export async function prepareRequestBody(
 	image_config?: {
 		aspect_ratio?: string;
 		image_size?: string;
+		image_quality?: string;
 		n?: number;
 		seed?: number;
 	},
@@ -692,10 +694,28 @@ export async function prepareRequestBody(
 			}
 		}
 
+		const openaiQuality = (() => {
+			const raw = image_config?.image_quality;
+			if (!raw) {
+				return undefined;
+			}
+			const normalized = raw.toLowerCase();
+			if (
+				normalized === "low" ||
+				normalized === "medium" ||
+				normalized === "high" ||
+				normalized === "auto"
+			) {
+				return normalized;
+			}
+			return undefined;
+		})();
+
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedModel,
 			prompt,
 			...(openaiSize && { size: openaiSize }),
+			...(openaiQuality && { quality: openaiQuality }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -707,6 +727,9 @@ export async function prepareRequestBody(
 			formData.append("prompt", openaiImageRequest.prompt);
 			if (openaiImageRequest.size) {
 				formData.append("size", openaiImageRequest.size);
+			}
+			if (openaiImageRequest.quality) {
+				formData.append("quality", openaiImageRequest.quality);
 			}
 			if (openaiImageRequest.n !== undefined) {
 				formData.append("n", String(openaiImageRequest.n));

@@ -74,6 +74,13 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 						map.imageInputTokensByResolution ?? null,
 					imageOutputTokensByResolution:
 						map.imageOutputTokensByResolution ?? null,
+					imageGenerationPriceMatrix: map.imageGenerationPriceMatrix ?? null,
+					supportedImageSizes: map.supportedImageSizes
+						? [...map.supportedImageSizes]
+						: null,
+					supportedImageQualities: map.supportedImageQualities
+						? [...map.supportedImageQualities]
+						: null,
 					requestPrice: map.requestPrice?.toString() ?? null,
 					contextSize: map.contextSize ?? null,
 					maxOutput: map.maxOutput ?? null,

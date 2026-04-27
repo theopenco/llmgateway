@@ -30,6 +30,7 @@ interface ImageRequestBody {
 			| "1:8"
 			| "8:1";
 		image_size?: "0.5K" | "1K" | "2K" | "4K" | string;
+		image_quality?: "auto" | "low" | "medium" | "high" | string;
 		n?: number;
 	};
 	input_images?: { url: string; mediaType: string }[];
@@ -81,6 +82,7 @@ export async function POST(req: Request) {
 			? "http://localhost:4001/v1"
 			: "https://api.llmgateway.io/v1");
 
+	const imageQuality = image_config?.image_quality;
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
 		baseURL: gatewayUrl,
@@ -90,6 +92,9 @@ export async function POST(req: Request) {
 		},
 		extraBody: {
 			image_config,
+			// `/v1/images/generations` reads `quality` as a top-level field; pass it
+			// alongside `image_config.image_quality` so both endpoints see it.
+			...(imageQuality ? { quality: imageQuality } : {}),
 		},
 	}) as any;
 

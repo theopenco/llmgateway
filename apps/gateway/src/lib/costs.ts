@@ -102,6 +102,7 @@ export async function calculateCosts(
 	inputImageCount = 0,
 	webSearchCount: number | null = null,
 	organizationId: string | null = null,
+	imageQuality?: string,
 ) {
 	// Find the model info - try both base model name and provider model name
 	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
@@ -354,18 +355,59 @@ export async function calculateCosts(
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 
+	// Resolve the per-image flat price for the given (quality, size) combination
+	// from the price matrix. Falls back through specific size → "default" → first
+	// available entry, and similarly for quality.
+	function resolvePriceFromMatrix(
+		matrix: Record<string, Record<string, number>> | undefined,
+		quality: string | undefined,
+		size: string | undefined,
+	): number | undefined {
+		if (!matrix) {
+			return undefined;
+		}
+		const qualityKey = quality ?? "default";
+		const sizeKey = size ?? "default";
+		const byQuality =
+			matrix[qualityKey] ??
+			matrix["default"] ??
+			matrix[Object.keys(matrix)[0] ?? ""];
+		if (!byQuality) {
+			return undefined;
+		}
+		return (
+			byQuality[sizeKey] ??
+			byQuality["default"] ??
+			byQuality[Object.keys(byQuality)[0] ?? ""]
+		);
+	}
+
 	// Calculate output cost, handling separate image output pricing if applicable.
-	// Uses imageOutputTokensByResolution for per-resolution token counts and
-	// imageOutputPrice for the per-token price.
+	// Models that price per image by (quality, size) use imageGenerationPriceMatrix.
+	// Otherwise, models with token-based image pricing use imageOutputTokensByResolution
+	// for per-resolution token counts and imageOutputPrice for the per-token price.
 	let outputCost: Decimal;
 	let imageOutputTokens: number | null = null;
 	let imageOutputCost: Decimal | null = null;
+	const matrixPricePerImage = resolvePriceFromMatrix(
+		providerInfo.imageGenerationPriceMatrix,
+		imageQuality,
+		imageSize,
+	);
 	const imageOutputTokensPerImage = resolveTokensPerImage(
 		providerInfo.imageOutputTokensByResolution,
 		imageSize,
 	);
 	const imageOutputPricePerToken = providerInfo.imageOutputPrice;
-	if (imageOutputPricePerToken && outputImageCount > 0) {
+	if (matrixPricePerImage !== undefined && outputImageCount > 0) {
+		imageOutputCost = new Decimal(matrixPricePerImage)
+			.times(outputImageCount)
+			.times(discountMultiplier);
+		outputCost = new Decimal(totalOutputTokens)
+			.times(outputPrice)
+			.times(discountMultiplier)
+			.plus(imageOutputCost);
+	} else if (imageOutputPricePerToken && outputImageCount > 0) {
 		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
 		const tokensPerImage =
 			imageOutputTokensPerImage ?? LEGACY_DEFAULT_TOKENS_PER_IMAGE;

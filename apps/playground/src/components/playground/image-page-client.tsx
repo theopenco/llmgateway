@@ -81,6 +81,7 @@ export default function ImagePageClient({
 	const [imageAspectRatio, setImageAspectRatio] = useState<AspectRatio>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
 	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [imageQuality, setImageQuality] = useState<string>("auto");
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 
 	// Input images for image-edit models
@@ -177,17 +178,34 @@ export default function ImagePageClient({
 		}
 	}, [comparisonMode, pathname, router, selectedModels]);
 
-	// Reset imageSize when model changes, clear input images when switching away from edit model
+	// Reset imageSize/quality when model changes, clear input images when switching away from edit model
 	useEffect(() => {
 		const primaryModel = selectedModels[0] ?? "";
 		const config = getModelImageConfig(primaryModel);
-		if (!config.availableSizes.includes(imageSize as never)) {
+		if (config.usesPixelDimensions) {
+			if (!config.availableSizes.includes(alibabaImageSize as never)) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (!config.availableSizes.includes(imageSize as never)) {
 			setImageSize(config.defaultSize);
+		}
+		if (
+			!config.supportsQuality ||
+			!config.availableQualities.includes(imageQuality as never)
+		) {
+			setImageQuality(config.defaultQuality);
 		}
 		if (!isEditModel) {
 			setInputImages([]);
 		}
-	}, [selectedModels, imageSize, imageGenModels, isEditModel]);
+	}, [
+		selectedModels,
+		imageSize,
+		alibabaImageSize,
+		imageQuality,
+		imageGenModels,
+		isEditModel,
+	]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
@@ -256,11 +274,18 @@ export default function ImagePageClient({
 			// Build image config
 			const primaryModel = selectedModels[0] ?? "";
 			const config = getModelImageConfig(primaryModel);
+			const includeQuality =
+				config.supportsQuality && imageQuality && imageQuality !== "auto";
 			const imageConfigBody = config.usesPixelDimensions
 				? {
-						...(alibabaImageSize !== "1024x1024" && {
-							image_size: alibabaImageSize,
-						}),
+						...(config.isGptImage
+							? alibabaImageSize !== "auto" && {
+									image_size: alibabaImageSize,
+								}
+							: alibabaImageSize !== "1024x1024" && {
+									image_size: alibabaImageSize,
+								}),
+						...(includeQuality && { image_quality: imageQuality }),
 						n: imageCount,
 					}
 				: {
@@ -380,6 +405,7 @@ export default function ImagePageClient({
 			alibabaImageSize,
 			imageAspectRatio,
 			imageSize,
+			imageQuality,
 			imageCount,
 			inputImages,
 			posthog,
@@ -494,6 +520,8 @@ export default function ImagePageClient({
 						setImageSize={setImageSize}
 						alibabaImageSize={alibabaImageSize}
 						setAlibabaImageSize={setAlibabaImageSize}
+						imageQuality={imageQuality}
+						setImageQuality={setImageQuality}
 						imageCount={imageCount}
 						setImageCount={setImageCount}
 						isGenerating={isGenerating}

@@ -382,11 +382,12 @@ images.openapi(generations, async (c) => {
 		stream: false,
 	};
 
-	// Pass image configuration if we have an aspect ratio, size, or n > 1
-	if (aspectRatio || request.size || request.n > 1) {
+	// Pass image configuration if we have an aspect ratio, size, quality, or n > 1
+	if (aspectRatio || request.size || request.quality || request.n > 1) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(request.size && { image_size: request.size }),
+			...(request.quality && { image_quality: request.quality }),
 			n: request.n,
 		};
 	}
@@ -395,6 +396,7 @@ images.openapi(generations, async (c) => {
 		model: request.model,
 		prompt: request.prompt.slice(0, 200),
 		size: request.size,
+		quality: request.quality,
 		n: request.n,
 	});
 
@@ -754,11 +756,13 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 		aspectRatio ||
 		requestedSize ||
 		(request.n !== undefined && request.n > 1) ||
-		request.output_format
+		request.output_format ||
+		request.quality
 	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(requestedSize && { image_size: requestedSize }),
+			...(request.quality && { image_quality: request.quality }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.output_compression !== undefined && {
