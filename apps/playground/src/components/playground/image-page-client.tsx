@@ -274,8 +274,10 @@ export default function ImagePageClient({
 			// Build image config
 			const primaryModel = selectedModels[0] ?? "";
 			const config = getModelImageConfig(primaryModel);
-			const includeQuality =
-				config.supportsQuality && imageQuality && imageQuality !== "auto";
+			// Always forward the user's quality choice (including "auto") so it
+			// shows up in the activity log; the gateway / model treat "auto" the
+			// same as omitting the field upstream.
+			const includeQuality = config.supportsQuality && !!imageQuality;
 			const imageConfigBody = config.usesPixelDimensions
 				? {
 						...(config.isGptImage

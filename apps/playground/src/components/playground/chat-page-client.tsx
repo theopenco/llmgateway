@@ -413,8 +413,10 @@ export default function ChatPageClient({
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
-			const includeQuality =
-				isGptImage && imageQuality && imageQuality !== "auto";
+			// Always forward the user's quality choice (including "auto") so it
+			// surfaces in the activity log; the gateway treats "auto" as a no-op
+			// upstream.
+			const includeQuality = isGptImage && !!imageQuality;
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
@@ -1305,8 +1307,10 @@ function ExtraChatPanel({
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
-			const includeQuality =
-				isGptImage && imageQuality && imageQuality !== "auto";
+			// Always forward the user's quality choice (including "auto") so it
+			// surfaces in the activity log; the gateway treats "auto" as a no-op
+			// upstream.
+			const includeQuality = isGptImage && !!imageQuality;
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
