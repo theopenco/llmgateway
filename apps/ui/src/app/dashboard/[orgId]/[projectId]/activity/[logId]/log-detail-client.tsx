@@ -41,6 +41,7 @@ import type { Log } from "@llmgateway/db";
 interface ImageConfig {
 	aspect_ratio?: string;
 	image_size?: string;
+	image_quality?: string;
 	n?: number;
 	output_format?: string;
 	output_compression?: number;
@@ -793,6 +794,12 @@ export function LogDetailClient({
 									)}
 									{imageConfig?.image_size && (
 										<Field label="Image Size" value={imageConfig.image_size} />
+									)}
+									{imageConfig?.image_quality && (
+										<Field
+											label="Image Quality"
+											value={imageConfig.image_quality}
+										/>
 									)}
 									{imageConfig?.n !== undefined && imageConfig.n !== null && (
 										<Field label="Image Count" value={imageConfig.n} />
