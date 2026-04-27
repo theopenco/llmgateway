@@ -957,9 +957,17 @@ export async function prepareRequestBody(
 	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek
 	// accepts an empty string, but Moonshot's newer reasoning models (kimi-k2.5,
 	// kimi-k2.6) treat an empty string as missing — use a single space as a
-	// non-empty placeholder there.
-	if (usedProvider === "deepseek" || usedProvider === "moonshot") {
-		const fallback = usedProvider === "moonshot" ? " " : "";
+	// non-empty placeholder there. Novita proxies DeepSeek V4 with the same
+	// upstream constraint, so apply the DeepSeek behavior there too.
+	const isNovitaDeepseekV4 =
+		usedProvider === "novita" && usedModel.startsWith("deepseek/deepseek-v4");
+	if (
+		usedProvider === "deepseek" ||
+		usedProvider === "moonshot" ||
+		isNovitaDeepseekV4
+	) {
+		const fallback =
+			usedProvider === "moonshot" || isNovitaDeepseekV4 ? " " : "";
 		processedMessages = processedMessages.map((m) => {
 			if (
 				m.role !== "assistant" ||
