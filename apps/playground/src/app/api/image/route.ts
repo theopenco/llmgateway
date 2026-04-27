@@ -83,18 +83,46 @@ export async function POST(req: Request) {
 			: "https://api.llmgateway.io/v1");
 
 	const imageQuality = image_config?.image_quality;
+	// The LLM Gateway AI SDK provider only forwards `extraBody` for chat
+	// completions; its image-gen call doesn't pick it up, so OpenAI-only fields
+	// like `quality` get dropped. Wrap fetch to inject `quality` into the
+	// `/images/generations` request body — keeps `generateImage` as the call
+	// surface while still letting us pass arbitrary fields through.
+	const fetchWithImageQuality: typeof fetch = async (input, init) => {
+		if (
+			imageQuality &&
+			init?.method?.toUpperCase() === "POST" &&
+			typeof init.body === "string"
+		) {
+			const url = typeof input === "string" ? input : input.toString();
+			if (
+				url.includes("/images/generations") ||
+				url.includes("/images/edits")
+			) {
+				try {
+					const parsed = JSON.parse(init.body);
+					if (parsed && typeof parsed === "object" && !("quality" in parsed)) {
+						parsed.quality = imageQuality;
+						init = { ...init, body: JSON.stringify(parsed) };
+					}
+				} catch {
+					// not JSON — leave the body alone
+				}
+			}
+		}
+		return await fetch(input, init);
+	};
+
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
 		baseURL: gatewayUrl,
+		fetch: fetchWithImageQuality,
 		headers: {
 			"x-source": "chat.llmgateway.io",
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
 		extraBody: {
 			image_config,
-			// `/v1/images/generations` reads `quality` as a top-level field; pass it
-			// alongside `image_config.image_quality` so both endpoints see it.
-			...(imageQuality ? { quality: imageQuality } : {}),
 		},
 	}) as any;
 
