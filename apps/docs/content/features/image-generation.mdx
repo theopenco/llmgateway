@@ -102,7 +102,10 @@ const result = await generateImage({
 	// (use a literal WxH `size` instead).
 	aspectRatio: "16:9",
 	// quality works on OpenAI gpt-image-2 ("low" | "medium" | "high" | "auto").
-	quality: "high",
+	// The AI SDK only forwards it through providerOptions.
+	providerOptions: {
+		llmgateway: { quality: "high" },
+	},
 });
 
 result.images.forEach((image, i) => {
