@@ -8623,7 +8623,6 @@ export interface operations {
                                 imageOutputTokensByResolution: {
                                     [key: string]: number;
                                 } | null;
-                                supportedImageSizes: string[] | null;
                                 requestPrice: string | null;
                                 contextSize: number | null;
                                 maxOutput: number | null;

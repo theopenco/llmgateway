@@ -34,8 +34,9 @@ export type AspectRatio =
 	| "1:8"
 	| "8:1";
 
-// Keep this list in sync with `supportedImageSizes` on the gpt-image-2
-// provider mapping in packages/models/src/models/openai.ts.
+// Common gpt-image-2 sizes shown as presets in the playground. OpenAI also
+// accepts arbitrary WxH sizes (both sides divisible by 16, max edge 3840) —
+// this list is just for the dropdown UI.
 export const GPT_IMAGE_SIZES = [
 	"auto",
 	"1024x1024",

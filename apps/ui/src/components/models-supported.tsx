@@ -119,9 +119,6 @@ const convertToApiModel = (
 						map.imageInputTokensByResolution ?? null,
 					imageOutputTokensByResolution:
 						map.imageOutputTokensByResolution ?? null,
-					supportedImageSizes: map.supportedImageSizes
-						? [...map.supportedImageSizes]
-						: null,
 					requestPrice: map.requestPrice?.toString() ?? null,
 					contextSize: map.contextSize ?? null,
 					maxOutput: map.maxOutput ?? null,

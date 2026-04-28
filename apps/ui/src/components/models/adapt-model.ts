@@ -50,9 +50,6 @@ export function adaptProviderMapping(
 			imageOutputPrice: toStr(p.imageOutputPrice),
 			imageInputTokensByResolution: p.imageInputTokensByResolution ?? null,
 			imageOutputTokensByResolution: p.imageOutputTokensByResolution ?? null,
-			supportedImageSizes: p.supportedImageSizes
-				? [...p.supportedImageSizes]
-				: null,
 			requestPrice: toStr(p.requestPrice),
 			contextSize: p.contextSize ?? null,
 			maxOutput: p.maxOutput ?? null,

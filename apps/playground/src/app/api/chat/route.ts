@@ -474,11 +474,7 @@ export async function POST(req: Request) {
 					? { aspectRatio: image_config.aspect_ratio }
 					: {}),
 				...(image_config?.image_quality
-					? {
-							providerOptions: {
-								llmgateway: { quality: image_config.image_quality },
-							},
-						}
+					? { quality: image_config.image_quality }
 					: {}),
 			});
 

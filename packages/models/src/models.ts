@@ -159,11 +159,6 @@ export interface ProviderModelMapping {
 	 */
 	imageInputTokensByResolution?: Record<string, number>;
 	/**
-	 * List of supported image generation sizes (e.g., "1024x1024", "auto").
-	 * Used by UIs to populate resolution dropdowns and validate request inputs.
-	 */
-	supportedImageSizes?: string[];
-	/**
 	 * Price per request in USD
 	 */
 	requestPrice?: number;
