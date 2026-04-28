@@ -267,6 +267,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/models/{modelId}/uptime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get model uptime
+         * @description Returns per-provider request volume, errors, latency, and throughput for a specific model over the last 4 hours.
+         */
+        get: operations["internal_get_model_uptime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/discounts/model/{modelId}": {
         parameters: {
             query?: never;
@@ -8735,6 +8755,54 @@ export interface operations {
                             source: string;
                             fetchedAt: string;
                         };
+                    };
+                };
+            };
+        };
+    };
+    internal_get_model_uptime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                modelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-provider uptime time series for the last 4 hours. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        modelId: string;
+                        windowMinutes: number;
+                        providers: {
+                            providerId: string;
+                            providerName: string;
+                            logsCount: number;
+                            errorsCount: number;
+                            upstreamErrorsCount: number;
+                            uptime: number | null;
+                            avgTtft: number | null;
+                            avgDuration: number | null;
+                            tokensPerSecond: number | null;
+                            points: {
+                                timestamp: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                clientErrorsCount: number;
+                                gatewayErrorsCount: number;
+                                upstreamErrorsCount: number;
+                                cachedCount: number;
+                                avgTtft: number | null;
+                                avgDuration: number | null;
+                                totalTokens: number;
+                            }[];
+                        }[];
                     };
                 };
             };
