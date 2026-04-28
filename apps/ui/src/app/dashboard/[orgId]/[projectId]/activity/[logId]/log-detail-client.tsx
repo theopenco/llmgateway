@@ -552,6 +552,9 @@ export function LogDetailClient({
 																		${score.price.toFixed(10)}
 																	</span>
 																)}
+																{score.cacheSupported && (
+																	<span className="ml-2">cache</span>
+																)}
 															</span>
 														</div>
 													))}
