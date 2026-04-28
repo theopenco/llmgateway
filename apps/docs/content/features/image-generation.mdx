@@ -97,6 +97,12 @@ const result = await generateImage({
 		"A cozy cabin in a snowy mountain landscape at night with aurora borealis",
 	size: "1024x1024",
 	n: 1,
+	// aspectRatio and quality are model-specific — only some providers honor them.
+	// aspectRatio works on Gemini image models; OpenAI gpt-image-2 ignores it
+	// (use a literal WxH `size` instead).
+	aspectRatio: "16:9",
+	// quality works on OpenAI gpt-image-2 ("low" | "medium" | "high" | "auto").
+	quality: "high",
 });
 
 result.images.forEach((image, i) => {
