@@ -406,9 +406,12 @@ export async function calculateCosts(
 			.plus(imageOutputCost);
 	} else if (imageOutputPricePerToken && outputImageCount > 0) {
 		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
-		const tokensPerImage =
-			imageOutputTokensPerImage ?? LEGACY_DEFAULT_TOKENS_PER_IMAGE;
-		imageOutputTokens = outputImageCount * tokensPerImage;
+		imageOutputTokens =
+			imageOutputTokensPerImage !== undefined
+				? outputImageCount * imageOutputTokensPerImage
+				: totalOutputTokens > 0
+					? totalOutputTokens
+					: outputImageCount * LEGACY_DEFAULT_TOKENS_PER_IMAGE;
 		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
 
 		imageOutputCost = new Decimal(imageOutputTokens)

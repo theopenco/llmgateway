@@ -4,6 +4,37 @@ import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
+async function prepareOpenAIImageRequest(imageConfig: {
+	aspect_ratio?: string;
+	image_size?: string;
+	image_quality?: string;
+	n?: number;
+}) {
+	return await prepareRequestBody(
+		"openai",
+		"gpt-image-2",
+		[{ role: "user", content: "Generate a cinematic landscape" }],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		false,
+		false,
+		20,
+		null,
+		undefined,
+		imageConfig,
+		undefined,
+		true,
+	);
+}
+
 describe("prepareRequestBody - Anthropic", () => {
 	test("should extract system messages to system field for caching", async () => {
 		const requestBody = (await prepareRequestBody(
@@ -159,6 +190,50 @@ describe("prepareRequestBody - Anthropic", () => {
 
 		// Should be exactly 4 (the limit)
 		expect(totalCacheControlBlocks).toBe(4);
+	});
+});
+
+describe("prepareRequestBody - OpenAI image generation", () => {
+	test.each([
+		"1024x1024",
+		"1536x1024",
+		"1024x1536",
+		"2048x2048",
+		"2048x1152",
+		"3840x2160",
+		"2160x3840",
+		"auto",
+	])("should pass through supported gpt-image-2 size %s", async (size) => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: size,
+			image_quality: "high",
+			n: 1,
+		})) as any;
+
+		expect(requestBody).toMatchObject({
+			model: "gpt-image-2",
+			prompt: "Generate a cinematic landscape",
+			size,
+			quality: "high",
+			n: 1,
+		});
+	});
+
+	test("should still map 1K presets by aspect ratio", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: "1K",
+			aspect_ratio: "16:9",
+		})) as any;
+
+		expect(requestBody.size).toBe("1536x1024");
+	});
+
+	test("should fall back unsupported sizes to auto", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: "4096x4096",
+		})) as any;
+
+		expect(requestBody.size).toBe("auto");
 	});
 });
 

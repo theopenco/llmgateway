@@ -20,6 +20,17 @@ import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
 
+const OPENAI_IMAGE_SIZES = new Set([
+	"1024x1024",
+	"1024x1536",
+	"1536x1024",
+	"2048x2048",
+	"2048x1152",
+	"3840x2160",
+	"2160x3840",
+	"auto",
+]);
+
 interface OpenAIImageRequest {
 	model: string;
 	prompt: string;
@@ -683,18 +694,12 @@ export async function prepareRequestBody(
 		}
 
 		// Normalize size to OpenAI gpt-image accepted values.
-		// gpt-image-1/2 accepts: "1024x1024", "1024x1536", "1536x1024", "auto".
 		const rawSize = image_config?.image_size;
 		const aspectRatio = image_config?.aspect_ratio;
 		let openaiSize: string | undefined;
 		if (rawSize) {
 			const normalized = rawSize.toLowerCase();
-			if (
-				normalized === "1024x1024" ||
-				normalized === "1024x1536" ||
-				normalized === "1536x1024" ||
-				normalized === "auto"
-			) {
+			if (OPENAI_IMAGE_SIZES.has(normalized)) {
 				openaiSize = rawSize;
 			} else if (normalized === "1k") {
 				// Map resolution presets with aspect ratio when available

@@ -160,7 +160,7 @@ export interface ProviderModelMapping {
 	imageInputTokensByResolution?: Record<string, number>;
 	/**
 	 * Flat per-image price matrix indexed by quality and size for image generation
-	 * models that price per image rather than per token (e.g., OpenAI gpt-image-2).
+	 * models that price per image rather than per token.
 	 * Shape: { [quality]: { [size]: pricePerImageUSD } }.
 	 * Use "default" keys for fallback when quality or size is not specified.
 	 * When set, the gateway uses this matrix to compute output cost as

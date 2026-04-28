@@ -1949,8 +1949,6 @@ export const openaiModels = [
 				tools: false,
 				jsonOutput: false,
 				imageGenerations: true,
-				// 2K/4K sizes have no matrix entry and fall back to per-token
-				// billing via imageOutputPrice.
 				supportedImageSizes: [
 					"auto",
 					"1024x1024",
@@ -1962,23 +1960,6 @@ export const openaiModels = [
 					"2160x3840",
 				],
 				supportedImageQualities: ["low", "medium", "high", "auto"],
-				imageGenerationPriceMatrix: {
-					low: {
-						"1024x1024": 0.006,
-						"1536x1024": 0.005,
-						"1024x1536": 0.005,
-					},
-					medium: {
-						"1024x1024": 0.053,
-						"1536x1024": 0.041,
-						"1024x1536": 0.041,
-					},
-					high: {
-						"1024x1024": 0.211,
-						"1536x1024": 0.165,
-						"1024x1536": 0.165,
-					},
-				},
 			},
 		],
 	},
