@@ -3,6 +3,7 @@ import { encode } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
+import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
 import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
@@ -1102,11 +1103,8 @@ chat.openapi(completions, async (c) => {
 	// Extract User-Agent header for logging
 	const userAgent = c.req.header("User-Agent") ?? undefined;
 
-	// Match specific user agents and set source if x-source header is not specified
 	if (!source) {
-		if (userAgent && /^claude-cli\/.+/.test(userAgent)) {
-			source = "claude.com/claude-code";
-		}
+		source = detectCodingAgentFromUserAgent(userAgent);
 	}
 
 	// Check if debug mode is enabled via x-debug header

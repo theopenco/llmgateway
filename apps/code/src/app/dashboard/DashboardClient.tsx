@@ -1,6 +1,5 @@
 "use client";
 
-import { format } from "date-fns";
 import {
 	ArrowRight,
 	Code,
@@ -13,7 +12,7 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -27,6 +26,7 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import type { PlanOption, PlanTier } from "./types";
+import type { DevPlanCycle } from "@llmgateway/shared";
 
 const DashboardIntegrations = dynamic(
 	() => import("./components/DashboardIntegrations"),
@@ -38,6 +38,8 @@ const InactivePlanChooser = dynamic(
 	() => import("./components/InactivePlanChooser"),
 );
 const DevPlanSettings = dynamic(() => import("./components/DevPlanSettings"));
+const UsageOverview = dynamic(() => import("./components/UsageOverview"));
+const CodingAgents = dynamic(() => import("./components/CodingAgents"));
 
 const plans: PlanOption[] = [
 	{
@@ -63,61 +65,6 @@ const plans: PlanOption[] = [
 		tier: "max",
 	},
 ];
-
-function UsageMeter({
-	used,
-	limit,
-	percentage,
-}: {
-	used: number;
-	limit: number;
-	percentage: number;
-}) {
-	const clampedPercentage = Math.min(100, percentage);
-	const remaining = Math.max(0, limit - used);
-	const isLow = percentage > 80;
-	const isExhausted = percentage >= 100;
-
-	return (
-		<div className="space-y-3">
-			<div className="flex items-baseline justify-between">
-				<div>
-					<span className="text-3xl font-bold tabular-nums">
-						${remaining.toFixed(2)}
-					</span>
-					<span className="ml-1.5 text-sm text-muted-foreground">
-						remaining
-					</span>
-				</div>
-				<span className="text-sm tabular-nums text-muted-foreground">
-					${used.toFixed(2)} / ${limit.toFixed(2)}
-				</span>
-			</div>
-			<div className="relative h-2.5 overflow-hidden rounded-full bg-muted">
-				<div
-					className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
-						isExhausted
-							? "bg-destructive"
-							: isLow
-								? "bg-yellow-500"
-								: "bg-foreground"
-					}`}
-					style={{ width: `${clampedPercentage}%` }}
-				/>
-			</div>
-			{isLow && !isExhausted && (
-				<p className="text-xs text-yellow-600 dark:text-yellow-400">
-					Usage is above 80% — consider upgrading your plan.
-				</p>
-			)}
-			{isExhausted && (
-				<p className="text-xs text-destructive">
-					Usage limit reached. Upgrade to continue coding.
-				</p>
-			)}
-		</div>
-	);
-}
 
 function ApiKeySection({ apiKey, uiUrl }: { apiKey: string; uiUrl: string }) {
 	const [visible, setVisible] = useState(false);
@@ -231,6 +178,7 @@ function QuickStart({ apiKey }: { apiKey: string }) {
 
 export default function DashboardClient() {
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const posthog = usePostHog();
 	const { signOut } = useAuth();
 	const config = useAppConfig();
@@ -260,11 +208,14 @@ export default function DashboardClient() {
 	const resumeMutation = api.useMutation("post", "/dev-plans/resume");
 	const changeTierMutation = api.useMutation("post", "/dev-plans/change-tier");
 
-	const handleSubscribe = async (tier: PlanTier): Promise<void> => {
+	const handleSubscribe = async (
+		tier: PlanTier,
+		cycle: DevPlanCycle = "monthly",
+	): Promise<void> => {
 		setSubscribingTier(tier);
 		try {
 			const result = await subscribeMutation.mutateAsync({
-				body: { tier },
+				body: { tier, cycle },
 			});
 
 			if (!result?.checkoutUrl) {
@@ -273,7 +224,7 @@ export default function DashboardClient() {
 			}
 
 			if (posthogKey) {
-				posthog.capture("dev_plan_subscribe_started", { tier });
+				posthog.capture("dev_plan_subscribe_started", { tier, cycle });
 			}
 			window.location.href = result.checkoutUrl;
 		} catch {
@@ -317,6 +268,9 @@ export default function DashboardClient() {
 	};
 
 	const handleChangeTier = async (newTier: PlanTier): Promise<void> => {
+		// Cycle is intentionally not sent — the server preserves the existing
+		// monthly/annual cadence by reading it from the org's stored devPlanCycle
+		// and looks up the matching annual or monthly Stripe price ID.
 		setSubscribingTier(newTier);
 		try {
 			await changeTierMutation.mutateAsync({
@@ -350,8 +304,6 @@ export default function DashboardClient() {
 		devPlanStatus?.devPlan && devPlanStatus.devPlan !== "none";
 	const creditsUsed = parseFloat(devPlanStatus?.devPlanCreditsUsed ?? "0");
 	const creditsLimit = parseFloat(devPlanStatus?.devPlanCreditsLimit ?? "0");
-	const usagePercentage =
-		creditsLimit > 0 ? (creditsUsed / creditsLimit) * 100 : 0;
 
 	const currentPlanName = devPlanStatus?.devPlan?.toUpperCase() ?? "";
 	const currentPlanData = plans.find((p) => p.tier === devPlanStatus?.devPlan);
@@ -389,87 +341,78 @@ export default function DashboardClient() {
 				</div>
 			</header>
 
-			<main className="container mx-auto px-4 py-8 max-w-5xl">
+			<main className="container mx-auto px-4 py-8 max-w-6xl">
 				{hasActivePlan ? (
-					<div className="space-y-8">
-						{/* Top row: Usage + API Key side by side */}
-						<div className="grid gap-6 lg:grid-cols-5">
-							{/* Usage — takes more space */}
-							<div className="lg:col-span-3 rounded-xl border p-6 space-y-5">
-								<div className="flex items-center justify-between">
-									<div>
-										<h2 className="font-semibold">
-											{currentPlanName} Plan
-											{currentPlanData && (
-												<span className="ml-2 text-sm font-normal text-muted-foreground">
-													${currentPlanData.price}/mo
-												</span>
-											)}
-										</h2>
-										<p className="mt-0.5 text-sm text-muted-foreground">
-											{devPlanStatus?.devPlanCancelled
-												? "Cancels at end of billing period"
-												: devPlanStatus?.devPlanBillingCycleStart
-													? `Since ${format(new Date(devPlanStatus.devPlanBillingCycleStart), "MMM d, yyyy")}`
-													: "Active subscription"}
-										</p>
-									</div>
-									<div>
-										{devPlanStatus?.devPlanCancelled ? (
-											<Button
-												variant="outline"
-												size="sm"
-												onClick={handleResume}
-												disabled={isResuming}
-											>
-												{isResuming && (
-													<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-												)}
-												Resume
-											</Button>
-										) : (
-											<Button
-												variant="ghost"
-												size="sm"
-												onClick={handleCancel}
-												disabled={isCancelling}
-												className="text-muted-foreground"
-											>
-												{isCancelling && (
-													<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-												)}
-												Cancel
-											</Button>
-										)}
-									</div>
-								</div>
+					<div className="space-y-10">
+						{/* Top row: subscription controls (cancel/resume) */}
+						<div className="flex justify-end">
+							{devPlanStatus?.devPlanCancelled ? (
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={handleResume}
+									disabled={isResuming}
+								>
+									{isResuming && (
+										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+									)}
+									Resume subscription
+								</Button>
+							) : (
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={handleCancel}
+									disabled={isCancelling}
+									className="text-muted-foreground"
+								>
+									{isCancelling && (
+										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+									)}
+									Cancel subscription
+								</Button>
+							)}
+						</div>
 
-								<UsageMeter
-									used={creditsUsed}
-									limit={creditsLimit}
-									percentage={usagePercentage}
-								/>
-							</div>
+						{/* Usage — full-width with metrics + chart */}
+						<UsageOverview
+							projectId={devPlanStatus?.projectId ?? null}
+							creditsUsed={creditsUsed}
+							creditsLimit={creditsLimit}
+							planName={currentPlanName}
+							planPrice={currentPlanData?.price}
+							billingCycleStart={
+								devPlanStatus?.devPlanBillingCycleStart ?? null
+							}
+							cancelledAtPeriodEnd={devPlanStatus?.devPlanCancelled ?? false}
+							cycle={devPlanStatus?.devPlanCycle ?? "monthly"}
+						/>
 
-							{/* API Key + Quick Start */}
-							<div className="lg:col-span-2 rounded-xl border p-6 space-y-6">
+						{/* API Key + Quick start */}
+						<div className="grid gap-6 lg:grid-cols-2">
+							<div className="rounded-xl border bg-card p-6">
 								{devPlanStatus?.apiKey ? (
-									<>
-										<ApiKeySection
-											apiKey={devPlanStatus.apiKey}
-											uiUrl={config.uiUrl}
-										/>
-										<div className="border-t pt-5">
-											<QuickStart apiKey={devPlanStatus.apiKey} />
-										</div>
-									</>
+									<ApiKeySection
+										apiKey={devPlanStatus.apiKey}
+										uiUrl={config.uiUrl}
+									/>
 								) : (
 									<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
 										API key will appear here after setup
 									</div>
 								)}
 							</div>
+							<div className="rounded-xl border bg-card p-6">
+								{devPlanStatus?.apiKey ? (
+									<QuickStart apiKey={devPlanStatus.apiKey} />
+								) : null}
+							</div>
 						</div>
+
+						{/* Coding Agents */}
+						{devPlanStatus?.organizationId && (
+							<CodingAgents orgId={devPlanStatus.organizationId} />
+						)}
 
 						{/* Integrations */}
 						<DashboardIntegrations />
@@ -514,6 +457,9 @@ export default function DashboardClient() {
 							plans={plans}
 							subscribingTier={subscribingTier}
 							onSubscribe={handleSubscribe}
+							initialCycle={
+								searchParams.get("cycle") === "annual" ? "annual" : "monthly"
+							}
 						/>
 					</div>
 				)}

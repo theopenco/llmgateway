@@ -4,7 +4,11 @@ import { z } from "zod";
 
 import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
+import {
+	getDevPlanCreditsLimit,
+	type DevPlanCycle,
+	type DevPlanTier,
+} from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
@@ -277,6 +281,8 @@ async function handleCheckoutSessionCompleted(
 	// Check if this is a dev plan subscription
 	const isDevPlan = metadata?.subscriptionType === "dev_plan";
 	const devPlanTier = metadata?.devPlan as DevPlanTier | undefined;
+	const devPlanCycle: DevPlanCycle =
+		metadata?.devPlanCycle === "annual" ? "annual" : "monthly";
 
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlan: ${isDevPlan}`,
@@ -296,6 +302,7 @@ async function handleCheckoutSessionCompleted(
 					devPlanBillingCycleStart: new Date(),
 					devPlanStripeSubscriptionId: subscriptionId,
 					devPlanCancelled: false,
+					devPlanCycle,
 				})
 				.where(eq(tables.organization.id, organizationId));
 

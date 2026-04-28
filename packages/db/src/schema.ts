@@ -163,6 +163,9 @@ export const organization = pgTable("organization", {
 	devPlanStripeSubscriptionId: text().unique(),
 	devPlanCancelled: boolean().notNull().default(false),
 	devPlanExpiresAt: timestamp(),
+	devPlanCycle: text({ enum: ["monthly", "annual"] })
+		.notNull()
+		.default("monthly"),
 	devPlanAllowAllModels: boolean().notNull().default(false),
 	// Last top-up amount (used for low balance alert thresholds)
 	lastTopUpAmount: decimal(),

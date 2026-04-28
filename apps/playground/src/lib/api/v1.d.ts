@@ -5778,6 +5778,8 @@ export interface paths {
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
+                                /** @enum {string} */
+                                devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
                                 devPlanBillingCycleStart: string | null;
@@ -5837,6 +5839,8 @@ export interface paths {
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
+                                /** @enum {string} */
+                                devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
                                 devPlanBillingCycleStart: string | null;
@@ -6024,6 +6028,8 @@ export interface paths {
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
+                                /** @enum {string} */
+                                devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
                                 devPlanBillingCycleStart: string | null;
@@ -7402,6 +7408,11 @@ export interface paths {
                     "application/json": {
                         /** @enum {string} */
                         tier: "lite" | "pro" | "max";
+                        /**
+                         * @default monthly
+                         * @enum {string}
+                         */
+                        cycle?: "monthly" | "annual";
                     };
                 };
             };
@@ -7569,6 +7580,8 @@ export interface paths {
                             hasPersonalOrg: boolean;
                             /** @enum {string} */
                             devPlan: "none" | "lite" | "pro" | "max";
+                            /** @enum {string} */
+                            devPlanCycle: "monthly" | "annual";
                             devPlanCreditsUsed: string;
                             devPlanCreditsLimit: string;
                             devPlanCreditsRemaining: string;
@@ -7577,6 +7590,7 @@ export interface paths {
                             devPlanExpiresAt: string | null;
                             regularCredits: string;
                             organizationId: string | null;
+                            projectId: string | null;
                             apiKey: string | null;
                             devPlanAllowAllModels: boolean;
                         };

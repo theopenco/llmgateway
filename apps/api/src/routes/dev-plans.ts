@@ -10,6 +10,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
+	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
@@ -110,13 +111,22 @@ async function getOrCreatePersonalOrgApiKey(
 	return token;
 }
 
-function getDevPlanPriceId(tier: DevPlanTier): string | undefined {
-	const envKeys: Record<DevPlanTier, string> = {
+function getDevPlanPriceId(
+	tier: DevPlanTier,
+	cycle: DevPlanCycle = "monthly",
+): string | undefined {
+	const monthlyKeys: Record<DevPlanTier, string> = {
 		lite: "STRIPE_DEV_PLAN_LITE_PRICE_ID",
 		pro: "STRIPE_DEV_PLAN_PRO_PRICE_ID",
 		max: "STRIPE_DEV_PLAN_MAX_PRICE_ID",
 	};
-	return process.env[envKeys[tier]];
+	const annualKeys: Record<DevPlanTier, string> = {
+		lite: "STRIPE_DEV_PLAN_LITE_ANNUAL_PRICE_ID",
+		pro: "STRIPE_DEV_PLAN_PRO_ANNUAL_PRICE_ID",
+		max: "STRIPE_DEV_PLAN_MAX_ANNUAL_PRICE_ID",
+	};
+	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
+	return process.env[key];
 }
 
 // Get or create personal organization for user
@@ -183,6 +193,7 @@ const subscribe = createRoute({
 				"application/json": {
 					schema: z.object({
 						tier: z.enum(["lite", "pro", "max"]),
+						cycle: z.enum(["monthly", "annual"]).optional().default("monthly"),
 					}),
 				},
 			},
@@ -204,7 +215,7 @@ const subscribe = createRoute({
 
 devPlans.openapi(subscribe, async (c) => {
 	const user = c.get("user");
-	const { tier } = c.req.valid("json");
+	const { tier, cycle } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -233,10 +244,11 @@ devPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
-	const priceId = getDevPlanPriceId(tier);
+	const priceId = getDevPlanPriceId(tier, cycle);
 	if (!priceId) {
+		const envSuffix = cycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}_PRICE_ID environment variable is not set`,
+			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}${envSuffix} environment variable is not set`,
 		});
 	}
 
@@ -259,6 +271,7 @@ devPlans.openapi(subscribe, async (c) => {
 				organizationId: personalOrg.id,
 				subscriptionType: "dev_plan",
 				devPlan: tier,
+				devPlanCycle: cycle,
 				userEmail: user.email,
 			},
 			subscription_data: {
@@ -266,6 +279,7 @@ devPlans.openapi(subscribe, async (c) => {
 					organizationId: personalOrg.id,
 					subscriptionType: "dev_plan",
 					devPlan: tier,
+					devPlanCycle: cycle,
 					userEmail: user.email,
 				},
 			},
@@ -284,6 +298,7 @@ devPlans.openapi(subscribe, async (c) => {
 			resourceType: "dev_plan",
 			metadata: {
 				tier,
+				cycle,
 			},
 		});
 
@@ -564,10 +579,15 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
-	const newPriceId = getDevPlanPriceId(newTier);
+	// Preserve the subscriber's existing billing cadence so an annual
+	// subscriber doesn't silently get switched to monthly when changing tier.
+	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
+	const newPriceId = getDevPlanPriceId(newTier, existingCycle);
 	if (!newPriceId) {
+		const envSuffix =
+			existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}_PRICE_ID environment variable is not set`,
+			message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}${envSuffix} environment variable is not set`,
 		});
 	}
 
@@ -590,6 +610,7 @@ devPlans.openapi(changeTier, async (c) => {
 				metadata: {
 					...subscription.metadata,
 					devPlan: newTier,
+					devPlanCycle: existingCycle,
 				},
 			},
 		);
@@ -655,6 +676,7 @@ const getStatus = createRoute({
 					schema: z.object({
 						hasPersonalOrg: z.boolean(),
 						devPlan: z.enum(["none", "lite", "pro", "max"]),
+						devPlanCycle: z.enum(["monthly", "annual"]),
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
 						devPlanCreditsRemaining: z.string(),
@@ -663,6 +685,7 @@ const getStatus = createRoute({
 						devPlanExpiresAt: z.string().nullable(),
 						regularCredits: z.string(),
 						organizationId: z.string().nullable(),
+						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanAllowAllModels: z.boolean(),
 					}),
@@ -699,6 +722,7 @@ devPlans.openapi(getStatus, async (c) => {
 		return c.json({
 			hasPersonalOrg: false,
 			devPlan: "none" as const,
+			devPlanCycle: "monthly" as const,
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
 			devPlanCreditsRemaining: "0",
@@ -707,6 +731,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanExpiresAt: null,
 			regularCredits: "0",
 			organizationId: null,
+			projectId: null,
 			apiKey: null,
 			devPlanAllowAllModels: false,
 		});
@@ -716,19 +741,26 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
 
-	// Get API key if user has an active dev plan
+	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
+	let projectId: string | null = null;
 	if (personalOrg.devPlan !== "none") {
-		// Find the default project for this org
+		// Find the default project for this org. Order by createdAt asc so we
+		// always return the original "Default Project" rather than whichever
+		// row Postgres happens to surface first.
 		const project = await db.query.project.findFirst({
 			where: {
 				organizationId: {
 					eq: personalOrg.id,
 				},
 			},
+			orderBy: {
+				createdAt: "asc",
+			},
 		});
 
 		if (project) {
+			projectId = project.id;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -740,6 +772,7 @@ devPlans.openapi(getStatus, async (c) => {
 	return c.json({
 		hasPersonalOrg: true,
 		devPlan: personalOrg.devPlan,
+		devPlanCycle: personalOrg.devPlanCycle,
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
@@ -749,6 +782,7 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
 		regularCredits: personalOrg.credits,
 		organizationId: personalOrg.id,
+		projectId,
 		apiKey,
 		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
 	});

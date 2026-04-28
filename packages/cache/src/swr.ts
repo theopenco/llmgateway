@@ -4,7 +4,7 @@ import { redisClient } from "./redis.js";
 
 export const SWR_PREFIX = "swr:";
 export const SWR_TABLE_INDEX_PREFIX = "swr:tables:";
-export const SWR_DEFAULT_TTL_SECONDS = 600;
+export const SWR_DEFAULT_TTL_SECONDS = 14400;
 export const SWR_BATCH_SIZE = 500;
 
 const SWR_NONE_SENTINEL = "__swrNone" as const;

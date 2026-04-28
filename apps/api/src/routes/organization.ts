@@ -46,6 +46,7 @@ const organizationSchema = z.object({
 	// Dev Plans fields
 	isPersonal: z.boolean(),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
+	devPlanCycle: z.enum(["monthly", "annual"]),
 	devPlanCreditsUsed: z.string(),
 	devPlanCreditsLimit: z.string(),
 	devPlanBillingCycleStart: z.date().nullable(),
