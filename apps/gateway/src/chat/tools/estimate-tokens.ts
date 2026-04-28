@@ -24,9 +24,7 @@ export function estimateTokens(
 		}
 
 		if (!completionTokens && content) {
-			calculatedCompletionTokens = estimateTokensFromContent(
-				JSON.stringify(content),
-			);
+			calculatedCompletionTokens = estimateTokensFromContent(content);
 		}
 	}
 
