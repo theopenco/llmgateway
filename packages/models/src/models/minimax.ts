@@ -138,7 +138,7 @@ export const minimaxModels = [
 				jsonOutput: true,
 			},
 			{
-				deactivatedAt: new Date("2026-04-27"),
+				deactivatedAt: new Date("2026-04-28"),
 				providerId: "together-ai",
 				modelName: "MiniMaxAI/MiniMax-M2.5",
 				inputPrice: 0.3 / 1e6,
