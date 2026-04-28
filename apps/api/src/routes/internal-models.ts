@@ -500,65 +500,85 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 	const WINDOW_MS = WINDOW_MINUTES * 60_000;
 	const since = new Date(Date.now() - WINDOW_MS);
 
-	const rows = await db
-		.select({
-			minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
-			providerId: modelProviderMappingHistory.providerId,
-			providerName: tables.provider.name,
-			logsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
-					"logs_count",
+	// Active providers serving this model — included even if they have no
+	// recent traffic so the page can render an idle state for them.
+	const [activeProviders, rows] = await Promise.all([
+		db
+			.select({
+				providerId: tables.modelProviderMapping.providerId,
+				providerName: tables.provider.name,
+			})
+			.from(tables.modelProviderMapping)
+			.innerJoin(
+				tables.provider,
+				eq(tables.modelProviderMapping.providerId, tables.provider.id),
+			)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, modelId),
+					eq(tables.modelProviderMapping.status, "active"),
 				),
-			errorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
-					"errors_count",
-				),
-			clientErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
-					"client_errors_count",
-				),
-			gatewayErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
-					"gateway_errors_count",
-				),
-			upstreamErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
-					"upstream_errors_count",
-				),
-			cachedCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
-					"cached_count",
-				),
-			totalDuration:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalDuration}), 0)`.as(
-					"total_duration",
-				),
-			totalTimeToFirstToken:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)`.as(
-					"total_ttft",
-				),
-			totalTokens:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
-					"total_tokens",
-				),
-		})
-		.from(modelProviderMappingHistory)
-		.innerJoin(
-			tables.provider,
-			eq(modelProviderMappingHistory.providerId, tables.provider.id),
-		)
-		.where(
-			and(
-				eq(modelProviderMappingHistory.modelId, modelId),
-				gte(modelProviderMappingHistory.minuteTimestamp, since),
 			),
-		)
-		.groupBy(
-			modelProviderMappingHistory.minuteTimestamp,
-			modelProviderMappingHistory.providerId,
-			tables.provider.name,
-		)
-		.orderBy(asc(modelProviderMappingHistory.minuteTimestamp));
+		db
+			.select({
+				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+				providerId: modelProviderMappingHistory.providerId,
+				providerName: tables.provider.name,
+				logsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+						"upstream_errors_count",
+					),
+				cachedCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+						"cached_count",
+					),
+				totalDuration:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalDuration}), 0)`.as(
+						"total_duration",
+					),
+				totalTimeToFirstToken:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)`.as(
+						"total_ttft",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(modelProviderMappingHistory)
+			.innerJoin(
+				tables.provider,
+				eq(modelProviderMappingHistory.providerId, tables.provider.id),
+			)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.modelId, modelId),
+					gte(modelProviderMappingHistory.minuteTimestamp, since),
+				),
+			)
+			.groupBy(
+				modelProviderMappingHistory.minuteTimestamp,
+				modelProviderMappingHistory.providerId,
+				tables.provider.name,
+			)
+			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp)),
+	]);
 
 	const byProvider = new Map<
 		string,
@@ -579,6 +599,17 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			}>;
 		}
 	>();
+
+	// Seed with active providers so idle ones still render
+	for (const p of activeProviders) {
+		if (!byProvider.has(p.providerId)) {
+			byProvider.set(p.providerId, {
+				providerId: p.providerId,
+				providerName: p.providerName ?? p.providerId,
+				points: [],
+			});
+		}
+	}
 
 	for (const r of rows) {
 		const key = r.providerId;

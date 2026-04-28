@@ -1,12 +1,19 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Activity, AlertTriangle, Clock, Gauge, Zap } from "lucide-react";
+import {
+	Activity,
+	AlertTriangle,
+	Clock,
+	Gauge,
+	RefreshCw,
+	Zap,
+} from "lucide-react";
 import { useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { Badge } from "@/lib/components/badge";
+import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardContent,
@@ -20,44 +27,18 @@ import {
 	ChartTooltipContent,
 	type ChartConfig,
 } from "@/lib/components/chart";
-import { useAppConfig } from "@/lib/config";
+import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
+import type { paths } from "@/lib/api/v1";
+
 type ActiveMetric = "requests" | "errors" | "latency" | "tokens";
 
-interface UptimePoint {
-	timestamp: string;
-	logsCount: number;
-	errorsCount: number;
-	clientErrorsCount: number;
-	gatewayErrorsCount: number;
-	upstreamErrorsCount: number;
-	cachedCount: number;
-	avgTtft: number | null;
-	avgDuration: number | null;
-	totalTokens: number;
-}
-
-interface UptimeProvider {
-	providerId: string;
-	providerName: string;
-	logsCount: number;
-	errorsCount: number;
-	upstreamErrorsCount: number;
-	uptime: number | null;
-	avgTtft: number | null;
-	avgDuration: number | null;
-	tokensPerSecond: number | null;
-	points: UptimePoint[];
-}
-
-interface UptimeResponse {
-	modelId: string;
-	windowMinutes: number;
-	providers: UptimeProvider[];
-}
+type UptimeResponse =
+	paths["/internal/models/{modelId}/uptime"]["get"]["responses"]["200"]["content"]["application/json"];
+type UptimeProvider = UptimeResponse["providers"][number];
 
 const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 	requests: {
@@ -199,10 +180,19 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 					/>
 				</div>
 
-				<div className="flex items-center gap-1 border-b pb-2">
+				<div
+					role="tablist"
+					aria-label="Metric"
+					className="flex items-center gap-1 border-b pb-2"
+				>
 					{metricTabs.map((tab) => (
 						<button
 							key={tab.key}
+							id={`metric-tab-${provider.providerId}-${tab.key}`}
+							role="tab"
+							type="button"
+							aria-selected={activeMetric === tab.key}
+							aria-controls={`metric-panel-${provider.providerId}-${tab.key}`}
 							className={cn(
 								"rounded-md px-3 py-1 text-xs font-medium transition-colors",
 								activeMetric === tab.key
@@ -216,7 +206,12 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 					))}
 				</div>
 			</CardHeader>
-			<CardContent className="px-2 pb-4 sm:px-6">
+			<CardContent
+				id={`metric-panel-${provider.providerId}-${activeMetric}`}
+				role="tabpanel"
+				aria-labelledby={`metric-tab-${provider.providerId}-${activeMetric}`}
+				className="px-2 pb-4 sm:px-6"
+			>
 				{provider.points.length === 0 ? (
 					<div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
 						No traffic in the last 4 hours
@@ -321,22 +316,17 @@ function Stat({
 }
 
 export function ModelUptimeCharts({ modelId }: { modelId: string }) {
-	const config = useAppConfig();
+	const api = useApi();
 
-	const { data, isLoading, isError } = useQuery<UptimeResponse>({
-		queryKey: ["model-uptime", modelId],
-		queryFn: async () => {
-			const response = await fetch(
-				`${config.apiUrl}/internal/models/${encodeURIComponent(modelId)}/uptime`,
-			);
-			if (!response.ok) {
-				throw new Error("Failed to fetch uptime");
-			}
-			return await response.json();
+	const { data, isLoading, isError, refetch } = api.useQuery(
+		"get",
+		"/internal/models/{modelId}/uptime",
+		{ params: { path: { modelId } } },
+		{
+			refetchInterval: 60_000,
+			staleTime: 30_000,
 		},
-		refetchInterval: 60_000,
-		staleTime: 30_000,
-	});
+	);
 
 	if (isLoading) {
 		return (
@@ -351,7 +341,27 @@ export function ModelUptimeCharts({ modelId }: { modelId: string }) {
 		);
 	}
 
-	if (isError || !data || data.providers.length === 0) {
+	if (isError) {
+		return (
+			<Card>
+				<CardContent className="flex h-40 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+					<AlertTriangle className="h-6 w-6 text-destructive" />
+					<span>Unable to load uptime data. Please try again.</span>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => refetch()}
+						className="gap-2"
+					>
+						<RefreshCw className="h-3.5 w-3.5" />
+						Retry
+					</Button>
+				</CardContent>
+			</Card>
+		);
+	}
+
+	if (!data || data.providers.length === 0) {
 		return (
 			<Card>
 				<CardContent className="flex h-40 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
