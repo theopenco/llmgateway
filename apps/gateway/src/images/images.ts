@@ -29,7 +29,7 @@ const imageGenerationsRequestSchema = z.object({
 		example: "1024x1024",
 	}),
 	quality: z
-		.enum(["standard", "hd", "low", "medium", "high"])
+		.enum(["standard", "hd", "low", "medium", "high", "auto"])
 		.optional()
 		.openapi({
 			description:

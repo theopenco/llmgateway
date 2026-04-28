@@ -366,42 +366,9 @@ export async function POST(req: Request) {
 			? "http://localhost:4001/v1"
 			: "https://api.llmgateway.io/v1");
 
-	const imageQuality = image_config?.image_quality;
-	// The LLM Gateway AI SDK provider only forwards `extraBody` for chat
-	// completions; its image-gen call doesn't pick it up, so OpenAI-only fields
-	// like `quality` get dropped. Wrap fetch to inject `quality` into the
-	// `/images/generations` request body — keeps `generateImage` as the call
-	// surface while still letting us pass arbitrary fields through.
-	const fetchWithImageQuality: typeof fetch = async (input, init) => {
-		if (
-			is_image_gen &&
-			imageQuality &&
-			init?.method?.toUpperCase() === "POST" &&
-			typeof init.body === "string"
-		) {
-			const url = typeof input === "string" ? input : input.toString();
-			if (
-				url.includes("/images/generations") ||
-				url.includes("/images/edits")
-			) {
-				try {
-					const parsed = JSON.parse(init.body);
-					if (parsed && typeof parsed === "object" && !("quality" in parsed)) {
-						parsed.quality = imageQuality;
-						init = { ...init, body: JSON.stringify(parsed) };
-					}
-				} catch {
-					// not JSON — leave the body alone
-				}
-			}
-		}
-		return await fetch(input, init);
-	};
-
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
 		baseURL: gatewayUrl,
-		fetch: fetchWithImageQuality,
 		headers: {
 			"x-source": "chat.llmgateway.io",
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
@@ -505,6 +472,13 @@ export async function POST(req: Request) {
 					: {}),
 				...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
 					? { aspectRatio: image_config.aspect_ratio }
+					: {}),
+				...(image_config?.image_quality
+					? {
+							providerOptions: {
+								llmgateway: { quality: image_config.image_quality },
+							},
+						}
 					: {}),
 			});
 

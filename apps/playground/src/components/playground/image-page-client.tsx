@@ -45,9 +45,28 @@ export default function ImagePageClient({
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	// Filter models to image-gen only (includes image-edit models)
+	// Filter models to image-gen only (includes image-edit models), sorted
+	// newest-first by releasedAt with createdAt as fallback. releasedAt comes
+	// from the static model definition so the order is stable regardless of
+	// when each row was inserted into the gateway DB.
 	const imageGenModels = useMemo(
-		() => models.filter((m) => m.output?.includes("image")),
+		() =>
+			models
+				.filter((m) => m.output?.includes("image"))
+				.slice()
+				.sort((a, b) => {
+					const dateA = a.releasedAt
+						? new Date(a.releasedAt).getTime()
+						: a.createdAt
+							? new Date(a.createdAt).getTime()
+							: 0;
+					const dateB = b.releasedAt
+						? new Date(b.releasedAt).getTime()
+						: b.createdAt
+							? new Date(b.createdAt).getTime()
+							: 0;
+					return dateB - dateA;
+				}),
 		[models],
 	);
 
@@ -80,7 +99,11 @@ export default function ImagePageClient({
 	// Image config state
 	const [imageAspectRatio, setImageAspectRatio] = useState<AspectRatio>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const primaryModel = selectedModels[0] ?? "";
+		const config = getModelImageConfig(primaryModel);
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
 	const [imageQuality, setImageQuality] = useState<string>("auto");
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 
@@ -185,7 +208,9 @@ export default function ImagePageClient({
 		const primaryModel = selectedModels[0] ?? "";
 		const config = getModelImageConfig(primaryModel);
 		if (config.usesPixelDimensions) {
-			if (
+			if (config.isGptImage && alibabaImageSize === "1024x1024") {
+				setAlibabaImageSize(config.defaultSize);
+			} else if (
 				!(config.availableSizes as readonly string[]).includes(alibabaImageSize)
 			) {
 				setAlibabaImageSize(config.defaultSize);

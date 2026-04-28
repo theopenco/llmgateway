@@ -17,7 +17,7 @@
 	},
 	"dependencies": {
 		"@hookform/resolvers": "5.2.2",
-		"@llmgateway/ai-sdk-provider": "3.5.0",
+		"@llmgateway/ai-sdk-provider": "3.7.0",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
 		"@radix-ui/react-avatar": "1.1.11",

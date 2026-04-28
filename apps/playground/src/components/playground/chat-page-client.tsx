@@ -123,7 +123,10 @@ export default function ChatPageClient({
 		| "8:1"
 	>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const config = getModelImageConfig(getInitialModel());
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
 	const [imageQuality, setImageQuality] = useState<string>("auto");
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
@@ -868,7 +871,9 @@ export default function ChatPageClient({
 	useEffect(() => {
 		const config = getModelImageConfig(selectedModel);
 		if (config.usesPixelDimensions) {
-			if (!config.availableSizes.includes(alibabaImageSize as never)) {
+			if (config.isGptImage && alibabaImageSize === "1024x1024") {
+				setAlibabaImageSize(config.defaultSize);
+			} else if (!config.availableSizes.includes(alibabaImageSize as never)) {
 				setAlibabaImageSize(config.defaultSize);
 			}
 		} else if (!config.availableSizes.includes(imageSize as never)) {
@@ -1216,7 +1221,10 @@ function ExtraChatPanel({
 		| "8:1"
 	>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const config = getModelImageConfig(initialModel);
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
 	const [imageQuality, setImageQuality] = useState<string>("auto");
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
@@ -1284,6 +1292,23 @@ function ExtraChatPanel({
 		);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
+
+	useEffect(() => {
+		const config = getModelImageConfig(selectedModel);
+		if (config.usesPixelDimensions) {
+			if (config.isGptImage && alibabaImageSize === "1024x1024") {
+				setAlibabaImageSize(config.defaultSize);
+			} else if (!config.availableSizes.includes(alibabaImageSize as never)) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (!config.availableSizes.includes(imageSize as never)) {
+			setImageSize(config.defaultSize);
+		}
+		if (!config.supportsQuality && imageQuality !== "auto") {
+			setImageQuality("auto");
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedModel]);
 
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {

@@ -71,6 +71,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
@@ -476,15 +477,6 @@ export const ChatUI = ({
 		.toLowerCase()
 		.includes("gemini-3.1-flash-image");
 
-	// Keep this list in sync with `supportedImageSizes` for the gpt-image-2
-	// provider mapping in packages/models/src/models/openai.ts.
-	const gptImageSizes = [
-		"auto",
-		"1024x1024",
-		"1536x1024",
-		"1024x1536",
-	] as const;
-
 	const availableSizes = isSeedream
 		? (["2K", "4K"] as const)
 		: isGemini31FlashImage
@@ -851,7 +843,7 @@ export const ChatUI = ({
 											<SelectValue placeholder="Resolution" />
 										</SelectTrigger>
 										<SelectContent>
-											{gptImageSizes.map((size) => (
+											{GPT_IMAGE_SIZES.map((size) => (
 												<SelectItem key={size} value={size}>
 													{size === "auto" ? "Auto" : size}
 												</SelectItem>

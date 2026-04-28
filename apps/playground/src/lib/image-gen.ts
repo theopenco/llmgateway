@@ -34,6 +34,19 @@ export type AspectRatio =
 	| "1:8"
 	| "8:1";
 
+// Keep this list in sync with `supportedImageSizes` on the gpt-image-2
+// provider mapping in packages/models/src/models/openai.ts.
+export const GPT_IMAGE_SIZES = [
+	"auto",
+	"1024x1024",
+	"1536x1024",
+	"1024x1536",
+	"2048x2048",
+	"2048x1152",
+	"3840x2160",
+	"2160x3840",
+] as const;
+
 export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
@@ -51,10 +64,8 @@ export function getModelImageConfig(model: string) {
 
 	const isGemini31FlashImage = lower.includes("gemini-3.1-flash-image");
 
-	// Keep this list in sync with `supportedImageSizes` on the gpt-image-2
-	// provider mapping in packages/models/src/models/openai.ts.
 	const availableSizes = isGptImage
-		? (["auto", "1024x1024", "1536x1024", "1024x1536"] as const)
+		? GPT_IMAGE_SIZES
 		: isSeedream
 			? (["2K", "4K"] as const)
 			: isGemini31FlashImage
