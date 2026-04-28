@@ -249,6 +249,7 @@ describe("transformResponseToOpenai", () => {
 			cache_write_tokens: 0,
 			audio_tokens: 0,
 			video_tokens: 0,
+			image_tokens: 0,
 		});
 		expect(usage.completion_tokens_details).toEqual({
 			reasoning_tokens: 0,

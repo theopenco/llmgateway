@@ -8863,6 +8863,8 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		cachedTokens,
 		cacheCreationTokens,
+		imageInputTokens,
+		imageOutputTokens,
 		toolResults,
 		images,
 		annotations,
@@ -9054,6 +9056,8 @@ chat.openapi(completions, async (c) => {
 		requestId,
 		usedRegion,
 		cacheCreationTokens,
+		imageInputTokens,
+		imageOutputTokens,
 	);
 
 	// Extract plugin IDs for logging

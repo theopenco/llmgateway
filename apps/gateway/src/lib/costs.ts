@@ -355,56 +355,18 @@ export async function calculateCosts(
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 
-	// Resolve the per-image flat price for the given (quality, size) combination
-	// from the price matrix. Returns undefined when there is no exact match so
-	// callers can fall back to token-based pricing rather than silently picking
-	// the first key (which would underbill on "auto" quality).
-	//
-	// Quality "auto" is mapped to "high" before lookup: OpenAI's auto picks a
-	// tier on the user's behalf, so we bill the maximum tier conservatively.
-	function resolvePriceFromMatrix(
-		matrix: Record<string, Record<string, number>> | undefined,
-		quality: string | undefined,
-		size: string | undefined,
-	): number | undefined {
-		if (!matrix || size === undefined) {
-			return undefined;
-		}
-		const qualityKey =
-			quality === undefined || quality === "auto" ? "high" : quality;
-		const byQuality = matrix[qualityKey] ?? matrix["default"];
-		if (!byQuality) {
-			return undefined;
-		}
-		return byQuality[size] ?? byQuality["default"];
-	}
-
 	// Calculate output cost, handling separate image output pricing if applicable.
-	// Models that price per image by (quality, size) use imageGenerationPriceMatrix.
-	// Otherwise, models with token-based image pricing use imageOutputTokensByResolution
+	// Models with token-based image pricing use imageOutputTokensByResolution
 	// for per-resolution token counts and imageOutputPrice for the per-token price.
 	let outputCost: Decimal;
 	let imageOutputTokens: number | null = null;
 	let imageOutputCost: Decimal | null = null;
-	const matrixPricePerImage = resolvePriceFromMatrix(
-		providerInfo.imageGenerationPriceMatrix,
-		imageQuality,
-		imageSize,
-	);
 	const imageOutputTokensPerImage = resolveTokensPerImage(
 		providerInfo.imageOutputTokensByResolution,
 		imageSize,
 	);
 	const imageOutputPricePerToken = providerInfo.imageOutputPrice;
-	if (matrixPricePerImage !== undefined && outputImageCount > 0) {
-		imageOutputCost = new Decimal(matrixPricePerImage)
-			.times(outputImageCount)
-			.times(discountMultiplier);
-		outputCost = new Decimal(totalOutputTokens)
-			.times(outputPrice)
-			.times(discountMultiplier)
-			.plus(imageOutputCost);
-	} else if (imageOutputPricePerToken && outputImageCount > 0) {
+	if (imageOutputPricePerToken && outputImageCount > 0) {
 		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
 		imageOutputTokens =
 			imageOutputTokensPerImage !== undefined

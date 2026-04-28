@@ -199,11 +199,11 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 		"1536x1024",
 		"1024x1536",
 		"2048x2048",
-		"2048x1152",
+		"3072x2160",
 		"3840x2160",
 		"2160x3840",
 		"auto",
-	])("should pass through supported gpt-image-2 size %s", async (size) => {
+	])("should pass image_size %s straight through", async (size) => {
 		const requestBody = (await prepareOpenAIImageRequest({
 			image_size: size,
 			image_quality: "high",
@@ -219,21 +219,22 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 		});
 	});
 
-	test("should still map 1K presets by aspect ratio", async () => {
+	test("should not derive size from aspect_ratio", async () => {
 		const requestBody = (await prepareOpenAIImageRequest({
-			image_size: "1K",
 			aspect_ratio: "16:9",
 		})) as any;
 
-		expect(requestBody.size).toBe("1536x1024");
+		expect(requestBody.size).toBeUndefined();
 	});
 
-	test("should fall back unsupported sizes to auto", async () => {
+	test("should drop unsupported quality values", async () => {
 		const requestBody = (await prepareOpenAIImageRequest({
-			image_size: "4096x4096",
+			image_size: "1024x1024",
+			image_quality: "standard",
 		})) as any;
 
-		expect(requestBody.size).toBe("auto");
+		expect(requestBody.size).toBe("1024x1024");
+		expect(requestBody.quality).toBeUndefined();
 	});
 });
 

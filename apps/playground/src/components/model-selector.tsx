@@ -388,7 +388,7 @@ function formatPerSecondPrice(perSecondPrice: Record<string, string>): string {
 }
 
 // Estimate cost for generating one typical 1K/1024x1024 image based on
-// request fee + image output tokens * price (or the price matrix when present).
+// request fee + image output tokens * price.
 function estimateImageCost(
 	mapping: ApiModelProviderMapping | undefined,
 ): { base: number; discounted: number } | null {
@@ -397,41 +397,6 @@ function estimateImageCost(
 	}
 	const request = mapping.requestPrice ? parseFloat(mapping.requestPrice) : 0;
 	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
-	const matrix = mapping.imageGenerationPriceMatrix;
-	if (matrix) {
-		// Prefer the lowest quality at 1024x1024 ("typical" output) as the
-		// headline; fall back to the global min if no 1024x1024 entry exists.
-		const qualityPreference = ["low", "medium", "high", "auto", "default"];
-		let typical: number | undefined;
-		for (const q of qualityPreference) {
-			const entry = matrix[q];
-			if (entry && Number.isFinite(entry["1024x1024"])) {
-				typical = entry["1024x1024"];
-				break;
-			}
-		}
-		let cheapest: number | null = null;
-		if (typical !== undefined) {
-			cheapest = typical;
-		} else {
-			for (const sizes of Object.values(matrix)) {
-				for (const price of Object.values(sizes)) {
-					if (cheapest === null || price < cheapest) {
-						cheapest = price;
-					}
-				}
-			}
-		}
-		if (cheapest === null) {
-			return null;
-		}
-		const base = request + cheapest;
-		if (!Number.isFinite(base) || base <= 0) {
-			return null;
-		}
-		const discounted = discount > 0 ? base * (1 - discount) : base;
-		return { base, discounted };
-	}
 	const imageOut = mapping.imageOutputPrice
 		? parseFloat(mapping.imageOutputPrice)
 		: 0;

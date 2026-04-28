@@ -52,9 +52,7 @@ const modelProviderMappingSchema = z.object({
 	imageOutputPrice: z.string().nullable(),
 	imageInputTokensByResolution: z.record(z.number()).nullable(),
 	imageOutputTokensByResolution: z.record(z.number()).nullable(),
-	imageGenerationPriceMatrix: z.record(z.record(z.number())).nullable(),
 	supportedImageSizes: z.array(z.string()).nullable(),
-	supportedImageQualities: z.array(z.string()).nullable(),
 	requestPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
 	maxOutput: z.number().nullable(),
@@ -227,10 +225,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					sharedMapping?.imageInputTokensByResolution ?? null,
 				imageOutputTokensByResolution:
 					sharedMapping?.imageOutputTokensByResolution ?? null,
-				imageGenerationPriceMatrix:
-					sharedMapping?.imageGenerationPriceMatrix ?? null,
 				supportedImageSizes: sharedMapping?.supportedImageSizes ?? null,
-				supportedImageQualities: sharedMapping?.supportedImageQualities ?? null,
 				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
 				supportedVideoDurationsSeconds:
 					sharedMapping?.supportedVideoDurationsSeconds ?? null,

@@ -159,25 +159,10 @@ export interface ProviderModelMapping {
 	 */
 	imageInputTokensByResolution?: Record<string, number>;
 	/**
-	 * Flat per-image price matrix indexed by quality and size for image generation
-	 * models that price per image rather than per token.
-	 * Shape: { [quality]: { [size]: pricePerImageUSD } }.
-	 * Use "default" keys for fallback when quality or size is not specified.
-	 * When set, the gateway uses this matrix to compute output cost as
-	 * `outputImageCount * imageGenerationPriceMatrix[quality][size]` instead of the
-	 * token-based path that uses imageOutputPrice + imageOutputTokensByResolution.
-	 */
-	imageGenerationPriceMatrix?: Record<string, Record<string, number>>;
-	/**
 	 * List of supported image generation sizes (e.g., "1024x1024", "auto").
 	 * Used by UIs to populate resolution dropdowns and validate request inputs.
 	 */
 	supportedImageSizes?: string[];
-	/**
-	 * List of supported image generation qualities (e.g., "low", "medium", "high", "auto").
-	 * Used by UIs to populate quality dropdowns and validate request inputs.
-	 */
-	supportedImageQualities?: string[];
 	/**
 	 * Price per request in USD
 	 */
