@@ -100,6 +100,7 @@ export async function calculateCosts(
 	inputImageCount = 0,
 	webSearchCount: number | null = null,
 	organizationId: string | null = null,
+	imageQuality?: string,
 ) {
 	// Find the model info - try both base model name and provider model name
 	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
@@ -335,8 +336,8 @@ export async function calculateCosts(
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 
 	// Calculate output cost, handling separate image output pricing if applicable.
-	// Uses imageOutputTokensByResolution for per-resolution token counts and
-	// imageOutputPrice for the per-token price.
+	// Models with token-based image pricing use imageOutputTokensByResolution
+	// for per-resolution token counts and imageOutputPrice for the per-token price.
 	let outputCost: Decimal;
 	let imageOutputTokens: number | null = null;
 	let imageOutputCost: Decimal | null = null;
@@ -347,9 +348,12 @@ export async function calculateCosts(
 	const imageOutputPricePerToken = providerInfo.imageOutputPrice;
 	if (imageOutputPricePerToken && outputImageCount > 0) {
 		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
-		const tokensPerImage =
-			imageOutputTokensPerImage ?? LEGACY_DEFAULT_TOKENS_PER_IMAGE;
-		imageOutputTokens = outputImageCount * tokensPerImage;
+		imageOutputTokens =
+			imageOutputTokensPerImage !== undefined
+				? outputImageCount * imageOutputTokensPerImage
+				: totalOutputTokens > 0
+					? totalOutputTokens
+					: outputImageCount * LEGACY_DEFAULT_TOKENS_PER_IMAGE;
 		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
 
 		imageOutputCost = new Decimal(imageOutputTokens)

@@ -18,12 +18,37 @@ import {
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
+type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+
 interface OpenAIImageRequest {
 	model: string;
 	prompt: string;
 	size?: string;
+	quality?: OpenAIImageQuality;
 	n?: number;
 	image?: string | string[];
+}
+
+/**
+ * Narrow a free-form quality string to the values gpt-image-2 accepts.
+ * Returns undefined for unknown values so they get dropped from the request.
+ */
+function normalizeImageQuality(
+	quality: string | undefined,
+): OpenAIImageQuality | undefined {
+	if (!quality) {
+		return undefined;
+	}
+	const normalized = quality.toLowerCase();
+	if (
+		normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high" ||
+		normalized === "auto"
+	) {
+		return normalized;
+	}
+	return undefined;
 }
 
 /**
@@ -619,6 +644,7 @@ export async function prepareRequestBody(
 	image_config?: {
 		aspect_ratio?: string;
 		image_size?: string;
+		image_quality?: string;
 		n?: number;
 		seed?: number;
 	},
@@ -656,46 +682,16 @@ export async function prepareRequestBody(
 			}
 		}
 
-		// Normalize size to OpenAI gpt-image accepted values.
-		// gpt-image-1/2 accepts: "1024x1024", "1024x1536", "1536x1024", "auto".
-		const rawSize = image_config?.image_size;
-		const aspectRatio = image_config?.aspect_ratio;
-		let openaiSize: string | undefined;
-		if (rawSize) {
-			const normalized = rawSize.toLowerCase();
-			if (
-				normalized === "1024x1024" ||
-				normalized === "1024x1536" ||
-				normalized === "1536x1024" ||
-				normalized === "auto"
-			) {
-				openaiSize = rawSize;
-			} else if (normalized === "1k") {
-				// Map resolution presets with aspect ratio when available
-				if (aspectRatio === "16:9" || aspectRatio === "3:2") {
-					openaiSize = "1536x1024";
-				} else if (aspectRatio === "9:16" || aspectRatio === "2:3") {
-					openaiSize = "1024x1536";
-				} else {
-					openaiSize = "1024x1024";
-				}
-			} else {
-				openaiSize = "auto";
-			}
-		} else if (aspectRatio && aspectRatio !== "auto") {
-			if (aspectRatio === "16:9" || aspectRatio === "3:2") {
-				openaiSize = "1536x1024";
-			} else if (aspectRatio === "9:16" || aspectRatio === "2:3") {
-				openaiSize = "1024x1536";
-			} else if (aspectRatio === "1:1") {
-				openaiSize = "1024x1024";
-			}
-		}
+		// Pass image_size straight through to OpenAI as `WxH` (or `auto`).
+		// OpenAI returns a 4xx for unsupported sizes, which we propagate.
+		const openaiSize = image_config?.image_size;
+		const openaiQuality = normalizeImageQuality(image_config?.image_quality);
 
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedModel,
 			prompt,
 			...(openaiSize && { size: openaiSize }),
+			...(openaiQuality && { quality: openaiQuality }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -707,6 +703,9 @@ export async function prepareRequestBody(
 			formData.append("prompt", openaiImageRequest.prompt);
 			if (openaiImageRequest.size) {
 				formData.append("size", openaiImageRequest.size);
+			}
+			if (openaiImageRequest.quality) {
+				formData.append("quality", openaiImageRequest.quality);
 			}
 			if (openaiImageRequest.n !== undefined) {
 				formData.append("n", String(openaiImageRequest.n));

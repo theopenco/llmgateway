@@ -362,6 +362,35 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("should use reported image output tokens for gpt-image-2", async () => {
+		const result = await calculateCosts(
+			"gpt-image-2",
+			"openai",
+			1000,
+			2000,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+			null,
+			null,
+			"low",
+		);
+
+		const expectedInputCost = 1000 * (8 / 1e6);
+		const expectedImageOutputCost = 2000 * (30 / 1e6);
+
+		expect(result.imageOutputTokens).toBe(2000);
+		expect(result.imageOutputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.inputCost).toBeCloseTo(expectedInputCost);
+		expect(result.totalCost).toBeCloseTo(
+			expectedInputCost + expectedImageOutputCost,
+		);
+	});
+
 	it("should return null for all image fields when no images", async () => {
 		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
 

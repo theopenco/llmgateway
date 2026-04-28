@@ -45,9 +45,28 @@ export default function ImagePageClient({
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	// Filter models to image-gen only (includes image-edit models)
+	// Filter models to image-gen only (includes image-edit models), sorted
+	// newest-first by releasedAt with createdAt as fallback. releasedAt comes
+	// from the static model definition so the order is stable regardless of
+	// when each row was inserted into the gateway DB.
 	const imageGenModels = useMemo(
-		() => models.filter((m) => m.output?.includes("image")),
+		() =>
+			models
+				.filter((m) => m.output?.includes("image"))
+				.slice()
+				.sort((a, b) => {
+					const dateA = a.releasedAt
+						? new Date(a.releasedAt).getTime()
+						: a.createdAt
+							? new Date(a.createdAt).getTime()
+							: 0;
+					const dateB = b.releasedAt
+						? new Date(b.releasedAt).getTime()
+						: b.createdAt
+							? new Date(b.createdAt).getTime()
+							: 0;
+					return dateB - dateA;
+				}),
 		[models],
 	);
 
@@ -80,7 +99,12 @@ export default function ImagePageClient({
 	// Image config state
 	const [imageAspectRatio, setImageAspectRatio] = useState<AspectRatio>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const primaryModel = selectedModels[0] ?? "";
+		const config = getModelImageConfig(primaryModel);
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
+	const [imageQuality, setImageQuality] = useState<string>("auto");
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 
 	// Input images for image-edit models
@@ -177,17 +201,35 @@ export default function ImagePageClient({
 		}
 	}, [comparisonMode, pathname, router, selectedModels]);
 
-	// Reset imageSize when model changes, clear input images when switching away from edit model
+	// Reset image size/quality when the selected model changes and the current
+	// value isn't valid for the new model. Including the value itself in deps
+	// would clobber the user's explicit selection on every re-render.
 	useEffect(() => {
 		const primaryModel = selectedModels[0] ?? "";
 		const config = getModelImageConfig(primaryModel);
-		if (!config.availableSizes.includes(imageSize as never)) {
+		if (config.usesPixelDimensions) {
+			if (config.isGptImage && alibabaImageSize === "1024x1024") {
+				setAlibabaImageSize(config.defaultSize);
+			} else if (
+				!(config.availableSizes as readonly string[]).includes(alibabaImageSize)
+			) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (
+			!(config.availableSizes as readonly string[]).includes(imageSize)
+		) {
 			setImageSize(config.defaultSize);
+		}
+		if (
+			!config.supportsQuality ||
+			!(config.availableQualities as readonly string[]).includes(imageQuality)
+		) {
+			setImageQuality(config.defaultQuality ?? "auto");
 		}
 		if (!isEditModel) {
 			setInputImages([]);
 		}
-	}, [selectedModels, imageSize, imageGenModels, isEditModel]);
+	}, [selectedModels, isEditModel]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
@@ -256,11 +298,20 @@ export default function ImagePageClient({
 			// Build image config
 			const primaryModel = selectedModels[0] ?? "";
 			const config = getModelImageConfig(primaryModel);
+			// Always forward the user's quality choice (including "auto") so it
+			// shows up in the activity log; the gateway / model treat "auto" the
+			// same as omitting the field upstream.
+			const includeQuality = config.supportsQuality && !!imageQuality;
 			const imageConfigBody = config.usesPixelDimensions
 				? {
-						...(alibabaImageSize !== "1024x1024" && {
-							image_size: alibabaImageSize,
-						}),
+						...(config.isGptImage
+							? alibabaImageSize !== "auto" && {
+									image_size: alibabaImageSize,
+								}
+							: alibabaImageSize !== "1024x1024" && {
+									image_size: alibabaImageSize,
+								}),
+						...(includeQuality && { image_quality: imageQuality }),
 						n: imageCount,
 					}
 				: {
@@ -380,6 +431,7 @@ export default function ImagePageClient({
 			alibabaImageSize,
 			imageAspectRatio,
 			imageSize,
+			imageQuality,
 			imageCount,
 			inputImages,
 			posthog,
@@ -494,6 +546,8 @@ export default function ImagePageClient({
 						setImageSize={setImageSize}
 						alibabaImageSize={alibabaImageSize}
 						setAlibabaImageSize={setAlibabaImageSize}
+						imageQuality={imageQuality}
+						setImageQuality={setImageQuality}
 						imageCount={imageCount}
 						setImageCount={setImageCount}
 						isGenerating={isGenerating}

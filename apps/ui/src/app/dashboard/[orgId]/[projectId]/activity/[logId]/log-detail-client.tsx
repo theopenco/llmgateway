@@ -41,6 +41,7 @@ import type { Log } from "@llmgateway/db";
 interface ImageConfig {
 	aspect_ratio?: string;
 	image_size?: string;
+	image_quality?: string;
 	n?: number;
 	output_format?: string;
 	output_compression?: number;
@@ -165,20 +166,101 @@ function formatDuration(ms: number) {
 	return `${(ms / 1000).toFixed(2)}s`;
 }
 
+function isBase64ImageChar(char: string) {
+	return (
+		(char >= "A" && char <= "Z") ||
+		(char >= "a" && char <= "z") ||
+		(char >= "0" && char <= "9") ||
+		char === "+" ||
+		char === "/" ||
+		char === "="
+	);
+}
+
+function isWhitespace(char: string) {
+	return char === " " || char === "\n" || char === "\r" || char === "\t";
+}
+
+function compactBase64(value: string) {
+	let compacted = "";
+	for (const char of value) {
+		if (!isWhitespace(char)) {
+			compacted += char;
+		}
+	}
+	return compacted;
+}
+
+function findLikelyBase64Run(content: string, minLength = 200) {
+	let runLength = 0;
+	for (const char of content) {
+		if (isBase64ImageChar(char)) {
+			runLength++;
+			if (runLength >= minLength) {
+				return true;
+			}
+		} else if (!isWhitespace(char)) {
+			runLength = 0;
+		}
+	}
+	return false;
+}
+
+function isRawBase64ImageContent(content: string) {
+	let hasBase64Char = false;
+	for (const char of content) {
+		if (isWhitespace(char)) {
+			continue;
+		}
+		if (!isBase64ImageChar(char)) {
+			return false;
+		}
+		hasBase64Char = true;
+	}
+	return hasBase64Char;
+}
+
+function shouldTryRenderImageContent(content: string) {
+	return (
+		content.length > 500 &&
+		(content.includes("data:image/") || findLikelyBase64Run(content))
+	);
+}
+
 function extractBase64Images(
 	content: string,
 ): Array<{ src: string; index: number }> {
 	const images: Array<{ src: string; index: number }> = [];
-	// Match data:image/...;base64,... patterns
-	const dataUrlRegex = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+/g;
-	let match;
-	while ((match = dataUrlRegex.exec(content)) !== null) {
-		images.push({ src: match[0].replace(/\s/g, ""), index: images.length });
-	}
-	// If no data URLs found, try treating the entire content as raw base64
-	if (images.length === 0 && /^[A-Za-z0-9+/=\s]+$/.test(content.trim())) {
+
+	let searchFrom = 0;
+	while (searchFrom < content.length) {
+		const dataUrlStart = content.indexOf("data:image/", searchFrom);
+		if (dataUrlStart === -1) {
+			break;
+		}
+		const base64Start = content.indexOf(";base64,", dataUrlStart);
+		if (base64Start === -1) {
+			break;
+		}
+		let end = base64Start + ";base64,".length;
+		while (end < content.length) {
+			const char = content[end];
+			if (!isBase64ImageChar(char) && !isWhitespace(char)) {
+				break;
+			}
+			end++;
+		}
 		images.push({
-			src: `data:image/png;base64,${content.trim().replace(/\s/g, "")}`,
+			src: compactBase64(content.slice(dataUrlStart, end)),
+			index: images.length,
+		});
+		searchFrom = end;
+	}
+
+	// If no data URLs found, try treating the entire content as raw base64
+	if (images.length === 0 && isRawBase64ImageContent(content)) {
+		images.push({
+			src: `data:image/png;base64,${compactBase64(content)}`,
 			index: 0,
 		});
 	}
@@ -797,6 +879,12 @@ export function LogDetailClient({
 									{imageConfig?.image_size && (
 										<Field label="Image Size" value={imageConfig.image_size} />
 									)}
+									{imageConfig && (
+										<Field
+											label="Image Quality"
+											value={imageConfig.image_quality ?? "-"}
+										/>
+									)}
 									{imageConfig?.n !== undefined && imageConfig.n !== null && (
 										<Field label="Image Count" value={imageConfig.n} />
 									)}
@@ -1098,9 +1186,7 @@ export function LogDetailClient({
 
 				<Section title="Response">
 					<div className="rounded-lg border bg-card p-4">
-						{log.content &&
-						log.content.length > 500 &&
-						/[A-Za-z0-9+/]{200,}/.test(log.content) ? (
+						{log.content && shouldTryRenderImageContent(log.content) ? (
 							<ImageContentRenderer content={log.content} />
 						) : log.content ? (
 							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">

@@ -97,6 +97,15 @@ const result = await generateImage({
 		"A cozy cabin in a snowy mountain landscape at night with aurora borealis",
 	size: "1024x1024",
 	n: 1,
+	// aspectRatio and quality are model-specific — only some providers honor them.
+	// aspectRatio works on Gemini image models; OpenAI gpt-image-2 ignores it
+	// (use a literal WxH `size` instead).
+	aspectRatio: "16:9",
+	// quality works on OpenAI gpt-image-2 ("low" | "medium" | "high" | "auto").
+	// The AI SDK only forwards it through providerOptions.
+	providerOptions: {
+		llmgateway: { quality: "high" },
+	},
 });
 
 result.images.forEach((image, i) => {
@@ -707,6 +716,46 @@ Available Z.AI models:
 	CogView-4 supports both Chinese and English prompts and excels at generating
 	images with embedded text.
 </Callout>
+
+### OpenAI Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-image-2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Generate a photo-real cinematic landscape at golden hour"
+      }
+    ],
+    "image_config": {
+      "image_size": "3072x2160",
+      "image_quality": "low"
+    }
+  }'
+```
+
+| Parameter       | Type   | Description                                                                          |
+| --------------- | ------ | ------------------------------------------------------------------------------------ |
+| `image_size`    | string | Image dimensions in `WIDTHxHEIGHT` format, or `"auto"` to let the model choose.      |
+| `image_quality` | string | One of `"low"`, `"medium"`, `"high"`, or `"auto"`. Defaults to `"low"` when omitted. |
+
+<Callout type="warning">
+	OpenAI image models do **not** accept `aspect_ratio`. Always specify
+	`image_size` as `WIDTHxHEIGHT` (e.g. `"1024x1024"`, `"3072x2160"`). OpenAI
+	requires both width and height to be divisible by 16, the longest edge to be ≤
+	3840, and the total pixel count to fit within the model's pixel budget;
+	requests outside these bounds are rejected with HTTP 400.
+</Callout>
+
+Available OpenAI image models:
+
+| Model                | Description                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `openai/gpt-image-2` | OpenAI's next-generation image model with improved quality and prompt adherence, supporting text and vision. |
 
 ### ByteDance Models
 

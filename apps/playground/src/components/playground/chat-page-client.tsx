@@ -25,6 +25,7 @@ import {
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
+import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 import { shouldDisableFallback } from "@/lib/no-fallback";
@@ -122,7 +123,11 @@ export default function ChatPageClient({
 		| "8:1"
 	>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const config = getModelImageConfig(getInitialModel());
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
+	const [imageQuality, setImageQuality] = useState<string>("auto");
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
@@ -400,20 +405,34 @@ export default function ChatPageClient({
 			const useImageGen =
 				supportsImageGen && !(supportsImages && hasImageAttachments);
 
-			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			// Check if model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
+			const isGptImage =
+				selectedModel.toLowerCase().includes("gpt-image") ||
+				selectedModel.toLowerCase().includes("openai/gpt-image");
 			const usesPixelDimensions =
+				isGptImage ||
 				selectedModel.toLowerCase().includes("alibaba") ||
 				selectedModel.toLowerCase().includes("qwen-image") ||
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
+			// Always forward the user's quality choice (including "auto") so it
+			// surfaces in the activity log; the gateway treats "auto" as a no-op
+			// upstream.
+			const includeQuality = isGptImage && !!imageQuality;
+
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
 				? usesPixelDimensions
 					? {
-							...(alibabaImageSize !== "1024x1024" && {
-								image_size: alibabaImageSize,
-							}),
+							...(isGptImage
+								? alibabaImageSize !== "auto" && {
+										image_size: alibabaImageSize,
+									}
+								: alibabaImageSize !== "1024x1024" && {
+										image_size: alibabaImageSize,
+									}),
+							...(includeQuality && { image_quality: imageQuality }),
 							n: imageCount,
 						}
 					: {
@@ -460,6 +479,7 @@ export default function ChatPageClient({
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,
+			imageQuality,
 			imageCount,
 			selectedModel,
 			webSearchEnabled,
@@ -845,21 +865,25 @@ export default function ChatPageClient({
 		}
 	}, [supportsReasoning, reasoningEffort]);
 
-	// Reset image size when switching models with different supported sizes
+	// Reset image size/quality only when the selected model changes and the
+	// current value is not valid for the new model. Including alibabaImageSize
+	// or imageQuality in the deps would clobber a user's explicit selection.
 	useEffect(() => {
-		const isSeedream =
-			selectedModel.toLowerCase().includes("seedream") ||
-			selectedModel.toLowerCase().includes("bytedance/seedream");
-		const isGemini31FlashImage = selectedModel
-			.toLowerCase()
-			.includes("gemini-3.1-flash-image");
-		if (isSeedream && (imageSize === "1K" || imageSize === "0.5K")) {
-			setImageSize("2K");
+		const config = getModelImageConfig(selectedModel);
+		if (config.usesPixelDimensions) {
+			if (config.isGptImage && alibabaImageSize === "1024x1024") {
+				setAlibabaImageSize(config.defaultSize);
+			} else if (!config.availableSizes.includes(alibabaImageSize as never)) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (!config.availableSizes.includes(imageSize as never)) {
+			setImageSize(config.defaultSize);
 		}
-		if (!isGemini31FlashImage && imageSize === "0.5K") {
-			setImageSize("1K");
+		if (!config.supportsQuality && imageQuality !== "auto") {
+			setImageQuality("auto");
 		}
-	}, [selectedModel, imageSize]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
 		const params = new URLSearchParams(Array.from(searchParams.entries()));
@@ -1064,6 +1088,8 @@ export default function ChatPageClient({
 											setImageSize={setImageSize}
 											alibabaImageSize={alibabaImageSize}
 											setAlibabaImageSize={setAlibabaImageSize}
+											imageQuality={imageQuality}
+											setImageQuality={setImageQuality}
 											imageCount={imageCount}
 											setImageCount={setImageCount}
 											onUserMessage={handleUserMessage}
@@ -1098,6 +1124,8 @@ export default function ChatPageClient({
 										setImageSize={setImageSize}
 										alibabaImageSize={alibabaImageSize}
 										setAlibabaImageSize={setAlibabaImageSize}
+										imageQuality={imageQuality}
+										setImageQuality={setImageQuality}
 										imageCount={imageCount}
 										setImageCount={setImageCount}
 										supportsWebSearch={supportsWebSearch}
@@ -1193,7 +1221,11 @@ function ExtraChatPanel({
 		| "8:1"
 	>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const config = getModelImageConfig(initialModel);
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
+	const [imageQuality, setImageQuality] = useState<string>("auto");
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 	const [text, setText] = useState("");
@@ -1261,6 +1293,23 @@ function ExtraChatPanel({
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
+	useEffect(() => {
+		const config = getModelImageConfig(selectedModel);
+		if (config.usesPixelDimensions) {
+			if (config.isGptImage && alibabaImageSize === "1024x1024") {
+				setAlibabaImageSize(config.defaultSize);
+			} else if (!config.availableSizes.includes(alibabaImageSize as never)) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (!config.availableSizes.includes(imageSize as never)) {
+			setImageSize(config.defaultSize);
+		}
+		if (!config.supportsQuality && imageQuality !== "auto") {
+			setImageQuality("auto");
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedModel]);
+
 	const sendMessageWithHeaders = useCallback(
 		(message: any, options?: any) => {
 			// Check if the user message contains image attachments (vision request)
@@ -1272,20 +1321,34 @@ function ExtraChatPanel({
 			const useImageGen =
 				supportsImageGen && !(supportsImages && hasImageAttachments);
 
-			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			// Check if model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
+			const isGptImage =
+				selectedModel.toLowerCase().includes("gpt-image") ||
+				selectedModel.toLowerCase().includes("openai/gpt-image");
 			const usesPixelDimensions =
+				isGptImage ||
 				selectedModel.toLowerCase().includes("alibaba") ||
 				selectedModel.toLowerCase().includes("qwen-image") ||
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
+			// Always forward the user's quality choice (including "auto") so it
+			// surfaces in the activity log; the gateway treats "auto" as a no-op
+			// upstream.
+			const includeQuality = isGptImage && !!imageQuality;
+
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
 				? usesPixelDimensions
 					? {
-							...(alibabaImageSize !== "1024x1024" && {
-								image_size: alibabaImageSize,
-							}),
+							...(isGptImage
+								? alibabaImageSize !== "auto" && {
+										image_size: alibabaImageSize,
+									}
+								: alibabaImageSize !== "1024x1024" && {
+										image_size: alibabaImageSize,
+									}),
+							...(includeQuality && { image_quality: imageQuality }),
 							n: imageCount,
 						}
 					: {
@@ -1326,6 +1389,7 @@ function ExtraChatPanel({
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,
+			imageQuality,
 			imageCount,
 			selectedModel,
 			webSearchEnabled,
@@ -1420,6 +1484,8 @@ function ExtraChatPanel({
 					setImageSize={setImageSize}
 					alibabaImageSize={alibabaImageSize}
 					setAlibabaImageSize={setAlibabaImageSize}
+					imageQuality={imageQuality}
+					setImageQuality={setImageQuality}
 					imageCount={imageCount}
 					setImageCount={setImageCount}
 					supportsWebSearch={supportsWebSearch}
