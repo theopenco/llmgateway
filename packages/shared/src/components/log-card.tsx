@@ -1187,6 +1187,12 @@ export function LogCard({
 									<span>{String(imageConfig.image_size)}</span>
 								</div>
 							)}
+							{imageConfig?.image_quality && (
+								<div className="flex items-center justify-between gap-2">
+									<span className="text-muted-foreground">Image Quality</span>
+									<span>{String(imageConfig.image_quality)}</span>
+								</div>
+							)}
 							{imageConfig?.n !== undefined && imageConfig.n !== null && (
 								<div className="flex items-center justify-between gap-2">
 									<span className="text-muted-foreground">Image Count</span>
