@@ -229,7 +229,6 @@ export default function ImagePageClient({
 		if (!isEditModel) {
 			setInputImages([]);
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModels, isEditModel]);
 
 	const getModelName = useCallback(
