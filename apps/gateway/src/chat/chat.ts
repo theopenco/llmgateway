@@ -3887,6 +3887,20 @@ chat.openapi(completions, async (c) => {
 		url = url.replace("/v1/images/generations", "/v1/images/edits");
 	}
 
+	// Switch Azure image generation endpoint to /edits when input images are present.
+	// Handles both ai-foundry (/openai/v1/images/generations?api-version=preview) and
+	// deployment-based (/openai/deployments/{model}/images/generations?api-version=...)
+	// URL shapes — the literal "/images/generations" substring appears before the
+	// query string in both, so the in-place replace works for both.
+	if (
+		isImageGeneration &&
+		usedProvider === "azure" &&
+		url &&
+		requestBody instanceof FormData
+	) {
+		url = url.replace("/images/generations", "/images/edits");
+	}
+
 	const startTime = Date.now();
 	const failedEnvKeyIndicesByProvider = new Map<string, Set<number>>();
 	const failedTrackedKeyIdsByProvider = new Map<string, Set<string>>();
