@@ -972,6 +972,7 @@ export interface paths {
                                         throughput?: number;
                                         price?: number;
                                         priority?: number;
+                                        cacheSupported?: boolean;
                                         failed?: boolean;
                                         status_code?: number;
                                         error_type?: string;
@@ -1216,6 +1217,7 @@ export interface paths {
                                         throughput?: number;
                                         price?: number;
                                         priority?: number;
+                                        cacheSupported?: boolean;
                                         failed?: boolean;
                                         status_code?: number;
                                         error_type?: string;
