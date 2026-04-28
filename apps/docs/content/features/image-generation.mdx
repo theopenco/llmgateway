@@ -738,10 +738,10 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-| Parameter       | Type   | Description                                                                          |
-| --------------- | ------ | ------------------------------------------------------------------------------------ |
-| `image_size`    | string | Image dimensions in `WIDTHxHEIGHT` format, or `"auto"` to let the model choose.      |
-| `image_quality` | string | One of `"low"`, `"medium"`, `"high"`, or `"auto"`. Defaults to `"low"` when omitted. |
+| Parameter       | Type   | Description                                                                           |
+| --------------- | ------ | ------------------------------------------------------------------------------------- |
+| `image_size`    | string | Image dimensions in `WIDTHxHEIGHT` format, or `"auto"` to let the model choose.       |
+| `image_quality` | string | One of `"low"`, `"medium"`, `"high"`, or `"auto"`. Defaults to `"auto"` when omitted. |
 
 <Callout type="warning">
 	OpenAI image models do **not** accept `aspect_ratio`. Always specify
