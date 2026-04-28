@@ -62,6 +62,7 @@ interface RoutingMetadata {
 		latency?: number;
 		price?: number;
 		priority?: number;
+		cacheSupported?: boolean;
 		failed?: boolean;
 		status_code?: number;
 		error_type?: string;
@@ -658,6 +659,9 @@ export function LogCard({
 																				p:{score.priority}
 																			</span>
 																		)}
+																	{score.cacheSupported && (
+																		<span className="ml-2">cache</span>
+																	)}
 																</span>
 															</div>
 														))}
