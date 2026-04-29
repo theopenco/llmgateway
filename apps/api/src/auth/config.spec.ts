@@ -7,7 +7,10 @@ import { apiAuth, redisClient } from "./config.js";
 describe("API auth configuration", () => {
 	test("should inherit basic auth configuration", () => {
 		expect(apiAuth.options).toBeDefined();
-		expect(apiAuth.options.emailAndPassword).toEqual({ enabled: true });
+		expect(apiAuth.options.emailAndPassword?.enabled).toBe(true);
+		expect(typeof apiAuth.options.emailAndPassword?.sendResetPassword).toBe(
+			"function",
+		);
 		expect(apiAuth.options.basePath).toBe("/auth");
 		expect(apiAuth.options.plugins).toBeDefined();
 		expect(Array.isArray(apiAuth.options.plugins)).toBe(true);
