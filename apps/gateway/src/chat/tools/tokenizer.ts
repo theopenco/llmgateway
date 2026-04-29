@@ -1,6 +1,10 @@
+import { estimateChatMessageTokens } from "@llmgateway/shared";
+
 /**
  * Converts a message content value (string, array of content parts, null, or
- * undefined) to a plain string suitable for length-based token estimation.
+ * undefined) to a plain string. Used by call sites that need a flat string
+ * (e.g. for cost estimation) — not for token counting; see
+ * `encodeChatMessages` for that.
  */
 export function messageContentToString(
 	content: string | unknown[] | null | undefined,
@@ -14,31 +18,13 @@ export function messageContentToString(
 	return JSON.stringify(content);
 }
 
-const CHARS_PER_TOKEN = 4;
-
 /**
- * Rough length-based token estimate. Avoids running a tokenizer on the
- * gateway hot path — accuracy is intentionally traded for throughput.
- */
-export function estimateTokensFromLength(length: number): number {
-	if (length <= 0) {
-		return 0;
-	}
-	return Math.max(1, Math.round(length / CHARS_PER_TOKEN));
-}
-
-/**
- * Estimates the prompt token count for an array of chat messages using a
- * cheap length-based heuristic (chars/4). Used in the gateway hot path
- * where the cost of running gpt-tokenizer is not justified.
+ * Rough length-based prompt-token estimate for a chat message array.
+ *
+ * Backed by the shared `estimateChatMessageTokens` helper, which only counts
+ * text and ignores multimodal parts (image_url, file, etc.). Image input
+ * billing is handled separately in costs.ts.
  */
 export function encodeChatMessages(messages: any[]): number {
-	if (!messages || messages.length === 0) {
-		return 0;
-	}
-	const totalLength = messages.reduce(
-		(acc: number, m: any) => acc + messageContentToString(m.content).length,
-		0,
-	);
-	return estimateTokensFromLength(totalLength);
+	return estimateChatMessageTokens(messages);
 }

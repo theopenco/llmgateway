@@ -47,12 +47,29 @@ describe("Prompt token calculation", () => {
 			).toBe(0);
 		});
 
-		it("should handle non-string content by stringifying", () => {
+		it("counts text parts in multimodal array content", () => {
 			const messages = [
-				{ role: "user", content: { type: "text", text: "Hello" } },
+				{
+					role: "user",
+					content: [{ type: "text", text: "Hello world" }],
+				},
 			];
-			const result = calculatePromptTokensFromMessages(messages);
-			expect(result).toBeGreaterThan(0);
+			expect(calculatePromptTokensFromMessages(messages)).toBeGreaterThan(0);
+		});
+
+		it("ignores non-text parts in multimodal array content", () => {
+			const messages = [
+				{
+					role: "user",
+					content: [
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,AAAA" },
+						},
+					],
+				},
+			];
+			expect(calculatePromptTokensFromMessages(messages)).toBe(0);
 		});
 	});
 
