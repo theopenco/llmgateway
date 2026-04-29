@@ -394,13 +394,8 @@ export default function ChatPageClient({
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
-	const sendMessageWithHeaders = useCallback(
-		(message: any, options?: any) => {
-			// Check if the user message contains image attachments (vision request)
-			const hasImageAttachments = message.parts?.some(
-				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
-			);
-
+	const buildRequestOptions = useCallback(
+		(hasImageAttachments: boolean, options?: any) => {
 			// Only use image gen when the model supports it AND user didn't attach images for vision
 			const useImageGen =
 				supportsImageGen && !(supportsImages && hasImageAttachments);
@@ -449,7 +444,7 @@ export default function ChatPageClient({
 			// Get enabled MCP servers
 			const enabledMcpServers = getEnabledMcpServers();
 
-			const mergedOptions = {
+			return {
 				...options,
 				headers: {
 					...(options?.headers ?? {}),
@@ -457,6 +452,7 @@ export default function ChatPageClient({
 				},
 				body: {
 					...(options?.body ?? {}),
+					model: selectedModel,
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
 					...(useImageGen ? { is_image_gen: true } : {}),
@@ -468,11 +464,8 @@ export default function ChatPageClient({
 						: {}),
 				},
 			};
-
-			return sendMessage(message, mergedOptions);
 		},
 		[
-			sendMessage,
 			reasoningEffort,
 			supportsImageGen,
 			supportsImages,
@@ -486,6 +479,34 @@ export default function ChatPageClient({
 			supportsWebSearch,
 			getEnabledMcpServers,
 		],
+	);
+
+	const sendMessageWithHeaders = useCallback(
+		(message: any, options?: any) => {
+			const hasImageAttachments = message.parts?.some(
+				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+			);
+			return sendMessage(
+				message,
+				buildRequestOptions(!!hasImageAttachments, options),
+			);
+		},
+		[sendMessage, buildRequestOptions],
+	);
+
+	const regenerateWithHeaders = useCallback(
+		(options?: any) => {
+			const lastUserMessage = [...messages]
+				.reverse()
+				.find((m) => m.role === "user");
+			const hasImageAttachments = lastUserMessage?.parts?.some(
+				(p: any) =>
+					(p.type === "file" && p.mediaType?.startsWith("image/")) ||
+					p.type === "image_url",
+			);
+			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
+		},
+		[regenerate, messages, buildRequestOptions],
 	);
 
 	// Additional comparison chat windows (primary + up to two comparison panels)
@@ -1078,7 +1099,7 @@ export default function ChatPageClient({
 											setText={setPrimaryText}
 											status={status}
 											stop={stop}
-											regenerate={regenerate}
+											regenerate={regenerateWithHeaders}
 											reasoningEffort={reasoningEffort}
 											setReasoningEffort={setReasoningEffort}
 											supportsReasoning={supportsReasoning}
@@ -1114,7 +1135,7 @@ export default function ChatPageClient({
 										setText={setPrimaryText}
 										status={status}
 										stop={stop}
-										regenerate={regenerate}
+										regenerate={regenerateWithHeaders}
 										reasoningEffort={reasoningEffort}
 										setReasoningEffort={setReasoningEffort}
 										supportsReasoning={supportsReasoning}
@@ -1310,13 +1331,8 @@ function ExtraChatPanel({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
-	const sendMessageWithHeaders = useCallback(
-		(message: any, options?: any) => {
-			// Check if the user message contains image attachments (vision request)
-			const hasImageAttachments = message.parts?.some(
-				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
-			);
-
+	const buildRequestOptions = useCallback(
+		(hasImageAttachments: boolean, options?: any) => {
 			// Only use image gen when the model supports it AND user didn't attach images for vision
 			const useImageGen =
 				supportsImageGen && !(supportsImages && hasImageAttachments);
@@ -1362,7 +1378,7 @@ function ExtraChatPanel({
 
 			const noFallback = shouldDisableFallback(selectedModel);
 
-			const mergedOptions = {
+			return {
 				...options,
 				headers: {
 					...(options?.headers ?? {}),
@@ -1370,6 +1386,7 @@ function ExtraChatPanel({
 				},
 				body: {
 					...(options?.body ?? {}),
+					model: selectedModel,
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
 					...(useImageGen ? { is_image_gen: true } : {}),
@@ -1378,11 +1395,8 @@ function ExtraChatPanel({
 						: {}),
 				},
 			};
-
-			return sendMessage(message, mergedOptions);
 		},
 		[
-			sendMessage,
 			reasoningEffort,
 			supportsImageGen,
 			supportsImages,
@@ -1395,6 +1409,34 @@ function ExtraChatPanel({
 			webSearchEnabled,
 			supportsWebSearch,
 		],
+	);
+
+	const sendMessageWithHeaders = useCallback(
+		(message: any, options?: any) => {
+			const hasImageAttachments = message.parts?.some(
+				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+			);
+			return sendMessage(
+				message,
+				buildRequestOptions(!!hasImageAttachments, options),
+			);
+		},
+		[sendMessage, buildRequestOptions],
+	);
+
+	const regenerateWithHeaders = useCallback(
+		(options?: any) => {
+			const lastUserMessage = [...messages]
+				.reverse()
+				.find((m) => m.role === "user");
+			const hasImageAttachments = lastUserMessage?.parts?.some(
+				(p: any) =>
+					(p.type === "file" && p.mediaType?.startsWith("image/")) ||
+					p.type === "image_url",
+			);
+			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
+		},
+		[regenerate, messages, buildRequestOptions],
 	);
 
 	const effectiveText = syncInput ? syncedText : text;
@@ -1474,7 +1516,7 @@ function ExtraChatPanel({
 					setText={handleSetText}
 					status={status}
 					stop={stop}
-					regenerate={regenerate}
+					regenerate={regenerateWithHeaders}
 					reasoningEffort={reasoningEffort}
 					setReasoningEffort={setReasoningEffort}
 					supportsReasoning={supportsReasoning}
