@@ -1293,10 +1293,14 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// ZAI/GLM models use 'thinking' parameter for reasoning instead of 'reasoning_effort'
+			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
+			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
+			// `reasoning_effort`. Unset or `minimal` => disabled, anything else => enabled.
 			if (supportsReasoning) {
+				const wantsThinking =
+					reasoning_effort !== undefined && reasoning_effort !== "minimal";
 				requestBody.thinking = {
-					type: "enabled",
+					type: wantsThinking ? "enabled" : "disabled",
 				};
 			}
 			// Add sensitive_word_check if provided (Z.ai specific)
