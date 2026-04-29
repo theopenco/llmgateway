@@ -2357,9 +2357,7 @@ export const alibabaModels = [
 				tools: true,
 				webSearch: true,
 				webSearchPrice: 0.01,
-				// json_object mode in thinking mode returns empty content ~40% of the time;
-				// disabled until Alibaba fixes the upstream behavior
-				jsonOutput: false,
+				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
 				supportedParameters: [
 					"temperature",
@@ -2369,6 +2367,7 @@ export const alibabaModels = [
 					"presence_penalty",
 					"stop",
 					"stream",
+					"response_format",
 					"tools",
 				],
 			},

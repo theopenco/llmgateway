@@ -1031,6 +1031,17 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// qwen3.6-35b-a3b returns empty content ~40% of the time when json_object
+	// is combined with thinking; force thinking off when JSON is requested.
+	if (
+		usedProvider === "alibaba" &&
+		usedModel === "qwen3.6-35b-a3b" &&
+		(response_format?.type === "json_object" ||
+			response_format?.type === "json_schema")
+	) {
+		requestBody.enable_thinking = false;
+	}
+
 	if (forcesToolUse && usedProvider === "moonshot") {
 		const providerMapping = modelDef?.providers.find(
 			(p) => p.modelName === usedModel && p.providerId === usedProvider,
