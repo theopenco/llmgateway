@@ -223,9 +223,8 @@ function getDiffColor(
 export const SyntaxHighlightedPre = ({
 	children,
 	...props
-}: {
+}: React.ComponentPropsWithoutRef<"pre"> & {
 	children: React.ReactNode;
-	[key: string]: any;
 }) => {
 	// Extract code content and language from children
 	let code = "";
@@ -312,8 +311,10 @@ export const SyntaxHighlightedPre = ({
 								{tokens.map((line, i) => {
 									const lineProps = getLineProps({ line });
 									const diffColor = getDiffColor(language, line, "light");
+									const lineClassName =
+										`${lineProps.className ?? ""} table-row`.trim();
 									return (
-										<span key={i} {...lineProps} className="table-row">
+										<span key={i} {...lineProps} className={lineClassName}>
 											<span className="table-cell pr-4 text-muted-foreground select-none text-right opacity-50">
 												{i + 1}
 											</span>
@@ -358,8 +359,10 @@ export const SyntaxHighlightedPre = ({
 								{tokens.map((line, i) => {
 									const lineProps = getLineProps({ line });
 									const diffColor = getDiffColor(language, line, "dark");
+									const lineClassName =
+										`${lineProps.className ?? ""} table-row`.trim();
 									return (
-										<span key={i} {...lineProps} className="table-row">
+										<span key={i} {...lineProps} className={lineClassName}>
 											<span className="table-cell pr-4 text-muted-foreground select-none text-right opacity-50">
 												{i + 1}
 											</span>

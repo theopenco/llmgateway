@@ -53,6 +53,7 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 		year: "numeric",
 		month: "long",
 		day: "numeric",
+		timeZone: "UTC",
 	});
 
 	return (
