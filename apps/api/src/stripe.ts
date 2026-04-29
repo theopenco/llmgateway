@@ -832,7 +832,12 @@ async function handlePaymentIntentSucceeded(
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
 
-	// Get the credit amount (base amount without fees) from metadata
+	// payment_intent.succeeded also fires for subscription invoice payments;
+	// only credit top-up payment intents set baseAmount in metadata.
+	if (paymentIntent.metadata.baseAmount === undefined) {
+		return;
+	}
+
 	const creditAmount = Number(paymentIntent.metadata.baseAmount);
 	if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
 		logger.error("Invalid baseAmount in payment intent metadata", {
