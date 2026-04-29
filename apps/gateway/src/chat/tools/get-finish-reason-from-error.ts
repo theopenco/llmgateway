@@ -55,6 +55,11 @@ export function getFinishReasonFromError(
 		return "content_filter";
 	}
 
+	// OpenAI safety system rejection (e.g. gpt-image-2 image generation)
+	if (errorText?.includes("Your request was rejected by the safety system")) {
+		return "content_filter";
+	}
+
 	// 401/403 usually indicate invalid or unauthorized provider credentials
 	if (statusCode === 401 || statusCode === 403) {
 		return "gateway_error";
