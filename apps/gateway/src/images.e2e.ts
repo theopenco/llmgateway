@@ -113,11 +113,20 @@ if (rawQualityOverride && !qualityOverride) {
 	);
 }
 
+// Always send an explicit size so the test exercises a known shape rather
+// than relying on each provider's "auto" default. Override with TEST_IMAGE_SIZE.
+const IMAGE_SIZE = (process.env.TEST_IMAGE_SIZE?.trim() || "1024x1024") as
+	| "1024x1024"
+	| "1024x1536"
+	| "1536x1024";
+
 if (testImageMode) {
 	console.log(
 		`Testing ${imageTestCases.length} image model(s): ${imageTestCases
 			.map((c) => c.model)
-			.join(", ")}${qualityOverride ? ` (quality=${qualityOverride})` : ""}`,
+			.join(
+				", ",
+			)} (size=${IMAGE_SIZE}${qualityOverride ? `, quality=${qualityOverride}` : ""})`,
 	);
 }
 
@@ -197,9 +206,10 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 									"Generate an image of a smiling orange cat wearing a tiny hat.",
 							},
 						],
-						...(qualityOverride && {
-							image_config: { image_quality: qualityOverride },
-						}),
+						image_config: {
+							image_size: IMAGE_SIZE,
+							...(qualityOverride && { image_quality: qualityOverride }),
+						},
 					}),
 				});
 
@@ -232,6 +242,7 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 					body: JSON.stringify({
 						model,
 						prompt: "A smiling orange cat wearing a tiny hat, photorealistic.",
+						size: IMAGE_SIZE,
 						n: 1,
 						...(qualityOverride && { quality: qualityOverride }),
 					}),
@@ -281,6 +292,7 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 						prompt:
 							"Edit this image: add a small bright sun in the upper-right corner.",
 						images: [{ image_url: dataUrl }],
+						size: IMAGE_SIZE,
 						n: 1,
 						...(effectiveQuality && { quality: effectiveQuality }),
 					}),
