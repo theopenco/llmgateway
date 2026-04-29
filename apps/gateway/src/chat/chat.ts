@@ -27,6 +27,7 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import { validateExpensiveModelAccess } from "@/lib/expensive-models.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
@@ -1590,6 +1591,10 @@ chat.openapi(completions, async (c) => {
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
+
+	// Gate expensive models behind account age requirement.
+	validateExpensiveModelAccess(organization, modelInfo);
+
 	// IAM allowed providers - used to filter available providers during routing
 	const iamAllowedProviders = iamValidation.allowedProviders;
 
