@@ -45,6 +45,35 @@ describe("collapseImageGenSse", () => {
 		expect((result.json.usage as any).output_tokens).toBe(4321);
 	});
 
+	test("accepts image_edit.completed (edits endpoint event family)", () => {
+		const text = [
+			"event: image_edit.partial_image",
+			`data: ${JSON.stringify({
+				type: "image_edit.partial_image",
+				partial_image_index: 0,
+				b64_json: "EDIT_PARTIAL",
+			})}`,
+			"",
+			"event: image_edit.completed",
+			`data: ${JSON.stringify({
+				type: "image_edit.completed",
+				b64_json: "EDIT_FINAL",
+				created_at: 1700000001,
+				size: "1024x1024",
+				usage: { input_tokens: 9, output_tokens: 200 },
+			})}`,
+			"",
+		].join("\n");
+
+		const result = collapseImageGenSse(text);
+		expect("json" in result).toBe(true);
+		if (!("json" in result)) {
+			return;
+		}
+		expect((result.json.data as any[])[0].b64_json).toBe("EDIT_FINAL");
+		expect((result.json.usage as any).output_tokens).toBe(200);
+	});
+
 	test("returns json when only a completed event is present (partial_images=0)", () => {
 		const text = [
 			"event: image_generation.completed",

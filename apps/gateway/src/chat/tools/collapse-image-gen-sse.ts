@@ -6,11 +6,11 @@
  * gpt-image-* even when the client requested non-streaming, so that the
  * connection stays alive past Azure's 122s synchronous wall and we can rely
  * on AI_STREAMING_TIMEOUT_MS instead of AI_TIMEOUT_MS. The forced partial is
- * discarded here; only the final image_generation.completed event is used.
+ * discarded here; only the final completed event is used.
  *
- * Wire format (per event):
- *   event: image_generation.completed
- *   data: { "type": "image_generation.completed", "b64_json": "...", "usage": {...}, ... }
+ * Two endpoints, two event-name families — both shapes are otherwise identical:
+ *   /v1/images/generations → image_generation.partial_image / image_generation.completed
+ *   /v1/images/edits       → image_edit.partial_image       / image_edit.completed
  *
  * Output JSON shape (matches parseProviderResponse's openai/azure image branch):
  *   { created, data: [{ b64_json }], usage: {...}, size?, quality?, output_format? }
@@ -55,7 +55,10 @@ export function collapseImageGenSse(text: string): CollapseImageGenSseResult {
 		const obj = parsed as Record<string, unknown>;
 		const type = typeof obj.type === "string" ? obj.type : undefined;
 
-		if (type === "image_generation.completed") {
+		if (
+			type === "image_generation.completed" ||
+			type === "image_edit.completed"
+		) {
 			completed = obj;
 			break;
 		}
@@ -83,8 +86,7 @@ export function collapseImageGenSse(text: string): CollapseImageGenSseResult {
 	if (!completed) {
 		return {
 			error: {
-				message:
-					"Upstream image generation stream ended without a completed event",
+				message: "Upstream image stream ended without a completed event",
 				code: "incomplete_stream",
 				type: "upstream_error",
 			},
@@ -96,8 +98,7 @@ export function collapseImageGenSse(text: string): CollapseImageGenSseResult {
 	if (!b64) {
 		return {
 			error: {
-				message:
-					"Upstream image_generation.completed event missing b64_json field",
+				message: "Upstream completed event missing b64_json field",
 				code: "missing_image",
 				type: "upstream_error",
 			},
