@@ -1031,15 +1031,13 @@ export async function prepareRequestBody(
 		}
 	}
 
-	// qwen3.6-35b-a3b returns empty content ~40% of the time when json_object
-	// is combined with thinking; force thinking off when JSON is requested.
-	if (
-		usedProvider === "alibaba" &&
-		usedModel === "qwen3.6-35b-a3b" &&
-		(response_format?.type === "json_object" ||
-			response_format?.type === "json_schema")
-	) {
-		requestBody.enable_thinking = false;
+	// Alibaba's API defaults `enable_thinking` to ON for thinking models.
+	// Mirror the OpenAI/Anthropic/Google/ZAI contract: thinking is opt-in via
+	// `reasoning_effort`. Unset or `minimal` => off, anything else => on.
+	if (usedProvider === "alibaba" && supportsReasoning) {
+		const wantsThinking =
+			reasoning_effort !== undefined && reasoning_effort !== "minimal";
+		requestBody.enable_thinking = wantsThinking;
 	}
 
 	if (forcesToolUse && usedProvider === "moonshot") {
