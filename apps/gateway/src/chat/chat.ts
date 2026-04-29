@@ -182,12 +182,20 @@ import type { ServerTypes } from "@/vars.js";
  * request body so the upstream call uses SSE. The single partial keeps the
  * connection alive past Azure's 122s synchronous wall; the gateway discards
  * the partial event and returns only the final image to the client.
+ *
+ * Multipart caveat: Azure's /v1/images/edits parses the stream form field with
+ * a case-sensitive boolean parser (.NET-style) — "true" (lowercase) is treated
+ * as falsy and Azure runs the request synchronously, hitting the 122s wall.
+ * "True" (Pascal case, matching httpx's str(True) encoding used by the Python
+ * SDK) is parsed correctly. OpenAI accepts both cases, so "True" is safe for
+ * both providers. JSON bodies are unaffected — native booleans go on the wire
+ * as `true` and parse correctly everywhere.
  */
 function injectImageStreamParams(
 	body: ProviderRequestBody | FormData,
 ): ProviderRequestBody | FormData {
 	if (body instanceof FormData) {
-		body.set("stream", "true");
+		body.set("stream", "True");
 		body.set("partial_images", "1");
 		return body;
 	}
