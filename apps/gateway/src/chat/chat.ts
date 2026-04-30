@@ -9123,7 +9123,7 @@ chat.openapi(completions, async (c) => {
 					dataStorageCost: costs.dataStorageCost,
 				}
 			: null,
-		false, // showUpgradeMessage - never show since Pro plan is removed
+		false, // showUpgradeMessage
 		annotations,
 		routingAttempts.length > 0 ? routingAttempts : null,
 		requestId,
