@@ -54,7 +54,8 @@ async function fetchAllProviderMetricsRows(): Promise<ProviderMetricsRow[]> {
 					routingTotalRequests: modelProviderMapping.routingTotalRequests,
 				})
 				.from(modelProviderMapping)
-				.where(eq(modelProviderMapping.status, "active")),
+				.where(eq(modelProviderMapping.status, "active"))
+				.$withCache({ config: { ex: 10 } }),
 	);
 }
 
