@@ -62,6 +62,7 @@ interface RoutingMetadata {
 		latency?: number;
 		price?: number;
 		priority?: number;
+		cacheSupported?: boolean;
 		failed?: boolean;
 		status_code?: number;
 		error_type?: string;
@@ -670,6 +671,9 @@ export function LogCard({
 																				p:{score.priority}
 																			</span>
 																		)}
+																	{score.cacheSupported && (
+																		<span className="ml-2">cache</span>
+																	)}
 																</span>
 															</div>
 														))}
@@ -1197,6 +1201,12 @@ export function LogCard({
 								<div className="flex items-center justify-between gap-2">
 									<span className="text-muted-foreground">Image Size</span>
 									<span>{String(imageConfig.image_size)}</span>
+								</div>
+							)}
+							{imageConfig?.image_quality && (
+								<div className="flex items-center justify-between gap-2">
+									<span className="text-muted-foreground">Image Quality</span>
+									<span>{String(imageConfig.image_quality)}</span>
 								</div>
 							)}
 							{imageConfig?.n !== undefined && imageConfig.n !== null && (

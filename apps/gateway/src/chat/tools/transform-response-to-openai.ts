@@ -23,9 +23,18 @@ export function applyExtendedUsageFields(
 		cachedTokens?: number | null;
 		cacheCreationTokens?: number | null;
 		reasoningTokens?: number | null;
+		imageInputTokens?: number | null;
+		imageOutputTokens?: number | null;
 	},
 ): Record<string, any> {
-	const { costs, cachedTokens, cacheCreationTokens, reasoningTokens } = options;
+	const {
+		costs,
+		cachedTokens,
+		cacheCreationTokens,
+		reasoningTokens,
+		imageInputTokens,
+		imageOutputTokens,
+	} = options;
 
 	if (costs) {
 		if (costs.totalCost !== null && costs.totalCost !== undefined) {
@@ -71,12 +80,15 @@ export function applyExtendedUsageFields(
 		existingPromptDetails.cache_creation_tokens ??
 		cacheCreationTokens ??
 		0;
+	const resolvedPromptImageTokens =
+		imageInputTokens ?? existingPromptDetails.image_tokens ?? 0;
 	usage.prompt_tokens_details = {
 		...existingPromptDetails,
 		cached_tokens: resolvedCacheRead,
 		cache_write_tokens: resolvedCacheWrite,
 		audio_tokens: existingPromptDetails.audio_tokens ?? 0,
 		video_tokens: existingPromptDetails.video_tokens ?? 0,
+		image_tokens: resolvedPromptImageTokens,
 		...(resolvedCacheWrite > 0 && {
 			cache_creation_tokens: resolvedCacheWrite,
 		}),
@@ -91,10 +103,12 @@ export function applyExtendedUsageFields(
 			: undefined) ??
 		reasoningTokens ??
 		0;
+	const resolvedCompletionImageTokens =
+		imageOutputTokens ?? existingCompletionDetails.image_tokens ?? 0;
 	usage.completion_tokens_details = {
 		...existingCompletionDetails,
 		reasoning_tokens: resolvedReasoning,
-		image_tokens: existingCompletionDetails.image_tokens ?? 0,
+		image_tokens: resolvedCompletionImageTokens,
 		audio_tokens: existingCompletionDetails.audio_tokens ?? 0,
 	};
 
@@ -196,6 +210,8 @@ function buildUsageObject(
 	costs: CostData | null,
 	showUpgradeMessage = false,
 	cacheCreationTokens: number | null = null,
+	imageInputTokens: number | null = null,
+	imageOutputTokens: number | null = null,
 ) {
 	const usage: Record<string, any> = {
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
@@ -218,6 +234,8 @@ function buildUsageObject(
 		cachedTokens,
 		cacheCreationTokens,
 		reasoningTokens,
+		imageInputTokens,
+		imageOutputTokens,
 	});
 
 	return usage;
@@ -250,6 +268,8 @@ export function transformResponseToOpenai(
 	requestId = "",
 	usedRegion?: string | undefined,
 	cacheCreationTokens: number | null = null,
+	imageInputTokens: number | null = null,
+	imageOutputTokens: number | null = null,
 ) {
 	let transformedResponse = json;
 
@@ -292,6 +312,8 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 					cacheCreationTokens,
+					imageInputTokens,
+					imageOutputTokens,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -340,6 +362,8 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 					cacheCreationTokens,
+					imageInputTokens,
+					imageOutputTokens,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -385,6 +409,8 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						imageInputTokens,
+						imageOutputTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -474,6 +500,8 @@ export function transformResponseToOpenai(
 					costs,
 					showUpgradeMessage,
 					cacheCreationTokens,
+					imageInputTokens,
+					imageOutputTokens,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -517,6 +545,8 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						imageInputTokens,
+						imageOutputTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -612,6 +642,8 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						imageInputTokens,
+						imageOutputTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -658,6 +690,8 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						imageInputTokens,
+						imageOutputTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -752,6 +786,8 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						imageInputTokens,
+						imageOutputTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -837,6 +873,8 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						imageInputTokens,
+						imageOutputTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -923,6 +961,8 @@ export function transformResponseToOpenai(
 						costs,
 						showUpgradeMessage,
 						cacheCreationTokens,
+						imageInputTokens,
+						imageOutputTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,

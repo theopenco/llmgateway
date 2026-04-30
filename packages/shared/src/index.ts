@@ -61,4 +61,9 @@ export {
 
 export { selectLoadBalancedItem } from "./load-balance.js";
 
+export {
+	estimateChatMessageTokens,
+	estimateTokensFromText,
+} from "./token-estimate.js";
+
 export * from "./components/ui/index.js";

@@ -125,6 +125,7 @@ const logSchema = z.object({
 						throughput: z.number().optional(),
 						price: z.number().optional(),
 						priority: z.number().optional(),
+						cacheSupported: z.boolean().optional(),
 						failed: z.boolean().optional(),
 						status_code: z.number().optional(),
 						error_type: z.string().optional(),

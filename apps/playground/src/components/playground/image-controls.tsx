@@ -39,6 +39,8 @@ interface ImageControlsProps {
 	setImageSize: (value: string) => void;
 	alibabaImageSize: string;
 	setAlibabaImageSize: (value: string) => void;
+	imageQuality: string;
+	setImageQuality: (value: string) => void;
 	imageCount: 1 | 2 | 3 | 4;
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	isGenerating: boolean;
@@ -77,6 +79,8 @@ export function ImageControls({
 	setImageSize,
 	alibabaImageSize,
 	setAlibabaImageSize,
+	imageQuality,
+	setImageQuality,
 	imageCount,
 	setImageCount,
 	isGenerating,
@@ -348,7 +352,24 @@ export function ImageControls({
 							</Select>
 						</>
 					)}
-					{config.usesPixelDimensions && (
+					{config.usesPixelDimensions && config.isGptImage && (
+						<Select
+							value={alibabaImageSize}
+							onValueChange={setAlibabaImageSize}
+						>
+							<SelectTrigger size="sm" className="min-w-[130px]">
+								<SelectValue placeholder="Resolution" />
+							</SelectTrigger>
+							<SelectContent>
+								{config.availableSizes.map((size) => (
+									<SelectItem key={size} value={size}>
+										{size === "auto" ? "Auto" : size}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					)}
+					{config.usesPixelDimensions && !config.isGptImage && (
 						<Select
 							value={alibabaImageSize}
 							onValueChange={setAlibabaImageSize}
@@ -364,6 +385,20 @@ export function ImageControls({
 								<SelectItem value="1536x1024">1536x1024</SelectItem>
 								<SelectItem value="2048x1024">2048x1024</SelectItem>
 								<SelectItem value="1024x2048">1024x2048</SelectItem>
+							</SelectContent>
+						</Select>
+					)}
+					{config.supportsQuality && (
+						<Select value={imageQuality} onValueChange={setImageQuality}>
+							<SelectTrigger size="sm" className="min-w-[100px]">
+								<SelectValue placeholder="Quality" />
+							</SelectTrigger>
+							<SelectContent>
+								{config.availableQualities.map((q) => (
+									<SelectItem key={q} value={q}>
+										{q.charAt(0).toUpperCase() + q.slice(1)}
+									</SelectItem>
+								))}
 							</SelectContent>
 						</Select>
 					)}

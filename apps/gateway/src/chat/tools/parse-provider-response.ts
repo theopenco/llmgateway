@@ -31,6 +31,8 @@ export function parseProviderResponse(
 	let reasoningTokens = null;
 	let cachedTokens = null;
 	let cacheCreationTokens = null;
+	let imageInputTokens: number | null = null;
+	let imageOutputTokens: number | null = null;
 	let toolResults = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
@@ -554,6 +556,10 @@ export function parseProviderResponse(
 				promptTokens = json.usage?.input_tokens ?? 0;
 				completionTokens = json.usage?.output_tokens ?? 0;
 				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
+				imageInputTokens =
+					json.usage?.input_tokens_details?.image_tokens ?? null;
+				imageOutputTokens =
+					json.usage?.output_tokens_details?.image_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens ?? 0) + (completionTokens ?? 0);
@@ -852,6 +858,8 @@ export function parseProviderResponse(
 		reasoningTokens,
 		cachedTokens,
 		cacheCreationTokens,
+		imageInputTokens,
+		imageOutputTokens,
 		toolResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,

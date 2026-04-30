@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
 	echo "Usage: $0 <image1> [image2 ...]" >&2
-	echo "Env: PROMPT, OUTPUT_FILE, GATEWAY_URL, TOKEN, MODEL, ASPECT_RATIO, SIZE, QUALITY, RESPONSE_FILE" >&2
+	echo "Env: PROMPT, OUTPUT_FILE, GATEWAY_URL, TOKEN, MODEL, N, ASPECT_RATIO, SIZE, QUALITY, RESPONSE_FILE" >&2
 	exit 1
 fi
 
@@ -17,9 +17,7 @@ MODEL=${MODEL:-google-vertex/gemini-3.1-flash-image-preview}
 MODEL_FILENAME=${MODEL//\//--}
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 OUTPUT_FILE=${OUTPUT_FILE:-.context/${MODEL_FILENAME}-${TIMESTAMP}.png}
-ASPECT_RATIO=${ASPECT_RATIO:-1:1}
-SIZE=${SIZE:-2K}
-QUALITY=${QUALITY:-high}
+N=${N:-1}
 RESPONSE_FILE=${RESPONSE_FILE:-.context/image-edit-response-${TIMESTAMP}.json}
 
 mkdir -p "$(dirname "$OUTPUT_FILE")"
@@ -36,9 +34,18 @@ done
 
 PAYLOAD_FILE="$TMPDIR_WORK/payload.json"
 
-MODEL="$MODEL" PROMPT="$PROMPT" ASPECT_RATIO="$ASPECT_RATIO" SIZE="$SIZE" QUALITY="$QUALITY" \
-IMAGE_LIST_FILE="$IMAGE_LIST_FILE" PAYLOAD_FILE="$PAYLOAD_FILE" \
-python3 <<'PY'
+env_args=(
+	MODEL="$MODEL"
+	PROMPT="$PROMPT"
+	N="$N"
+	IMAGE_LIST_FILE="$IMAGE_LIST_FILE"
+	PAYLOAD_FILE="$PAYLOAD_FILE"
+)
+[[ -n "${ASPECT_RATIO:-}" ]] && env_args+=(ASPECT_RATIO="$ASPECT_RATIO")
+[[ -n "${SIZE:-}" ]] && env_args+=(SIZE="$SIZE")
+[[ -n "${QUALITY:-}" ]] && env_args+=(QUALITY="$QUALITY")
+
+env "${env_args[@]}" python3 <<'PY'
 import base64
 import json
 import mimetypes
@@ -74,11 +81,17 @@ payload = {
     "model": os.environ["MODEL"],
     "prompt": os.environ["PROMPT"],
     "images": images,
-    "aspect_ratio": os.environ["ASPECT_RATIO"],
-    "size": os.environ["SIZE"],
-    "quality": os.environ["QUALITY"],
-    "n": 1,
+    "n": int(os.environ["N"]),
 }
+
+for env_key, payload_key in (
+    ("ASPECT_RATIO", "aspect_ratio"),
+    ("SIZE", "size"),
+    ("QUALITY", "quality"),
+):
+    value = os.environ.get(env_key)
+    if value:
+        payload[payload_key] = value
 
 with payload_path.open("w") as f:
     json.dump(payload, f)

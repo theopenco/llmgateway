@@ -5,6 +5,7 @@ import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
 
 import {
 	and,
+	asc,
 	db,
 	eq,
 	gte,
@@ -432,4 +433,273 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 	};
 
 	return c.json({ modelId, providers, arena });
+});
+
+// --- Public per-provider uptime/history (last 4h) ---
+
+const uptimePointSchema = z.object({
+	timestamp: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
+	cachedCount: z.number(),
+	avgTtft: z.number().nullable(),
+	avgDuration: z.number().nullable(),
+	totalTokens: z.number(),
+});
+
+const uptimeProviderSchema = z.object({
+	providerId: z.string(),
+	providerName: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
+	uptime: z.number().nullable(),
+	avgTtft: z.number().nullable(),
+	avgDuration: z.number().nullable(),
+	tokensPerSecond: z.number().nullable(),
+	points: z.array(uptimePointSchema),
+});
+
+const modelUptimeSchema = z.object({
+	modelId: z.string(),
+	windowMinutes: z.number(),
+	providers: z.array(uptimeProviderSchema),
+});
+
+const modelUptimeRoute = createRoute({
+	operationId: "internal_get_model_uptime",
+	summary: "Get model uptime",
+	description:
+		"Returns per-provider request volume, errors, latency, and throughput for a specific model over the last 4 hours.",
+	method: "get",
+	path: "/models/{modelId}/uptime",
+	request: {
+		params: z.object({
+			modelId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: modelUptimeSchema,
+				},
+			},
+			description: "Per-provider uptime time series for the last 4 hours.",
+		},
+	},
+});
+
+internalModels.openapi(modelUptimeRoute, async (c) => {
+	const { modelId } = c.req.valid("param");
+
+	const WINDOW_MINUTES = 240; // 4h
+	const WINDOW_MS = WINDOW_MINUTES * 60_000;
+	const since = new Date(Date.now() - WINDOW_MS);
+
+	// Active providers serving this model — included even if they have no
+	// recent traffic so the page can render an idle state for them.
+	const [activeProviders, rows] = await Promise.all([
+		db
+			.select({
+				providerId: tables.modelProviderMapping.providerId,
+				providerName: tables.provider.name,
+			})
+			.from(tables.modelProviderMapping)
+			.innerJoin(
+				tables.provider,
+				eq(tables.modelProviderMapping.providerId, tables.provider.id),
+			)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, modelId),
+					eq(tables.modelProviderMapping.status, "active"),
+				),
+			),
+		db
+			.select({
+				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+				providerId: modelProviderMappingHistory.providerId,
+				providerName: tables.provider.name,
+				logsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+						"upstream_errors_count",
+					),
+				cachedCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+						"cached_count",
+					),
+				totalDuration:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalDuration}), 0)`.as(
+						"total_duration",
+					),
+				totalTimeToFirstToken:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)`.as(
+						"total_ttft",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(modelProviderMappingHistory)
+			.innerJoin(
+				tables.provider,
+				eq(modelProviderMappingHistory.providerId, tables.provider.id),
+			)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.modelId, modelId),
+					gte(modelProviderMappingHistory.minuteTimestamp, since),
+				),
+			)
+			.groupBy(
+				modelProviderMappingHistory.minuteTimestamp,
+				modelProviderMappingHistory.providerId,
+				tables.provider.name,
+			)
+			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp)),
+	]);
+
+	const byProvider = new Map<
+		string,
+		{
+			providerId: string;
+			providerName: string;
+			points: Array<{
+				timestamp: string;
+				logsCount: number;
+				errorsCount: number;
+				clientErrorsCount: number;
+				gatewayErrorsCount: number;
+				upstreamErrorsCount: number;
+				cachedCount: number;
+				totalDuration: number;
+				totalTimeToFirstToken: number;
+				totalTokens: number;
+			}>;
+		}
+	>();
+
+	// Seed with active providers so idle ones still render
+	for (const p of activeProviders) {
+		if (!byProvider.has(p.providerId)) {
+			byProvider.set(p.providerId, {
+				providerId: p.providerId,
+				providerName: p.providerName ?? p.providerId,
+				points: [],
+			});
+		}
+	}
+
+	for (const r of rows) {
+		const key = r.providerId;
+		const entry = byProvider.get(key) ?? {
+			providerId: r.providerId,
+			providerName: r.providerName ?? r.providerId,
+			points: [],
+		};
+		entry.points.push({
+			timestamp: r.minuteTimestamp.toISOString(),
+			logsCount: Number(r.logsCount),
+			errorsCount: Number(r.errorsCount),
+			clientErrorsCount: Number(r.clientErrorsCount),
+			gatewayErrorsCount: Number(r.gatewayErrorsCount),
+			upstreamErrorsCount: Number(r.upstreamErrorsCount),
+			cachedCount: Number(r.cachedCount),
+			totalDuration: Number(r.totalDuration),
+			totalTimeToFirstToken: Number(r.totalTimeToFirstToken),
+			totalTokens: Number(r.totalTokens),
+		});
+		byProvider.set(key, entry);
+	}
+
+	const providers = Array.from(byProvider.values()).map((p) => {
+		let totalLogs = 0;
+		let totalErrors = 0;
+		let totalUpstreamErrors = 0;
+		let totalCached = 0;
+		let totalDuration = 0;
+		let totalTtft = 0;
+		let totalTokens = 0;
+
+		const points = p.points.map((pt) => {
+			totalLogs += pt.logsCount;
+			totalErrors += pt.errorsCount;
+			totalUpstreamErrors += pt.upstreamErrorsCount;
+			totalCached += pt.cachedCount;
+			totalDuration += pt.totalDuration;
+			totalTtft += pt.totalTimeToFirstToken;
+			totalTokens += pt.totalTokens;
+			const nonCached = pt.logsCount - pt.cachedCount;
+			return {
+				timestamp: pt.timestamp,
+				logsCount: pt.logsCount,
+				errorsCount: pt.errorsCount,
+				clientErrorsCount: pt.clientErrorsCount,
+				gatewayErrorsCount: pt.gatewayErrorsCount,
+				upstreamErrorsCount: pt.upstreamErrorsCount,
+				cachedCount: pt.cachedCount,
+				avgTtft:
+					nonCached > 0
+						? Math.round(pt.totalTimeToFirstToken / nonCached)
+						: null,
+				avgDuration:
+					pt.logsCount > 0 ? Math.round(pt.totalDuration / pt.logsCount) : null,
+				totalTokens: pt.totalTokens,
+			};
+		});
+
+		const nonCachedTotal = totalLogs - totalCached;
+		const uptime =
+			totalLogs > 0
+				? Math.round(((totalLogs - totalUpstreamErrors) / totalLogs) * 1000) /
+					10
+				: null;
+		const tokensPerSecond =
+			totalDuration > 0
+				? Math.round(totalTokens / (totalDuration / 1000))
+				: null;
+
+		return {
+			providerId: p.providerId,
+			providerName: p.providerName,
+			logsCount: totalLogs,
+			errorsCount: totalErrors,
+			upstreamErrorsCount: totalUpstreamErrors,
+			uptime,
+			avgTtft:
+				nonCachedTotal > 0 ? Math.round(totalTtft / nonCachedTotal) : null,
+			avgDuration: totalLogs > 0 ? Math.round(totalDuration / totalLogs) : null,
+			tokensPerSecond,
+			points,
+		};
+	});
+
+	providers.sort((a, b) => b.logsCount - a.logsCount);
+
+	return c.json({
+		modelId,
+		windowMinutes: WINDOW_MINUTES,
+		providers,
+	});
 });

@@ -488,6 +488,56 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			],
 			emailAndPassword: {
 				enabled: true,
+				sendResetPassword: async ({
+					user,
+					url,
+				}: {
+					user: { email: string; name?: string | null };
+					url: string;
+					token: string;
+				}) => {
+					const text = `Hey${user.name ? ` ${user.name}` : ""},
+
+We received a request to reset the password for your LLM Gateway account.
+
+Click the link below to set a new password — it expires in 1 hour:
+
+${url}
+
+If you didn't request this, you can safely ignore this email. Your password won't change.
+
+— The LLM Gateway Team`.trim();
+
+					if (process.env.NODE_ENV !== "production") {
+						const redactedUrl = url.replace(
+							/\/reset-password\/[^/?#]+/,
+							"/reset-password/<redacted-token>",
+						);
+						logger.info("Password reset link generated (dev only)", {
+							email: user.email,
+							redactedUrl,
+						});
+					}
+
+					try {
+						await sendTransactionalEmail({
+							to: user.email,
+							subject: "Reset your LLM Gateway password",
+							text,
+							strict: true,
+							logSafe: true,
+						});
+					} catch (error) {
+						logger.error(
+							"Failed to send password reset email",
+							error instanceof Error ? error : new Error(String(error)),
+							{ email: user.email },
+						);
+						throw new Error(
+							"Failed to send password reset email. Please try again.",
+						);
+					}
+				},
 			},
 			baseURL: apiUrl || "http://localhost:4002",
 			secret: process.env.AUTH_SECRET ?? "dev-secret-key-must-be-32-chars!",

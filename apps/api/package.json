@@ -23,7 +23,7 @@
 		"@hono/zod-validator": "^0.7.2",
 		"@kubiks/otel-better-auth": "2.0.2",
 		"@llmgateway/actions": "workspace:*",
-		"@llmgateway/ai-sdk-provider": "3.5.0",
+		"@llmgateway/ai-sdk-provider": "3.7.0",
 		"@llmgateway/audit": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/guardrails": "workspace:*",

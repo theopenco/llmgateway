@@ -179,7 +179,7 @@ export function Footer() {
 								</li>
 								<li>
 									<Link
-										href="/#pricing"
+										href="/pricing"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Pricing

@@ -1,5 +1,4 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { encode } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
@@ -250,6 +249,7 @@ function collapseProvidersToBestRegionPerProvider(
 	options: {
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
+		promptTokens?: number;
 	},
 ): ProviderModelMapping[] {
 	const providersById = new Map<string, ProviderModelMapping[]>();
@@ -1094,6 +1094,18 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Estimate prompt tokens once so all routing decisions can reuse the
+	// same value (e.g. cache-support weighting kicks in for large prompts).
+	// Uses a cheap chars/4 heuristic — accuracy is intentionally traded
+	// for throughput on the gateway hot path.
+	let routingPromptTokens = 0;
+	if (messages && messages.length > 0) {
+		routingPromptTokens = encodeChatMessages(messages);
+	}
+	if (tools && tools.length > 0) {
+		routingPromptTokens += Math.round(JSON.stringify(tools).length / 4);
+	}
+
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
 		c.req.header("x-source"),
@@ -1511,34 +1523,9 @@ chat.openapi(completions, async (c) => {
 		(usedProvider === "llmgateway" && usedModel === "auto") ||
 		usedModel === "auto"
 	) {
-		// Estimate prompt/input tokens first so auto-routing can react to large prompts
-		let estimatedInputTokens = 0;
-
-		// Estimate prompt tokens from messages
-		if (messages && messages.length > 0) {
-			try {
-				estimatedInputTokens = encodeChatMessages(messages);
-			} catch {
-				// Fallback to simple estimation if encoding fails
-				const messageTokens = messages.reduce(
-					(acc, m) => acc + (m.content?.length ?? 0),
-					0,
-				);
-				estimatedInputTokens = Math.max(1, Math.round(messageTokens / 4));
-			}
-		}
-
-		// Add tool definitions to context estimation
-		if (tools && tools.length > 0) {
-			try {
-				const toolsString = JSON.stringify(tools);
-				const toolTokens = Math.round(toolsString.length / 4);
-				estimatedInputTokens += toolTokens;
-			} catch {
-				// Fallback estimation for tools
-				estimatedInputTokens += tools.length * 100; // Rough estimate per tool
-			}
-		}
+		// Reuse the prompt-token estimate computed earlier so auto-routing can
+		// react to large prompts when picking a model.
+		const estimatedInputTokens = routingPromptTokens;
 
 		// Estimate the full context needed based on the request
 		let requiredContextSize = estimatedInputTokens;
@@ -1757,13 +1744,18 @@ chat.openapi(completions, async (c) => {
 					{
 						metricsMap,
 						isStreaming: stream,
+						promptTokens: routingPromptTokens,
 					},
 				);
 
 			const cheapestResult = getCheapestFromAvailableProviders(
 				providerAgnosticSelectedProviders,
 				selectedModel,
-				{ metricsMap, isStreaming: stream },
+				{
+					metricsMap,
+					isStreaming: stream,
+					promptTokens: routingPromptTokens,
+				},
 			);
 
 			if (cheapestResult) {
@@ -1923,6 +1915,7 @@ chat.openapi(completions, async (c) => {
 						{
 							metricsMap,
 							isStreaming: stream,
+							promptTokens: routingPromptTokens,
 						},
 					);
 
@@ -2107,6 +2100,7 @@ chat.openapi(completions, async (c) => {
 							{
 								metricsMap: allMetricsMap,
 								isStreaming: stream,
+								promptTokens: routingPromptTokens,
 							},
 						);
 
@@ -2244,7 +2238,11 @@ chat.openapi(completions, async (c) => {
 							collapseProvidersToBestRegionPerProvider(
 								availableModelProviders,
 								modelWithPricing,
-								{ metricsMap: allMetricsMap, isStreaming: stream },
+								{
+									metricsMap: allMetricsMap,
+									isStreaming: stream,
+									promptTokens: routingPromptTokens,
+								},
 							);
 
 						// Filter to only providers with better uptime than the original
@@ -2269,7 +2267,11 @@ chat.openapi(completions, async (c) => {
 							const cheapestResult = getCheapestFromAvailableProviders(
 								betterUptimeProviders,
 								modelWithPricing,
-								{ metricsMap: allMetricsMap, isStreaming: stream },
+								{
+									metricsMap: allMetricsMap,
+									isStreaming: stream,
+									promptTokens: routingPromptTokens,
+								},
 							);
 
 							// Get price info for the original requested provider to include in scores
@@ -2446,13 +2448,21 @@ chat.openapi(completions, async (c) => {
 					collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
 						modelWithPricing,
-						{ metricsMap, isStreaming: stream },
+						{
+							metricsMap,
+							isStreaming: stream,
+							promptTokens: routingPromptTokens,
+						},
 					);
 
 				const cheapestResult = getCheapestFromAvailableProviders(
 					providerAgnosticCandidates,
 					modelWithPricing,
-					{ metricsMap, isStreaming: stream },
+					{
+						metricsMap,
+						isStreaming: stream,
+						promptTokens: routingPromptTokens,
+					},
 				);
 
 				if (cheapestResult) {
@@ -2619,6 +2629,7 @@ chat.openapi(completions, async (c) => {
 						{
 							metricsMap,
 							isStreaming: stream,
+							promptTokens: routingPromptTokens,
 						},
 					);
 
@@ -4164,6 +4175,7 @@ chat.openapi(completions, async (c) => {
 							inputImageCount,
 							0,
 							project.organizationId,
+							image_config?.image_quality,
 						);
 						streamingCosts.dataStorageCost = toDataStorageCostNumber(
 							streamingCosts.promptTokens ?? promptTokenCount,
@@ -5936,6 +5948,7 @@ chat.openapi(completions, async (c) => {
 											inputImageCount,
 											webSearchCount,
 											project.organizationId,
+											image_config?.image_quality,
 										);
 										streamingCosts.dataStorageCost = toDataStorageCostNumber(
 											streamingCosts.promptTokens ?? finalPromptTokens,
@@ -6929,27 +6942,8 @@ chat.openapi(completions, async (c) => {
 									imageTokens = 258 + Math.ceil(imageByteSize / 750);
 								}
 
-								// Skip expensive token encoding for image responses - use simple estimation
-								// Token encoding on large base64 content causes CPU spikes
-								if (imageByteSize > 0) {
-									const textTokens = estimateTokensFromContent(fullContent);
-									calculatedCompletionTokens = textTokens + imageTokens;
-								} else {
-									try {
-										const textTokens = fullContent
-											? encode(JSON.stringify(fullContent)).length
-											: 0;
-										calculatedCompletionTokens = textTokens + imageTokens;
-									} catch (error) {
-										// Fallback to simple estimation if encoding fails
-										logger.error(
-											"Failed to encode completion text in streaming",
-											error instanceof Error ? error : new Error(String(error)),
-										);
-										const textTokens = estimateTokensFromContent(fullContent);
-										calculatedCompletionTokens = textTokens + imageTokens;
-									}
-								}
+								const textTokens = estimateTokensFromContent(fullContent);
+								calculatedCompletionTokens = textTokens + imageTokens;
 							}
 
 							calculatedTotalTokens =
@@ -6960,17 +6954,8 @@ chat.openapi(completions, async (c) => {
 						// Estimate reasoning tokens if not provided but reasoning content exists
 						let calculatedReasoningTokens = reasoningTokens;
 						if (!reasoningTokens && fullReasoningContent) {
-							try {
-								calculatedReasoningTokens = encode(fullReasoningContent).length;
-							} catch (error) {
-								// Fallback to simple estimation if encoding fails
-								logger.error(
-									"Failed to encode reasoning text in streaming",
-									error instanceof Error ? error : new Error(String(error)),
-								);
-								calculatedReasoningTokens =
-									estimateTokensFromContent(fullReasoningContent);
-							}
+							calculatedReasoningTokens =
+								estimateTokensFromContent(fullReasoningContent);
 						}
 
 						if (
@@ -7224,6 +7209,7 @@ chat.openapi(completions, async (c) => {
 											inputImageCount,
 											webSearchCount,
 											project.organizationId,
+											image_config?.image_quality,
 										);
 							if (streamingCostsEarly.totalCost !== null) {
 								streamingCostsEarly.dataStorageCost = toDataStorageCostNumber(
@@ -7513,6 +7499,7 @@ chat.openapi(completions, async (c) => {
 										inputImageCount,
 										webSearchCount,
 										project.organizationId,
+										image_config?.image_quality,
 									));
 
 						// Use costs.promptTokens as canonical value (includes image input
@@ -8935,6 +8922,8 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		cachedTokens,
 		cacheCreationTokens,
+		imageInputTokens,
+		imageOutputTokens,
 		toolResults,
 		images,
 		annotations,
@@ -9032,16 +9021,7 @@ chat.openapi(completions, async (c) => {
 	// Estimate reasoning tokens if not provided but reasoning content exists
 	let calculatedReasoningTokens = reasoningTokens;
 	if (!reasoningTokens && reasoningContent) {
-		try {
-			calculatedReasoningTokens = encode(reasoningContent).length;
-		} catch (error) {
-			// Fallback to simple estimation if encoding fails
-			logger.error(
-				"Failed to encode reasoning text",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-			calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
-		}
+		calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
 	}
 	const costs = await calculateCosts(
 		usedModel,
@@ -9060,6 +9040,7 @@ chat.openapi(completions, async (c) => {
 		inputImageCount,
 		webSearchCount,
 		project.organizationId,
+		image_config?.image_quality,
 	);
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
@@ -9125,6 +9106,8 @@ chat.openapi(completions, async (c) => {
 		requestId,
 		usedRegion,
 		cacheCreationTokens,
+		imageInputTokens,
+		imageOutputTokens,
 	);
 
 	// Extract plugin IDs for logging
