@@ -26,10 +26,6 @@ import type { ModelProviderMappingEntry } from "@/lib/types";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
-		"1m": "1m",
-		"2m": "2m",
-		"5m": "5m",
-		"15m": "15m",
 		"1h": "1h",
 		"2h": "2h",
 		"4h": "4h",

@@ -3624,10 +3624,6 @@ admin.openapi(getModelStats, async (c) => {
 // --- Shared history helpers (used by model detail + history endpoints) ---
 
 const historyWindowSchema = z.enum([
-	"1m",
-	"2m",
-	"5m",
-	"15m",
 	"1h",
 	"2h",
 	"4h",
@@ -3639,10 +3635,6 @@ const historyWindowSchema = z.enum([
 
 function getHistoryStartDate(window: string): Date {
 	const windowMinutes: Record<string, number> = {
-		"1m": 1,
-		"2m": 2,
-		"5m": 5,
-		"15m": 15,
 		"1h": 60,
 		"2h": 120,
 		"4h": 240,

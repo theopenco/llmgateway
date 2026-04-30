@@ -21,18 +21,7 @@ import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
-export type HistoryWindow =
-	| "1m"
-	| "2m"
-	| "5m"
-	| "15m"
-	| "1h"
-	| "2h"
-	| "4h"
-	| "12h"
-	| "24h"
-	| "2d"
-	| "7d";
+export type HistoryWindow = "1h" | "2h" | "4h" | "12h" | "24h" | "2d" | "7d";
 
 export interface HistoryDataPoint {
 	timestamp: string;
@@ -73,10 +62,6 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 };
 
 export const windowOptions: { value: HistoryWindow; label: string }[] = [
-	{ value: "1m", label: "1m" },
-	{ value: "2m", label: "2m" },
-	{ value: "5m", label: "5m" },
-	{ value: "15m", label: "15m" },
 	{ value: "1h", label: "1h" },
 	{ value: "2h", label: "2h" },
 	{ value: "4h", label: "4h" },
