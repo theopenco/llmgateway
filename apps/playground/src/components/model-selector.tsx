@@ -396,6 +396,7 @@ function estimateImageCost(
 		return null;
 	}
 	const request = mapping.requestPrice ? parseFloat(mapping.requestPrice) : 0;
+	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
 	const imageOut = mapping.imageOutputPrice
 		? parseFloat(mapping.imageOutputPrice)
 		: 0;
@@ -410,7 +411,6 @@ function estimateImageCost(
 	if (!Number.isFinite(base) || base <= 0) {
 		return null;
 	}
-	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
 	const discounted = discount > 0 ? base * (1 - discount) : base;
 	return { base, discounted };
 }
@@ -607,22 +607,19 @@ export function ModelSelector({
 		}[] = [];
 		const now = new Date();
 
-		// Sort models by createdAt (when added to LLM Gateway), newest first
-		// Falls back to releasedAt if createdAt is not available
-		// Note: createdAt comes from API response, releasedAt is in the models package
+		// Sort by public release date first so newly released models surface
+		// before older models that were added to LLM Gateway more recently.
 		const sortedModels = [...models].sort((a, b) => {
-			const dateA =
-				"createdAt" in a && a.createdAt
-					? new Date(a.createdAt as string | Date).getTime()
-					: a.releasedAt
-						? new Date(a.releasedAt).getTime()
-						: 0;
-			const dateB =
-				"createdAt" in b && b.createdAt
-					? new Date(b.createdAt as string | Date).getTime()
-					: b.releasedAt
-						? new Date(b.releasedAt).getTime()
-						: 0;
+			const dateA = a.releasedAt
+				? new Date(a.releasedAt).getTime()
+				: a.createdAt
+					? new Date(a.createdAt).getTime()
+					: 0;
+			const dateB = b.releasedAt
+				? new Date(b.releasedAt).getTime()
+				: b.createdAt
+					? new Date(b.createdAt).getTime()
+					: 0;
 			return dateB - dateA;
 		});
 

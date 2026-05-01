@@ -34,10 +34,27 @@ export type AspectRatio =
 	| "1:8"
 	| "8:1";
 
+// Common gpt-image-2 sizes shown as presets in the playground. OpenAI also
+// accepts arbitrary WxH sizes (both sides divisible by 16, max edge 3840) —
+// this list is just for the dropdown UI.
+export const GPT_IMAGE_SIZES = [
+	"auto",
+	"1024x1024",
+	"1536x1024",
+	"1024x1536",
+	"2048x2048",
+	"2048x1152",
+	"3840x2160",
+	"2160x3840",
+] as const;
+
 export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
+	const isGptImage = lower.includes("gpt-image");
+
 	const usesPixelDimensions =
+		isGptImage ||
 		lower.includes("alibaba") ||
 		lower.includes("qwen-image") ||
 		lower.includes("zai") ||
@@ -48,13 +65,21 @@ export function getModelImageConfig(model: string) {
 
 	const isGemini31FlashImage = lower.includes("gemini-3.1-flash-image");
 
-	const availableSizes = isSeedream
-		? (["2K", "4K"] as const)
-		: isGemini31FlashImage
-			? (["0.5K", "1K", "2K", "4K"] as const)
-			: (["1K", "2K", "4K"] as const);
+	const availableSizes = isGptImage
+		? GPT_IMAGE_SIZES
+		: isSeedream
+			? (["2K", "4K"] as const)
+			: isGemini31FlashImage
+				? (["0.5K", "1K", "2K", "4K"] as const)
+				: (["1K", "2K", "4K"] as const);
 
-	const defaultSize = isSeedream ? "2K" : "1K";
+	const defaultSize = isGptImage ? "auto" : isSeedream ? "2K" : "1K";
+
+	const supportsQuality = isGptImage;
+	const availableQualities = isGptImage
+		? (["auto", "low", "medium", "high"] as const)
+		: ([] as readonly string[]);
+	const defaultQuality: string | undefined = isGptImage ? "auto" : undefined;
 
 	const maxInputImages = getMaxInputImages(lower);
 
@@ -62,8 +87,12 @@ export function getModelImageConfig(model: string) {
 		usesPixelDimensions,
 		isSeedream,
 		isGemini31FlashImage,
+		isGptImage,
 		availableSizes,
 		defaultSize,
+		supportsQuality,
+		availableQualities,
+		defaultQuality,
 		maxInputImages,
 	};
 }

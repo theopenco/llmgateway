@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, RefreshCw } from "lucide-react";
 import {
 	useCallback,
 	useDeferredValue,
@@ -81,6 +81,7 @@ export function ProjectLogsSection({
 	const [logs, setLogs] = useState<ProjectLogEntry[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [loadingMore, setLoadingMore] = useState(false);
+	const [refreshing, setRefreshing] = useState(false);
 	const [pagination, setPagination] = useState<
 		ProjectLogsResponse["pagination"] | null
 	>(null);
@@ -114,9 +115,11 @@ export function ProjectLogsSection({
 	}, [provider, model, source, unifiedFinishReason]);
 
 	const loadLogs = useCallback(
-		async (cursor?: string) => {
+		async (cursor?: string, options?: { background?: boolean }) => {
 			if (cursor) {
 				setLoadingMore(true);
+			} else if (options?.background) {
+				setRefreshing(true);
 			} else {
 				setLoading(true);
 			}
@@ -142,6 +145,7 @@ export function ProjectLogsSection({
 			} finally {
 				setLoading(false);
 				setLoadingMore(false);
+				setRefreshing(false);
 			}
 		},
 		[orgId, projectId, getFilters],
@@ -320,6 +324,18 @@ export function ProjectLogsSection({
 						))}
 					</SelectContent>
 				</Select>
+
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					disabled={loading || loadingMore || refreshing}
+					onClick={() => void loadLogs(undefined, { background: true })}
+					className="gap-2"
+				>
+					<RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+					{refreshing ? "Refreshing..." : "Refresh"}
+				</Button>
 			</div>
 
 			{loading ? (

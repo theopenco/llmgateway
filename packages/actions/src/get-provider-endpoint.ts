@@ -370,9 +370,22 @@ export function getProviderEndpoint(
 					) ??
 					"2024-10-21";
 
+				if (imageGenerations) {
+					// gpt-image models require a preview api-version
+					const imageApiVersion =
+						providerKeyOptions?.azure_api_version ??
+						getProviderEnvValue("azure", "apiVersion", configIndex) ??
+						"2025-04-01-preview";
+					return `${url}/openai/deployments/${modelName}/images/generations?api-version=${imageApiVersion}`;
+				}
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
+				if (imageGenerations) {
+					// v1 unified API requires the literal "preview" api-version for image endpoints
+					return `${url}/openai/v1/images/generations?api-version=preview`;
+				}
+
 				const useResponsesApiEnv = getProviderEnvValue(
 					"azure",
 					"useResponsesApi",

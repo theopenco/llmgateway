@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronsUpDown, Sparkles, X } from "lucide-react";
+import { Check, ChevronsUpDown, RefreshCw, Sparkles, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
 	useCallback,
@@ -304,10 +304,12 @@ export function RecentLogs({
 	const {
 		data,
 		isLoading,
+		isRefetching,
 		error,
 		fetchNextPage,
 		hasNextPage,
 		isFetchingNextPage,
+		refetch,
 	} = api.useInfiniteQuery(
 		"get",
 		"/logs",
@@ -559,6 +561,19 @@ export function RecentLogs({
 					}}
 					className="w-[200px]"
 				/>
+
+				<Button
+					type="button"
+					variant="outline"
+					onClick={() => void refetch()}
+					disabled={isLoading || isRefetching || isFetchingNextPage}
+					className="gap-2"
+				>
+					<RefreshCw
+						className={cn("h-4 w-4", isRefetching && "animate-spin")}
+					/>
+					{isRefetching ? "Refreshing..." : "Refresh"}
+				</Button>
 			</div>
 
 			{isLoading ? (

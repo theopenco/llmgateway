@@ -244,6 +244,7 @@ export const completionsRequestSchema = z.object({
 		.object({
 			aspect_ratio: z.string().optional(),
 			image_size: z.string().optional(),
+			image_quality: z.enum(["low", "medium", "high", "auto"]).optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),
 		})

@@ -591,6 +591,7 @@ export const log = pgTable(
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				cacheSupported?: boolean;
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
@@ -757,6 +758,7 @@ export const videoJob = pgTable(
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				cacheSupported?: boolean;
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;

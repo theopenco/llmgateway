@@ -387,7 +387,7 @@ async function handleCheckoutSessionCompleted(
 				},
 			});
 		} else {
-			// Handle regular pro plan subscription
+			// Handle regular pro subscription
 			// Skip setting plan to "pro" for personal orgs - they use devPlan field instead
 			if (organization.isPersonal) {
 				logger.warn(
@@ -407,7 +407,7 @@ async function handleCheckoutSessionCompleted(
 				.returning();
 
 			logger.info(
-				`Successfully upgraded organization ${organizationId} to pro plan via checkout. Updated rows: ${result.length}`,
+				`Successfully upgraded organization ${organizationId} to pro tier via checkout. Updated rows: ${result.length}`,
 			);
 
 			// Check for existing transaction to avoid duplicates
@@ -832,7 +832,12 @@ async function handlePaymentIntentSucceeded(
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
 
-	// Get the credit amount (base amount without fees) from metadata
+	// payment_intent.succeeded also fires for subscription invoice payments;
+	// only credit top-up payment intents set baseAmount in metadata.
+	if (paymentIntent.metadata.baseAmount === undefined) {
+		return;
+	}
+
 	const creditAmount = Number(paymentIntent.metadata.baseAmount);
 	if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
 		logger.error("Invalid baseAmount in payment intent metadata", {
@@ -1545,7 +1550,7 @@ async function handleInvoicePaymentSucceeded(
 			},
 		});
 	} else {
-		// Handle regular pro plan subscription
+		// Handle regular pro subscription
 		// Create transaction record for subscription start
 		const [transaction] = await db
 			.insert(tables.transaction)
@@ -1561,7 +1566,7 @@ async function handleInvoicePaymentSucceeded(
 			})
 			.returning();
 
-		// Update organization to pro plan and mark subscription as not cancelled
+		// Update organization to pro tier and mark subscription as not cancelled
 		try {
 			const result = await db
 				.update(tables.organization)
@@ -1573,7 +1578,7 @@ async function handleInvoicePaymentSucceeded(
 				.returning();
 
 			logger.info(
-				`Successfully upgraded organization ${organizationId} to pro plan. Updated rows: ${result.length}`,
+				`Successfully upgraded organization ${organizationId} to pro tier. Updated rows: ${result.length}`,
 			);
 
 			logger.info(
@@ -1621,7 +1626,7 @@ async function handleInvoicePaymentSucceeded(
 			});
 		} catch (error) {
 			logger.error(
-				`Error updating organization ${organizationId} to pro plan:`,
+				`Error updating organization ${organizationId} to pro tier:`,
 				error as Error,
 			);
 			throw error;
@@ -1714,7 +1719,7 @@ async function handleSubscriptionUpdated(
 			`Updated dev plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
 		);
 	} else {
-		// Handle regular pro plan subscription update
+		// Handle regular pro subscription update
 		const wasSubscriptionCancelled = organization.subscriptionCancelled;
 
 		// Create transaction record for subscription cancellation if it was cancelled
@@ -1849,7 +1854,7 @@ async function handleSubscriptionDeleted(
 			`Ended dev plan ${previousDevPlan} for organization ${organizationId}`,
 		);
 	} else {
-		// Handle regular pro plan subscription deletion
+		// Handle regular pro subscription deletion
 		// Create transaction record for subscription end
 		await db.insert(tables.transaction).values({
 			organizationId,

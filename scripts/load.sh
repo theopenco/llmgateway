@@ -14,6 +14,7 @@ OUTPUT_DIR="$DEFAULT_OUTPUT_DIR"
 MAX_REQUESTS="$DEFAULT_MAX_REQUESTS"
 REQUESTS_PER_MINUTE="$DEFAULT_REQUESTS_PER_MINUTE"
 INJECT_PAYLOAD=false
+NO_FALLBACK=false
 
 usage() {
 	echo "Usage: $0 [options]" >&2
@@ -25,6 +26,7 @@ usage() {
 	echo "  --max-requests COUNT          Default: $DEFAULT_MAX_REQUESTS" >&2
 	echo "  --requests-per-minute NUMBER  Default: $DEFAULT_REQUESTS_PER_MINUTE" >&2
 	echo "  --inject                      Inject a cache-busting prefix into the first system message" >&2
+	echo "  --no-fallback                 Send X-No-Fallback: true header" >&2
 	echo "  -h, --help                    Show this help" >&2
 }
 
@@ -93,6 +95,9 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--inject)
 		INJECT_PAYLOAD=true
+		;;
+	--no-fallback)
+		NO_FALLBACK=true
 		;;
 	-h | --help)
 		usage
@@ -224,13 +229,20 @@ while true; do
 			request_payload="$temp_payload"
 		fi
 
-		curl -N "$REQUEST_URL" -s \
-			-H "Content-Type: application/json" \
-			-H "Authorization: Bearer ${LLM_GATEWAY_API_KEY}" \
-			-H "X-Debug: true" \
-			-H "X-No-Fallback: true" \
-			-d "@${request_payload}" \
-			>"$output_file"
+		curl_args=(
+			-N "$REQUEST_URL" -s
+			-H "Content-Type: application/json"
+			-H "Authorization: Bearer ${LLM_GATEWAY_API_KEY}"
+			-H "X-Debug: true"
+		)
+
+		if [[ "$NO_FALLBACK" == "true" ]]; then
+			curl_args+=(-H "X-No-Fallback: true")
+		fi
+
+		curl_args+=(-d "@${request_payload}")
+
+		curl "${curl_args[@]}" >"$output_file"
 	) &
 
 	if [[ "$MAX_REQUESTS" -gt 0 && "$request_count" -ge "$MAX_REQUESTS" ]]; then

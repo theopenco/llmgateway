@@ -12,10 +12,6 @@ export type PageWindow =
 	| "7d";
 
 export const pageWindowOptions: { value: PageWindow; label: string }[] = [
-	{ value: "1m", label: "1m" },
-	{ value: "2m", label: "2m" },
-	{ value: "5m", label: "5m" },
-	{ value: "15m", label: "15m" },
 	{ value: "1h", label: "1h" },
 	{ value: "2h", label: "2h" },
 	{ value: "4h", label: "4h" },
@@ -25,10 +21,33 @@ export const pageWindowOptions: { value: PageWindow; label: string }[] = [
 	{ value: "7d", label: "7d" },
 ];
 
-const validWindows = new Set<PageWindow>(pageWindowOptions.map((o) => o.value));
+export const pageWindowOptionsWithMinutes: {
+	value: PageWindow;
+	label: string;
+}[] = [
+	{ value: "1m", label: "1m" },
+	{ value: "2m", label: "2m" },
+	{ value: "5m", label: "5m" },
+	{ value: "15m", label: "15m" },
+	...pageWindowOptions,
+];
+
+const allValidWindows = new Set<PageWindow>([
+	"1m",
+	"2m",
+	"5m",
+	"15m",
+	"1h",
+	"2h",
+	"4h",
+	"12h",
+	"24h",
+	"2d",
+	"7d",
+]);
 
 export function parsePageWindow(value: string | undefined): PageWindow {
-	if (value && validWindows.has(value as PageWindow)) {
+	if (value && allValidWindows.has(value as PageWindow)) {
 		return value as PageWindow;
 	}
 	return "4h";

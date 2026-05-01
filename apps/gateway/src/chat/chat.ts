@@ -1,5 +1,4 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { encode } from "gpt-tokenizer";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
@@ -106,6 +105,7 @@ import {
 	getContentFilterMode,
 	shouldApplyContentFilterToModel,
 } from "./tools/check-content-filter.js";
+import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
@@ -178,6 +178,35 @@ import type { ServerTypes } from "@/vars.js";
  * - Non-default regions only pass if a region-specific env key exists
  *   (e.g. LLM_ALIBABA_API_KEY__US_VIRGINIA).
  */
+/**
+ * Inject stream=true and partial_images=1 into an OpenAI/Azure gpt-image-*
+ * request body so the upstream call uses SSE. The single partial keeps the
+ * connection alive past Azure's 122s synchronous wall; the gateway discards
+ * the partial event and returns only the final image to the client.
+ *
+ * Multipart caveat: Azure's /v1/images/edits parses the stream form field with
+ * a case-sensitive boolean parser (.NET-style) — "true" (lowercase) is treated
+ * as falsy and Azure runs the request synchronously, hitting the 122s wall.
+ * "True" (Pascal case, matching httpx's str(True) encoding used by the Python
+ * SDK) is parsed correctly. OpenAI accepts both cases, so "True" is safe for
+ * both providers. JSON bodies are unaffected — native booleans go on the wire
+ * as `true` and parse correctly everywhere.
+ */
+function injectImageStreamParams(
+	body: ProviderRequestBody | FormData,
+): ProviderRequestBody | FormData {
+	if (body instanceof FormData) {
+		body.set("stream", "True");
+		body.set("partial_images", "1");
+		return body;
+	}
+	return {
+		...(body as unknown as Record<string, unknown>),
+		stream: true,
+		partial_images: 1,
+	} as unknown as ProviderRequestBody;
+}
+
 function toDataStorageCostNumber(
 	promptTokens: number | string | null | undefined,
 	cachedTokens: number | string | null | undefined,
@@ -246,6 +275,7 @@ function collapseProvidersToBestRegionPerProvider(
 	options: {
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
+		promptTokens?: number;
 	},
 ): ProviderModelMapping[] {
 	const providersById = new Map<string, ProviderModelMapping[]>();
@@ -1088,6 +1118,18 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Estimate prompt tokens once so all routing decisions can reuse the
+	// same value (e.g. cache-support weighting kicks in for large prompts).
+	// Uses a cheap chars/4 heuristic — accuracy is intentionally traded
+	// for throughput on the gateway hot path.
+	let routingPromptTokens = 0;
+	if (messages && messages.length > 0) {
+		routingPromptTokens = encodeChatMessages(messages);
+	}
+	if (tools && tools.length > 0) {
+		routingPromptTokens += Math.round(JSON.stringify(tools).length / 4);
+	}
+
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
 		c.req.header("x-source"),
@@ -1498,34 +1540,9 @@ chat.openapi(completions, async (c) => {
 		(usedProvider === "llmgateway" && usedModel === "auto") ||
 		usedModel === "auto"
 	) {
-		// Estimate prompt/input tokens first so auto-routing can react to large prompts
-		let estimatedInputTokens = 0;
-
-		// Estimate prompt tokens from messages
-		if (messages && messages.length > 0) {
-			try {
-				estimatedInputTokens = encodeChatMessages(messages);
-			} catch {
-				// Fallback to simple estimation if encoding fails
-				const messageTokens = messages.reduce(
-					(acc, m) => acc + (m.content?.length ?? 0),
-					0,
-				);
-				estimatedInputTokens = Math.max(1, Math.round(messageTokens / 4));
-			}
-		}
-
-		// Add tool definitions to context estimation
-		if (tools && tools.length > 0) {
-			try {
-				const toolsString = JSON.stringify(tools);
-				const toolTokens = Math.round(toolsString.length / 4);
-				estimatedInputTokens += toolTokens;
-			} catch {
-				// Fallback estimation for tools
-				estimatedInputTokens += tools.length * 100; // Rough estimate per tool
-			}
-		}
+		// Reuse the prompt-token estimate computed earlier so auto-routing can
+		// react to large prompts when picking a model.
+		const estimatedInputTokens = routingPromptTokens;
 
 		// Estimate the full context needed based on the request
 		let requiredContextSize = estimatedInputTokens;
@@ -1744,13 +1761,18 @@ chat.openapi(completions, async (c) => {
 					{
 						metricsMap,
 						isStreaming: stream,
+						promptTokens: routingPromptTokens,
 					},
 				);
 
 			const cheapestResult = getCheapestFromAvailableProviders(
 				providerAgnosticSelectedProviders,
 				selectedModel,
-				{ metricsMap, isStreaming: stream },
+				{
+					metricsMap,
+					isStreaming: stream,
+					promptTokens: routingPromptTokens,
+				},
 			);
 
 			if (cheapestResult) {
@@ -1910,6 +1932,7 @@ chat.openapi(completions, async (c) => {
 						{
 							metricsMap,
 							isStreaming: stream,
+							promptTokens: routingPromptTokens,
 						},
 					);
 
@@ -2094,6 +2117,7 @@ chat.openapi(completions, async (c) => {
 							{
 								metricsMap: allMetricsMap,
 								isStreaming: stream,
+								promptTokens: routingPromptTokens,
 							},
 						);
 
@@ -2231,7 +2255,11 @@ chat.openapi(completions, async (c) => {
 							collapseProvidersToBestRegionPerProvider(
 								availableModelProviders,
 								modelWithPricing,
-								{ metricsMap: allMetricsMap, isStreaming: stream },
+								{
+									metricsMap: allMetricsMap,
+									isStreaming: stream,
+									promptTokens: routingPromptTokens,
+								},
 							);
 
 						// Filter to only providers with better uptime than the original
@@ -2256,7 +2284,11 @@ chat.openapi(completions, async (c) => {
 							const cheapestResult = getCheapestFromAvailableProviders(
 								betterUptimeProviders,
 								modelWithPricing,
-								{ metricsMap: allMetricsMap, isStreaming: stream },
+								{
+									metricsMap: allMetricsMap,
+									isStreaming: stream,
+									promptTokens: routingPromptTokens,
+								},
 							);
 
 							// Get price info for the original requested provider to include in scores
@@ -2433,13 +2465,21 @@ chat.openapi(completions, async (c) => {
 					collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
 						modelWithPricing,
-						{ metricsMap, isStreaming: stream },
+						{
+							metricsMap,
+							isStreaming: stream,
+							promptTokens: routingPromptTokens,
+						},
 					);
 
 				const cheapestResult = getCheapestFromAvailableProviders(
 					providerAgnosticCandidates,
 					modelWithPricing,
-					{ metricsMap, isStreaming: stream },
+					{
+						metricsMap,
+						isStreaming: stream,
+						promptTokens: routingPromptTokens,
+					},
 				);
 
 				if (cheapestResult) {
@@ -2606,6 +2646,7 @@ chat.openapi(completions, async (c) => {
 						{
 							metricsMap,
 							isStreaming: stream,
+							promptTokens: routingPromptTokens,
 						},
 					);
 
@@ -3682,6 +3723,17 @@ chat.openapi(completions, async (c) => {
 	// When the provider only supports streaming, force it even if the client didn't request it.
 	// The upstream request uses effectiveStream; the client response uses stream.
 	const forceStream = streamingSupport === "only" && !stream;
+	// Force upstream SSE for OpenAI/Azure gpt-image-* regardless of what the client
+	// requested. For image generation the upstream request is always non-streaming
+	// (effectiveStream is forced false above when faking streaming for the client),
+	// so partial_images=1 is needed in both cases to keep the connection alive past
+	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (240s default)
+	// instead of AI_TIMEOUT_MS (180s). The SSE response is collapsed back into the
+	// regular non-streaming JSON shape before being returned (or re-wrapped as fake
+	// SSE for clients that requested streaming).
+	let forceImageStreamUpstream =
+		isImageGeneration &&
+		(usedProvider === "openai" || usedProvider === "azure");
 	const effectiveStream = fakeStreamingForImageGen
 		? false
 		: stream || forceStream;
@@ -3831,6 +3883,10 @@ chat.openapi(completions, async (c) => {
 		useResponsesApi,
 	);
 
+	if (forceImageStreamUpstream) {
+		requestBody = injectImageStreamParams(requestBody);
+	}
+
 	// Validate effective max_tokens value after prepareRequestBody
 	if (
 		!(requestBody instanceof FormData) &&
@@ -3878,6 +3934,20 @@ chat.openapi(completions, async (c) => {
 		requestBody instanceof FormData
 	) {
 		url = url.replace("/v1/images/generations", "/v1/images/edits");
+	}
+
+	// Switch Azure image generation endpoint to /edits when input images are present.
+	// Handles both ai-foundry (/openai/v1/images/generations?api-version=preview) and
+	// deployment-based (/openai/deployments/{model}/images/generations?api-version=...)
+	// URL shapes — the literal "/images/generations" substring appears before the
+	// query string in both, so the in-place replace works for both.
+	if (
+		isImageGeneration &&
+		usedProvider === "azure" &&
+		url &&
+		requestBody instanceof FormData
+	) {
+		url = url.replace("/images/generations", "/images/edits");
 	}
 
 	const startTime = Date.now();
@@ -3971,6 +4041,12 @@ chat.openapi(completions, async (c) => {
 		useResponsesApi = ctx.useResponsesApi;
 		requestCanBeCanceled = ctx.requestCanBeCanceled;
 		isImageGeneration = ctx.isImageGeneration;
+		forceImageStreamUpstream =
+			isImageGeneration &&
+			(usedProvider === "openai" || usedProvider === "azure");
+		if (forceImageStreamUpstream) {
+			requestBody = injectImageStreamParams(requestBody);
+		}
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 		temperature = ctx.temperature;
@@ -4132,6 +4208,7 @@ chat.openapi(completions, async (c) => {
 						inputImageCount,
 						0,
 						project.organizationId,
+						image_config?.image_quality,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
 						streamingCosts.promptTokens ?? promptTokenCount,
@@ -5912,6 +5989,7 @@ chat.openapi(completions, async (c) => {
 										inputImageCount,
 										webSearchCount,
 										project.organizationId,
+										image_config?.image_quality,
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
 										streamingCosts.promptTokens ?? finalPromptTokens,
@@ -6895,27 +6973,8 @@ chat.openapi(completions, async (c) => {
 								imageTokens = 258 + Math.ceil(imageByteSize / 750);
 							}
 
-							// Skip expensive token encoding for image responses - use simple estimation
-							// Token encoding on large base64 content causes CPU spikes
-							if (imageByteSize > 0) {
-								const textTokens = estimateTokensFromContent(fullContent);
-								calculatedCompletionTokens = textTokens + imageTokens;
-							} else {
-								try {
-									const textTokens = fullContent
-										? encode(JSON.stringify(fullContent)).length
-										: 0;
-									calculatedCompletionTokens = textTokens + imageTokens;
-								} catch (error) {
-									// Fallback to simple estimation if encoding fails
-									logger.error(
-										"Failed to encode completion text in streaming",
-										error instanceof Error ? error : new Error(String(error)),
-									);
-									const textTokens = estimateTokensFromContent(fullContent);
-									calculatedCompletionTokens = textTokens + imageTokens;
-								}
-							}
+							const textTokens = estimateTokensFromContent(fullContent);
+							calculatedCompletionTokens = textTokens + imageTokens;
 						}
 
 						calculatedTotalTokens =
@@ -6925,17 +6984,8 @@ chat.openapi(completions, async (c) => {
 					// Estimate reasoning tokens if not provided but reasoning content exists
 					let calculatedReasoningTokens = reasoningTokens;
 					if (!reasoningTokens && fullReasoningContent) {
-						try {
-							calculatedReasoningTokens = encode(fullReasoningContent).length;
-						} catch (error) {
-							// Fallback to simple estimation if encoding fails
-							logger.error(
-								"Failed to encode reasoning text in streaming",
-								error instanceof Error ? error : new Error(String(error)),
-							);
-							calculatedReasoningTokens =
-								estimateTokensFromContent(fullReasoningContent);
-						}
+						calculatedReasoningTokens =
+							estimateTokensFromContent(fullReasoningContent);
 					}
 
 					if (
@@ -7190,6 +7240,7 @@ chat.openapi(completions, async (c) => {
 										inputImageCount,
 										webSearchCount,
 										project.organizationId,
+										image_config?.image_quality,
 									);
 						if (streamingCostsEarly.totalCost !== null) {
 							streamingCostsEarly.dataStorageCost = toDataStorageCostNumber(
@@ -7479,6 +7530,7 @@ chat.openapi(completions, async (c) => {
 									inputImageCount,
 									webSearchCount,
 									project.organizationId,
+									image_config?.image_quality,
 								));
 
 					// Use costs.promptTokens as canonical value (includes image input
@@ -7856,10 +7908,14 @@ chat.openapi(completions, async (c) => {
 			}
 
 			// Create a combined signal for both timeout and cancellation
-			// Non-streaming requests use a shorter timeout (default 80s)
-			const fetchSignal = createCombinedSignal(
-				requestCanBeCanceled ? controller : undefined,
-			);
+			// Non-streaming requests use a shorter timeout (default 80s).
+			// When we're forcing upstream SSE for openai/azure gpt-image-* (to
+			// dodge Azure's 122s sync wall), use the longer streaming timeout.
+			const fetchSignal = forceImageStreamUpstream
+				? createStreamingCombinedSignal(
+						requestCanBeCanceled ? controller : undefined,
+					)
+				: createCombinedSignal(requestCanBeCanceled ? controller : undefined);
 
 			res = await fetch(url, {
 				method: "POST",
@@ -8778,6 +8834,152 @@ chat.openapi(completions, async (c) => {
 				],
 				...(usage ? { usage } : {}),
 			};
+		} else if (forceImageStreamUpstream && res.body) {
+			// Upstream is openai/azure gpt-image-* and we forced stream=true
+			// to dodge the 122s sync wall. Collapse the SSE back into the
+			// normal { data: [{ b64_json }], usage } shape.
+			const text = await res.text();
+			const collapsed = collapseImageGenSse(text);
+			if ("error" in collapsed) {
+				const sseErrorText = JSON.stringify(collapsed.error);
+				const isContentFilter =
+					getFinishReasonFromError(res.status, sseErrorText) ===
+					"content_filter";
+				const sseLogPluginIds = plugins?.map((p) => p.id) ?? [];
+				const sseLogEntry = createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					providerKey?.id,
+					usedModelFormatted!,
+					usedModelMapping,
+					usedProvider,
+					initialRequestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					reasoning_effort,
+					reasoning_max_tokens,
+					effort,
+					response_format,
+					tools,
+					tool_choice,
+					source,
+					customHeaders,
+					debugMode,
+					userAgent,
+					image_config,
+					routingMetadata,
+					rawBody,
+					sseErrorText,
+					requestBody,
+					sseErrorText,
+					sseLogPluginIds,
+					undefined,
+				);
+
+				await insertLogEntry({
+					...sseLogEntry,
+					duration: Date.now() - startTime,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize: text.length,
+					content: null,
+					reasoningContent: null,
+					finishReason: isContentFilter ? "content_filter" : "upstream_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: !isContentFilter,
+					streamed: false,
+					canceled: false,
+					errorDetails: isContentFilter
+						? null
+						: {
+								statusCode: res.status,
+								statusText: res.statusText,
+								responseText: sseErrorText,
+							},
+					cachedInputCost: null,
+					requestCost: null,
+					webSearchCost: null,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					estimatedCost: false,
+					discount: null,
+					dataStorageCost: "0",
+					cached: false,
+					toolResults: null,
+				});
+
+				if (isContentFilter) {
+					// OpenAI/Azure returned a moderation rejection inside the SSE
+					// stream (e.g. moderation_blocked / "Your request was rejected
+					// by the safety system"). Surface it as a normal chat completion
+					// with finish_reason: "content_filter" instead of a 502.
+					return c.json({
+						id: `chatcmpl-${Date.now()}`,
+						object: "chat.completion",
+						created: Math.floor(Date.now() / 1000),
+						model: `${usedProvider}/${baseModelName}`,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: null,
+								},
+								finish_reason: "content_filter",
+							},
+						],
+						usage: {
+							prompt_tokens: 0,
+							completion_tokens: 0,
+							total_tokens: 0,
+						},
+						metadata: {
+							request_id: requestId,
+							requested_model: initialRequestedModel,
+							requested_provider: requestedProvider,
+							used_model: baseModelName,
+							used_provider: usedProvider,
+							...(usedRegion && { used_region: usedRegion }),
+							underlying_used_model: usedModel,
+						},
+					});
+				}
+
+				logger.warn("Image generation SSE collapse failed", {
+					usedProvider,
+					usedModel,
+					code: collapsed.error.code,
+					message: collapsed.error.message,
+				});
+				return c.json(
+					{
+						error: {
+							message: collapsed.error.message,
+							type: collapsed.error.type ?? "upstream_error",
+							param: null,
+							code: collapsed.error.code ?? "upstream_error",
+							requestedProvider,
+							usedProvider,
+							requestedModel: initialRequestedModel,
+							usedModel,
+						},
+					},
+					502,
+				);
+			}
+			json = collapsed.json;
 		} else {
 			json = await res.json();
 		}
@@ -8914,6 +9116,8 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		cachedTokens,
 		cacheCreationTokens,
+		imageInputTokens,
+		imageOutputTokens,
 		toolResults,
 		images,
 		annotations,
@@ -9011,16 +9215,7 @@ chat.openapi(completions, async (c) => {
 	// Estimate reasoning tokens if not provided but reasoning content exists
 	let calculatedReasoningTokens = reasoningTokens;
 	if (!reasoningTokens && reasoningContent) {
-		try {
-			calculatedReasoningTokens = encode(reasoningContent).length;
-		} catch (error) {
-			// Fallback to simple estimation if encoding fails
-			logger.error(
-				"Failed to encode reasoning text",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-			calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
-		}
+		calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
 	}
 	const costs = await calculateCosts(
 		usedModel,
@@ -9039,6 +9234,7 @@ chat.openapi(completions, async (c) => {
 		inputImageCount,
 		webSearchCount,
 		project.organizationId,
+		image_config?.image_quality,
 	);
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
@@ -9098,12 +9294,14 @@ chat.openapi(completions, async (c) => {
 					dataStorageCost: costs.dataStorageCost,
 				}
 			: null,
-		false, // showUpgradeMessage - never show since Pro plan is removed
+		false, // showUpgradeMessage
 		annotations,
 		routingAttempts.length > 0 ? routingAttempts : null,
 		requestId,
 		usedRegion,
 		cacheCreationTokens,
+		imageInputTokens,
+		imageOutputTokens,
 	);
 
 	// Extract plugin IDs for logging

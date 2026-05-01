@@ -1,13 +1,12 @@
-import { encode } from "gpt-tokenizer";
-
-import { logger } from "@llmgateway/logger";
-
+import { estimateTokensFromContent } from "./estimate-tokens-from-content.js";
 import { encodeChatMessages } from "./tokenizer.js";
 
 import type { Provider } from "@llmgateway/models";
 
 /**
- * Estimates token counts when not provided by the API using gpt-tokenizer
+ * Estimates token counts when not provided by the API. Uses a cheap
+ * length-based heuristic rather than running a tokenizer on the
+ * gateway hot path.
  */
 export function estimateTokens(
 	usedProvider: Provider,
@@ -19,25 +18,13 @@ export function estimateTokens(
 	let calculatedPromptTokens = promptTokens;
 	let calculatedCompletionTokens = completionTokens;
 
-	// Always estimate missing tokens for any provider
 	if (!promptTokens || !completionTokens) {
-		// Estimate prompt tokens using encodeChat for better accuracy
 		if (!promptTokens && messages && messages.length > 0) {
 			calculatedPromptTokens = encodeChatMessages(messages);
 		}
 
-		// Estimate completion tokens using encode for better accuracy
 		if (!completionTokens && content) {
-			try {
-				calculatedCompletionTokens = encode(JSON.stringify(content)).length;
-			} catch (error) {
-				// Fallback to simple estimation if encoding fails
-				logger.error(
-					"Failed to encode completion text",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-				calculatedCompletionTokens = content.length / 4;
-			}
+			calculatedCompletionTokens = estimateTokensFromContent(content);
 		}
 	}
 

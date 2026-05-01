@@ -82,6 +82,7 @@ export interface ProviderContextOptions {
 		| {
 				aspect_ratio?: string;
 				image_size?: string;
+				image_quality?: string;
 				n?: number;
 				seed?: number;
 		  }

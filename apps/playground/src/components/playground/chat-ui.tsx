@@ -71,6 +71,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
@@ -132,6 +133,8 @@ interface ChatUIProps {
 	setImageSize: (value: string) => void;
 	alibabaImageSize: string;
 	setAlibabaImageSize: (value: string) => void;
+	imageQuality: string;
+	setImageQuality: (value: string) => void;
 	imageCount: 1 | 2 | 3 | 4;
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	supportsWebSearch: boolean;
@@ -438,6 +441,8 @@ export const ChatUI = ({
 	setImageSize,
 	alibabaImageSize,
 	setAlibabaImageSize,
+	imageQuality,
+	setImageQuality,
 	imageCount,
 	setImageCount,
 	supportsWebSearch,
@@ -449,8 +454,14 @@ export const ChatUI = ({
 	finishReason = null,
 	floatingInput = false,
 }: ChatUIProps) => {
-	// Check if the model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
+	const isGptImage =
+		selectedModel.toLowerCase().includes("gpt-image") ||
+		selectedModel.toLowerCase().includes("openai/gpt-image");
+
+	// Check if the model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
 	const usesPixelDimensions =
+		isGptImage ||
 		selectedModel.toLowerCase().includes("alibaba") ||
 		selectedModel.toLowerCase().includes("qwen-image") ||
 		selectedModel.toLowerCase().includes("zai") ||
@@ -471,6 +482,8 @@ export const ChatUI = ({
 		: isGemini31FlashImage
 			? (["0.5K", "1K", "2K", "4K"] as const)
 			: (["1K", "2K", "4K"] as const);
+
+	const qualityOptions = ["auto", "low", "medium", "high"] as const;
 
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
@@ -820,7 +833,38 @@ export const ChatUI = ({
 									</Select>
 								</>
 							)}
-							{supportsImageGen && usesPixelDimensions && (
+							{supportsImageGen && usesPixelDimensions && isGptImage && (
+								<>
+									<Select
+										value={alibabaImageSize}
+										onValueChange={setAlibabaImageSize}
+									>
+										<SelectTrigger size="sm" className="min-w-[130px]">
+											<SelectValue placeholder="Resolution" />
+										</SelectTrigger>
+										<SelectContent>
+											{GPT_IMAGE_SIZES.map((size) => (
+												<SelectItem key={size} value={size}>
+													{size === "auto" ? "Auto" : size}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<Select value={imageQuality} onValueChange={setImageQuality}>
+										<SelectTrigger size="sm" className="min-w-[100px]">
+											<SelectValue placeholder="Quality" />
+										</SelectTrigger>
+										<SelectContent>
+											{qualityOptions.map((q) => (
+												<SelectItem key={q} value={q}>
+													{q.charAt(0).toUpperCase() + q.slice(1)}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</>
+							)}
+							{supportsImageGen && usesPixelDimensions && !isGptImage && (
 								<Select
 									value={alibabaImageSize}
 									onValueChange={setAlibabaImageSize}

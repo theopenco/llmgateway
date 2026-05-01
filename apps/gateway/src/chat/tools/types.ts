@@ -1,6 +1,3 @@
-export const DEFAULT_TOKENIZER_MODEL = "gpt-4";
-
-// Define ChatMessage type to match what gpt-tokenizer expects
 export interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
 	content: string;
