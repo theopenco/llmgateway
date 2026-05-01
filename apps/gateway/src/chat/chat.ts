@@ -3252,8 +3252,14 @@ chat.openapi(completions, async (c) => {
 		(msg: any) => msg.tool_calls ?? msg.role === "tool",
 	);
 
-	// Strip :region suffix before sending to upstream provider API
-	const upstreamModelName = stripRegionFromModelName(usedModel, usedRegion);
+	// Strip :region suffix, then apply azure_deployment_name override if set
+	// so users can target deployments whose names differ from the registry.
+	const strippedModelName = stripRegionFromModelName(usedModel, usedRegion);
+	const azureDeploymentName =
+		usedProvider === "azure"
+			? providerKey?.options?.azure_deployment_name
+			: undefined;
+	const upstreamModelName = azureDeploymentName || strippedModelName;
 
 	try {
 		if (!usedProvider) {
