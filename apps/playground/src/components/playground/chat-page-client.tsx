@@ -127,7 +127,10 @@ export default function ChatPageClient({
 		const config = getModelImageConfig(getInitialModel());
 		return config.isGptImage ? config.defaultSize : "1024x1024";
 	});
-	const [imageQuality, setImageQuality] = useState<string>("auto");
+	const [imageQuality, setImageQuality] = useState<string>(() => {
+		const config = getModelImageConfig(getInitialModel());
+		return config.defaultQuality ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
@@ -892,9 +895,7 @@ export default function ChatPageClient({
 	useEffect(() => {
 		const config = getModelImageConfig(selectedModel);
 		if (config.usesPixelDimensions) {
-			if (config.isGptImage && alibabaImageSize === "1024x1024") {
-				setAlibabaImageSize(config.defaultSize);
-			} else if (!config.availableSizes.includes(alibabaImageSize as never)) {
+			if (!config.availableSizes.includes(alibabaImageSize as never)) {
 				setAlibabaImageSize(config.defaultSize);
 			}
 		} else if (!config.availableSizes.includes(imageSize as never)) {
@@ -1246,7 +1247,10 @@ function ExtraChatPanel({
 		const config = getModelImageConfig(initialModel);
 		return config.isGptImage ? config.defaultSize : "1024x1024";
 	});
-	const [imageQuality, setImageQuality] = useState<string>("auto");
+	const [imageQuality, setImageQuality] = useState<string>(() => {
+		const config = getModelImageConfig(initialModel);
+		return config.defaultQuality ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 	const [text, setText] = useState("");
@@ -1317,9 +1321,7 @@ function ExtraChatPanel({
 	useEffect(() => {
 		const config = getModelImageConfig(selectedModel);
 		if (config.usesPixelDimensions) {
-			if (config.isGptImage && alibabaImageSize === "1024x1024") {
-				setAlibabaImageSize(config.defaultSize);
-			} else if (!config.availableSizes.includes(alibabaImageSize as never)) {
+			if (!config.availableSizes.includes(alibabaImageSize as never)) {
 				setAlibabaImageSize(config.defaultSize);
 			}
 		} else if (!config.availableSizes.includes(imageSize as never)) {
