@@ -275,6 +275,12 @@ export function getProviderEndpoint(
 						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
 					);
 				}
+				if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
+					throw new Error(
+						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
+					);
+				}
 				url = `https://${resource}.services.ai.azure.com`;
 				break;
 			}

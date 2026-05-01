@@ -227,6 +227,26 @@ describe("getProviderEndpoint", () => {
 				),
 			).toThrow(/Azure AI Foundry resource is required/);
 		});
+
+		it.each([
+			"evil.com/path",
+			"resource.evil.com",
+			"resource:8080",
+			"https://evil.com",
+			"a/b",
+			"a b",
+			"",
+		])("rejects an invalid resource name (%s)", (resource) => {
+			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = resource;
+
+			expect(() =>
+				getProviderEndpoint(
+					"azure-ai-foundry",
+					undefined,
+					"grok-4-1-fast-non-reasoning",
+				),
+			).toThrow(/Azure AI Foundry resource (is invalid|is required)/);
+		});
 	});
 
 	describe("skipEnvVars (BYOK mode)", () => {
