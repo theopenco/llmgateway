@@ -51,6 +51,7 @@ export function getProviderHeaders(
 				"Content-Type": "application/json",
 			};
 		case "azure":
+		case "azure-ai-foundry":
 			return {
 				...requestIdHeader,
 				"api-key": token,

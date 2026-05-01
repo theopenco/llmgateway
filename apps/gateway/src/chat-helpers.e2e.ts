@@ -559,6 +559,7 @@ export async function createProviderKey(
 	token: string,
 	keyType: "api-keys" | "credits" = "api-keys",
 	baseUrl?: string,
+	options?: Record<string, unknown>,
 ) {
 	const keyId =
 		keyType === "credits" ? `env-${provider}` : `provider-key-${provider}`;
@@ -570,8 +571,16 @@ export async function createProviderKey(
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId: "org-id",
 			baseUrl,
+			options: options as never,
 		})
-		.onConflictDoNothing();
+		.onConflictDoUpdate({
+			target: tables.providerKey.id,
+			set: {
+				token,
+				baseUrl,
+				options: options as never,
+			},
+		});
 }
 
 export function validateResponse(json: any) {
@@ -672,21 +681,42 @@ export async function beforeAllHook() {
 		const baseUrlValue = baseUrlEnvName
 			? process.env[baseUrlEnvName]
 			: undefined;
+		const providerOptions = providerEnvOptionsForTests(provider.id);
 		if (envVarValue) {
 			await createProviderKey(
 				provider.id,
 				envVarValue,
 				"api-keys",
 				baseUrlValue,
+				providerOptions,
 			);
 			await createProviderKey(
 				provider.id,
 				envVarValue,
 				"credits",
 				baseUrlValue,
+				providerOptions,
 			);
 		}
 	}
+}
+
+function providerEnvOptionsForTests(
+	providerId: string,
+): Record<string, unknown> | undefined {
+	if (providerId === "azure-ai-foundry") {
+		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
+		const apiVersion = process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
+		const opts: Record<string, unknown> = {};
+		if (resource) {
+			opts.azure_ai_foundry_resource = resource;
+		}
+		if (apiVersion) {
+			opts.azure_ai_foundry_api_version = apiVersion;
+		}
+		return Object.keys(opts).length > 0 ? opts : undefined;
+	}
+	return undefined;
 }
 
 export async function beforeEachHook() {
