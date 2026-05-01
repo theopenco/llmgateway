@@ -901,8 +901,11 @@ export default function ChatPageClient({
 		} else if (!config.availableSizes.includes(imageSize as never)) {
 			setImageSize(config.defaultSize);
 		}
-		if (!config.supportsQuality && imageQuality !== "auto") {
-			setImageQuality("auto");
+		if (
+			config.supportsQuality &&
+			!(config.availableQualities as readonly string[]).includes(imageQuality)
+		) {
+			setImageQuality(config.defaultQuality ?? "auto");
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
@@ -1327,8 +1330,11 @@ function ExtraChatPanel({
 		} else if (!config.availableSizes.includes(imageSize as never)) {
 			setImageSize(config.defaultSize);
 		}
-		if (!config.supportsQuality && imageQuality !== "auto") {
-			setImageQuality("auto");
+		if (
+			config.supportsQuality &&
+			!(config.availableQualities as readonly string[]).includes(imageQuality)
+		) {
+			setImageQuality(config.defaultQuality ?? "auto");
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);

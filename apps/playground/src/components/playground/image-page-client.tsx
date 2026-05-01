@@ -223,7 +223,7 @@ export default function ImagePageClient({
 			setImageSize(config.defaultSize);
 		}
 		if (
-			!config.supportsQuality ||
+			config.supportsQuality &&
 			!(config.availableQualities as readonly string[]).includes(imageQuality)
 		) {
 			setImageQuality(config.defaultQuality ?? "auto");
