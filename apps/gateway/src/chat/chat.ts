@@ -4043,6 +4043,34 @@ chat.openapi(completions, async (c) => {
 		if (forceImageStreamUpstream) {
 			requestBody = injectImageStreamParams(requestBody);
 		}
+		// resolveProviderContext only knows the base /images/generations endpoint;
+		// mirror the post-prepareRequestBody URL swap so retry fallbacks still hit
+		// /images/edits when the body is multipart FormData.
+		if (
+			isImageGeneration &&
+			usedProvider === "openai" &&
+			url &&
+			requestBody instanceof FormData
+		) {
+			url = url.replace("/v1/images/generations", "/v1/images/edits");
+		}
+		if (
+			isImageGeneration &&
+			usedProvider === "azure" &&
+			url &&
+			requestBody instanceof FormData
+		) {
+			url = url.replace("/images/generations", "/images/edits");
+		}
+		if (
+			isImageGeneration &&
+			usedProvider === "xai" &&
+			url &&
+			!(requestBody instanceof FormData) &&
+			("image" in requestBody || "images" in requestBody)
+		) {
+			url = url.replace("/v1/images/generations", "/v1/images/edits");
+		}
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 		temperature = ctx.temperature;
