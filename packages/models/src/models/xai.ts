@@ -402,6 +402,7 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
