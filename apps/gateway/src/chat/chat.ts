@@ -8786,6 +8786,118 @@ chat.openapi(completions, async (c) => {
 			const text = await res.text();
 			const collapsed = collapseImageGenSse(text);
 			if ("error" in collapsed) {
+				const sseErrorText = JSON.stringify(collapsed.error);
+				const sseFinishReason = getFinishReasonFromError(
+					res.status,
+					sseErrorText,
+				);
+
+				if (sseFinishReason === "content_filter") {
+					// OpenAI/Azure returned a moderation rejection inside the SSE
+					// stream (e.g. moderation_blocked / "Your request was rejected
+					// by the safety system"). Surface it as a normal chat completion
+					// with finish_reason: "content_filter" instead of a 502.
+					const contentFilterPluginIds = plugins?.map((p) => p.id) ?? [];
+					const contentFilterLogEntry = createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						providerKey?.id,
+						usedModelFormatted!,
+						usedModelMapping,
+						usedProvider,
+						initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+						routingMetadata,
+						rawBody,
+						sseErrorText,
+						requestBody,
+						sseErrorText,
+						contentFilterPluginIds,
+						undefined,
+					);
+
+					await insertLogEntry({
+						...contentFilterLogEntry,
+						duration: Date.now() - startTime,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: text.length,
+						content: null,
+						reasoningContent: null,
+						finishReason: "content_filter",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: false,
+						streamed: false,
+						canceled: false,
+						errorDetails: null,
+						cachedInputCost: null,
+						requestCost: null,
+						webSearchCost: null,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						estimatedCost: false,
+						discount: null,
+						dataStorageCost: "0",
+						cached: false,
+						toolResults: null,
+					});
+
+					return c.json({
+						id: `chatcmpl-${Date.now()}`,
+						object: "chat.completion",
+						created: Math.floor(Date.now() / 1000),
+						model: `${usedProvider}/${baseModelName}`,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: null,
+								},
+								finish_reason: "content_filter",
+							},
+						],
+						usage: {
+							prompt_tokens: 0,
+							completion_tokens: 0,
+							total_tokens: 0,
+						},
+						metadata: {
+							request_id: requestId,
+							requested_model: initialRequestedModel,
+							requested_provider: requestedProvider,
+							used_model: baseModelName,
+							used_provider: usedProvider,
+							...(usedRegion && { used_region: usedRegion }),
+							underlying_used_model: usedModel,
+						},
+					});
+				}
+
 				logger.warn("Image generation SSE collapse failed", {
 					usedProvider,
 					usedModel,
