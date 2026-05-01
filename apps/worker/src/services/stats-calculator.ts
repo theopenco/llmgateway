@@ -893,7 +893,10 @@ export async function calculateAggregatedStatistics() {
 			totalCached: number;
 			// Weighted sums (for routing metrics)
 			weightedLogs: number;
-			weightedErrors: number;
+			// weightedRoutingErrors excludes client_error: caller-fault failures
+			// (e.g. malformed requests, validation rejections) shouldn't count
+			// against a provider's routing uptime score.
+			weightedRoutingErrors: number;
 			weightedDuration: number;
 			weightedOutputTokens: number;
 			weightedTTFT: number;
@@ -918,7 +921,7 @@ export async function calculateAggregatedStatistics() {
 					totalUpstreamErrors: 0,
 					totalCached: 0,
 					weightedLogs: 0,
-					weightedErrors: 0,
+					weightedRoutingErrors: 0,
 					weightedDuration: 0,
 					weightedOutputTokens: 0,
 					weightedTTFT: 0,
@@ -939,7 +942,11 @@ export async function calculateAggregatedStatistics() {
 
 			// Weighted sums
 			agg.weightedLogs += row.logsCount * weight;
-			agg.weightedErrors += row.errorsCount * weight;
+			const routingErrors = Math.max(
+				0,
+				row.errorsCount - row.clientErrorsCount,
+			);
+			agg.weightedRoutingErrors += routingErrors * weight;
 			agg.weightedDuration += row.totalDuration * weight;
 			agg.weightedOutputTokens += row.totalOutputTokens * weight;
 			agg.weightedTTFT += row.totalTimeToFirstToken * weight;
@@ -961,7 +968,7 @@ export async function calculateAggregatedStatistics() {
 			let routingTotalRequests: number | null = null;
 
 			if (agg.weightedLogs > 0) {
-				const successfulRequests = agg.weightedLogs - agg.weightedErrors;
+				const successfulRequests = agg.weightedLogs - agg.weightedRoutingErrors;
 				routingUptime = (successfulRequests / agg.weightedLogs) * 100;
 
 				const effectiveTTFT =
