@@ -8787,85 +8787,89 @@ chat.openapi(completions, async (c) => {
 			const collapsed = collapseImageGenSse(text);
 			if ("error" in collapsed) {
 				const sseErrorText = JSON.stringify(collapsed.error);
-				const sseFinishReason = getFinishReasonFromError(
-					res.status,
+				const isContentFilter =
+					getFinishReasonFromError(res.status, sseErrorText) ===
+					"content_filter";
+				const sseLogPluginIds = plugins?.map((p) => p.id) ?? [];
+				const sseLogEntry = createLogEntry(
+					requestId,
+					project,
+					apiKey,
+					providerKey?.id,
+					usedModelFormatted!,
+					usedModelMapping,
+					usedProvider,
+					initialRequestedModel,
+					requestedProvider,
+					messages,
+					temperature,
+					max_tokens,
+					top_p,
+					frequency_penalty,
+					presence_penalty,
+					reasoning_effort,
+					reasoning_max_tokens,
+					effort,
+					response_format,
+					tools,
+					tool_choice,
+					source,
+					customHeaders,
+					debugMode,
+					userAgent,
+					image_config,
+					routingMetadata,
+					rawBody,
 					sseErrorText,
+					requestBody,
+					sseErrorText,
+					sseLogPluginIds,
+					undefined,
 				);
 
-				if (sseFinishReason === "content_filter") {
+				await insertLogEntry({
+					...sseLogEntry,
+					duration: Date.now() - startTime,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize: text.length,
+					content: null,
+					reasoningContent: null,
+					finishReason: isContentFilter ? "content_filter" : "upstream_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: !isContentFilter,
+					streamed: false,
+					canceled: false,
+					errorDetails: isContentFilter
+						? null
+						: {
+								statusCode: res.status,
+								statusText: res.statusText,
+								responseText: sseErrorText,
+							},
+					cachedInputCost: null,
+					requestCost: null,
+					webSearchCost: null,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					estimatedCost: false,
+					discount: null,
+					dataStorageCost: "0",
+					cached: false,
+					toolResults: null,
+				});
+
+				if (isContentFilter) {
 					// OpenAI/Azure returned a moderation rejection inside the SSE
 					// stream (e.g. moderation_blocked / "Your request was rejected
 					// by the safety system"). Surface it as a normal chat completion
 					// with finish_reason: "content_filter" instead of a 502.
-					const contentFilterPluginIds = plugins?.map((p) => p.id) ?? [];
-					const contentFilterLogEntry = createLogEntry(
-						requestId,
-						project,
-						apiKey,
-						providerKey?.id,
-						usedModelFormatted!,
-						usedModelMapping,
-						usedProvider,
-						initialRequestedModel,
-						requestedProvider,
-						messages,
-						temperature,
-						max_tokens,
-						top_p,
-						frequency_penalty,
-						presence_penalty,
-						reasoning_effort,
-						reasoning_max_tokens,
-						effort,
-						response_format,
-						tools,
-						tool_choice,
-						source,
-						customHeaders,
-						debugMode,
-						userAgent,
-						image_config,
-						routingMetadata,
-						rawBody,
-						sseErrorText,
-						requestBody,
-						sseErrorText,
-						contentFilterPluginIds,
-						undefined,
-					);
-
-					await insertLogEntry({
-						...contentFilterLogEntry,
-						duration: Date.now() - startTime,
-						timeToFirstToken: null,
-						timeToFirstReasoningToken: null,
-						responseSize: text.length,
-						content: null,
-						reasoningContent: null,
-						finishReason: "content_filter",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: false,
-						streamed: false,
-						canceled: false,
-						errorDetails: null,
-						cachedInputCost: null,
-						requestCost: null,
-						webSearchCost: null,
-						imageInputTokens: null,
-						imageOutputTokens: null,
-						imageInputCost: null,
-						imageOutputCost: null,
-						estimatedCost: false,
-						discount: null,
-						dataStorageCost: "0",
-						cached: false,
-						toolResults: null,
-					});
-
 					return c.json({
 						id: `chatcmpl-${Date.now()}`,
 						object: "chat.completion",
