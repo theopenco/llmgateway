@@ -215,6 +215,9 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 			case "invoice.payment_succeeded":
 				await handleInvoicePaymentSucceeded(event);
 				break;
+			case "invoice.payment_failed":
+				await handleInvoicePaymentFailed(event);
+				break;
 			case "customer.subscription.created":
 				await handleSubscriptionCreated(event);
 				break;
@@ -1634,6 +1637,91 @@ async function handleInvoicePaymentSucceeded(
 	}
 }
 
+async function freezeDevPlanCredits(
+	organizationId: string,
+	organization: { devPlanCreditsUsed: string | null },
+	reason: string,
+) {
+	// Cap the devPlan credit limit at what's already been used so the gateway's
+	// `limit - used` balance check returns 0. Stops further dev-plan spend
+	// without revoking the tier (so we don't lose the tier metadata before
+	// dunning resolves one way or the other).
+	const used = organization.devPlanCreditsUsed ?? "0";
+	await db
+		.update(tables.organization)
+		.set({
+			devPlanCreditsLimit: used,
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	logger.warn(
+		`Froze dev plan credits for organization ${organizationId} (reason: ${reason}); credits limit set to ${used}`,
+	);
+}
+
+async function handleInvoicePaymentFailed(
+	event: Stripe.InvoicePaymentFailedEvent,
+) {
+	const invoice = event.data.object;
+	const { customer, metadata } = invoice;
+	const subscription = (invoice as any).subscription;
+
+	let subscriptionId =
+		typeof subscription === "string" ? subscription : subscription?.id;
+	if (
+		!subscriptionId &&
+		invoice.lines &&
+		invoice.lines.data &&
+		invoice.lines.data.length > 0
+	) {
+		const firstLineItem = invoice.lines.data[0];
+		if (
+			firstLineItem.parent &&
+			firstLineItem.parent.subscription_item_details
+		) {
+			subscriptionId =
+				firstLineItem.parent.subscription_item_details.subscription;
+		}
+	}
+
+	if (!subscriptionId) {
+		logger.info("Invoice payment failed but not for a subscription, skipping");
+		return;
+	}
+
+	const result = await resolveOrganizationFromStripeEvent({
+		metadata: metadata as { organizationId?: string } | undefined,
+		customer: typeof customer === "string" ? customer : customer?.id,
+		subscription: subscriptionId,
+		lines: invoice.lines,
+	});
+
+	if (!result) {
+		logger.error(
+			`Organization not found for failed invoice (customer: ${customer}, subscription: ${subscriptionId})`,
+		);
+		return;
+	}
+
+	const { organizationId, organization } = result;
+
+	const isDevPlan =
+		organization.devPlanStripeSubscriptionId === subscriptionId &&
+		organization.devPlan !== "none";
+
+	if (!isDevPlan) {
+		// Pro subscription failures are tracked via payment_intent.payment_failed
+		// (with email throttling). Nothing extra to do here.
+		return;
+	}
+
+	await freezeDevPlanCredits(
+		organizationId,
+		organization,
+		`invoice.payment_failed (invoice ${invoice.id})`,
+	);
+}
+
 async function handleSubscriptionUpdated(
 	event: Stripe.CustomerSubscriptionUpdatedEvent,
 ) {
@@ -1695,6 +1783,24 @@ async function handleSubscriptionUpdated(
 				devPlanCancelled: !isSubscriptionActive,
 			})
 			.where(eq(tables.organization.id, organizationId));
+
+		// If Stripe is reporting the subscription as past_due / unpaid /
+		// incomplete, freeze further dev-plan spend. Without this, customers
+		// keep burning credits during dunning (or after a failed mid-cycle
+		// upgrade) while we never collect the invoice.
+		const nonActiveStatuses: Stripe.Subscription.Status[] = [
+			"past_due",
+			"unpaid",
+			"incomplete",
+			"incomplete_expired",
+		];
+		if (nonActiveStatuses.includes(subscription.status)) {
+			await freezeDevPlanCredits(
+				organizationId,
+				organization,
+				`subscription.updated status=${subscription.status}`,
+			);
+		}
 
 		// Track dev plan reactivation if it was previously cancelled and is now active
 		if (isSubscriptionActive && wasDevPlanCancelled) {
