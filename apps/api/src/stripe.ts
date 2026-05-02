@@ -1659,6 +1659,37 @@ async function freezeDevPlanCredits(
 	);
 }
 
+async function restoreDevPlanCredits(
+	organizationId: string,
+	organization: {
+		devPlan: DevPlanTier | "none" | null;
+		devPlanCreditsLimit: string | null;
+	},
+	reason: string,
+) {
+	// Counterpart to freezeDevPlanCredits: when the subscription returns to a
+	// healthy state, raise the credit limit back to the tier's expected cap so
+	// previously-frozen accounts aren't permanently stuck at the freeze value.
+	if (!organization.devPlan || organization.devPlan === "none") {
+		return;
+	}
+	const expectedLimit = getDevPlanCreditsLimit(organization.devPlan);
+	const currentLimit = parseFloat(organization.devPlanCreditsLimit ?? "0");
+	if (currentLimit >= expectedLimit) {
+		return;
+	}
+	await db
+		.update(tables.organization)
+		.set({
+			devPlanCreditsLimit: expectedLimit.toString(),
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	logger.info(
+		`Restored dev plan credits for organization ${organizationId} (reason: ${reason}); credits limit raised from ${currentLimit} to ${expectedLimit}`,
+	);
+}
+
 async function handleInvoicePaymentFailed(
 	event: Stripe.InvoicePaymentFailedEvent,
 ) {
@@ -1796,6 +1827,17 @@ async function handleSubscriptionUpdated(
 		];
 		if (nonActiveStatuses.includes(subscription.status)) {
 			await freezeDevPlanCredits(
+				organizationId,
+				organization,
+				`subscription.updated status=${subscription.status}`,
+			);
+		} else if (
+			subscription.status === "active" ||
+			subscription.status === "trialing"
+		) {
+			// Recover from a previous freeze (e.g. dunning resolved). No-op when
+			// the limit is already at or above the tier's expected cap.
+			await restoreDevPlanCredits(
 				organizationId,
 				organization,
 				`subscription.updated status=${subscription.status}`,
