@@ -79,6 +79,13 @@ async function authenticateRequest(c: {
 		return { error: "Could not find organization", status: 500 as const };
 	}
 
+	if (organization.status === "deleted") {
+		return {
+			error: "Organization has been disabled and is no longer accessible",
+			status: 410 as const,
+		};
+	}
+
 	return { apiKey, project, organization };
 }
 

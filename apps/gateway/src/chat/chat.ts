@@ -1381,6 +1381,12 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	if (organization.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Organization has been disabled and is no longer accessible",
+		});
+	}
+
 	const retryProjectContext = {
 		mode: project.mode,
 		organizationId: project.organizationId,

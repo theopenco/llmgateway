@@ -3056,6 +3056,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/organizations/{orgId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "active" | "deleted";
+                    };
+                };
+            };
+            responses: {
+                /** @description Organization status updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            /** @enum {string} */
+                            status: "active" | "deleted";
+                        };
+                    };
+                };
+                /** @description Personal organizations cannot be disabled. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/admin/users/{userId}": {
         parameters: {
             query?: never;

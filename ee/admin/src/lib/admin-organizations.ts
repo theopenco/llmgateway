@@ -79,6 +79,29 @@ export async function deleteUser(userId: string): Promise<boolean> {
 	return data?.success ?? false;
 }
 
+export async function setOrganizationStatus(
+	orgId: string,
+	status: "active" | "deleted",
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/status",
+		{
+			params: { path: { orgId } },
+			body: { status },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update organization status";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
 export async function getLogContent(logId: string): Promise<string | null> {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/logs/{id}", {

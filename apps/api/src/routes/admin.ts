@@ -4059,6 +4059,110 @@ admin.openapi(giftCreditsRoute, async (c) => {
 	});
 });
 
+// --- Set Organization Status ---
+
+const orgStatusSchema = z.enum(["active", "deleted"]);
+
+const setOrganizationStatusRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/status",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: orgStatusSchema,
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						status: orgStatusSchema,
+					}),
+				},
+			},
+			description: "Organization status updated.",
+		},
+		403: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Personal organizations cannot be disabled.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(setOrganizationStatusRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { status } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	if (status === "deleted" && org.isPersonal) {
+		throw new HTTPException(403, {
+			message: "Personal organizations cannot be disabled.",
+		});
+	}
+
+	await db
+		.update(tables.organization)
+		.set({ status })
+		.where(eq(tables.organization.id, orgId));
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action:
+			status === "deleted" ? "organization.delete" : "organization.update",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			resourceName: org.name,
+			previousStatus: org.status ?? "active",
+			newStatus: status,
+			source: "admin",
+		},
+	});
+
+	return c.json({
+		message:
+			status === "deleted"
+				? "Organization disabled successfully"
+				: "Organization re-enabled successfully",
+		status,
+	});
+});
+
 // --- Delete User ---
 
 const deleteUserRoute = createRoute({
