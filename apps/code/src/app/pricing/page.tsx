@@ -220,7 +220,13 @@ export default function PricingPage() {
 
 				<section id="plans" className="scroll-mt-20 py-12 px-4">
 					<div className="container mx-auto max-w-6xl">
-						<PricingPlans />
+						<PricingPlans
+							credits={{
+								lite: liteCredits,
+								pro: proCredits,
+								max: maxCredits,
+							}}
+						/>
 					</div>
 				</section>
 

@@ -15,6 +15,7 @@ import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
 
+import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
 	OpenCodeIcon,
@@ -48,6 +49,11 @@ const featuredTools = [
 
 export default function LandingPage() {
 	const config = getConfig();
+	const credits = {
+		lite: getDevPlanCreditsLimit("lite"),
+		pro: getDevPlanCreditsLimit("pro"),
+		max: getDevPlanCreditsLimit("max"),
+	};
 
 	return (
 		<div className="min-h-screen bg-background">
@@ -177,7 +183,7 @@ export default function LandingPage() {
 								that changes is the size of your monthly usage allowance.
 							</p>
 						</div>
-						<PricingPlans />
+						<PricingPlans credits={credits} />
 						<div className="mt-8 text-center">
 							<Link
 								href="/pricing"

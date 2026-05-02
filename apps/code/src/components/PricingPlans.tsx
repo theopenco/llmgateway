@@ -12,10 +12,11 @@ import {
 	DEV_PLAN_PRICES,
 	getDevPlanAnnualMonthlyPrice,
 	getDevPlanAnnualPrice,
-	getDevPlanCreditsLimit,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
+
+export type DevPlanCredits = Record<DevPlanTier, number>;
 
 interface PlanContent {
 	name: string;
@@ -121,7 +122,11 @@ function formatUsd(amount: number): string {
 	return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(0)}`;
 }
 
-export function PricingPlans() {
+interface PricingPlansProps {
+	credits: DevPlanCredits;
+}
+
+export function PricingPlans({ credits }: PricingPlansProps) {
 	const [cycle, setCycle] = useState<DevPlanCycle>("monthly");
 
 	return (
@@ -136,7 +141,7 @@ export function PricingPlans() {
 					const annualTotal = getDevPlanAnnualPrice(plan.tier);
 					const displayPrice =
 						cycle === "annual" ? annualPerMonth : monthlyPrice;
-					const usageValue = getDevPlanCreditsLimit(plan.tier);
+					const usageValue = credits[plan.tier];
 					const ratio = usageValue / monthlyPrice;
 					const usageWithSoulForge = Math.round(usageValue * 2);
 
