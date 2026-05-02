@@ -1695,10 +1695,17 @@ async function handleInvoicePaymentFailed(
 ) {
 	const invoice = event.data.object;
 	const { customer, metadata } = invoice;
-	const subscription = (invoice as any).subscription;
+	// Stripe v18 removed the top-level `Invoice.subscription` from the typed
+	// surface. The subscription that produced this invoice now lives under
+	// `invoice.parent.subscription_details`. Fall back to the per-line item
+	// pointer for invoices created before this restructuring landed.
+	const parentSubscription =
+		invoice.parent?.subscription_details?.subscription ?? null;
 
-	let subscriptionId =
-		typeof subscription === "string" ? subscription : subscription?.id;
+	let subscriptionId: string | null | undefined =
+		typeof parentSubscription === "string"
+			? parentSubscription
+			: parentSubscription?.id;
 	if (
 		!subscriptionId &&
 		invoice.lines &&
@@ -1746,10 +1753,39 @@ async function handleInvoicePaymentFailed(
 		return;
 	}
 
+	// Webhook delivery isn't guaranteed in order. Smart Retries can have
+	// recovered the invoice (or the customer paid out-of-band) before this
+	// event reaches us — in which case the subscription is already back to
+	// active/trialing and we'd freeze a healthy account. Fetch the live
+	// subscription state and only freeze on a confirmed failure status.
+	let liveSubscription: Stripe.Subscription;
+	try {
+		liveSubscription = await getStripe().subscriptions.retrieve(subscriptionId);
+	} catch (error) {
+		logger.error(
+			`Failed to retrieve subscription ${subscriptionId} for failed invoice ${invoice.id}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return;
+	}
+
+	const failureStatuses: Stripe.Subscription.Status[] = [
+		"past_due",
+		"unpaid",
+		"incomplete",
+		"incomplete_expired",
+	];
+	if (!failureStatuses.includes(liveSubscription.status)) {
+		logger.info(
+			`Skipping freeze for organization ${organizationId}: subscription ${subscriptionId} is ${liveSubscription.status} (invoice ${invoice.id})`,
+		);
+		return;
+	}
+
 	await freezeDevPlanCredits(
 		organizationId,
 		organization,
-		`invoice.payment_failed (invoice ${invoice.id})`,
+		`invoice.payment_failed (invoice ${invoice.id}, status ${liveSubscription.status})`,
 	);
 }
 
