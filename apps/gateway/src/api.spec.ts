@@ -2847,68 +2847,95 @@ describe("api", () => {
 				.where(eq(tables.organization.id, "org-id"));
 		}
 
+		// Stub the provider env var so the routing finds the provider as
+		// "available" and the request reaches the credit gate. Without it CI
+		// rejects earlier with 400 (no providers configured).
+		function stubOpenAIEnv() {
+			const previous = process.env.LLM_OPENAI_API_KEY;
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			return () => {
+				if (previous === undefined) {
+					delete process.env.LLM_OPENAI_API_KEY;
+				} else {
+					process.env.LLM_OPENAI_API_KEY = previous;
+				}
+			};
+		}
+
 		test("hybrid mode + paid model + free_models_only returns 402 with no credits", async () => {
 			await harness.setProjectMode("hybrid");
 			await harness.setOrganizationCredits("0");
 			await disableRetention();
+			const restoreEnv = stubOpenAIEnv();
 
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
+			try {
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
 
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer real-token`,
-				},
-				body: JSON.stringify({
-					model: "claude-opus-4-7",
-					free_models_only: true,
-					messages: [{ role: "user", content: "Hello!" }],
-				}),
-			});
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: "gpt-4o-mini",
+						free_models_only: true,
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
 
-			expect(res.status).toBe(402);
-			const json = await res.json();
-			expect(json.message).toBe(
-				"No API key set for provider and organization has insufficient credits",
-			);
+				expect(res.status).toBe(402);
+				const json = await res.json();
+				expect(json.message).toBe(
+					"No API key set for provider and organization has insufficient credits",
+				);
+			} finally {
+				restoreEnv();
+			}
 		});
 
 		test("credits mode + paid model + free_models_only returns 402 with no credits", async () => {
 			await harness.setProjectMode("credits");
 			await harness.setOrganizationCredits("0");
 			await disableRetention();
+			const restoreEnv = stubOpenAIEnv();
 
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
+			try {
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
 
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer real-token`,
-				},
-				body: JSON.stringify({
-					model: "claude-opus-4-7",
-					free_models_only: true,
-					messages: [{ role: "user", content: "Hello!" }],
-				}),
-			});
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: "gpt-4o-mini",
+						free_models_only: true,
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
 
-			expect(res.status).toBe(402);
-			const json = await res.json();
-			expect(json.message).toBe("Organization org-id has insufficient credits");
+				expect(res.status).toBe(402);
+				const json = await res.json();
+				expect(json.message).toBe(
+					"Organization org-id has insufficient credits",
+				);
+			} finally {
+				restoreEnv();
+			}
 		});
 	});
 });
