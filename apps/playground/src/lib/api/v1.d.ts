@@ -5202,6 +5202,7 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    azure_deployment_name?: string;
                                     /** @enum {string} */
                                     alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
@@ -5239,6 +5240,7 @@ export interface paths {
                             /** @enum {string} */
                             azure_deployment_type?: "openai" | "ai-foundry";
                             azure_validation_model?: string;
+                            azure_deployment_name?: string;
                             /** @enum {string} */
                             alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                             google_vertex_project_id?: string;
@@ -5270,6 +5272,7 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    azure_deployment_name?: string;
                                     /** @enum {string} */
                                     alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
@@ -5388,6 +5391,7 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    azure_deployment_name?: string;
                                     /** @enum {string} */
                                     alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
