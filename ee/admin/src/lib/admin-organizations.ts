@@ -71,14 +71,6 @@ export async function giftCreditsToOrganization(
 	return { success: true };
 }
 
-export async function deleteUser(userId: string): Promise<boolean> {
-	const $api = await createServerApiClient();
-	const { data } = await $api.DELETE("/admin/users/{userId}", {
-		params: { path: { userId } },
-	});
-	return data?.success ?? false;
-}
-
 export async function setOrganizationStatus(
 	orgId: string,
 	status: "active" | "deleted",

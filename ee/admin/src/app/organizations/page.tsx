@@ -9,7 +9,6 @@ import {
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { DeleteUserButton } from "@/components/delete-user-button";
 import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +20,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { deleteUser, setOrganizationStatus } from "@/lib/admin-organizations";
+import { setOrganizationStatus } from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -178,15 +177,6 @@ export default async function OrganizationsPage({
 			: "";
 		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
 		redirect(`/organizations?page=1${searchParam}${sortParam}`);
-	}
-
-	async function handleDeleteUser(
-		userId: string,
-	): Promise<{ success: boolean }> {
-		"use server";
-
-		const success = await deleteUser(userId);
-		return { success };
 	}
 
 	async function handleToggleOrgStatus(
@@ -392,13 +382,6 @@ export default async function OrganizationsPage({
 												currentStatus={org.status}
 												onToggle={handleToggleOrgStatus}
 											/>
-											{org.ownerUserId && (
-												<DeleteUserButton
-													userId={org.ownerUserId}
-													userEmail={org.ownerEmail ?? org.billingEmail}
-													onDelete={handleDeleteUser}
-												/>
-											)}
 										</div>
 									</TableCell>
 								</TableRow>
