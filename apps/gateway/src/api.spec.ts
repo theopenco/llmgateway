@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./app.js";
@@ -2835,5 +2835,80 @@ describe("api", () => {
 			const json = await res.json();
 			expect(json).toHaveProperty("choices.[0].message.content");
 		}, 10000);
+	});
+
+	describe("free_models_only does not bypass credit checks", () => {
+		// Disable data retention for these tests so the data-retention credit
+		// check at chat.ts:3072 doesn't mask the gate we actually want to test.
+		async function disableRetention() {
+			await db
+				.update(tables.organization)
+				.set({ retentionLevel: "none" })
+				.where(eq(tables.organization.id, "org-id"));
+		}
+
+		test("hybrid mode + paid model + free_models_only returns 402 with no credits", async () => {
+			await harness.setProjectMode("hybrid");
+			await harness.setOrganizationCredits("0");
+			await disableRetention();
+
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "claude-opus-4-7",
+					free_models_only: true,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(402);
+			const json = await res.json();
+			expect(json.message).toBe(
+				"No API key set for provider and organization has insufficient credits",
+			);
+		});
+
+		test("credits mode + paid model + free_models_only returns 402 with no credits", async () => {
+			await harness.setProjectMode("credits");
+			await harness.setOrganizationCredits("0");
+			await disableRetention();
+
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "claude-opus-4-7",
+					free_models_only: true,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(402);
+			const json = await res.json();
+			expect(json.message).toBe("Organization org-id has insufficient credits");
+		});
 	});
 });
