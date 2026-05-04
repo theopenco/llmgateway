@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
+import { responsesRequestSchema } from "./schemas.js";
 import { convertChatResponseToResponses } from "./tools/convert-chat-to-responses.js";
 import { convertResponsesInputToMessages } from "./tools/convert-responses-to-chat.js";
 import {
@@ -37,6 +38,54 @@ vi.mock("@llmgateway/logger", () => ({
 		error: vi.fn(),
 	},
 }));
+
+describe("responsesRequestSchema", () => {
+	it("accepts reasoning items with function call outputs", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.3-codex",
+			input: [
+				{
+					type: "reasoning",
+					id: "rs_123",
+					summary: [],
+				},
+				{
+					type: "function_call",
+					call_id: "call_123",
+					name: "view_image",
+					arguments: '{"path":"/tmp/a.png"}',
+				},
+				{
+					type: "function_call_output",
+					call_id: "call_123",
+					output: "tool result",
+				},
+			],
+		});
+
+		expect(result.success).toBe(true);
+	});
+
+	it("accepts structured function call outputs", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.3-codex",
+			input: [
+				{
+					type: "function_call_output",
+					call_id: "call_123",
+					output: [
+						{
+							type: "input_text",
+							text: "tool failed: invalid image path",
+						},
+					],
+				},
+			],
+		});
+
+		expect(result.success).toBe(true);
+	});
+});
 
 describe("convertResponsesInputToMessages", () => {
 	it("converts string input to user message", () => {
@@ -124,6 +173,34 @@ describe("convertResponsesInputToMessages", () => {
 			{
 				role: "tool",
 				content: '{"temp": 72}',
+				tool_call_id: "call_123",
+			},
+		]);
+	});
+
+	it("stringifies structured function_call_output for tool messages", () => {
+		const input = [
+			{
+				type: "function_call_output" as const,
+				call_id: "call_123",
+				output: [
+					{
+						type: "input_text" as const,
+						text: "tool failed: invalid image path",
+					},
+				],
+			},
+		];
+		const result = convertResponsesInputToMessages(input);
+		expect(result).toEqual([
+			{
+				role: "tool",
+				content: JSON.stringify([
+					{
+						type: "input_text",
+						text: "tool failed: invalid image path",
+					},
+				]),
 				tool_call_id: "call_123",
 			},
 		]);

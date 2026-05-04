@@ -80,7 +80,7 @@ export function convertResponsesInputToMessages(
 		if ("type" in item && item.type === "function_call_output") {
 			messages.push({
 				role: "tool",
-				content: item.output,
+				content: serializeFunctionCallOutput(item.output),
 				tool_call_id: item.call_id,
 			});
 			i++;
@@ -128,6 +128,16 @@ export function convertResponsesInputToMessages(
 	}
 
 	return messages;
+}
+
+function serializeFunctionCallOutput(
+	output: string | Array<Record<string, unknown>>,
+): string {
+	if (typeof output === "string") {
+		return output;
+	}
+
+	return JSON.stringify(output);
 }
 
 /**

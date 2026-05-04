@@ -13,6 +13,7 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { CodeCTATracker } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
+import { SoulForgeBoost } from "@/components/SoulForgeBoost";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
 
@@ -28,11 +29,11 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Pricing — DevPass",
 	description:
-		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 200+ models. Pick the monthly usage that matches your workflow.",
+		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 200+ models. Pair with SoulForge to cut another ~50% of tokens.",
 	openGraph: {
 		title: "Pricing — DevPass",
 		description:
-			"Flat-rate AI coding plans. Every plan includes 200+ models — Claude, GPT-5, Gemini, and more.",
+			"Flat-rate AI coding plans. Every plan includes 200+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
 	},
 };
 
@@ -41,6 +42,7 @@ interface UsageRow {
 	lite: string | boolean;
 	pro: string | boolean;
 	max: string | boolean;
+	emphasis?: boolean;
 }
 
 function formatUsd(amount: number): string {
@@ -49,30 +51,29 @@ function formatUsd(amount: number): string {
 		: `$${amount.toFixed(2).replace(/\.?0+$/, "")}`;
 }
 
-function formatMultiplier(multiplier: number): string {
-	const rounded = Math.round(multiplier * 10) / 10;
-	return Number.isInteger(rounded) ? `~${rounded}×` : `~${rounded.toFixed(1)}×`;
-}
-
 const liteCredits = getDevPlanCreditsLimit("lite");
 const proCredits = getDevPlanCreditsLimit("pro");
 const maxCredits = getDevPlanCreditsLimit("max");
-const liteMultiplier = formatMultiplier(liteCredits / DEV_PLAN_PRICES.lite);
-const proMultiplier = formatMultiplier(proCredits / DEV_PLAN_PRICES.pro);
-const maxMultiplier = formatMultiplier(maxCredits / DEV_PLAN_PRICES.max);
 
 const usageRows: UsageRow[] = [
 	{
-		label: "Monthly model usage allowance",
+		label: "You pay",
+		lite: `${formatUsd(DEV_PLAN_PRICES.lite)}/mo`,
+		pro: `${formatUsd(DEV_PLAN_PRICES.pro)}/mo`,
+		max: `${formatUsd(DEV_PLAN_PRICES.max)}/mo`,
+	},
+	{
+		label: "Monthly model usage at provider rates",
 		lite: formatUsd(liteCredits),
 		pro: formatUsd(proCredits),
 		max: formatUsd(maxCredits),
+		emphasis: true,
 	},
 	{
-		label: "Approx. effective discount vs. providers",
-		lite: liteMultiplier,
-		pro: proMultiplier,
-		max: maxMultiplier,
+		label: "Effective with SoulForge (~50% token cut)",
+		lite: `~${formatUsd(liteCredits * 2)}`,
+		pro: `~${formatUsd(proCredits * 2)}`,
+		max: `~${formatUsd(maxCredits * 2)}`,
 	},
 	{
 		label: "Models included",
@@ -81,13 +82,25 @@ const usageRows: UsageRow[] = [
 		max: "200+",
 	},
 	{
-		label: "Claude, GPT-5, Gemini, Llama, Qwen, …",
+		label: "Latest flagships (Opus 4.7, GPT-5.5, Gemini 3.1 Pro)",
 		lite: true,
 		pro: true,
 		max: true,
 	},
 	{
-		label: "Use any OpenAI/Anthropic-compatible tool",
+		label: "Open-weight Chinese coders (GLM-4.7, Qwen3, Kimi K2.6)",
+		lite: true,
+		pro: true,
+		max: true,
+	},
+	{
+		label: "Works with Claude Code, OpenCode, SoulForge",
+		lite: true,
+		pro: true,
+		max: true,
+	},
+	{
+		label: "Any OpenAI/Anthropic-compatible tool",
 		lite: true,
 		pro: true,
 		max: true,
@@ -129,14 +142,20 @@ const usageRows: UsageRow[] = [
 		max: true,
 	},
 	{
-		label: "All-day agent runs",
+		label: "Headroom for all-day agent runs",
 		lite: false,
 		pro: false,
 		max: true,
 	},
 ];
 
-function Cell({ value }: { value: string | boolean }) {
+function Cell({
+	value,
+	emphasis,
+}: {
+	value: string | boolean;
+	emphasis?: boolean;
+}) {
 	if (typeof value === "boolean") {
 		return (
 			<>
@@ -156,7 +175,11 @@ function Cell({ value }: { value: string | boolean }) {
 		);
 	}
 	return (
-		<span className="text-sm font-medium text-foreground tabular-nums">
+		<span
+			className={`font-mono text-sm tabular-nums ${
+				emphasis ? "font-bold text-foreground" : "font-medium text-foreground"
+			}`}
+		>
 			{value}
 		</span>
 	);
@@ -177,32 +200,43 @@ export default function PricingPage() {
 						<div className="mx-auto max-w-3xl text-center">
 							<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/50 px-4 py-1.5 text-sm text-muted-foreground">
 								<Sparkles className="h-3.5 w-3.5" />
-								Plans &amp; pricing
+								Pricing &amp; plans
 							</div>
 							<h1 className="mb-5 text-4xl font-bold tracking-tight sm:text-5xl">
 								Flat rate. Every model.
 								<br />
-								No token math.
+								<span className="text-muted-foreground">No token math.</span>
 							</h1>
 							<p className="mx-auto max-w-xl text-lg leading-relaxed text-muted-foreground">
-								One subscription, 200+ models, predictable monthly usage. Save{" "}
-								{DEV_PLAN_ANNUAL_DISCOUNT_MONTHS} months when you bill annually.
+								Every dollar you pay turns into{" "}
+								<span className="font-semibold text-foreground">$3</span> of
+								model usage at provider rates — and roughly{" "}
+								<span className="font-semibold text-foreground">$6</span> when
+								you pair DevPass with SoulForge.
 							</p>
 						</div>
 					</div>
 				</section>
 
 				<section id="plans" className="scroll-mt-20 py-12 px-4">
-					<div className="container mx-auto max-w-5xl">
-						<PricingPlans />
+					<div className="container mx-auto max-w-6xl">
+						<PricingPlans
+							credits={{
+								lite: liteCredits,
+								pro: proCredits,
+								max: maxCredits,
+							}}
+						/>
 					</div>
 				</section>
 
-				<section className="bg-muted/30 py-20 px-4">
+				<SoulForgeBoost />
+
+				<section className="py-20 px-4">
 					<div className="container mx-auto max-w-5xl">
 						<div className="mb-12 max-w-2xl">
-							<p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-3">
-								Usage &amp; features
+							<p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+								Compare plans
 							</p>
 							<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
 								What&apos;s in each plan
@@ -213,7 +247,7 @@ export default function PricingPage() {
 							</p>
 						</div>
 
-						<div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+						<div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
 							<div className="overflow-x-auto">
 								<table className="w-full text-left text-sm">
 									<thead>
@@ -262,17 +296,23 @@ export default function PricingPage() {
 														: ""
 												}
 											>
-												<td className="px-5 py-3.5 text-foreground/90">
+												<td
+													className={`px-5 py-3.5 ${
+														row.emphasis
+															? "font-semibold text-foreground"
+															: "text-foreground/90"
+													}`}
+												>
 													{row.label}
 												</td>
 												<td className="px-5 py-3.5 text-center">
-													<Cell value={row.lite} />
+													<Cell value={row.lite} emphasis={row.emphasis} />
 												</td>
 												<td className="px-5 py-3.5 text-center bg-muted/20">
-													<Cell value={row.pro} />
+													<Cell value={row.pro} emphasis={row.emphasis} />
 												</td>
 												<td className="px-5 py-3.5 text-center">
-													<Cell value={row.max} />
+													<Cell value={row.max} emphasis={row.emphasis} />
 												</td>
 											</tr>
 										))}
@@ -284,12 +324,14 @@ export default function PricingPage() {
 						<p className="mt-4 text-xs text-muted-foreground">
 							Usage is metered at each provider&apos;s published per-token rate
 							(input, output, and cached tokens). Every request shows its dollar
-							value in your dashboard in real time.
+							value in your dashboard in real time. SoulForge savings vary by
+							workload — 50% is typical for multi-turn agent sessions where the
+							system prompt and codebase context stay stable.
 						</p>
 					</div>
 				</section>
 
-				<section className="py-20 px-4">
+				<section className="border-t bg-muted/30 py-20 px-4">
 					<div className="container mx-auto max-w-3xl">
 						<div className="relative overflow-hidden rounded-2xl border bg-card p-8 shadow-sm sm:p-10">
 							<div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-foreground/[0.04] blur-2xl" />
