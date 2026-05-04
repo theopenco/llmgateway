@@ -22,9 +22,9 @@ export default function TermsPage() {
 				<strong>LLM Gateway</strong> (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or
 				&ldquo;us&rdquo;). These Terms of Use (&ldquo;Terms&rdquo;) govern your
 				access to and use of DevPass, including the website at{" "}
-				<a href="https://code.llmgateway.io">code.llmgateway.io</a>, the DevPass
-				dashboard, related APIs, SDKs, and any DevPass-branded products or
-				services (collectively, the &ldquo;Service&rdquo;).
+				<a href="https://devpass.llmgateway.io">devpass.llmgateway.io</a>, the
+				DevPass dashboard, related APIs, SDKs, and any DevPass-branded products
+				or services (collectively, the &ldquo;Service&rdquo;).
 			</p>
 			<p>
 				By accessing or using the Service, you agree to be bound by these Terms.
@@ -205,8 +205,8 @@ export default function TermsPage() {
 			<p>
 				We may update these Terms from time to time. The latest version will
 				always be available at{" "}
-				<a href="https://code.llmgateway.io/legal/terms">
-					code.llmgateway.io/legal/terms
+				<a href="https://devpass.llmgateway.io/legal/terms">
+					devpass.llmgateway.io/legal/terms
 				</a>
 				. Material changes will be communicated by email or in-app notice.
 				Continued use after changes constitutes acceptance of the updated Terms.

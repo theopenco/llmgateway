@@ -20,7 +20,7 @@ export default function PrivacyPage() {
 				(&ldquo;we&rdquo;, &ldquo;our&rdquo;, or &ldquo;us&rdquo;) collects,
 				uses, and protects information when you use <strong>DevPass</strong>,
 				our flat-rate subscription for AI coding tools, available at{" "}
-				<a href="https://code.llmgateway.io">code.llmgateway.io</a>.
+				<a href="https://devpass.llmgateway.io">devpass.llmgateway.io</a>.
 			</p>
 			<hr />
 			<h2>1. Information We Collect</h2>
@@ -192,8 +192,8 @@ export default function PrivacyPage() {
 			<p>
 				We may update this Policy from time to time. The latest version is
 				always available at{" "}
-				<a href="https://code.llmgateway.io/legal/privacy">
-					code.llmgateway.io/legal/privacy
+				<a href="https://devpass.llmgateway.io/legal/privacy">
+					devpass.llmgateway.io/legal/privacy
 				</a>
 				. Material changes will be communicated by email or in-app notice.
 			</p>
