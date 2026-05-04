@@ -458,22 +458,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "canopywave",
-		name: "CanopyWave",
-		description:
-			"CanopyWave is a platform for running large language models with OpenAI-compatible API",
-		env: {
-			required: {
-				apiKey: "LLM_CANOPY_WAVE_API_KEY",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#10b981",
-		website: "https://canopywave.io",
-		announcement: null,
-	},
-	{
 		id: "inference.net",
 		name: "Inference.net",
 		description:

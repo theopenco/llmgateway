@@ -77,7 +77,6 @@ jobs:
           LLM_AZURE_RESOURCE: ${{ secrets.AZURE_RESOURCE }}
           LLM_AZURE_AI_FOUNDRY_API_KEY: ${{ secrets.LLM_AZURE_AI_FOUNDRY_API_KEY }}
           LLM_AZURE_AI_FOUNDRY_RESOURCE: ${{ secrets.LLM_AZURE_AI_FOUNDRY_RESOURCE }}
-          LLM_CANOPY_WAVE_API_KEY: ${{ secrets.CANOPY_WAVE_API_KEY }}
           LLM_CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           LLM_BYTEDANCE_API_KEY: ${{ secrets.LLM_BYTEDANCE_API_KEY }}
           LLM_MINIMAX_API_KEY: ${{ secrets.LLM_MINIMAX_API_KEY }}
