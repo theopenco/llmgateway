@@ -109,6 +109,27 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps Mistral finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("stop", "mistral")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "mistral")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("model_length", "mistral")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "mistral")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("content_filter", "mistral")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("error", "mistral")).toBe(
+			UnifiedFinishReason.UPSTREAM_ERROR,
+		);
+	});
+
 	it("handles special cases", () => {
 		expect(getUnifiedFinishReason("canceled", "any-provider")).toBe(
 			UnifiedFinishReason.CANCELED,
