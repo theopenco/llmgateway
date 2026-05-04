@@ -681,6 +681,74 @@ describe("stats-calculator", () => {
 			expect(beijingMapping?.routingTotalRequests).toBe(1);
 		});
 
+		it("should keep failed attempts when the same-provider retry also failed", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			await db.insert(log).values([
+				{
+					id: "log-same-provider-failed-1",
+					requestId: "req-same-provider-all-failed",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 600,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 0,
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					retried: true,
+					retriedByLogId: "log-same-provider-failed-2",
+					createdAt: new Date(previousMinuteStart.getTime() + 5000),
+				},
+				{
+					id: "log-same-provider-failed-2",
+					requestId: "req-same-provider-all-failed",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 700,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 0,
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 10000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			const mappingHistoryRecords = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					eq(modelProviderMappingHistory.minuteTimestamp, previousMinuteStart),
+				);
+			const openaiHistory = mappingHistoryRecords.find(
+				(record) => record.modelProviderMappingId === "mapping-1",
+			);
+
+			expect(openaiHistory?.logsCount).toBe(2);
+			expect(openaiHistory?.errorsCount).toBe(2);
+
+			const gpt4ModelHistory = (await db.select().from(modelHistory)).find(
+				(record) =>
+					record.modelId === "gpt-4" &&
+					record.minuteTimestamp.getTime() === previousMinuteStart.getTime(),
+			);
+			expect(gpt4ModelHistory?.logsCount).toBe(2);
+			expect(gpt4ModelHistory?.errorsCount).toBe(2);
+		});
+
 		it("should handle cached requests correctly by ignoring tokens but counting requests", async () => {
 			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
 

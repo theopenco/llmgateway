@@ -35,6 +35,7 @@ function excludeRecoveredSameProviderRetry() {
 			from "log" as final_retry_log
 			where final_retry_log.id = ${log.retriedByLogId}
 				and final_retry_log.used_provider = ${log.usedProvider}
+				and coalesce(final_retry_log.has_error, false) = false
 		)
 	)`;
 }
@@ -48,6 +49,7 @@ function excludeRecoveredSameProviderRegionRetry() {
 			from "log" as final_retry_log
 			where final_retry_log.id = ${log.retriedByLogId}
 				and final_retry_log.used_provider = ${log.usedProvider}
+				and coalesce(final_retry_log.has_error, false) = false
 				and nullif(
 					split_part(split_part(final_retry_log.used_model, '/', 2), ':', 2),
 					''
