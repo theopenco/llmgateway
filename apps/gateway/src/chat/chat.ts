@@ -1896,9 +1896,17 @@ chat.openapi(completions, async (c) => {
 		usedProvider !== "llmgateway" &&
 		usedProvider !== "custom"
 	) {
-		const sameProviderMappings = modelInfo.providers.filter(
+		const allSameProviderMappings = modelInfo.providers.filter(
 			(p) => p.providerId === usedProvider,
 		);
+		const sameProviderMappings = isDevPlanRestricted
+			? allSameProviderMappings.filter(providerSupportsCachedInput)
+			: allSameProviderMappings;
+		if (isDevPlanRestricted && sameProviderMappings.length === 0) {
+			throw new HTTPException(403, {
+				message: `Provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+			});
+		}
 		const sameProviderRegionalMappings = sameProviderMappings.filter(
 			(p) => p.region,
 		);
@@ -1927,6 +1935,15 @@ chat.openapi(completions, async (c) => {
 			const providerLockedRegions = lockedRegion
 				? new Map([[usedProvider, lockedRegion]])
 				: undefined;
+			if (
+				isDevPlanRestricted &&
+				lockedRegion &&
+				!sameProviderMappings.some((p) => p.region === lockedRegion)
+			) {
+				throw new HTTPException(403, {
+					message: `Region '${lockedRegion}' for provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another region or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+				});
+			}
 			const eligibleMappings = filterEligibleModelProviders(
 				sameProviderRoutingMappings,
 				{
