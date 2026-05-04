@@ -86,11 +86,11 @@ subscriptions.openapi(createProSubscription, async (c) => {
 
 	const organization = userOrganization.organization;
 
-	// Block Pro plan for personal orgs (dev plan only)
+	// Block paid subscriptions for personal orgs (dev plan only)
 	if (organization.isPersonal) {
 		throw new HTTPException(403, {
 			message:
-				"Pro plan is not available for personal organizations. Please use Dev Plans at code.llmgateway.io or create a regular organization.",
+				"Paid subscriptions are not available for personal organizations. Please use Dev Plans at code.llmgateway.io or create a regular organization.",
 		});
 	}
 

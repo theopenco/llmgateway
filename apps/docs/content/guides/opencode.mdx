@@ -105,6 +105,32 @@ The built-in provider gives you access to all standard LLM Gateway models. If yo
 
 After updating `config.json`, restart OpenCode to see the new models.
 
+## Locking to a Specific Provider
+
+By default, LLM Gateway automatically fails over to alternative providers if your chosen provider is experiencing downtime. If you want to lock into a specific provider/model mapping — for example to guarantee a fixed price or to always use a single provider — pass the `X-No-Fallback` header. Requests will then be sent only to the provider you specified, with no automatic fallback.
+
+```json
+{
+	"provider": {
+		"llmgateway": {
+			"npm": "@ai-sdk/openai-compatible",
+			"name": "LLM Gateway",
+			"options": {
+				"baseURL": "https://api.llmgateway.io/v1",
+				"headers": {
+					"X-No-Fallback": "true"
+				}
+			}
+		}
+	}
+}
+```
+
+<Callout type="warn">
+	Disabling fallback means requests will fail if the chosen provider is down.
+	See the [routing docs](/docs/features/routing) for details.
+</Callout>
+
 ## Switching Models
 
 Select a different model directly in the OpenCode interface, or update the `model` field in your configuration:

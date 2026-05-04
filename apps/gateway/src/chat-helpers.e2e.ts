@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { describe, expect, it } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables, type ProviderKeyOptions } from "@llmgateway/db";
 import {
 	type ModelDefinition,
 	getProviderDefinition,
@@ -559,7 +559,7 @@ export async function createProviderKey(
 	token: string,
 	keyType: "api-keys" | "credits" = "api-keys",
 	baseUrl?: string,
-	options?: Record<string, unknown>,
+	options?: ProviderKeyOptions,
 ) {
 	const keyId =
 		keyType === "credits" ? `env-${provider}` : `provider-key-${provider}`;
@@ -571,14 +571,14 @@ export async function createProviderKey(
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId: "org-id",
 			baseUrl,
-			options: options as never,
+			options,
 		})
 		.onConflictDoUpdate({
 			target: tables.providerKey.id,
 			set: {
 				token,
 				baseUrl,
-				options: options as never,
+				options,
 			},
 		});
 }
@@ -703,11 +703,14 @@ export async function beforeAllHook() {
 
 function providerEnvOptionsForTests(
 	providerId: string,
-): Record<string, unknown> | undefined {
+): ProviderKeyOptions | undefined {
+	if (providerId === "azure" && process.env.LLM_AZURE_RESOURCE) {
+		return { azure_resource: process.env.LLM_AZURE_RESOURCE };
+	}
 	if (providerId === "azure-ai-foundry") {
 		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 		const apiVersion = process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
-		const opts: Record<string, unknown> = {};
+		const opts: ProviderKeyOptions = {};
 		if (resource) {
 			opts.azure_ai_foundry_resource = resource;
 		}

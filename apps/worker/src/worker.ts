@@ -425,9 +425,24 @@ export async function processAutoTopUp(): Promise<void> {
 					},
 				});
 
-				// Use centralized fee calculator
+				let isInternational = false;
+				try {
+					const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
+						defaultPaymentMethod.stripePaymentMethodId,
+					);
+					const country = stripePaymentMethod.card?.country;
+					isInternational = Boolean(country) && country !== "US";
+				} catch (err) {
+					logger.error(
+						`Failed to retrieve payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id}; skipping auto top-up cycle to avoid undercharging international cards`,
+						err as Error,
+					);
+					continue;
+				}
+
 				const feeBreakdown = calculateFees({
 					amount: topUpAmount,
+					isInternational,
 				});
 
 				// Insert pending transaction before creating payment intent
@@ -464,6 +479,8 @@ export async function processAutoTopUp(): Promise<void> {
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
 							platformFee: feeBreakdown.platformFee.toString(),
+							internationalFee: feeBreakdown.internationalFee.toString(),
+							isInternational: isInternational.toString(),
 							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
 					});
@@ -1512,7 +1529,7 @@ async function runVideoWebhookLoop() {
 async function runAggregatedStatsLoop() {
 	activeLoops++;
 	logger.info(
-		"Starting aggregated stats loop (every 5min, aligned to 5-min boundary)...",
+		"Starting aggregated stats loop (every 1min, aligned to minute boundary)...",
 	);
 
 	try {
@@ -1527,18 +1544,16 @@ async function runAggregatedStatsLoop() {
 		}
 
 		while (!shouldStop) {
-			// Calculate delay to next 5-minute boundary
 			const now = new Date();
-			const currentMinute = now.getMinutes();
-			const nextFiveMinuteMark = Math.ceil((currentMinute + 1) / 5) * 5;
-			const nextRun = new Date(now);
-			nextRun.setSeconds(0, 100); // 100ms buffer
-			if (nextFiveMinuteMark >= 60) {
-				nextRun.setMinutes(0);
-				nextRun.setHours(nextRun.getHours() + 1);
-			} else {
-				nextRun.setMinutes(nextFiveMinuteMark);
-			}
+			const nextRun = new Date(
+				now.getFullYear(),
+				now.getMonth(),
+				now.getDate(),
+				now.getHours(),
+				now.getMinutes() + 1,
+				0,
+				100, // 100ms buffer
+			);
 
 			const delay = nextRun.getTime() - now.getTime();
 
@@ -1698,7 +1713,7 @@ export async function startWorker() {
 		`- Video webhooks: runs every ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds for callback delivery`,
 	);
 	logger.info(
-		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
+		"- Aggregated stats: runs every 1 minute at the start of each minute",
 	);
 	logger.info(
 		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,

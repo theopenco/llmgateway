@@ -586,6 +586,12 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
+	if (organization.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Organization has been disabled and is no longer accessible",
+		});
+	}
+
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 
 	return {

@@ -1,5 +1,26 @@
 import { z } from "@hono/zod-openapi";
 
+const responseInputContentSchema = z.union([
+	z.object({
+		type: z.literal("input_text"),
+		text: z.string(),
+	}),
+	z.object({
+		type: z.literal("input_image"),
+		image_url: z.string().optional(),
+		file_id: z.string().optional(),
+		detail: z.enum(["low", "high", "auto", "original"]).optional(),
+	}),
+	z.object({
+		type: z.literal("input_file"),
+		file_data: z.string().optional(),
+		file_id: z.string().optional(),
+		file_url: z.string().optional(),
+		filename: z.string().optional(),
+		detail: z.enum(["low", "high"]).optional(),
+	}),
+]);
+
 const messageItemSchema = z.object({
 	role: z.enum(["user", "assistant", "system", "developer"]),
 	content: z
@@ -7,10 +28,7 @@ const messageItemSchema = z.object({
 			z.string(),
 			z.array(
 				z.union([
-					z.object({
-						type: z.literal("input_text"),
-						text: z.string(),
-					}),
+					responseInputContentSchema,
 					z.object({
 						type: z.literal("output_text"),
 						text: z.string(),
@@ -18,11 +36,6 @@ const messageItemSchema = z.object({
 					z.object({
 						type: z.literal("text"),
 						text: z.string(),
-					}),
-					z.object({
-						type: z.literal("input_image"),
-						image_url: z.string().optional(),
-						detail: z.enum(["low", "high", "auto"]).optional(),
 					}),
 					z.object({
 						type: z.literal("image_url"),
@@ -61,12 +74,24 @@ const functionCallItemSchema = z.object({
 
 const functionCallOutputItemSchema = z.object({
 	type: z.literal("function_call_output"),
+	id: z.string().optional(),
 	call_id: z.string(),
-	output: z.string(),
+	output: z.union([z.string(), z.array(responseInputContentSchema)]),
+	status: z.enum(["in_progress", "completed", "incomplete"]).optional(),
+});
+
+const reasoningItemSchema = z.object({
+	type: z.literal("reasoning"),
+	id: z.string().optional(),
+	summary: z.array(z.record(z.any())).optional(),
+	content: z.array(z.record(z.any())).optional(),
+	encrypted_content: z.string().optional(),
+	status: z.enum(["in_progress", "completed", "incomplete"]).optional(),
 });
 
 const inputItemSchema = z.union([
 	messageItemSchema,
+	reasoningItemSchema,
 	functionCallItemSchema,
 	functionCallOutputItemSchema,
 ]);

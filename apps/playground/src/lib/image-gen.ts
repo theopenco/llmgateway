@@ -73,13 +73,13 @@ export function getModelImageConfig(model: string) {
 				? (["0.5K", "1K", "2K", "4K"] as const)
 				: (["1K", "2K", "4K"] as const);
 
-	const defaultSize = isGptImage ? "auto" : isSeedream ? "2K" : "1K";
+	const defaultSize = isGptImage ? "1024x1024" : isSeedream ? "2K" : "1K";
 
 	const supportsQuality = isGptImage;
 	const availableQualities = isGptImage
 		? (["auto", "low", "medium", "high"] as const)
 		: ([] as readonly string[]);
-	const defaultQuality: string | undefined = isGptImage ? "auto" : undefined;
+	const defaultQuality: string | undefined = isGptImage ? "low" : undefined;
 
 	const maxInputImages = getMaxInputImages(lower);
 

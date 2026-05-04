@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { collapseImageGenSse } from "./collapse-image-gen-sse.js";
+import { getFinishReasonFromError } from "./get-finish-reason-from-error.js";
 
 describe("collapseImageGenSse", () => {
 	test("returns json from a completed event after partial events", () => {
@@ -172,6 +173,28 @@ describe("collapseImageGenSse", () => {
 			return;
 		}
 		expect(result.error.code).toBe("missing_image");
+	});
+
+	test("OpenAI moderation_blocked error event maps to content_filter finish reason", () => {
+		const text = [
+			`data: ${JSON.stringify({
+				error: {
+					code: "moderation_blocked",
+					message:
+						"Your request was rejected by the safety system. If you believe this is an error, contact us at help.openai.com and include the request ID req_abc123.",
+					type: "image_generation_user_error",
+				},
+			})}`,
+		].join("\n");
+		const result = collapseImageGenSse(text);
+		expect("error" in result).toBe(true);
+		if (!("error" in result)) {
+			return;
+		}
+		expect(result.error.code).toBe("moderation_blocked");
+		expect(getFinishReasonFromError(200, JSON.stringify(result.error))).toBe(
+			"content_filter",
+		);
 	});
 
 	test("ignores [DONE] sentinel and unparseable lines", () => {

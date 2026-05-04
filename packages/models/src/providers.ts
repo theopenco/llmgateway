@@ -262,22 +262,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "bluestone",
-		name: "Bluestone",
-		description: "Bluestone's OpenAI-compatible LLM inference API",
-		env: {
-			required: {
-				apiKey: "LLM_BLUESTONE_API_KEY",
-				baseUrl: "LLM_BLUESTONE_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#0284c7",
-		website: null,
-		announcement: null,
-	},
-	{
 		id: "alibaba",
 		name: "Alibaba Cloud",
 		description:

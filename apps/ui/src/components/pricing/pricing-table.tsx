@@ -143,7 +143,7 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Token Pricing",
-		description: "Model pricing details",
+		description: "Model pricing details. Non-US cards: +1.5% intl fee",
 		learnMoreLink: "/models",
 		learnMoreText: "See model prices →",
 		free: "Pay per token + 5% fee",
