@@ -807,6 +807,141 @@ describe("getCheapestFromAvailableProviders", () => {
 		expect(result).toBe(null);
 	});
 
+	describe("virtual model variant routing", () => {
+		const virtualModel: Parameters<
+			typeof getCheapestFromAvailableProviders
+		>[1] = {
+			id: "virtual-test",
+			providers: [
+				{
+					providerId: "openai",
+					modelName: "virtual-test-non-reasoning",
+					inputPrice: 1 / 1e6,
+					outputPrice: 2 / 1e6,
+				},
+				{
+					providerId: "openai",
+					modelName: "virtual-test-reasoning",
+					inputPrice: 10 / 1e6,
+					outputPrice: 20 / 1e6,
+				},
+			],
+		};
+
+		it("scores the reasoning variant by its own pricing, not the first variant in the array", () => {
+			const result = getCheapestFromAvailableProviders(
+				[{ providerId: "openai", modelName: "virtual-test-reasoning" }],
+				virtualModel,
+			);
+
+			expect(result?.provider.modelName).toBe("virtual-test-reasoning");
+			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
+		});
+
+		it("scores the non-reasoning variant by its own pricing", () => {
+			const result = getCheapestFromAvailableProviders(
+				[{ providerId: "openai", modelName: "virtual-test-non-reasoning" }],
+				virtualModel,
+			);
+
+			expect(result?.provider.modelName).toBe("virtual-test-non-reasoning");
+			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(1.5 / 1e6);
+		});
+
+		it("filters out a reasoning variant whose stability is unstable while keeping the non-reasoning sibling", () => {
+			const modelWithUnstableReasoning: Parameters<
+				typeof getCheapestFromAvailableProviders
+			>[1] = {
+				id: "virtual-stability-test",
+				providers: [
+					{
+						providerId: "openai",
+						modelName: "virtual-stability-non-reasoning",
+						inputPrice: 1 / 1e6,
+						outputPrice: 2 / 1e6,
+					},
+					{
+						providerId: "openai",
+						modelName: "virtual-stability-reasoning",
+						inputPrice: 10 / 1e6,
+						outputPrice: 20 / 1e6,
+						stability: "unstable",
+					},
+				],
+			};
+
+			const reasoningResult = getCheapestFromAvailableProviders(
+				[
+					{
+						providerId: "openai",
+						modelName: "virtual-stability-reasoning",
+					},
+				],
+				modelWithUnstableReasoning,
+			);
+			expect(reasoningResult).toBe(null);
+
+			const nonReasoningResult = getCheapestFromAvailableProviders(
+				[
+					{
+						providerId: "openai",
+						modelName: "virtual-stability-non-reasoning",
+					},
+				],
+				modelWithUnstableReasoning,
+			);
+			expect(nonReasoningResult?.provider.modelName).toBe(
+				"virtual-stability-non-reasoning",
+			);
+		});
+
+		it("preserves the legacy providerId+region match when the candidate does not name a specific variant", () => {
+			const result = getCheapestFromAvailableProviders(
+				[{ providerId: "openai", modelName: "unrelated-name" }],
+				virtualModel,
+			);
+
+			expect(result?.provider.modelName).toBe("unrelated-name");
+			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(1.5 / 1e6);
+		});
+
+		it("scores the reasoning variant under the price-only-no-metrics path", () => {
+			const result = getCheapestFromAvailableProviders(
+				[{ providerId: "openai", modelName: "virtual-test-reasoning" }],
+				virtualModel,
+				{ metricsMap: new Map() },
+			);
+
+			expect(result?.metadata.selectionReason).toBe("price-only-no-metrics");
+			expect(result?.provider.modelName).toBe("virtual-test-reasoning");
+			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
+		});
+
+		it("routes the catalog grok-4-1-fast reasoning variant with reasoning-variant cache support", () => {
+			const grokModel = models.find((model) => model.id === "grok-4-1-fast");
+			expect(grokModel).toBeDefined();
+			if (!grokModel) {
+				throw new Error("Missing grok-4-1-fast fixture");
+			}
+
+			const reasoningProvider = grokModel.providers.find(
+				(p) => p.modelName === "grok-4-1-fast-reasoning",
+			);
+			expect(reasoningProvider).toBeDefined();
+			if (!reasoningProvider) {
+				throw new Error("Missing reasoning variant");
+			}
+
+			const result = getCheapestFromAvailableProviders(
+				[reasoningProvider],
+				grokModel,
+				{ metricsMap: new Map(), promptTokens: 200_000 },
+			);
+
+			expect(result?.provider.modelName).toBe("grok-4-1-fast-reasoning");
+		});
+	});
+
 	it("should use the default exploration rate when EXPLORATION_RATE is empty", () => {
 		const originalExplorationRate = process.env.EXPLORATION_RATE;
 		process.env.EXPLORATION_RATE = "";

@@ -162,6 +162,25 @@ export interface ProviderSelectionOptions {
 	promptTokens?: number;
 }
 
+function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
+	providers: P[],
+	candidate: AvailableModelProvider,
+): P | undefined {
+	const exactMatch = providers.find(
+		(p) =>
+			p.providerId === candidate.providerId &&
+			p.region === candidate.region &&
+			p.modelName === candidate.modelName,
+	);
+	if (exactMatch) {
+		return exactMatch;
+	}
+	return providers.find(
+		(p) =>
+			p.providerId === candidate.providerId && p.region === candidate.region,
+	);
+}
+
 function providerSupportsCaching(
 	providerInfo:
 		| {
@@ -311,9 +330,9 @@ export function getCheapestFromAvailableProviders<
 
 	// Filter out unstable and experimental providers
 	const stableProviders = availableModelProviders.filter((provider) => {
-		const providerInfo = modelWithPricing.providers.find(
-			(p) =>
-				p.providerId === provider.providerId && p.region === provider.region,
+		const providerInfo = findProviderMapping(
+			modelWithPricing.providers,
+			provider,
 		);
 		const providerStability = providerInfo?.stability;
 		const modelStability =
@@ -343,10 +362,9 @@ export function getCheapestFromAvailableProviders<
 				selectedProvider: randomProvider.providerId,
 				selectionReason: "random-exploration",
 				providerScores: stableProviders.map((provider) => {
-					const providerInfo = modelWithPricing.providers.find(
-						(p) =>
-							p.providerId === provider.providerId &&
-							p.region === provider.region,
+					const providerInfo = findProviderMapping(
+						modelWithPricing.providers,
+						provider,
 					);
 					const providerDef = getProviderDefinition(provider.providerId);
 					const priority = providerDef?.priority ?? 1;
@@ -385,9 +403,9 @@ export function getCheapestFromAvailableProviders<
 	const providerScores: ProviderScore<T>[] = [];
 
 	for (const provider of stableProviders) {
-		const providerInfo = modelWithPricing.providers.find(
-			(p) =>
-				p.providerId === provider.providerId && p.region === provider.region,
+		const providerInfo = findProviderMapping(
+			modelWithPricing.providers,
+			provider,
 		);
 		const price = getProviderSelectionPrice(providerInfo, videoPricing);
 
@@ -558,9 +576,9 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	}> = [];
 
 	for (const provider of stableProviders) {
-		const providerInfo = modelWithPricing.providers.find(
-			(p) =>
-				p.providerId === provider.providerId && p.region === provider.region,
+		const providerInfo = findProviderMapping(
+			modelWithPricing.providers,
+			provider,
 		);
 		const totalPrice = getProviderSelectionPrice(providerInfo, videoPricing);
 
