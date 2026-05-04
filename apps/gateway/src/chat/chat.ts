@@ -484,7 +484,12 @@ function addContentFilterRoutingMetadata(
 			: [
 					...excludedProviders.map((provider) => {
 						const metrics = metricsMap.get(
-							metricsKey(modelId, provider.providerId, provider.region),
+							metricsKey(
+								modelId,
+								provider.providerId,
+								provider.region,
+								provider.modelName,
+							),
 						);
 
 						return {
@@ -2251,11 +2256,16 @@ chat.openapi(completions, async (c) => {
 
 		// Fetch uptime metrics for the requested provider
 		const metricsMap = await getProviderMetricsForCombinations([
-			{ modelId: baseModelId, providerId: usedProvider, region: usedRegion },
+			{
+				modelId: baseModelId,
+				providerId: usedProvider,
+				region: usedRegion,
+				modelName: usedModel,
+			},
 		]);
 
 		const metrics = metricsMap.get(
-			metricsKey(baseModelId, usedProvider, usedRegion),
+			metricsKey(baseModelId, usedProvider, usedRegion, usedModel),
 		);
 
 		// If we have metrics and uptime is below 90%, route to an alternative
@@ -2321,6 +2331,7 @@ chat.openapi(completions, async (c) => {
 							modelId: modelWithPricing.id,
 							providerId: p.providerId,
 							region: p.region,
+							modelName: p.modelName,
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
@@ -2340,7 +2351,12 @@ chat.openapi(completions, async (c) => {
 						const betterUptimeProviders = providerAgnosticCandidates.filter(
 							(p) => {
 								const providerMetrics = allMetricsMap.get(
-									metricsKey(modelWithPricing.id, p.providerId, p.region),
+									metricsKey(
+										modelWithPricing.id,
+										p.providerId,
+										p.region,
+										p.modelName,
+									),
 								);
 								// If no metrics, assume the provider is healthy (100% uptime)
 								// If has metrics, only include if uptime is better than original
@@ -2531,6 +2547,7 @@ chat.openapi(completions, async (c) => {
 					modelId: modelWithPricing.id,
 					providerId: provider.providerId,
 					region: provider.region,
+					modelName: provider.modelName,
 				}));
 				const metricsMap =
 					await getProviderMetricsForCombinations(metricsCombinations);
@@ -2702,6 +2719,7 @@ chat.openapi(completions, async (c) => {
 				modelId: baseModelId,
 				providerId: provider.providerId,
 				region: provider.region,
+				modelName: provider.modelName,
 			}));
 			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
@@ -2727,7 +2745,7 @@ chat.openapi(completions, async (c) => {
 			weightedScores?.metadata.providerScores ??
 			routingMetadataProviders.map((p) => {
 				const metrics = metricsMap.get(
-					metricsKey(baseModelId, p.providerId, p.region),
+					metricsKey(baseModelId, p.providerId, p.region, p.modelName),
 				);
 				return {
 					providerId: p.providerId,

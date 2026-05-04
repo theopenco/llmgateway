@@ -373,6 +373,7 @@ export function getCheapestFromAvailableProviders<
 							modelWithPricing.id,
 							provider.providerId,
 							provider.region,
+							provider.modelName,
 						),
 					);
 
@@ -413,6 +414,7 @@ export function getCheapestFromAvailableProviders<
 			modelWithPricing.id,
 			provider.providerId,
 			provider.region,
+			provider.modelName,
 		);
 		const metrics = metricsMap.get(mKey);
 

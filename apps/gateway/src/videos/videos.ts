@@ -33,6 +33,7 @@ import {
 	db,
 	eq,
 	getProviderMetricsForCombinations,
+	metricsKey,
 	sql,
 	shortid,
 	tables,
@@ -1450,10 +1451,10 @@ async function resolveVideoExecution(
 		if (
 			requestedProvider &&
 			!noFallback &&
-			metricsMap.has(`${modelInfo.id}:${requestedProvider}`)
+			metricsMap.has(metricsKey(modelInfo.id, requestedProvider))
 		) {
 			const requestedMetrics = metricsMap.get(
-				`${modelInfo.id}:${requestedProvider}`,
+				metricsKey(modelInfo.id, requestedProvider),
 			);
 			const requestedUptime = requestedMetrics?.uptime;
 
@@ -1464,7 +1465,7 @@ async function resolveVideoExecution(
 					}
 
 					const providerMetrics = metricsMap.get(
-						`${modelInfo.id}:${provider.providerId}`,
+						metricsKey(modelInfo.id, provider.providerId),
 					);
 					return (
 						!providerMetrics ||
