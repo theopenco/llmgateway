@@ -12,6 +12,7 @@ import {
 import {
 	getCheapestFromAvailableProviders,
 	getProviderSelectionPrice,
+	resolveMetricsModelId,
 } from "./get-cheapest-from-available-providers.js";
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
@@ -825,6 +826,29 @@ describe("getCheapestFromAvailableProviders", () => {
 		const testModel = models[0];
 		const result = getCheapestFromAvailableProviders([], testModel);
 		expect(result).toBe(null);
+	});
+
+	describe("resolveMetricsModelId", () => {
+		it("returns the candidate's modelName when it matches a concrete catalog model", () => {
+			expect(
+				resolveMetricsModelId("grok-4-1-fast", "grok-4-1-fast-non-reasoning"),
+			).toBe("grok-4-1-fast-non-reasoning");
+			expect(
+				resolveMetricsModelId("grok-4-1-fast", "grok-4-1-fast-reasoning"),
+			).toBe("grok-4-1-fast-reasoning");
+		});
+
+		it("falls back to the parent model id when the modelName is provider-specific", () => {
+			expect(
+				resolveMetricsModelId("gpt-4o-mini", "gpt-4o-mini-2024-07-18"),
+			).toBe("gpt-4o-mini");
+		});
+
+		it("falls back to the parent model id when the modelName is unknown", () => {
+			expect(
+				resolveMetricsModelId("custom-parent", "totally-unknown-model"),
+			).toBe("custom-parent");
+		});
 	});
 
 	describe("virtual model variant routing", () => {
