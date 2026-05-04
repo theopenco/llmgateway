@@ -5216,7 +5216,7 @@ chat.openapi(completions, async (c) => {
 									// If we can't parse the original error, fall back to our format
 									errorData = {
 										error: {
-											message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+											message: `Error from provider ${usedProvider}: ${res.status} ${res.statusText} ${errorResponseText}`,
 											type: finishReason,
 											param: null,
 											code: finishReason,
@@ -5227,7 +5227,7 @@ chat.openapi(completions, async (c) => {
 							} else {
 								errorData = {
 									error: {
-										message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+										message: `Error from provider ${usedProvider}: ${res.status} ${res.statusText} ${errorResponseText}`,
 										type: finishReason,
 										param: null,
 										code: finishReason,
@@ -8655,7 +8655,7 @@ chat.openapi(completions, async (c) => {
 			return c.json(
 				{
 					error: {
-						message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+						message: `Error from provider ${usedProvider}: ${res.status} ${res.statusText} ${errorResponseText}`,
 						type: finishReason,
 						param: null,
 						code: finishReason,
