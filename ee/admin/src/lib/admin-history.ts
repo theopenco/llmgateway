@@ -31,6 +31,7 @@ export async function getMappingHistory(
 	providerId: string,
 	modelId: string,
 	window: HistoryWindow,
+	projectId?: string,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
@@ -41,7 +42,7 @@ export async function getMappingHistory(
 					providerId,
 					modelId: encodeURIComponent(modelId),
 				},
-				query: { window },
+				query: { window, ...(projectId ? { projectId } : {}) },
 			},
 		},
 	);

@@ -1935,7 +1935,7 @@ describe("fallback and error status code handling", () => {
 			expect(json).toHaveProperty("error");
 		});
 
-		test("non-streaming: does not retry on non-retryable 401 error", async () => {
+		test("non-streaming: retries on 403 and succeeds on fallback provider", async () => {
 			await setupMultiProviderKeys();
 
 			const res = await app.request("/v1/chat/completions", {
@@ -1946,20 +1946,26 @@ describe("fallback and error status code handling", () => {
 				},
 				body: JSON.stringify({
 					model: "glm-4.7",
-					messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
+					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE_403 hello" }],
 				}),
 			});
 
-			// 401 is not retryable, so the gateway should return the error
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json).toHaveProperty("error");
-			expect(json.error.type).toBe("gateway_error");
 
-			const logs = await waitForLogs(1);
-			const log = logs[0];
-			expect(log.finishReason).toBe("gateway_error");
-			expect(log.hasError).toBe(true);
+			expect(json).toHaveProperty(["choices", 0, "message", "content"]);
+			expect(json.metadata.routing).toBeDefined();
+			expect(json.metadata.routing.length).toBeGreaterThanOrEqual(2);
+			expect(json.metadata.routing[0]).toMatchObject({
+				status_code: 403,
+				error_type: "gateway_error",
+				succeeded: false,
+			});
+			expect(
+				json.metadata.routing[json.metadata.routing.length - 1],
+			).toMatchObject({
+				succeeded: true,
+			});
 		});
 
 		test("non-streaming: retries on 404 and succeeds on fallback provider", async () => {

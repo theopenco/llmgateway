@@ -7206,8 +7206,6 @@ const getDevpassSubscriber = createRoute({
 	},
 });
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
 function tierPriceOf(tier: string): number {
 	if (tier === "lite" || tier === "pro" || tier === "max") {
 		return DEV_PLAN_PRICES[tier];
@@ -7657,11 +7655,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue =
-			(row.paymentFailureCount ?? 0) > 0 ||
-			(lastPaymentFailureAt !== null &&
-				new Date(lastPaymentFailureAt).getTime() >
-					now.getTime() - THIRTY_DAYS_MS);
+		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
 
 		return {
 			id: row.id,
@@ -7823,12 +7817,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue =
-		(org.paymentFailureCount ?? 0) > 0 ||
-		(lastFailureRow?.lastFailureAt !== undefined &&
-			lastFailureRow.lastFailureAt !== null &&
-			new Date(lastFailureRow.lastFailureAt).getTime() >
-				now.getTime() - THIRTY_DAYS_MS);
+	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
 
 	const subscriber = {
 		id: org.id,
