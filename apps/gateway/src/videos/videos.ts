@@ -24,6 +24,7 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	processImageUrl,
+	resolveMetricsModelId,
 	type RoutingMetadata,
 	type VideoPricingContext,
 } from "@llmgateway/actions";
@@ -1442,20 +1443,35 @@ async function resolveVideoExecution(
 
 	if (configuredEligibleMappings.length > 1) {
 		const metricsCombinations = configuredEligibleMappings.map((provider) => ({
-			modelId: modelInfo.id,
+			modelId: resolveMetricsModelId(modelInfo.id, provider.modelName),
 			providerId: provider.providerId,
+			region: provider.region,
+			modelName: provider.modelName,
 		}));
 		const metricsMap =
 			await getProviderMetricsForCombinations(metricsCombinations);
 
+		const requestedMapping = requestedProvider
+			? configuredEligibleMappings.find(
+					(provider) => provider.providerId === requestedProvider,
+				)
+			: undefined;
+		const requestedKey = requestedMapping
+			? metricsKey(
+					resolveMetricsModelId(modelInfo.id, requestedMapping.modelName),
+					requestedMapping.providerId,
+					requestedMapping.region,
+					requestedMapping.modelName,
+				)
+			: undefined;
+
 		if (
 			requestedProvider &&
 			!noFallback &&
-			metricsMap.has(metricsKey(modelInfo.id, requestedProvider))
+			requestedKey &&
+			metricsMap.has(requestedKey)
 		) {
-			const requestedMetrics = metricsMap.get(
-				metricsKey(modelInfo.id, requestedProvider),
-			);
+			const requestedMetrics = metricsMap.get(requestedKey);
 			const requestedUptime = requestedMetrics?.uptime;
 
 			if (requestedUptime !== undefined && requestedUptime < 90) {
@@ -1465,7 +1481,12 @@ async function resolveVideoExecution(
 					}
 
 					const providerMetrics = metricsMap.get(
-						metricsKey(modelInfo.id, provider.providerId),
+						metricsKey(
+							resolveMetricsModelId(modelInfo.id, provider.modelName),
+							provider.providerId,
+							provider.region,
+							provider.modelName,
+						),
 					);
 					return (
 						!providerMetrics ||
