@@ -125,5 +125,8 @@ export function getErrorType(statusCode: number): string {
 	if (statusCode === 429) {
 		return "rate_limited";
 	}
+	if (statusCode === 401 || statusCode === 403) {
+		return "gateway_error";
+	}
 	return "upstream_error";
 }

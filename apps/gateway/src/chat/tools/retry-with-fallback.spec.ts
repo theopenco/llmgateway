@@ -257,6 +257,11 @@ describe("getErrorType", () => {
 		expect(getErrorType(503)).toBe("upstream_error");
 	});
 
+	it("returns gateway_error for 401/403 auth status codes", () => {
+		expect(getErrorType(401)).toBe("gateway_error");
+		expect(getErrorType(403)).toBe("gateway_error");
+	});
+
 	it("returns upstream_error for other status codes", () => {
 		expect(getErrorType(400)).toBe("upstream_error");
 		expect(getErrorType(404)).toBe("upstream_error");

@@ -750,7 +750,9 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		return c.json(statusTrigger.errorResponse);
 	}
 
-	// Check if this request should fail on the first attempt but succeed on retry
+	// Check if this request should fail on the first attempt but succeed on retry.
+	// These triggers are mutually exclusive — TRIGGER_FAIL_ONCE_404/_403 are
+	// substrings of the generic TRIGGER_FAIL_ONCE, so order specific → generic.
 	if (userMessage.includes("TRIGGER_FAIL_ONCE_404")) {
 		failOnceCounter++;
 		if (failOnceCounter === 1) {
@@ -765,9 +767,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		}
 		// Subsequent requests succeed - fall through to normal response
-	}
-
-	if (userMessage.includes("TRIGGER_FAIL_ONCE_403")) {
+	} else if (userMessage.includes("TRIGGER_FAIL_ONCE_403")) {
 		failOnceCounter++;
 		if (failOnceCounter === 1) {
 			c.status(403);
@@ -780,10 +780,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		}
 		// Subsequent requests succeed - fall through to normal response
-	}
-
-	// Check if this request should fail on the first attempt but succeed on retry
-	if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
+	} else if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
 		failOnceCounter++;
 		if (failOnceCounter === 1) {
 			c.status(500);
