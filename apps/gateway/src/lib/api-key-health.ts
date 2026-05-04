@@ -107,6 +107,34 @@ function getTrackedHealthKey(keyId: string, selectionScope?: string): string {
 }
 
 /**
+ * Auth validity is provider-wide, not scope-specific. A 401/403 or
+ * invalid-key payload on one model does not become valid on another.
+ * The permanent blacklist is therefore stored on an unscoped record so
+ * health checks for any future scope still see the key as bad.
+ */
+function markUnscopedPermanentBlacklist(
+	unscopedKey: string,
+	now: number,
+): void {
+	let unscoped = keyHealthMap.get(unscopedKey);
+	if (!unscoped) {
+		unscoped = {
+			consecutiveErrors: 0,
+			lastErrorTime: 0,
+			permanentlyBlacklisted: false,
+			history: [],
+		};
+		keyHealthMap.set(unscopedKey, unscoped);
+	}
+	unscoped.permanentlyBlacklisted = true;
+	unscoped.lastErrorTime = now;
+}
+
+function isUnscopedPermanentlyBlacklisted(unscopedKey: string): boolean {
+	return keyHealthMap.get(unscopedKey)?.permanentlyBlacklisted === true;
+}
+
+/**
  * Prune old entries from history that are outside the metrics window
  */
 function pruneHistory(health: KeyHealth, now: number): void {
@@ -168,6 +196,10 @@ export function isKeyHealthy(
 	keyIndex: number,
 	selectionScope?: string,
 ): boolean {
+	if (isUnscopedPermanentlyBlacklisted(getHealthKey(envVarName, keyIndex))) {
+		return false;
+	}
+
 	const healthKey = getHealthKey(envVarName, keyIndex, selectionScope);
 	const health = keyHealthMap.get(healthKey);
 
@@ -196,6 +228,10 @@ export function isTrackedKeyHealthy(
 	keyId: string,
 	selectionScope?: string,
 ): boolean {
+	if (isUnscopedPermanentlyBlacklisted(getTrackedHealthKey(keyId))) {
+		return false;
+	}
+
 	const healthKey = getTrackedHealthKey(keyId, selectionScope);
 	const health = keyHealthMap.get(healthKey);
 
@@ -230,15 +266,18 @@ export function getKeyMetrics(
 	keyIndex: number,
 	selectionScope?: string,
 ): KeyMetrics {
+	const unscopedBlacklisted = isUnscopedPermanentlyBlacklisted(
+		getHealthKey(envVarName, keyIndex),
+	);
 	const healthKey = getHealthKey(envVarName, keyIndex, selectionScope);
 	const health = keyHealthMap.get(healthKey);
 
 	if (!health) {
 		return {
-			uptime: 100,
+			uptime: unscopedBlacklisted ? 0 : 100,
 			totalRequests: 0,
 			consecutiveErrors: 0,
-			permanentlyBlacklisted: false,
+			permanentlyBlacklisted: unscopedBlacklisted,
 		};
 	}
 
@@ -249,7 +288,8 @@ export function getKeyMetrics(
 		uptime: calculateUptime(health, now),
 		totalRequests: health.history.length,
 		consecutiveErrors: health.consecutiveErrors,
-		permanentlyBlacklisted: health.permanentlyBlacklisted,
+		permanentlyBlacklisted:
+			health.permanentlyBlacklisted || unscopedBlacklisted,
 	};
 }
 
@@ -257,15 +297,18 @@ export function getTrackedKeyMetrics(
 	keyId: string,
 	selectionScope?: string,
 ): KeyMetrics {
+	const unscopedBlacklisted = isUnscopedPermanentlyBlacklisted(
+		getTrackedHealthKey(keyId),
+	);
 	const healthKey = getTrackedHealthKey(keyId, selectionScope);
 	const health = keyHealthMap.get(healthKey);
 
 	if (!health) {
 		return {
-			uptime: 100,
+			uptime: unscopedBlacklisted ? 0 : 100,
 			totalRequests: 0,
 			consecutiveErrors: 0,
-			permanentlyBlacklisted: false,
+			permanentlyBlacklisted: unscopedBlacklisted,
 		};
 	}
 
@@ -276,7 +319,8 @@ export function getTrackedKeyMetrics(
 		uptime: calculateUptime(health, now),
 		totalRequests: health.history.length,
 		consecutiveErrors: health.consecutiveErrors,
-		permanentlyBlacklisted: health.permanentlyBlacklisted,
+		permanentlyBlacklisted:
+			health.permanentlyBlacklisted || unscopedBlacklisted,
 	};
 }
 
@@ -400,19 +444,15 @@ export function reportKeyError(
 		return;
 	}
 
-	// Check for permanent auth errors by status code
-	if (statusCode && PERMANENT_ERROR_CODES.includes(statusCode)) {
+	// Check for permanent auth errors by status code or payload. Auth validity
+	// is provider-wide, so the blacklist is recorded on the unscoped record so
+	// future scopes (other models) also skip this key.
+	if (
+		(statusCode && PERMANENT_ERROR_CODES.includes(statusCode)) ||
+		isPermanentErrorMessage
+	) {
+		markUnscopedPermanentBlacklist(getHealthKey(envVarName, keyIndex), now);
 		health.permanentlyBlacklisted = true;
-		// Still add to history for metrics visibility
-		health.history.push({ timestamp: now, success: false });
-		pruneHistory(health, now);
-		return;
-	}
-
-	// Check for permanent auth errors by error message
-	if (isPermanentErrorMessage) {
-		health.permanentlyBlacklisted = true;
-		// Still add to history for metrics visibility
 		health.history.push({ timestamp: now, success: false });
 		pruneHistory(health, now);
 		return;
@@ -459,14 +499,11 @@ export function reportTrackedKeyError(
 		return;
 	}
 
-	if (statusCode && PERMANENT_ERROR_CODES.includes(statusCode)) {
-		health.permanentlyBlacklisted = true;
-		health.history.push({ timestamp: now, success: false });
-		pruneHistory(health, now);
-		return;
-	}
-
-	if (isPermanentErrorMessage) {
+	if (
+		(statusCode && PERMANENT_ERROR_CODES.includes(statusCode)) ||
+		isPermanentErrorMessage
+	) {
+		markUnscopedPermanentBlacklist(getTrackedHealthKey(keyId), now);
 		health.permanentlyBlacklisted = true;
 		health.history.push({ timestamp: now, success: false });
 		pruneHistory(health, now);
