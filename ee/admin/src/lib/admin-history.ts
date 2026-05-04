@@ -38,10 +38,7 @@ export async function getMappingHistory(
 		"/admin/providers/{providerId}/models/{modelId}/history",
 		{
 			params: {
-				path: {
-					providerId,
-					modelId: encodeURIComponent(modelId),
-				},
+				path: { providerId, modelId },
 				query: { window, ...(projectId ? { projectId } : {}) },
 			},
 		},
