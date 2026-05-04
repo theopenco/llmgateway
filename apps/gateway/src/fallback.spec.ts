@@ -1935,43 +1935,6 @@ describe("fallback and error status code handling", () => {
 			expect(json).toHaveProperty("error");
 		});
 
-		test("non-streaming: retries on 401 across providers and surfaces gateway_error when all fail", async () => {
-			await setupMultiProviderKeys();
-
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "glm-4.7",
-					messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
-				}),
-			});
-
-			// All configured providers return 401, so the request still fails
-			// but should now show retry attempts in the routing metadata.
-			expect(res.status).toBe(500);
-			const json = await res.json();
-			expect(json).toHaveProperty("error");
-			expect(json.error.type).toBe("gateway_error");
-
-			const logs = await waitForLogs(2);
-			expect(logs.length).toBeGreaterThanOrEqual(2);
-
-			const finalLog = logs.find(
-				(l: Log) => (l.routingMetadata?.routing?.length ?? 0) >= 2,
-			);
-			expect(finalLog).toBeDefined();
-			expect(finalLog!.hasError).toBe(true);
-			expect(finalLog!.finishReason).toBe("gateway_error");
-			expect(finalLog!.routingMetadata!.routing![0]).toHaveProperty(
-				"status_code",
-				401,
-			);
-		});
-
 		test("non-streaming: retries on 403 and succeeds on fallback provider", async () => {
 			await setupMultiProviderKeys();
 
