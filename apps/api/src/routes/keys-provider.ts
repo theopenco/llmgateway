@@ -33,6 +33,9 @@ const providerKeySchema = z.object({
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
+			azure_deployment_name: z.string().optional(),
+			azure_ai_foundry_resource: z.string().optional(),
+			azure_ai_foundry_api_version: z.string().optional(),
 			alibaba_region: z
 				.enum(["singapore", "us-virginia", "cn-beijing"])
 				.optional(),
@@ -50,7 +53,13 @@ const createProviderKeySchema = z.object({
 			message:
 				"Invalid provider. Must be one of the supported providers or 'custom'.",
 		}),
-	token: z.string().min(1, "API key is required"),
+	token: z
+		.string()
+		.min(1, "API key is required")
+		.regex(
+			/^[\x21-\x7E]+$/,
+			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
+		),
 	name: z
 		.string()
 		.regex(/^[a-z]+$/, "Name must contain only lowercase letters a-z")
@@ -63,6 +72,9 @@ const createProviderKeySchema = z.object({
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
+			azure_deployment_name: z.string().min(1).optional(),
+			azure_ai_foundry_resource: z.string().optional(),
+			azure_ai_foundry_api_version: z.string().optional(),
 			alibaba_region: z
 				.enum(["singapore", "us-virginia", "cn-beijing"])
 				.optional(),
@@ -232,7 +244,7 @@ keysProvider.openapi(create, async (c) => {
 			? ` using model ${validationResult.model}`
 			: "";
 		throw new HTTPException(400, {
-			message: `Error from provider: ${errorMessage}${statusPart}${modelPart}. Please try again later or contact support.`,
+			message: `Error from provider ${provider}: ${errorMessage}${statusPart}${modelPart}. Please try again later or contact support.`,
 		});
 	}
 

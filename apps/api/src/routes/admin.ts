@@ -4134,10 +4134,61 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 		});
 	}
 
-	await db
-		.update(tables.organization)
-		.set({ status })
-		.where(eq(tables.organization.id, orgId));
+	const memberLinks = await db.query.userOrganization.findMany({
+		where: { organizationId: { eq: orgId } },
+		columns: { userId: true },
+	});
+	const memberUserIds = memberLinks.map((m) => m.userId);
+
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.organization)
+			.set({ status })
+			.where(eq(tables.organization.id, orgId));
+
+		if (memberUserIds.length === 0) {
+			return;
+		}
+
+		if (status === "deleted") {
+			await tx
+				.update(tables.user)
+				.set({ status: "deactivated" })
+				.where(inArray(tables.user.id, memberUserIds));
+
+			await tx
+				.delete(tables.session)
+				.where(inArray(tables.session.userId, memberUserIds));
+		} else {
+			const otherLinks = await tx.query.userOrganization.findMany({
+				where: { userId: { in: memberUserIds } },
+				with: {
+					organization: {
+						columns: { id: true, status: true },
+					},
+				},
+			});
+
+			const stillBlocked = new Set(
+				otherLinks
+					.filter(
+						(link) =>
+							link.organization?.id !== orgId &&
+							link.organization?.status === "deleted",
+					)
+					.map((link) => link.userId),
+			);
+
+			const reactivateIds = memberUserIds.filter((id) => !stillBlocked.has(id));
+
+			if (reactivateIds.length > 0) {
+				await tx
+					.update(tables.user)
+					.set({ status: "active" })
+					.where(inArray(tables.user.id, reactivateIds));
+			}
+		}
+	});
 
 	await logAuditEvent({
 		organizationId: orgId,
@@ -4151,6 +4202,7 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 			previousStatus: org.status ?? "active",
 			newStatus: status,
 			source: "admin",
+			affectedUserCount: memberUserIds.length,
 		},
 	});
 
@@ -4161,47 +4213,6 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 				: "Organization re-enabled successfully",
 		status,
 	});
-});
-
-// --- Delete User ---
-
-const deleteUserRoute = createRoute({
-	method: "delete",
-	path: "/users/{userId}",
-	request: {
-		params: z.object({
-			userId: z.string(),
-		}),
-	},
-	responses: {
-		200: {
-			content: {
-				"application/json": {
-					schema: z.object({ success: z.boolean() }).openapi({}),
-				},
-			},
-			description: "User deleted.",
-		},
-		404: {
-			description: "User not found.",
-		},
-	},
-});
-
-admin.openapi(deleteUserRoute, async (c) => {
-	const { userId } = c.req.valid("param");
-
-	const existingUser = await db.query.user.findFirst({
-		where: { id: { eq: userId } },
-	});
-
-	if (!existingUser) {
-		throw new HTTPException(404, { message: "User not found" });
-	}
-
-	await db.delete(tables.user).where(eq(tables.user.id, userId));
-
-	return c.json({ success: true });
 });
 
 // --- History endpoints ---

@@ -67,7 +67,7 @@ New MiniMax M2.7 model mappings added across providers.
 
 ## UI & Platform Improvements
 
-- **[Redesigned Code app](https://code.llmgateway.io)** — Fresh look for the dev plans and coding tools dashboard
+- **[Redesigned Code app](https://devpass.llmgateway.io)** — Fresh look for the dev plans and coding tools dashboard
 - **Revamped admin dashboard** — Improved performance on models, mappings, and providers pages
 - **[Cost simulator](/cost-simulator) revamp** — Updated cost simulator with better navigation
 - **Activity log filters** — Improved filtering in activity logs

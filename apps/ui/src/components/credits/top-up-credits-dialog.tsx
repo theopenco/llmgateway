@@ -422,6 +422,16 @@ function AmountStep({
 										${feeData.platformFee.toFixed(2)}
 									</span>
 								</div>
+								{feeData.internationalFee > 0 ? (
+									<div className="flex justify-between">
+										<span className="text-muted-foreground">
+											International card fee
+										</span>
+										<span className="tabular-nums">
+											${feeData.internationalFee.toFixed(2)}
+										</span>
+									</div>
+								) : null}
 								{hasBonus && feeData.bonusAmount ? (
 									<div className="-mx-2 flex justify-between rounded bg-green-50 px-2 py-1 font-semibold text-green-600 dark:bg-green-950/50 dark:text-green-400">
 										<span>
@@ -546,6 +556,8 @@ function PaymentStep({
 		setLoading(true);
 
 		try {
+			let stripePaymentMethodId: string | undefined;
+
 			if (saveCard) {
 				const { clientSecret: setupSecret } = await setupIntentMutation({});
 
@@ -566,19 +578,40 @@ function PaymentStep({
 					setLoading(false);
 					return;
 				}
+
+				const setupPaymentMethod = setupResult.setupIntent?.payment_method;
+				stripePaymentMethodId =
+					typeof setupPaymentMethod === "string"
+						? setupPaymentMethod
+						: setupPaymentMethod?.id;
+			} else {
+				const pmResult = await stripe.createPaymentMethod({
+					type: "card",
+					card: elements.getElement(CardElement) as any,
+				});
+
+				if (pmResult.error) {
+					toast({
+						title: "Error",
+						description:
+							pmResult.error.message ?? "Could not read card details.",
+						variant: "destructive",
+					});
+					setLoading(false);
+					return;
+				}
+
+				stripePaymentMethodId = pmResult.paymentMethod.id;
 			}
 
 			const { clientSecret } = await topUpMutation({
 				body: {
 					amount,
+					stripePaymentMethodId,
 				},
 			});
 
-			const result = await stripe.confirmCardPayment(clientSecret, {
-				payment_method: {
-					card: elements.getElement(CardElement) as any,
-				},
-			});
+			const result = await stripe.confirmCardPayment(clientSecret);
 
 			if (result.error) {
 				toast({
@@ -671,6 +704,9 @@ function PaymentStep({
 						</Label>
 					</div>
 				</div>
+				<p className="text-xs text-muted-foreground">
+					International cards are subject to an additional 1.5% processing fee.
+				</p>
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"
@@ -1079,6 +1115,12 @@ function ConfirmPaymentStep({
 								<span>Platform fee (5%)</span>
 								<span>${feeData.platformFee.toFixed(2)}</span>
 							</div>
+							{feeData.internationalFee > 0 ? (
+								<div className="flex justify-between">
+									<span>International card fee (1.5%)</span>
+									<span>${feeData.internationalFee.toFixed(2)}</span>
+								</div>
+							) : null}
 							<div className="border-t pt-2 flex justify-between font-medium">
 								<span>Total</span>
 								<span>${feeData.totalAmount.toFixed(2)}</span>

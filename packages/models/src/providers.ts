@@ -262,22 +262,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "bluestone",
-		name: "Bluestone",
-		description: "Bluestone's OpenAI-compatible LLM inference API",
-		env: {
-			required: {
-				apiKey: "LLM_BLUESTONE_API_KEY",
-				baseUrl: "LLM_BLUESTONE_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#0284c7",
-		website: null,
-		announcement: null,
-	},
-	{
 		id: "alibaba",
 		name: "Alibaba Cloud",
 		description:
@@ -371,6 +355,29 @@ export const providers = [
 		announcement: null,
 		apiKeyInstructions:
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
+		learnMore: "https://docs.llmgateway.io/integrations/azure",
+	},
+	{
+		id: "azure-ai-foundry",
+		name: "Azure AI Foundry",
+		description:
+			"Microsoft Azure AI Foundry - third-party models (Grok, Llama, Mistral, ...) via the Azure Models inference endpoint",
+		env: {
+			required: {
+				apiKey: "LLM_AZURE_AI_FOUNDRY_API_KEY",
+				resource: "LLM_AZURE_AI_FOUNDRY_RESOURCE",
+			},
+			optional: {
+				apiVersion: "LLM_AZURE_AI_FOUNDRY_API_VERSION",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0078D4",
+		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
+		announcement: null,
+		apiKeyInstructions:
+			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 	},
 	{

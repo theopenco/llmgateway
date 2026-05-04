@@ -53,6 +53,11 @@ export const user = pgTable("user", {
 	image: text(),
 	onboardingCompleted: boolean().notNull().default(false),
 	newsletterSubscribed: boolean().notNull().default(false),
+	status: text({
+		enum: ["active", "deactivated"],
+	})
+		.notNull()
+		.default("active"),
 });
 
 export const session = pgTable(
@@ -473,6 +478,9 @@ export interface ProviderKeyOptions {
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
+	azure_deployment_name?: string;
+	azure_ai_foundry_resource?: string;
+	azure_ai_foundry_api_version?: string;
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
 	google_vertex_project_id?: string;
 }

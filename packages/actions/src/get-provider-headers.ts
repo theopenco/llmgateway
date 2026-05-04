@@ -51,6 +51,7 @@ export function getProviderHeaders(
 				"Content-Type": "application/json",
 			};
 		case "azure":
+		case "azure-ai-foundry":
 			return {
 				...requestIdHeader,
 				"api-key": token,
@@ -60,7 +61,6 @@ export function getProviderHeaders(
 		case "xai":
 		case "groq":
 		case "deepseek":
-		case "bluestone":
 		case "perplexity":
 		case "novita":
 		case "moonshot":

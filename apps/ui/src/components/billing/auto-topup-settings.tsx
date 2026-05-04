@@ -40,11 +40,18 @@ function AutoTopUpSettings() {
 		amount >= 10 &&
 		amount <= CREDIT_TOP_UP_MAX_AMOUNT;
 
+	const defaultPaymentMethod = paymentMethods?.paymentMethods?.find(
+		(pm) => pm.isDefault,
+	);
+
 	const { data: feeData, isLoading: feeDataLoading } = api.useQuery(
 		"post",
 		"/payments/calculate-fees",
 		{
-			body: { amount },
+			body: {
+				amount,
+				paymentMethodId: defaultPaymentMethod?.id,
+			},
 		},
 		{
 			enabled: isAmountValid,
@@ -235,6 +242,12 @@ function AutoTopUpSettings() {
 									<span>Platform fee (5%)</span>
 									<span>${feeData.platformFee.toFixed(2)}</span>
 								</div>
+								{feeData.internationalFee > 0 ? (
+									<div className="flex justify-between">
+										<span>International card fee (1.5%)</span>
+										<span>${feeData.internationalFee.toFixed(2)}</span>
+									</div>
+								) : null}
 								<div className="border-t pt-1 flex justify-between font-medium text-foreground">
 									<span>Estimated total</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>

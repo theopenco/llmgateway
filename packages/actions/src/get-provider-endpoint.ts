@@ -193,16 +193,6 @@ export function getProviderEndpoint(
 			case "deepseek":
 				url = "https://api.deepseek.com";
 				break;
-			case "bluestone":
-				url = skipEnvVars
-					? undefined
-					: getProviderEnvValue("bluestone", "baseUrl", configIndex);
-				if (!url) {
-					throw new Error(
-						"Bluestone provider requires LLM_BLUESTONE_BASE_URL environment variable",
-					);
-				}
-				break;
 			case "perplexity":
 				url = "https://api.perplexity.ai";
 				break;
@@ -260,6 +250,28 @@ export function getProviderEndpoint(
 					);
 				}
 				url = `https://${resource}.openai.azure.com`;
+				break;
+			}
+			case "azure-ai-foundry": {
+				const resource =
+					providerKeyOptions?.azure_ai_foundry_resource ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue("azure-ai-foundry", "resource", configIndex));
+
+				if (!resource) {
+					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
+					throw new Error(
+						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
+					);
+				}
+				if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
+					throw new Error(
+						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
+					);
+				}
+				url = `https://${resource}.services.ai.azure.com`;
 				break;
 			}
 			case "canopywave":
@@ -415,6 +427,18 @@ export function getProviderEndpoint(
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}
+		case "azure-ai-foundry": {
+			const apiVersion =
+				providerKeyOptions?.azure_ai_foundry_api_version ??
+				getProviderEnvValue(
+					"azure-ai-foundry",
+					"apiVersion",
+					configIndex,
+					"2024-05-01-preview",
+				) ??
+				"2024-05-01-preview";
+			return `${url}/models/chat/completions?api-version=${apiVersion}`;
+		}
 		case "openai": {
 			if (imageGenerations) {
 				return `${url}/v1/images/generations`;
@@ -462,7 +486,6 @@ export function getProviderEndpoint(
 		case "groq":
 		case "cerebras":
 		case "deepseek":
-		case "bluestone":
 		case "moonshot":
 		case "nebius":
 		case "nanogpt":

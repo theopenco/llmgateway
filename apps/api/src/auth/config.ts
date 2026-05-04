@@ -643,6 +643,30 @@ The LLM Gateway Team`.trim();
 					},
 			hooks: {
 				before: createAuthMiddleware(async (ctx) => {
+					if (ctx.path.startsWith("/sign-in")) {
+						const body = ctx.body as { email?: string } | undefined;
+						const email = body?.email?.trim().toLowerCase();
+						if (email) {
+							const existingUser = await db.query.user.findFirst({
+								where: { email: { eq: email } },
+								columns: { status: true },
+							});
+							if (existingUser?.status === "deactivated") {
+								return new Response(
+									JSON.stringify({
+										error: "account_deactivated",
+										message:
+											"Your account has been deactivated. Please contact support.",
+									}),
+									{
+										status: 403,
+										headers: { "Content-Type": "application/json" },
+									},
+								);
+							}
+						}
+					}
+
 					// Check and record rate limit for ALL signup attempts (skip in development)
 					if (
 						ctx.path.startsWith("/sign-up") &&
@@ -742,6 +766,27 @@ The LLM Gateway Team`.trim();
 					}
 
 					const userId = newSession.user.id;
+
+					const dbUser = await db.query.user.findFirst({
+						where: { id: { eq: userId } },
+						columns: { status: true },
+					});
+					if (dbUser?.status === "deactivated") {
+						await db
+							.delete(tables.session)
+							.where(eq(tables.session.userId, userId));
+						return new Response(
+							JSON.stringify({
+								error: "account_deactivated",
+								message:
+									"Your account has been deactivated. Please contact support.",
+							}),
+							{
+								status: 403,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
 
 					// Check if the user already has any active organizations
 					const userOrganizations = await db.query.userOrganization.findMany({
@@ -874,6 +919,9 @@ The LLM Gateway Team`.trim();
 							);
 						}
 					}
+
+					// eslint-disable-next-line no-useless-return
+					return;
 				}),
 			},
 		}),

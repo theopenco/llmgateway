@@ -34,8 +34,8 @@ export function OrgStatusToggleButton({
 			!confirm(
 				`Are you sure you want to ${verb} organization "${orgName}"? ${
 					isDisabled
-						? "Members will regain access and gateway requests will resume."
-						: "Members will be signed out and all gateway requests will be rejected with HTTP 410."
+						? "Members will be reactivated (unless they belong to another disabled organization) and gateway requests will resume."
+						: "All members will be deactivated and signed out, and gateway requests will be rejected with HTTP 410."
 				}`,
 			)
 		) {

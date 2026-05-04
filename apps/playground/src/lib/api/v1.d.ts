@@ -3126,52 +3126,6 @@ export interface paths {
         };
         trace?: never;
     };
-    "/admin/users/{userId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    userId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description User deleted. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            success: boolean;
-                        };
-                    };
-                };
-                /** @description User not found. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/admin/providers/{providerId}/history": {
         parameters: {
             query?: never;
@@ -5272,6 +5226,9 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    azure_deployment_name?: string;
+                                    azure_ai_foundry_resource?: string;
+                                    azure_ai_foundry_api_version?: string;
                                     /** @enum {string} */
                                     alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
@@ -5309,6 +5266,9 @@ export interface paths {
                             /** @enum {string} */
                             azure_deployment_type?: "openai" | "ai-foundry";
                             azure_validation_model?: string;
+                            azure_deployment_name?: string;
+                            azure_ai_foundry_resource?: string;
+                            azure_ai_foundry_api_version?: string;
                             /** @enum {string} */
                             alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                             google_vertex_project_id?: string;
@@ -5340,6 +5300,9 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    azure_deployment_name?: string;
+                                    azure_ai_foundry_resource?: string;
+                                    azure_ai_foundry_api_version?: string;
                                     /** @enum {string} */
                                     alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
@@ -5458,6 +5421,9 @@ export interface paths {
                                     /** @enum {string} */
                                     azure_deployment_type?: "openai" | "ai-foundry";
                                     azure_validation_model?: string;
+                                    azure_deployment_name?: string;
+                                    azure_ai_foundry_resource?: string;
+                                    azure_ai_foundry_api_version?: string;
                                     /** @enum {string} */
                                     alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
                                 } | null;
@@ -6550,6 +6516,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         amount: number;
+                        stripePaymentMethodId?: string;
                     };
                 };
             };
@@ -6562,6 +6529,8 @@ export interface paths {
                     content: {
                         "application/json": {
                             clientSecret: string;
+                            totalAmount: number;
+                            isInternational: boolean;
                         };
                     };
                 };
@@ -6861,7 +6830,9 @@ export interface paths {
                         "application/json": {
                             baseAmount: number;
                             platformFee: number;
+                            internationalFee: number;
                             totalAmount: number;
+                            isInternational: boolean;
                             bonusAmount?: number;
                             finalCreditAmount?: number;
                             bonusEnabled: boolean;

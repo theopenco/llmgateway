@@ -154,7 +154,7 @@ export const Navbar = ({
 		},
 		{
 			title: "DevPass",
-			href: "https://code.llmgateway.io",
+			href: "https://devpass.llmgateway.io",
 			description:
 				"Fixed-price monthly plans for Claude Code, Cursor, and every coding tool.",
 			icon: Code,

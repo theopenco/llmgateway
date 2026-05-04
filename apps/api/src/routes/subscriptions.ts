@@ -90,7 +90,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 	if (organization.isPersonal) {
 		throw new HTTPException(403, {
 			message:
-				"Paid subscriptions are not available for personal organizations. Please use Dev Plans at code.llmgateway.io or create a regular organization.",
+				"Paid subscriptions are not available for personal organizations. Please use Dev Plans at devpass.llmgateway.io or create a regular organization.",
 		});
 	}
 
