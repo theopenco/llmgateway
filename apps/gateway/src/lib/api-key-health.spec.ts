@@ -117,6 +117,30 @@ describe("api-key-health", () => {
 			expect(metrics.permanentlyBlacklisted).toBe(true);
 			expect(metrics.uptime).toBe(0);
 		});
+
+		it("should report zero uptime for blacklisted keys even with prior successes in another scope", () => {
+			reportKeySuccess("LLM_OPENAI_API_KEY", 0, "gpt-4");
+			reportKeySuccess("LLM_OPENAI_API_KEY", 0, "gpt-4");
+			reportKeyError(
+				"LLM_OPENAI_API_KEY",
+				0,
+				401,
+				undefined,
+				"claude-3-5-sonnet",
+			);
+
+			const successScopeMetrics = getKeyMetrics(
+				"LLM_OPENAI_API_KEY",
+				0,
+				"gpt-4",
+			);
+			expect(successScopeMetrics.permanentlyBlacklisted).toBe(true);
+			expect(successScopeMetrics.uptime).toBe(0);
+
+			const unscopedMetrics = getKeyMetrics("LLM_OPENAI_API_KEY", 0);
+			expect(unscopedMetrics.permanentlyBlacklisted).toBe(true);
+			expect(unscopedMetrics.uptime).toBe(0);
+		});
 	});
 
 	describe("reportKeySuccess", () => {

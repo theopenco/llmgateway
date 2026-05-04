@@ -284,12 +284,13 @@ export function getKeyMetrics(
 	const now = Date.now();
 	pruneHistory(health, now);
 
+	const permanentlyBlacklisted =
+		health.permanentlyBlacklisted || unscopedBlacklisted;
 	return {
-		uptime: calculateUptime(health, now),
+		uptime: permanentlyBlacklisted ? 0 : calculateUptime(health, now),
 		totalRequests: health.history.length,
 		consecutiveErrors: health.consecutiveErrors,
-		permanentlyBlacklisted:
-			health.permanentlyBlacklisted || unscopedBlacklisted,
+		permanentlyBlacklisted,
 	};
 }
 
@@ -315,12 +316,13 @@ export function getTrackedKeyMetrics(
 	const now = Date.now();
 	pruneHistory(health, now);
 
+	const permanentlyBlacklisted =
+		health.permanentlyBlacklisted || unscopedBlacklisted;
 	return {
-		uptime: calculateUptime(health, now),
+		uptime: permanentlyBlacklisted ? 0 : calculateUptime(health, now),
 		totalRequests: health.history.length,
 		consecutiveErrors: health.consecutiveErrors,
-		permanentlyBlacklisted:
-			health.permanentlyBlacklisted || unscopedBlacklisted,
+		permanentlyBlacklisted,
 	};
 }
 
