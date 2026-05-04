@@ -10,7 +10,7 @@ export interface FeeCalculationInput {
 	isInternational?: boolean;
 }
 
-export const CREDIT_TOP_UP_MIN_AMOUNT = 5;
+export const CREDIT_TOP_UP_MIN_AMOUNT = 10;
 export const CREDIT_TOP_UP_MAX_AMOUNT = 5000;
 
 export const AUTO_TOP_UP_DEFAULT_THRESHOLD = 5;

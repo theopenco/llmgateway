@@ -41,7 +41,10 @@ export const payments = new OpenAPIHono<ServerTypes>();
 const creditTopUpAmountSchema = z
 	.number()
 	.int()
-	.min(CREDIT_TOP_UP_MIN_AMOUNT, "Minimum top-up amount is $5.")
+	.min(
+		CREDIT_TOP_UP_MIN_AMOUNT,
+		`Minimum top-up amount is $${CREDIT_TOP_UP_MIN_AMOUNT}.`,
+	)
 	.max(CREDIT_TOP_UP_MAX_AMOUNT, "Maximum top-up amount is $5000.");
 
 export async function isInternationalPaymentMethod(
