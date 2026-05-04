@@ -51,7 +51,13 @@ const createProviderKeySchema = z.object({
 			message:
 				"Invalid provider. Must be one of the supported providers or 'custom'.",
 		}),
-	token: z.string().min(1, "API key is required"),
+	token: z
+		.string()
+		.min(1, "API key is required")
+		.regex(
+			/^[\x21-\x7E]+$/,
+			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
+		),
 	name: z
 		.string()
 		.regex(/^[a-z]+$/, "Name must contain only lowercase letters a-z")
