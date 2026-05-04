@@ -3056,7 +3056,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/users/{userId}": {
+    "/admin/organizations/{orgId}/status": {
         parameters: {
             query?: never;
             header?: never;
@@ -3066,40 +3066,64 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete: {
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
             parameters: {
                 query?: never;
                 header?: never;
                 path: {
-                    userId: string;
+                    orgId: string;
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "active" | "deleted";
+                    };
+                };
+            };
             responses: {
-                /** @description User deleted. */
+                /** @description Organization status updated. */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
-                            success: boolean;
+                            message: string;
+                            /** @enum {string} */
+                            status: "active" | "deleted";
                         };
                     };
                 };
-                /** @description User not found. */
+                /** @description Personal organizations cannot be disabled. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
                 404: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
                 };
             };
         };
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/admin/providers/{providerId}/history": {
@@ -6480,6 +6504,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         amount: number;
+                        stripePaymentMethodId?: string;
                     };
                 };
             };
@@ -6492,6 +6517,8 @@ export interface paths {
                     content: {
                         "application/json": {
                             clientSecret: string;
+                            totalAmount: number;
+                            isInternational: boolean;
                         };
                     };
                 };
@@ -6791,7 +6818,9 @@ export interface paths {
                         "application/json": {
                             baseAmount: number;
                             platformFee: number;
+                            internationalFee: number;
                             totalAmount: number;
+                            isInternational: boolean;
                             bonusAmount?: number;
                             finalCreditAmount?: number;
                             bonusEnabled: boolean;

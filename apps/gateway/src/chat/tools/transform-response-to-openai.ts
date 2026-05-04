@@ -608,10 +608,10 @@ export function transformResponseToOpenai(
 		case "mistral":
 		case "novita":
 		case "openai": {
-			// Handle OpenAI image generation responses (e.g. gpt-image-2)
+			// Handle OpenAI / Azure image generation responses (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string }], usage?: {...} }
 			if (
-				usedProvider === "openai" &&
+				(usedProvider === "openai" || usedProvider === "azure") &&
 				json.data &&
 				Array.isArray(json.data) &&
 				!json.choices &&

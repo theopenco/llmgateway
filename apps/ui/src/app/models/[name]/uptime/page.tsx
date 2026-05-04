@@ -209,7 +209,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 							<Badge variant="outline">Last 4 hours</Badge>
 						</div>
 						<h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-							{modelLabel} uptime &amp; latency
+							{modelLabel}&nbsp;– Uptime &amp; Latency
 						</h1>
 						<p className="text-muted-foreground text-base md:text-lg">
 							Real-time reliability for every provider serving{" "}

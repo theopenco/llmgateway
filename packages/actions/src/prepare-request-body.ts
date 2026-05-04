@@ -654,8 +654,11 @@ export async function prepareRequestBody(
 	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
 ): Promise<ProviderRequestBody | FormData> {
-	// Handle OpenAI image generation models (e.g. gpt-image-2)
-	if (imageGenerations && usedProvider === "openai") {
+	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
+	if (
+		imageGenerations &&
+		(usedProvider === "openai" || usedProvider === "azure")
+	) {
 		// Extract prompt and image URLs from last user message
 		const lastUserMessage = [...messages]
 			.reverse()

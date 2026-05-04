@@ -528,10 +528,10 @@ export function parseProviderResponse(
 			break;
 		}
 		default: // OpenAI format
-			// Check if this is an OpenAI image generation response (e.g. gpt-image-2)
+			// Check if this is an OpenAI / Azure image generation response (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string, revised_prompt?: string }], usage?: {...} }
 			if (
-				usedProvider === "openai" &&
+				(usedProvider === "openai" || usedProvider === "azure") &&
 				json.data &&
 				Array.isArray(json.data) &&
 				json.data.length > 0 &&

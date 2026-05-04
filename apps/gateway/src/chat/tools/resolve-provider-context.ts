@@ -111,6 +111,40 @@ interface OrgInfo {
 	devPlanExpiresAt: Date | null;
 }
 
+// Mirrors the initial credit gate in chat.ts so retry/fallback paths that
+// switch to LLMGateway env-var tokens cannot be used to bill an organization
+// with non-positive credits. Free models (explicitly flagged in the catalog)
+// are exempt.
+function assertOrganizationHasCreditsForEnvFallback(
+	organization: OrgInfo,
+	modelInfo: ModelDefinition,
+): void {
+	if (modelInfo.free) {
+		return;
+	}
+	const regularCredits = parseFloat(organization.credits ?? "0");
+	const devPlanCreditsRemaining =
+		organization.devPlan !== "none"
+			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+				parseFloat(organization.devPlanCreditsUsed ?? "0")
+			: 0;
+	const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+	if (totalAvailableCredits > 0) {
+		return;
+	}
+	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+		const renewalDate = organization.devPlanExpiresAt
+			? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		});
+	}
+	throw new HTTPException(402, {
+		message: `Organization ${organization.id} has insufficient credits`,
+	});
+}
+
 export function formatUsedModelForDisplay(
 	usedProvider: string,
 	baseModelName: string,
@@ -185,6 +219,7 @@ export async function resolveProviderContext(
 
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
+		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 		const envResult = getProviderEnv(usedProvider as Provider, {
 			excludedIndices: options.excludedEnvKeyIndices,
 		});
@@ -211,6 +246,7 @@ export async function resolveProviderContext(
 		if (providerKey) {
 			usedToken = providerKey.token;
 		} else {
+			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 			const envResult = getProviderEnv(usedProvider as Provider, {
 				excludedIndices: options.excludedEnvKeyIndices,
 			});

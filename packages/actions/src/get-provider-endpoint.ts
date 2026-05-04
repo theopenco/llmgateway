@@ -193,16 +193,6 @@ export function getProviderEndpoint(
 			case "deepseek":
 				url = "https://api.deepseek.com";
 				break;
-			case "bluestone":
-				url = skipEnvVars
-					? undefined
-					: getProviderEnvValue("bluestone", "baseUrl", configIndex);
-				if (!url) {
-					throw new Error(
-						"Bluestone provider requires LLM_BLUESTONE_BASE_URL environment variable",
-					);
-				}
-				break;
 			case "perplexity":
 				url = "https://api.perplexity.ai";
 				break;
@@ -370,9 +360,22 @@ export function getProviderEndpoint(
 					) ??
 					"2024-10-21";
 
+				if (imageGenerations) {
+					// gpt-image models require a preview api-version
+					const imageApiVersion =
+						providerKeyOptions?.azure_api_version ??
+						getProviderEnvValue("azure", "apiVersion", configIndex) ??
+						"2025-04-01-preview";
+					return `${url}/openai/deployments/${modelName}/images/generations?api-version=${imageApiVersion}`;
+				}
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
+				if (imageGenerations) {
+					// v1 unified API requires the literal "preview" api-version for image endpoints
+					return `${url}/openai/v1/images/generations?api-version=preview`;
+				}
+
 				const useResponsesApiEnv = getProviderEnvValue(
 					"azure",
 					"useResponsesApi",
@@ -449,7 +452,6 @@ export function getProviderEndpoint(
 		case "groq":
 		case "cerebras":
 		case "deepseek":
-		case "bluestone":
 		case "moonshot":
 		case "nebius":
 		case "nanogpt":
