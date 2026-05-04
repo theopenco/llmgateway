@@ -49,6 +49,34 @@ async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
 	);
 }
 
+const BASE64_INPUT_PLACEHOLDER = "[base64_image_input_redacted]";
+
+function scrubMessagesBase64(messages: unknown): unknown {
+	if (messages === null || messages === undefined) {
+		return messages;
+	}
+	if (typeof messages === "string") {
+		if (
+			messages.length > 1000 &&
+			(messages.includes(";base64,") || /[A-Za-z0-9+/=]{800,}/.test(messages))
+		) {
+			return BASE64_INPUT_PLACEHOLDER;
+		}
+		return messages;
+	}
+	if (Array.isArray(messages)) {
+		return messages.map((item) => scrubMessagesBase64(item));
+	}
+	if (typeof messages === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(messages)) {
+			out[key] = scrubMessagesBase64(value);
+		}
+		return out;
+	}
+	return messages;
+}
+
 // Use the log schema directly from the database
 // Using z.object directly instead of createSelectSchema due to compatibility issues
 const logSchema = z.object({
@@ -604,10 +632,12 @@ logs.openapi(get, async (c) => {
 	const enrichedLogs = await enrichLogsWithVideoContentUrls(paginatedLogs);
 
 	const logsForResponse = enrichedLogs.map((log) => {
-		if (log.content && log.content.includes(";base64,")) {
-			return { ...log, content: "[image_generated]" };
-		}
-		return log;
+		const scrubbedMessages = scrubMessagesBase64(log.messages);
+		const next =
+			log.content && log.content.includes(";base64,")
+				? { ...log, content: "[image_generated]" }
+				: log;
+		return { ...next, messages: scrubbedMessages };
 	});
 
 	return c.json({

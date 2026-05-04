@@ -59,6 +59,24 @@ export function LogCard({
 		[fetchClient],
 	);
 
+	const fetchInputImages = useCallback(
+		async (logId: string) => {
+			const { data } = await fetchClient.GET("/logs/{id}", {
+				params: { path: { id: logId } },
+			});
+			const messages = data?.log?.messages;
+			if (!messages) {
+				return null;
+			}
+			const haystack = JSON.stringify(messages);
+			const dataUrlRegex =
+				/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
+			const matches = haystack.match(dataUrlRegex);
+			return matches && matches.length > 0 ? matches : null;
+		},
+		[fetchClient],
+	);
+
 	return (
 		<SharedLogCard
 			log={log as LogCardData}
@@ -67,6 +85,7 @@ export function LogCard({
 			renderLink={NextLink}
 			isUserFacing
 			fetchImageContent={fetchImageContent}
+			fetchInputImages={fetchInputImages}
 		/>
 	);
 }

@@ -195,6 +195,8 @@ export interface LogCardProps {
 	isUserFacing?: boolean;
 	/** Fetch full image content (base64) for a log. When provided, a Preview button appears for image logs. */
 	fetchImageContent?: (logId: string) => Promise<string | null>;
+	/** Fetch full input messages for a log so input base64 images can be previewed. */
+	fetchInputImages?: (logId: string) => Promise<string[] | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +270,7 @@ export function LogCard({
 	showLogId = false,
 	isUserFacing = false,
 	fetchImageContent,
+	fetchInputImages,
 }: LogCardProps) {
 	const routingMetadata = log.routingMetadata as RoutingMetadata | undefined;
 	const errorDetails = log.errorDetails as ErrorDetails | undefined;
@@ -300,7 +303,13 @@ export function LogCard({
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
 	const [imagePreviewSrcs, setImagePreviewSrcs] = useState<string[]>([]);
+	const [imagePreviewTitle, setImagePreviewTitle] = useState("Generated Image");
 	const [imagePreviewLoading, setImagePreviewLoading] = useState(false);
+	const [inputPreviewLoading, setInputPreviewLoading] = useState(false);
+
+	const messagesHaveRedactedInput =
+		messages !== undefined &&
+		JSON.stringify(messages).includes("[base64_image_input_redacted]");
 
 	const formattedTime = formatDistanceToNow(new Date(log.createdAt), {
 		addSuffix: true,
@@ -1448,7 +1457,37 @@ export function LogCard({
 
 					{/* Message Context */}
 					<div className="space-y-2">
-						<h4 className="text-sm font-medium">Message Context</h4>
+						<div className="flex items-center justify-between">
+							<h4 className="text-sm font-medium">Message Context</h4>
+							{messagesHaveRedactedInput && fetchInputImages && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="h-7 gap-1.5 text-xs"
+									disabled={inputPreviewLoading}
+									onClick={async () => {
+										setInputPreviewLoading(true);
+										try {
+											const srcs = await fetchInputImages(log.id);
+											if (srcs && srcs.length > 0) {
+												setImagePreviewSrcs(srcs);
+												setImagePreviewTitle("Input Image");
+												setImagePreviewOpen(true);
+											}
+										} finally {
+											setInputPreviewLoading(false);
+										}
+									}}
+								>
+									{inputPreviewLoading ? (
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+									) : (
+										<Eye className="h-3.5 w-3.5" />
+									)}
+									Preview Input
+								</Button>
+							)}
+						</div>
 						<div className="rounded-md border p-3">
 							{messages ? (
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-all">
@@ -1460,7 +1499,7 @@ export function LogCard({
 												value.length > 200 &&
 												/[A-Za-z0-9+/]{200,}/.test(value)
 											) {
-												return "[base64 image data truncated]";
+												return "[base64 image data]";
 											}
 											return value;
 										},
@@ -1536,6 +1575,7 @@ export function LogCard({
 														`data:${mime};base64,${content}`,
 													]);
 												}
+												setImagePreviewTitle("Generated Image");
 												setImagePreviewOpen(true);
 											}
 										} finally {
@@ -1590,10 +1630,11 @@ export function LogCard({
 				<DialogContent className="max-w-2xl">
 					<DialogHeader>
 						<DialogTitle>
-							Generated Image{imagePreviewSrcs.length > 1 ? "s" : ""}
+							{imagePreviewTitle}
+							{imagePreviewSrcs.length > 1 ? "s" : ""}
 						</DialogTitle>
 						<DialogDescription>
-							Preview of the generated image
+							Preview of the {imagePreviewTitle.toLowerCase()}
 							{imagePreviewSrcs.length > 1 ? "s" : ""} from this request.
 						</DialogDescription>
 					</DialogHeader>

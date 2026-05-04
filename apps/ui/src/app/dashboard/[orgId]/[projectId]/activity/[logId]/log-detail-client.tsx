@@ -267,6 +267,54 @@ function extractBase64Images(
 	return images;
 }
 
+function extractMessageImages(
+	messages: unknown,
+): Array<{ src: string; index: number }> {
+	const images: Array<{ src: string; index: number }> = [];
+
+	function visit(value: unknown) {
+		if (typeof value === "string") {
+			if (value.length > 500) {
+				for (const img of extractBase64Images(value)) {
+					images.push({ src: img.src, index: images.length });
+				}
+			}
+			return;
+		}
+		if (Array.isArray(value)) {
+			for (const item of value) {
+				visit(item);
+			}
+			return;
+		}
+		if (value && typeof value === "object") {
+			for (const v of Object.values(value)) {
+				visit(v);
+			}
+		}
+	}
+
+	visit(messages);
+	return images;
+}
+
+function stringifyMessagesCompact(messages: unknown): string {
+	return JSON.stringify(
+		messages,
+		(_key, value) => {
+			if (
+				typeof value === "string" &&
+				value.length > 500 &&
+				(value.includes(";base64,") || /[A-Za-z0-9+/=]{400,}/.test(value))
+			) {
+				return "[base64 image data]";
+			}
+			return value;
+		},
+		2,
+	);
+}
+
 function ImageContentRenderer({ content }: { content: string }) {
 	const images = extractBase64Images(content);
 
@@ -347,6 +395,8 @@ export function LogDetailClient({
 
 	const imageConfig = (log.params as { image_config?: ImageConfig } | null)
 		?.image_config;
+
+	const inputImages = extractMessageImages(log.messages);
 
 	const retentionEnabled =
 		log.dataStorageCost !== null &&
@@ -870,44 +920,49 @@ export function LogDetailClient({
 										label="Unified Finish Reason"
 										value={log.unifiedFinishReason ?? "-"}
 									/>
-									{imageConfig?.aspect_ratio && (
+								</TooltipProvider>
+							</div>
+						</Section>
+
+						{imageConfig && (
+							<Section title="Image Generation">
+								<div className="rounded-lg border bg-card p-4">
+									{imageConfig.aspect_ratio && (
 										<Field
 											label="Aspect Ratio"
 											value={imageConfig.aspect_ratio}
 										/>
 									)}
-									{imageConfig?.image_size && (
+									{imageConfig.image_size && (
 										<Field label="Image Size" value={imageConfig.image_size} />
 									)}
-									{imageConfig && (
-										<Field
-											label="Image Quality"
-											value={imageConfig.image_quality ?? "-"}
-										/>
-									)}
-									{imageConfig?.n !== undefined && imageConfig.n !== null && (
+									<Field
+										label="Image Quality"
+										value={imageConfig.image_quality ?? "-"}
+									/>
+									{imageConfig.n !== undefined && imageConfig.n !== null && (
 										<Field label="Image Count" value={imageConfig.n} />
 									)}
-									{imageConfig?.output_format && (
+									{imageConfig.output_format && (
 										<Field
 											label="Output Format"
 											value={imageConfig.output_format}
 										/>
 									)}
-									{imageConfig?.output_compression !== undefined &&
+									{imageConfig.output_compression !== undefined &&
 										imageConfig.output_compression !== null && (
 											<Field
 												label="Compression"
 												value={imageConfig.output_compression}
 											/>
 										)}
-									{imageConfig?.seed !== undefined &&
+									{imageConfig.seed !== undefined &&
 										imageConfig.seed !== null && (
 											<Field label="Seed" value={imageConfig.seed} />
 										)}
-								</TooltipProvider>
-							</div>
-						</Section>
+								</div>
+							</Section>
+						)}
 
 						<Section title="Metadata">
 							<div className="rounded-lg border bg-card p-4">
@@ -1146,10 +1201,26 @@ export function LogDetailClient({
 				)}
 
 				<Section title="Messages">
-					<div className="rounded-lg border bg-card p-4">
+					<div className="rounded-lg border bg-card p-4 space-y-4">
+						{inputImages.length > 0 && (
+							<div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+								{inputImages.map((img) => (
+									<div
+										key={img.index}
+										className="rounded-md border overflow-hidden bg-muted/30"
+									>
+										<img
+											src={img.src}
+											alt={`Input image ${img.index + 1}`}
+											className="w-full h-auto"
+										/>
+									</div>
+								))}
+							</div>
+						)}
 						{log.messages ? (
 							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
-								{JSON.stringify(log.messages, null, 2)}
+								{stringifyMessagesCompact(log.messages)}
 							</pre>
 						) : !retentionEnabled ? (
 							<p className="text-sm text-muted-foreground italic">
