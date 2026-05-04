@@ -6,7 +6,6 @@ import { googleModels } from "./models/google.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
 import { microsoftModels } from "./models/microsoft.js";
-import { mimoModels } from "./models/mimo.js";
 import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
@@ -400,7 +399,6 @@ export const models = [
 	...deepseekModels,
 	...mistralModels,
 	...microsoftModels,
-	...mimoModels,
 	...minimaxModels,
 	...moonshotModels,
 	...alibabaModels,

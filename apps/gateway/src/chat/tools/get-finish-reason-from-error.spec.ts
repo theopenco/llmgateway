@@ -113,6 +113,22 @@ describe("getFinishReasonFromError", () => {
 		).toBe("content_filter");
 	});
 
+	it("returns content_filter for Azure OpenAI prompt content filter", () => {
+		const azurePromptFilterError = JSON.stringify({
+			error: {
+				message:
+					"The response was filtered due to the prompt triggering Microsoft's content management policy. Please modify your prompt and retry.",
+				type: null,
+				param: "prompt",
+				code: "content_filter",
+				status: 400,
+			},
+		});
+		expect(getFinishReasonFromError(400, azurePromptFilterError)).toBe(
+			"content_filter",
+		);
+	});
+
 	it("returns client_error for other 400 errors", () => {
 		expect(getFinishReasonFromError(400, "some other error")).toBe(
 			"client_error",

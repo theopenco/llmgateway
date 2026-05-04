@@ -1060,6 +1060,16 @@ export async function prepareRequestBody(
 		}
 	}
 
+	if (
+		forcesToolUse &&
+		usedProvider === "azure" &&
+		usedModel === "gpt-oss-120b"
+	) {
+		// Azure's gpt-oss-120b rejects tool_choice="required" with UnsupportedToolUse.
+		resolvedToolChoice = "auto";
+		requestBody.tool_choice = "auto";
+	}
+
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
 	if (usedModel.startsWith("gpt-5")) {
 		temperature = 1;

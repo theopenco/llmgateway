@@ -7,6 +7,9 @@ const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
 const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+const originalAzureFoundryResource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
+const originalAzureFoundryApiVersion =
+	process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
 
 afterEach(() => {
 	if (originalAiStudioBaseUrl === undefined) {
@@ -37,6 +40,19 @@ afterEach(() => {
 		delete process.env.LLM_GOOGLE_VERTEX_REGION;
 	} else {
 		process.env.LLM_GOOGLE_VERTEX_REGION = originalVertexRegion;
+	}
+
+	if (originalAzureFoundryResource === undefined) {
+		delete process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
+	} else {
+		process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = originalAzureFoundryResource;
+	}
+
+	if (originalAzureFoundryApiVersion === undefined) {
+		delete process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
+	} else {
+		process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION =
+			originalAzureFoundryApiVersion;
 	}
 });
 
@@ -168,6 +184,69 @@ describe("getProviderEndpoint", () => {
 		expect(endpoint).toBe(
 			"https://vertex-2.example/v1/projects/project-b/locations/us-central1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
 		);
+	});
+
+	describe("azure-ai-foundry", () => {
+		it("builds the Azure AI Foundry endpoint from the resource env var", () => {
+			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";
+
+			const endpoint = getProviderEndpoint(
+				"azure-ai-foundry",
+				undefined,
+				"grok-4-1-fast-non-reasoning",
+			);
+
+			expect(endpoint).toBe(
+				"https://gkapitech.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview",
+			);
+		});
+
+		it("respects an api version override", () => {
+			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";
+			process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION = "2025-01-01-preview";
+
+			const endpoint = getProviderEndpoint(
+				"azure-ai-foundry",
+				undefined,
+				"grok-4-1-fast-reasoning",
+			);
+
+			expect(endpoint).toBe(
+				"https://gkapitech.services.ai.azure.com/models/chat/completions?api-version=2025-01-01-preview",
+			);
+		});
+
+		it("throws when no resource is configured", () => {
+			delete process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
+
+			expect(() =>
+				getProviderEndpoint(
+					"azure-ai-foundry",
+					undefined,
+					"grok-4-1-fast-non-reasoning",
+				),
+			).toThrow(/Azure AI Foundry resource is required/);
+		});
+
+		it.each([
+			"evil.com/path",
+			"resource.evil.com",
+			"resource:8080",
+			"https://evil.com",
+			"a/b",
+			"a b",
+			"",
+		])("rejects an invalid resource name (%s)", (resource) => {
+			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = resource;
+
+			expect(() =>
+				getProviderEndpoint(
+					"azure-ai-foundry",
+					undefined,
+					"grok-4-1-fast-non-reasoning",
+				),
+			).toThrow(/Azure AI Foundry resource (is invalid|is required)/);
+		});
 	});
 
 	describe("skipEnvVars (BYOK mode)", () => {

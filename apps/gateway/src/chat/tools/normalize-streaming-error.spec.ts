@@ -16,7 +16,7 @@ describe("normalizeStreamingError", () => {
 
 		const normalized = normalizeStreamingError({
 			error,
-			provider: "canopywave",
+			provider: "novita",
 			model: "deepseek/deepseek-chat-v3.2",
 			bufferSnapshot: "\n\n",
 			phase: "upstream_read",

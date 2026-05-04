@@ -5,6 +5,7 @@ import {
 	AlertCircle,
 	AudioWaveform,
 	Ban,
+	Check,
 	CheckCircle2,
 	ChevronDown,
 	ChevronUp,
@@ -147,8 +148,11 @@ export interface LogCardData {
 	createdAt: string | Date;
 	requestId?: string | null;
 	projectId?: string | null;
+	projectName?: string | null;
 	organizationId?: string | null;
+	organizationName?: string | null;
 	apiKeyId?: string | null;
+	apiKeyName?: string | null;
 	source?: string | null;
 	mode?: string | null;
 	usedMode?: string | null;
@@ -195,6 +199,8 @@ export interface LogCardProps {
 	isUserFacing?: boolean;
 	/** Fetch full image content (base64) for a log. When provided, a Preview button appears for image logs. */
 	fetchImageContent?: (logId: string) => Promise<string | null>;
+	/** Fetch full input messages for a log so input base64 images can be previewed. */
+	fetchInputImages?: (logId: string) => Promise<string[] | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +220,70 @@ function formatApiKeyHash(hash: string) {
 
 function copyToClipboard(text: string) {
 	void navigator.clipboard.writeText(text);
+}
+
+function CopyMetadataButton({
+	value,
+	label,
+}: {
+	value: string;
+	label: string;
+}) {
+	const [copied, setCopied] = useState(false);
+
+	return (
+		<button
+			type="button"
+			aria-label={label}
+			title={copied ? "Copied" : label}
+			className="text-muted-foreground hover:text-foreground"
+			onClick={() => {
+				copyToClipboard(value);
+				setCopied(true);
+				setTimeout(() => setCopied(false), 1500);
+			}}
+		>
+			{copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+		</button>
+	);
+}
+
+function RelatedResourceValue({
+	id,
+	name,
+	copyLabel,
+	showCopyButton,
+}: {
+	id?: string | null;
+	name?: string | null;
+	copyLabel: string;
+	showCopyButton: boolean;
+}) {
+	if (!id) {
+		return <span className="text-muted-foreground">—</span>;
+	}
+
+	const displayName = name?.trim();
+
+	return (
+		<span className="min-w-0 space-y-0.5 break-all">
+			{displayName && <span className="block break-words">{displayName}</span>}
+			<span className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground break-all">
+				<span className="min-w-0 break-all">
+					{displayName ? `ID: ${id}` : id}
+				</span>
+				{showCopyButton && <CopyMetadataButton value={id} label={copyLabel} />}
+			</span>
+		</span>
+	);
+}
+
+function PlainIdValue({ id }: { id?: string | null }) {
+	return (
+		<span className="min-w-0 space-y-0.5">
+			<span className="block font-mono text-xs break-all">{id ?? "—"}</span>
+		</span>
+	);
 }
 
 function renderParams(obj: Record<string, any>, depth = 0): React.ReactNode {
@@ -268,6 +338,7 @@ export function LogCard({
 	showLogId = false,
 	isUserFacing = false,
 	fetchImageContent,
+	fetchInputImages,
 }: LogCardProps) {
 	const routingMetadata = log.routingMetadata as RoutingMetadata | undefined;
 	const errorDetails = log.errorDetails as ErrorDetails | undefined;
@@ -300,7 +371,13 @@ export function LogCard({
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
 	const [imagePreviewSrcs, setImagePreviewSrcs] = useState<string[]>([]);
+	const [imagePreviewTitle, setImagePreviewTitle] = useState("Generated Image");
 	const [imagePreviewLoading, setImagePreviewLoading] = useState(false);
+	const [inputPreviewLoading, setInputPreviewLoading] = useState(false);
+
+	const messagesHaveRedactedInput =
+		messages !== undefined &&
+		JSON.stringify(messages).includes("[base64_image_input_redacted]");
 
 	const formattedTime = formatDistanceToNow(new Date(log.createdAt), {
 		addSuffix: true,
@@ -514,13 +591,9 @@ export function LogCard({
 							<h4 className="text-sm font-medium">Request Details</h4>
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Project ID</div>
-								<div className="font-mono text-xs break-all">
-									{log.projectId}
-								</div>
+								<PlainIdValue id={log.projectId} />
 								<div className="text-muted-foreground">API Key</div>
-								<div className="font-mono text-xs break-all">
-									{log.apiKeyId}
-								</div>
+								<PlainIdValue id={log.apiKeyId} />
 								<div className="text-muted-foreground">Requested Model</div>
 								<div className="font-mono text-xs break-all">
 									{log.requestedModel}
@@ -955,12 +1028,10 @@ export function LogCard({
 								<div className="flex items-center gap-1 font-mono text-xs break-all">
 									<span>{log.requestId ?? "—"}</span>
 									{showCopyButtons && log.requestId && (
-										<button
-											className="text-muted-foreground hover:text-foreground"
-											onClick={() => copyToClipboard(log.requestId!)}
-										>
-											<Copy className="h-3 w-3" />
-										</button>
+										<CopyMetadataButton
+											value={log.requestId}
+											label="Copy request ID"
+										/>
 									)}
 								</div>
 								{showLogId && (
@@ -969,12 +1040,10 @@ export function LogCard({
 										<div className="flex items-center gap-1 font-mono text-xs break-all">
 											<span>{log.id}</span>
 											{showCopyButtons && (
-												<button
-													className="text-muted-foreground hover:text-foreground"
-													onClick={() => copyToClipboard(log.id)}
-												>
-													<Copy className="h-3 w-3" />
-												</button>
+												<CopyMetadataButton
+													value={log.id}
+													label="Copy log ID"
+												/>
 											)}
 										</div>
 									</>
@@ -983,42 +1052,27 @@ export function LogCard({
 								<div className="font-mono text-xs break-all">
 									{log.source ?? "-"}
 								</div>
-								<div className="text-muted-foreground">Project ID</div>
-								<div className="flex items-center gap-1 font-mono text-xs break-all">
-									<span>{log.projectId}</span>
-									{showCopyButtons && log.projectId && (
-										<button
-											className="text-muted-foreground hover:text-foreground"
-											onClick={() => copyToClipboard(log.projectId!)}
-										>
-											<Copy className="h-3 w-3" />
-										</button>
-									)}
-								</div>
-								<div className="text-muted-foreground">Organization ID</div>
-								<div className="flex items-center gap-1 font-mono text-xs break-all">
-									<span>{log.organizationId}</span>
-									{showCopyButtons && log.organizationId && (
-										<button
-											className="text-muted-foreground hover:text-foreground"
-											onClick={() => copyToClipboard(log.organizationId!)}
-										>
-											<Copy className="h-3 w-3" />
-										</button>
-									)}
-								</div>
-								<div className="text-muted-foreground">API Key ID</div>
-								<div className="flex items-center gap-1 font-mono text-xs break-all">
-									<span>{log.apiKeyId}</span>
-									{showCopyButtons && log.apiKeyId && (
-										<button
-											className="text-muted-foreground hover:text-foreground"
-											onClick={() => copyToClipboard(log.apiKeyId!)}
-										>
-											<Copy className="h-3 w-3" />
-										</button>
-									)}
-								</div>
+								<div className="text-muted-foreground">Project</div>
+								<RelatedResourceValue
+									id={log.projectId}
+									name={log.projectName}
+									copyLabel="Copy project ID"
+									showCopyButton={showCopyButtons}
+								/>
+								<div className="text-muted-foreground">Organization</div>
+								<RelatedResourceValue
+									id={log.organizationId}
+									name={log.organizationName}
+									copyLabel="Copy organization ID"
+									showCopyButton={showCopyButtons}
+								/>
+								<div className="text-muted-foreground">API Key</div>
+								<RelatedResourceValue
+									id={log.apiKeyId}
+									name={log.apiKeyName}
+									copyLabel="Copy API key ID"
+									showCopyButton={showCopyButtons}
+								/>
 								<div className="text-muted-foreground">Mode</div>
 								<div>{log.mode ?? "?"}</div>
 								<div className="text-muted-foreground">Used Mode</div>
@@ -1448,7 +1502,37 @@ export function LogCard({
 
 					{/* Message Context */}
 					<div className="space-y-2">
-						<h4 className="text-sm font-medium">Message Context</h4>
+						<div className="flex items-center justify-between">
+							<h4 className="text-sm font-medium">Message Context</h4>
+							{messagesHaveRedactedInput && fetchInputImages && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="h-7 gap-1.5 text-xs"
+									disabled={inputPreviewLoading}
+									onClick={async () => {
+										setInputPreviewLoading(true);
+										try {
+											const srcs = await fetchInputImages(log.id);
+											if (srcs && srcs.length > 0) {
+												setImagePreviewSrcs(srcs);
+												setImagePreviewTitle("Input Image");
+												setImagePreviewOpen(true);
+											}
+										} finally {
+											setInputPreviewLoading(false);
+										}
+									}}
+								>
+									{inputPreviewLoading ? (
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+									) : (
+										<Eye className="h-3.5 w-3.5" />
+									)}
+									Preview Input
+								</Button>
+							)}
+						</div>
 						<div className="rounded-md border p-3">
 							{messages ? (
 								<pre className="max-h-60 text-xs overflow-auto whitespace-pre-wrap break-all">
@@ -1460,7 +1544,7 @@ export function LogCard({
 												value.length > 200 &&
 												/[A-Za-z0-9+/]{200,}/.test(value)
 											) {
-												return "[base64 image data truncated]";
+												return "[base64 image data]";
 											}
 											return value;
 										},
@@ -1536,6 +1620,7 @@ export function LogCard({
 														`data:${mime};base64,${content}`,
 													]);
 												}
+												setImagePreviewTitle("Generated Image");
 												setImagePreviewOpen(true);
 											}
 										} finally {
@@ -1590,10 +1675,11 @@ export function LogCard({
 				<DialogContent className="max-w-2xl">
 					<DialogHeader>
 						<DialogTitle>
-							Generated Image{imagePreviewSrcs.length > 1 ? "s" : ""}
+							{imagePreviewTitle}
+							{imagePreviewSrcs.length > 1 ? "s" : ""}
 						</DialogTitle>
 						<DialogDescription>
-							Preview of the generated image
+							Preview of the {imagePreviewTitle.toLowerCase()}
 							{imagePreviewSrcs.length > 1 ? "s" : ""} from this request.
 						</DialogDescription>
 					</DialogHeader>

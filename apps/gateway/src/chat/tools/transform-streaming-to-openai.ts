@@ -679,6 +679,21 @@ export function transformStreamingToOpenai(
 
 		case "azure":
 		case "openai": {
+			// Azure precedes every stream with a prompt-filter-only chunk that has
+			// empty id/object/model and no choices. The default OpenAI fallback
+			// path passes the empty values through and breaks downstream
+			// hasOpenAIFormat checks. Drop it — if any prompt filter actually
+			// fires, Azure surfaces it via a content_filter error/finish_reason.
+			if (
+				usedProvider === "azure" &&
+				!data.id &&
+				!data.object &&
+				(!data.choices || data.choices.length === 0) &&
+				!data.usage
+			) {
+				transformedData = null;
+				break;
+			}
 			if (data.type) {
 				switch (data.type) {
 					case "keepalive":
@@ -1216,7 +1231,6 @@ export function transformStreamingToOpenai(
 		case "moonshot":
 		case "perplexity":
 		case "nebius":
-		case "canopywave":
 		case "inference.net":
 		case "together-ai":
 		case "custom":
@@ -1224,7 +1238,21 @@ export function transformStreamingToOpenai(
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "azure-ai-foundry":
 		case "llmgateway": {
+			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
+			// chunk on some models — empty id/object/choices, no usage. Drop it
+			// for the same reason: it breaks downstream hasOpenAIFormat checks.
+			if (
+				usedProvider === "azure-ai-foundry" &&
+				!data.id &&
+				!data.object &&
+				(!data.choices || data.choices.length === 0) &&
+				!data.usage
+			) {
+				transformedData = null;
+				break;
+			}
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(
 				data,

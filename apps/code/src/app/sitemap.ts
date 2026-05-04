@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-	const baseUrl = "https://code.llmgateway.io";
+	const baseUrl = "https://devpass.llmgateway.io";
 
 	return [
 		{

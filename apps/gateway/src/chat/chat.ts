@@ -22,7 +22,10 @@ import {
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
 } from "@/lib/cached-queries.js";
-import { isCodingModel } from "@/lib/coding-models.js";
+import {
+	isCodingModel,
+	providerSupportsCachedInput,
+} from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import {
@@ -52,6 +55,7 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	prepareRequestBody,
+	resolveMetricsModelId,
 	type RoutingMetadata,
 } from "@llmgateway/actions";
 import {
@@ -482,7 +486,12 @@ function addContentFilterRoutingMetadata(
 			: [
 					...excludedProviders.map((provider) => {
 						const metrics = metricsMap.get(
-							metricsKey(modelId, provider.providerId, provider.region),
+							metricsKey(
+								resolveMetricsModelId(modelId, provider.modelName),
+								provider.providerId,
+								provider.region,
+								provider.modelName,
+							),
 						);
 
 						return {
@@ -1458,17 +1467,40 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Validate coding model restriction for dev plan personal orgs
-	// This check must happen BEFORE capability checks to give the right error message
-	if (
+	// Coding plans only allow models/provider mappings with cached input pricing.
+	// The model-level check denies models with no cached mapping at all.
+	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the
+	// model qualifies as coding overall but the named mapping itself is uncached.
+	const isDevPlanRestricted = Boolean(
 		organization?.isPersonal &&
-		organization.devPlan !== "none" &&
-		!organization.devPlanAllowAllModels
-	) {
+			organization.devPlan !== "none" &&
+			!organization.devPlanAllowAllModels,
+	);
+	if (isDevPlanRestricted) {
 		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
-				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at devpass.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
 			});
+		}
+
+		if (
+			requestedProvider &&
+			requestedProvider !== "llmgateway" &&
+			requestedProvider !== "custom"
+		) {
+			const requestedProviderMappings = modelInfo.providers.filter(
+				(p) =>
+					p.providerId === requestedProvider &&
+					(requestedRegion === undefined || p.region === requestedRegion),
+			);
+			if (
+				requestedProviderMappings.length > 0 &&
+				!requestedProviderMappings.some(providerSupportsCachedInput)
+			) {
+				throw new HTTPException(403, {
+					message: `Provider ${requestedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+				});
+			}
 		}
 	}
 
@@ -1527,6 +1559,19 @@ chat.openapi(completions, async (c) => {
 				iamAllowedProviders.includes(p.providerId),
 			)
 		: routingExpandedModelProviders;
+
+	if (isDevPlanRestricted) {
+		iamFilteredModelProviders = iamFilteredModelProviders.filter(
+			providerSupportsCachedInput,
+		);
+		expandedIamFilteredModelProviders =
+			expandedIamFilteredModelProviders.filter(providerSupportsCachedInput);
+		if (iamFilteredModelProviders.length === 0) {
+			throw new HTTPException(403, {
+				message: `No provider with cached input pricing is available for model ${modelInfo.id}. Coding plans require providers with prompt caching support; enable access to all models in your dashboard settings at code.llmgateway.io/dashboard to use this model.`,
+			});
+		}
+	}
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
@@ -1658,8 +1703,12 @@ chat.openapi(completions, async (c) => {
 						candidateAllowedProviders.includes(provider.providerId)),
 			);
 
+			const cachedFilteredProviders = isDevPlanRestricted
+				? availableModelProviders.filter(providerSupportsCachedInput)
+				: availableModelProviders;
+
 			// Filter by context size requirement, reasoning capability, and deprecation status
-			const suitableProviders = availableModelProviders.filter((provider) => {
+			const suitableProviders = cachedFilteredProviders.filter((provider) => {
 				// Skip deprecated provider mappings
 				if (provider.deprecatedAt && now > provider.deprecatedAt!) {
 					return false;
@@ -1754,9 +1803,10 @@ chat.openapi(completions, async (c) => {
 		if (selectedModel && selectedProviders.length > 0) {
 			// Fetch uptime/latency metrics from last 5 minutes for provider selection
 			const metricsCombinations = selectedProviders.map((p) => ({
-				modelId: selectedModel.id,
+				modelId: resolveMetricsModelId(selectedModel.id, p.modelName),
 				providerId: p.providerId,
 				region: p.region,
+				modelName: p.modelName,
 			}));
 			const metricsMap =
 				await getProviderMetricsForCombinations(metricsCombinations);
@@ -1858,6 +1908,13 @@ chat.openapi(completions, async (c) => {
 					allowedProviders.includes(p.providerId),
 				)
 			: expandAllProviderRegions(modelInfo.providers);
+		if (isDevPlanRestricted) {
+			iamFilteredModelProviders = iamFilteredModelProviders.filter(
+				providerSupportsCachedInput,
+			);
+			expandedIamFilteredModelProviders =
+				expandedIamFilteredModelProviders.filter(providerSupportsCachedInput);
+		}
 	} else if (
 		(usedProvider === "llmgateway" && usedModel === "custom") ||
 		usedModel === "custom"
@@ -1874,9 +1931,17 @@ chat.openapi(completions, async (c) => {
 		usedProvider !== "llmgateway" &&
 		usedProvider !== "custom"
 	) {
-		const sameProviderMappings = modelInfo.providers.filter(
+		const allSameProviderMappings = modelInfo.providers.filter(
 			(p) => p.providerId === usedProvider,
 		);
+		const sameProviderMappings = isDevPlanRestricted
+			? allSameProviderMappings.filter(providerSupportsCachedInput)
+			: allSameProviderMappings;
+		if (isDevPlanRestricted && sameProviderMappings.length === 0) {
+			throw new HTTPException(403, {
+				message: `Provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+			});
+		}
 		const sameProviderRegionalMappings = sameProviderMappings.filter(
 			(p) => p.region,
 		);
@@ -1905,6 +1970,15 @@ chat.openapi(completions, async (c) => {
 			const providerLockedRegions = lockedRegion
 				? new Map([[usedProvider, lockedRegion]])
 				: undefined;
+			if (
+				isDevPlanRestricted &&
+				lockedRegion &&
+				!sameProviderMappings.some((p) => p.region === lockedRegion)
+			) {
+				throw new HTTPException(403, {
+					message: `Region '${lockedRegion}' for provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another region or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+				});
+			}
 			const eligibleMappings = filterEligibleModelProviders(
 				sameProviderRoutingMappings,
 				{
@@ -1923,9 +1997,10 @@ chat.openapi(completions, async (c) => {
 
 				if (eligibleMappings.length > 1) {
 					const metricsCombinations = eligibleMappings.map((provider) => ({
-						modelId: modelInfo.id,
+						modelId: resolveMetricsModelId(modelInfo.id, provider.modelName),
 						providerId: provider.providerId,
 						region: provider.region,
+						modelName: provider.modelName,
 					}));
 					const metricsMap =
 						await getProviderMetricsForCombinations(metricsCombinations);
@@ -2110,9 +2185,10 @@ chat.openapi(completions, async (c) => {
 
 					if (modelWithPricing) {
 						const metricsCombinations = candidatesForRouting.map((p) => ({
-							modelId: modelWithPricing.id,
+							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
 							providerId: p.providerId,
 							region: p.region,
+							modelName: p.modelName,
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
@@ -2181,14 +2257,20 @@ chat.openapi(completions, async (c) => {
 		// Find the base model ID for metrics lookup
 		// Since custom providers are excluded above, modelInfo always has 'id'
 		const baseModelId = (modelInfo as ModelDefinition).id;
+		const metricsModelId = resolveMetricsModelId(baseModelId, usedModel);
 
 		// Fetch uptime metrics for the requested provider
 		const metricsMap = await getProviderMetricsForCombinations([
-			{ modelId: baseModelId, providerId: usedProvider, region: usedRegion },
+			{
+				modelId: metricsModelId,
+				providerId: usedProvider,
+				region: usedRegion,
+				modelName: usedModel,
+			},
 		]);
 
 		const metrics = metricsMap.get(
-			metricsKey(baseModelId, usedProvider, usedRegion),
+			metricsKey(metricsModelId, usedProvider, usedRegion, usedModel),
 		);
 
 		// If we have metrics and uptime is below 90%, route to an alternative
@@ -2251,9 +2333,10 @@ chat.openapi(completions, async (c) => {
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
 						const metricsCombinations = availableModelProviders.map((p) => ({
-							modelId: modelWithPricing.id,
+							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
 							providerId: p.providerId,
 							region: p.region,
+							modelName: p.modelName,
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
@@ -2273,7 +2356,12 @@ chat.openapi(completions, async (c) => {
 						const betterUptimeProviders = providerAgnosticCandidates.filter(
 							(p) => {
 								const providerMetrics = allMetricsMap.get(
-									metricsKey(modelWithPricing.id, p.providerId, p.region),
+									metricsKey(
+										resolveMetricsModelId(modelWithPricing.id, p.modelName),
+										p.providerId,
+										p.region,
+										p.modelName,
+									),
 								);
 								// If no metrics, assume the provider is healthy (100% uptime)
 								// If has metrics, only include if uptime is better than original
@@ -2461,9 +2549,13 @@ chat.openapi(completions, async (c) => {
 					...routingCandidates,
 					...contentFilterRoutingExcludedProviders,
 				].map((provider) => ({
-					modelId: modelWithPricing.id,
+					modelId: resolveMetricsModelId(
+						modelWithPricing.id,
+						provider.modelName,
+					),
 					providerId: provider.providerId,
 					region: provider.region,
+					modelName: provider.modelName,
 				}));
 				const metricsMap =
 					await getProviderMetricsForCombinations(metricsCombinations);
@@ -2632,9 +2724,10 @@ chat.openapi(completions, async (c) => {
 				...routingMetadataProviders,
 				...contentFilterRoutingExcludedProviders,
 			].map((provider) => ({
-				modelId: baseModelId,
+				modelId: resolveMetricsModelId(baseModelId, provider.modelName),
 				providerId: provider.providerId,
 				region: provider.region,
+				modelName: provider.modelName,
 			}));
 			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
@@ -2660,7 +2753,12 @@ chat.openapi(completions, async (c) => {
 			weightedScores?.metadata.providerScores ??
 			routingMetadataProviders.map((p) => {
 				const metrics = metricsMap.get(
-					metricsKey(baseModelId, p.providerId, p.region),
+					metricsKey(
+						resolveMetricsModelId(baseModelId, p.modelName),
+						p.providerId,
+						p.region,
+						p.modelName,
+					),
 				);
 				return {
 					providerId: p.providerId,
@@ -3263,8 +3361,14 @@ chat.openapi(completions, async (c) => {
 		(msg: any) => msg.tool_calls ?? msg.role === "tool",
 	);
 
-	// Strip :region suffix before sending to upstream provider API
-	const upstreamModelName = stripRegionFromModelName(usedModel, usedRegion);
+	// Strip :region suffix, then apply azure_deployment_name override if set
+	// so users can target deployments whose names differ from the registry.
+	const strippedModelName = stripRegionFromModelName(usedModel, usedRegion);
+	const azureDeploymentName =
+		usedProvider === "azure"
+			? providerKey?.options?.azure_deployment_name
+			: undefined;
+	const upstreamModelName = azureDeploymentName || strippedModelName;
 
 	try {
 		if (!usedProvider) {
@@ -5233,7 +5337,7 @@ chat.openapi(completions, async (c) => {
 									// If we can't parse the original error, fall back to our format
 									errorData = {
 										error: {
-											message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+											message: `Error from provider ${usedProvider}: ${res.status} ${res.statusText} ${errorResponseText}`,
 											type: finishReason,
 											param: null,
 											code: finishReason,
@@ -5244,7 +5348,7 @@ chat.openapi(completions, async (c) => {
 							} else {
 								errorData = {
 									error: {
-										message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+										message: `Error from provider ${usedProvider}: ${res.status} ${res.statusText} ${errorResponseText}`,
 										type: finishReason,
 										param: null,
 										code: finishReason,
@@ -8704,7 +8808,7 @@ chat.openapi(completions, async (c) => {
 			return c.json(
 				{
 					error: {
-						message: `Error from provider: ${res.status} ${res.statusText} ${errorResponseText}`,
+						message: `Error from provider ${usedProvider}: ${res.status} ${res.statusText} ${errorResponseText}`,
 						type: finishReason,
 						param: null,
 						code: finishReason,

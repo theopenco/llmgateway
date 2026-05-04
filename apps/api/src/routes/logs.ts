@@ -12,6 +12,7 @@ import {
 	eq,
 	errorDetails,
 	gatewayContentFilterResponseSchema,
+	getTableColumns,
 	gt,
 	gte,
 	type InferSelectModel,
@@ -33,6 +34,13 @@ export const logs = new OpenAPIHono<ServerTypes>();
 
 type LogRecord = InferSelectModel<typeof tables.log>;
 
+const logSelection = {
+	...getTableColumns(tables.log),
+	organizationName: tables.organization.name,
+	projectName: tables.project.name,
+	apiKeyName: tables.apiKey.description,
+};
+
 async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
 	logEntries: T[],
 ): Promise<T[]> {
@@ -49,6 +57,34 @@ async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
 	);
 }
 
+const BASE64_INPUT_PLACEHOLDER = "[base64_image_input_redacted]";
+
+function scrubMessagesBase64(messages: unknown): unknown {
+	if (messages === null || messages === undefined) {
+		return messages;
+	}
+	if (typeof messages === "string") {
+		if (
+			messages.length > 1000 &&
+			(messages.includes(";base64,") || /[A-Za-z0-9+/=]{800,}/.test(messages))
+		) {
+			return BASE64_INPUT_PLACEHOLDER;
+		}
+		return messages;
+	}
+	if (Array.isArray(messages)) {
+		return messages.map((item) => scrubMessagesBase64(item));
+	}
+	if (typeof messages === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(messages)) {
+			out[key] = scrubMessagesBase64(value);
+		}
+		return out;
+	}
+	return messages;
+}
+
 // Use the log schema directly from the database
 // Using z.object directly instead of createSelectSchema due to compatibility issues
 const logSchema = z.object({
@@ -57,8 +93,11 @@ const logSchema = z.object({
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	organizationId: z.string(),
+	organizationName: z.string().nullable().optional(),
 	projectId: z.string(),
+	projectName: z.string().nullable().optional(),
 	apiKeyId: z.string(),
+	apiKeyName: z.string().nullable().optional(),
 	duration: z.number(),
 	requestedModel: z.string(),
 	requestedProvider: z.string().nullable(),
@@ -569,7 +608,15 @@ logs.openapi(get, async (c) => {
 			: [desc(tables.log.createdAt), desc(tables.log.id)];
 
 	// Execute the query using select
-	let dbQuery = db.select().from(tables.log);
+	let dbQuery = db
+		.select(logSelection)
+		.from(tables.log)
+		.leftJoin(
+			tables.organization,
+			eq(tables.log.organizationId, tables.organization.id),
+		)
+		.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
+		.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id));
 
 	if (finalWhereClause) {
 		// @ts-ignore
@@ -604,10 +651,12 @@ logs.openapi(get, async (c) => {
 	const enrichedLogs = await enrichLogsWithVideoContentUrls(paginatedLogs);
 
 	const logsForResponse = enrichedLogs.map((log) => {
-		if (log.content && log.content.includes(";base64,")) {
-			return { ...log, content: "[image_generated]" };
-		}
-		return log;
+		const scrubbedMessages = scrubMessagesBase64(log.messages);
+		const next =
+			log.content && log.content.includes(";base64,")
+				? { ...log, content: "[image_generated]" }
+				: log;
+		return { ...next, messages: scrubbedMessages };
 	});
 
 	return c.json({
@@ -779,9 +828,17 @@ logs.openapi(getById, async (c) => {
 
 	const { id } = c.req.valid("param");
 
-	const log = await db.query.log.findFirst({
-		where: { id },
-	});
+	const [log] = await db
+		.select(logSelection)
+		.from(tables.log)
+		.leftJoin(
+			tables.organization,
+			eq(tables.log.organizationId, tables.organization.id),
+		)
+		.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
+		.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id))
+		.where(eq(tables.log.id, id))
+		.limit(1);
 
 	if (!log) {
 		throw new HTTPException(404, { message: "Log not found" });

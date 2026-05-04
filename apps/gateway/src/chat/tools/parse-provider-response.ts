@@ -841,8 +841,8 @@ export function parseProviderResponse(
 		}
 	}
 
-	// For non-reasoning models that return their answer in reasoning_content
-	// (e.g. CanopyWave Mimo), move reasoning to content so the response is visible.
+	// For non-reasoning models that return their answer in reasoning_content,
+	// move reasoning to content so the response is visible.
 	if (!supportsReasoning && !content && reasoningContent) {
 		content = reasoningContent;
 		reasoningContent = null;
