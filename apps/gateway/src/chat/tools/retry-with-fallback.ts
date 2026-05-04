@@ -4,7 +4,8 @@ export type RetryableErrorType =
 	| "network_error"
 	| "provider_error"
 	| "upstream_error"
-	| "upstream_timeout";
+	| "upstream_timeout"
+	| "gateway_error";
 
 export interface RoutingAttempt {
 	provider: string;
@@ -27,7 +28,8 @@ export function isRetryableErrorType(errorType: string): boolean {
 		errorType === "network_error" ||
 		errorType === "provider_error" ||
 		errorType === "upstream_error" ||
-		errorType === "upstream_timeout"
+		errorType === "upstream_timeout" ||
+		errorType === "gateway_error"
 	);
 }
 

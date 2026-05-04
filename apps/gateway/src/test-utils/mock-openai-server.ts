@@ -767,6 +767,21 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		// Subsequent requests succeed - fall through to normal response
 	}
 
+	if (userMessage.includes("TRIGGER_FAIL_ONCE_403")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(403);
+			return c.json({
+				error: {
+					message:
+						"Authentication failed: Please make sure your API Key is valid.",
+					type: "authentication_error",
+				},
+			});
+		}
+		// Subsequent requests succeed - fall through to normal response
+	}
+
 	// Check if this request should fail on the first attempt but succeed on retry
 	if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
 		failOnceCounter++;
