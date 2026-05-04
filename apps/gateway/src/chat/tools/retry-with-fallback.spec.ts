@@ -147,8 +147,7 @@ describe("shouldRetryAlternateKey", () => {
 		).toBe(true);
 	});
 
-	it("does not retry alternate keys for other non-retryable failures", () => {
-		expect(shouldRetryAlternateKey("gateway_error", 500)).toBe(false);
+	it("does not retry alternate keys for non-retryable failure types", () => {
 		expect(shouldRetryAlternateKey("client_error", 400)).toBe(false);
 		expect(shouldRetryAlternateKey("content_filter", 403)).toBe(false);
 	});

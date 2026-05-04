@@ -679,6 +679,14 @@ describe("stats-calculator", () => {
 			expect(singaporeMapping?.routingTotalRequests).toBe(1);
 			expect(beijingMapping?.routingUptime).toBeCloseTo(100);
 			expect(beijingMapping?.routingTotalRequests).toBe(1);
+
+			const deepseekModelHistory = (await db.select().from(modelHistory)).find(
+				(record) =>
+					record.modelId === "deepseek-v3.2" &&
+					record.minuteTimestamp.getTime() === previousMinuteStart.getTime(),
+			);
+			expect(deepseekModelHistory?.logsCount).toBe(2);
+			expect(deepseekModelHistory?.errorsCount).toBe(1);
 		});
 
 		it("should keep failed attempts when the same-provider retry also failed", async () => {

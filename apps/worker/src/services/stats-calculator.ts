@@ -26,20 +26,6 @@ const usedRegionSql = sql<
 	string | null
 >`nullif(split_part(${usedModelWithRegionSql}, ':', 2), '')`;
 
-function excludeRecoveredSameProviderRetry() {
-	return sql<boolean>`not (
-		coalesce(${log.hasError}, false) = true
-		and coalesce(${log.retried}, false) = true
-		and exists (
-			select 1
-			from "log" as final_retry_log
-			where final_retry_log.id = ${log.retriedByLogId}
-				and final_retry_log.used_provider = ${log.usedProvider}
-				and coalesce(final_retry_log.has_error, false) = false
-		)
-	)`;
-}
-
 function excludeRecoveredSameProviderRegionRetry() {
 	return sql<boolean>`not (
 		coalesce(${log.hasError}, false) = true
@@ -234,7 +220,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			and(
 				gte(log.createdAt, roundedTargetMinute),
 				lt(log.createdAt, minuteEnd),
-				excludeRecoveredSameProviderRetry(),
+				excludeRecoveredSameProviderRegionRetry(),
 			),
 		)
 		.groupBy(usedBaseModelSql);

@@ -98,7 +98,7 @@ import {
 	type WebSearchTool,
 	expandAllProviderRegions,
 	getProviderDefinition,
-	getRegionSpecificEnvValue,
+	getRegionSpecificEnvVarName,
 	stripRegionFromModelName,
 } from "@llmgateway/models";
 
@@ -2933,11 +2933,22 @@ chat.openapi(completions, async (c) => {
 
 		usedToken = providerKey.token;
 		usedRegion ??= resolveRegionFromProviderKey(providerKey);
-		// Override with region-specific env var if the DB key doesn't match the requested region
+		// Override with region-specific env var if the DB key doesn't match the requested region.
+		// When we do override, route health attribution to the regional env credential
+		// (clear providerKey so reportTrackedKey* doesn't blame the unused DB key).
 		if (usedRegion) {
-			const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-			if (regionToken && regionToken !== usedToken) {
-				usedToken = regionToken;
+			const regionEnvVarName = getRegionSpecificEnvVarName(
+				usedProvider,
+				usedRegion,
+			);
+			if (regionEnvVarName) {
+				const regionToken = process.env[regionEnvVarName];
+				if (regionToken && regionToken !== usedToken) {
+					usedToken = regionToken;
+					envVarName = regionEnvVarName;
+					configIndex = 0;
+					providerKey = undefined;
+				}
 			}
 		}
 	} else if (project.mode === "credits") {
@@ -2984,11 +2995,20 @@ chat.openapi(completions, async (c) => {
 		configIndex = envResult.configIndex;
 		envVarName = envResult.envVarName;
 
-		// Override with region-specific env var if a non-default region is selected
+		// Override with region-specific env var if a non-default region is selected.
+		// Health attribution must follow the credential we actually send.
 		if (usedRegion) {
-			const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-			if (regionToken) {
-				usedToken = regionToken;
+			const regionEnvVarName = getRegionSpecificEnvVarName(
+				usedProvider,
+				usedRegion,
+			);
+			if (regionEnvVarName) {
+				const regionToken = process.env[regionEnvVarName];
+				if (regionToken) {
+					usedToken = regionToken;
+					envVarName = regionEnvVarName;
+					configIndex = 0;
+				}
 			}
 		}
 	} else if (project.mode === "hybrid") {
@@ -3010,11 +3030,21 @@ chat.openapi(completions, async (c) => {
 		if (providerKey) {
 			usedToken = providerKey.token;
 			usedRegion ??= resolveRegionFromProviderKey(providerKey);
-			// Override with region-specific env var if the DB key doesn't match the requested region
+			// Override with region-specific env var if the DB key doesn't match the requested region.
+			// Route health attribution to whichever credential is actually sent.
 			if (usedRegion) {
-				const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-				if (regionToken && regionToken !== usedToken) {
-					usedToken = regionToken;
+				const regionEnvVarName = getRegionSpecificEnvVarName(
+					usedProvider,
+					usedRegion,
+				);
+				if (regionEnvVarName) {
+					const regionToken = process.env[regionEnvVarName];
+					if (regionToken && regionToken !== usedToken) {
+						usedToken = regionToken;
+						envVarName = regionEnvVarName;
+						configIndex = 0;
+						providerKey = undefined;
+					}
 				}
 			}
 		} else {
@@ -3060,11 +3090,20 @@ chat.openapi(completions, async (c) => {
 			configIndex = envResult.configIndex;
 			envVarName = envResult.envVarName;
 
-			// Override with region-specific env var if a non-default region is selected
+			// Override with region-specific env var if a non-default region is selected.
+			// Health attribution must follow the credential we actually send.
 			if (usedRegion) {
-				const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-				if (regionToken) {
-					usedToken = regionToken;
+				const regionEnvVarName = getRegionSpecificEnvVarName(
+					usedProvider,
+					usedRegion,
+				);
+				if (regionEnvVarName) {
+					const regionToken = process.env[regionEnvVarName];
+					if (regionToken) {
+						usedToken = regionToken;
+						envVarName = regionEnvVarName;
+						configIndex = 0;
+					}
 				}
 			}
 		}
