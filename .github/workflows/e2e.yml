@@ -82,8 +82,6 @@ jobs:
           LLM_EMBERCLOUD_API_KEY: ${{ secrets.LLM_EMBERCLOUD_API_KEY }}
           LLM_ALIBABA_API_KEY__US_VIRGINIA: ${{ secrets.LLM_ALIBABA_API_KEY__US_VIRGINIA }}
           LLM_ALIBABA_API_KEY__CN_BEIJING: ${{ secrets.LLM_ALIBABA_API_KEY__CN_BEIJING }}
-          LLM_BLUESTONE_API_KEY: ${{ secrets.LLM_BLUESTONE_API_KEY }}
-          LLM_BLUESTONE_BASE_URL: ${{ secrets.LLM_BLUESTONE_BASE_URL }}
 
       - name: Upload shard results
         if: always()

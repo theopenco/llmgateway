@@ -591,13 +591,21 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
+	const isUpgrade =
+		DEV_PLAN_PRICES[newTier] >
+		DEV_PLAN_PRICES[personalOrg.devPlan as DevPlanTier];
+
 	try {
 		const subscription = await getStripe().subscriptions.retrieve(
 			personalOrg.devPlanStripeSubscriptionId,
 		);
 
-		// Update subscription with new tier
-		await getStripe().subscriptions.update(
+		// For upgrades, charge the prorated amount synchronously and reject the
+		// upgrade if the customer's payment method can't cover it. Without this,
+		// Stripe leaves the subscription on the new (higher) price even when the
+		// proration invoice fails — letting the user spend at the upgraded tier
+		// while we never collect.
+		const updated = await getStripe().subscriptions.update(
 			personalOrg.devPlanStripeSubscriptionId,
 			{
 				items: [
@@ -606,7 +614,10 @@ devPlans.openapi(changeTier, async (c) => {
 						price: newPriceId,
 					},
 				],
-				proration_behavior: "create_prorations",
+				proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
+				payment_behavior: isUpgrade
+					? "error_if_incomplete"
+					: "allow_incomplete",
 				metadata: {
 					...subscription.metadata,
 					devPlan: newTier,
@@ -615,11 +626,19 @@ devPlans.openapi(changeTier, async (c) => {
 			},
 		);
 
-		// Update local database immediately
+		if (
+			isUpgrade &&
+			updated.status !== "active" &&
+			updated.status !== "trialing"
+		) {
+			throw new HTTPException(402, {
+				message:
+					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
+
+		// Only update local DB after Stripe confirms the upgrade is paid/active.
 		const newCreditsLimit = getDevPlanCreditsLimit(newTier);
-		const isUpgrade =
-			DEV_PLAN_PRICES[newTier] >
-			DEV_PLAN_PRICES[personalOrg.devPlan as DevPlanTier];
 
 		await db
 			.update(tables.organization)
@@ -654,10 +673,27 @@ devPlans.openapi(changeTier, async (c) => {
 			success: true,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe dev plan tier change error",
 			error instanceof Error ? error : new Error(String(error)),
 		);
+		// Stripe returns StripeCardError / StripeInvalidRequestError when an
+		// upgrade can't be collected (declined card, no payment method on file,
+		// etc.). Surface this to the caller as a 402 instead of a generic 500
+		// so the UI can prompt the user to update billing.
+		const errCode =
+			typeof error === "object" && error !== null && "code" in error
+				? String((error as { code?: unknown }).code)
+				: undefined;
+		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
+			throw new HTTPException(402, {
+				message:
+					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
 		throw new HTTPException(500, {
 			message: "Failed to change dev plan tier",
 		});

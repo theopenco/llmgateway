@@ -104,7 +104,11 @@ export default function ImagePageClient({
 		const config = getModelImageConfig(primaryModel);
 		return config.isGptImage ? config.defaultSize : "1024x1024";
 	});
-	const [imageQuality, setImageQuality] = useState<string>("auto");
+	const [imageQuality, setImageQuality] = useState<string>(() => {
+		const primaryModel = selectedModels[0] ?? "";
+		const config = getModelImageConfig(primaryModel);
+		return config.defaultQuality ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 
 	// Input images for image-edit models
@@ -208,9 +212,7 @@ export default function ImagePageClient({
 		const primaryModel = selectedModels[0] ?? "";
 		const config = getModelImageConfig(primaryModel);
 		if (config.usesPixelDimensions) {
-			if (config.isGptImage && alibabaImageSize === "1024x1024") {
-				setAlibabaImageSize(config.defaultSize);
-			} else if (
+			if (
 				!(config.availableSizes as readonly string[]).includes(alibabaImageSize)
 			) {
 				setAlibabaImageSize(config.defaultSize);
@@ -221,7 +223,7 @@ export default function ImagePageClient({
 			setImageSize(config.defaultSize);
 		}
 		if (
-			!config.supportsQuality ||
+			config.supportsQuality &&
 			!(config.availableQualities as readonly string[]).includes(imageQuality)
 		) {
 			setImageQuality(config.defaultQuality ?? "auto");

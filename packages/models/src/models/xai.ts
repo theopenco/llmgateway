@@ -716,6 +716,48 @@ export const xaiModels = [
 		],
 	},
 	{
+		id: "grok-4-3",
+		name: "Grok 4.3",
+		description:
+			"xAI's flagship reasoning model with 1M context, vision, and tool support.",
+		family: "xai",
+		releasedAt: new Date("2026-04-30"),
+		providers: [
+			{
+				providerId: "xai",
+				modelName: "grok-4.3",
+				inputPrice: 1.25 / 1e6,
+				outputPrice: 2.5 / 1e6,
+				cachedInputPrice: 0.3125 / 1e6,
+				pricingTiers: [
+					{
+						name: "Up to 200K",
+						upToTokens: 200000,
+						inputPrice: 1.25 / 1e6,
+						outputPrice: 2.5 / 1e6,
+						cachedInputPrice: 0.3125 / 1e6,
+					},
+					{
+						name: "Over 200K",
+						upToTokens: Infinity,
+						inputPrice: 2.5 / 1e6,
+						outputPrice: 5.0 / 1e6,
+						cachedInputPrice: 0,
+					},
+				],
+				requestPrice: 0,
+				contextSize: 1_000_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
+		],
+	},
+	{
 		id: "grok-imagine-image-pro",
 		name: "Grok Imagine Image Pro",
 		description:

@@ -4059,45 +4059,160 @@ admin.openapi(giftCreditsRoute, async (c) => {
 	});
 });
 
-// --- Delete User ---
+// --- Set Organization Status ---
 
-const deleteUserRoute = createRoute({
-	method: "delete",
-	path: "/users/{userId}",
+const orgStatusSchema = z.enum(["active", "deleted"]);
+
+const setOrganizationStatusRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/status",
 	request: {
 		params: z.object({
-			userId: z.string(),
+			orgId: z.string(),
 		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: orgStatusSchema,
+					}),
+				},
+			},
+		},
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ success: z.boolean() }).openapi({}),
+					schema: z.object({
+						message: z.string(),
+						status: orgStatusSchema,
+					}),
 				},
 			},
-			description: "User deleted.",
+			description: "Organization status updated.",
+		},
+		403: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Personal organizations cannot be disabled.",
 		},
 		404: {
-			description: "User not found.",
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
 		},
 	},
 });
 
-admin.openapi(deleteUserRoute, async (c) => {
-	const { userId } = c.req.valid("param");
+admin.openapi(setOrganizationStatusRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { status } = c.req.valid("json");
 
-	const existingUser = await db.query.user.findFirst({
-		where: { id: { eq: userId } },
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
 	});
 
-	if (!existingUser) {
-		throw new HTTPException(404, { message: "User not found" });
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
 	}
 
-	await db.delete(tables.user).where(eq(tables.user.id, userId));
+	if (status === "deleted" && org.isPersonal) {
+		throw new HTTPException(403, {
+			message: "Personal organizations cannot be disabled.",
+		});
+	}
 
-	return c.json({ success: true });
+	const memberLinks = await db.query.userOrganization.findMany({
+		where: { organizationId: { eq: orgId } },
+		columns: { userId: true },
+	});
+	const memberUserIds = memberLinks.map((m) => m.userId);
+
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.organization)
+			.set({ status })
+			.where(eq(tables.organization.id, orgId));
+
+		if (memberUserIds.length === 0) {
+			return;
+		}
+
+		if (status === "deleted") {
+			await tx
+				.update(tables.user)
+				.set({ status: "deactivated" })
+				.where(inArray(tables.user.id, memberUserIds));
+
+			await tx
+				.delete(tables.session)
+				.where(inArray(tables.session.userId, memberUserIds));
+		} else {
+			const otherLinks = await tx.query.userOrganization.findMany({
+				where: { userId: { in: memberUserIds } },
+				with: {
+					organization: {
+						columns: { id: true, status: true },
+					},
+				},
+			});
+
+			const stillBlocked = new Set(
+				otherLinks
+					.filter(
+						(link) =>
+							link.organization?.id !== orgId &&
+							link.organization?.status === "deleted",
+					)
+					.map((link) => link.userId),
+			);
+
+			const reactivateIds = memberUserIds.filter((id) => !stillBlocked.has(id));
+
+			if (reactivateIds.length > 0) {
+				await tx
+					.update(tables.user)
+					.set({ status: "active" })
+					.where(inArray(tables.user.id, reactivateIds));
+			}
+		}
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action:
+			status === "deleted" ? "organization.delete" : "organization.update",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			resourceName: org.name,
+			previousStatus: org.status ?? "active",
+			newStatus: status,
+			source: "admin",
+			affectedUserCount: memberUserIds.length,
+		},
+	});
+
+	return c.json({
+		message:
+			status === "deleted"
+				? "Organization disabled successfully"
+				: "Organization re-enabled successfully",
+		status,
+	});
 });
 
 // --- History endpoints ---

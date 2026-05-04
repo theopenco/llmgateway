@@ -1382,6 +1382,12 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	if (organization.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Organization has been disabled and is no longer accessible",
+		});
+	}
+
 	const retryProjectContext = {
 		mode: project.mode,
 		organizationId: project.organizationId,
@@ -2846,9 +2852,11 @@ chat.openapi(completions, async (c) => {
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
+		// We trust the bare `modelInfo.free` flag here: free models are always
+		// marked explicitly in the catalog, so a `free: true` model is intended
+		// to be usable without credits. Do not switch this to isModelTrulyFree.
 		if (
 			totalAvailableCredits <= 0 &&
-			!free_models_only &&
 			!((finalModelInfo ?? modelInfo) as ModelDefinition).free
 		) {
 			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
@@ -2924,7 +2932,6 @@ chat.openapi(completions, async (c) => {
 
 			if (
 				totalAvailableCredits <= 0 &&
-				!free_models_only &&
 				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition)
 			) {
 				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
@@ -4046,6 +4053,34 @@ chat.openapi(completions, async (c) => {
 			(usedProvider === "openai" || usedProvider === "azure");
 		if (forceImageStreamUpstream) {
 			requestBody = injectImageStreamParams(requestBody);
+		}
+		// resolveProviderContext only knows the base /images/generations endpoint;
+		// mirror the post-prepareRequestBody URL swap so retry fallbacks still hit
+		// /images/edits when the body is multipart FormData.
+		if (
+			isImageGeneration &&
+			usedProvider === "openai" &&
+			url &&
+			requestBody instanceof FormData
+		) {
+			url = url.replace("/v1/images/generations", "/v1/images/edits");
+		}
+		if (
+			isImageGeneration &&
+			usedProvider === "azure" &&
+			url &&
+			requestBody instanceof FormData
+		) {
+			url = url.replace("/images/generations", "/images/edits");
+		}
+		if (
+			isImageGeneration &&
+			usedProvider === "xai" &&
+			url &&
+			!(requestBody instanceof FormData) &&
+			("image" in requestBody || "images" in requestBody)
+		) {
+			url = url.replace("/v1/images/generations", "/v1/images/edits");
 		}
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
