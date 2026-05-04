@@ -2852,6 +2852,9 @@ chat.openapi(completions, async (c) => {
 				: 0;
 		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
 
+		// We trust the bare `modelInfo.free` flag here: free models are always
+		// marked explicitly in the catalog, so a `free: true` model is intended
+		// to be usable without credits. Do not switch this to isModelTrulyFree.
 		if (
 			totalAvailableCredits <= 0 &&
 			!free_models_only &&
