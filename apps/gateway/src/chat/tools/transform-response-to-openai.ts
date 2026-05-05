@@ -11,6 +11,7 @@ export interface CostData {
 	cacheWriteInputCost?: number | null;
 	requestCost: number | null;
 	webSearchCost: number | null;
+	contentFilterCost?: number | null;
 	imageInputCost: number | null;
 	imageOutputCost: number | null;
 	audioInputCost?: number | null;
@@ -52,7 +53,11 @@ export function applyExtendedUsageFields(
 			costs.inputCost !== null ||
 			costs.cachedInputCost !== null ||
 			costs.outputCost !== null;
-		if (hasInferenceCosts) {
+		const hasContentFilterCost =
+			costs.contentFilterCost !== null &&
+			costs.contentFilterCost !== undefined &&
+			costs.contentFilterCost > 0;
+		if (hasInferenceCosts || hasContentFilterCost) {
 			const inputCost = costs.inputCost ?? 0;
 			const cachedInputCost = costs.cachedInputCost ?? 0;
 			const cacheWriteInputCost = costs.cacheWriteInputCost ?? 0;
@@ -74,6 +79,9 @@ export function applyExtendedUsageFields(
 				image_input_cost: costs.imageInputCost,
 				image_output_cost: costs.imageOutputCost,
 				audio_input_cost: costs.audioInputCost ?? null,
+				...(hasContentFilterCost && {
+					content_filter_cost: costs.contentFilterCost,
+				}),
 				...(costs.dataStorageCost !== null &&
 					costs.dataStorageCost !== undefined && {
 						data_storage_cost: costs.dataStorageCost,

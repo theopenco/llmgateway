@@ -607,6 +607,7 @@ export const log = pgTable(
 		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
+		contentFilterCost: real(),
 		imageInputTokens: decimal(),
 		imageOutputTokens: decimal(),
 		imageInputCost: real(),

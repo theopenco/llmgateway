@@ -821,6 +821,14 @@ export function LogDetailClient({
 												muted
 											/>
 										)}
+										{!!log.contentFilterCost &&
+											Number(log.contentFilterCost) > 0 && (
+												<Field
+													label="Content Filter Cost"
+													value={`$${Number(log.contentFilterCost).toFixed(8)}`}
+													muted
+												/>
+											)}
 										{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
 											<Field
 												label="Image Input Cost"
