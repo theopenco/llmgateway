@@ -20,6 +20,7 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-3",
 				inputPrice: "3.0e-6",
 				cachedInputPrice: "0.75e-6",
@@ -44,6 +45,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-3-mini",
 				inputPrice: "0.3e-6",
 				outputPrice: "0.5e-6",
@@ -70,6 +72,7 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-3-fast",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
@@ -94,6 +97,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-3-mini-fast",
 				inputPrice: "0.6e-6",
 				outputPrice: "4.0e-6",
@@ -119,6 +123,7 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-2-1212",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
@@ -143,6 +148,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-2-vision-1212",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
@@ -169,6 +175,7 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4-0709",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "3.0e-6",
@@ -211,6 +218,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
@@ -252,6 +260,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4-fast-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
@@ -295,6 +304,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4-fast-non-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
@@ -338,6 +348,7 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-code-fast-1",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
@@ -363,6 +374,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4-1-fast-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
@@ -424,6 +436,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4-1-fast-non-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
@@ -484,6 +497,7 @@ export const xaiModels = [
 			// Non-reasoning variant (default - listed first)
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4-fast-non-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
@@ -518,6 +532,7 @@ export const xaiModels = [
 			// Reasoning variant (used when reasoning_effort is set)
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4-fast-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
@@ -563,6 +578,7 @@ export const xaiModels = [
 			// Non-reasoning variant (default - listed first)
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4-1-fast-non-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
@@ -613,6 +629,7 @@ export const xaiModels = [
 			// Reasoning variant (used when reasoning_effort is set)
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4-1-fast-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
@@ -675,6 +692,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4.20-multi-agent-beta-0309",
 				// xAI multi-agent models do not work with the Chat Completions API.
 				// They require the Responses API (/v1/responses) with orchestrated sub-agents.
@@ -722,6 +740,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4.20-beta-0309-reasoning",
 				inputPrice: "2.0e-6",
 				outputPrice: "6.0e-6",
@@ -763,6 +782,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4.20-beta-0309-non-reasoning",
 				inputPrice: "2.0e-6",
 				outputPrice: "6.0e-6",
@@ -804,6 +824,7 @@ export const xaiModels = [
 		providers: [
 			{
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-4.3",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
@@ -848,6 +869,7 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-imagine-image-pro",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0",
@@ -876,6 +898,7 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
+				contentFilterPrice: 0.05,
 				modelName: "grok-imagine-image",
 				inputPrice: "0",
 				outputPrice: "0",
