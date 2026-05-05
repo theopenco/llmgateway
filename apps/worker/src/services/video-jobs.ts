@@ -50,11 +50,27 @@ function fetchWithSignals(
 ): Promise<Response> {
 	const stopSignal = getStopSignal();
 	const timeoutSignal = AbortSignal.timeout(timeoutMs);
-	const signal =
-		typeof AbortSignal.any === "function"
-			? AbortSignal.any([stopSignal, timeoutSignal])
-			: stopSignal;
-	return fetch(url, { ...init, signal });
+	return fetch(url, {
+		...init,
+		signal: AbortSignal.any([stopSignal, timeoutSignal]),
+	});
+}
+
+function isShutdownAbort(error: unknown): boolean {
+	if (!isStopRequested()) {
+		return false;
+	}
+	if (error instanceof Error && error.name === "AbortError") {
+		return true;
+	}
+	if (
+		error instanceof Error &&
+		error.cause instanceof Error &&
+		error.cause.name === "AbortError"
+	) {
+		return true;
+	}
+	return false;
 }
 
 const MAX_WEBHOOK_ATTEMPTS = 8;
@@ -2008,6 +2024,14 @@ export async function processPendingVideoJobs(): Promise<void> {
 				}
 			}
 		} catch (error) {
+			if (isShutdownAbort(error)) {
+				logger.info("Skipping video job poll bookkeeping due to shutdown", {
+					videoJobId: job.id,
+					upstreamId: job.upstreamId,
+				});
+				break;
+			}
+
 			const message = error instanceof Error ? error.message : String(error);
 			logger.error(
 				"Error polling video job",
@@ -2256,6 +2280,17 @@ async function deliverWebhook(
 			});
 		});
 	} catch (error) {
+		if (isShutdownAbort(error)) {
+			logger.info(
+				"Skipping webhook delivery bookkeeping due to shutdown; will retry on next worker run",
+				{
+					videoJobId: job.id,
+					deliveryId: delivery.id,
+				},
+			);
+			return;
+		}
+
 		const message =
 			error instanceof Error ? error.message : "Unknown webhook delivery error";
 
