@@ -713,7 +713,7 @@ export function LogDetailClient({
 																)}
 																{score.price !== undefined && (
 																	<span className="ml-2">
-																		${score.price.toFixed(10)}
+																		${(score.price * 1_000_000).toFixed(2)}/M
 																	</span>
 																)}
 																{score.cacheSupported && (
