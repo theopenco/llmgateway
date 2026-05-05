@@ -712,9 +712,7 @@ export function LogDetailClient({
 																	</span>
 																)}
 																{score.price !== undefined && (
-																	<span className="ml-2">
-																		${(score.price * 1_000_000).toFixed(2)}/M
-																	</span>
+																	<span className="ml-2">${score.price}</span>
 																)}
 																{score.cacheSupported && (
 																	<span className="ml-2">cache</span>
