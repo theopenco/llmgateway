@@ -1335,6 +1335,7 @@ export const auditLogActions = [
 	"dev_plan.resume",
 	"dev_plan.change_tier",
 	"dev_plan.update_settings",
+	"dev_plan.rotate_api_key",
 ] as const;
 
 export const auditLogResourceTypes = [

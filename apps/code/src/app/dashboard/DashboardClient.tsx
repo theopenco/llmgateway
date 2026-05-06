@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	ArrowRight,
 	Code,
@@ -9,6 +10,7 @@ import {
 	Key,
 	Loader2,
 	LogOut,
+	RefreshCw,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -40,6 +42,7 @@ const InactivePlanChooser = dynamic(
 const DevPlanSettings = dynamic(() => import("./components/DevPlanSettings"));
 const UsageOverview = dynamic(() => import("./components/UsageOverview"));
 const CodingAgents = dynamic(() => import("./components/CodingAgents"));
+const QuickStart = dynamic(() => import("./components/QuickStart"));
 
 const plans: PlanOption[] = [
 	{
@@ -66,12 +69,33 @@ const plans: PlanOption[] = [
 	},
 ];
 
-function ApiKeySection({ apiKey, uiUrl }: { apiKey: string; uiUrl: string }) {
+function ApiKeySection({
+	apiKey,
+	uiUrl,
+	onRotate,
+	isRotating,
+}: {
+	apiKey: string;
+	uiUrl: string;
+	onRotate: () => void | Promise<void>;
+	isRotating: boolean;
+}) {
 	const [visible, setVisible] = useState(false);
+	const [confirmingRotate, setConfirmingRotate] = useState(false);
 
 	const copy = async () => {
 		await navigator.clipboard.writeText(apiKey);
 		toast.success("Copied to clipboard");
+	};
+
+	const handleRotateClick = async () => {
+		if (!confirmingRotate) {
+			setConfirmingRotate(true);
+			window.setTimeout(() => setConfirmingRotate(false), 4000);
+			return;
+		}
+		setConfirmingRotate(false);
+		await onRotate();
 	};
 
 	return (
@@ -109,7 +133,33 @@ function ApiKeySection({ apiKey, uiUrl }: { apiKey: string; uiUrl: string }) {
 				>
 					<Copy className="h-3.5 w-3.5" />
 				</Button>
+				<Button
+					variant={confirmingRotate ? "destructive" : "outline"}
+					size="icon"
+					className="h-9 w-9 shrink-0"
+					onClick={handleRotateClick}
+					disabled={isRotating}
+					title={
+						confirmingRotate
+							? "Click again to confirm — this invalidates the current key"
+							: "Rotate key"
+					}
+				>
+					{isRotating ? (
+						<Loader2 className="h-3.5 w-3.5 animate-spin" />
+					) : (
+						<RefreshCw
+							className={`h-3.5 w-3.5 ${confirmingRotate ? "animate-pulse" : ""}`}
+						/>
+					)}
+				</Button>
 			</div>
+			{confirmingRotate && !isRotating && (
+				<p className="text-xs text-amber-600 dark:text-amber-400">
+					Click rotate again to confirm. The current key will stop working
+					immediately.
+				</p>
+			)}
 			<div className="flex items-center gap-4 text-xs text-muted-foreground">
 				<a
 					href={`${uiUrl}/guides`}
@@ -134,48 +184,6 @@ function ApiKeySection({ apiKey, uiUrl }: { apiKey: string; uiUrl: string }) {
 	);
 }
 
-function QuickStart({ apiKey }: { apiKey: string }) {
-	const maskedKey =
-		apiKey.length > 16 ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : apiKey;
-
-	const copySnippet = async () => {
-		const snippet = `export ANTHROPIC_BASE_URL=https://api.llmgateway.io\nexport ANTHROPIC_AUTH_TOKEN=${apiKey}\nclaude`;
-		await navigator.clipboard.writeText(snippet);
-		toast.success("Snippet copied");
-	};
-
-	return (
-		<div className="space-y-3">
-			<div className="flex items-center justify-between">
-				<h3 className="text-sm font-medium">Quick start</h3>
-				<button
-					type="button"
-					onClick={copySnippet}
-					className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-				>
-					<Copy className="h-3 w-3" />
-					Copy
-				</button>
-			</div>
-			<div className="rounded-lg border bg-muted/30 p-4 font-mono text-xs leading-relaxed">
-				<div>
-					<span className="text-muted-foreground">$</span> export
-					ANTHROPIC_BASE_URL=
-					<span className="text-foreground">https://api.llmgateway.io</span>
-				</div>
-				<div className="mt-0.5">
-					<span className="text-muted-foreground">$</span> export
-					ANTHROPIC_AUTH_TOKEN=
-					<span className="text-foreground">{maskedKey}</span>
-				</div>
-				<div className="mt-0.5">
-					<span className="text-muted-foreground">$</span> claude
-				</div>
-			</div>
-		</div>
-	);
-}
-
 export default function DashboardClient() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -184,6 +192,7 @@ export default function DashboardClient() {
 	const config = useAppConfig();
 	const { posthogKey } = config;
 	const api = useApi();
+	const queryClient = useQueryClient();
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
@@ -207,6 +216,10 @@ export default function DashboardClient() {
 	const cancelMutation = api.useMutation("post", "/dev-plans/cancel");
 	const resumeMutation = api.useMutation("post", "/dev-plans/resume");
 	const changeTierMutation = api.useMutation("post", "/dev-plans/change-tier");
+	const rotateApiKeyMutation = api.useMutation(
+		"post",
+		"/dev-plans/rotate-api-key",
+	);
 
 	const handleSubscribe = async (
 		tier: PlanTier,
@@ -284,6 +297,27 @@ export default function DashboardClient() {
 			toast.error("Failed to change plan");
 		} finally {
 			setSubscribingTier(null);
+		}
+	};
+
+	const handleRotateApiKey = async (): Promise<void> => {
+		try {
+			await rotateApiKeyMutation.mutateAsync({});
+			await queryClient.invalidateQueries({
+				predicate: (query) => {
+					const key = query.queryKey;
+					return Array.isArray(key) && key[1] === "/dev-plans/status";
+				},
+			});
+			if (posthogKey) {
+				posthog.capture("dev_plan_api_key_rotated");
+			}
+			toast.success("API key rotated", {
+				description:
+					"Update your tools with the new key. The previous key no longer works.",
+			});
+		} catch {
+			toast.error("Failed to rotate API key");
 		}
 	};
 
@@ -395,6 +429,8 @@ export default function DashboardClient() {
 									<ApiKeySection
 										apiKey={devPlanStatus.apiKey}
 										uiUrl={config.uiUrl}
+										onRotate={handleRotateApiKey}
+										isRotating={rotateApiKeyMutation.isPending}
 									/>
 								) : (
 									<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
