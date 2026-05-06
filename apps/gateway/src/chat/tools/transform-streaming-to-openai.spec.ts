@@ -200,4 +200,73 @@ describe("transformStreamingToOpenai", () => {
 		expect(result).toBeNull();
 		expect(warn).not.toHaveBeenCalled();
 	});
+
+	it("drops Azure prompt-filter-only leading chunk", () => {
+		const result = transformStreamingToOpenai(
+			"azure",
+			"gpt-5.5",
+			{
+				id: "",
+				object: "",
+				created: 0,
+				model: "",
+				choices: [],
+				prompt_filter_results: [
+					{ prompt_index: 0, content_filter_results: {} },
+				],
+			},
+			[],
+		);
+
+		expect(result).toBeNull();
+	});
+
+	it("preserves Azure Responses API output_text deltas", () => {
+		const result = transformStreamingToOpenai(
+			"azure",
+			"gpt-5.5",
+			{
+				type: "response.output_text.delta",
+				content_index: 0,
+				delta: "Hi",
+				item_id: "msg_123",
+				output_index: 1,
+				sequence_number: 6,
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]?.delta?.content).toBe("Hi");
+	});
+
+	it("preserves Azure Responses API response.completed usage", () => {
+		const result = transformStreamingToOpenai(
+			"azure",
+			"gpt-5.5",
+			{
+				type: "response.completed",
+				response: {
+					id: "resp_123",
+					created_at: 1234567890,
+					model: "gpt-5.5",
+					usage: {
+						input_tokens: 8,
+						output_tokens: 17,
+						total_tokens: 25,
+						output_tokens_details: { reasoning_tokens: 9 },
+					},
+				},
+				sequence_number: 11,
+			},
+			[],
+		);
+
+		expect(result?.usage).toMatchObject({
+			prompt_tokens: 8,
+			completion_tokens: 17,
+			total_tokens: 25,
+			reasoning_tokens: 9,
+		});
+		expect(result?.choices?.[0]?.finish_reason).toBe("stop");
+	});
 });
