@@ -722,9 +722,7 @@ export function LogCard({
 																		</span>
 																	)}
 																	{score.price !== undefined && (
-																		<span className="ml-2">
-																			${score.price.toFixed(6)}
-																		</span>
+																		<span className="ml-2">${score.price}</span>
 																	)}
 																	{score.priority !== undefined &&
 																		score.priority !== 1 && (

@@ -1,5 +1,7 @@
 import { shortid } from "@llmgateway/db";
 
+import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
+
 interface StreamingState {
 	responseId: string;
 	model: string;
@@ -23,11 +25,13 @@ interface StreamingState {
 			outputIndex: number;
 		}
 	>;
+	request?: ResponsesEchoRequest;
 	usage: {
 		input_tokens: number;
 		output_tokens: number;
 		total_tokens: number;
 		input_tokens_details?: { cached_tokens: number };
+		output_tokens_details?: { reasoning_tokens: number };
 		cost?: number;
 		cost_details?: {
 			upstream_inference_cost: number;
@@ -49,6 +53,7 @@ interface StreamingState {
 export function createStreamingState(
 	model: string,
 	responseId?: string,
+	request?: ResponsesEchoRequest,
 ): StreamingState {
 	return {
 		responseId: responseId ?? `resp_${shortid(24)}`,
@@ -64,7 +69,80 @@ export function createStreamingState(
 		reasoningStarted: false,
 		finishReason: null,
 		toolCalls: new Map(),
+		request,
 		usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+	};
+}
+
+/**
+ * Build a fully-padded ResponseResource payload from streaming state.
+ * Used by response.created and response.completed events so the streaming
+ * shape matches the non-streaming shape and the Open Responses spec.
+ */
+function buildResponsePayload(
+	state: StreamingState,
+	overrides: {
+		status: "in_progress" | "completed" | "incomplete" | "failed";
+		output?: Record<string, unknown>[];
+	},
+): Record<string, unknown> {
+	const req = state.request;
+	const status = overrides.status;
+	const output = overrides.output ?? [];
+
+	const usage = {
+		input_tokens: state.usage.input_tokens,
+		output_tokens: state.usage.output_tokens,
+		total_tokens: state.usage.total_tokens,
+		input_tokens_details: {
+			cached_tokens: state.usage.input_tokens_details?.cached_tokens ?? 0,
+		},
+		output_tokens_details: {
+			reasoning_tokens:
+				state.usage.output_tokens_details?.reasoning_tokens ?? 0,
+		},
+		...(state.usage.cost !== undefined ? { cost: state.usage.cost } : {}),
+		...(state.usage.cost_details !== undefined
+			? { cost_details: state.usage.cost_details }
+			: {}),
+	};
+
+	return {
+		id: state.responseId,
+		object: "response",
+		created_at: state.createdAt,
+		completed_at: status === "completed" ? state.createdAt : null,
+		status,
+		incomplete_details:
+			status === "incomplete" ? { reason: "max_output_tokens" } : null,
+		model: state.model,
+		previous_response_id: req?.previous_response_id ?? null,
+		instructions: req?.instructions ?? null,
+		output,
+		error: null,
+		tools: req?.tools ?? [],
+		tool_choice: req?.tool_choice ?? "auto",
+		truncation: req?.truncation ?? "disabled",
+		parallel_tool_calls: req?.parallel_tool_calls ?? true,
+		text: { format: req?.text?.format ?? { type: "text" } },
+		top_p: req?.top_p ?? 1,
+		presence_penalty: req?.presence_penalty ?? 0,
+		frequency_penalty: req?.frequency_penalty ?? 0,
+		top_logprobs: req?.top_logprobs ?? 0,
+		temperature: req?.temperature ?? 1,
+		reasoning: {
+			effort: req?.reasoning?.effort ?? null,
+			summary: req?.reasoning?.summary ?? null,
+		},
+		usage,
+		max_output_tokens: req?.max_output_tokens ?? null,
+		max_tool_calls: req?.max_tool_calls ?? null,
+		store: req?.store ?? true,
+		background: req?.background ?? false,
+		service_tier: req?.service_tier ?? "default",
+		metadata: req?.metadata ?? {},
+		safety_identifier: req?.safety_identifier ?? null,
+		prompt_cache_key: req?.prompt_cache_key ?? null,
 	};
 }
 
@@ -81,14 +159,7 @@ export function createResponseCreatedEvent(state: StreamingState): SSEEvent {
 		event: "response.created",
 		data: JSON.stringify({
 			type: "response.created",
-			response: {
-				id: state.responseId,
-				object: "response",
-				created_at: state.createdAt,
-				model: state.model,
-				status: "in_progress",
-				output: [],
-			},
+			response: buildResponsePayload(state, { status: "in_progress" }),
 		}),
 	};
 }
@@ -142,6 +213,14 @@ export function processStreamChunk(
 			if (ptd?.cached_tokens !== undefined) {
 				state.usage.input_tokens_details = {
 					cached_tokens: ptd.cached_tokens as number,
+				};
+			}
+			const ctd = usage.completion_tokens_details as
+				| Record<string, unknown>
+				| undefined;
+			if (ctd?.reasoning_tokens !== undefined) {
+				state.usage.output_tokens_details = {
+					reasoning_tokens: ctd.reasoning_tokens as number,
 				};
 			}
 			if (usage.cost !== undefined) {
@@ -296,6 +375,14 @@ export function processStreamChunk(
 				cached_tokens: ptd.cached_tokens as number,
 			};
 		}
+		const ctd = usage.completion_tokens_details as
+			| Record<string, unknown>
+			| undefined;
+		if (ctd?.reasoning_tokens !== undefined) {
+			state.usage.output_tokens_details = {
+				reasoning_tokens: ctd.reasoning_tokens as number,
+			};
+		}
 		if (usage.cost !== undefined) {
 			state.usage.cost = usage.cost as number;
 		}
@@ -433,15 +520,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 		event: "response.completed",
 		data: JSON.stringify({
 			type: "response.completed",
-			response: {
-				id: state.responseId,
-				object: "response",
-				created_at: state.createdAt,
-				model: state.model,
-				output,
-				usage: state.usage,
-				status,
-			},
+			response: buildResponsePayload(state, { status, output }),
 		}),
 	});
 
@@ -456,15 +535,7 @@ export function createFailedEvent(state: StreamingState): SSEEvent {
 		event: "response.failed",
 		data: JSON.stringify({
 			type: "response.failed",
-			response: {
-				id: state.responseId,
-				object: "response",
-				created_at: state.createdAt,
-				model: state.model,
-				output: [],
-				usage: state.usage,
-				status: "failed",
-			},
+			response: buildResponsePayload(state, { status: "failed" }),
 		}),
 	};
 }

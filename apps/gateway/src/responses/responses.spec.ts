@@ -282,8 +282,8 @@ describe("convertChatResponseToResponses", () => {
 		expect(result.id).toMatch(/^resp_/);
 		expect(result.status).toBe("completed");
 		expect(result.model).toBe("gpt-4o-mini");
-		expect(result.usage.input_tokens).toBe(10);
-		expect(result.usage.output_tokens).toBe(5);
+		expect(result.usage!.input_tokens).toBe(10);
+		expect(result.usage!.output_tokens).toBe(5);
 
 		const messageOutput = result.output.find((o) => o.type === "message");
 		expect(messageOutput).toBeDefined();
@@ -443,8 +443,8 @@ describe("convertChatResponseToResponses", () => {
 
 		const result = convertChatResponseToResponses(chatResponse, "gpt-4o-mini");
 
-		expect(result.usage.cost).toBe(0.001);
-		expect(result.usage.cost_details).toEqual({
+		expect(result.usage!.cost).toBe(0.001);
+		expect(result.usage!.cost_details).toEqual({
 			upstream_inference_cost: 0.001,
 			upstream_inference_prompt_cost: 0.0005,
 			upstream_inference_completions_cost: 0.0005,

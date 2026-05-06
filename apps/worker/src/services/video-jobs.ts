@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
 
+import { getStopSignal, isStopRequested } from "@/shutdown.js";
+
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
@@ -37,6 +39,39 @@ import {
 	parseGcsUri,
 } from "@llmgateway/shared/gcs";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
+
+const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
+const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
+
+function fetchWithSignals(
+	url: string,
+	init: RequestInit,
+	timeoutMs: number,
+): Promise<Response> {
+	const stopSignal = getStopSignal();
+	const timeoutSignal = AbortSignal.timeout(timeoutMs);
+	return fetch(url, {
+		...init,
+		signal: AbortSignal.any([stopSignal, timeoutSignal]),
+	});
+}
+
+function isShutdownAbort(error: unknown): boolean {
+	if (!isStopRequested()) {
+		return false;
+	}
+	if (error instanceof Error && error.name === "AbortError") {
+		return true;
+	}
+	if (
+		error instanceof Error &&
+		error.cause instanceof Error &&
+		error.cause.name === "AbortError"
+	) {
+		return true;
+	}
+	return false;
+}
 
 const MAX_WEBHOOK_ATTEMPTS = 8;
 const WEBHOOK_BASE_DELAY_MS = 30_000;
@@ -1069,7 +1104,7 @@ async function fetchJsonResponse(
 	body: Record<string, unknown>;
 	response: Response;
 }> {
-	const response = await fetch(url, init);
+	const response = await fetchWithSignals(url, init, UPSTREAM_FETCH_TIMEOUT_MS);
 	const text = await response.text();
 
 	let body: Record<string, unknown> = {};
@@ -1813,14 +1848,18 @@ async function fetchUpstreamContentMetadata(
 		providerContext.baseUrl,
 		`/v1/videos/${job.upstreamId}/content`,
 	);
-	const response = await fetch(url, {
-		method: "GET",
-		headers: {
-			Authorization: `Bearer ${providerContext.token}`,
-			Accept: "application/json",
+	const response = await fetchWithSignals(
+		url,
+		{
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${providerContext.token}`,
+				Accept: "application/json",
+			},
+			redirect: "manual",
 		},
-		redirect: "manual",
-	});
+		UPSTREAM_FETCH_TIMEOUT_MS,
+	);
 	const contentType = response.headers.get("Content-Type") ?? "";
 	if (!contentType.toLowerCase().includes("application/json")) {
 		return null;
@@ -1886,6 +1925,9 @@ export async function processPendingVideoJobs(): Promise<void> {
 	const jobsToPoll = await claimDueVideoJobsForPolling(now);
 
 	for (const job of jobsToPoll) {
+		if (isStopRequested()) {
+			break;
+		}
 		try {
 			const upstreamStatus = await fetchUpstreamStatus(job);
 			let enrichedUpstreamStatus = upstreamStatus;
@@ -1982,6 +2024,14 @@ export async function processPendingVideoJobs(): Promise<void> {
 				}
 			}
 		} catch (error) {
+			if (isShutdownAbort(error)) {
+				logger.info("Skipping video job poll bookkeeping due to shutdown", {
+					videoJobId: job.id,
+					upstreamId: job.upstreamId,
+				});
+				break;
+			}
+
 			const message = error instanceof Error ? error.message : String(error);
 			logger.error(
 				"Error polling video job",
@@ -2079,6 +2129,9 @@ export async function processPendingVideoJobs(): Promise<void> {
 		.limit(25);
 
 	for (const job of terminalJobsToFinalize) {
+		if (isStopRequested()) {
+			break;
+		}
 		try {
 			await finalizeVideoJob(job);
 		} catch (error) {
@@ -2144,12 +2197,16 @@ async function deliverWebhook(
 	const startedAt = new Date();
 
 	try {
-		const response = await fetch(delivery.targetUrl, {
-			method: "POST",
-			headers,
-			body: payload,
-			redirect: "manual",
-		});
+		const response = await fetchWithSignals(
+			delivery.targetUrl,
+			{
+				method: "POST",
+				headers,
+				body: payload,
+				redirect: "manual",
+			},
+			WEBHOOK_DELIVERY_TIMEOUT_MS,
+		);
 		const responseText = (await response.text()).slice(0, 4000);
 
 		if (response.ok) {
@@ -2223,6 +2280,17 @@ async function deliverWebhook(
 			});
 		});
 	} catch (error) {
+		if (isShutdownAbort(error)) {
+			logger.info(
+				"Skipping webhook delivery bookkeeping due to shutdown; will retry on next worker run",
+				{
+					videoJobId: job.id,
+					deliveryId: delivery.id,
+				},
+			);
+			return;
+		}
+
 		const message =
 			error instanceof Error ? error.message : "Unknown webhook delivery error";
 
@@ -2280,6 +2348,9 @@ export async function processPendingWebhookDeliveries(): Promise<void> {
 		.limit(25);
 
 	for (const delivery of dueDeliveries) {
+		if (isStopRequested()) {
+			break;
+		}
 		const job = await db
 			.select()
 			.from(tables.videoJob)

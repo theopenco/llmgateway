@@ -684,8 +684,11 @@ export function transformStreamingToOpenai(
 			// path passes the empty values through and breaks downstream
 			// hasOpenAIFormat checks. Drop it — if any prompt filter actually
 			// fires, Azure surfaces it via a content_filter error/finish_reason.
+			// Responses API events also lack top-level id/object/choices/usage
+			// but always carry a `type` field, so guard against dropping them.
 			if (
 				usedProvider === "azure" &&
+				!data.type &&
 				!data.id &&
 				!data.object &&
 				(!data.choices || data.choices.length === 0) &&
@@ -1243,8 +1246,10 @@ export function transformStreamingToOpenai(
 			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
 			// chunk on some models — empty id/object/choices, no usage. Drop it
 			// for the same reason: it breaks downstream hasOpenAIFormat checks.
+			// Skip the guard for Responses API events (identified by `data.type`).
 			if (
 				usedProvider === "azure-ai-foundry" &&
+				!data.type &&
 				!data.id &&
 				!data.object &&
 				(!data.choices || data.choices.length === 0) &&
