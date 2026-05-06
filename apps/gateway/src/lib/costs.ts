@@ -101,6 +101,8 @@ export async function calculateCosts(
 	webSearchCount: number | null = null,
 	organizationId: string | null = null,
 	imageQuality?: string,
+	reportedImageInputTokens: number | null = null,
+	reportedImageOutputTokens: number | null = null,
 ) {
 	// Find the model info - try both base model name and provider model name
 	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
@@ -290,18 +292,30 @@ export async function calculateCosts(
 		return byResolution[size ?? "default"] ?? byResolution["default"];
 	}
 
-	// Track image input tokens separately (for Google image generation models).
-	// Uses imageInputTokensByResolution for per-resolution token counts and
-	// imageInputPrice for the per-token price. Falls back to 560 tokens/image
-	// with imageInputPrice if no resolution map is present.
+	// Track image input tokens separately. For image-output models (e.g.
+	// gpt-image-2) we prefer the upstream-reported image_tokens count, since
+	// the provider tokenises the input image and bills against it directly.
+	// For Google image-generation models we fall back to inputImageCount *
+	// imageInputTokensByResolution[size] (or 560/image legacy default).
 	const imageInputTokensPerImage = resolveTokensPerImage(
 		providerInfo.imageInputTokensByResolution,
 		imageSize,
 	);
 	const imageInputPricePerToken = providerInfo.imageInputPrice;
+	const isImageOutputModel = modelInfo.output?.includes("image") ?? false;
 	let imageInputTokens: number | null = null;
 	let imageInputCost: Decimal | null = null;
-	if (imageInputPricePerToken && inputImageCount > 0) {
+	if (
+		imageInputPricePerToken &&
+		isImageOutputModel &&
+		reportedImageInputTokens &&
+		reportedImageInputTokens > 0
+	) {
+		imageInputTokens = reportedImageInputTokens;
+		imageInputCost = new Decimal(imageInputTokens)
+			.times(imageInputPricePerToken)
+			.times(discountMultiplier);
+	} else if (imageInputPricePerToken && inputImageCount > 0) {
 		const LEGACY_TOKENS_PER_INPUT_IMAGE = 560;
 		const tokensPerImage =
 			imageInputTokensPerImage ?? LEGACY_TOKENS_PER_INPUT_IMAGE;
@@ -318,8 +332,18 @@ export async function calculateCosts(
 	const uncachedPromptTokens = cachedTokens
 		? calculatedPromptTokens - cachedTokens
 		: calculatedPromptTokens;
+	// For providers whose upstream usage already folds image tokens into
+	// prompt_tokens (OpenAI/Azure/xAI on image-output models), subtract them
+	// so the image portion isn't billed at both inputPrice and imageInputPrice.
+	const promptIncludesImageTokens =
+		isImageOutputModel &&
+		(provider === "openai" || provider === "azure" || provider === "xai");
+	const billableTextPromptTokens =
+		promptIncludesImageTokens && imageInputTokens
+			? Math.max(0, uncachedPromptTokens - imageInputTokens)
+			: uncachedPromptTokens;
 	// inputCost includes both text and image input costs when applicable
-	const inputCost = new Decimal(uncachedPromptTokens)
+	const inputCost = new Decimal(billableTextPromptTokens)
 		.times(inputPrice)
 		.times(discountMultiplier)
 		.plus(imageInputCost ?? 0);
@@ -349,11 +373,15 @@ export async function calculateCosts(
 	if (imageOutputPricePerToken && outputImageCount > 0) {
 		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
 		imageOutputTokens =
-			imageOutputTokensPerImage !== undefined
-				? outputImageCount * imageOutputTokensPerImage
-				: totalOutputTokens > 0
-					? totalOutputTokens
-					: outputImageCount * LEGACY_DEFAULT_TOKENS_PER_IMAGE;
+			isImageOutputModel &&
+			reportedImageOutputTokens &&
+			reportedImageOutputTokens > 0
+				? reportedImageOutputTokens
+				: imageOutputTokensPerImage !== undefined
+					? outputImageCount * imageOutputTokensPerImage
+					: totalOutputTokens > 0
+						? totalOutputTokens
+						: outputImageCount * LEGACY_DEFAULT_TOKENS_PER_IMAGE;
 		const textTokens = Math.max(0, totalOutputTokens - imageOutputTokens);
 
 		imageOutputCost = new Decimal(imageOutputTokens)

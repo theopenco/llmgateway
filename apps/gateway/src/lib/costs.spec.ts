@@ -379,7 +379,7 @@ describe("calculateCosts", () => {
 			"low",
 		);
 
-		const expectedInputCost = 1000 * (8 / 1e6);
+		const expectedInputCost = 1000 * (5 / 1e6);
 		const expectedImageOutputCost = 2000 * (30 / 1e6);
 
 		expect(result.imageOutputTokens).toBe(2000);
@@ -389,6 +389,95 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(
 			expectedInputCost + expectedImageOutputCost,
 		);
+	});
+
+	it("should bill reported image input tokens at imageInputPrice for gpt-image-2 edits", async () => {
+		// /v1/images/edits sends input images as part of the prompt. OpenAI's
+		// usage payload reports text vs image tokens via input_tokens_details.
+		// We expect the gateway to bill the image portion at imageInputPrice
+		// ($8/M) and the remaining text portion at inputPrice ($5/M) — without
+		// double-billing image tokens at the text rate.
+		const promptTokens = 524; // 12 text + 512 image (from real OpenAI response)
+		const reportedImageInputTokens = 512;
+		const completionTokens = 196;
+		const reportedImageOutputTokens = 196;
+
+		const result = await calculateCosts(
+			"gpt-image-2",
+			"openai",
+			promptTokens,
+			completionTokens,
+			null, // cachedTokens
+			undefined, // fullOutput
+			null, // reasoningTokens
+			1, // outputImageCount
+			"1024x1024", // imageSize
+			0, // inputImageCount (not used for openai)
+			null, // webSearchCount
+			null, // organizationId
+			"low", // imageQuality
+			reportedImageInputTokens,
+			reportedImageOutputTokens,
+		);
+
+		const expectedTextInputCost =
+			(promptTokens - reportedImageInputTokens) * (5 / 1e6);
+		const expectedImageInputCost = reportedImageInputTokens * (8 / 1e6);
+		const expectedImageOutputCost = reportedImageOutputTokens * (30 / 1e6);
+
+		expect(result.imageInputTokens).toBe(reportedImageInputTokens);
+		expect(result.imageInputCost).toBeCloseTo(expectedImageInputCost);
+		expect(result.imageOutputTokens).toBe(reportedImageOutputTokens);
+		expect(result.imageOutputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.inputCost).toBeCloseTo(
+			expectedTextInputCost + expectedImageInputCost,
+		);
+		expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.totalCost).toBeCloseTo(
+			expectedTextInputCost + expectedImageInputCost + expectedImageOutputCost,
+		);
+	});
+
+	it("should apply azure discount on top of split image/text input pricing for gpt-image-2", async () => {
+		const promptTokens = 524;
+		const reportedImageInputTokens = 512;
+		const completionTokens = 196;
+		const reportedImageOutputTokens = 196;
+
+		const result = await calculateCosts(
+			"gpt-image-2",
+			"azure",
+			promptTokens,
+			completionTokens,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+			null,
+			null,
+			"low",
+			reportedImageInputTokens,
+			reportedImageOutputTokens,
+		);
+
+		const discountMultiplier = 0.8; // azure has 20% hardcoded discount
+		const expectedTextInputCost =
+			(promptTokens - reportedImageInputTokens) *
+			(5 / 1e6) *
+			discountMultiplier;
+		const expectedImageInputCost =
+			reportedImageInputTokens * (8 / 1e6) * discountMultiplier;
+		const expectedImageOutputCost =
+			reportedImageOutputTokens * (30 / 1e6) * discountMultiplier;
+
+		expect(result.imageInputTokens).toBe(reportedImageInputTokens);
+		expect(result.imageInputCost).toBeCloseTo(expectedImageInputCost);
+		expect(result.inputCost).toBeCloseTo(
+			expectedTextInputCost + expectedImageInputCost,
+		);
+		expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
 	});
 
 	it("should return null for all image fields when no images", async () => {
