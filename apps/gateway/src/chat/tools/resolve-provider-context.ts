@@ -175,12 +175,14 @@ export async function resolveProviderContext(
 ): Promise<ProviderContext> {
 	const usedProvider = providerMapping.providerId as Provider;
 	const usedModel = providerMapping.modelName;
-	// Strip :region suffix for the actual upstream API call
-	const upstreamModelName = stripRegionFromModelName(
+	// Strip :region suffix for the actual upstream API call. The
+	// per-provider-key azure_deployment_name override is applied below once
+	// providerKey is resolved.
+	const strippedModelName = stripRegionFromModelName(
 		usedModel,
 		providerMapping.region,
 	);
-	const baseModelName = modelInfo.id || upstreamModelName;
+	const baseModelName = modelInfo.id || strippedModelName;
 	const usedModelMapping = usedModel;
 	const usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
@@ -310,6 +312,15 @@ export async function resolveProviderContext(
 	// --- Image generation check ---
 	const isImageGeneration =
 		providerMappingForSelected?.imageGenerations === true;
+
+	// Apply azure_deployment_name override (if set) to the upstream model
+	// name. Must run after providerKey is resolved so retry fallbacks also
+	// pick up the override.
+	const azureDeploymentName =
+		usedProvider === "azure"
+			? providerKey?.options?.azure_deployment_name
+			: undefined;
+	const upstreamModelName = azureDeploymentName || strippedModelName;
 
 	// --- URL resolution ---
 	// When using a provider key (BYOK), skip env vars entirely —

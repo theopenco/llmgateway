@@ -116,7 +116,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<a
-										href="https://code.llmgateway.io"
+										href="https://devpass.llmgateway.io"
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"

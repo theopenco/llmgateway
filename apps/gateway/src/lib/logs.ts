@@ -113,6 +113,27 @@ export function getUnifiedFinishReason(
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;
+		case "mistral":
+			if (finishReason === "stop") {
+				return UnifiedFinishReason.COMPLETED;
+			}
+			if (
+				finishReason === "length" ||
+				finishReason === "model_length" ||
+				finishReason === "incomplete"
+			) {
+				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (finishReason === "content_filter") {
+				return UnifiedFinishReason.CONTENT_FILTER;
+			}
+			if (finishReason === "tool_calls") {
+				return UnifiedFinishReason.TOOL_CALLS;
+			}
+			if (finishReason === "error") {
+				return UnifiedFinishReason.UPSTREAM_ERROR;
+			}
+			break;
 		default: // OpenAI format (also used by inference.net and other providers)
 			if (finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;

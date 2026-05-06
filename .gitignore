@@ -13,6 +13,7 @@ openapi.json
 .envrc
 llmgateway_data
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 *.http
 *.txt
 docker-compose-override-*.yml

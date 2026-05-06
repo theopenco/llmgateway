@@ -55,6 +55,12 @@ export function getFinishReasonFromError(
 		return "content_filter";
 	}
 
+	// Azure OpenAI prompt-side content filter (distinct from ResponsibleAIPolicyViolation,
+	// which fires on the response side and includes inner_error details)
+	if (errorText?.includes("Microsoft's content management policy")) {
+		return "content_filter";
+	}
+
 	// OpenAI safety system rejection (e.g. gpt-image-2 image generation)
 	if (errorText?.includes("Your request was rejected by the safety system")) {
 		return "content_filter";

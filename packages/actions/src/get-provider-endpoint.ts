@@ -252,9 +252,28 @@ export function getProviderEndpoint(
 				url = `https://${resource}.openai.azure.com`;
 				break;
 			}
-			case "canopywave":
-				url = "https://inference.canopywave.io";
+			case "azure-ai-foundry": {
+				const resource =
+					providerKeyOptions?.azure_ai_foundry_resource ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue("azure-ai-foundry", "resource", configIndex));
+
+				if (!resource) {
+					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
+					throw new Error(
+						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
+					);
+				}
+				if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
+					throw new Error(
+						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
+					);
+				}
+				url = `https://${resource}.services.ai.azure.com`;
 				break;
+			}
 			case "embercloud":
 				url = "https://api.embercloud.ai";
 				break;
@@ -405,6 +424,18 @@ export function getProviderEndpoint(
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}
+		case "azure-ai-foundry": {
+			const apiVersion =
+				providerKeyOptions?.azure_ai_foundry_api_version ??
+				getProviderEnvValue(
+					"azure-ai-foundry",
+					"apiVersion",
+					configIndex,
+					"2024-05-01-preview",
+				) ??
+				"2024-05-01-preview";
+			return `${url}/models/chat/completions?api-version=${apiVersion}`;
+		}
 		case "openai": {
 			if (imageGenerations) {
 				return `${url}/v1/images/generations`;
@@ -455,7 +486,6 @@ export function getProviderEndpoint(
 		case "moonshot":
 		case "nebius":
 		case "nanogpt":
-		case "canopywave":
 		case "minimax":
 		case "embercloud":
 		case "custom":

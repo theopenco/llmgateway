@@ -708,6 +708,22 @@ export const openaiModels = [
 				reasoning: true,
 				jsonOutput: false,
 			},
+			{
+				providerId: "azure",
+				modelName: "gpt-oss-120b",
+				inputPrice: 0.15 / 1e6,
+				outputPrice: 0.6 / 1e6,
+				requestPrice: 0,
+				contextSize: 131072,
+				maxOutput: 32768,
+				streaming: true,
+				vision: false,
+				tools: true,
+				reasoning: true,
+				// Azure's gpt-oss-120b accepts response_format but wraps the output
+				// in a `{"final": "..."}` envelope instead of the requested schema.
+				jsonOutput: false,
+			},
 		],
 	},
 	{
