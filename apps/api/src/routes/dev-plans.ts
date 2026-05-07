@@ -266,7 +266,7 @@ devPlans.openapi(subscribe, async (c) => {
 			],
 			allow_promotion_codes: true,
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?success=true`,
-			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard/plans?canceled=true`,
+			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
 				organizationId: personalOrg.id,
 				subscriptionType: "dev_plan",
