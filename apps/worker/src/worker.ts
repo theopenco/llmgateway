@@ -36,8 +36,8 @@ import {
 	sendLowBalanceEmail,
 } from "./services/follow-up-emails.js";
 import {
-	GLOBAL_DAILY_STATS_REFRESH_INTERVAL_SECONDS,
-	refreshGlobalDailyStats,
+	GLOBAL_DAILY_STATS_INTERVAL_SECONDS,
+	processClosedHours,
 } from "./services/global-stats-aggregator.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
@@ -1563,15 +1563,15 @@ async function runProjectStatsLoop() {
 
 async function runGlobalDailyStatsLoop() {
 	activeLoops++;
-	const interval = GLOBAL_DAILY_STATS_REFRESH_INTERVAL_SECONDS * 1000;
+	const interval = GLOBAL_DAILY_STATS_INTERVAL_SECONDS * 1000;
 	logger.info(
-		`Starting global daily stats loop (interval: ${GLOBAL_DAILY_STATS_REFRESH_INTERVAL_SECONDS} seconds)...`,
+		`Starting global daily stats loop (interval: ${GLOBAL_DAILY_STATS_INTERVAL_SECONDS} seconds)...`,
 	);
 
 	try {
 		while (!isStopRequested()) {
 			try {
-				await refreshGlobalDailyStats();
+				await processClosedHours();
 
 				await interruptibleSleep(interval);
 			} catch (error) {
@@ -1686,7 +1686,7 @@ export async function startWorker() {
 		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,
 	);
 	logger.info(
-		`- Global daily stats: runs every ${GLOBAL_DAILY_STATS_REFRESH_INTERVAL_SECONDS} seconds for cross-org aggregations`,
+		`- Global daily stats: runs every ${GLOBAL_DAILY_STATS_INTERVAL_SECONDS} seconds, processes closed hours incrementally`,
 	);
 	logger.info(
 		"- Follow-up emails: runs every hour to check for lifecycle emails",

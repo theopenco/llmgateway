@@ -1,11 +1,15 @@
+import { isStopRequested } from "@/shutdown.js";
+
 import {
 	db,
 	log,
 	globalDailyModelStats,
 	globalDailySourceStats,
+	globalDailyAggregationState,
 	sql,
 	and,
-	isNull,
+	eq,
+	getTableColumns,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -14,61 +18,145 @@ import {
 	getCommonAggregationFields,
 } from "./project-stats-aggregator.js";
 
-export const GLOBAL_DAILY_STATS_REFRESH_INTERVAL_SECONDS =
-	Number(process.env.GLOBAL_DAILY_STATS_REFRESH_INTERVAL_SECONDS) || 300;
+export const GLOBAL_DAILY_STATS_INTERVAL_SECONDS =
+	Number(process.env.GLOBAL_DAILY_STATS_INTERVAL_SECONDS) || 3600;
 
-const STATS_BATCH_SIZE = Number(process.env.STATS_BATCH_SIZE) || 100;
+// Hours that have closed within this many minutes are still considered
+// "in flight" — we wait this long after an hour ends before processing it,
+// so log inserts that landed slightly after their createdAt aren't missed
+// by the incremental path.
+const SETTLING_BUFFER_MINUTES =
+	Number(process.env.GLOBAL_DAILY_STATS_SETTLING_BUFFER_MINUTES) || 5;
 
-const STATS_BACKFILL_ENABLED = process.env.STATS_BACKFILL_ENABLED === "true";
-const STATS_BACKFILL_DAYS = Number(process.env.STATS_BACKFILL_DAYS) || 30;
+// On first run (no watermark yet), how far back to seed.
+const INITIAL_LOOKBACK_DAYS =
+	Number(process.env.GLOBAL_DAILY_STATS_INITIAL_LOOKBACK_DAYS) || 30;
 
-const STATS_STALE_ENABLED = process.env.STATS_STALE_ENABLED !== "false";
-const STATS_STALE_DAYS = Number(process.env.STATS_STALE_DAYS) || 7;
+// Cap per tick so a large catch-up doesn't tie up the worker.
+const MAX_HOURS_PER_TICK =
+	Number(process.env.GLOBAL_DAILY_STATS_MAX_HOURS_PER_TICK) || 100;
 
-function getCurrentDayStart(): string {
-	const now = new Date();
-	return formatUTCTimestamp(
-		new Date(
-			Date.UTC(
-				now.getUTCFullYear(),
-				now.getUTCMonth(),
-				now.getUTCDate(),
-				0,
-				0,
-				0,
-				0,
-			),
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const STATE_ROW_ID = "singleton";
+
+// Columns the aggregator sums into the daily totals. Excludes id / createdAt
+// / updatedAt / dimension columns.
+const AGGREGATE_KEYS = [
+	"requestCount",
+	"errorCount",
+	"cacheCount",
+	"streamedCount",
+	"nonStreamedCount",
+	"completedCount",
+	"lengthLimitCount",
+	"contentFilterCount",
+	"toolCallsCount",
+	"canceledCount",
+	"unknownFinishCount",
+	"clientErrorCount",
+	"gatewayErrorCount",
+	"upstreamErrorCount",
+	"inputTokens",
+	"outputTokens",
+	"totalTokens",
+	"reasoningTokens",
+	"cachedTokens",
+	"cacheWriteTokens",
+	"cost",
+	"inputCost",
+	"outputCost",
+	"requestCost",
+	"dataStorageCost",
+	"discountSavings",
+	"imageInputCost",
+	"imageOutputCost",
+	"videoOutputCost",
+	"cachedInputCost",
+	"cacheWriteInputCost",
+	"creditsRequestCount",
+	"apiKeysRequestCount",
+	"creditsCost",
+	"apiKeysCost",
+	"creditsDataStorageCost",
+	"apiKeysDataStorageCost",
+] as const;
+
+type AnyTable = Parameters<typeof getTableColumns>[0];
+
+// Build the SET clause for an ADD-style upsert: each metric column becomes
+// `col = "table"."col" + excluded.col`, so each hour's aggregated values
+// accumulate into the daily totals.
+function buildAddUpsertSet(table: AnyTable) {
+	const cols = getTableColumns(table) as Record<
+		string,
+		{ name: string } & object
+	>;
+	const set: Record<string, ReturnType<typeof sql>> = {};
+	for (const key of AGGREGATE_KEYS) {
+		const col = cols[key];
+		set[key] = sql`${col} + excluded.${sql.identifier(col.name)}`;
+	}
+	return set;
+}
+
+const MODEL_ADD_SET = buildAddUpsertSet(globalDailyModelStats);
+const SOURCE_ADD_SET = buildAddUpsertSet(globalDailySourceStats);
+
+function floorToHour(d: Date): Date {
+	return new Date(
+		Date.UTC(
+			d.getUTCFullYear(),
+			d.getUTCMonth(),
+			d.getUTCDate(),
+			d.getUTCHours(),
+			0,
+			0,
+			0,
 		),
 	);
 }
 
-async function recalculateGlobalDailyModelStats(dayTimestamp: string) {
-	const database = db;
+function floorToDay(d: Date): Date {
+	return new Date(
+		Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0),
+	);
+}
 
-	const modelStats = await database
+// Inferred drizzle transaction type so helpers can be called inside a tx.
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function aggregateHourIntoDailyStats(
+	database: Tx,
+	hour: Date,
+): Promise<void> {
+	const hourTimestamp = formatUTCTimestamp(hour);
+	const dayTimestamp = formatUTCTimestamp(floorToDay(hour));
+
+	const hourWindow = and(
+		sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+		sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+	);
+
+	const modelRows = await database
 		.select({
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
 			...getCommonAggregationFields(),
 		})
 		.from(log)
-		.where(
-			and(
-				sql`${log.createdAt} >= ${dayTimestamp}::timestamp`,
-				sql`${log.createdAt} < ${dayTimestamp}::timestamp + interval '1 day'`,
-			),
-		)
+		.where(hourWindow)
 		.groupBy(log.usedModel, log.usedProvider);
 
-	for (const stat of modelStats) {
-		const { usedModel, usedProvider, ...statsFields } = stat;
+	for (const row of modelRows) {
+		const { usedModel, usedProvider, ...stats } = row;
 		await database
 			.insert(globalDailyModelStats)
 			.values({
 				dayTimestamp: sql`${dayTimestamp}::timestamp`,
 				usedModel,
 				usedProvider,
-				...statsFields,
+				...stats,
 			})
 			.onConflictDoUpdate({
 				target: [
@@ -77,38 +165,29 @@ async function recalculateGlobalDailyModelStats(dayTimestamp: string) {
 					globalDailyModelStats.usedProvider,
 				],
 				set: {
-					...statsFields,
+					...MODEL_ADD_SET,
 					updatedAt: new Date(),
 				},
 			});
 	}
-}
 
-async function recalculateGlobalDailySourceStats(dayTimestamp: string) {
-	const database = db;
-
-	const sourceStats = await database
+	const sourceRows = await database
 		.select({
 			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
 			...getCommonAggregationFields(),
 		})
 		.from(log)
-		.where(
-			and(
-				sql`${log.createdAt} >= ${dayTimestamp}::timestamp`,
-				sql`${log.createdAt} < ${dayTimestamp}::timestamp + interval '1 day'`,
-			),
-		)
+		.where(hourWindow)
 		.groupBy(sql`coalesce(${log.source}, 'unknown')`);
 
-	for (const stat of sourceStats) {
-		const { source, ...statsFields } = stat;
+	for (const row of sourceRows) {
+		const { source, ...stats } = row;
 		await database
 			.insert(globalDailySourceStats)
 			.values({
 				dayTimestamp: sql`${dayTimestamp}::timestamp`,
 				source,
-				...statsFields,
+				...stats,
 			})
 			.onConflictDoUpdate({
 				target: [
@@ -116,256 +195,154 @@ async function recalculateGlobalDailySourceStats(dayTimestamp: string) {
 					globalDailySourceStats.source,
 				],
 				set: {
-					...statsFields,
+					...SOURCE_ADD_SET,
 					updatedAt: new Date(),
 				},
 			});
 	}
 }
 
-async function recalculateGlobalDailyStats(dayTimestamp: string) {
-	await recalculateGlobalDailyModelStats(dayTimestamp);
-	await recalculateGlobalDailySourceStats(dayTimestamp);
+async function readState() {
+	const [row] = await db
+		.select()
+		.from(globalDailyAggregationState)
+		.where(eq(globalDailyAggregationState.id, STATE_ROW_ID))
+		.limit(1);
+	return row;
 }
 
-export async function aggregateHistoricalGlobalStats() {
-	const database = db;
-	const currentDayStart = getCurrentDayStart();
-	let totalBucketsProcessed = 0;
-
-	try {
-		// Phase 1: Re-process stale day buckets where new logs arrived
-		// after the last aggregation. Days are deduped via groupBy because each
-		// day has many (model, provider) rows in globalDailyModelStats.
-		if (STATS_STALE_ENABLED) {
-			const staleStart =
-				STATS_STALE_DAYS > 0
-					? formatUTCTimestamp(
-							// eslint-disable-next-line no-mixed-operators
-							new Date(Date.now() - STATS_STALE_DAYS * 24 * 60 * 60 * 1000),
-						)
-					: undefined;
-
-			logger.info(
-				`[global-stale] Scanning for stale day buckets (lookback: ${staleStart ?? "unlimited"})`,
-			);
-
-			const staleBuckets = await database
-				.select({
-					dayTimestamp:
-						sql<string>`to_char(${globalDailyModelStats.dayTimestamp}, 'YYYY-MM-DD HH24:MI:SS')`.as(
-							"dayTimestamp",
-						),
-				})
-				.from(globalDailyModelStats)
-				.where(
-					staleStart
-						? sql`${globalDailyModelStats.dayTimestamp} >= ${staleStart}::timestamp`
-						: undefined,
-				)
-				.groupBy(globalDailyModelStats.dayTimestamp)
-				.having(
-					sql`EXISTS (
-						SELECT 1 FROM ${log}
-						WHERE ${log.createdAt} >= ${globalDailyModelStats.dayTimestamp}
-							AND ${log.createdAt} < ${globalDailyModelStats.dayTimestamp} + interval '1 day'
-							AND ${log.createdAt} > MIN(${globalDailyModelStats.updatedAt})
-						LIMIT 1
-					)`,
-				)
-				.orderBy(globalDailyModelStats.dayTimestamp)
-				.limit(STATS_BATCH_SIZE);
-
-			if (staleBuckets.length > 0) {
-				logger.info(
-					`[global-stale] Found ${staleBuckets.length} stale day buckets with new logs (oldest: ${staleBuckets[0].dayTimestamp}, newest: ${staleBuckets[staleBuckets.length - 1].dayTimestamp})`,
-				);
-
-				for (let i = 0; i < staleBuckets.length; i++) {
-					const bucket = staleBuckets[i];
-					await recalculateGlobalDailyStats(bucket.dayTimestamp);
-					logger.info(
-						`[global-stale] Processed bucket ${i + 1}/${staleBuckets.length}: day=${bucket.dayTimestamp}`,
-					);
-				}
-
-				totalBucketsProcessed += staleBuckets.length;
-
-				if (staleBuckets.length === STATS_BATCH_SIZE) {
-					logger.info(
-						`[global-stale] Batch limit reached (${STATS_BATCH_SIZE}), more stale buckets may remain — will continue in next run`,
-					);
-				}
-			} else {
-				logger.debug("[global-stale] No stale buckets found");
-			}
-		}
-
-		// Phase 2: Backfill — find day buckets present in `log` but missing
-		// from globalDailyModelStats.
-		if (STATS_BACKFILL_ENABLED) {
-			const backfillStart =
-				STATS_BACKFILL_DAYS > 0
-					? formatUTCTimestamp(
-							// eslint-disable-next-line no-mixed-operators
-							new Date(Date.now() - STATS_BACKFILL_DAYS * 24 * 60 * 60 * 1000),
-						)
-					: undefined;
-
-			logger.info(
-				`[global-backfill] Scanning for unprocessed day buckets (lookback: ${backfillStart ?? "unlimited"})`,
-			);
-
-			const backfillBuckets = await database
-				.select({
-					dayTimestamp:
-						sql<string>`to_char(date_trunc('day', ${log.createdAt}), 'YYYY-MM-DD HH24:MI:SS')`.as(
-							"dayTimestamp",
-						),
-				})
-				.from(log)
-				.leftJoin(
-					globalDailyModelStats,
-					sql`${globalDailyModelStats.dayTimestamp} = date_trunc('day', ${log.createdAt})`,
-				)
-				.where(
-					and(
-						sql`${log.createdAt} < ${currentDayStart}::timestamp`,
-						isNull(globalDailyModelStats.dayTimestamp),
-						backfillStart
-							? sql`${log.createdAt} >= ${backfillStart}::timestamp`
-							: undefined,
-					),
-				)
-				.groupBy(sql`date_trunc('day', ${log.createdAt})`)
-				.orderBy(sql`date_trunc('day', ${log.createdAt}) ASC`)
-				.limit(STATS_BATCH_SIZE);
-
-			if (backfillBuckets.length > 0) {
-				logger.info(
-					`[global-backfill] Found ${backfillBuckets.length} unprocessed day buckets (oldest: ${backfillBuckets[0].dayTimestamp}, newest: ${backfillBuckets[backfillBuckets.length - 1].dayTimestamp})`,
-				);
-
-				for (let i = 0; i < backfillBuckets.length; i++) {
-					const bucket = backfillBuckets[i];
-					await recalculateGlobalDailyStats(bucket.dayTimestamp);
-					logger.info(
-						`[global-backfill] Processed bucket ${i + 1}/${backfillBuckets.length}: day=${bucket.dayTimestamp}`,
-					);
-				}
-
-				totalBucketsProcessed += backfillBuckets.length;
-
-				if (backfillBuckets.length === STATS_BATCH_SIZE) {
-					logger.info(
-						`[global-backfill] Batch limit reached (${STATS_BATCH_SIZE}), more unprocessed buckets may remain — will continue in next run`,
-					);
-				} else {
-					logger.info(
-						`[global-backfill] Complete: ${backfillBuckets.length} buckets processed`,
-					);
-				}
-			} else {
-				logger.debug("[global-backfill] No unprocessed buckets found");
-			}
-		}
-
-		logger.info(
-			`Global daily stats aggregation complete: ${totalBucketsProcessed} total buckets processed`,
-		);
-
-		return {
-			bucketsProcessed: totalBucketsProcessed,
-		};
-	} catch (error) {
-		logger.error(
-			"Error processing logs for global daily stats aggregation",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-		throw error;
-	}
+async function setLastProcessedHour(database: Tx, hour: Date): Promise<void> {
+	await database
+		.insert(globalDailyAggregationState)
+		.values({ id: STATE_ROW_ID, lastProcessedHour: hour })
+		.onConflictDoUpdate({
+			target: globalDailyAggregationState.id,
+			set: { lastProcessedHour: hour, updatedAt: new Date() },
+		});
 }
 
-export async function refreshCurrentDayStats() {
-	const database = db;
-	const currentDayStart = getCurrentDayStart();
+async function setLastSafetyNetDay(day: Date): Promise<void> {
+	await db
+		.insert(globalDailyAggregationState)
+		.values({ id: STATE_ROW_ID, lastSafetyNetDay: day })
+		.onConflictDoUpdate({
+			target: globalDailyAggregationState.id,
+			set: { lastSafetyNetDay: day, updatedAt: new Date() },
+		});
+}
 
-	logger.info(`Refreshing current day global stats for ${currentDayStart}`);
+// Recompute a closed day from scratch: wipe its rows, then re-aggregate each
+// of its 24 hours into the now-empty bucket. Catches late-arriving logs that
+// the incremental path missed.
+async function recomputeDayFully(day: Date): Promise<void> {
+	const dayStr = formatUTCTimestamp(day);
 
-	try {
-		// Skip the full-day rescan if nothing has changed since the last refresh.
-		// EXISTS+LIMIT 1 is an index-only scan on log_created_at_*_idx — sub-ms.
-		// Without this guard the worker rescans every row in the current day on
-		// every tick (288 times/day at 5-min cadence), which gets expensive once
-		// daily volume reaches millions.
-		const [watermark] = await database
-			.select({
-				minUpdatedAt: sql<Date>`MIN(${globalDailyModelStats.updatedAt})`.as(
-					"minUpdatedAt",
-				),
-			})
-			.from(globalDailyModelStats)
+	await db.transaction(async (tx) => {
+		await tx
+			.delete(globalDailyModelStats)
+			.where(sql`${globalDailyModelStats.dayTimestamp} = ${dayStr}::timestamp`);
+		await tx
+			.delete(globalDailySourceStats)
 			.where(
-				sql`${globalDailyModelStats.dayTimestamp} = ${currentDayStart}::timestamp`,
+				sql`${globalDailySourceStats.dayTimestamp} = ${dayStr}::timestamp`,
 			);
+	});
 
-		if (watermark?.minUpdatedAt) {
-			const [{ hasNewLogs }] = await database
-				.select({
-					hasNewLogs: sql<boolean>`EXISTS (
-						SELECT 1 FROM ${log}
-						WHERE ${log.createdAt} >= ${currentDayStart}::timestamp
-							AND ${log.createdAt} < ${currentDayStart}::timestamp + interval '1 day'
-							AND ${log.createdAt} > ${watermark.minUpdatedAt}
-						LIMIT 1
-					)`.as("hasNewLogs"),
-				})
-				.from(sql`(SELECT 1) AS dummy`);
-
-			if (!hasNewLogs) {
-				logger.debug(
-					`No new logs since last refresh (${watermark.minUpdatedAt.toISOString()}), skipping current-day rescan`,
-				);
-				return;
-			}
+	for (let h = 0; h < 24; h++) {
+		if (isStopRequested()) {
+			logger.info(
+				`[global-safety-net] Stop requested mid-recompute of ${dayStr}, leaving lastSafetyNetDay unchanged so next start retries`,
+			);
+			return;
 		}
-
-		await recalculateGlobalDailyStats(currentDayStart);
-		logger.info(`Refreshed current day global stats (${currentDayStart})`);
-	} catch (error) {
-		logger.error(
-			"Error refreshing current day global stats",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-		throw error;
+		const hour = new Date(day.getTime() + h * HOUR_MS); // eslint-disable-line no-mixed-operators
+		await db.transaction(async (tx) => {
+			await aggregateHourIntoDailyStats(tx, hour);
+		});
 	}
 }
 
-export async function refreshGlobalDailyStats() {
+async function runSafetyNetIfNeeded(now: Date): Promise<void> {
+	const todayStart = floorToDay(now);
+
+	const yesterdayStart = new Date(todayStart.getTime() - DAY_MS);
+
+	const state = await readState();
+	if (state?.lastSafetyNetDay && state.lastSafetyNetDay >= yesterdayStart) {
+		return;
+	}
+
+	logger.info(
+		`[global-safety-net] Recomputing ${formatUTCTimestamp(yesterdayStart)} from logs`,
+	);
+
+	await recomputeDayFully(yesterdayStart);
+	await setLastSafetyNetDay(yesterdayStart);
+
+	logger.info(
+		`[global-safety-net] Recompute complete for ${formatUTCTimestamp(yesterdayStart)}`,
+	);
+}
+
+export async function processClosedHours(): Promise<void> {
 	const start = Date.now();
-	logger.info("Starting global daily stats refresh...");
+	const now = new Date();
+	const settlingMs = SETTLING_BUFFER_MINUTES * 60 * 1000;
+	const cutoffMs = now.getTime() - HOUR_MS - settlingMs;
+	const latestSafeHour = floorToHour(new Date(cutoffMs));
 
-	try {
-		const liveStart = Date.now();
-		await refreshCurrentDayStats();
-		logger.info(
-			`Current day global stats refresh took ${Date.now() - liveStart}ms`,
-		);
+	const state = await readState();
 
-		const recentStart = Date.now();
-		await aggregateHistoricalGlobalStats();
+	let nextHour: Date;
+	if (state?.lastProcessedHour) {
+		nextHour = new Date(state.lastProcessedHour.getTime() + HOUR_MS);
+	} else {
+		const lookbackMs = INITIAL_LOOKBACK_DAYS * DAY_MS;
+		nextHour = floorToHour(new Date(now.getTime() - lookbackMs));
 		logger.info(
-			`Global stale detection + backfill took ${Date.now() - recentStart}ms`,
+			`[global] No watermark, seeding from ${formatUTCTimestamp(nextHour)}`,
 		);
+	}
 
+	let processed = 0;
+	while (nextHour <= latestSafeHour && processed < MAX_HOURS_PER_TICK) {
+		if (isStopRequested()) {
+			logger.info(`[global] Stop requested, processed ${processed} hours`);
+			break;
+		}
+
+		const hour = nextHour;
+		await db.transaction(async (tx) => {
+			await aggregateHourIntoDailyStats(tx, hour);
+			await setLastProcessedHour(tx, hour);
+		});
+
+		processed++;
+		nextHour = new Date(hour.getTime() + HOUR_MS);
+	}
+
+	if (processed >= MAX_HOURS_PER_TICK && nextHour <= latestSafeHour) {
 		logger.info(
-			`Global daily stats refresh complete in ${Date.now() - start}ms`,
+			`[global] Hit per-tick cap (${MAX_HOURS_PER_TICK}), more hours pending — will continue next tick`,
 		);
-	} catch (error) {
-		logger.error(
-			"Error refreshing global daily stats",
-			error instanceof Error ? error : new Error(String(error)),
+	}
+
+	if (processed > 0) {
+		logger.info(
+			`[global] Processed ${processed} closed hours in ${Date.now() - start}ms (watermark now ${formatUTCTimestamp(new Date(nextHour.getTime() - HOUR_MS))})`,
 		);
-		throw error;
+	} else {
+		logger.debug("[global] No new closed hours to process");
+	}
+
+	if (!isStopRequested()) {
+		try {
+			await runSafetyNetIfNeeded(now);
+		} catch (error) {
+			logger.error(
+				"[global-safety-net] Failed",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
 	}
 }

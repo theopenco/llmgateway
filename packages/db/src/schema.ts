@@ -2084,3 +2084,20 @@ export const globalDailySourceStats = pgTable(
 		),
 	],
 );
+
+// Singleton state row for the hourly incremental global-daily aggregator.
+// `lastProcessedHour` is the last UTC hour that has been folded into the
+// global daily stats. `lastSafetyNetDay` is the most recent UTC day that
+// has been fully recomputed by the daily safety-net pass.
+export const globalDailyAggregationState = pgTable(
+	"global_daily_aggregation_state",
+	{
+		id: text().primaryKey().notNull().default("singleton"),
+		lastProcessedHour: timestamp(),
+		lastSafetyNetDay: timestamp(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+);
