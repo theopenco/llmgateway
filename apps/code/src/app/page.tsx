@@ -53,6 +53,8 @@ function ProductHuntIcon({ className }: { className?: string }) {
 			className={className}
 			viewBox="0 0 24 24"
 			xmlns="http://www.w3.org/2000/svg"
+			aria-hidden="true"
+			focusable="false"
 		>
 			<circle cx="12" cy="12" r="12" fill="#FF6154" />
 			<path
