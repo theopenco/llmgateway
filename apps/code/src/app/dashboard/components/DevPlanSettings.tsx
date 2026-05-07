@@ -209,7 +209,8 @@ export default function DevPlanSettings({
 							<p className="text-xs text-muted-foreground">
 								Store full request and response payloads for analytics and
 								debugging. When off, only metadata is kept. Storage is billed,
-								and this is only required when using the Responses API.
+								and this is only required when using the Responses API or for
+								debugging purposes.
 							</p>
 						</div>
 						<Switch
