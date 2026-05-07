@@ -39,6 +39,7 @@ import {
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
 	peekProviderRateLimit,
+	pickNonRateLimitedCandidates,
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
@@ -900,6 +901,12 @@ const completions = createRoute({
 									cached_tokens: z.number(),
 									cache_write_tokens: z.number().optional(),
 									cache_creation_tokens: z.number().optional(),
+									cache_creation: z
+										.object({
+											ephemeral_5m_input_tokens: z.number(),
+											ephemeral_1h_input_tokens: z.number(),
+										})
+										.optional(),
 									audio_tokens: z.number().optional(),
 									video_tokens: z.number().optional(),
 								})
@@ -921,6 +928,7 @@ const completions = createRoute({
 									input_cost: z.number().nullable().optional(),
 									output_cost: z.number().nullable().optional(),
 									cached_input_cost: z.number().nullable().optional(),
+									cache_write_input_cost: z.number().nullable().optional(),
 									request_cost: z.number().nullable().optional(),
 									web_search_cost: z.number().nullable().optional(),
 									image_input_cost: z.number().nullable().optional(),
@@ -2154,23 +2162,11 @@ chat.openapi(completions, async (c) => {
 					return true;
 				});
 
-				// Also filter out rate-limited alternatives
-				const rateLimitedAlternatives = await filterRateLimitedProviders(
+				const candidatesForRouting = await pickNonRateLimitedCandidates(
 					project.organizationId,
-					availableModelProviders.map((p) => ({
-						providerId: p.providerId,
-						model: baseModelId,
-						providerModelName: p.modelName,
-					})),
+					baseModelId,
+					availableModelProviders,
 				);
-				const nonRateLimitedAlternatives = availableModelProviders.filter(
-					(p) => !rateLimitedAlternatives.has(p.providerId),
-				);
-
-				const candidatesForRouting =
-					nonRateLimitedAlternatives.length > 0
-						? nonRateLimitedAlternatives
-						: availableModelProviders;
 
 				if (candidatesForRouting.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
@@ -2319,7 +2315,13 @@ chat.openapi(completions, async (c) => {
 						),
 				);
 
-				if (availableModelProviders.length > 0) {
+				const uptimeFallbackCandidates = await pickNonRateLimitedCandidates(
+					project.organizationId,
+					baseModelId,
+					availableModelProviders,
+				);
+
+				if (uptimeFallbackCandidates.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
 					const modelWithPricing = rawModelForFallback
 						? {
@@ -2332,7 +2334,7 @@ chat.openapi(completions, async (c) => {
 
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
-						const metricsCombinations = availableModelProviders.map((p) => ({
+						const metricsCombinations = uptimeFallbackCandidates.map((p) => ({
 							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
 							providerId: p.providerId,
 							region: p.region,
@@ -2342,7 +2344,7 @@ chat.openapi(completions, async (c) => {
 							await getProviderMetricsForCombinations(metricsCombinations);
 						const providerAgnosticCandidates =
 							collapseProvidersToBestRegionPerProvider(
-								availableModelProviders,
+								uptimeFallbackCandidates,
 								modelWithPricing,
 								{
 									metricsMap: allMetricsMap,
@@ -3515,6 +3517,8 @@ chat.openapi(completions, async (c) => {
 				let totalTokens = null;
 				let reasoningTokens = null;
 				let cachedTokens = null;
+				let cacheWriteTokens: number | null = null;
+				let cacheWrite1hTokens: number | null = null;
 				let rawCachedResponseData = ""; // Raw SSE data from cached response
 				let cachedResponseSize = 0; // Track size incrementally to avoid expensive stringify
 
@@ -3562,6 +3566,21 @@ chat.openapi(completions, async (c) => {
 							if (chunkData.usage.prompt_tokens_details?.cached_tokens) {
 								cachedTokens =
 									chunkData.usage.prompt_tokens_details.cached_tokens;
+							}
+							const chunkCacheWrite =
+								chunkData.usage.prompt_tokens_details?.cache_write_tokens ??
+								chunkData.usage.prompt_tokens_details?.cache_creation_tokens;
+							if (chunkCacheWrite !== undefined && chunkCacheWrite !== null) {
+								cacheWriteTokens = chunkCacheWrite;
+							}
+							const chunkCacheWrite1h =
+								chunkData.usage.prompt_tokens_details?.cache_creation
+									?.ephemeral_1h_input_tokens;
+							if (
+								chunkCacheWrite1h !== undefined &&
+								chunkCacheWrite1h !== null
+							) {
+								cacheWrite1hTokens = chunkCacheWrite1h;
 							}
 						}
 					} catch (e) {
@@ -3626,6 +3645,11 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 					null, // webSearchCount
 					project.organizationId,
+					undefined,
+					{
+						cacheWriteTokens,
+						cacheWrite1hTokens,
+					},
 				);
 
 				await insertLogEntry({
@@ -3649,6 +3673,7 @@ chat.openapi(completions, async (c) => {
 						: (totalTokens?.toString() ?? null),
 					reasoningTokens: reasoningTokens?.toString() ?? null,
 					cachedTokens: cachedTokens?.toString() ?? null,
+					cacheWriteTokens: cacheWriteTokens?.toString() ?? null,
 					hasError: false,
 					streamed: true,
 					canceled: false,
@@ -3656,6 +3681,7 @@ chat.openapi(completions, async (c) => {
 					inputCost: costs.inputCost ?? 0,
 					outputCost: costs.outputCost ?? 0,
 					cachedInputCost: costs.cachedInputCost ?? 0,
+					cacheWriteInputCost: costs.cacheWriteInputCost ?? 0,
 					requestCost: costs.requestCost ?? 0,
 					webSearchCost: costs.webSearchCost ?? 0,
 					imageInputTokens: costs.imageInputTokens?.toString() ?? null,
@@ -3779,6 +3805,17 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 					null, // webSearchCount
 					project.organizationId,
+					undefined,
+					{
+						cacheWriteTokens:
+							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
+							cachedResponse.usage?.prompt_tokens_details
+								?.cache_creation_tokens ??
+							null,
+						cacheWrite1hTokens:
+							cachedResponse.usage?.prompt_tokens_details?.cache_creation
+								?.ephemeral_1h_input_tokens ?? null,
+					},
 				);
 
 				// Estimate cached response size based on content to avoid expensive stringify
@@ -3816,6 +3853,11 @@ chat.openapi(completions, async (c) => {
 					reasoningTokens: cachedResponse.usage?.reasoning_tokens ?? null,
 					cachedTokens:
 						cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
+					cacheWriteTokens:
+						(
+							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
+							cachedResponse.usage?.prompt_tokens_details?.cache_creation_tokens
+						)?.toString() ?? null,
 					hasError: false,
 					streamed: false,
 					canceled: false,
@@ -3823,6 +3865,7 @@ chat.openapi(completions, async (c) => {
 					inputCost: cachedCosts.inputCost ?? 0,
 					outputCost: cachedCosts.outputCost ?? 0,
 					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
+					cacheWriteInputCost: cachedCosts.cacheWriteInputCost ?? 0,
 					requestCost: cachedCosts.requestCost ?? 0,
 					webSearchCost: cachedCosts.webSearchCost ?? 0,
 					imageInputTokens: cachedCosts.imageInputTokens?.toString() ?? null,
@@ -4435,6 +4478,7 @@ chat.openapi(completions, async (c) => {
 							inputCost: streamingCosts.inputCost,
 							outputCost: streamingCosts.outputCost,
 							cachedInputCost: streamingCosts.cachedInputCost,
+							cacheWriteInputCost: streamingCosts.cacheWriteInputCost,
 							requestCost: streamingCosts.requestCost,
 							webSearchCost: streamingCosts.webSearchCost,
 							imageInputCost: streamingCosts.imageInputCost,
@@ -5757,6 +5801,8 @@ chat.openapi(completions, async (c) => {
 				let reasoningTokens = null;
 				let cachedTokens = null;
 				let cacheCreationTokens: number | null = null;
+				let cacheCreation5mTokens: number | null = null;
+				let cacheCreation1hTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -6179,6 +6225,10 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
+										{
+											cacheWriteTokens: cacheCreationTokens,
+											cacheWrite1hTokens: cacheCreation1hTokens,
+										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
 										streamingCosts.promptTokens ?? finalPromptTokens,
@@ -6221,6 +6271,22 @@ chat.openapi(completions, async (c) => {
 													cacheCreationTokens > 0 && {
 														cache_creation_tokens: cacheCreationTokens,
 													}),
+												...(cacheCreationTokens !== null &&
+													cacheCreationTokens > 0 &&
+													(cacheCreation5mTokens !== null ||
+														cacheCreation1hTokens !== null) && {
+														cache_creation: {
+															ephemeral_5m_input_tokens:
+																cacheCreation5mTokens ??
+																Math.max(
+																	0,
+																	cacheCreationTokens -
+																		(cacheCreation1hTokens ?? 0),
+																),
+															ephemeral_1h_input_tokens:
+																cacheCreation1hTokens ?? 0,
+														},
+													}),
 											},
 										}),
 									};
@@ -6230,6 +6296,8 @@ chat.openapi(completions, async (c) => {
 													inputCost: streamingCosts.inputCost,
 													outputCost: streamingCosts.outputCost,
 													cachedInputCost: streamingCosts.cachedInputCost,
+													cacheWriteInputCost:
+														streamingCosts.cacheWriteInputCost,
 													requestCost: streamingCosts.requestCost,
 													webSearchCost: streamingCosts.webSearchCost,
 													imageInputCost: streamingCosts.imageInputCost,
@@ -6961,6 +7029,19 @@ chat.openapi(completions, async (c) => {
 								if (usage.cacheCreationTokens !== null) {
 									cacheCreationTokens = usage.cacheCreationTokens;
 								}
+								if (usage.cacheCreation5mTokens !== null) {
+									cacheCreation5mTokens = usage.cacheCreation5mTokens;
+								}
+								if (usage.cacheCreation1hTokens !== null) {
+									cacheCreation1hTokens = usage.cacheCreation1hTokens;
+								}
+								if (
+									usage.totalTokens === null &&
+									promptTokens !== null &&
+									completionTokens !== null
+								) {
+									totalTokens = promptTokens + completionTokens;
+								}
 
 								// Estimate tokens if not provided and we have a finish reason
 								if (finishReason && (!promptTokens || !completionTokens)) {
@@ -7395,6 +7476,7 @@ chat.openapi(completions, async (c) => {
 										inputCost: null,
 										outputCost: null,
 										cachedInputCost: null,
+										cacheWriteInputCost: null,
 										requestCost: null,
 										webSearchCost: null,
 										imageInputTokens: null,
@@ -7405,6 +7487,7 @@ chat.openapi(completions, async (c) => {
 										promptTokens: null,
 										completionTokens: null,
 										cachedTokens: null,
+										cacheWriteTokens: null,
 										estimatedCost: false,
 										discount: undefined,
 										pricingTier: undefined,
@@ -7430,6 +7513,10 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
+										{
+											cacheWriteTokens: cacheCreationTokens,
+											cacheWrite1hTokens: cacheCreation1hTokens,
+										},
 									);
 						if (streamingCostsEarly.totalCost !== null) {
 							streamingCostsEarly.dataStorageCost = toDataStorageCostNumber(
@@ -7495,6 +7582,22 @@ chat.openapi(completions, async (c) => {
 													cacheCreationTokens > 0 && {
 														cache_creation_tokens: cacheCreationTokens,
 													}),
+												...(cacheCreationTokens !== null &&
+													cacheCreationTokens > 0 &&
+													(cacheCreation5mTokens !== null ||
+														cacheCreation1hTokens !== null) && {
+														cache_creation: {
+															ephemeral_5m_input_tokens:
+																cacheCreation5mTokens ??
+																Math.max(
+																	0,
+																	cacheCreationTokens -
+																		(cacheCreation1hTokens ?? 0),
+																),
+															ephemeral_1h_input_tokens:
+																cacheCreation1hTokens ?? 0,
+														},
+													}),
 											},
 										}),
 									};
@@ -7503,6 +7606,8 @@ chat.openapi(completions, async (c) => {
 											inputCost: streamingCostsEarly.inputCost,
 											outputCost: streamingCostsEarly.outputCost,
 											cachedInputCost: streamingCostsEarly.cachedInputCost,
+											cacheWriteInputCost:
+												streamingCostsEarly.cacheWriteInputCost,
 											requestCost: streamingCostsEarly.requestCost,
 											webSearchCost: streamingCostsEarly.webSearchCost,
 											imageInputCost: streamingCostsEarly.imageInputCost,
@@ -7685,6 +7790,7 @@ chat.openapi(completions, async (c) => {
 									inputCost: null,
 									outputCost: null,
 									cachedInputCost: null,
+									cacheWriteInputCost: null,
 									requestCost: null,
 									webSearchCost: null,
 									imageInputTokens: null,
@@ -7695,6 +7801,7 @@ chat.openapi(completions, async (c) => {
 									promptTokens: null,
 									completionTokens: null,
 									cachedTokens: null,
+									cacheWriteTokens: null,
 									estimatedCost: false,
 									discount: undefined,
 									pricingTier: undefined,
@@ -7720,6 +7827,10 @@ chat.openapi(completions, async (c) => {
 									webSearchCount,
 									project.organizationId,
 									image_config?.image_quality,
+									{
+										cacheWriteTokens: cacheCreationTokens,
+										cacheWrite1hTokens: cacheCreation1hTokens,
+									},
 								));
 
 					// Use costs.promptTokens as canonical value (includes image input
@@ -7838,6 +7949,9 @@ chat.openapi(completions, async (c) => {
 						cachedTokens: shouldIncludeTokensForBilling
 							? (cachedTokens?.toString() ?? null)
 							: null,
+						cacheWriteTokens: shouldIncludeTokensForBilling
+							? (cacheCreationTokens?.toString() ?? null)
+							: null,
 						hasError: streamingError !== null,
 						errorDetails: streamingError
 							? {
@@ -7875,6 +7989,7 @@ chat.openapi(completions, async (c) => {
 						inputCost: costs.inputCost,
 						outputCost: costs.outputCost,
 						cachedInputCost: costs.cachedInputCost,
+						cacheWriteInputCost: costs.cacheWriteInputCost,
 						requestCost: costs.requestCost,
 						webSearchCost: costs.webSearchCost,
 						imageInputTokens: costs.imageInputTokens?.toString() ?? null,
@@ -9305,6 +9420,8 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		cachedTokens,
 		cacheCreationTokens,
+		cacheCreation5mTokens,
+		cacheCreation1hTokens,
 		imageInputTokens,
 		imageOutputTokens,
 		toolResults,
@@ -9424,6 +9541,10 @@ chat.openapi(completions, async (c) => {
 		webSearchCount,
 		project.organizationId,
 		image_config?.image_quality,
+		{
+			cacheWriteTokens: cacheCreationTokens,
+			cacheWrite1hTokens: cacheCreation1hTokens,
+		},
 	);
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
@@ -9475,6 +9596,7 @@ chat.openapi(completions, async (c) => {
 					inputCost: costs.inputCost,
 					outputCost: costs.outputCost,
 					cachedInputCost: costs.cachedInputCost,
+					cacheWriteInputCost: costs.cacheWriteInputCost,
 					requestCost: costs.requestCost,
 					webSearchCost: costs.webSearchCost,
 					imageInputCost: costs.imageInputCost,
@@ -9491,6 +9613,8 @@ chat.openapi(completions, async (c) => {
 		cacheCreationTokens,
 		imageInputTokens,
 		imageOutputTokens,
+		cacheCreation5mTokens,
+		cacheCreation1hTokens,
 	);
 
 	// Extract plugin IDs for logging
@@ -9607,6 +9731,7 @@ chat.openapi(completions, async (c) => {
 			).toString(),
 		reasoningTokens: calculatedReasoningTokens?.toString() ?? null,
 		cachedTokens: cachedTokens?.toString() ?? null,
+		cacheWriteTokens: cacheCreationTokens?.toString() ?? null,
 		hasError: hasEmptyNonStreamingResponse,
 		streamed: false,
 		canceled: false,
@@ -9621,6 +9746,7 @@ chat.openapi(completions, async (c) => {
 		inputCost: costs.inputCost,
 		outputCost: costs.outputCost,
 		cachedInputCost: costs.cachedInputCost,
+		cacheWriteInputCost: costs.cacheWriteInputCost,
 		requestCost: costs.requestCost,
 		webSearchCost: costs.webSearchCost,
 		imageInputTokens: costs.imageInputTokens?.toString() ?? null,

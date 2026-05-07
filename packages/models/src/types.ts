@@ -10,6 +10,7 @@ export interface TextContent {
 	text: string;
 	cache_control?: {
 		type: "ephemeral";
+		ttl?: "5m" | "1h";
 	};
 }
 
@@ -267,6 +268,7 @@ export interface AnthropicSystemContent {
 	text: string;
 	cache_control?: {
 		type: "ephemeral";
+		ttl?: "5m" | "1h";
 	};
 }
 

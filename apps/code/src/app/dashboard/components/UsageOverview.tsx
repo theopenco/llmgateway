@@ -205,8 +205,14 @@ export default function UsageOverview({
 
 	// Cycle-scoped subset for the metric cards so they line up with the usage bar.
 	// /activity covers a fixed 30d window; the cycle may be shorter (e.g. 12 days in).
+	// Activity `date` is a day-only string ("YYYY-MM-DD") parsed as UTC midnight, so
+	// truncate the cycle start to the start of its UTC day for an apples-to-apples
+	// comparison — otherwise the cycle's first day gets filtered out.
 	const cycleStartMs = billingCycleStart
-		? new Date(billingCycleStart).getTime()
+		? (() => {
+				const d = new Date(billingCycleStart);
+				return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+			})()
 		: 0;
 	const cycleItems = cycleStartMs
 		? items.filter((d) => new Date(d.date).getTime() >= cycleStartMs)

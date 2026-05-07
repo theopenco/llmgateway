@@ -84,6 +84,7 @@ describe("extractTokenUsage", () => {
 			const result = extractTokenUsage(data, "anthropic");
 
 			expect(result.cachedTokens).toBe(0);
+			expect(result.cacheCreationTokens).toBe(50);
 			expect(result.promptTokens).toBe(150); // 100 + 50 + 0
 			expect(result.completionTokens).toBe(200);
 		});
@@ -101,6 +102,7 @@ describe("extractTokenUsage", () => {
 			const result = extractTokenUsage(data, "anthropic");
 
 			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(0);
 			expect(result.promptTokens).toBe(900); // 100 + 0 + 800
 		});
 
@@ -196,6 +198,109 @@ describe("extractTokenUsage", () => {
 
 			expect(result.reasoningTokens).toBe(0);
 			expect(result.totalTokens).toBe(150);
+		});
+
+		it("extracts 1h cache creation tokens from cache_creation breakdown", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 1000,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 400,
+						ephemeral_1h_input_tokens: 600,
+					},
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBe(600);
+		});
+
+		it("extracts cache creation tokens from Anthropic streaming message_start", () => {
+			const data = {
+				type: "message_start",
+				message: {
+					usage: {
+						input_tokens: 10,
+						cache_creation_input_tokens: 1000,
+						cache_creation: {
+							ephemeral_5m_input_tokens: 400,
+							ephemeral_1h_input_tokens: 600,
+						},
+						cache_read_input_tokens: 0,
+						output_tokens: 1,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.promptTokens).toBe(1010);
+			expect(result.completionTokens).toBe(1);
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBe(600);
+		});
+
+		it("does not clear prompt cache usage from output-only Anthropic deltas", () => {
+			const data = {
+				type: "message_delta",
+				usage: {
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.promptTokens).toBeNull();
+			expect(result.cachedTokens).toBeNull();
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
+			expect(result.completionTokens).toBe(50);
+			expect(result.totalTokens).toBeNull();
+		});
+
+		it("returns null cacheCreation1hTokens when only 5m writes are present", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 400,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 400,
+						ephemeral_1h_input_tokens: 0,
+					},
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.cacheCreationTokens).toBe(400);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("returns null cacheCreation1hTokens when cache_creation breakdown is missing", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 400,
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.cacheCreationTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBeNull();
 		});
 	});
 

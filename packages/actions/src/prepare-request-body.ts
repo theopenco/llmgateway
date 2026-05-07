@@ -1380,7 +1380,7 @@ export async function prepareRequestBody(
 				const systemContent: Array<{
 					type: "text";
 					text: string;
-					cache_control?: { type: "ephemeral" };
+					cache_control?: { type: "ephemeral"; ttl?: "5m" | "1h" };
 				}> = [];
 
 				// Detect whether any text block in the incoming system messages has
