@@ -627,13 +627,12 @@ If you didn't request this, you can safely ignore this email. Your password won'
 						},
 						sendVerificationEmail: async ({
 							user,
-							token,
+							url,
 						}: {
 							user: { email: string; name?: string | null };
+							url: string;
 							token: string;
 						}) => {
-							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(`${uiUrl}/dashboard?emailVerified=true`)}`;
-
 							const text = `Hey${user.name ? ` ${user.name}` : ""}!
 
 Welcome to LLM Gateway — glad to have you here.

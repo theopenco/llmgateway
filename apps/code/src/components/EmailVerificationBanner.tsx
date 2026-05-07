@@ -5,11 +5,11 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useUser } from "@/hooks/useUser";
-import { useAppConfig } from "@/lib/config";
+import { useAuth } from "@/lib/auth-client";
 
 export function EmailVerificationBanner() {
 	const { user } = useUser();
-	const config = useAppConfig();
+	const { sendVerificationEmail } = useAuth();
 	const [isResending, setIsResending] = useState(false);
 
 	if (!user || user.emailVerified) {
@@ -19,38 +19,22 @@ export function EmailVerificationBanner() {
 	const handleResendVerification = async () => {
 		setIsResending(true);
 
-		try {
-			const response = await fetch(
-				`${config.apiUrl}/auth/send-verification-email`,
-				{
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						email: user.email,
-						callbackURL: `${window.location.origin}/dashboard?emailVerified=true`,
-					}),
-				},
-			);
+		const { error } = await sendVerificationEmail({
+			email: user.email,
+			callbackURL: `${window.location.origin}/dashboard?emailVerified=true`,
+		});
 
-			if (!response.ok) {
-				throw new Error("Failed to send verification email");
-			}
-
+		if (error) {
+			toast.error("Error", {
+				description: error.message ?? "Failed to send verification email",
+			});
+		} else {
 			toast.success("Verification email sent", {
 				description: "Please check your inbox for the verification email.",
 			});
-		} catch (error) {
-			toast.error("Error", {
-				description:
-					error instanceof Error
-						? error.message
-						: "Failed to send verification email",
-			});
-		} finally {
-			setIsResending(false);
 		}
+
+		setIsResending(false);
 	};
 
 	return (
