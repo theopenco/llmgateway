@@ -22,7 +22,9 @@ const responseInputContentSchema = z.union([
 ]);
 
 const messageItemSchema = z.object({
+	type: z.literal("message").optional(),
 	role: z.enum(["user", "assistant", "system", "developer"]),
+	phase: z.enum(["commentary", "final_answer"]).optional(),
 	content: z
 		.union([
 			z.string(),

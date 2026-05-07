@@ -19,7 +19,11 @@ import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { responsesRequestSchema } from "./schemas.js";
-import { convertChatResponseToResponses } from "./tools/convert-chat-to-responses.js";
+import {
+	convertChatResponseToResponses,
+	type ResponsesApiOutput,
+	type ResponsesApiResponse,
+} from "./tools/convert-chat-to-responses.js";
 import { convertResponsesInputToMessages } from "./tools/convert-responses-to-chat.js";
 import {
 	createStreamingState,
@@ -291,7 +295,7 @@ responses.post("/", async (c) => {
 	// Generate log ID with resp_ prefix — this is both the log entry's primary key
 	// and the Responses API response ID
 	const logId = `resp_${shortid(24)}`;
-	const state = createStreamingState(req.model, logId);
+	const state = createStreamingState(req.model, logId, req);
 
 	// Build Responses API data for storage in the log entry.
 	// Output starts empty and is updated after completion via storeResponse().
@@ -490,6 +494,7 @@ responses.post("/", async (c) => {
 		chatJson,
 		req.model,
 		logId,
+		req,
 	);
 
 	// Store for previous_response_id (unless store: false)
@@ -500,8 +505,10 @@ responses.post("/", async (c) => {
 			output: responsesResponse.output,
 			instructions: req.instructions,
 			model: req.model,
-			status: responsesResponse.status,
-			usage: responsesResponse.usage,
+			status: responsesResponse.status as "completed" | "incomplete" | "failed",
+			usage: (responsesResponse.usage ?? undefined) as
+				| Record<string, unknown>
+				| undefined,
 			created_at: responsesResponse.created_at,
 		});
 	}
@@ -545,17 +552,60 @@ responses.get("/:response_id", async (c) => {
 		);
 	}
 
-	return c.json({
+	const createdAt = stored.created_at ?? Math.floor(Date.now() / 1000);
+	const status = stored.status as ResponsesApiResponse["status"];
+	const storedUsage = stored.usage as Record<string, unknown> | undefined;
+
+	const usage: ResponsesApiResponse["usage"] = {
+		input_tokens: (storedUsage?.input_tokens as number) ?? 0,
+		output_tokens: (storedUsage?.output_tokens as number) ?? 0,
+		total_tokens: (storedUsage?.total_tokens as number) ?? 0,
+		input_tokens_details: {
+			cached_tokens:
+				((storedUsage?.input_tokens_details as Record<string, unknown>)
+					?.cached_tokens as number) ?? 0,
+		},
+		output_tokens_details: {
+			reasoning_tokens:
+				((storedUsage?.output_tokens_details as Record<string, unknown>)
+					?.reasoning_tokens as number) ?? 0,
+		},
+	};
+
+	const responsePayload: ResponsesApiResponse = {
 		id: stored.id,
 		object: "response",
-		created_at: stored.created_at ?? Math.floor(Date.now() / 1000),
+		created_at: createdAt,
+		completed_at: status === "completed" ? createdAt : null,
+		status,
+		incomplete_details:
+			status === "incomplete" ? { reason: "max_output_tokens" } : null,
 		model: stored.model,
-		output: stored.output,
-		usage: stored.usage ?? {
-			input_tokens: 0,
-			output_tokens: 0,
-			total_tokens: 0,
-		},
-		status: stored.status,
-	});
+		previous_response_id: null,
+		instructions: stored.instructions ?? null,
+		output: stored.output as ResponsesApiOutput[],
+		error: null,
+		tools: [],
+		tool_choice: "auto",
+		truncation: "disabled",
+		parallel_tool_calls: true,
+		text: { format: { type: "text" } },
+		top_p: 1,
+		presence_penalty: 0,
+		frequency_penalty: 0,
+		top_logprobs: 0,
+		temperature: 1,
+		reasoning: { effort: null, summary: null },
+		usage,
+		max_output_tokens: null,
+		max_tool_calls: null,
+		store: true,
+		background: false,
+		service_tier: "default",
+		metadata: {},
+		safety_identifier: null,
+		prompt_cache_key: null,
+	};
+
+	return c.json(responsePayload);
 });

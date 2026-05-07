@@ -65,40 +65,94 @@ export interface ResponsesApiOutput {
 	[key: string]: unknown;
 }
 
+export interface ResponsesApiUsage {
+	input_tokens: number;
+	output_tokens: number;
+	total_tokens: number;
+	output_tokens_details: {
+		reasoning_tokens: number;
+	};
+	input_tokens_details: {
+		cached_tokens: number;
+	};
+	cost?: number;
+	cost_details?: {
+		upstream_inference_cost: number;
+		upstream_inference_prompt_cost: number;
+		upstream_inference_completions_cost: number;
+		total_cost?: number | null;
+		input_cost?: number | null;
+		output_cost?: number | null;
+		cached_input_cost?: number | null;
+		request_cost?: number | null;
+		web_search_cost?: number | null;
+		image_input_cost?: number | null;
+		image_output_cost?: number | null;
+		data_storage_cost?: number | null;
+	};
+}
+
 export interface ResponsesApiResponse {
 	id: string;
 	object: "response";
 	created_at: number;
+	completed_at: number | null;
+	status: "completed" | "incomplete" | "failed" | "in_progress";
+	incomplete_details: { reason: string } | null;
 	model: string;
+	previous_response_id: string | null;
+	instructions: string | null;
 	output: ResponsesApiOutput[];
-	usage: {
-		input_tokens: number;
-		output_tokens: number;
-		total_tokens: number;
-		output_tokens_details?: {
-			reasoning_tokens: number;
-		};
-		input_tokens_details?: {
-			cached_tokens: number;
-		};
-		cost?: number;
-		cost_details?: {
-			upstream_inference_cost: number;
-			upstream_inference_prompt_cost: number;
-			upstream_inference_completions_cost: number;
-			total_cost?: number | null;
-			input_cost?: number | null;
-			output_cost?: number | null;
-			cached_input_cost?: number | null;
-			request_cost?: number | null;
-			web_search_cost?: number | null;
-			image_input_cost?: number | null;
-			image_output_cost?: number | null;
-			data_storage_cost?: number | null;
-		};
-	};
-	status: "completed" | "incomplete" | "failed";
+	error: { code: string; message: string } | null;
+	tools: unknown[];
+	tool_choice: unknown;
+	truncation: "auto" | "disabled";
+	parallel_tool_calls: boolean;
+	text: { format: Record<string, unknown> };
+	top_p: number;
+	presence_penalty: number;
+	frequency_penalty: number;
+	top_logprobs: number;
+	temperature: number;
+	reasoning: { effort: string | null; summary: string | null } | null;
+	usage: ResponsesApiUsage | null;
+	max_output_tokens: number | null;
+	max_tool_calls: number | null;
+	store: boolean;
+	background: boolean;
+	service_tier: string;
+	metadata: Record<string, unknown>;
+	safety_identifier: string | null;
+	prompt_cache_key: string | null;
+}
+
+/**
+ * Subset of the original /v1/responses request needed to echo fields
+ * back on the response (per the Open Responses spec, which requires
+ * many fields to be present even when they were not user-supplied).
+ */
+export interface ResponsesEchoRequest {
+	previous_response_id?: string;
+	instructions?: string;
+	tools?: unknown[];
+	tool_choice?: unknown;
+	truncation?: "auto" | "disabled";
+	parallel_tool_calls?: boolean;
+	text?: { format?: Record<string, unknown> } & Record<string, unknown>;
+	top_p?: number;
+	presence_penalty?: number;
+	frequency_penalty?: number;
+	top_logprobs?: number;
+	temperature?: number;
+	reasoning?: { effort?: string | null; summary?: string | null } | null;
+	max_output_tokens?: number;
+	max_tool_calls?: number;
+	store?: boolean;
+	background?: boolean;
+	service_tier?: string;
 	metadata?: Record<string, unknown>;
+	safety_identifier?: string;
+	prompt_cache_key?: string;
 }
 
 /**
@@ -108,6 +162,7 @@ export function convertChatResponseToResponses(
 	chatResponse: ChatCompletionsResponse,
 	requestedModel: string,
 	responseId?: string,
+	request?: ResponsesEchoRequest,
 ): ResponsesApiResponse {
 	const choice = chatResponse.choices?.[0];
 	const message = choice?.message;
@@ -170,24 +225,19 @@ export function convertChatResponseToResponses(
 		status = "incomplete";
 	}
 
-	const usage: ResponsesApiResponse["usage"] = {
+	const usage: ResponsesApiUsage = {
 		input_tokens: chatResponse.usage?.prompt_tokens ?? 0,
 		output_tokens: chatResponse.usage?.completion_tokens ?? 0,
 		total_tokens: chatResponse.usage?.total_tokens ?? 0,
-	};
-
-	if (chatResponse.usage?.completion_tokens_details?.reasoning_tokens) {
-		usage.output_tokens_details = {
+		input_tokens_details: {
+			cached_tokens:
+				chatResponse.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+		},
+		output_tokens_details: {
 			reasoning_tokens:
-				chatResponse.usage.completion_tokens_details.reasoning_tokens,
-		};
-	}
-
-	if (chatResponse.usage?.prompt_tokens_details?.cached_tokens) {
-		usage.input_tokens_details = {
-			cached_tokens: chatResponse.usage.prompt_tokens_details.cached_tokens,
-		};
-	}
+				chatResponse.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+		},
+	};
 
 	if (chatResponse.usage?.cost !== undefined) {
 		usage.cost = chatResponse.usage.cost;
@@ -196,14 +246,48 @@ export function convertChatResponseToResponses(
 		usage.cost_details = chatResponse.usage.cost_details;
 	}
 
+	const created = chatResponse.created ?? Math.floor(Date.now() / 1000);
+
 	return {
 		id: responseId ?? `resp_${shortid(24)}`,
 		object: "response",
-		created_at: chatResponse.created ?? Math.floor(Date.now() / 1000),
-		model: chatResponse.model ?? requestedModel,
-		output,
-		usage,
+		created_at: created,
+		completed_at: status === "completed" ? created : null,
 		status,
-		...(chatResponse.metadata ? { metadata: chatResponse.metadata } : {}),
+		incomplete_details:
+			status === "incomplete" ? { reason: "max_output_tokens" } : null,
+		model: chatResponse.model ?? requestedModel,
+		previous_response_id: request?.previous_response_id ?? null,
+		instructions: request?.instructions ?? null,
+		output,
+		error: null,
+		tools: request?.tools ?? [],
+		tool_choice: request?.tool_choice ?? "auto",
+		truncation: request?.truncation ?? "disabled",
+		parallel_tool_calls: request?.parallel_tool_calls ?? true,
+		text: {
+			format: request?.text?.format ?? { type: "text" },
+		},
+		top_p: request?.top_p ?? 1,
+		presence_penalty: request?.presence_penalty ?? 0,
+		frequency_penalty: request?.frequency_penalty ?? 0,
+		top_logprobs: request?.top_logprobs ?? 0,
+		temperature: request?.temperature ?? 1,
+		reasoning: {
+			effort: request?.reasoning?.effort ?? null,
+			summary: request?.reasoning?.summary ?? null,
+		},
+		usage,
+		max_output_tokens: request?.max_output_tokens ?? null,
+		max_tool_calls: request?.max_tool_calls ?? null,
+		store: request?.store ?? true,
+		background: request?.background ?? false,
+		service_tier: request?.service_tier ?? "default",
+		metadata: {
+			...(request?.metadata ?? {}),
+			...(chatResponse.metadata ?? {}),
+		},
+		safety_identifier: request?.safety_identifier ?? null,
+		prompt_cache_key: request?.prompt_cache_key ?? null,
 	};
 }

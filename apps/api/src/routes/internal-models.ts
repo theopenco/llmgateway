@@ -288,6 +288,7 @@ const providerBenchmarkSchema = z.object({
 	errorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	tokensPerSecond: z.number().nullable(),
 	errorRate: z.number(),
 	uptime: z.number().nullable(),
 	windowHours: z.number(),
@@ -366,6 +367,14 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
 				"avgTimeToFirstToken",
 			),
+			totalDuration:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalDuration}), 0)`.as(
+					"totalDuration",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
+					"totalTokens",
+				),
 		})
 		.from(modelProviderMappingHistory)
 		.innerJoin(
@@ -385,12 +394,18 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 		const errorsCount = Number(m.errorsCount);
 		const upstreamErrorsCount = Number(m.upstreamErrorsCount);
 		const cachedCount = Number(m.cachedCount);
+		const totalDuration = Number(m.totalDuration);
+		const totalTokens = Number(m.totalTokens);
 		// Uptime only counts upstream/provider-side failures against the provider —
 		// client errors (4xx from user) or gateway errors aren't the provider's fault.
 		const uptime =
 			logsCount > 0
 				? Math.round(((logsCount - upstreamErrorsCount) / logsCount) * 1000) /
 					10
+				: null;
+		const tokensPerSecond =
+			totalDuration > 0 && totalTokens > 0
+				? Math.round(totalTokens / (totalDuration / 1000))
 				: null;
 		return {
 			providerId: m.providerId,
@@ -400,6 +415,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			cachedCount,
 			avgTimeToFirstToken:
 				m.avgTimeToFirstToken !== null ? Number(m.avgTimeToFirstToken) : null,
+			tokensPerSecond,
 			errorRate:
 				logsCount > 0 ? Math.round((errorsCount / logsCount) * 1000) / 10 : 0,
 			uptime,

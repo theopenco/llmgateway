@@ -31,6 +31,7 @@ export const xaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-05-15"),
 			},
 		],
 	},
@@ -169,6 +170,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				modelName: "grok-4-0709",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				pricingTiers: [
@@ -251,6 +253,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-fast-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -293,6 +296,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-fast-non-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -335,6 +339,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				modelName: "grok-code-fast-1",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				cachedInputPrice: 0.02 / 1e6,
 				outputPrice: 1.5 / 1e6,
@@ -359,6 +364,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-1-fast-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -394,7 +400,6 @@ export const xaiModels = [
 				modelName: "grok-4-1-fast-reasoning",
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
-				cachedInputPrice: 0.05 / 1e6,
 				requestPrice: 0,
 				imageInputPrice: undefined,
 				discount: 0.2,
@@ -420,6 +425,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-1-fast-non-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -454,7 +460,6 @@ export const xaiModels = [
 				modelName: "grok-4-1-fast-non-reasoning",
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
-				cachedInputPrice: 0.05 / 1e6,
 				requestPrice: 0,
 				imageInputPrice: undefined,
 				discount: 0.2,
@@ -480,6 +485,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-fast-non-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -513,6 +519,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-fast-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -557,6 +564,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-1-fast-non-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -591,7 +599,6 @@ export const xaiModels = [
 				modelName: "grok-4-1-fast-non-reasoning",
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
-				cachedInputPrice: 0.05 / 1e6,
 				requestPrice: 0,
 				imageInputPrice: undefined,
 				discount: 0.2,
@@ -607,6 +614,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-1-fast-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -642,7 +650,6 @@ export const xaiModels = [
 				modelName: "grok-4-1-fast-reasoning",
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
-				cachedInputPrice: 0.05 / 1e6,
 				requestPrice: 0,
 				imageInputPrice: undefined,
 				discount: 0.2,
@@ -842,6 +849,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				modelName: "grok-imagine-image-pro",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0,
 				outputPrice: 0,
 				requestPrice: 0.07,

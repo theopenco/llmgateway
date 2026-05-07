@@ -244,7 +244,7 @@ export const providers = [
 		color: "#000000",
 		website: "https://x.ai",
 		announcement: null,
-		priority: 0.2,
+		priority: 0.1,
 	},
 	{
 		id: "deepseek",
