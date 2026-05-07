@@ -1,5 +1,4 @@
 import * as crypto from "node:crypto";
-import * as fs from "node:fs";
 
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
@@ -8,10 +7,12 @@ interface ServiceAccountKey {
 	client_email: string;
 	private_key: string;
 	token_uri: string;
+	project_id: string;
 }
 
-const REDIS_KEY = "gcp:vertex:access_token";
+const REDIS_KEY = "gcp:vertex-anthropic:access_token";
 const TTL_SECONDS = 50 * 60;
+const TTL_MS = TTL_SECONDS * 1000;
 
 let memoryCache: { token: string; expiresAt: number } | null = null;
 
@@ -22,19 +23,26 @@ function getServiceAccountKey(): ServiceAccountKey | null {
 		return serviceAccountKey;
 	}
 
-	const keyFile = process.env.GCP_SERVICE_ACCOUNT_KEY_FILE;
-	if (!keyFile) {
+	const inlineJson = process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
+	if (!inlineJson) {
 		return null;
 	}
 
 	try {
-		const content = fs.readFileSync(keyFile, "utf-8");
-		serviceAccountKey = JSON.parse(content) as ServiceAccountKey;
+		serviceAccountKey = JSON.parse(inlineJson) as ServiceAccountKey;
 		return serviceAccountKey;
 	} catch (err) {
-		logger.error("Failed to read GCP service account key file", err);
+		logger.error(
+			"Failed to parse LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
+			err,
+		);
 		return null;
 	}
+}
+
+export function getVertexAnthropicProjectId(): string | null {
+	const sa = getServiceAccountKey();
+	return sa?.project_id ?? null;
 }
 
 function base64url(data: Buffer | string): string {
@@ -96,31 +104,34 @@ export async function getGcpAccessToken(): Promise<string | null> {
 		return null;
 	}
 
-	// Check in-memory cache first (fast path, avoids Redis round-trip)
 	if (memoryCache && memoryCache.expiresAt > Date.now()) {
 		return memoryCache.token;
 	}
 
-	// Try Redis cache (shared across instances)
 	try {
 		const cached = await redisClient.get(REDIS_KEY);
 		if (cached) {
 			memoryCache = { token: cached, expiresAt: Date.now() + 60_000 };
 			return cached;
 		}
-	} catch {
-		// Redis unavailable — continue to generate token
+	} catch (err) {
+		logger.debug(
+			"Redis unavailable for token cache read",
+			err instanceof Error ? err : new Error(String(err)),
+		);
 	}
 
 	const token = await fetchNewToken(sa);
 
-	// Store in Redis with 50-minute TTL
 	try {
 		await redisClient.set(REDIS_KEY, token, "EX", TTL_SECONDS);
-	} catch {
-		// Redis unavailable — in-memory cache still works
+	} catch (err) {
+		logger.debug(
+			"Redis unavailable for token cache write",
+			err instanceof Error ? err : new Error(String(err)),
+		);
 	}
 
-	memoryCache = { token, expiresAt: Date.now() + TTL_SECONDS * 1000 };
+	memoryCache = { token, expiresAt: Date.now() + TTL_MS };
 	return token;
 }

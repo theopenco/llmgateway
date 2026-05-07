@@ -68,8 +68,6 @@ gcloud iam service-accounts keys create service-account.json \
   --iam-account=vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com
 ```
 
-Store this file securely on your server. The gateway will read it to generate OAuth2 tokens automatically.
-
 </Step>
 
 <Step>
@@ -78,19 +76,13 @@ Store this file securely on your server. The gateway will read it to generate OA
 Add the following to your `.env` file:
 
 ```bash
-# Path to the service account JSON key file
-GCP_SERVICE_ACCOUNT_KEY_FILE=/path/to/service-account.json
-
-# Vertex AI Anthropic configuration
-LLM_VERTEX_ANTHROPIC_API_KEY=placeholder
-LLM_VERTEX_ANTHROPIC_PROJECT=YOUR_PROJECT_ID
+LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"YOUR_PROJECT_ID","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n","client_email":"vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}
 LLM_VERTEX_ANTHROPIC_REGION=us-east5
 ```
 
 <Callout type="info">
-	The `LLM_VERTEX_ANTHROPIC_API_KEY` value is a placeholder — the gateway
-	automatically generates OAuth2 tokens from the service account file and
-	overrides this value at runtime.
+	The project ID is extracted automatically from the service account JSON — no
+	separate `LLM_VERTEX_ANTHROPIC_PROJECT` variable is needed.
 </Callout>
 
 </Step>
@@ -117,7 +109,7 @@ curl http://localhost:4001/v1/chat/completions \
 
 The gateway handles OAuth2 token lifecycle automatically:
 
-1. On first request, it reads the service account JSON and signs a JWT
+1. On first request, it parses the `LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON` and signs a JWT
 2. The JWT is exchanged for an OAuth2 access token via Google's token endpoint
 3. The token is cached in Redis with a **50-minute TTL** (Google tokens expire after 60 minutes)
 4. An in-memory cache avoids Redis round-trips on subsequent requests
@@ -164,9 +156,8 @@ If you prefer to manage tokens manually or use a different service account per o
 
 This means the gateway is sending an invalid token. Check:
 
-- `GCP_SERVICE_ACCOUNT_KEY_FILE` points to a valid JSON file
+- `LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON` is set to a valid service account JSON string
 - The service account has `roles/aiplatform.user` on the project
-- The project ID in `LLM_VERTEX_ANTHROPIC_PROJECT` matches the service account's project
 
 ### 403 Permission Denied
 

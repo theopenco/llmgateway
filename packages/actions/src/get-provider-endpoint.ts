@@ -354,9 +354,19 @@ export function getProviderEndpoint(
 				providerKeyOptions,
 			);
 		case "vertex-anthropic": {
-			const vaProjectId =
-				providerKeyOptions?.vertex_anthropic_project_id ??
-				getProviderEnvValue("vertex-anthropic", "project", configIndex);
+			let vaProjectId: string | undefined =
+				process.env.LLM_VERTEX_ANTHROPIC_PROJECT;
+			if (!vaProjectId) {
+				const saJson = process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
+				if (saJson) {
+					try {
+						const sa = JSON.parse(saJson) as { project_id?: string };
+						vaProjectId = sa.project_id;
+					} catch {
+						// ignore parse errors; error thrown below
+					}
+				}
+			}
 			const vaRegion =
 				providerKeyOptions?.vertex_anthropic_region ??
 				getProviderEnvValue(
@@ -369,7 +379,7 @@ export function getProviderEndpoint(
 
 			if (!vaProjectId) {
 				throw new Error(
-					"LLM_VERTEX_ANTHROPIC_PROJECT environment variable is required for vertex-anthropic provider",
+					"vertex-anthropic provider requires LLM_VERTEX_ANTHROPIC_PROJECT or a valid LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON with project_id",
 				);
 			}
 

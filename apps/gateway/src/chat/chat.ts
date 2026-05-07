@@ -27,7 +27,10 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
-import { getGcpAccessToken } from "@/lib/gcp-token.js";
+import {
+	getGcpAccessToken,
+	getVertexAnthropicProjectId,
+} from "@/lib/gcp-token.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
@@ -174,6 +177,11 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+
+const _derivedProjectId = getVertexAnthropicProjectId();
+if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
+	process.env.LLM_VERTEX_ANTHROPIC_PROJECT = _derivedProjectId;
+}
 
 /**
  * Filter expanded region entries to only those with available API keys.
@@ -3083,8 +3091,7 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Auto-refresh GCP OAuth2 token for Vertex AI providers when service account is configured
-	if (usedProvider === "vertex-anthropic" || usedProvider === "google-vertex") {
+	if (usedProvider === "vertex-anthropic") {
 		const gcpToken = await getGcpAccessToken();
 		if (gcpToken) {
 			usedToken = gcpToken;

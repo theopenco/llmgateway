@@ -165,8 +165,7 @@ export const providers = [
 			"Access Claude models via Google Cloud Vertex AI with the Anthropic Messages API.",
 		env: {
 			required: {
-				apiKey: "LLM_VERTEX_ANTHROPIC_API_KEY",
-				project: "LLM_VERTEX_ANTHROPIC_PROJECT",
+				apiKey: "LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
 			},
 			optional: {
 				baseUrl: "LLM_VERTEX_ANTHROPIC_BASE_URL",
