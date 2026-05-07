@@ -26,7 +26,12 @@ export const providerLogoUrls: Partial<
 	nanogpt: ProviderIcons.nanogpt,
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
+	"azure-ai-foundry": ProviderIcons["azure-ai-foundry"],
 	cerebras: ProviderIcons.cerebras,
+	minimax: ProviderIcons.minimax,
+	bytedance: ProviderIcons.bytedance,
+	xiaomi: ProviderIcons.xiaomi,
+	embercloud: ProviderIcons.embercloud,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

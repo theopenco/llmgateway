@@ -13,6 +13,7 @@ import { nousresearchModels } from "./models/nousresearch.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { xaiModels } from "./models/xai.js";
+import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
 
 import type { providers } from "./providers.js";
@@ -433,6 +434,7 @@ export const models = [
 	...googleModels,
 	...perplexityModels,
 	...xaiModels,
+	...xiaomiModels,
 	...metaModels,
 	...deepseekModels,
 	...mistralModels,

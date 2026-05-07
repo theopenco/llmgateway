@@ -1304,6 +1304,7 @@ export function transformStreamingToOpenai(
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "xiaomi":
 		case "azure-ai-foundry":
 		case "llmgateway": {
 			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
