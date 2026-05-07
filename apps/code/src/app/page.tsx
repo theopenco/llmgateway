@@ -107,7 +107,7 @@ export default function LandingPage() {
 							</div>
 
 							<div className="mt-6 flex justify-center">
-								<Link
+								<a
 									href="https://www.producthunt.com/products/devpass-by-llm-gateway?launch=devpass-by-llm-gateway"
 									target="_blank"
 									rel="noreferrer"
@@ -119,7 +119,7 @@ export default function LandingPage() {
 										We&apos;re live on Product Hunt. Help us by upvoting
 									</span>
 									<ArrowRight className="h-4 w-4" />
-								</Link>
+								</a>
 							</div>
 						</div>
 
