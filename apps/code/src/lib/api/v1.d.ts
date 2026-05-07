@@ -7761,6 +7761,10 @@ export interface paths {
                             projectId: string | null;
                             apiKey: string | null;
                             devPlanAllowAllModels: boolean;
+                            cachingEnabled: boolean;
+                            cacheDurationSeconds: number;
+                            /** @enum {string} */
+                            retentionLevel: "retain" | "none";
                         };
                     };
                 };
@@ -7798,6 +7802,10 @@ export interface paths {
                 content: {
                     "application/json": {
                         devPlanAllowAllModels?: boolean;
+                        cachingEnabled?: boolean;
+                        cacheDurationSeconds?: number;
+                        /** @enum {string} */
+                        retentionLevel?: "retain" | "none";
                     };
                 };
             };
@@ -7811,6 +7819,10 @@ export interface paths {
                         "application/json": {
                             success: boolean;
                             devPlanAllowAllModels: boolean;
+                            cachingEnabled: boolean;
+                            cacheDurationSeconds: number;
+                            /** @enum {string} */
+                            retentionLevel: "retain" | "none";
                         };
                     };
                 };
