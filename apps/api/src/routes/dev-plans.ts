@@ -930,3 +930,104 @@ devPlans.openapi(updateSettings, async (c) => {
 			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
 	});
 });
+
+// Rotate the dev-plan API key — invalidates the current key and issues a new one
+const rotateApiKey = createRoute({
+	method: "post",
+	path: "/rotate-api-key",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKey: z.string(),
+					}),
+				},
+			},
+			description: "API key rotated successfully",
+		},
+	},
+});
+
+devPlans.openapi(rotateApiKey, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: user.id,
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.isPersonal === true,
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const project = await db.query.project.findFirst({
+		where: {
+			organizationId: {
+				eq: personalOrg.id,
+			},
+		},
+		orderBy: {
+			createdAt: "asc",
+		},
+	});
+
+	if (!project) {
+		throw new HTTPException(404, {
+			message: "Default project not found",
+		});
+	}
+
+	const newToken =
+		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
+		shortid(40);
+
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.apiKey)
+			.set({ status: "deleted" })
+			.where(eq(tables.apiKey.projectId, project.id));
+
+		await tx.insert(tables.apiKey).values({
+			token: newToken,
+			projectId: project.id,
+			description: "Dev Plan API Key",
+			createdBy: user.id,
+		});
+	});
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "dev_plan.rotate_api_key",
+		resourceType: "api_key",
+		resourceId: project.id,
+	});
+
+	return c.json({
+		apiKey: newToken,
+	});
+});

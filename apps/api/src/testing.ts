@@ -123,6 +123,10 @@ function getCommonAggregationFields() {
 			sql<string>`coalesce(sum(cast(${tables.log.cachedTokens} as numeric)), 0)`.as(
 				"cachedTokens",
 			),
+		cacheWriteTokens:
+			sql<string>`coalesce(sum(cast(${tables.log.cacheWriteTokens} as numeric)), 0)`.as(
+				"cacheWriteTokens",
+			),
 		cost: sql<number>`coalesce(sum(${tables.log.cost}), 0)`.as("cost"),
 		inputCost: sql<number>`coalesce(sum(${tables.log.inputCost}), 0)`.as(
 			"inputCost",
@@ -162,6 +166,10 @@ function getCommonAggregationFields() {
 		cachedInputCost:
 			sql<number>`coalesce(sum(${tables.log.cachedInputCost}), 0)`.as(
 				"cachedInputCost",
+			),
+		cacheWriteInputCost:
+			sql<number>`coalesce(sum(${tables.log.cacheWriteInputCost}), 0)`.as(
+				"cacheWriteInputCost",
 			),
 		// Per-mode breakdowns
 		creditsRequestCount:

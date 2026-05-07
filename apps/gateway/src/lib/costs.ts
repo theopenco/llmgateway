@@ -37,11 +37,15 @@ function getPricingForTokenCount(
 	baseInputPrice: number,
 	baseOutputPrice: number,
 	baseCachedInputPrice: number | undefined,
+	baseCacheWriteInputPrice: number | undefined,
+	baseCacheWriteInputPrice1h: number | undefined,
 	promptTokens: number,
 ): {
 	inputPrice: number;
 	outputPrice: number;
 	cachedInputPrice: number | undefined;
+	cacheWriteInputPrice: number | undefined;
+	cacheWriteInputPrice1h: number | undefined;
 	tierName: string | undefined;
 } {
 	if (!pricingTiers || pricingTiers.length === 0) {
@@ -49,6 +53,8 @@ function getPricingForTokenCount(
 			inputPrice: baseInputPrice,
 			outputPrice: baseOutputPrice,
 			cachedInputPrice: baseCachedInputPrice,
+			cacheWriteInputPrice: baseCacheWriteInputPrice,
+			cacheWriteInputPrice1h: baseCacheWriteInputPrice1h,
 			tierName: undefined,
 		};
 	}
@@ -60,6 +66,10 @@ function getPricingForTokenCount(
 				inputPrice: tier.inputPrice,
 				outputPrice: tier.outputPrice,
 				cachedInputPrice: tier.cachedInputPrice ?? baseCachedInputPrice,
+				cacheWriteInputPrice:
+					tier.cacheWriteInputPrice ?? baseCacheWriteInputPrice,
+				cacheWriteInputPrice1h:
+					tier.cacheWriteInputPrice1h ?? baseCacheWriteInputPrice1h,
 				tierName: tier.name,
 			};
 		}
@@ -71,6 +81,10 @@ function getPricingForTokenCount(
 		inputPrice: lastTier.inputPrice,
 		outputPrice: lastTier.outputPrice,
 		cachedInputPrice: lastTier.cachedInputPrice ?? baseCachedInputPrice,
+		cacheWriteInputPrice:
+			lastTier.cacheWriteInputPrice ?? baseCacheWriteInputPrice,
+		cacheWriteInputPrice1h:
+			lastTier.cacheWriteInputPrice1h ?? baseCacheWriteInputPrice1h,
 		tierName: lastTier.name,
 	};
 }
@@ -103,7 +117,14 @@ export async function calculateCosts(
 	imageQuality?: string,
 	reportedImageInputTokens: number | null = null,
 	reportedImageOutputTokens: number | null = null,
+	options?: {
+		cacheWriteTokens?: number | null;
+		cacheWrite1hTokens?: number | null;
+	},
 ) {
+	const cacheWriteTokens = options?.cacheWriteTokens ?? null;
+	const cacheWrite1hTokens = options?.cacheWrite1hTokens ?? null;
+
 	// Find the model info - try both base model name and provider model name
 	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
 	const baseModel = model.includes(":") ? model.split(":")[0] : model;
@@ -124,6 +145,7 @@ export async function calculateCosts(
 			inputCost: null,
 			outputCost: null,
 			cachedInputCost: null,
+			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
 			imageInputTokens: null,
@@ -135,6 +157,7 @@ export async function calculateCosts(
 			promptTokens,
 			completionTokens,
 			cachedTokens,
+			cacheWriteTokens,
 			estimatedCost: false,
 			discount: undefined,
 			pricingTier: undefined,
@@ -196,6 +219,7 @@ export async function calculateCosts(
 			inputCost: null,
 			outputCost: null,
 			cachedInputCost: null,
+			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
 			imageInputTokens: null,
@@ -207,6 +231,7 @@ export async function calculateCosts(
 			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
+			cacheWriteTokens,
 			estimatedCost: isEstimated,
 			discount: undefined,
 			pricingTier: undefined,
@@ -235,6 +260,7 @@ export async function calculateCosts(
 			inputCost: null,
 			outputCost: null,
 			cachedInputCost: null,
+			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
 			imageInputTokens: null,
@@ -246,6 +272,7 @@ export async function calculateCosts(
 			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
+			cacheWriteTokens,
 			estimatedCost: isEstimated,
 			discount: undefined,
 			pricingTier: undefined,
@@ -258,6 +285,8 @@ export async function calculateCosts(
 		providerInfo.inputPrice ?? 0,
 		providerInfo.outputPrice ?? 0,
 		providerInfo.cachedInputPrice,
+		providerInfo.cacheWriteInputPrice,
+		providerInfo.cacheWriteInputPrice1h,
 		calculatedPromptTokens,
 	);
 
@@ -266,6 +295,17 @@ export async function calculateCosts(
 	const cachedInputPrice = new Decimal(
 		pricing.cachedInputPrice ?? pricing.inputPrice,
 	);
+	const cacheWriteInputPrice =
+		pricing.cacheWriteInputPrice !== undefined
+			? new Decimal(pricing.cacheWriteInputPrice)
+			: null;
+	// 1-hour cache writes fall back to the 5m rate when no separate price is set,
+	// so providers without an explicit 1h price (e.g., non-Anthropic) keep
+	// their existing behavior.
+	const cacheWriteInputPrice1h =
+		pricing.cacheWriteInputPrice1h !== undefined
+			? new Decimal(pricing.cacheWriteInputPrice1h)
+			: cacheWriteInputPrice;
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? 0);
 
 	// Get effective discount (checks org-specific, global, then hardcoded)
@@ -329,9 +369,16 @@ export async function calculateCosts(
 	// For Anthropic: calculatedPromptTokens includes all tokens, but we need to subtract cached tokens
 	// that get charged at the discounted rate
 	// For other providers (like OpenAI), prompt_tokens includes cached tokens, so we subtract them too
-	const uncachedPromptTokens = cachedTokens
-		? calculatedPromptTokens - cachedTokens
-		: calculatedPromptTokens;
+	const cachedReadTokens = cachedTokens ?? 0;
+	const separatelyPricedCacheWriteTokens = cacheWriteInputPrice
+		? (cacheWriteTokens ?? 0)
+		: 0;
+	const uncachedPromptTokens = Math.max(
+		0,
+		calculatedPromptTokens -
+			cachedReadTokens -
+			separatelyPricedCacheWriteTokens,
+	);
 	// For providers whose upstream usage already folds image tokens into
 	// prompt_tokens (OpenAI/Azure/xAI on image-output models), subtract them
 	// so the image portion isn't billed at both inputPrice and imageInputPrice.
@@ -401,6 +448,29 @@ export async function calculateCosts(
 				.times(cachedInputPrice)
 				.times(discountMultiplier)
 		: new Decimal(0);
+	// `cacheWriteTokens` is the total cache-creation tokens (5m + 1h).
+	// `cacheWrite1hTokens` is the 1h subset; the remainder is treated as 5m.
+	// Each TTL is priced at its own rate; non-Anthropic providers without a
+	// separate 1h rate fall back to the 5m rate for both, matching prior behavior.
+	const totalCacheWriteTokens = cacheWriteTokens ?? 0;
+	const oneHourCacheWriteTokens = Math.min(
+		cacheWrite1hTokens ?? 0,
+		totalCacheWriteTokens,
+	);
+	const fiveMinuteCacheWriteTokens = Math.max(
+		0,
+		totalCacheWriteTokens - oneHourCacheWriteTokens,
+	);
+	const cacheWriteInputCost = cacheWriteInputPrice
+		? new Decimal(fiveMinuteCacheWriteTokens)
+				.times(cacheWriteInputPrice)
+				.plus(
+					new Decimal(oneHourCacheWriteTokens).times(
+						cacheWriteInputPrice1h ?? cacheWriteInputPrice,
+					),
+				)
+				.times(discountMultiplier)
+		: new Decimal(0);
 	const requestCost = requestPrice.times(discountMultiplier);
 
 	// Calculate web search cost
@@ -415,6 +485,7 @@ export async function calculateCosts(
 	const totalCost = inputCost
 		.plus(outputCost)
 		.plus(cachedInputCost)
+		.plus(cacheWriteInputCost)
 		.plus(requestCost)
 		.plus(webSearchCost);
 
@@ -422,6 +493,7 @@ export async function calculateCosts(
 		inputCost: inputCost.toNumber(),
 		outputCost: outputCost.toNumber(),
 		cachedInputCost: cachedInputCost.toNumber(),
+		cacheWriteInputCost: cacheWriteInputCost.toNumber(),
 		requestCost: requestCost.toNumber(),
 		webSearchCost: webSearchCost.toNumber(),
 		imageInputTokens,
@@ -443,6 +515,7 @@ export async function calculateCosts(
 				: calculatedPromptTokens,
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
+		cacheWriteTokens,
 		estimatedCost: isEstimated,
 		discount: discount !== 0 ? discount : undefined,
 		pricingTier: pricing.tierName,

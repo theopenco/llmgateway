@@ -22,6 +22,7 @@ const anthropicMessageSchema = z.object({
 					cache_control: z
 						.object({
 							type: z.enum(["ephemeral"]),
+							ttl: z.enum(["5m", "1h"]).optional(),
 						})
 						.optional(),
 				}),
@@ -100,6 +101,7 @@ const anthropicRequestSchema = z.object({
 					cache_control: z
 						.object({
 							type: z.enum(["ephemeral"]),
+							ttl: z.enum(["5m", "1h"]).optional(),
 						})
 						.optional(),
 				}),
@@ -156,6 +158,15 @@ const anthropicResponseSchema = z.object({
 		// them. The downstream conversion code already handles 0 correctly.
 		cache_creation_input_tokens: z.number().optional().default(0),
 		cache_read_input_tokens: z.number().optional().default(0),
+		// Anthropic returns this breakdown when 5m/1h TTLs are mixed; emit it
+		// whenever upstream gave us a per-TTL split so SDK clients can attribute
+		// spend across the 1.25x and 2x cache write rates.
+		cache_creation: z
+			.object({
+				ephemeral_5m_input_tokens: z.number(),
+				ephemeral_1h_input_tokens: z.number(),
+			})
+			.optional(),
 	}),
 });
 
@@ -547,6 +558,10 @@ anthropic.openapi(messages, async (c) => {
 					output_tokens: number;
 					cache_creation_input_tokens: number;
 					cache_read_input_tokens: number;
+					cache_creation?: {
+						ephemeral_5m_input_tokens: number;
+						ephemeral_1h_input_tokens: number;
+					};
 				} = {
 					input_tokens: 0,
 					output_tokens: 0,
@@ -757,12 +772,20 @@ anthropic.openapi(messages, async (c) => {
 											chunk.usage.prompt_tokens_details ?? {};
 										const cacheRead: number = promptDetails.cached_tokens ?? 0;
 										const cacheCreation: number =
-											promptDetails.cache_creation_tokens ?? 0;
+											promptDetails.cache_write_tokens ??
+											promptDetails.cache_creation_tokens ??
+											0;
 										const totalPrompt: number = chunk.usage.prompt_tokens ?? 0;
 										const nonCachedInput = Math.max(
 											0,
 											totalPrompt - cacheRead - cacheCreation,
 										);
+										const breakdown = promptDetails.cache_creation as
+											| {
+													ephemeral_5m_input_tokens?: number;
+													ephemeral_1h_input_tokens?: number;
+											  }
+											| undefined;
 										usage = {
 											input_tokens: nonCachedInput,
 											output_tokens: chunk.usage.completion_tokens ?? 0,
@@ -770,6 +793,15 @@ anthropic.openapi(messages, async (c) => {
 											// (set to 0 when inapplicable).
 											cache_creation_input_tokens: cacheCreation,
 											cache_read_input_tokens: cacheRead,
+											...(breakdown &&
+												cacheCreation > 0 && {
+													cache_creation: {
+														ephemeral_5m_input_tokens:
+															breakdown.ephemeral_5m_input_tokens ?? 0,
+														ephemeral_1h_input_tokens:
+															breakdown.ephemeral_1h_input_tokens ?? 0,
+													},
+												}),
 										};
 									}
 
@@ -862,12 +894,19 @@ anthropic.openapi(messages, async (c) => {
 
 	const usageDetails = openaiResponse.usage?.prompt_tokens_details ?? {};
 	const cachedTokens: number = usageDetails.cached_tokens ?? 0;
-	const cacheCreationTokens: number = usageDetails.cache_creation_tokens ?? 0;
+	const cacheCreationTokens: number =
+		usageDetails.cache_write_tokens ?? usageDetails.cache_creation_tokens ?? 0;
 	const totalPromptTokens: number = openaiResponse.usage?.prompt_tokens ?? 0;
 	const nonCachedInputTokens = Math.max(
 		0,
 		totalPromptTokens - cachedTokens - cacheCreationTokens,
 	);
+	const cacheCreationBreakdown = usageDetails.cache_creation as
+		| {
+				ephemeral_5m_input_tokens?: number;
+				ephemeral_1h_input_tokens?: number;
+		  }
+		| undefined;
 
 	const anthropicResponse = {
 		id: openaiResponse.id,
@@ -887,6 +926,18 @@ anthropic.openapi(messages, async (c) => {
 			// without optionality checks.
 			cache_creation_input_tokens: cacheCreationTokens,
 			cache_read_input_tokens: cachedTokens,
+			// Per Anthropic's spec, surface the per-TTL breakdown when upstream
+			// supplied one so callers can attribute spend across the 5m (1.25x)
+			// and 1h (2x) cache write rates.
+			...(cacheCreationBreakdown &&
+				cacheCreationTokens > 0 && {
+					cache_creation: {
+						ephemeral_5m_input_tokens:
+							cacheCreationBreakdown.ephemeral_5m_input_tokens ?? 0,
+						ephemeral_1h_input_tokens:
+							cacheCreationBreakdown.ephemeral_1h_input_tokens ?? 0,
+					},
+				}),
 		},
 	};
 
