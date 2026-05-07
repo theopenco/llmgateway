@@ -27,6 +27,7 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import { getGcpAccessToken } from "@/lib/gcp-token.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
@@ -3080,6 +3081,14 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(400, {
 			message: `Invalid project mode: ${project.mode}`,
 		});
+	}
+
+	// Auto-refresh GCP OAuth2 token for Vertex AI providers when service account is configured
+	if (usedProvider === "vertex-anthropic" || usedProvider === "google-vertex") {
+		const gcpToken = await getGcpAccessToken();
+		if (gcpToken) {
+			usedToken = gcpToken;
+		}
 	}
 
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
