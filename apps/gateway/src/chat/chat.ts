@@ -2895,6 +2895,12 @@ chat.openapi(completions, async (c) => {
 	let usedApiKeyHash: string | undefined;
 	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
+	// ID for tracked-key health attribution. Equal to providerKey.id when the
+	// DB-provided key is what's actually sent. Cleared when a region-specific
+	// env var override replaces the token, so health failures route to the env
+	// credential via envVarName instead of blaming an unused DB key. Endpoint
+	// and option resolution still use providerKey for BYOK base URLs/options.
+	let trackedKeyHealthId: string | undefined;
 	if (
 		project.mode === "credits" &&
 		(usedProvider === "custom" || usedProvider === "llmgateway")
@@ -2932,10 +2938,12 @@ chat.openapi(completions, async (c) => {
 		}
 
 		usedToken = providerKey.token;
+		trackedKeyHealthId = providerKey.id;
 		usedRegion ??= resolveRegionFromProviderKey(providerKey);
 		// Override with region-specific env var if the DB key doesn't match the requested region.
-		// When we do override, route health attribution to the regional env credential
-		// (clear providerKey so reportTrackedKey* doesn't blame the unused DB key).
+		// When we do override, route health attribution to the regional env credential.
+		// providerKey stays set so endpoint/options/baseUrl construction keeps the BYOK context;
+		// only trackedKeyHealthId is cleared so reportTrackedKey* doesn't blame the unused DB key.
 		if (usedRegion) {
 			const regionEnvVarName = getRegionSpecificEnvVarName(
 				usedProvider,
@@ -2947,7 +2955,7 @@ chat.openapi(completions, async (c) => {
 					usedToken = regionToken;
 					envVarName = regionEnvVarName;
 					configIndex = 0;
-					providerKey = undefined;
+					trackedKeyHealthId = undefined;
 				}
 			}
 		}
@@ -3029,9 +3037,11 @@ chat.openapi(completions, async (c) => {
 
 		if (providerKey) {
 			usedToken = providerKey.token;
+			trackedKeyHealthId = providerKey.id;
 			usedRegion ??= resolveRegionFromProviderKey(providerKey);
 			// Override with region-specific env var if the DB key doesn't match the requested region.
-			// Route health attribution to whichever credential is actually sent.
+			// Route health attribution to the env credential while keeping providerKey for
+			// endpoint/options resolution (BYOK base URLs and provider options).
 			if (usedRegion) {
 				const regionEnvVarName = getRegionSpecificEnvVarName(
 					usedProvider,
@@ -3043,7 +3053,7 @@ chat.openapi(completions, async (c) => {
 						usedToken = regionToken;
 						envVarName = regionEnvVarName;
 						configIndex = 0;
-						providerKey = undefined;
+						trackedKeyHealthId = undefined;
 					}
 				}
 			}
@@ -4184,6 +4194,7 @@ chat.openapi(completions, async (c) => {
 		usedToken = ctx.usedToken;
 		usedApiKeyHash = ctx.usedApiKeyHash;
 		providerKey = ctx.providerKey;
+		trackedKeyHealthId = ctx.trackedKeyHealthId;
 		configIndex = ctx.configIndex;
 		envVarName = ctx.envVarName;
 		url = ctx.url;
@@ -5054,9 +5065,9 @@ chat.openapi(completions, async (c) => {
 									baseModelName,
 								);
 							}
-							if (providerKey?.id) {
+							if (trackedKeyHealthId) {
 								reportTrackedKeyError(
-									providerKey.id,
+									trackedKeyHealthId,
 									0,
 									undefined,
 									baseModelName,
@@ -5302,9 +5313,9 @@ chat.openapi(completions, async (c) => {
 								baseModelName,
 							);
 						}
-						if (providerKey?.id && finishReason !== "content_filter") {
+						if (trackedKeyHealthId && finishReason !== "content_filter") {
 							reportTrackedKeyError(
-								providerKey.id,
+								trackedKeyHealthId,
 								res.status,
 								errorResponseText,
 								baseModelName,
@@ -5564,9 +5575,9 @@ chat.openapi(completions, async (c) => {
 								baseModelName,
 							);
 						}
-						if (providerKey?.id && errorType !== "content_filter") {
+						if (trackedKeyHealthId && errorType !== "content_filter") {
 							reportTrackedKeyError(
-								providerKey.id,
+								trackedKeyHealthId,
 								inferredStatusCode,
 								errorResponseText,
 								baseModelName,
@@ -7903,16 +7914,16 @@ chat.openapi(completions, async (c) => {
 							reportKeySuccess(envVarName, configIndex, baseModelName);
 						}
 					}
-					if (providerKey?.id) {
+					if (trackedKeyHealthId) {
 						if (streamingError !== null) {
 							reportTrackedKeyError(
-								providerKey.id,
+								trackedKeyHealthId,
 								streamingErrorStatusCode,
 								undefined,
 								baseModelName,
 							);
 						} else {
-							reportTrackedKeySuccess(providerKey.id, baseModelName);
+							reportTrackedKeySuccess(trackedKeyHealthId, baseModelName);
 						}
 					}
 
@@ -8258,8 +8269,8 @@ chat.openapi(completions, async (c) => {
 			if (envVarName !== undefined) {
 				reportKeyError(envVarName, configIndex, 0, undefined, baseModelName);
 			}
-			if (providerKey?.id) {
-				reportTrackedKeyError(providerKey.id, 0, undefined, baseModelName);
+			if (trackedKeyHealthId) {
+				reportTrackedKeyError(trackedKeyHealthId, 0, undefined, baseModelName);
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
@@ -8750,9 +8761,9 @@ chat.openapi(completions, async (c) => {
 					baseModelName,
 				);
 			}
-			if (providerKey?.id && finishReason !== "content_filter") {
+			if (trackedKeyHealthId && finishReason !== "content_filter") {
 				reportTrackedKeyError(
-					providerKey.id,
+					trackedKeyHealthId,
 					res.status,
 					errorResponseText,
 					baseModelName,
@@ -9638,8 +9649,8 @@ chat.openapi(completions, async (c) => {
 	if (envVarName !== undefined) {
 		reportKeySuccess(envVarName, configIndex, baseModelName);
 	}
-	if (providerKey?.id) {
-		reportTrackedKeySuccess(providerKey.id, baseModelName);
+	if (trackedKeyHealthId) {
+		reportTrackedKeySuccess(trackedKeyHealthId, baseModelName);
 	}
 
 	if (cachingEnabled && cacheKey && !stream && !hasEmptyNonStreamingResponse) {

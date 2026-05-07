@@ -40,6 +40,13 @@ export interface ProviderContext {
 	usedToken: string;
 	usedApiKeyHash: string;
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	/**
+	 * Provider-key id to attribute health failures to via reportTrackedKey*.
+	 * Equal to `providerKey.id` when the BYOK key is the credential actually
+	 * sent, undefined when a regional env-var override replaces the token
+	 * (in which case `envVarName` carries the health attribution).
+	 */
+	trackedKeyHealthId: string | undefined;
 	configIndex: number;
 	envVarName: string | undefined;
 	url: string;
@@ -494,6 +501,7 @@ export async function resolveProviderContext(
 		usedToken,
 		usedApiKeyHash,
 		providerKey,
+		trackedKeyHealthId: providerKey?.id,
 		configIndex,
 		envVarName,
 		url,
