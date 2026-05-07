@@ -39,6 +39,7 @@ import {
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
 	peekProviderRateLimit,
+	pickNonRateLimitedCandidates,
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
@@ -2161,23 +2162,11 @@ chat.openapi(completions, async (c) => {
 					return true;
 				});
 
-				// Also filter out rate-limited alternatives
-				const rateLimitedAlternatives = await filterRateLimitedProviders(
+				const candidatesForRouting = await pickNonRateLimitedCandidates(
 					project.organizationId,
-					availableModelProviders.map((p) => ({
-						providerId: p.providerId,
-						model: baseModelId,
-						providerModelName: p.modelName,
-					})),
+					baseModelId,
+					availableModelProviders,
 				);
-				const nonRateLimitedAlternatives = availableModelProviders.filter(
-					(p) => !rateLimitedAlternatives.has(p.providerId),
-				);
-
-				const candidatesForRouting =
-					nonRateLimitedAlternatives.length > 0
-						? nonRateLimitedAlternatives
-						: availableModelProviders;
 
 				if (candidatesForRouting.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
@@ -2326,33 +2315,11 @@ chat.openapi(completions, async (c) => {
 						),
 				);
 
-				// Exclude alternatives that are already at their RPM/RPD cap so the
-				// low-uptime fallback doesn't route into a rate-limited provider.
-				// Dedupe by providerId+modelName since region-expanded variants share
-				// the same rate-limit window. Fail-open if all alternatives are capped.
-				const uniqueRateLimitCandidates = Array.from(
-					new Map(
-						availableModelProviders.map((p) => [
-							`${p.providerId}:${p.modelName}`,
-							{
-								providerId: p.providerId,
-								model: baseModelId,
-								providerModelName: p.modelName,
-							},
-						]),
-					).values(),
-				);
-				const rateLimitedAlternatives = await filterRateLimitedProviders(
+				const uptimeFallbackCandidates = await pickNonRateLimitedCandidates(
 					project.organizationId,
-					uniqueRateLimitCandidates,
+					baseModelId,
+					availableModelProviders,
 				);
-				const nonRateLimitedAlternatives = availableModelProviders.filter(
-					(p) => !rateLimitedAlternatives.has(p.providerId),
-				);
-				const uptimeFallbackCandidates =
-					nonRateLimitedAlternatives.length > 0
-						? nonRateLimitedAlternatives
-						: availableModelProviders;
 
 				if (uptimeFallbackCandidates.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
