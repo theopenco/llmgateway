@@ -1,5 +1,8 @@
+import { swrWrap } from "@llmgateway/cache";
 import {
+	cdb,
 	db,
+	getTableName,
 	guardrailConfig,
 	guardrailRule,
 	guardrailViolation,
@@ -33,28 +36,37 @@ import type {
 	GuardrailAction,
 } from "@llmgateway/db";
 
+const guardrailConfigTableName = getTableName(guardrailConfig);
+const guardrailRuleTableName = getTableName(guardrailRule);
+
 export async function getGuardrailConfig(
 	organizationId: string,
 ): Promise<GuardrailConfigData | null> {
-	const configs = await db
-		.select()
-		.from(guardrailConfig)
-		.where(eq(guardrailConfig.organizationId, organizationId))
-		.limit(1);
+	return await swrWrap(
+		`guardrailConfig:${organizationId}`,
+		[guardrailConfigTableName],
+		async () => {
+			const configs = await cdb
+				.select()
+				.from(guardrailConfig)
+				.where(eq(guardrailConfig.organizationId, organizationId))
+				.limit(1);
 
-	const config = configs[0];
+			const config = configs[0];
 
-	if (!config) {
-		return null;
-	}
+			if (!config) {
+				return null;
+			}
 
-	return {
-		enabled: config.enabled,
-		systemRules: config.systemRules ?? defaultSystemRulesConfig,
-		maxFileSizeMb: config.maxFileSizeMb,
-		allowedFileTypes: config.allowedFileTypes ?? defaultAllowedFileTypes,
-		piiAction: config.piiAction ?? "redact",
-	};
+			return {
+				enabled: config.enabled,
+				systemRules: config.systemRules ?? defaultSystemRulesConfig,
+				maxFileSizeMb: config.maxFileSizeMb,
+				allowedFileTypes: config.allowedFileTypes ?? defaultAllowedFileTypes,
+				piiAction: config.piiAction ?? "redact",
+			};
+		},
+	);
 }
 
 export async function checkGuardrails(
@@ -134,11 +146,16 @@ export async function checkGuardrails(
 	}
 
 	// Check custom rules
-	const customRules = await db
-		.select()
-		.from(guardrailRule)
-		.where(eq(guardrailRule.organizationId, input.organizationId))
-		.orderBy(desc(guardrailRule.priority));
+	const customRules = await swrWrap(
+		`guardrailRules:${input.organizationId}`,
+		[guardrailRuleTableName],
+		async () =>
+			await cdb
+				.select()
+				.from(guardrailRule)
+				.where(eq(guardrailRule.organizationId, input.organizationId))
+				.orderBy(desc(guardrailRule.priority)),
+	);
 
 	for (const rule of customRules) {
 		if (!rule.enabled) {

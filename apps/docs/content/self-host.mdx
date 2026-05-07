@@ -4,8 +4,6 @@ description: Simple guide to self-hosting LLMGateway using Docker.
 icon: Server
 ---
 
-# Self Host LLMGateway
-
 LLMGateway is a self-hostable platform that provides a unified API gateway for multiple LLM providers. This guide offers two simple options to get started.
 
 ## Prerequisites
@@ -183,3 +181,15 @@ Once your LLMGateway is running:
 2. **Create your first organization** and project
 3. **Generate API keys** for your applications
 4. **Test the gateway** by making API calls to http://localhost:4001
+
+## Helm Chart
+
+You can also deploy LLMGateway to Kubernetes using the Helm chart, which is published as an OCI artifact on GitHub Container Registry:
+
+```bash
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway
+```
+
+This installs the latest published version. To pin to a specific release, append `--version <version>` (matching a published release tag without the `v` prefix, e.g. `1.2.3`).
+
+See the [Helm chart README](https://github.com/theopenco/llmgateway/tree/main/infra/helm) for configuration and the [list of available versions](https://github.com/theopenco/llmgateway/pkgs/container/charts%2Fllmgateway).

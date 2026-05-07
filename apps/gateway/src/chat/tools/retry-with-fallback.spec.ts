@@ -19,9 +19,12 @@ describe("isRetryableErrorType", () => {
 		expect(isRetryableErrorType("upstream_timeout")).toBe(true);
 	});
 
+	it("retries on gateway errors (e.g. 401/403 from provider)", () => {
+		expect(isRetryableErrorType("gateway_error")).toBe(true);
+	});
+
 	it("does not retry on non-retryable error types", () => {
 		expect(isRetryableErrorType("client_error")).toBe(false);
-		expect(isRetryableErrorType("gateway_error")).toBe(false);
 		expect(isRetryableErrorType("content_filter")).toBe(false);
 	});
 });
@@ -57,8 +60,14 @@ describe("shouldRetryRequest", () => {
 			shouldRetryRequest({ ...defaultOpts, errorType: "client_error" }),
 		).toBe(false);
 		expect(
-			shouldRetryRequest({ ...defaultOpts, errorType: "gateway_error" }),
+			shouldRetryRequest({ ...defaultOpts, errorType: "content_filter" }),
 		).toBe(false);
+	});
+
+	it("retries on gateway errors so auto-route can fall back over 401/403", () => {
+		expect(
+			shouldRetryRequest({ ...defaultOpts, errorType: "gateway_error" }),
+		).toBe(true);
 	});
 
 	it("does not retry when max retries exceeded", () => {
@@ -210,12 +219,12 @@ describe("selectNextProvider", () => {
 
 	it("does not retry back to providers excluded by content filter routing", () => {
 		const providerScores = [
-			{ providerId: "obsidian", score: -1, excludedByContentFilter: true },
+			{ providerId: "glacier", score: -1, excludedByContentFilter: true },
 			{ providerId: "google", score: 0.1 },
 			{ providerId: "openai", score: 0.2 },
 		];
 		const reroutedModelProviders = [
-			{ providerId: "obsidian", modelName: "gemini-3-pro-image-preview" },
+			{ providerId: "glacier", modelName: "gemini-3-pro-image-preview" },
 			{ providerId: "google", modelName: "gemini-3-pro-image-preview" },
 			{ providerId: "openai", modelName: "gemini-3-pro-image-preview" },
 		];
@@ -246,6 +255,11 @@ describe("getErrorType", () => {
 		expect(getErrorType(500)).toBe("upstream_error");
 		expect(getErrorType(502)).toBe("upstream_error");
 		expect(getErrorType(503)).toBe("upstream_error");
+	});
+
+	it("returns gateway_error for 401/403 auth status codes", () => {
+		expect(getErrorType(401)).toBe("gateway_error");
+		expect(getErrorType(403)).toBe("gateway_error");
 	});
 
 	it("returns upstream_error for other status codes", () => {

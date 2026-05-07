@@ -67,7 +67,7 @@ export async function generateMetadata({
 	const { category } = await params;
 	const decoded = decodeURIComponent(category);
 	return {
-		title: `Blog: ${decoded} - LLM Gateway`,
+		title: `Blog: ${decoded}`,
 		description: `Articles in the ${decoded} category at LLM Gateway`,
 	};
 }

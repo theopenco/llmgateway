@@ -54,37 +54,27 @@ async function sendUntilCacheRead(
 const hasAnthropicKey = !!process.env.LLM_ANTHROPIC_API_KEY;
 const hasBedrockKey = !!process.env.LLM_AWS_BEDROCK_API_KEY;
 
-// Anthropic prompt cache reads are billed at ~10% of normal input price.
-// Within a single response that has both cached and uncached input tokens,
-// the per-token cached cost MUST be strictly less than the per-token uncached
-// cost — otherwise the gateway is overbilling the cache discount.
-//
-// We compare ratios within ONE response (rather than across two requests)
-// because the upstream provider's cache is warm across test runs, so a
-// "first call uncached / second call cached" assertion is unreliable.
-function assertCacheDiscountApplied(usage: any) {
+function assertCacheBilled(usage: any) {
 	const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
-	const promptTokens = usage?.prompt_tokens ?? 0;
-	const uncachedTokens = promptTokens - cachedTokens;
-	const inputCost = usage?.cost_usd_input;
-	const cachedInputCost = usage?.cost_usd_cached_input;
-	if (
-		typeof inputCost !== "number" ||
-		typeof cachedInputCost !== "number" ||
-		cachedTokens === 0 ||
-		uncachedTokens === 0
-	) {
-		// Without both cached and uncached tokens we can't compare per-token
-		// rates. Skip rather than fail — the test that primes the cache will
-		// still verify cached_tokens > 0 separately.
+	const promptCost = usage?.cost_details?.upstream_inference_prompt_cost;
+	if (cachedTokens === 0) {
 		return;
 	}
-	const uncachedPerToken = inputCost / uncachedTokens;
-	const cachedPerToken = cachedInputCost / cachedTokens;
-	expect(
-		cachedPerToken,
-		`expected per-token cached cost (${cachedPerToken}) to be less than per-token uncached cost (${uncachedPerToken})`,
-	).toBeLessThan(uncachedPerToken);
+	expect(typeof promptCost).toBe("number");
+	expect(promptCost).toBeGreaterThan(0);
+
+	const promptTokens = usage?.prompt_tokens ?? 0;
+	const nonCachedTokens = Math.max(0, promptTokens - cachedTokens);
+	const inputCost = usage?.cost_details?.input_cost;
+	const cachedInputCost = usage?.cost_details?.cached_input_cost;
+	expect(typeof inputCost).toBe("number");
+	expect(typeof cachedInputCost).toBe("number");
+	expect(cachedInputCost).toBeGreaterThan(0);
+	if (nonCachedTokens > 0) {
+		const perTokenInput = inputCost / nonCachedTokens;
+		const perTokenCached = cachedInputCost / cachedTokens;
+		expect(perTokenCached).toBeLessThan(perTokenInput);
+	}
 }
 
 async function readSseChunks(stream: ReadableStream<Uint8Array> | null) {
@@ -199,7 +189,7 @@ describe("e2e native /v1/messages cache", getConcurrentTestOptions(), () => {
 				second.json.usage.cache_read_input_tokens,
 			);
 
-			assertCacheDiscountApplied(second.json.usage);
+			assertCacheBilled(second.json.usage);
 		},
 	);
 
@@ -252,7 +242,7 @@ describe("e2e native /v1/messages cache", getConcurrentTestOptions(), () => {
 				`expected cached_tokens > 0 after ${second.attempts} attempts`,
 			).toBeGreaterThan(0);
 
-			assertCacheDiscountApplied(second.json.usage);
+			assertCacheBilled(second.json.usage);
 		},
 	);
 
@@ -308,7 +298,7 @@ describe("e2e native /v1/messages cache", getConcurrentTestOptions(), () => {
 				`expected cached_tokens > 0 after ${second.attempts} attempts`,
 			).toBeGreaterThan(0);
 
-			assertCacheDiscountApplied(second.json.usage);
+			assertCacheBilled(second.json.usage);
 		},
 	);
 
@@ -526,6 +516,76 @@ describe("e2e native /v1/messages cache", getConcurrentTestOptions(), () => {
 				second.json.usage.prompt_tokens_details.cached_tokens,
 				`expected cached_tokens > 0 after ${second.attempts} attempts`,
 			).toBeGreaterThan(0);
+		},
+	);
+
+	// 1h cache TTL via /v1/messages: opts into Anthropic's 1h cache write rate
+	// (2x base) and asserts the gateway round-trips both the request opt-in
+	// and the response breakdown (usage.cache_creation.ephemeral_1h_input_tokens)
+	// per Anthropic's spec, so SDK clients can attribute spend across rates.
+	(hasAnthropicKey ? test : test.skip)(
+		"native messages forwards 1h ttl and surfaces cache_creation breakdown",
+		getTestOptions(),
+		async () => {
+			const longText = buildLongSystemPrompt();
+			const body = {
+				model: "anthropic/claude-haiku-4-5",
+				max_tokens: 50,
+				system: [
+					{
+						type: "text" as const,
+						text: longText,
+						cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
+					},
+				],
+				messages: [
+					{
+						role: "user" as const,
+						content: "Just reply OK.",
+					},
+				],
+			};
+
+			const send = async () => {
+				const requestId = generateTestRequestId();
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify(body),
+				});
+				const json = await res.json();
+				if (logMode) {
+					console.log(
+						"native /v1/messages 1h",
+						requestId,
+						"status",
+						res.status,
+						"usage",
+						JSON.stringify(json.usage),
+					);
+				}
+				return { status: res.status, json };
+			};
+
+			const first = await send();
+			expect(first.status).toBe(200);
+			// On the priming call Anthropic should write to the 1h cache.
+			// If the schema strips ttl, this falls back to 5m and the breakdown
+			// either omits ephemeral_1h_input_tokens or reports 0.
+			const firstBreakdown = first.json.usage?.cache_creation;
+			if (first.json.usage?.cache_creation_input_tokens > 0) {
+				expect(firstBreakdown).toBeDefined();
+				expect(firstBreakdown.ephemeral_1h_input_tokens).toBeGreaterThan(0);
+				expect(firstBreakdown.ephemeral_5m_input_tokens).toBe(0);
+				expect(
+					firstBreakdown.ephemeral_5m_input_tokens +
+						firstBreakdown.ephemeral_1h_input_tokens,
+				).toBe(first.json.usage.cache_creation_input_tokens);
+			}
 		},
 	);
 });

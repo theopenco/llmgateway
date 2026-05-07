@@ -118,16 +118,86 @@ describe("calculateCosts", () => {
 			1663,
 			50,
 			0,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			{
+				cacheWriteTokens: 1659,
+			},
 		);
 
-		expect(result.inputCost).toBeCloseTo(0.004989); // 1663 * 0.000003 (all tokens charged full price)
+		expect(result.inputCost).toBeCloseTo(0.000012); // 4 * 0.000003 (non-cache-write tokens)
 		expect(result.outputCost).toBeCloseTo(0.00075); // 50 * 0.000015
 		expect(result.cachedInputCost).toBeCloseTo(0); // 0 cache reads
-		expect(result.totalCost).toBeCloseTo(0.005739); // 0.004989 + 0.00075 + 0
+		expect(result.cacheWriteInputCost).toBeCloseTo(0.00622125); // 1659 * 0.00000375
+		expect(result.totalCost).toBeCloseTo(0.00698325); // 0.000012 + 0.00075 + 0.00622125
 		expect(result.promptTokens).toBe(1663);
 		expect(result.completionTokens).toBe(50);
 		expect(result.cachedTokens).toBe(0);
+		expect(result.cacheWriteTokens).toBe(1659);
 		expect(result.estimatedCost).toBe(false); // Not estimated
+	});
+
+	it("should price 1h cache writes at the 1h rate when cacheWrite1hTokens is provided", async () => {
+		// claude-3-5-sonnet-20241022 input is 3.0/1M; 5m write 3.75/1M; 1h write 6.0/1M.
+		// 4 non-cached + 1000 cache creation total (300 5m + 700 1h) = 1004 prompt tokens.
+		const result = await calculateCosts(
+			"claude-3-5-sonnet-20241022",
+			"anthropic",
+			1004,
+			50,
+			0,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			{
+				cacheWriteTokens: 1000,
+				cacheWrite1hTokens: 700,
+			},
+		);
+
+		expect(result.inputCost).toBeCloseTo(4 * (3.0 / 1e6));
+		// 300 tokens at 5m rate (3.75/1M) + 700 tokens at 1h rate (6.0/1M)
+		const fiveMinuteCost = 300 * (3.75 / 1e6);
+		const oneHourCost = 700 * (6.0 / 1e6);
+		expect(result.cacheWriteInputCost).toBeCloseTo(
+			fiveMinuteCost + oneHourCost,
+		);
+		expect(result.cacheWriteTokens).toBe(1000);
+	});
+
+	it("should fall back to the 5m rate for cache writes when no 1h count is provided", async () => {
+		// Pre-existing behavior: cacheWriteTokens is the sum, priced entirely at 5m rate.
+		const result = await calculateCosts(
+			"claude-3-5-sonnet-20241022",
+			"anthropic",
+			1004,
+			50,
+			0,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			{
+				cacheWriteTokens: 1000,
+			},
+		);
+
+		expect(result.cacheWriteInputCost).toBeCloseTo(1000 * (3.75 / 1e6));
 	});
 
 	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", async () => {
@@ -143,6 +213,7 @@ describe("calculateCosts", () => {
 		expect(result.inputCost).toBeCloseTo(0.000012); // 4 * 0.000003 (only non-cached tokens at full price)
 		expect(result.outputCost).toBeCloseTo(0.00075); // 50 * 0.000015
 		expect(result.cachedInputCost).toBeCloseTo(0.0004977); // 1659 * 0.0000003 (cached token price)
+		expect(result.cacheWriteInputCost).toBeCloseTo(0);
 		expect(result.totalCost).toBeCloseTo(0.0012597); // 0.000012 + 0.00075 + 0.0004977
 		expect(result.promptTokens).toBe(1663);
 		expect(result.completionTokens).toBe(50);
@@ -362,6 +433,35 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("should use reported image output tokens for gpt-image-2", async () => {
+		const result = await calculateCosts(
+			"gpt-image-2",
+			"openai",
+			1000,
+			2000,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+			null,
+			null,
+			"low",
+		);
+
+		const expectedInputCost = 1000 * (8 / 1e6);
+		const expectedImageOutputCost = 2000 * (30 / 1e6);
+
+		expect(result.imageOutputTokens).toBe(2000);
+		expect(result.imageOutputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.inputCost).toBeCloseTo(expectedInputCost);
+		expect(result.totalCost).toBeCloseTo(
+			expectedInputCost + expectedImageOutputCost,
+		);
+	});
+
 	it("should return null for all image fields when no images", async () => {
 		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
 
@@ -457,51 +557,6 @@ describe("calculateCosts", () => {
 
 		expect(result.imageOutputTokens).toBe(1120); // default = 1K
 		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6));
-	});
-
-	it("should apply per-resolution discount overriding provider mapping discount", async () => {
-		// obsidian provider has discount: 0.2 on the provider mapping AND 0.2 in each resolution config
-		// With no DB discount active, the resolution-level discount (0.2) should apply
-		const result = await calculateCosts(
-			"gemini-3.1-flash-image-preview",
-			"obsidian",
-			1000,
-			1200, // includes 1120 image tokens
-			null,
-			undefined,
-			null,
-			1, // 1 output image
-			"1K",
-			0,
-		);
-
-		// imageOutputCost with 20% discount: 1120 * (60/1M) * 0.8 = 0.00005376
-		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6) * 0.8);
-		// text output also discounted: (1200 - 1120) * (1.5/1M) * 0.8
-		const textTokens = 1200 - 1120;
-		const expectedTextCost = textTokens * (1.5 / 1e6) * 0.8;
-		const expectedImageCost = 1120 * (60 / 1e6) * 0.8;
-		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
-	});
-
-	it("should apply per-resolution discount for image input on obsidian", async () => {
-		// gemini-3-pro-image-preview on obsidian: resolution discount 0.2 for input
-		const result = await calculateCosts(
-			"gemini-3-pro-image-preview",
-			"obsidian",
-			1000,
-			500,
-			null,
-			undefined,
-			null,
-			0,
-			undefined,
-			2, // 2 input images
-		);
-
-		// imageInputCost: 2 * 560 * (2/1M) * 0.8 = 1120 * 2e-6 * 0.8
-		expect(result.imageInputTokens).toBe(1120); // 2 * 560
-		expect(result.imageInputCost).toBeCloseTo(1120 * (2 / 1e6) * 0.8);
 	});
 
 	it("should include image costs in totalCost sum", async () => {

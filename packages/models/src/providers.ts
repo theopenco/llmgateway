@@ -181,23 +181,6 @@ export const providers = [
 		priority: 0.9,
 	},
 	{
-		id: "obsidian",
-		name: "Obsidian",
-		description: "Obsidian - Google-compatible LLM provider.",
-		env: {
-			required: {
-				apiKey: "LLM_OBSIDIAN_API_KEY",
-				baseUrl: "LLM_OBSIDIAN_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#1a1a1a",
-		website: null,
-		announcement: null,
-		contentFilter: true,
-	},
-	{
 		id: "avalanche",
 		name: "Avalanche",
 		description: "Avalanche - video generation provider.",
@@ -261,6 +244,7 @@ export const providers = [
 		color: "#000000",
 		website: "https://x.ai",
 		announcement: null,
+		priority: 0.1,
 	},
 	{
 		id: "deepseek",
@@ -375,6 +359,29 @@ export const providers = [
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 	},
 	{
+		id: "azure-ai-foundry",
+		name: "Azure AI Foundry",
+		description:
+			"Microsoft Azure AI Foundry - third-party models (Grok, Llama, Mistral, ...) via the Azure Models inference endpoint",
+		env: {
+			required: {
+				apiKey: "LLM_AZURE_AI_FOUNDRY_API_KEY",
+				resource: "LLM_AZURE_AI_FOUNDRY_RESOURCE",
+			},
+			optional: {
+				apiVersion: "LLM_AZURE_AI_FOUNDRY_API_VERSION",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0078D4",
+		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
+		announcement: null,
+		apiKeyInstructions:
+			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
+		learnMore: "https://docs.llmgateway.io/integrations/azure",
+	},
+	{
 		id: "zai",
 		name: "Z AI",
 		description: "Z AI's OpenAI-compatible large language models",
@@ -452,22 +459,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "canopywave",
-		name: "CanopyWave",
-		description:
-			"CanopyWave is a platform for running large language models with OpenAI-compatible API",
-		env: {
-			required: {
-				apiKey: "LLM_CANOPY_WAVE_API_KEY",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#10b981",
-		website: "https://canopywave.io",
-		announcement: null,
-	},
-	{
 		id: "inference.net",
 		name: "Inference.net",
 		description:
@@ -484,7 +475,7 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "together.ai",
+		id: "together-ai",
 		name: "Together AI",
 		description:
 			"Together AI is a platform for running large language models in the cloud with fast inference.",

@@ -8,7 +8,13 @@ import { pageWindowOptions } from "@/lib/page-window";
 
 import type { PageWindow } from "@/lib/page-window";
 
-export function TimeWindowSelector({ current }: { current: PageWindow }) {
+export function TimeWindowSelector({
+	current,
+	options = pageWindowOptions,
+}: {
+	current: PageWindow;
+	options?: { value: PageWindow; label: string }[];
+}) {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -27,7 +33,7 @@ export function TimeWindowSelector({ current }: { current: PageWindow }) {
 
 	return (
 		<div className="flex items-center gap-1">
-			{pageWindowOptions.map((opt) => (
+			{options.map((opt) => (
 				<Button
 					key={opt.value}
 					variant={current === opt.value ? "default" : "outline"}

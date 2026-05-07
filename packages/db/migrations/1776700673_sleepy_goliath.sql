@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "log_request_id_idx" ON "log" ("request_id");

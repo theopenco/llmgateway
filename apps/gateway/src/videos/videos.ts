@@ -24,6 +24,7 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	processImageUrl,
+	resolveMetricsModelId,
 	type RoutingMetadata,
 	type VideoPricingContext,
 } from "@llmgateway/actions";
@@ -33,6 +34,7 @@ import {
 	db,
 	eq,
 	getProviderMetricsForCombinations,
+	metricsKey,
 	sql,
 	shortid,
 	tables,
@@ -41,6 +43,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	getProviderEnvValue,
+	getProviderEnvVar,
 	hasProviderEnvironmentToken,
 	models,
 	type ModelDefinition,
@@ -483,67 +486,6 @@ interface ProcessedVideoImageInput {
 	mimeType: string;
 }
 
-const OBSIDIAN_SORA_ASYNC_API_KEY_ENV = "LLM_OBSIDIAN_SORA_ASYNC_API_KEY";
-const OBSIDIAN_SORA_ASYNC_BASE_URL_ENV = "LLM_OBSIDIAN_SORA_ASYNC_BASE_URL";
-
-function getOptionalMultiValueEnv(
-	envVarName: string,
-	configIndex: number | null,
-): string | undefined {
-	const envValue = process.env[envVarName];
-	if (!envValue) {
-		return undefined;
-	}
-
-	if (configIndex === null) {
-		return envValue;
-	}
-
-	const values = envValue
-		.split(",")
-		.map((value) => value.trim())
-		.filter((value) => value.length > 0);
-
-	if (values.length === 0) {
-		return undefined;
-	}
-
-	if (configIndex >= values.length) {
-		return values[values.length - 1];
-	}
-
-	return values[configIndex];
-}
-
-function applyObsidianSoraAsyncProviderContextOverride<
-	T extends { providerId: Provider; baseUrl: string; token: string },
->(providerContext: T, baseModelName: string, configIndex: number | null): T {
-	if (
-		providerContext.providerId !== "obsidian" ||
-		!isSoraVideoModelName(baseModelName)
-	) {
-		return providerContext;
-	}
-
-	const overrideToken = getOptionalMultiValueEnv(
-		OBSIDIAN_SORA_ASYNC_API_KEY_ENV,
-		configIndex,
-	);
-	const overrideBaseUrl = getOptionalMultiValueEnv(
-		OBSIDIAN_SORA_ASYNC_BASE_URL_ENV,
-		configIndex,
-	);
-
-	if (!overrideToken && !overrideBaseUrl) {
-		return providerContext;
-	}
-
-	return {
-		...providerContext,
-		token: overrideToken ?? providerContext.token,
-		baseUrl: overrideBaseUrl ?? providerContext.baseUrl,
-	} as T;
-}
 type VideoInputMode = "none" | "frames" | "reference";
 
 function getVideoImageFileExtension(mimeType: string): string {
@@ -558,25 +500,6 @@ function getVideoImageFileExtension(mimeType: string): string {
 		default:
 			return "png";
 	}
-}
-
-function getObsidianInputReferenceImages(
-	inputMode: VideoInputMode,
-	processedFirstFrame: ProcessedVideoImageInput | null,
-	processedLastFrame: ProcessedVideoImageInput | null,
-	processedReferenceImages: ProcessedVideoImageInput[],
-): ProcessedVideoImageInput[] {
-	if (inputMode === "reference") {
-		return processedReferenceImages;
-	}
-
-	if (inputMode === "frames") {
-		return [processedFirstFrame, processedLastFrame].filter(
-			(image): image is ProcessedVideoImageInput => image !== null,
-		);
-	}
-
-	return [];
 }
 
 function getAvailableCredits(
@@ -665,6 +588,12 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
+	if (organization.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Organization has been disabled and is no longer accessible",
+		});
+	}
+
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 
 	return {
@@ -750,7 +679,7 @@ function getVideoModel(model: string): {
 
 	throw new HTTPException(400, {
 		message:
-			"Unsupported video model. Use a video-capable model from /v1/models, optionally prefixed with a configured provider like openai/, avalanche/, obsidian/, or google-vertex/.",
+			"Unsupported video model. Use a video-capable model from /v1/models, optionally prefixed with a configured provider like openai/, avalanche/, or google-vertex/.",
 	});
 }
 
@@ -837,11 +766,10 @@ function getVideoProviderConstraintReasons(
 		!isSoraVideoModelName(provider.modelName) &&
 		inputMode === "frames" &&
 		!isGoogleVertexVideoProvider(provider.providerId) &&
-		provider.providerId !== "avalanche" &&
-		provider.providerId !== "obsidian"
+		provider.providerId !== "avalanche"
 	) {
 		reasons.push(
-			"frame inputs are currently only supported through obsidian, google-vertex, or avalanche",
+			"frame inputs are currently only supported through google-vertex or avalanche",
 		);
 	}
 
@@ -857,7 +785,7 @@ function getVideoProviderConstraintReasons(
 		}
 
 		if (isGoogleVertexVideoProvider(provider.providerId)) {
-			if (provider.modelName !== "veo-3.1-generate-preview") {
+			if (provider.modelName !== "veo-3.1-generate-001") {
 				reasons.push(
 					`reference images are currently only supported on ${provider.providerId}/veo-3.1-generate-preview`,
 				);
@@ -868,15 +796,9 @@ function getVideoProviderConstraintReasons(
 					"reference images are currently only supported on avalanche/veo-3.1-fast-generate-preview",
 				);
 			}
-		} else if (provider.providerId === "obsidian") {
-			if (inputImageCount >= 2) {
-				reasons.push(
-					"obsidian reference-image video generation supports exactly 1 input image",
-				);
-			}
 		} else {
 			reasons.push(
-				"reference images are currently only supported through obsidian, google-vertex, or avalanche",
+				"reference images are currently only supported through google-vertex or avalanche",
 			);
 		}
 
@@ -978,29 +900,6 @@ function getEligibleVideoProviderMappings(
 	return matchingProviders;
 }
 
-function getObsidianVideoModelName(
-	baseModelName: string,
-	videoSize: VideoSizeConfig,
-	inputMode: VideoInputMode,
-): string {
-	if (isSoraVideoModelName(baseModelName)) {
-		return baseModelName;
-	}
-
-	const isFastModel = baseModelName.endsWith("-fast");
-	const baseName = isFastModel
-		? baseModelName.slice(0, -"-fast".length)
-		: baseModelName;
-	const orientationModelName =
-		videoSize.orientation === "landscape"
-			? `${baseName}-landscape${isFastModel ? "-fast" : ""}`
-			: baseModelName;
-
-	return inputMode === "none"
-		? orientationModelName
-		: `${orientationModelName}-fl`;
-}
-
 function getAvalancheVideoModelName(baseModelName: string): string {
 	return baseModelName;
 }
@@ -1015,12 +914,10 @@ function getAvalancheSoraTaskModelName(
 function getVideoUpstreamModelName(
 	providerId: Provider,
 	baseModelName: string,
-	videoSize: VideoSizeConfig,
-	inputMode: VideoInputMode,
+	_videoSize: VideoSizeConfig,
+	_inputMode: VideoInputMode,
 ): string {
 	switch (providerId) {
-		case "obsidian":
-			return getObsidianVideoModelName(baseModelName, videoSize, inputMode);
 		case "avalanche":
 			return getAvalancheVideoModelName(baseModelName);
 		case "google-vertex":
@@ -1079,6 +976,56 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	}
 }
 
+function getVideoProviderKeyFilter(
+	providerId: Provider,
+): ((key: { baseUrl: string | null }) => boolean) | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const allowedBaseUrls = new Set<string>();
+	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+	if (defaultBaseUrl) {
+		allowedBaseUrls.add(defaultBaseUrl);
+	}
+	const envBaseUrl = getProviderEnvValue(providerId, "baseUrl");
+	if (envBaseUrl) {
+		allowedBaseUrls.add(envBaseUrl);
+	}
+	return (key) => !key.baseUrl || allowedBaseUrls.has(key.baseUrl);
+}
+
+function getVideoExcludedConfigIndices(
+	providerId: Provider,
+): ReadonlySet<number> | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const apiKeyEnvVar = getProviderEnvVar(providerId);
+	if (!apiKeyEnvVar) {
+		return undefined;
+	}
+	const apiKeyValue = process.env[apiKeyEnvVar];
+	if (!apiKeyValue) {
+		return undefined;
+	}
+	const valueCount = apiKeyValue
+		.split(",")
+		.map((value) => value.trim())
+		.filter((value) => value.length > 0).length;
+	if (valueCount === 0) {
+		return undefined;
+	}
+	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+	const excluded = new Set<number>();
+	for (let index = 0; index < valueCount; index += 1) {
+		const baseUrl = getProviderEnvValue(providerId, "baseUrl", index);
+		if (baseUrl && baseUrl !== defaultBaseUrl) {
+			excluded.add(index);
+		}
+	}
+	return excluded.size > 0 ? excluded : undefined;
+}
+
 function addRequestedVideoMetadata(
 	body: Record<string, unknown>,
 	videoSize: VideoSizeConfig,
@@ -1109,7 +1056,6 @@ async function resolveProviderContext(
 	project: InferSelectModel<typeof tables.project>,
 	organizationId: string,
 	selectionKey: string,
-	baseModelName?: string,
 ): Promise<ProviderContext> {
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 	const sharedVertexProjectId = isGoogleVertexVideoProvider(providerId)
@@ -1125,6 +1071,8 @@ async function resolveProviderContext(
 			organizationId,
 			providerId,
 			selectionKey,
+			undefined,
+			getVideoProviderKeyFilter(providerId),
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -1163,15 +1111,13 @@ async function resolveProviderContext(
 					: undefined,
 		};
 
-		return applyObsidianSoraAsyncProviderContextOverride(
-			providerContext,
-			baseModelName ?? "",
-			null,
-		);
+		return providerContext;
 	}
 
 	if (project.mode === "credits") {
-		const env = getProviderEnv(providerId);
+		const env = getProviderEnv(providerId, {
+			excludedIndices: getVideoExcludedConfigIndices(providerId),
+		});
 		const baseUrl =
 			getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
 			defaultBaseUrl;
@@ -1218,17 +1164,15 @@ async function resolveProviderContext(
 					: undefined,
 		};
 
-		return applyObsidianSoraAsyncProviderContextOverride(
-			providerContext,
-			baseModelName ?? "",
-			env.configIndex,
-		);
+		return providerContext;
 	}
 
 	const providerKey = await findProviderKey(
 		organizationId,
 		providerId,
 		selectionKey,
+		undefined,
+		getVideoProviderKeyFilter(providerId),
 	);
 	if (providerKey) {
 		const baseUrl =
@@ -1262,11 +1206,7 @@ async function resolveProviderContext(
 					: undefined,
 		};
 
-		return applyObsidianSoraAsyncProviderContextOverride(
-			providerContext,
-			baseModelName ?? "",
-			null,
-		);
+		return providerContext;
 	}
 
 	if (!hasProviderEnvironmentToken(providerId)) {
@@ -1275,7 +1215,9 @@ async function resolveProviderContext(
 		});
 	}
 
-	const env = getProviderEnv(providerId);
+	const env = getProviderEnv(providerId, {
+		excludedIndices: getVideoExcludedConfigIndices(providerId),
+	});
 	const baseUrl =
 		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
 		defaultBaseUrl;
@@ -1318,11 +1260,7 @@ async function resolveProviderContext(
 				: undefined,
 	};
 
-	return applyObsidianSoraAsyncProviderContextOverride(
-		providerContext,
-		baseModelName ?? "",
-		env.configIndex,
-	);
+	return providerContext;
 }
 
 async function hasVideoProviderConfiguration(
@@ -1333,7 +1271,13 @@ async function hasVideoProviderConfiguration(
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 
 	if (project.mode === "api-keys") {
-		const providerKey = await findProviderKey(organizationId, providerId);
+		const providerKey = await findProviderKey(
+			organizationId,
+			providerId,
+			undefined,
+			undefined,
+			getVideoProviderKeyFilter(providerId),
+		);
 		return Boolean(
 			providerKey &&
 				(providerKey.baseUrl ??
@@ -1345,26 +1289,16 @@ async function hasVideoProviderConfiguration(
 	}
 
 	if (project.mode === "credits") {
-		return Boolean(
-			hasProviderEnvironmentToken(providerId) &&
-				(getProviderEnvValue(
-					providerId,
-					"baseUrl",
-					getProviderEnv(providerId).configIndex,
-				) ??
-					defaultBaseUrl) &&
-				(!isGoogleVertexVideoProvider(providerId) ||
-					Boolean(
-						getProviderEnvValue(
-							providerId,
-							"project",
-							getProviderEnv(providerId).configIndex,
-						),
-					)),
-		);
+		return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
 	}
 
-	const providerKey = await findProviderKey(organizationId, providerId);
+	const providerKey = await findProviderKey(
+		organizationId,
+		providerId,
+		undefined,
+		undefined,
+		getVideoProviderKeyFilter(providerId),
+	);
 	if (providerKey) {
 		return Boolean(
 			(providerKey.baseUrl ??
@@ -1375,23 +1309,38 @@ async function hasVideoProviderConfiguration(
 		);
 	}
 
-	return Boolean(
-		hasProviderEnvironmentToken(providerId) &&
-			(getProviderEnvValue(
-				providerId,
-				"baseUrl",
-				getProviderEnv(providerId).configIndex,
-			) ??
-				defaultBaseUrl) &&
-			(!isGoogleVertexVideoProvider(providerId) ||
-				Boolean(
-					getProviderEnvValue(
-						providerId,
-						"project",
-						getProviderEnv(providerId).configIndex,
-					),
-				)),
-	);
+	return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
+}
+
+function hasVideoEnvConfiguration(
+	providerId: Provider,
+	defaultBaseUrl: string | null,
+): boolean {
+	if (!hasProviderEnvironmentToken(providerId)) {
+		return false;
+	}
+	let env;
+	try {
+		env = getProviderEnv(providerId, {
+			advanceRoundRobin: false,
+			excludedIndices: getVideoExcludedConfigIndices(providerId),
+		});
+	} catch {
+		return false;
+	}
+	const baseUrl =
+		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
+		defaultBaseUrl;
+	if (!baseUrl) {
+		return false;
+	}
+	if (
+		isGoogleVertexVideoProvider(providerId) &&
+		!getProviderEnvValue(providerId, "project", env.configIndex)
+	) {
+		return false;
+	}
+	return true;
 }
 
 async function resolveVideoExecution(
@@ -1494,20 +1443,35 @@ async function resolveVideoExecution(
 
 	if (configuredEligibleMappings.length > 1) {
 		const metricsCombinations = configuredEligibleMappings.map((provider) => ({
-			modelId: modelInfo.id,
+			modelId: resolveMetricsModelId(modelInfo.id, provider.modelName),
 			providerId: provider.providerId,
+			region: provider.region,
+			modelName: provider.modelName,
 		}));
 		const metricsMap =
 			await getProviderMetricsForCombinations(metricsCombinations);
 
+		const requestedMapping = requestedProvider
+			? configuredEligibleMappings.find(
+					(provider) => provider.providerId === requestedProvider,
+				)
+			: undefined;
+		const requestedKey = requestedMapping
+			? metricsKey(
+					resolveMetricsModelId(modelInfo.id, requestedMapping.modelName),
+					requestedMapping.providerId,
+					requestedMapping.region,
+					requestedMapping.modelName,
+				)
+			: undefined;
+
 		if (
 			requestedProvider &&
 			!noFallback &&
-			metricsMap.has(`${modelInfo.id}:${requestedProvider}`)
+			requestedKey &&
+			metricsMap.has(requestedKey)
 		) {
-			const requestedMetrics = metricsMap.get(
-				`${modelInfo.id}:${requestedProvider}`,
-			);
+			const requestedMetrics = metricsMap.get(requestedKey);
 			const requestedUptime = requestedMetrics?.uptime;
 
 			if (requestedUptime !== undefined && requestedUptime < 90) {
@@ -1517,7 +1481,12 @@ async function resolveVideoExecution(
 					}
 
 					const providerMetrics = metricsMap.get(
-						`${modelInfo.id}:${provider.providerId}`,
+						metricsKey(
+							resolveMetricsModelId(modelInfo.id, provider.modelName),
+							provider.providerId,
+							provider.region,
+							provider.modelName,
+						),
 					);
 					return (
 						!providerMetrics ||
@@ -1640,7 +1609,6 @@ async function resolveVideoExecution(
 		project,
 		organizationId,
 		requestId,
-		providerMapping.modelName,
 	);
 	return {
 		providerMapping,
@@ -2164,6 +2132,8 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 			job.organizationId,
 			providerId,
 			job.requestId,
+			undefined,
+			getVideoProviderKeyFilter(providerId),
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -2181,19 +2151,17 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 			});
 		}
 
-		return applyObsidianSoraAsyncProviderContextOverride(
-			{
-				providerId,
-				baseUrl,
-				token: providerKey.token,
-				requestId: job.requestId,
-			},
-			job.usedModel,
-			null,
-		);
+		return {
+			providerId,
+			baseUrl,
+			token: providerKey.token,
+			requestId: job.requestId,
+		};
 	}
 
-	const env = getProviderEnv(providerId);
+	const env = getProviderEnv(providerId, {
+		excludedIndices: getVideoExcludedConfigIndices(providerId),
+	});
 	const baseUrl =
 		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
 		defaultBaseUrl;
@@ -2203,16 +2171,12 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		});
 	}
 
-	return applyObsidianSoraAsyncProviderContextOverride(
-		{
-			providerId,
-			baseUrl,
-			token: env.token,
-			requestId: job.requestId,
-		},
-		job.usedModel,
-		env.configIndex,
-	);
+	return {
+		providerId,
+		baseUrl,
+		token: env.token,
+		requestId: job.requestId,
+	};
 }
 
 async function streamDirectUpstreamVideoContent(
@@ -2439,126 +2403,6 @@ function buildVideoInputReferenceFormData(
 	}
 
 	return formData;
-}
-
-function getObsidianSora2ProConfigurationError(
-	message: string,
-): HTTPException | null {
-	if (
-		!message.includes("sora-2-pro") ||
-		!message.includes("无可用渠道") ||
-		!message.includes("default")
-	) {
-		return null;
-	}
-
-	return new HTTPException(503, {
-		message:
-			"Obsidian sora-2-pro is not available for the current token. Configure LLM_OBSIDIAN_SORA_ASYNC_API_KEY with an obsidian async-api token that has access to sora-2-pro, or update the Obsidian provider key used for video generation.",
-	});
-}
-
-async function createObsidianVideoJob(
-	providerContext: ProviderContext,
-	providerMapping: ProviderModelMapping,
-	videoSize: VideoSizeConfig,
-	prompt: string,
-	durationSeconds: number,
-	inputMode: VideoInputMode,
-	processedFirstFrame: ProcessedVideoImageInput | null,
-	processedLastFrame: ProcessedVideoImageInput | null,
-	processedReferenceImages: ProcessedVideoImageInput[],
-): Promise<{
-	upstreamId: string;
-	upstreamRequest: Record<string, unknown>;
-	upstreamResponse: Record<string, unknown>;
-}> {
-	const upstreamUrl = joinUrl(providerContext.baseUrl, "/v1/videos");
-	const upstreamModelName = getVideoUpstreamModelName(
-		"obsidian",
-		providerMapping.modelName,
-		videoSize,
-		inputMode,
-	);
-	const includesDuration = isSoraVideoModelName(providerMapping.modelName);
-	const inputReferenceImages = getObsidianInputReferenceImages(
-		inputMode,
-		processedFirstFrame,
-		processedLastFrame,
-		processedReferenceImages,
-	);
-	const upstreamRequest =
-		inputReferenceImages.length > 0
-			? {
-					model: upstreamModelName,
-					prompt,
-					size: videoSize.size,
-					...(includesDuration
-						? {
-								seconds: String(durationSeconds),
-							}
-						: {}),
-					input_reference: inputReferenceImages.map((image, index) => ({
-						filename: `input_reference_${index + 1}.${getVideoImageFileExtension(image.mimeType)}`,
-						mimeType: image.mimeType,
-					})),
-				}
-			: {
-					model: upstreamModelName,
-					prompt,
-					size: videoSize.size,
-					...(includesDuration
-						? {
-								seconds: String(durationSeconds),
-							}
-						: {}),
-				};
-	const upstreamBody =
-		inputReferenceImages.length > 0
-			? buildVideoInputReferenceFormData(
-					upstreamModelName,
-					prompt,
-					videoSize.size,
-					includesDuration ? durationSeconds : undefined,
-					inputReferenceImages,
-				)
-			: JSON.stringify(upstreamRequest);
-	let rawUpstreamResponse: Record<string, unknown>;
-	try {
-		rawUpstreamResponse = await fetchUpstreamJson(upstreamUrl, {
-			method: "POST",
-			headers: {
-				...getProviderHeaders("obsidian", providerContext.token, {
-					requestId: providerContext.requestId,
-				}),
-				...(inputReferenceImages.length === 0
-					? { "Content-Type": "application/json" }
-					: {}),
-			},
-			body: upstreamBody,
-		});
-	} catch (error) {
-		const rewrittenError = getObsidianSora2ProConfigurationError(
-			error instanceof Error ? error.message : "",
-		);
-		if (providerMapping.modelName === "sora-2-pro" && rewrittenError) {
-			throw rewrittenError;
-		}
-		throw error;
-	}
-
-	const upstreamResponse = addRequestedVideoMetadata(
-		rawUpstreamResponse,
-		videoSize,
-	);
-	const upstreamId = extractUpstreamVideoId(upstreamResponse);
-	if (!upstreamId) {
-		throw new HTTPException(502, {
-			message: "Upstream video response did not include an id",
-		});
-	}
-
-	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
 async function createOpenAIVideoJob(
@@ -2977,18 +2821,6 @@ async function createUpstreamVideoJob(
 				durationSeconds,
 				processedReferenceImages,
 			);
-		case "obsidian":
-			return await createObsidianVideoJob(
-				providerContext,
-				providerMapping,
-				videoSize,
-				prompt,
-				durationSeconds,
-				inputMode,
-				processedFirstFrame,
-				processedLastFrame,
-				processedReferenceImages,
-			);
 		case "avalanche":
 			return isSoraVideoModelName(providerMapping.modelName)
 				? await createAvalancheSoraVideoJob(
@@ -3332,7 +3164,6 @@ videos.openapi(createVideo, async (c) => {
 				project,
 				organization.id,
 				requestId,
-				nextMapping.modelName,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
@@ -3388,7 +3219,6 @@ videos.openapi(createVideo, async (c) => {
 				project,
 				organization.id,
 				requestId,
-				nextMapping.modelName,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
@@ -3485,7 +3315,6 @@ videos.openapi(createVideo, async (c) => {
 				project,
 				organization.id,
 				requestId,
-				nextMapping.modelName,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,

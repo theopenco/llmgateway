@@ -13,8 +13,7 @@ export function extractImages(data: any, provider: Provider): ImageObject[] {
 		case "google-ai-studio":
 		case "glacier":
 		case "google-vertex":
-		case "quartz":
-		case "obsidian": {
+		case "quartz": {
 			const parts = data.candidates?.[0]?.content?.parts ?? [];
 			const imageParts = parts.filter((part: any) => part.inlineData);
 			return imageParts.map(

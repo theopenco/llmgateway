@@ -26,8 +26,7 @@ export function isExpectedUnknownFinishReason(
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
 			provider === "google-vertex" ||
-			provider === "quartz" ||
-			provider === "obsidian") &&
+			provider === "quartz") &&
 		finishReason === "OTHER"
 	) {
 		return true;
@@ -79,12 +78,14 @@ export function getUnifiedFinishReason(
 			if (finishReason === "tool_use") {
 				return UnifiedFinishReason.TOOL_CALLS;
 			}
+			if (finishReason === "refusal") {
+				return UnifiedFinishReason.CONTENT_FILTER;
+			}
 			break;
 		case "google-ai-studio":
 		case "glacier":
 		case "google-vertex":
 		case "quartz":
-		case "obsidian":
 			// Google finish reasons (original format, not mapped to OpenAI)
 			if (finishReason === "STOP") {
 				return UnifiedFinishReason.COMPLETED;
@@ -110,6 +111,27 @@ export function getUnifiedFinishReason(
 			}
 			if (finishReason === "OTHER") {
 				return UnifiedFinishReason.UNKNOWN;
+			}
+			break;
+		case "mistral":
+			if (finishReason === "stop") {
+				return UnifiedFinishReason.COMPLETED;
+			}
+			if (
+				finishReason === "length" ||
+				finishReason === "model_length" ||
+				finishReason === "incomplete"
+			) {
+				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (finishReason === "content_filter") {
+				return UnifiedFinishReason.CONTENT_FILTER;
+			}
+			if (finishReason === "tool_calls") {
+				return UnifiedFinishReason.TOOL_CALLS;
+			}
+			if (finishReason === "error") {
+				return UnifiedFinishReason.UPSTREAM_ERROR;
 			}
 			break;
 		default: // OpenAI format (also used by inference.net and other providers)

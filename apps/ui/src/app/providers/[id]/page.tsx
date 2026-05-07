@@ -68,6 +68,9 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					inputPrice: map.inputPrice?.toString() ?? null,
 					outputPrice: map.outputPrice?.toString() ?? null,
 					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,
+					cacheWriteInputPrice: map.cacheWriteInputPrice?.toString() ?? null,
+					cacheWriteInputPrice1h:
+						map.cacheWriteInputPrice1h?.toString() ?? null,
 					imageInputPrice: map.imageInputPrice?.toString() ?? null,
 					imageOutputPrice: map.imageOutputPrice?.toString() ?? null,
 					imageInputTokensByResolution:
@@ -181,7 +184,7 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: `${provider.name} - LLM Gateway`,
+		title: provider.name,
 		description: `Learn about ${provider.name} integration with LLM Gateway. Access ${provider.name} models through our unified API.`,
 		openGraph: {
 			title: `${provider.name} - LLM Gateway`,

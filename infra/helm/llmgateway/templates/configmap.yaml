@@ -1,0 +1,167 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "llmgateway.configMapName" . }}
+  labels:
+    {{- include "llmgateway.labels" . | nindent 4 }}
+data:
+  NODE_ENV: {{ .Values.global.nodeEnv | default "production" | quote }}
+  PORT: "80"
+
+  # Internal service URLs (Kubernetes DNS)
+  API_BACKEND_URL: {{ include "llmgateway.serviceUrl" (dict "context" . "name" "api") | quote }}
+  REDIS_HOST: {{ include "llmgateway.redis.host" . | quote }}
+  REDIS_PORT: {{ include "llmgateway.redis.port" . | quote }}
+
+  # Public-facing URLs
+  {{- if .Values.urls.ui }}
+  UI_URL: {{ .Values.urls.ui | quote }}
+  {{- end }}
+  {{- if .Values.urls.api }}
+  API_URL: {{ .Values.urls.api | quote }}
+  {{- end }}
+  {{- if .Values.urls.gateway }}
+  GATEWAY_URL: {{ .Values.urls.gateway | quote }}
+  {{- end }}
+  {{- if .Values.urls.playground }}
+  PLAYGROUND_URL: {{ .Values.urls.playground | quote }}
+  {{- end }}
+  {{- if .Values.urls.code }}
+  CODE_URL: {{ .Values.urls.code | quote }}
+  {{- end }}
+  {{- if .Values.urls.docs }}
+  DOCS_URL: {{ .Values.urls.docs | quote }}
+  {{- end }}
+  {{- if .Values.urls.admin }}
+  ADMIN_URL: {{ .Values.urls.admin | quote }}
+  {{- end }}
+
+  # CORS / cookies
+  {{- if .Values.auth.cookieDomain }}
+  COOKIE_DOMAIN: {{ .Values.auth.cookieDomain | quote }}
+  {{- end }}
+  {{- if .Values.auth.originUrls }}
+  ORIGIN_URLS: {{ .Values.auth.originUrls | quote }}
+  {{- end }}
+  {{- if .Values.auth.hosted }}
+  HOSTED: {{ .Values.auth.hosted | quote }}
+  {{- end }}
+
+  # Auth providers (non-secret parts)
+  {{- if .Values.auth.passkey.rpId }}
+  PASSKEY_RP_ID: {{ .Values.auth.passkey.rpId | quote }}
+  {{- end }}
+  {{- if .Values.auth.passkey.rpName }}
+  PASSKEY_RP_NAME: {{ .Values.auth.passkey.rpName | quote }}
+  {{- end }}
+
+  # Gateway timeouts
+  {{- with .Values.gateway.config }}
+  {{- if .gatewayTimeoutMs }}
+  GATEWAY_TIMEOUT_MS: {{ .gatewayTimeoutMs | quote }}
+  {{- end }}
+  {{- if .aiStreamingTimeoutMs }}
+  AI_STREAMING_TIMEOUT_MS: {{ .aiStreamingTimeoutMs | quote }}
+  {{- end }}
+  {{- if .aiTimeoutMs }}
+  AI_TIMEOUT_MS: {{ .aiTimeoutMs | quote }}
+  {{- end }}
+  {{- if .keepAliveTimeoutS }}
+  KEEP_ALIVE_TIMEOUT_S: {{ .keepAliveTimeoutS | quote }}
+  {{- end }}
+  {{- if .shutdownGracePeriodMs }}
+  SHUTDOWN_GRACE_PERIOD_MS: {{ .shutdownGracePeriodMs | quote }}
+  {{- end }}
+  {{- if .healthCheckSkipDatabase }}
+  HEALTH_CHECK_SKIP_DATABASE: {{ .healthCheckSkipDatabase | quote }}
+  {{- end }}
+  {{- if .healthCheckTimeoutMs }}
+  HEALTH_CHECK_TIMEOUT_MS: {{ .healthCheckTimeoutMs | quote }}
+  {{- end }}
+  {{- if .maxStreamingBufferMb }}
+  MAX_STREAMING_BUFFER_MB: {{ .maxStreamingBufferMb | quote }}
+  {{- end }}
+  {{- end }}
+
+  # API config
+  RUN_MIGRATIONS: {{ .Values.api.runMigrations | default true | quote }}
+  {{- with .Values.api.config }}
+  {{- if .keepAliveTimeoutS }}
+  KEEP_ALIVE_TIMEOUT_S: {{ .keepAliveTimeoutS | quote }}
+  {{- end }}
+  {{- if .timeoutMs }}
+  TIMEOUT_MS: {{ .timeoutMs | quote }}
+  {{- end }}
+  {{- end }}
+
+  # Database pool
+  {{- with .Values.database }}
+  {{- if .poolMax }}
+  DATABASE_POOL_MAX: {{ .poolMax | quote }}
+  {{- end }}
+  {{- if .poolMin }}
+  DATABASE_POOL_MIN: {{ .poolMin | quote }}
+  {{- end }}
+  {{- if .idleTimeoutMs }}
+  DATABASE_IDLE_TIMEOUT_MS: {{ .idleTimeoutMs | quote }}
+  {{- end }}
+  {{- if .connectionTimeoutMs }}
+  DATABASE_CONNECTION_TIMEOUT_MS: {{ .connectionTimeoutMs | quote }}
+  {{- end }}
+  {{- end }}
+
+  # Worker config
+  {{- with .Values.worker.config }}
+  {{- if .backfillDurationSeconds }}
+  BACKFILL_DURATION_SECONDS: {{ .backfillDurationSeconds | quote }}
+  {{- end }}
+  {{- if .enableDataRetentionCleanup }}
+  ENABLE_DATA_RETENTION_CLEANUP: {{ .enableDataRetentionCleanup | quote }}
+  {{- end }}
+  {{- if .emailFollowUps }}
+  EMAIL_FOLLOW_UPS: {{ .emailFollowUps | quote }}
+  {{- end }}
+  {{- if .logQueueBatchSize }}
+  LOG_QUEUE_BATCH_SIZE: {{ .logQueueBatchSize | quote }}
+  {{- end }}
+  {{- if .creditBatchSize }}
+  CREDIT_BATCH_SIZE: {{ .creditBatchSize | quote }}
+  {{- end }}
+  {{- if .creditBatchInterval }}
+  CREDIT_BATCH_INTERVAL: {{ .creditBatchInterval | quote }}
+  {{- end }}
+  {{- end }}
+
+  # Billing
+  {{- if .Values.billing.billCancelledRequests }}
+  BILL_CANCELLED_REQUESTS: {{ .Values.billing.billCancelledRequests | quote }}
+  {{- end }}
+  {{- if .Values.billing.platformFeePercentage }}
+  PLATFORM_FEE_PERCENTAGE: {{ .Values.billing.platformFeePercentage | quote }}
+  {{- end }}
+
+  # Observability
+  {{- with .Values.observability }}
+  {{- if .otelServiceName }}
+  OTEL_SERVICE_NAME: {{ .otelServiceName | quote }}
+  {{- end }}
+  {{- if .posthogHost }}
+  POSTHOG_HOST: {{ .posthogHost | quote }}
+  {{- end }}
+  {{- if .telemetryActive }}
+  TELEMETRY_ACTIVE: {{ .telemetryActive | quote }}
+  {{- end }}
+  {{- end }}
+
+  # Content filtering
+  {{- with .Values.contentFilter }}
+  {{- if .mode }}
+  LLM_CONTENT_FILTER_MODE: {{ .mode | quote }}
+  {{- end }}
+  {{- if .method }}
+  LLM_CONTENT_FILTER_METHOD: {{ .method | quote }}
+  {{- end }}
+  {{- if .models }}
+  LLM_CONTENT_FILTER_MODELS: {{ .models | quote }}
+  {{- end }}
+  {{- end }}

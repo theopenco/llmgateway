@@ -211,22 +211,12 @@ describe("Models API", () => {
 			expect(videoModel.per_request_limits).toEqual({
 				max_video_duration_seconds: "10",
 			});
-			const obsidianProvider = videoModel.providers.find(
-				(provider: any) => provider.providerId === "obsidian",
-			);
 			const avalancheProvider = videoModel.providers.find(
 				(provider: any) => provider.providerId === "avalanche",
 			);
 			const googleVertexProvider = videoModel.providers.find(
 				(provider: any) => provider.providerId === "google-vertex",
 			);
-			expect(obsidianProvider?.pricing.per_second).toBeDefined();
-			expect(obsidianProvider?.supportedVideoSizes).toEqual([
-				"1280x720",
-				"720x1280",
-			]);
-			expect(obsidianProvider?.supportsVideoAudio).toBe(true);
-			expect(obsidianProvider?.supportsVideoWithoutAudio).toBe(false);
 			expect(googleVertexProvider?.pricing.per_second).toBeDefined();
 			expect(googleVertexProvider?.supportedVideoSizes).toEqual([
 				"1280x720",

@@ -24,6 +24,9 @@ interface ModelWithProviders extends ApiModel {
 
 export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
+	const isImageGen = Array.isArray(model.output)
+		? model.output.includes("image")
+		: false;
 
 	const copyToClipboard = (text: string) => {
 		void navigator.clipboard.writeText(text);
@@ -117,6 +120,7 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 								formatPrice={formatPrice}
 								copyToClipboard={copyToClipboard}
 								copiedModel={copiedModel}
+								isImageGen={isImageGen}
 							/>
 							<ModelCtaButton modelId={`${providerId}/${model.id}`} />
 						</div>

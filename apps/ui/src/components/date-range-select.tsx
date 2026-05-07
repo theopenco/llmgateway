@@ -1,4 +1,4 @@
-import { subDays, subHours, subMinutes } from "date-fns";
+import { startOfDay, subDays, subHours, subMinutes } from "date-fns";
 import { ChevronDownIcon } from "lucide-react";
 import * as React from "react";
 import { useMemo, useState } from "react";
@@ -23,6 +23,14 @@ interface RelativeTimeOption {
 }
 
 const RELATIVE_TIME_OPTIONS: RelativeTimeOption[] = [
+	{
+		label: "Today",
+		value: "today",
+		getRange: () => ({
+			start: startOfDay(new Date()),
+			end: new Date(),
+		}),
+	},
 	{
 		label: "Last 1 minute",
 		value: "1m",

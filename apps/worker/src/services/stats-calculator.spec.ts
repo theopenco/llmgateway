@@ -1002,6 +1002,50 @@ describe("stats-calculator", () => {
 			expect(mapping.routingTotalRequests).toBe(20);
 		});
 
+		it("should exclude client errors from routing uptime", async () => {
+			const now = new Date("2024-01-01T12:30:00.000Z");
+
+			// 30 logs total: 4 client errors + 2 upstream errors = 6 total errors
+			// Routing uptime should only penalize the 2 upstream errors (provider's fault).
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: minutesAgo(now, 4),
+					logsCount: 30,
+					errorsCount: 6,
+					clientErrorsCount: 4,
+					gatewayErrorsCount: 0,
+					upstreamErrorsCount: 2,
+					cachedCount: 0,
+					totalOutputTokens: 600,
+					totalDuration: 3000,
+					totalTimeToFirstToken: 900,
+					totalTimeToFirstReasoningToken: 0,
+				},
+			]);
+
+			await calculateAggregatedStatistics();
+
+			const mappings = await db
+				.select()
+				.from(modelProviderMapping)
+				.where(
+					and(
+						eq(modelProviderMapping.modelId, "gpt-4"),
+						eq(modelProviderMapping.providerId, "openai"),
+					),
+				);
+
+			const mapping = mappings[0]!;
+			// Display stats keep the full error count
+			expect(mapping.errorsCount).toBe(6);
+			expect(mapping.clientErrorsCount).toBe(4);
+			// Routing uptime ignores client errors: (30 - 2) / 30 * 100 ≈ 93.33%
+			expect(mapping.routingUptime).toBeCloseTo((28 / 30) * 100, 2);
+		});
+
 		it("should set routing metrics to null when no TTFT or duration data", async () => {
 			const now = new Date("2024-01-01T12:30:00.000Z");
 
