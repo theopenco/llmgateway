@@ -101,6 +101,13 @@ const AGGREGATE_KEYS = [
 
 type AnyTable = Parameters<typeof getTableColumns>[0];
 
+// Drizzle's `casing: "snake_case"` applies at SQL emission time. The Column
+// metadata (`col.name`) still holds the JS-side camelCase identifier when no
+// explicit name was passed. We mirror drizzle's casing by converting here.
+function toSnakeCase(s: string): string {
+	return s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
 // Build the SET clause for an ADD-style upsert: each metric column becomes
 // `col = "table"."col" + excluded.col`, so each hour's aggregated values
 // accumulate into the daily totals.
@@ -112,7 +119,8 @@ function buildAddUpsertSet(table: AnyTable) {
 	const set: Record<string, ReturnType<typeof sql>> = {};
 	for (const key of AGGREGATE_KEYS) {
 		const col = cols[key];
-		set[key] = sql`${col} + excluded.${sql.identifier(col.name)}`;
+		const snakeName = toSnakeCase(key);
+		set[key] = sql`${col} + excluded.${sql.identifier(snakeName)}`;
 	}
 	return set;
 }
