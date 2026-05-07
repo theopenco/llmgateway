@@ -254,7 +254,11 @@ async function setLastSafetyNetDay(day: Date): Promise<void> {
 // the incremental path missed. Walks in 1-hour chunks regardless of the
 // configured BUCKET_MS so the safety net keeps a bounded number of queries
 // (24/day) even when small dev buckets are in use.
-async function recomputeDayFully(day: Date): Promise<void> {
+//
+// Returns true on full completion. Returns false if stop was requested
+// mid-walk; the caller must NOT mark the day as recomputed in that case so the
+// next worker start retries from the partially-recomputed state.
+async function recomputeDayFully(day: Date): Promise<boolean> {
 	const dayStr = formatUTCTimestamp(day);
 
 	await db.transaction(async (tx) => {
@@ -271,13 +275,15 @@ async function recomputeDayFully(day: Date): Promise<void> {
 			logger.info(
 				`[global-safety-net] Stop requested mid-recompute of ${dayStr}, leaving lastSafetyNetDay unchanged so next start retries`,
 			);
-			return;
+			return false;
 		}
 		const hour = new Date(day.getTime() + h * HOUR_MS); // eslint-disable-line no-mixed-operators
 		await db.transaction(async (tx) => {
 			await aggregateWindowIntoStats(tx, hour, HOUR_MS);
 		});
 	}
+
+	return true;
 }
 
 async function runSafetyNetIfNeeded(now: Date): Promise<void> {
@@ -305,7 +311,11 @@ async function runSafetyNetIfNeeded(now: Date): Promise<void> {
 		`[global-safety-net] Recomputing ${formatUTCTimestamp(yesterdayStart)} from logs`,
 	);
 
-	await recomputeDayFully(yesterdayStart);
+	const completed = await recomputeDayFully(yesterdayStart);
+	if (!completed) {
+		return;
+	}
+
 	await setLastSafetyNetDay(yesterdayStart);
 
 	logger.info(
