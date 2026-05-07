@@ -601,14 +601,19 @@ export async function generateMetadata({
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
+	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {
 		title,
 		description,
+		alternates: {
+			canonical,
+		},
 		openGraph: {
 			title,
 			description,
 			type: "website",
+			url: canonical,
 			images: [
 				{
 					url: ogImageUrl,

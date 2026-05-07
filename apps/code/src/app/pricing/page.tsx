@@ -267,13 +267,18 @@ export default function PricingPage() {
 	const config = getConfig();
 	const calculatorUrl = `${config.uiUrl}/token-cost-calculator`;
 
+	const productSchemaJson = JSON.stringify(productSchema).replace(
+		/</g,
+		"\\u003c",
+	);
+
 	return (
 		<div className="min-h-screen bg-background">
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(productSchema),
+					__html: productSchemaJson,
 				}}
 			/>
 			<Header />

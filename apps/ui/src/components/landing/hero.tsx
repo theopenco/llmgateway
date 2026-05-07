@@ -265,20 +265,18 @@ export function Hero({
 										</div>
 
 										{/* Secondary CTA - De-emphasized */}
-										<Button
-											asChild
-											variant="ghost"
-											className="text-muted-foreground hover:text-foreground"
-										>
-											<a
-												href={config.docsUrl ?? ""}
-												target="_blank"
-												rel="noopener"
+										{config.docsUrl ? (
+											<Button
+												asChild
+												variant="ghost"
+												className="text-muted-foreground hover:text-foreground"
 											>
-												<span>View documentation</span>
-												<ChevronRight className="size-4" />
-											</a>
-										</Button>
+												<a href={config.docsUrl} target="_blank" rel="noopener">
+													<span>View documentation</span>
+													<ChevronRight className="size-4" />
+												</a>
+											</Button>
+										) : null}
 									</AnimatedGroup>
 								</div>
 							</div>
