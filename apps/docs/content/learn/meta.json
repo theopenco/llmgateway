@@ -1,11 +1,12 @@
 {
-	"title": "Learn",
+	"title": "Knowledge base",
 	"description": "Learn how to use the LLM Gateway dashboard",
-	"icon": "GraduationCap",
+	"icon": "BookOpen",
 	"pages": [
 		"index",
 		"dashboard",
 		"activity",
+		"agents",
 		"model-usage",
 		"usage-metrics",
 		"api-keys",
@@ -22,6 +23,7 @@
 		"audit-logs",
 		"playground",
 		"playground-group",
-		"playground-image"
+		"playground-image",
+		"playground-video"
 	]
 }

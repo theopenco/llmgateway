@@ -1,10 +1,14 @@
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
-import { UnifiedFinishReason, type LogInsertData } from "@llmgateway/db";
+import {
+	db,
+	log,
+	UnifiedFinishReason,
+	type LogInsertData,
+} from "@llmgateway/db";
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
 import type { InferInsertModel } from "@llmgateway/db";
-import type { log } from "@llmgateway/db";
 
 /**
  * Check if a finish reason is expected to map to UNKNOWN
@@ -20,8 +24,9 @@ export function isExpectedUnknownFinishReason(
 	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
+			provider === "glacier" ||
 			provider === "google-vertex" ||
-			provider === "obsidian") &&
+			provider === "quartz") &&
 		finishReason === "OTHER"
 	) {
 		return true;
@@ -55,6 +60,9 @@ export function getUnifiedFinishReason(
 	if (finishReason === "client_error") {
 		return UnifiedFinishReason.CLIENT_ERROR;
 	}
+	if (finishReason === "llmgateway_content_filter") {
+		return UnifiedFinishReason.CONTENT_FILTER;
+	}
 
 	switch (provider) {
 		case "anthropic":
@@ -70,10 +78,14 @@ export function getUnifiedFinishReason(
 			if (finishReason === "tool_use") {
 				return UnifiedFinishReason.TOOL_CALLS;
 			}
+			if (finishReason === "refusal") {
+				return UnifiedFinishReason.CONTENT_FILTER;
+			}
 			break;
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
-		case "obsidian":
+		case "quartz":
 			// Google finish reasons (original format, not mapped to OpenAI)
 			if (finishReason === "STOP") {
 				return UnifiedFinishReason.COMPLETED;
@@ -101,6 +113,27 @@ export function getUnifiedFinishReason(
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;
+		case "mistral":
+			if (finishReason === "stop") {
+				return UnifiedFinishReason.COMPLETED;
+			}
+			if (
+				finishReason === "length" ||
+				finishReason === "model_length" ||
+				finishReason === "incomplete"
+			) {
+				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (finishReason === "content_filter") {
+				return UnifiedFinishReason.CONTENT_FILTER;
+			}
+			if (finishReason === "tool_calls") {
+				return UnifiedFinishReason.TOOL_CALLS;
+			}
+			if (finishReason === "error") {
+				return UnifiedFinishReason.UPSTREAM_ERROR;
+			}
+			break;
 		default: // OpenAI format (also used by inference.net and other providers)
 			if (finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
@@ -118,6 +151,16 @@ export function getUnifiedFinishReason(
 	}
 
 	return UnifiedFinishReason.UNKNOWN;
+}
+
+export function isContentFilterFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	return (
+		getUnifiedFinishReason(finishReason, provider) ===
+		UnifiedFinishReason.CONTENT_FILTER
+	);
 }
 
 /**
@@ -144,7 +187,9 @@ function getErrorTypeFromUnifiedFinishReason(
 
 /**
  * Calculate data storage cost based on token usage
- * $0.01 per 1M tokens (total tokens = input + cached + output + reasoning)
+ * $0.01 per 1M tokens (total tokens = input + output + reasoning)
+ * promptTokens is the canonical total input count and already includes cached
+ * input tokens for providers that report them separately.
  * Returns "0" if retention level is "none" since no data is stored
  */
 export function calculateDataStorageCost(
@@ -160,11 +205,10 @@ export function calculateDataStorageCost(
 	}
 
 	const prompt = Number(promptTokens) || 0;
-	const cached = Number(cachedTokens) || 0;
 	const completion = Number(completionTokens) || 0;
 	const reasoning = Number(reasoningTokens) || 0;
 
-	const totalTokens = prompt + cached + completion + reasoning;
+	const totalTokens = prompt + completion + reasoning;
 
 	// $0.01 per 1M tokens
 	const cost = (totalTokens / 1_000_000) * 0.01;
@@ -178,7 +222,10 @@ export function calculateDataStorageCost(
 
 export type LogData = InferInsertModel<typeof log>;
 
-export async function insertLog(logData: LogInsertData): Promise<unknown> {
+export async function insertLog(
+	logData: LogInsertData,
+	options?: { syncInsert?: boolean },
+): Promise<unknown> {
 	if (logData.unifiedFinishReason === undefined) {
 		if (logData.canceled) {
 			logData.unifiedFinishReason = UnifiedFinishReason.CANCELED;
@@ -232,6 +279,11 @@ export async function insertLog(logData: LogInsertData): Promise<unknown> {
 			: undefined,
 		errorType,
 	});
+
+	if (options?.syncInsert) {
+		await db.insert(log).values(logData as LogData);
+		return 1;
+	}
 
 	await publishToQueue(LOG_QUEUE, logData);
 	return 1; // Return 1 to match test expectations

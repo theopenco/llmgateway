@@ -68,11 +68,19 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					inputPrice: map.inputPrice?.toString() ?? null,
 					outputPrice: map.outputPrice?.toString() ?? null,
 					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,
+					cacheWriteInputPrice: map.cacheWriteInputPrice?.toString() ?? null,
+					cacheWriteInputPrice1h:
+						map.cacheWriteInputPrice1h?.toString() ?? null,
 					imageInputPrice: map.imageInputPrice?.toString() ?? null,
+					imageOutputPrice: map.imageOutputPrice?.toString() ?? null,
+					imageInputTokensByResolution:
+						map.imageInputTokensByResolution ?? null,
+					imageOutputTokensByResolution:
+						map.imageOutputTokensByResolution ?? null,
 					requestPrice: map.requestPrice?.toString() ?? null,
 					contextSize: map.contextSize ?? null,
 					maxOutput: map.maxOutput ?? null,
-					streaming: map.streaming ?? true,
+					streaming: map.streaming === "only" ? true : (map.streaming ?? true),
 					vision: map.vision ?? null,
 					reasoning: map.reasoning ?? null,
 					reasoningOutput: map.reasoningOutput ?? null,
@@ -82,6 +90,19 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					jsonOutputSchema: map.jsonOutputSchema ?? null,
 					webSearch: map.webSearch ?? null,
 					webSearchPrice: map.webSearchPrice?.toString() ?? null,
+					supportedVideoSizes: map.supportedVideoSizes ?? null,
+					supportedVideoDurationsSeconds:
+						map.supportedVideoDurationsSeconds ?? null,
+					supportsVideoAudio: map.supportsVideoAudio ?? null,
+					supportsVideoWithoutAudio: map.supportsVideoWithoutAudio ?? null,
+					perSecondPrice: map.perSecondPrice
+						? Object.fromEntries(
+								Object.entries(map.perSecondPrice).map(([k, v]) => [
+									k,
+									v.toString(),
+								]),
+							)
+						: null,
 					discount: map.discount?.toString() ?? null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
@@ -163,7 +184,7 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: `${provider.name} - LLM Gateway`,
+		title: provider.name,
 		description: `Learn about ${provider.name} integration with LLM Gateway. Access ${provider.name} models through our unified API.`,
 		openGraph: {
 			title: `${provider.name} - LLM Gateway`,

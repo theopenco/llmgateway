@@ -68,7 +68,8 @@ export function Changelog({ entries }: ChangelogProps = {}) {
 										className="text-sm text-primary hover:text-primary/80"
 										prefetch={true}
 									>
-										Read more &rarr;
+										Read more
+										<span className="sr-only"> about {entry.title}</span> &rarr;
 									</Link>
 								</div>
 								<div className="bg-card border border-border rounded-lg overflow-hidden">

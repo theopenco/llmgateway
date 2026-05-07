@@ -38,6 +38,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -125,6 +126,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({

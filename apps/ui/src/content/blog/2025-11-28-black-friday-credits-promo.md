@@ -2,8 +2,8 @@
 id: blog-black-friday-credits-promo
 slug: black-friday-llmgateway-credits
 date: 2025-11-28
-title: Black Friday at LLM Gateway – 50% Off Credits & Pro Plan
-summary: Use the BLACKFRIDAY promo code to get 50% off credits and the Pro plan for a limited time.
+title: Black Friday at LLM Gateway – 50% Off Credits
+summary: Use the BLACKFRIDAY promo code to get 50% off credits for a limited time.
 categories: ["Announcements"]
 image:
   src: "/blog/black-friday-llmgateway.png"
@@ -14,7 +14,7 @@ image:
 
 We're excited to launch our **Black Friday credits promotion** – a simple way to cut your LLM costs in half while keeping the same unified LLM Gateway experience.
 
-For a limited time, you can **get 50% off both credits and the Pro plan** by using the promo code:
+For a limited time, you can **get 50% off credits** by using the promo code:
 
 > **BLACKFRIDAY**
 

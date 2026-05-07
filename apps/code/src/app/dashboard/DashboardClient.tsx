@@ -1,18 +1,20 @@
 "use client";
 
-import { format } from "date-fns";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+	ArrowRight,
 	Code,
-	CreditCard,
+	Copy,
+	Eye,
+	EyeOff,
+	Key,
 	Loader2,
 	LogOut,
-	Copy,
-	ExternalLink,
-	Key,
+	RefreshCw,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -26,6 +28,7 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import type { PlanOption, PlanTier } from "./types";
+import type { DevPlanCycle } from "@llmgateway/shared";
 
 const DashboardIntegrations = dynamic(
 	() => import("./components/DashboardIntegrations"),
@@ -37,40 +40,162 @@ const InactivePlanChooser = dynamic(
 	() => import("./components/InactivePlanChooser"),
 );
 const DevPlanSettings = dynamic(() => import("./components/DevPlanSettings"));
+const UsageOverview = dynamic(() => import("./components/UsageOverview"));
+const CodingAgents = dynamic(() => import("./components/CodingAgents"));
+const QuickStart = dynamic(() => import("./components/QuickStart"));
 
 const plans: PlanOption[] = [
 	{
 		name: "Lite",
 		price: 29,
-		description: "For small dev tasks",
+		usage: 87,
+		description: "For occasional coding",
 		tier: "lite",
 	},
 	{
 		name: "Pro",
 		price: 79,
-		description: "For advanced usage",
+		usage: 237,
+		description: "For daily development",
 		tier: "pro",
 		popular: true,
 	},
 	{
 		name: "Max",
 		price: 179,
-		description: "For ultra high usage",
+		usage: 537,
+		description: "For power users",
 		tier: "max",
 	},
 ];
 
+function ApiKeySection({
+	apiKey,
+	uiUrl,
+	onRotate,
+	isRotating,
+}: {
+	apiKey: string;
+	uiUrl: string;
+	onRotate: () => void | Promise<void>;
+	isRotating: boolean;
+}) {
+	const [visible, setVisible] = useState(false);
+	const [confirmingRotate, setConfirmingRotate] = useState(false);
+
+	const copy = async () => {
+		await navigator.clipboard.writeText(apiKey);
+		toast.success("Copied to clipboard");
+	};
+
+	const handleRotateClick = async () => {
+		if (!confirmingRotate) {
+			setConfirmingRotate(true);
+			window.setTimeout(() => setConfirmingRotate(false), 4000);
+			return;
+		}
+		setConfirmingRotate(false);
+		await onRotate();
+	};
+
+	return (
+		<div className="space-y-3">
+			<div className="flex items-center gap-2">
+				<Key className="h-4 w-4 text-muted-foreground" />
+				<h3 className="text-sm font-medium">API Key</h3>
+			</div>
+			<div className="flex gap-2">
+				<Input
+					type={visible ? "text" : "password"}
+					value={apiKey}
+					readOnly
+					className="font-mono text-sm h-9"
+				/>
+				<Button
+					variant="outline"
+					size="icon"
+					className="h-9 w-9 shrink-0"
+					onClick={() => setVisible(!visible)}
+					title={visible ? "Hide" : "Reveal"}
+				>
+					{visible ? (
+						<EyeOff className="h-3.5 w-3.5" />
+					) : (
+						<Eye className="h-3.5 w-3.5" />
+					)}
+				</Button>
+				<Button
+					variant="outline"
+					size="icon"
+					className="h-9 w-9 shrink-0"
+					onClick={copy}
+					title="Copy"
+				>
+					<Copy className="h-3.5 w-3.5" />
+				</Button>
+				<Button
+					variant={confirmingRotate ? "destructive" : "outline"}
+					size="icon"
+					className="h-9 w-9 shrink-0"
+					onClick={handleRotateClick}
+					disabled={isRotating}
+					title={
+						confirmingRotate
+							? "Click again to confirm — this invalidates the current key"
+							: "Rotate key"
+					}
+				>
+					{isRotating ? (
+						<Loader2 className="h-3.5 w-3.5 animate-spin" />
+					) : (
+						<RefreshCw
+							className={`h-3.5 w-3.5 ${confirmingRotate ? "animate-pulse" : ""}`}
+						/>
+					)}
+				</Button>
+			</div>
+			{confirmingRotate && !isRotating && (
+				<p className="text-xs text-amber-600 dark:text-amber-400">
+					Click rotate again to confirm. The current key will stop working
+					immediately.
+				</p>
+			)}
+			<div className="flex items-center gap-4 text-xs text-muted-foreground">
+				<a
+					href={`${uiUrl}/guides`}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+				>
+					Setup guides
+					<ArrowRight className="h-3 w-3" />
+				</a>
+				<a
+					href={`${uiUrl}/models?coding=true`}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+				>
+					All models
+					<ArrowRight className="h-3 w-3" />
+				</a>
+			</div>
+		</div>
+	);
+}
+
 export default function DashboardClient() {
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const posthog = usePostHog();
 	const { signOut } = useAuth();
 	const config = useAppConfig();
 	const { posthogKey } = config;
 	const api = useApi();
+	const queryClient = useQueryClient();
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
-	const [showApiKey, setShowApiKey] = useState(false);
 
 	const { user, isLoading: userLoading } = useUser({
 		redirectTo: "/login?returnUrl=/dashboard",
@@ -91,12 +216,19 @@ export default function DashboardClient() {
 	const cancelMutation = api.useMutation("post", "/dev-plans/cancel");
 	const resumeMutation = api.useMutation("post", "/dev-plans/resume");
 	const changeTierMutation = api.useMutation("post", "/dev-plans/change-tier");
+	const rotateApiKeyMutation = api.useMutation(
+		"post",
+		"/dev-plans/rotate-api-key",
+	);
 
-	const handleSubscribe = async (tier: PlanTier): Promise<void> => {
+	const handleSubscribe = async (
+		tier: PlanTier,
+		cycle: DevPlanCycle = "monthly",
+	): Promise<void> => {
 		setSubscribingTier(tier);
 		try {
 			const result = await subscribeMutation.mutateAsync({
-				body: { tier },
+				body: { tier, cycle },
 			});
 
 			if (!result?.checkoutUrl) {
@@ -105,11 +237,19 @@ export default function DashboardClient() {
 			}
 
 			if (posthogKey) {
-				posthog.capture("dev_plan_subscribe_started", { tier });
+				posthog.capture("dev_plan_subscribe_started", { tier, cycle });
 			}
 			window.location.href = result.checkoutUrl;
-		} catch {
-			toast.error("Failed to start subscription");
+		} catch (error: unknown) {
+			const apiMessage =
+				error && typeof error === "object" && "message" in error
+					? (error as { message?: unknown }).message
+					: undefined;
+			toast.error(
+				typeof apiMessage === "string" && apiMessage.length > 0
+					? apiMessage
+					: "Failed to start subscription",
+			);
 		} finally {
 			setSubscribingTier(null);
 		}
@@ -149,6 +289,9 @@ export default function DashboardClient() {
 	};
 
 	const handleChangeTier = async (newTier: PlanTier): Promise<void> => {
+		// Cycle is intentionally not sent — the server preserves the existing
+		// monthly/annual cadence by reading it from the org's stored devPlanCycle
+		// and looks up the matching annual or monthly Stripe price ID.
 		setSubscribingTier(newTier);
 		try {
 			await changeTierMutation.mutateAsync({
@@ -157,13 +300,32 @@ export default function DashboardClient() {
 			if (posthogKey) {
 				posthog.capture("dev_plan_tier_changed", { newTier });
 			}
-			toast.success("Plan changed successfully", {
-				description: "Your plan has been updated.",
-			});
+			toast.success("Plan updated");
 		} catch {
 			toast.error("Failed to change plan");
 		} finally {
 			setSubscribingTier(null);
+		}
+	};
+
+	const handleRotateApiKey = async (): Promise<void> => {
+		try {
+			await rotateApiKeyMutation.mutateAsync({});
+			await queryClient.invalidateQueries({
+				predicate: (query) => {
+					const key = query.queryKey;
+					return Array.isArray(key) && key[1] === "/dev-plans/status";
+				},
+			});
+			if (posthogKey) {
+				posthog.capture("dev_plan_api_key_rotated");
+			}
+			toast.success("API key rotated", {
+				description:
+					"Update your tools with the new key. The previous key no longer works.",
+			});
+		} catch {
+			toast.error("Failed to rotate API key");
 		}
 	};
 
@@ -172,17 +334,10 @@ export default function DashboardClient() {
 		router.push("/");
 	};
 
-	const handleCopyApiKey = async () => {
-		if (devPlanStatus?.apiKey) {
-			await navigator.clipboard.writeText(devPlanStatus.apiKey);
-			toast.success("API key copied to clipboard");
-		}
-	};
-
 	if (userLoading || statusLoading) {
 		return (
 			<div className="min-h-screen flex items-center justify-center">
-				<Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+				<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
 			</div>
 		);
 	}
@@ -191,169 +346,135 @@ export default function DashboardClient() {
 		devPlanStatus?.devPlan && devPlanStatus.devPlan !== "none";
 	const creditsUsed = parseFloat(devPlanStatus?.devPlanCreditsUsed ?? "0");
 	const creditsLimit = parseFloat(devPlanStatus?.devPlanCreditsLimit ?? "0");
-	const usagePercentage =
-		creditsLimit > 0 ? (creditsUsed / creditsLimit) * 100 : 0;
+
+	const currentPlanName = devPlanStatus?.devPlan?.toUpperCase() ?? "";
+	const currentPlanData = plans.find((p) => p.tier === devPlanStatus?.devPlan);
 
 	return (
 		<div className="min-h-screen bg-background">
-			<header className="border-b">
-				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
-					<Link href="/" className="flex items-center gap-2">
-						<Code className="h-6 w-6" />
-						<span className="font-semibold text-lg">LLM Gateway Code</span>
-					</Link>
-					<div className="flex items-center gap-4">
-						<span className="text-sm text-muted-foreground">{user?.email}</span>
-						<Button variant="ghost" size="sm" onClick={handleSignOut}>
-							<LogOut className="h-4 w-4 mr-2" />
-							Sign out
+			{/* Header */}
+			<header className="border-b border-border/50">
+				<div className="container mx-auto flex items-center justify-between px-4 py-3">
+					<div className="flex items-center gap-6">
+						<Link href="/" className="flex items-center gap-2">
+							<Code className="h-5 w-5" />
+							<span className="font-semibold">DevPass</span>
+						</Link>
+						{hasActivePlan && (
+							<span className="hidden sm:inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium">
+								{currentPlanName}
+							</span>
+						)}
+					</div>
+					<div className="flex items-center gap-3">
+						<span className="hidden sm:block text-sm text-muted-foreground">
+							{user?.email}
+						</span>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={handleSignOut}
+							className="gap-1.5 text-muted-foreground"
+						>
+							<LogOut className="h-3.5 w-3.5" />
+							<span className="hidden sm:inline">Sign out</span>
 						</Button>
 					</div>
 				</div>
 			</header>
 
-			<main className="container mx-auto px-4 py-8 max-w-4xl">
-				<h1 className="text-2xl font-bold mb-8">Dashboard</h1>
-
+			<main className="container mx-auto px-4 py-8 max-w-6xl">
 				{hasActivePlan ? (
-					<div className="space-y-8">
-						<div className="rounded-lg border p-6">
-							<div className="flex items-center justify-between mb-4">
-								<div>
-									<h2 className="font-semibold text-lg">
-										{devPlanStatus?.devPlan?.toUpperCase()} Plan
-									</h2>
-									<p className="text-sm text-muted-foreground">
-										{devPlanStatus?.devPlanCancelled
-											? "Cancels at end of billing period"
-											: "Active subscription"}
-									</p>
-								</div>
-								<div className="flex items-center gap-2">
-									{devPlanStatus?.devPlanCancelled ? (
-										<Button
-											variant="outline"
-											onClick={handleResume}
-											disabled={isResuming}
-										>
-											{isResuming ? (
-												<Loader2 className="h-4 w-4 animate-spin mr-2" />
-											) : null}
-											Resume Plan
-										</Button>
-									) : (
-										<Button
-											variant="outline"
-											onClick={handleCancel}
-											disabled={isCancelling}
-										>
-											{isCancelling ? (
-												<Loader2 className="h-4 w-4 animate-spin mr-2" />
-											) : null}
-											Cancel Plan
-										</Button>
+					<div className="space-y-10">
+						{/* Top row: subscription controls (cancel/resume) */}
+						<div className="flex justify-end">
+							{devPlanStatus?.devPlanCancelled ? (
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={handleResume}
+									disabled={isResuming}
+								>
+									{isResuming && (
+										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
 									)}
-								</div>
-							</div>
+									Resume subscription
+								</Button>
+							) : (
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={handleCancel}
+									disabled={isCancelling}
+									className="text-muted-foreground"
+								>
+									{isCancelling && (
+										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+									)}
+									Cancel subscription
+								</Button>
+							)}
+						</div>
 
-							<div className="space-y-4">
-								<div>
-									<div className="flex justify-between text-sm mb-2">
-										<span>Usage</span>
-										<span>{usagePercentage.toFixed(0)}%</span>
-									</div>
-									<div className="h-2 bg-muted rounded-full overflow-hidden">
-										<div
-											className="h-full bg-primary transition-all"
-											style={{ width: `${Math.min(100, usagePercentage)}%` }}
-										/>
-									</div>
-									<p className="text-sm text-muted-foreground mt-2">
-										{Math.max(0, 100 - usagePercentage).toFixed(0)}% remaining
-										this cycle
-									</p>
-								</div>
+						{/* Usage — full-width with metrics + chart */}
+						<UsageOverview
+							projectId={devPlanStatus?.projectId ?? null}
+							creditsUsed={creditsUsed}
+							creditsLimit={creditsLimit}
+							planName={currentPlanName}
+							planPrice={currentPlanData?.price}
+							billingCycleStart={
+								devPlanStatus?.devPlanBillingCycleStart ?? null
+							}
+							cancelledAtPeriodEnd={devPlanStatus?.devPlanCancelled ?? false}
+							cycle={devPlanStatus?.devPlanCycle ?? "monthly"}
+						/>
 
-								{devPlanStatus?.devPlanBillingCycleStart && (
-									<p className="text-sm text-muted-foreground">
-										Billing cycle started:{" "}
-										{format(
-											new Date(devPlanStatus.devPlanBillingCycleStart),
-											"MMM d, yyyy",
-										)}
-									</p>
+						{/* API Key + Quick start */}
+						<div className="grid gap-6 lg:grid-cols-2">
+							<div className="rounded-xl border bg-card p-6">
+								{devPlanStatus?.apiKey ? (
+									<ApiKeySection
+										apiKey={devPlanStatus.apiKey}
+										uiUrl={config.uiUrl}
+										onRotate={handleRotateApiKey}
+										isRotating={rotateApiKeyMutation.isPending}
+									/>
+								) : (
+									<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+										API key will appear here after setup
+									</div>
 								)}
+							</div>
+							<div className="rounded-xl border bg-card p-6">
+								{devPlanStatus?.apiKey ? (
+									<QuickStart apiKey={devPlanStatus.apiKey} />
+								) : null}
 							</div>
 						</div>
 
-						{devPlanStatus?.apiKey && (
-							<div className="rounded-lg border p-6">
-								<div className="flex items-center gap-2 mb-4">
-									<Key className="h-5 w-5" />
-									<h3 className="font-semibold">Your API Key</h3>
-								</div>
-								<p className="text-sm text-muted-foreground mb-4">
-									Use this API key to authenticate with LLM Gateway in your
-									coding tools.
-								</p>
-								<div className="flex gap-2 mb-4">
-									<Input
-										type={showApiKey ? "text" : "password"}
-										value={devPlanStatus.apiKey}
-										readOnly
-										className="font-mono text-sm"
-									/>
-									<Button
-										variant="outline"
-										size="icon"
-										onClick={handleCopyApiKey}
-									>
-										<Copy className="h-4 w-4" />
-									</Button>
-									<Button
-										variant="outline"
-										onClick={() => setShowApiKey(!showApiKey)}
-									>
-										{showApiKey ? "Hide" : "Show"}
-									</Button>
-								</div>
-								<div className="flex gap-4">
-									<div className="flex items-center gap-2 text-sm text-muted-foreground">
-										<ExternalLink className="h-4 w-4" />
-										<a
-											href={`${config.uiUrl}/guides`}
-											target="_blank"
-											rel="noopener noreferrer"
-											className="underline hover:text-foreground"
-										>
-											View integration guides
-										</a>
-									</div>
-									<div className="flex items-center gap-2 text-sm text-muted-foreground">
-										<ExternalLink className="h-4 w-4" />
-										<a
-											href={`${config.uiUrl}/models?coding=true`}
-											target="_blank"
-											rel="noopener noreferrer"
-											className="underline hover:text-foreground"
-										>
-											View all coding models
-										</a>
-									</div>
-								</div>
-							</div>
+						{/* Coding Agents */}
+						{devPlanStatus?.organizationId && (
+							<CodingAgents orgId={devPlanStatus.organizationId} />
 						)}
 
-						<CodingModelsShowcase uiUrl={config.uiUrl} />
+						{/* Integrations */}
+						<DashboardIntegrations />
 
+						{/* Models */}
+						<div>
+							<h2 className="mb-4 font-semibold">Coding models</h2>
+							<CodingModelsShowcase uiUrl={config.uiUrl} />
+						</div>
+
+						{/* Settings */}
 						<DevPlanSettings
 							devPlanAllowAllModels={
 								devPlanStatus?.devPlanAllowAllModels ?? false
 							}
 						/>
 
-						<DashboardIntegrations />
-
+						{/* Change plan */}
 						<ActivePlanChangeTier
 							plans={plans}
 							currentPlan={devPlanStatus?.devPlan ?? null}
@@ -362,12 +483,17 @@ export default function DashboardClient() {
 						/>
 					</div>
 				) : (
-					<div className="space-y-8">
-						<div className="rounded-lg border p-6 text-center">
-							<CreditCard className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-							<h2 className="font-semibold text-lg mb-2">No Active Plan</h2>
-							<p className="text-muted-foreground mb-4">
-								Subscribe to a Dev Plan for AI-powered coding.
+					<div className="space-y-10">
+						<div className="mx-auto max-w-md text-center pt-4">
+							<div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+								<Code className="h-6 w-6 text-muted-foreground" />
+							</div>
+							<h1 className="text-xl font-semibold mb-2">
+								Choose your Dev Plan
+							</h1>
+							<p className="text-sm text-muted-foreground leading-relaxed">
+								Pick a plan to get your API key and start coding with 200+
+								models. Every dollar gives you 3x in usage.
 							</p>
 						</div>
 
@@ -375,6 +501,9 @@ export default function DashboardClient() {
 							plans={plans}
 							subscribingTier={subscribingTier}
 							onSubscribe={handleSubscribe}
+							initialCycle={
+								searchParams.get("cycle") === "annual" ? "annual" : "monthly"
+							}
 						/>
 					</div>
 				)}

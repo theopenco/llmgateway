@@ -6,6 +6,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+import { parseApiToken } from "@/lib/extract-api-token.js";
+
 import { logger } from "@llmgateway/logger";
 import {
 	models as modelsList,
@@ -887,26 +889,6 @@ function createMcpServer(apiKey: string): McpServer {
 	return server;
 }
 
-/**
- * Extract API key from request headers
- */
-function extractApiKey(c: Context): string | null {
-	const auth = c.req.header("Authorization");
-	if (auth) {
-		const parts = auth.split("Bearer ");
-		if (parts.length === 2 && parts[1]) {
-			return parts[1];
-		}
-	}
-
-	const xApiKey = c.req.header("x-api-key");
-	if (xApiKey) {
-		return xApiKey;
-	}
-
-	return null;
-}
-
 // JSON-RPC types
 // Note: id is optional for notifications (methods starting with "notifications/")
 interface JsonRpcRequest {
@@ -1152,7 +1134,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	// Extract API key for authentication
-	const apiKey = extractApiKey(c);
+	const apiKey = parseApiToken(c);
 	if (!apiKey) {
 		return c.json(
 			{

@@ -5,6 +5,7 @@ import { UnifiedFinishReason } from "@llmgateway/db";
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
+	isContentFilterFinishReason,
 	isExpectedUnknownFinishReason,
 } from "./logs.js";
 
@@ -30,6 +31,9 @@ describe("getUnifiedFinishReason", () => {
 		);
 		expect(getUnifiedFinishReason("end_turn", "anthropic")).toBe(
 			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("refusal", "anthropic")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
 		);
 	});
 
@@ -78,6 +82,54 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps Glacier finish reasons like Google AI Studio", () => {
+		expect(getUnifiedFinishReason("STOP", "glacier")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("MAX_TOKENS", "glacier")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("SAFETY", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("OTHER", "glacier")).toBe(
+			UnifiedFinishReason.UNKNOWN,
+		);
+	});
+
+	it("maps Glacier image content filter finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("IMAGE_PROHIBITED_CONTENT", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("IMAGE_SAFETY", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("NO_IMAGE", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
+	it("maps Mistral finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("stop", "mistral")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "mistral")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("model_length", "mistral")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "mistral")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("content_filter", "mistral")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("error", "mistral")).toBe(
+			UnifiedFinishReason.UPSTREAM_ERROR,
+		);
+	});
+
 	it("handles special cases", () => {
 		expect(getUnifiedFinishReason("canceled", "any-provider")).toBe(
 			UnifiedFinishReason.CANCELED,
@@ -98,6 +150,15 @@ describe("getUnifiedFinishReason", () => {
 			UnifiedFinishReason.UNKNOWN,
 		);
 	});
+
+	it("maps llmgateway_content_filter to CONTENT_FILTER", () => {
+		expect(
+			getUnifiedFinishReason("llmgateway_content_filter", "any-provider"),
+		).toBe(UnifiedFinishReason.CONTENT_FILTER);
+		expect(getUnifiedFinishReason("llmgateway_content_filter", "openai")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
 });
 
 describe("isExpectedUnknownFinishReason", () => {
@@ -105,6 +166,7 @@ describe("isExpectedUnknownFinishReason", () => {
 		expect(isExpectedUnknownFinishReason("OTHER", "google-ai-studio")).toBe(
 			true,
 		);
+		expect(isExpectedUnknownFinishReason("OTHER", "glacier")).toBe(true);
 		expect(isExpectedUnknownFinishReason("OTHER", "google-vertex")).toBe(true);
 	});
 
@@ -130,6 +192,28 @@ describe("isExpectedUnknownFinishReason", () => {
 	});
 });
 
+describe("isContentFilterFinishReason", () => {
+	it("returns true for Google-compatible image filter finish reasons", () => {
+		expect(
+			isContentFilterFinishReason("IMAGE_PROHIBITED_CONTENT", "glacier"),
+		).toBe(true);
+		expect(
+			isContentFilterFinishReason(
+				"IMAGE_PROHIBITED_CONTENT",
+				"google-ai-studio",
+			),
+		).toBe(true);
+	});
+
+	it("returns false for Google OTHER finish reason", () => {
+		expect(isContentFilterFinishReason("OTHER", "glacier")).toBe(false);
+	});
+
+	it("returns true for OpenAI content filters", () => {
+		expect(isContentFilterFinishReason("content_filter", "openai")).toBe(true);
+	});
+});
+
 describe("calculateDataStorageCost", () => {
 	it("calculates cost based on total tokens", () => {
 		// 1M tokens = $0.01 (formula: totalTokens / 1_000_000 * 0.01)
@@ -137,9 +221,11 @@ describe("calculateDataStorageCost", () => {
 		expect(cost).toBe("0.01"); // 1M tokens * $0.01 per 1M = $0.01
 	});
 
-	it("includes all token types in calculation", () => {
-		// 250k prompt + 250k cached + 250k completion + 250k reasoning = 1M tokens
-		const cost = calculateDataStorageCost(250000, 250000, 250000, 250000);
+	it("does not double-count cached tokens when promptTokens already includes them", () => {
+		// promptTokens is the canonical input count in gateway logs.
+		// cachedTokens is tracked separately for pricing and diagnostics, but should
+		// not increase storage accounting a second time.
+		const cost = calculateDataStorageCost(500000, 250000, 250000, 250000);
 		expect(cost).toBe("0.01"); // 1M tokens * $0.01 per 1M = $0.01
 	});
 

@@ -1,11 +1,29 @@
+import { type ProviderMetrics, metricsKey } from "@llmgateway/db";
 import {
 	getProviderDefinition,
-	type ProviderModelMapping,
+	models,
 	type AvailableModelProvider,
 	type ModelWithPricing,
+	type ProviderModelMapping,
 } from "@llmgateway/models";
 
-import type { ProviderMetrics } from "@llmgateway/db";
+/**
+ * Resolve the model id to use when looking up routing metrics for a candidate.
+ *
+ * For virtual models like `grok-4-1-fast`, the worker writes metrics to the
+ * concrete variant's mapping row (e.g. `grok-4-1-fast-non-reasoning`) because
+ * the request flows through the concrete model. The candidate's `modelName`
+ * matches that concrete model's id, so we use it. For non-virtual models the
+ * candidate's `modelName` is a provider-specific name with no matching catalog
+ * entry, and we fall back to the parent model id.
+ */
+export function resolveMetricsModelId(
+	parentModelId: string,
+	candidateModelName: string,
+): string {
+	const concrete = models.find((m) => m.id === candidateModelName);
+	return concrete?.id ?? parentModelId;
+}
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -14,6 +32,7 @@ interface ProviderScore<T extends AvailableModelProvider> {
 	uptime?: number;
 	latency?: number;
 	throughput?: number;
+	cacheSupported?: boolean;
 }
 
 // Scoring weights
@@ -25,6 +44,11 @@ const IMAGE_PRICE_WEIGHT = 0.5; // Higher weight for image generation models
 const UPTIME_WEIGHT = 0.5;
 const THROUGHPUT_WEIGHT = 0.05;
 const LATENCY_WEIGHT = 0.025;
+const CACHE_WEIGHT = 0.2;
+
+// Prompt-token threshold above which prompt caching becomes a meaningful
+// cost lever, so a provider's cache support starts to influence routing.
+const CACHE_PROMPT_TOKEN_THRESHOLD = 5000;
 
 // Uptime threshold below which exponential penalty kicks in
 const UPTIME_PENALTY_THRESHOLD = 95;
@@ -55,38 +79,88 @@ const DEFAULT_UPTIME = 100; // Assume 100% uptime if no data to avoid penalizing
 const DEFAULT_LATENCY = 1000; // Assume 1000ms latency if no data
 const DEFAULT_THROUGHPUT = 50; // Assume 50 tokens/second if no data
 
-// Epsilon-greedy exploration: 1% chance to randomly explore
-const EXPLORATION_RATE = 0.01;
+const DEFAULT_EXPLORATION_RATE = 0.01;
+
+function getExplorationRate(): number {
+	const rawExplorationRate = process.env.EXPLORATION_RATE;
+
+	if (rawExplorationRate === undefined || rawExplorationRate.trim() === "") {
+		return DEFAULT_EXPLORATION_RATE;
+	}
+
+	const explorationRate = Number(rawExplorationRate);
+	if (
+		!Number.isFinite(explorationRate) ||
+		explorationRate < 0 ||
+		explorationRate > 1
+	) {
+		throw new Error(
+			`Invalid EXPLORATION_RATE: "${rawExplorationRate}". Expected a number between 0 and 1.`,
+		);
+	}
+
+	return explorationRate;
+}
+
+function isTestProcess(): boolean {
+	if (process.env.NODE_ENV === "test" || Boolean(process.env.VITEST)) {
+		return true;
+	}
+
+	return process.argv.some((arg) => arg.toLowerCase().includes("vitest"));
+}
 
 export interface RoutingMetadata {
 	availableProviders: string[];
 	selectedProvider: string;
 	selectionReason: string;
+	usedApiKeyHash?: string;
 	providerScores: Array<{
 		providerId: string;
+		region?: string;
 		score: number;
 		uptime?: number;
 		latency?: number;
 		throughput?: number;
 		price: number;
 		priority?: number;
+		cacheSupported?: boolean;
 		// Populated after retry loop if this provider was attempted and failed
 		failed?: boolean;
 		status_code?: number;
 		error_type?: string;
+		// Set when this provider was excluded due to RPM cap
+		rate_limited?: boolean;
+		// Set when the provider is marked as content-filtered in the provider catalog
+		contentFilterProvider?: boolean;
+		// Set when the provider was excluded because the gateway content filter matched
+		excludedByContentFilter?: boolean;
 	}>;
 	// Optional fields for low-uptime fallback routing
 	originalProvider?: string;
 	originalProviderUptime?: number;
+	// Set when the originally requested provider was rate-limited and fallback occurred
+	originalProviderRateLimited?: boolean;
 	// Whether fallback was disabled via X-No-Fallback header
 	noFallback?: boolean;
+	// Whether the request explicitly included an X-No-Fallback header
+	xNoFallbackHeaderSet?: boolean;
+	// Whether the gateway content filter matched for the request before upstream routing
+	contentFilterMatched?: boolean;
+	// Whether routing excluded content-filter providers in favor of alternatives
+	contentFilterRerouted?: boolean;
+	// Providers excluded because they are marked as content-filter providers
+	contentFilterExcludedProviders?: string[];
 	// All provider attempts from retry fallback mechanism (including successful)
 	routing?: Array<{
 		provider: string;
 		model: string;
+		region?: string;
 		status_code: number;
 		error_type: string;
 		succeeded: boolean;
+		apiKeyHash?: string;
+		logId?: string;
 	}>;
 	// Provider mappings that were filtered out because they don't support requested params/features
 	filteredProviders?: Array<{
@@ -105,6 +179,148 @@ export interface ProviderSelectionResult<T extends AvailableModelProvider> {
 export interface ProviderSelectionOptions {
 	metricsMap?: Map<string, ProviderMetrics>;
 	isStreaming?: boolean;
+	videoPricing?: VideoPricingContext;
+	/**
+	 * Estimated prompt tokens for the request. When provided and at or above
+	 * CACHE_PROMPT_TOKEN_THRESHOLD, cache support is factored into the
+	 * weighted score.
+	 */
+	promptTokens?: number;
+}
+
+function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
+	providers: P[],
+	candidate: AvailableModelProvider,
+): P | undefined {
+	const exactMatch = providers.find(
+		(p) =>
+			p.providerId === candidate.providerId &&
+			p.region === candidate.region &&
+			p.modelName === candidate.modelName,
+	);
+	if (exactMatch) {
+		return exactMatch;
+	}
+	return providers.find(
+		(p) =>
+			p.providerId === candidate.providerId && p.region === candidate.region,
+	);
+}
+
+function providerSupportsCaching(
+	providerInfo:
+		| {
+				cachedInputPrice?: number;
+				pricingTiers?: ProviderModelMapping["pricingTiers"];
+				regions?: ProviderModelMapping["regions"];
+		  }
+		| undefined,
+): boolean {
+	if (!providerInfo) {
+		return false;
+	}
+	if (providerInfo.cachedInputPrice !== undefined) {
+		return true;
+	}
+	if (
+		providerInfo.pricingTiers?.some(
+			(tier) => tier.cachedInputPrice !== undefined,
+		)
+	) {
+		return true;
+	}
+	if (
+		providerInfo.regions?.some(
+			(region) =>
+				region.cachedInputPrice !== undefined ||
+				region.pricingTiers?.some(
+					(tier) => tier.cachedInputPrice !== undefined,
+				),
+		)
+	) {
+		return true;
+	}
+	return false;
+}
+
+export interface VideoPricingContext {
+	durationSeconds: number;
+	includeAudio: boolean;
+	resolution: "default" | "hd" | "1080p" | "4k";
+}
+
+function getPerSecondBillingKeys(
+	videoPricing: VideoPricingContext,
+): Array<keyof NonNullable<ProviderModelMapping["perSecondPrice"]>> {
+	if (videoPricing.resolution === "4k") {
+		return videoPricing.includeAudio
+			? ["4k_audio", "default_audio", "4k", "default"]
+			: ["4k_video", "default_video", "4k", "default"];
+	}
+
+	if (videoPricing.resolution === "hd") {
+		return videoPricing.includeAudio
+			? ["hd_audio", "default_audio", "hd", "default"]
+			: ["hd_video", "default_video", "hd", "default"];
+	}
+
+	if (videoPricing.resolution === "1080p") {
+		return videoPricing.includeAudio
+			? ["1080p_audio", "hd_audio", "default_audio", "1080p", "hd", "default"]
+			: ["1080p_video", "hd_video", "default_video", "1080p", "hd", "default"];
+	}
+
+	return videoPricing.includeAudio
+		? ["default_audio", "default"]
+		: ["default_video", "default"];
+}
+
+export function getProviderSelectionPrice(
+	providerInfo:
+		| Pick<
+				ProviderModelMapping,
+				| "discount"
+				| "inputPrice"
+				| "outputPrice"
+				| "perSecondPrice"
+				| "requestPrice"
+		  >
+		| undefined,
+	videoPricing?: VideoPricingContext,
+): number {
+	const discount = providerInfo?.discount ?? 0;
+	const discountMultiplier = 1 - discount;
+	const inputPrice = providerInfo?.inputPrice;
+	const outputPrice = providerInfo?.outputPrice;
+	const requestPrice = providerInfo?.requestPrice;
+	const hasAnyTokenPrice =
+		inputPrice !== undefined || outputPrice !== undefined;
+	const hasPositiveTokenPrice = (inputPrice ?? 0) > 0 || (outputPrice ?? 0) > 0;
+
+	if (providerInfo?.perSecondPrice && videoPricing) {
+		for (const billingKey of getPerSecondBillingKeys(videoPricing)) {
+			const perSecondPrice = providerInfo.perSecondPrice[billingKey];
+			if (perSecondPrice !== undefined) {
+				return (
+					perSecondPrice * videoPricing.durationSeconds * discountMultiplier
+				);
+			}
+		}
+	}
+
+	if (hasPositiveTokenPrice) {
+		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
+	}
+
+	if (requestPrice !== undefined && !hasPositiveTokenPrice) {
+		return requestPrice * discountMultiplier;
+	}
+
+	if (hasAnyTokenPrice) {
+		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
+	}
+
+	return 0;
 }
 
 /**
@@ -125,22 +341,26 @@ export function getCheapestFromAvailableProviders<
 ): ProviderSelectionResult<T> | null {
 	const metricsMap = options?.metricsMap;
 	const isStreaming = options?.isStreaming ?? false;
+	const videoPricing = options?.videoPricing;
+	const promptTokens = options?.promptTokens;
 	// Use higher price weight for image generation models
 	const isImageModel = modelWithPricing.output?.includes("image") ?? false;
 	const effectivePriceWeight = isImageModel ? IMAGE_PRICE_WEIGHT : PRICE_WEIGHT;
+	// Cache support only matters once the prompt is large enough for caching
+	// to meaningfully reduce cost. Below that threshold the weight is zero.
+	const cacheSupportRelevant =
+		promptTokens !== undefined && promptTokens >= CACHE_PROMPT_TOKEN_THRESHOLD;
 	if (availableModelProviders.length === 0) {
 		return null;
 	}
 
 	// Filter out unstable and experimental providers
 	const stableProviders = availableModelProviders.filter((provider) => {
-		const providerInfo = modelWithPricing.providers.find(
-			(p) => p.providerId === provider.providerId,
+		const providerInfo = findProviderMapping(
+			modelWithPricing.providers,
+			provider,
 		);
-		const providerStability =
-			providerInfo && "stability" in providerInfo
-				? (providerInfo as ProviderModelMapping).stability
-				: undefined;
+		const providerStability = providerInfo?.stability;
 		const modelStability =
 			"stability" in modelWithPricing
 				? (modelWithPricing as { stability?: string }).stability
@@ -158,8 +378,7 @@ export function getCheapestFromAvailableProviders<
 	// Epsilon-greedy exploration: randomly select a provider 1% of the time
 	// This ensures all providers get periodic traffic and build up metrics
 	// Skip during tests to keep behavior deterministic
-	const isTest = process.env.NODE_ENV === "test" || process.env.VITEST;
-	if (!isTest && Math.random() < EXPLORATION_RATE) {
+	if (!isTestProcess() && Math.random() < getExplorationRate()) {
 		const randomProvider =
 			stableProviders[Math.floor(Math.random() * stableProviders.length)];
 		return {
@@ -168,32 +387,62 @@ export function getCheapestFromAvailableProviders<
 				availableProviders: stableProviders.map((p) => p.providerId),
 				selectedProvider: randomProvider.providerId,
 				selectionReason: "random-exploration",
-				providerScores: [],
+				providerScores: stableProviders.map((provider) => {
+					const providerInfo = findProviderMapping(
+						modelWithPricing.providers,
+						provider,
+					);
+					const providerDef = getProviderDefinition(provider.providerId);
+					const priority = providerDef?.priority ?? 1;
+					const metrics = metricsMap?.get(
+						metricsKey(
+							resolveMetricsModelId(modelWithPricing.id, provider.modelName),
+							provider.providerId,
+							provider.region,
+							provider.modelName,
+						),
+					);
+
+					return {
+						providerId: provider.providerId,
+						region: provider.region,
+						score: 0,
+						uptime: metrics?.uptime,
+						latency: metrics?.averageLatency,
+						throughput: metrics?.throughput,
+						price: getProviderSelectionPrice(providerInfo, videoPricing),
+						priority,
+						cacheSupported: providerSupportsCaching(
+							providerInfo as ProviderModelMapping | undefined,
+						),
+					};
+				}),
 			},
 		};
 	}
 
 	// If no metrics provided, fall back to price-only selection
 	if (!metricsMap || metricsMap.size === 0) {
-		return selectByPriceOnly(stableProviders, modelWithPricing);
+		return selectByPriceOnly(stableProviders, modelWithPricing, videoPricing);
 	}
 
 	// Calculate scores for each provider
 	const providerScores: ProviderScore<T>[] = [];
 
 	for (const provider of stableProviders) {
-		const providerInfo = modelWithPricing.providers.find(
-			(p) => p.providerId === provider.providerId,
+		const providerInfo = findProviderMapping(
+			modelWithPricing.providers,
+			provider,
 		);
-		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
-		const discountMultiplier = 1 - discount;
-		const price =
-			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
-				2) *
-			discountMultiplier;
+		const price = getProviderSelectionPrice(providerInfo, videoPricing);
 
-		const metricsKey = `${modelWithPricing.id}:${provider.providerId}`;
-		const metrics = metricsMap.get(metricsKey);
+		const mKey = metricsKey(
+			resolveMetricsModelId(modelWithPricing.id, provider.modelName),
+			provider.providerId,
+			provider.region,
+			provider.modelName,
+		);
+		const metrics = metricsMap.get(mKey);
 
 		providerScores.push({
 			provider,
@@ -202,6 +451,9 @@ export function getCheapestFromAvailableProviders<
 			uptime: metrics?.uptime,
 			latency: metrics?.averageLatency,
 			throughput: metrics?.throughput,
+			cacheSupported: providerSupportsCaching(
+				providerInfo as ProviderModelMapping | undefined,
+			),
 		});
 	}
 
@@ -257,21 +509,29 @@ export function getCheapestFromAvailableProviders<
 			/* eslint-enable no-mixed-operators */
 		}
 
+		// Cache score: 0 when this provider supports prompt caching, 1 otherwise.
+		// Only weighted in when the prompt is large enough for caching to matter.
+		const cacheScore = providerScore.cacheSupported ? 0 : 1;
+
 		// Calculate base weighted score (lower is better)
-		// When not streaming, latency weight (0.1) is redistributed to other factors
-		// Image generation models use 2x price weight
+		// When not streaming, latency weight is redistributed to other factors
+		// Image generation models use a higher price weight, and cache weight is
+		// dropped for short prompts where caching has no measurable effect.
 		const effectiveLatencyWeight = isStreaming ? LATENCY_WEIGHT : 0;
+		const effectiveCacheWeight = cacheSupportRelevant ? CACHE_WEIGHT : 0;
 		const weightSum =
 			effectivePriceWeight +
 			UPTIME_WEIGHT +
 			THROUGHPUT_WEIGHT +
-			effectiveLatencyWeight;
+			effectiveLatencyWeight +
+			effectiveCacheWeight;
 		/* eslint-disable no-mixed-operators */
 		const baseScore =
 			(effectivePriceWeight / weightSum) * priceScore +
 			(UPTIME_WEIGHT / weightSum) * uptimeScore +
 			(THROUGHPUT_WEIGHT / weightSum) * throughputScore +
-			(effectiveLatencyWeight / weightSum) * latencyScore;
+			(effectiveLatencyWeight / weightSum) * latencyScore +
+			(effectiveCacheWeight / weightSum) * cacheScore;
 		/* eslint-enable no-mixed-operators */
 
 		// Apply provider priority: lower priority = higher score (less preferred)
@@ -306,12 +566,14 @@ export function getCheapestFromAvailableProviders<
 			const priority = providerDef?.priority ?? 1;
 			return {
 				providerId: p.provider.providerId,
+				region: p.provider.region,
 				score: Number(p.score.toFixed(3)),
 				uptime: p.uptime,
 				latency: p.latency,
 				throughput: p.throughput,
 				price: p.price, // Keep full precision for very small prices
 				priority,
+				cacheSupported: p.cacheSupported,
 			};
 		}),
 	};
@@ -328,27 +590,25 @@ export function getCheapestFromAvailableProviders<
 function selectByPriceOnly<T extends AvailableModelProvider>(
 	stableProviders: T[],
 	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
+	videoPricing?: VideoPricingContext,
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestEffectivePrice = Number.MAX_VALUE;
 
 	const providerPrices: Array<{
 		providerId: string;
+		region?: string;
 		price: number;
 		effectivePrice: number;
 		priority: number;
 	}> = [];
 
 	for (const provider of stableProviders) {
-		const providerInfo = modelWithPricing.providers.find(
-			(p) => p.providerId === provider.providerId,
+		const providerInfo = findProviderMapping(
+			modelWithPricing.providers,
+			provider,
 		);
-		const discount = (providerInfo as ProviderModelMapping)?.discount ?? 0;
-		const discountMultiplier = 1 - discount;
-		const totalPrice =
-			(((providerInfo?.inputPrice ?? 0) + (providerInfo?.outputPrice ?? 0)) /
-				2) *
-			discountMultiplier;
+		const totalPrice = getProviderSelectionPrice(providerInfo, videoPricing);
 
 		// Apply provider priority: lower priority = effectively higher price
 		const providerDef = getProviderDefinition(provider.providerId);
@@ -357,6 +617,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 
 		providerPrices.push({
 			providerId: provider.providerId,
+			region: provider.region,
 			price: totalPrice,
 			effectivePrice,
 			priority,
@@ -374,6 +635,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		selectionReason: "price-only-no-metrics",
 		providerScores: providerPrices.map((p) => ({
 			providerId: p.providerId,
+			region: p.region,
 			score: 0,
 			price: p.price,
 			priority: p.priority,

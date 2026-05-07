@@ -6,6 +6,21 @@ export interface ProviderEnvConfig {
 	optional?: Record<string, string>;
 }
 
+/**
+ * Region routing configuration for providers that support multiple geographic endpoints.
+ * Used by the gateway for endpoint URL resolution and by the UI for the region selector.
+ */
+export interface ProviderRegionConfig {
+	/** Key in ProviderKeyOptions where the selected region is stored (e.g. "alibaba_region") */
+	optionsKey: string;
+	/** Region used when none is explicitly configured */
+	defaultRegion: string;
+	/** Ordered list of available regions for this provider, used to populate the UI dropdown */
+	regions: { id: string; label: string }[];
+	/** Maps region id to its base URL */
+	endpointMap: Record<string, string>;
+}
+
 export interface ProviderDefinition {
 	id: string;
 	name: string;
@@ -29,6 +44,11 @@ export interface ProviderDefinition {
 	// Priority weight for routing (default: 1). Lower values deprioritize the provider.
 	// e.g., 0.8 means 20% lower priority (score multiplied by 1/0.8 = 1.25)
 	priority?: number;
+	// Whether requests that match the gateway content filter should avoid this provider
+	// when an alternative provider is available.
+	contentFilter?: boolean;
+	/** Region routing config - when set, provider supports multiple geographic endpoints */
+	regionConfig?: ProviderRegionConfig;
 }
 
 export const providers = [
@@ -89,6 +109,9 @@ export const providers = [
 			required: {
 				apiKey: "LLM_GOOGLE_AI_STUDIO_API_KEY",
 			},
+			optional: {
+				baseUrl: "LLM_GOOGLE_AI_STUDIO_BASE_URL",
+			},
 		},
 		streaming: true,
 		cancellation: true,
@@ -96,6 +119,23 @@ export const providers = [
 		website: "https://ai.google.com",
 		announcement: null,
 		priority: 0.8,
+	},
+	{
+		id: "glacier",
+		name: "Glacier",
+		description:
+			"Glacier is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
+		env: {
+			required: {
+				apiKey: "LLM_GLACIER_API_KEY",
+				baseUrl: "LLM_GLACIER_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: null,
+		announcement: null,
 	},
 	{
 		id: "google-vertex",
@@ -108,6 +148,7 @@ export const providers = [
 				project: "LLM_GOOGLE_CLOUD_PROJECT",
 			},
 			optional: {
+				baseUrl: "LLM_GOOGLE_VERTEX_BASE_URL",
 				region: "LLM_GOOGLE_VERTEX_REGION",
 			},
 		},
@@ -118,18 +159,43 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "obsidian",
-		name: "Obsidian",
-		description: "Obsidian - Google-compatible LLM provider.",
+		id: "quartz",
+		name: "Quartz",
+		description:
+			"Quartz is a Vertex-compatible provider for accessing Gemini and other Vertex-routed models.",
 		env: {
 			required: {
-				apiKey: "LLM_OBSIDIAN_API_KEY",
-				baseUrl: "LLM_OBSIDIAN_BASE_URL",
+				apiKey: "LLM_QUARTZ_API_KEY",
+				baseUrl: "LLM_QUARTZ_BASE_URL",
+				project: "LLM_QUARTZ_PROJECT",
+			},
+			optional: {
+				region: "LLM_QUARTZ_REGION",
 			},
 		},
 		streaming: true,
 		cancellation: true,
-		color: "#1a1a1a",
+		color: "#4285f4",
+		website: null,
+		announcement: null,
+		priority: 0.9,
+	},
+	{
+		id: "avalanche",
+		name: "Avalanche",
+		description: "Avalanche - video generation provider.",
+		env: {
+			required: {
+				apiKey: "LLM_AVALANCHE_API_KEY",
+				baseUrl: "LLM_AVALANCHE_BASE_URL",
+			},
+			optional: {
+				fileUploadBaseUrl: "LLM_AVALANCHE_FILE_UPLOAD_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: false,
+		color: "#0f766e",
 		website: null,
 		announcement: null,
 	},
@@ -178,6 +244,7 @@ export const providers = [
 		color: "#000000",
 		website: "https://x.ai",
 		announcement: null,
+		priority: 0.1,
 	},
 	{
 		id: "deepseek",
@@ -204,12 +271,29 @@ export const providers = [
 			required: {
 				apiKey: "LLM_ALIBABA_API_KEY",
 			},
+			optional: {
+				region: "LLM_ALIBABA_REGION",
+			},
 		},
 		streaming: true,
 		cancellation: true,
 		color: "#FF6A00",
 		website: "https://www.alibabacloud.com",
 		announcement: null,
+		regionConfig: {
+			optionsKey: "alibaba_region",
+			defaultRegion: "singapore",
+			regions: [
+				{ id: "singapore", label: "Singapore (default)" },
+				{ id: "us-virginia", label: "US (Virginia)" },
+				{ id: "cn-beijing", label: "China (Beijing)" },
+			],
+			endpointMap: {
+				singapore: "https://dashscope-intl.aliyuncs.com",
+				"us-virginia": "https://dashscope-us.aliyuncs.com",
+				"cn-beijing": "https://dashscope.aliyuncs.com",
+			},
+		},
 	},
 	{
 		id: "novita",
@@ -272,6 +356,29 @@ export const providers = [
 		announcement: null,
 		apiKeyInstructions:
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
+		learnMore: "https://docs.llmgateway.io/integrations/azure",
+	},
+	{
+		id: "azure-ai-foundry",
+		name: "Azure AI Foundry",
+		description:
+			"Microsoft Azure AI Foundry - third-party models (Grok, Llama, Mistral, ...) via the Azure Models inference endpoint",
+		env: {
+			required: {
+				apiKey: "LLM_AZURE_AI_FOUNDRY_API_KEY",
+				resource: "LLM_AZURE_AI_FOUNDRY_RESOURCE",
+			},
+			optional: {
+				apiVersion: "LLM_AZURE_AI_FOUNDRY_API_VERSION",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0078D4",
+		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
+		announcement: null,
+		apiKeyInstructions:
+			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 	},
 	{
@@ -352,22 +459,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "canopywave",
-		name: "CanopyWave",
-		description:
-			"CanopyWave is a platform for running large language models with OpenAI-compatible API",
-		env: {
-			required: {
-				apiKey: "LLM_CANOPY_WAVE_API_KEY",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#10b981",
-		website: "https://canopywave.io",
-		announcement: null,
-	},
-	{
 		id: "inference.net",
 		name: "Inference.net",
 		description:
@@ -384,7 +475,7 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "together.ai",
+		id: "together-ai",
 		name: "Together AI",
 		description:
 			"Together AI is a platform for running large language models in the cloud with fast inference.",
@@ -457,6 +548,22 @@ export const providers = [
 		cancellation: true,
 		color: "#7C3AED",
 		website: "https://minimax.io",
+		announcement: null,
+	},
+	{
+		id: "embercloud",
+		name: "EmberCloud",
+		description:
+			"EmberCloud provides access to a variety of large language models via an OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_EMBERCLOUD_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#FF6047",
+		website: "https://www.embercloud.ai",
 		announcement: null,
 	},
 ] as const satisfies ProviderDefinition[];

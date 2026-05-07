@@ -4,10 +4,54 @@ import { logger } from "@llmgateway/logger";
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages } from "./extract-images.js";
 import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
 import type { Annotation, StreamingDelta } from "./types.js";
 import type { Provider } from "@llmgateway/models";
+
+function normalizeAnthropicUsage(usage: any): any {
+	if (!usage || typeof usage !== "object") {
+		return null;
+	}
+	const hasInputUsage =
+		usage.input_tokens !== undefined ||
+		usage.cache_creation_input_tokens !== undefined ||
+		usage.cache_read_input_tokens !== undefined;
+	const outputTokens = usage.output_tokens;
+	if (!hasInputUsage && outputTokens === undefined) {
+		return null;
+	}
+
+	const inputTokens = hasInputUsage ? (usage.input_tokens ?? 0) : null;
+	const cacheCreation = hasInputUsage
+		? (usage.cache_creation_input_tokens ?? 0)
+		: null;
+	const cacheRead = hasInputUsage ? (usage.cache_read_input_tokens ?? 0) : null;
+	const promptTokens = hasInputUsage
+		? (inputTokens ?? 0) + (cacheCreation ?? 0) + (cacheRead ?? 0)
+		: null;
+	const normalizedUsage: Record<string, any> = {
+		...(promptTokens !== null && { prompt_tokens: promptTokens }),
+		...(outputTokens !== undefined && { completion_tokens: outputTokens }),
+		...(promptTokens !== null &&
+			outputTokens !== undefined && {
+				total_tokens: promptTokens + outputTokens,
+			}),
+		...(cacheRead !== null &&
+			cacheCreation !== null &&
+			(cacheRead > 0 || cacheCreation > 0) && {
+				prompt_tokens_details: {
+					cached_tokens: cacheRead,
+					...(cacheCreation > 0 && {
+						cache_write_tokens: cacheCreation,
+						cache_creation_tokens: cacheCreation,
+					}),
+				},
+			}),
+	};
+	return normalizedUsage;
+}
 
 export function transformStreamingToOpenai(
 	usedProvider: Provider,
@@ -15,12 +59,52 @@ export function transformStreamingToOpenai(
 	data: any,
 	messages: any[],
 	serverToolUseIndices?: Set<number>,
+	supportsReasoning = true,
 ): any {
 	let transformedData = data;
 
+	const isKnownNonRenderableAwsBedrockDelta = (delta: any): boolean => {
+		if (!delta || typeof delta !== "object") {
+			return false;
+		}
+
+		if (delta.toolResult || delta.citation || delta.image) {
+			return true;
+		}
+
+		if (delta.reasoningContent) {
+			const reasoningContent = delta.reasoningContent;
+			return (
+				typeof reasoningContent === "object" &&
+				reasoningContent !== null &&
+				!reasoningContent.text
+			);
+		}
+
+		return false;
+	};
+
 	switch (usedProvider) {
 		case "anthropic": {
-			if (data.type === "content_block_delta" && data.delta?.text) {
+			const usage = data.message?.usage ?? data.usage;
+			if (data.type === "message_start") {
+				transformedData = {
+					id: data.message?.id ?? data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.message?.model ?? data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+					usage: normalizeAnthropicUsage(usage),
+				};
+			} else if (data.type === "content_block_delta" && data.delta?.text) {
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -36,7 +120,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: data.usage ?? null,
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_delta" &&
@@ -58,7 +142,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: data.usage ?? null,
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_start" &&
@@ -84,7 +168,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: data.usage ?? null,
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_start" &&
@@ -115,7 +199,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: data.usage ?? null,
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_delta" &&
@@ -141,7 +225,7 @@ export function transformStreamingToOpenai(
 								finish_reason: null,
 							},
 						],
-						usage: data.usage ?? null,
+						usage: normalizeAnthropicUsage(usage),
 					};
 				} else {
 					transformedData = {
@@ -166,7 +250,7 @@ export function transformStreamingToOpenai(
 								finish_reason: null,
 							},
 						],
-						usage: data.usage ?? null,
+						usage: normalizeAnthropicUsage(usage),
 					};
 				}
 			} else if (
@@ -202,7 +286,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: data.usage ?? null,
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
 				const stopReason = data.delta.stop_reason;
@@ -217,17 +301,10 @@ export function transformStreamingToOpenai(
 							delta: {
 								role: "assistant",
 							},
-							finish_reason:
-								stopReason === "end_turn"
-									? "stop"
-									: stopReason === "tool_use"
-										? "tool_calls"
-										: stopReason === "max_tokens"
-											? "length"
-											: "stop",
+							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
 						},
 					],
-					usage: data.usage ?? null,
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "message_stop" || data.stop_reason) {
 				const stopReason = data.stop_reason ?? "end_turn";
@@ -242,17 +319,10 @@ export function transformStreamingToOpenai(
 							delta: {
 								role: "assistant",
 							},
-							finish_reason:
-								stopReason === "end_turn"
-									? "stop"
-									: stopReason === "tool_use"
-										? "tool_calls"
-										: stopReason === "max_tokens"
-											? "length"
-											: "stop",
+							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
 						},
 					],
-					usage: data.usage ?? null,
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.delta?.text) {
 				transformedData = {
@@ -270,8 +340,10 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: data.usage ?? null,
+					usage: normalizeAnthropicUsage(usage),
 				};
+			} else if (data.type === "ping") {
+				return null;
 			} else {
 				logger.warn("[streaming] Unrecognized Anthropic chunk", {
 					provider: usedProvider,
@@ -294,59 +366,16 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: data.usage ?? null,
+					usage: normalizeAnthropicUsage(usage),
 				};
 			}
 			break;
 		}
 
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
-		case "obsidian": {
-			const mapFinishReason = (
-				finishReason?: string,
-				hasFunctionCalls?: boolean,
-				promptBlockReason?: string,
-			): string => {
-				if (promptBlockReason) {
-					switch (promptBlockReason) {
-						case "SAFETY":
-						case "PROHIBITED_CONTENT":
-						case "BLOCKLIST":
-						case "OTHER":
-							return "content_filter";
-						default:
-							return "stop";
-					}
-				}
-
-				if (!finishReason) {
-					return hasFunctionCalls ? "tool_calls" : "stop";
-				}
-
-				switch (finishReason) {
-					case "STOP":
-						return hasFunctionCalls ? "tool_calls" : "stop";
-					case "MAX_TOKENS":
-						return "length";
-					case "MALFORMED_FUNCTION_CALL":
-					case "UNEXPECTED_TOOL_CALL":
-						return "tool_calls";
-					case "SAFETY":
-					case "PROHIBITED_CONTENT":
-					case "RECITATION":
-					case "BLOCKLIST":
-					case "SPII":
-					case "LANGUAGE":
-					case "IMAGE_SAFETY":
-					case "IMAGE_PROHIBITED_CONTENT":
-					case "NO_IMAGE":
-						return "content_filter";
-					default:
-						return "stop";
-				}
-			};
-
+		case "quartz": {
 			const buildUsage = (
 				usageMetadata: any | undefined,
 				messagesForFallback: any[],
@@ -626,8 +655,9 @@ export function transformStreamingToOpenai(
 										? candidate.index
 										: candidateIdx,
 								delta: { role: "assistant" },
-								finish_reason: mapFinishReason(
+								finish_reason: mapFinishReasonToOpenai(
 									finishReason,
+									usedProvider,
 									candidateHasFunctionCalls,
 									promptBlockReason,
 								),
@@ -637,8 +667,9 @@ export function transformStreamingToOpenai(
 							{
 								index: 0,
 								delta: { role: "assistant" },
-								finish_reason: mapFinishReason(
+								finish_reason: mapFinishReasonToOpenai(
 									firstCandidate?.finishReason,
+									usedProvider,
 									false,
 									promptBlockReason,
 								),
@@ -686,19 +717,30 @@ export function transformStreamingToOpenai(
 
 		case "azure":
 		case "openai": {
+			// Azure precedes every stream with a prompt-filter-only chunk that has
+			// empty id/object/model and no choices. The default OpenAI fallback
+			// path passes the empty values through and breaks downstream
+			// hasOpenAIFormat checks. Drop it — if any prompt filter actually
+			// fires, Azure surfaces it via a content_filter error/finish_reason.
+			// Responses API events also lack top-level id/object/choices/usage
+			// but always carry a `type` field, so guard against dropping them.
+			if (
+				usedProvider === "azure" &&
+				!data.type &&
+				!data.id &&
+				!data.object &&
+				(!data.choices || data.choices.length === 0) &&
+				!data.usage
+			) {
+				transformedData = null;
+				break;
+			}
 			if (data.type) {
-				// Log full OpenAI event data for debugging
-				logger.info("[OpenAI Streaming Debug]", {
-					eventType: data.type,
-					hasAnnotations: !!(data.annotations ?? data.part?.annotations),
-					annotationsCount: (data.annotations ?? data.part?.annotations ?? [])
-						.length,
-					hasDelta: !!data.delta,
-					deltaKeys: data.delta ? Object.keys(data.delta) : [],
-					fullData: JSON.stringify(data),
-				});
-
 				switch (data.type) {
+					case "keepalive":
+						transformedData = null;
+						break;
+
 					case "response.created":
 					case "response.in_progress":
 						transformedData = {
@@ -771,6 +813,8 @@ export function transformStreamingToOpenai(
 						break;
 					}
 					case "response.output_item.done":
+					case "response.content_part.done":
+					case "response.output_text.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
 					case "response.web_search_call.completed":
@@ -1016,19 +1060,11 @@ export function transformStreamingToOpenai(
 						break;
 				}
 			} else {
-				// Log standard OpenAI streaming format for debugging
-				logger.info("[OpenAI Standard Streaming Debug]", {
-					hasChoices: !!data.choices,
-					choicesLength: data.choices?.length ?? 0,
-					firstChoiceDeltaKeys: data.choices?.[0]?.delta
-						? Object.keys(data.choices[0].delta)
-						: [],
-					hasAnnotations: !!data.choices?.[0]?.delta?.annotations,
-					annotationsCount: data.choices?.[0]?.delta?.annotations?.length ?? 0,
-					fullData: JSON.stringify(data),
-				});
-
-				transformedData = transformOpenaiStreaming(data, usedModel);
+				transformedData = transformOpenaiStreaming(
+					data,
+					usedModel,
+					supportsReasoning,
+				);
 			}
 			break;
 		}
@@ -1047,6 +1083,26 @@ export function transformStreamingToOpenai(
 							index: 0,
 							delta: {
 								content: data.delta.text,
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+				};
+			} else if (
+				eventType === "contentBlockDelta" &&
+				data.delta?.reasoningContent?.text
+			) {
+				transformedData = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: Math.floor(Date.now() / 1000),
+					model: usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								reasoning: data.delta.reasoningContent.text,
 								role: "assistant",
 							},
 							finish_reason: null,
@@ -1114,6 +1170,16 @@ export function transformStreamingToOpenai(
 						},
 					],
 				};
+			} else if (
+				eventType === "contentBlockDelta" &&
+				isKnownNonRenderableAwsBedrockDelta(data.delta)
+			) {
+				// Bedrock contentBlockDelta is a documented union. Some known members
+				// like reasoning signatures, citations, images, or tool results don't
+				// have a direct OpenAI chat chunk representation, so we treat them as handled.
+				transformedData = null;
+			} else if (eventType === "contentBlockStop") {
+				transformedData = null;
 			} else if (eventType === "messageStart") {
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -1206,16 +1272,36 @@ export function transformStreamingToOpenai(
 		case "moonshot":
 		case "perplexity":
 		case "nebius":
-		case "canopywave":
 		case "inference.net":
-		case "together.ai":
+		case "together-ai":
 		case "custom":
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":
+		case "embercloud":
+		case "azure-ai-foundry":
 		case "llmgateway": {
+			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
+			// chunk on some models — empty id/object/choices, no usage. Drop it
+			// for the same reason: it breaks downstream hasOpenAIFormat checks.
+			// Skip the guard for Responses API events (identified by `data.type`).
+			if (
+				usedProvider === "azure-ai-foundry" &&
+				!data.type &&
+				!data.id &&
+				!data.object &&
+				(!data.choices || data.choices.length === 0) &&
+				!data.usage
+			) {
+				transformedData = null;
+				break;
+			}
 			// Transform standard OpenAI streaming format with finish reason mapping
-			transformedData = transformOpenaiStreaming(data, usedModel);
+			transformedData = transformOpenaiStreaming(
+				data,
+				usedModel,
+				supportsReasoning,
+			);
 
 			// Map non-standard finish reasons to OpenAI-compatible values
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {
@@ -1234,7 +1320,11 @@ export function transformStreamingToOpenai(
 				model: usedModel,
 				dataKeys: Object.keys(data),
 			});
-			transformedData = transformOpenaiStreaming(data, usedModel);
+			transformedData = transformOpenaiStreaming(
+				data,
+				usedModel,
+				supportsReasoning,
+			);
 			break;
 		}
 	}

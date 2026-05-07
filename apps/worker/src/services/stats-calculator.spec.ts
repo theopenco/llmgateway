@@ -267,6 +267,142 @@ describe("stats-calculator", () => {
 			expect(claudeRecord?.cachedCount).toBe(0); // No cached requests for claude
 		});
 
+		it("should attribute region-suffixed logs to the matching regional mappings", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			await db.insert(provider).values({
+				id: "alibaba",
+				name: "Alibaba",
+				description: "Alibaba provider",
+				streaming: true,
+				cancellation: false,
+				color: "#ff6a00",
+				website: "https://www.alibabacloud.com",
+				status: "active",
+			});
+
+			await db.insert(model).values({
+				id: "deepseek-v3.2",
+				name: "DeepSeek V3.2",
+				family: "deepseek",
+				status: "active",
+			});
+
+			await db.insert(modelProviderMapping).values([
+				{
+					id: "mapping-aggregate",
+					modelId: "deepseek-v3.2",
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2",
+					status: "active",
+				},
+				{
+					id: "mapping-3",
+					modelId: "deepseek-v3.2",
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2:singapore",
+					region: "singapore",
+					status: "active",
+				},
+				{
+					id: "mapping-4",
+					modelId: "deepseek-v3.2",
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2:cn-beijing",
+					region: "cn-beijing",
+					status: "active",
+				},
+			]);
+
+			await db.insert(log).values([
+				{
+					id: "log-region-1",
+					requestId: "req-region-1",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1200,
+					requestedModel: "alibaba/deepseek-v3.2:singapore",
+					requestedProvider: "alibaba",
+					usedModel: "alibaba/deepseek-v3.2:singapore",
+					usedProvider: "alibaba",
+					responseSize: 100,
+					hasError: false,
+					promptTokens: "100",
+					completionTokens: "80",
+					totalTokens: "180",
+					cost: 0.12,
+					unifiedFinishReason: "completed",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 10000),
+				},
+				{
+					id: "log-region-2",
+					requestId: "req-region-2",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1500,
+					requestedModel: "alibaba/deepseek-v3.2:cn-beijing",
+					requestedProvider: "alibaba",
+					usedModel: "alibaba/deepseek-v3.2:cn-beijing",
+					usedProvider: "alibaba",
+					responseSize: 120,
+					hasError: false,
+					promptTokens: "120",
+					completionTokens: "90",
+					totalTokens: "210",
+					cost: 0.21,
+					unifiedFinishReason: "completed",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 20000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			const deepseekHistory = (await db.select().from(modelHistory)).find(
+				(record) => record.modelId === "deepseek-v3.2",
+			);
+
+			expect(deepseekHistory).toBeTruthy();
+			expect(deepseekHistory?.logsCount).toBe(2);
+			expect(deepseekHistory?.totalInputTokens).toBe(220);
+			expect(deepseekHistory?.totalOutputTokens).toBe(170);
+			expect(deepseekHistory?.totalCost).toBeCloseTo(0.33);
+
+			const regionHistory = await db.select().from(modelProviderMappingHistory);
+			const aggregateHistory = regionHistory.find(
+				(record) => record.modelProviderMappingId === "mapping-aggregate",
+			);
+			const singaporeHistory = regionHistory.find(
+				(record) => record.modelProviderMappingId === "mapping-3",
+			);
+			const beijingHistory = regionHistory.find(
+				(record) => record.modelProviderMappingId === "mapping-4",
+			);
+
+			expect(aggregateHistory).toBeTruthy();
+			expect(aggregateHistory?.logsCount).toBe(2);
+			expect(aggregateHistory?.totalInputTokens).toBe(220);
+			expect(aggregateHistory?.totalOutputTokens).toBe(170);
+			expect(aggregateHistory?.totalCost).toBeCloseTo(0.33);
+
+			expect(singaporeHistory).toBeTruthy();
+			expect(singaporeHistory?.logsCount).toBe(1);
+			expect(singaporeHistory?.totalInputTokens).toBe(100);
+			expect(singaporeHistory?.totalOutputTokens).toBe(80);
+			expect(singaporeHistory?.totalCost).toBeCloseTo(0.12);
+
+			expect(beijingHistory).toBeTruthy();
+			expect(beijingHistory?.logsCount).toBe(1);
+			expect(beijingHistory?.totalInputTokens).toBe(120);
+			expect(beijingHistory?.totalOutputTokens).toBe(90);
+			expect(beijingHistory?.totalCost).toBeCloseTo(0.21);
+		});
+
 		it("should handle cached requests correctly by ignoring tokens but counting requests", async () => {
 			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
 
@@ -864,6 +1000,50 @@ describe("stats-calculator", () => {
 
 			// Unweighted total for routingTotalRequests
 			expect(mapping.routingTotalRequests).toBe(20);
+		});
+
+		it("should exclude client errors from routing uptime", async () => {
+			const now = new Date("2024-01-01T12:30:00.000Z");
+
+			// 30 logs total: 4 client errors + 2 upstream errors = 6 total errors
+			// Routing uptime should only penalize the 2 upstream errors (provider's fault).
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: minutesAgo(now, 4),
+					logsCount: 30,
+					errorsCount: 6,
+					clientErrorsCount: 4,
+					gatewayErrorsCount: 0,
+					upstreamErrorsCount: 2,
+					cachedCount: 0,
+					totalOutputTokens: 600,
+					totalDuration: 3000,
+					totalTimeToFirstToken: 900,
+					totalTimeToFirstReasoningToken: 0,
+				},
+			]);
+
+			await calculateAggregatedStatistics();
+
+			const mappings = await db
+				.select()
+				.from(modelProviderMapping)
+				.where(
+					and(
+						eq(modelProviderMapping.modelId, "gpt-4"),
+						eq(modelProviderMapping.providerId, "openai"),
+					),
+				);
+
+			const mapping = mappings[0]!;
+			// Display stats keep the full error count
+			expect(mapping.errorsCount).toBe(6);
+			expect(mapping.clientErrorsCount).toBe(4);
+			// Routing uptime ignores client errors: (30 - 2) / 30 * 100 ≈ 93.33%
+			expect(mapping.routingUptime).toBeCloseTo((28 / 30) * 100, 2);
 		});
 
 		it("should set routing metrics to null when no TTFT or duration data", async () => {

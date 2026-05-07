@@ -130,24 +130,24 @@ class LLMGatewayLogger {
 	}
 
 	// Core logging methods
-	public trace(message: string, extra?: object): void {
+	public trace(message: string, extra?: object | Error): void {
 		const traceContext = this.getTraceContext();
-		this.logger.trace({ ...traceContext, ...extra }, message);
+		this.logger.trace(this.mergeOptionalArg(traceContext, extra), message);
 	}
 
-	public debug(message: string, extra?: object): void {
+	public debug(message: string, extra?: object | Error): void {
 		const traceContext = this.getTraceContext();
-		this.logger.debug({ ...traceContext, ...extra }, message);
+		this.logger.debug(this.mergeOptionalArg(traceContext, extra), message);
 	}
 
-	public info(message: string, extra?: object): void {
+	public info(message: string, extra?: object | Error): void {
 		const traceContext = this.getTraceContext();
-		this.logger.info({ ...traceContext, ...extra }, message);
+		this.logger.info(this.mergeOptionalArg(traceContext, extra), message);
 	}
 
-	public warn(message: string, extra?: object): void {
+	public warn(message: string, extra?: object | Error): void {
 		const traceContext = this.getTraceContext();
-		this.logger.warn({ ...traceContext, ...extra }, message);
+		this.logger.warn(this.mergeOptionalArg(traceContext, extra), message);
 	}
 
 	public error(message: string, ...args: unknown[]): void {
@@ -177,6 +177,21 @@ class LLMGatewayLogger {
 			}
 		}
 		return result;
+	}
+
+	private mergeOptionalArg(
+		traceContext: object,
+		extra?: object | Error,
+	): Record<string, unknown> {
+		if (extra instanceof Error) {
+			return { ...traceContext, err: extra };
+		}
+
+		if (extra && typeof extra === "object") {
+			return { ...traceContext, ...extra };
+		}
+
+		return { ...traceContext };
 	}
 
 	// Create child logger with additional context

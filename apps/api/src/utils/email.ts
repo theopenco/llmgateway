@@ -30,6 +30,19 @@ export interface TransactionalEmailOptions {
 		content: Buffer;
 		contentType?: string;
 	}>;
+	/**
+	 * When true, the function rejects on misconfiguration and delivery
+	 * failures instead of silently logging. Use for flows where the caller
+	 * must know whether the email was actually queued (e.g. password reset).
+	 */
+	strict?: boolean;
+	/**
+	 * When true, the email body (html/text) is omitted from the
+	 * non-production debug log. The caller is expected to log any
+	 * sensitive fields (tokens, signed URLs) separately under explicit
+	 * keys so they can be filtered or audited.
+	 */
+	logSafe?: boolean;
 }
 
 export async function sendTransactionalEmail({
@@ -38,14 +51,15 @@ export async function sendTransactionalEmail({
 	html,
 	text,
 	attachments,
+	strict = false,
+	logSafe = false,
 }: TransactionalEmailOptions): Promise<void> {
 	// In non-production environments, just log the email content
 	if (process.env.NODE_ENV !== "production") {
 		logger.info("Email content (not sent in non-production)", {
 			to,
 			subject,
-			html,
-			text,
+			...(logSafe ? {} : { html, text }),
 			attachments: attachments?.map((a) => ({
 				filename: a.filename,
 				size: a.content.length,
@@ -58,12 +72,16 @@ export async function sendTransactionalEmail({
 
 	const client = getResendClient();
 	if (!client) {
+		const err = new Error(
+			`Resend not configured for email to ${to} with subject: ${subject}`,
+		);
 		logger.error(
 			"RESEND_API_KEY is not configured. Transactional email will not be sent.",
-			new Error(
-				`Resend not configured for email to ${to} with subject: ${subject}`,
-			),
+			err,
 		);
+		if (strict) {
+			throw err;
+		}
 		return;
 	}
 
@@ -99,6 +117,9 @@ export async function sendTransactionalEmail({
 			"Failed to send transactional email",
 			error instanceof Error ? error : new Error(String(error)),
 		);
+		if (strict) {
+			throw error instanceof Error ? error : new Error(String(error));
+		}
 	}
 }
 

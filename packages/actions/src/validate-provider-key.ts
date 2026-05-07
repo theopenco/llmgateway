@@ -3,8 +3,10 @@ import {
 	models,
 	type ProviderModelMapping,
 	type ProviderId,
+	type ProviderDefinition,
 	type BaseMessage,
 	type ProviderValidationResult,
+	providers,
 } from "@llmgateway/models";
 
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
@@ -21,6 +23,17 @@ function getValidationModel(
 		return providerKeyOptions.azure_validation_model;
 	}
 
+	// Resolve the selected region from provider key options
+	const providerDef = providers.find((p) => p.id === provider) as
+		| ProviderDefinition
+		| undefined;
+	const regionKey = providerDef?.regionConfig?.optionsKey;
+	const selectedRegion = regionKey
+		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
+				regionKey
+			] ?? providerDef?.regionConfig?.defaultRegion)
+		: undefined;
+
 	const currentDate = new Date();
 	const providerModels = models
 		.flatMap((model) => {
@@ -29,6 +42,13 @@ function getValidationModel(
 			) as ProviderModelMapping | undefined;
 			if (!providerMapping) {
 				return [];
+			}
+
+			// If a region is selected, only consider models available in that region
+			if (selectedRegion && providerMapping.regions) {
+				if (!providerMapping.regions.some((r) => r.id === selectedRegion)) {
+					return [];
+				}
 			}
 
 			const providerStability =
@@ -51,7 +71,13 @@ function getValidationModel(
 				providerMapping.deactivatedAt &&
 				currentDate >= providerMapping.deactivatedAt;
 
-			if (!isStable || isDeprecated || isDeactivated) {
+			if (
+				!isStable ||
+				isDeprecated ||
+				isDeactivated ||
+				providerMapping.imageGenerations ||
+				providerMapping.videoGenerations
+			) {
 				return [];
 			}
 
@@ -142,25 +168,35 @@ export async function validateProviderKey(
 				? providerKeyOptions.azure_validation_model
 				: modelId;
 
-		logger.debug("Validation endpoint configuration", {
-			provider,
-			model: validationModel,
-			modelId,
-			effectiveModelId,
-			providerKeyOptions,
-		});
+		// Resolve region from provider key options for region-aware providers
+		const providerDef = providers.find((p) => p.id === provider) as
+			| ProviderDefinition
+			| undefined;
+		const regionOptionsKey = providerDef?.regionConfig?.optionsKey;
+		const validationRegion = regionOptionsKey
+			? ((
+					providerKeyOptions as Record<string, string | undefined> | undefined
+				)?.[regionOptionsKey] ?? providerDef?.regionConfig?.defaultRegion)
+			: undefined;
 
 		const endpoint = getProviderEndpoint(
 			provider,
 			baseUrl,
 			effectiveModelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock, azure)
-			provider === "google-ai-studio" || provider === "google-vertex"
+			provider === "google-ai-studio" ||
+				provider === "glacier" ||
+				provider === "google-vertex" ||
+				provider === "quartz"
 				? token
 				: undefined,
 			false, // validation doesn't need streaming
 			false, // supportsReasoning - disable for validation
 			false, // hasExistingToolCalls - disable for validation
 			providerKeyOptions,
+			undefined, // configIndex
+			undefined, // imageGenerations
+			validationRegion,
+			true, // skipEnvVars - provider key validation is always BYOK context
 		);
 
 		// Check if max_tokens is supported

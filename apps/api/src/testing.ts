@@ -22,6 +22,7 @@ export async function deleteAll() {
 
 	await Promise.all([
 		db.delete(tables.log),
+		db.delete(tables.auditLog),
 		db.delete(tables.apiKey),
 		db.delete(tables.providerKey),
 		db.delete(projectHourlyStats),
@@ -122,6 +123,10 @@ function getCommonAggregationFields() {
 			sql<string>`coalesce(sum(cast(${tables.log.cachedTokens} as numeric)), 0)`.as(
 				"cachedTokens",
 			),
+		cacheWriteTokens:
+			sql<string>`coalesce(sum(cast(${tables.log.cacheWriteTokens} as numeric)), 0)`.as(
+				"cacheWriteTokens",
+			),
 		cost: sql<number>`coalesce(sum(${tables.log.cost}), 0)`.as("cost"),
 		inputCost: sql<number>`coalesce(sum(${tables.log.inputCost}), 0)`.as(
 			"inputCost",
@@ -154,9 +159,17 @@ function getCommonAggregationFields() {
 			sql<number>`coalesce(sum(${tables.log.imageOutputCost}), 0)`.as(
 				"imageOutputCost",
 			),
+		videoOutputCost:
+			sql<number>`coalesce(sum(${tables.log.videoOutputCost}), 0)`.as(
+				"videoOutputCost",
+			),
 		cachedInputCost:
 			sql<number>`coalesce(sum(${tables.log.cachedInputCost}), 0)`.as(
 				"cachedInputCost",
+			),
+		cacheWriteInputCost:
+			sql<number>`coalesce(sum(${tables.log.cacheWriteInputCost}), 0)`.as(
+				"cacheWriteInputCost",
 			),
 		// Per-mode breakdowns
 		creditsRequestCount:

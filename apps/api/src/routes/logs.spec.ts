@@ -113,6 +113,23 @@ describe("logs route", () => {
 				temperature: 0.7,
 				maxTokens: 100,
 				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+				gatewayContentFilterResponse: [
+					{
+						id: "modr-test-log-id-1",
+						model: "omni-moderation-latest",
+						results: [
+							{
+								flagged: true,
+								categories: {
+									violence: true,
+								},
+								category_scores: {
+									violence: 0.95,
+								},
+							},
+						],
+					},
+				],
 				mode: "api-keys",
 				usedMode: "api-keys",
 			},
@@ -149,6 +166,71 @@ describe("logs route", () => {
 
 	// Tests for the filter functionality
 	describe("filter functionality", () => {
+		test("should expose gateway content filter responses in list results", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.logs[0].organizationName).toBe("Test Organization");
+			expect(json.logs[0].projectName).toBe("Test Project");
+			expect(json.logs[0].apiKeyName).toBe("Test API Key");
+			expect(json.logs[0].gatewayContentFilterResponse).toEqual([
+				{
+					id: "modr-test-log-id-1",
+					model: "omni-moderation-latest",
+					results: [
+						{
+							flagged: true,
+							categories: {
+								violence: true,
+							},
+							category_scores: {
+								violence: 0.95,
+							},
+						},
+					],
+				},
+			]);
+		});
+
+		test("should expose gateway content filter responses by id", async () => {
+			const res = await app.request("/logs/test-log-id-1", {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.log.organizationName).toBe("Test Organization");
+			expect(json.log.projectName).toBe("Test Project");
+			expect(json.log.apiKeyName).toBe("Test API Key");
+			expect(json.log.gatewayContentFilterResponse).toEqual([
+				{
+					id: "modr-test-log-id-1",
+					model: "omni-moderation-latest",
+					results: [
+						{
+							flagged: true,
+							categories: {
+								violence: true,
+							},
+							category_scores: {
+								violence: 0.95,
+							},
+						},
+					],
+				},
+			]);
+		});
+
 		test("should filter logs by projectId", async () => {
 			const params = new URLSearchParams({ projectId: "test-project-id" });
 			const res = await app.request("/logs?" + params, {
@@ -238,6 +320,105 @@ describe("logs route", () => {
 			expect(json.pagination).toBeDefined();
 			expect(json.pagination.hasMore).toBe(false);
 			expect(json.pagination.nextCursor).toBeNull();
+		});
+
+		test("should sign video content URLs without relying on a specific model id", async () => {
+			await db.insert(tables.log).values({
+				id: "test-log-id-video",
+				requestId: "test-log-id-video",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "future-video-model",
+				requestedProvider: "example-video",
+				usedModel: "future-video-model",
+				usedProvider: "example-video",
+				responseSize: 1000,
+				content:
+					"http://localhost:4001/v1/videos/logs/test-log-id-video/content",
+				finishReason: "completed",
+				unifiedFinishReason: "completed",
+				videoOutputCost: 1.5,
+				messages: JSON.stringify([{ role: "user", content: "Make a video" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			});
+
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			const videoLog = json.logs.find(
+				(log: { id: string; content: string | null }) =>
+					log.id === "test-log-id-video",
+			);
+
+			expect(videoLog?.content).toMatch(
+				/^http:\/\/localhost:4001\/v1\/videos\/logs\/test-log-id-video\/content\?token=/,
+			);
+		});
+	});
+
+	describe("unique models route", () => {
+		test("should return providers from usedProvider and models from usedModel", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs/unique-models?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.models).toEqual(["gpt-4"]);
+			expect(json.providers).toEqual(["openai"]);
+		});
+
+		test("should scope unique models and providers to the selected project", async () => {
+			await db.insert(tables.log).values({
+				id: "test-log-id-3",
+				requestId: "test-log-id-3",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 150,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "openai/gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 1500,
+				content: "Test response content 3",
+				finishReason: "stop",
+				promptTokens: "15",
+				completionTokens: "25",
+				totalTokens: "40",
+				temperature: 0.6,
+				maxTokens: 150,
+				messages: JSON.stringify([{ role: "user", content: "Hello 3" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			});
+
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs/unique-models?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.models).toEqual(["gpt-4", "gpt-4o-mini"]);
+			expect(json.providers).toEqual(["openai"]);
 		});
 	});
 

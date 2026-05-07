@@ -1,52 +1,26 @@
 ---
-title: Overview
-description: Introduction to LLM Gateway, an open-source API gateway for LLMs.
-icon: Notebook
+title: Introduction
+description: LLM Gateway is an open-source API gateway for Large Language Models. Route requests to multiple providers, manage API keys, track usage, and optimize costs.
+icon: BookOpen
 ---
 
-# LLM Gateway
+import { FeatureCards } from "@/components/feature-cards";
+import { AIToolingCards } from "@/components/ai-tooling-cards";
 
-LLM Gateway is an open-source API gateway for Large Language Models (LLMs). It acts as a middleware between your applications and various LLM providers, allowing you to:
+LLM Gateway is an open-source API gateway that sits between your applications and LLM providers like OpenAI, Anthropic, Google AI Studio, and more. It provides a unified, OpenAI-compatible API interface with built-in cost tracking, caching, and intelligent routing.
 
-- Route requests to multiple LLM providers (OpenAI, Anthropic, Google AI Studio, and others)
-- Manage API keys for different providers in one place
-- Track token usage and costs across all your LLM interactions
-- Analyze performance metrics to optimize your LLM usage
+## Features
 
-## Analyzing Your LLM Requests
+<FeatureCards />
 
-LLM Gateway provides detailed insights into your LLM usage:
+## AI Tooling
 
-- **Usage Metrics**: Track the number of requests, tokens used, and response times
-- **Cost Analysis**: Monitor spending across different models and providers
-- **Performance Tracking**: Identify patterns and optimize your prompts based on actual usage data
-- **Breakdown by Model**: Compare different models' performance and cost-effectiveness
+LLM Gateway is built to work seamlessly with AI agents and development tools.
 
-All this data is automatically collected and presented in an intuitive dashboard, helping you make informed decisions about your LLM strategy.
+<AIToolingCards />
 
-## Getting Started
+## Next Steps
 
-Using LLM Gateway is simple. Just swap out your current LLM provider URL with the LLM Gateway API endpoint:
-
-```bash
-curl -X POST https://api.llmgateway.io/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
-  -d '{
-  "model": "gpt-4o",
-  "messages": [
-    {"role": "user", "content": "Hello, how are you?"}
-  ]
-}'
-```
-
-LLM Gateway maintains compatibility with the OpenAI API format, making migration seamless.
-
-## Hosted vs. Self-Hosted
-
-You can use LLM Gateway in two ways:
-
-- **Hosted Version**: For immediate use without setup, visit [llmgateway.io](https://llmgateway.io) to create an account and get an API key.
-- **Self-Hosted**: Deploy LLM Gateway on your own infrastructure for complete control over your data and configuration.
-
-The self-hosted version offers additional customization options and ensures your LLM traffic never leaves your infrastructure if desired.
+- [**Quickstart**](/quick-start) — Get up and running in minutes
+- [**Overview**](/overview) — Learn more about what LLM Gateway offers
+- [**Self-Host**](/self-host) — Deploy on your own infrastructure

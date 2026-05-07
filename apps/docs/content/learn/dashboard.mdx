@@ -8,7 +8,10 @@ import { ThemedImage } from "@/components/themed-image";
 
 The Dashboard is the first page you see after logging in. It provides a high-level overview of your project's LLM usage, costs, and performance at a glance.
 
-<ThemedImage alt="Dashboard" basePath="/learn/dashboard" />
+<ThemedImage
+	alt="Dashboard overview showing stat cards and usage chart"
+	basePath="/learn/dashboard"
+/>
 
 ## Date Range
 
@@ -49,6 +52,11 @@ Below the stat cards, a chart visualizes your usage over time. You can toggle be
 
 The chart is filtered by the currently selected project.
 
+<ThemedImage
+	alt="Usage overview chart and quick actions panel"
+	basePath="/learn/dashboard-usage"
+/>
+
 ## Quick Actions
 
 A sidebar panel provides shortcuts to common tasks:
@@ -58,6 +66,26 @@ A sidebar panel provides shortcuts to common tasks:
 - **View Activity** — See detailed request logs
 - **Usage & Metrics** — Dive into usage analytics
 - **Model Usage** — View per-model usage breakdown
+
+## Cost Breakdown
+
+A donut chart showing how your costs are distributed across different models and providers. Each segment is color-coded and labeled with the model name and cost, making it easy to identify your biggest cost drivers.
+
+<ThemedImage
+	alt="Cost breakdown chart and errors reliability section"
+	basePath="/learn/dashboard-cost"
+/>
+
+## Errors & Reliability
+
+Displays two key reliability metrics:
+
+- **Error Rate** — Percentage of failed requests over the selected period
+- **Uptime** — Gateway availability percentage
+
+## Recent Activity
+
+A table showing your most recent API requests with key details like model, status, tokens, duration, and cost. Click any entry to view the full request detail.
 
 ## Header Actions
 

@@ -116,7 +116,7 @@ LLM Gateway uses root model IDs with smart routing—automatically selecting the
 | `gemini-2.5-flash`       | Fast responses, good for high-volume        |
 | `claude-haiku-4-5`       | Cost-effective, quick responses             |
 | `grok-3`                 | xAI flagship                                |
-| `deepseek-v3.1`          | Open-source with vision and tools           |
+| `deepseek-v3.1`          | Open-source with tool support               |
 
 For more details on routing behavior, see the [routing documentation](https://docs.llmgateway.io/features/routing).
 

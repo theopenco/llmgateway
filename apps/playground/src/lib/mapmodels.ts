@@ -17,6 +17,12 @@ export function mapModels(
 		const hasVision = rootProviders.some((p) => p.vision);
 		const hasTools = rootProviders.some((p) => p.tools);
 		const hasImageGen = m.output?.includes("image");
+		const supportsVideoAudio = rootProviders.some(
+			(p) => p.supportsVideoAudio !== false,
+		);
+		const supportsVideoWithoutAudio = rootProviders.some(
+			(p) => p.supportsVideoWithoutAudio === true,
+		);
 
 		entries.push({
 			id: m.id,
@@ -27,6 +33,8 @@ export function mapModels(
 			vision: hasVision,
 			tools: hasTools,
 			imageGen: hasImageGen,
+			supportsVideoAudio,
+			supportsVideoWithoutAudio,
 		});
 
 		for (const p of m.mappings) {
@@ -53,6 +61,8 @@ export function mapModels(
 				vision: p.vision ?? undefined,
 				tools: p.tools ?? undefined,
 				imageGen: m.output?.includes("image"),
+				supportsVideoAudio: p.supportsVideoAudio ?? undefined,
+				supportsVideoWithoutAudio: p.supportsVideoWithoutAudio ?? undefined,
 			});
 		}
 	}

@@ -5,7 +5,6 @@ import * as React from "react";
 
 // import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
-import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Command,
 	CommandEmpty,
@@ -22,6 +21,7 @@ import {
 	PopoverTrigger,
 } from "@/lib/components/popover";
 import { Separator } from "@/lib/components/separator";
+import { Switch } from "@/lib/components/switch";
 import { getProviderForModel } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,7 @@ interface ModelSelectorProps {
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
 	rootOnly?: boolean;
+	id?: string;
 }
 
 interface FilterState {
@@ -76,6 +77,7 @@ export function ModelSelector({
 	onValueChange,
 	placeholder = "Select model...",
 	rootOnly,
+	id,
 }: ModelSelectorProps) {
 	const [open, setOpen] = React.useState(false);
 	const [filterOpen, setFilterOpen] = React.useState(false);
@@ -87,17 +89,25 @@ export function ModelSelector({
 	});
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
 	const raw = value ?? "";
-	const [selectedProviderId, selectedModelId] = raw.includes("/")
+	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
+	const selectedModelId = selectedModelIdRaw.includes(":")
+		? selectedModelIdRaw.split(":")[0]
+		: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping = selectedModel?.providers.find(
-		(p) => p.providerId === selectedProviderId,
-	);
+	const selectedMapping =
+		selectedModel?.providers.find(
+			(p) =>
+				p.providerId === selectedProviderId &&
+				p.modelName === selectedModelIdRaw,
+		) ??
+		selectedModel?.providers.find((p) => p.providerId === selectedProviderId);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
 			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
@@ -178,6 +188,7 @@ export function ModelSelector({
 					model.family,
 					model.id,
 					provider?.name ?? "",
+					...(model.aliases ?? []),
 				];
 				return candidates.some((c) => normalize(c).includes(q));
 			});
@@ -252,6 +263,7 @@ export function ModelSelector({
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
 				<Button
+					id={id}
 					variant="outline"
 					role="combobox"
 					aria-expanded={open}
@@ -307,6 +319,12 @@ export function ModelSelector({
 												getProviderForModel(selectedModel, providers)
 											)?.name
 										}
+										{(() => {
+											const mapping = selectedModel.providers.find(
+												(p) => p.providerId === selectedProviderId,
+											);
+											return mapping?.region ? ` (${mapping.region})` : null;
+										})()}
 									</span>
 								)}
 							</div>
@@ -325,7 +343,7 @@ export function ModelSelector({
 				<div className="flex">
 					{/* Main content */}
 					<div className="flex-1">
-						<Command>
+						<Command shouldFilter={false}>
 							<div className="flex items-center border-b px-3 w-full">
 								<CommandInput
 									placeholder="Search models..."
@@ -377,7 +395,7 @@ export function ModelSelector({
 																key={`${provider.id}-${index}`}
 																className="flex items-center space-x-2"
 															>
-																<Checkbox
+																<Switch
 																	id={`provider-${provider.id}`}
 																	checked={filters.providers.includes(
 																		provider.id,
@@ -417,7 +435,7 @@ export function ModelSelector({
 															key={capability}
 															className="flex items-center space-x-2"
 														>
-															<Checkbox
+															<Switch
 																id={`capability-${capability}`}
 																checked={filters.capabilities.includes(
 																	capability,
@@ -459,7 +477,7 @@ export function ModelSelector({
 															key={option.value}
 															className="flex items-center space-x-2"
 														>
-															<Checkbox
+															<Switch
 																id={`price-${option.value}`}
 																checked={filters.priceRange === option.value}
 																onCheckedChange={() =>
@@ -514,7 +532,9 @@ export function ModelSelector({
 												key={entryKey}
 												value={entryKey}
 												onSelect={() => {
-													onValueChange?.(`${mapping.providerId}/${model.id}`);
+													onValueChange?.(
+														`${mapping.providerId}/${mapping.region ? mapping.modelName : model.id}`,
+													);
 													setOpen(false);
 												}}
 												className="p-3 cursor-pointer"
@@ -544,6 +564,11 @@ export function ModelSelector({
 															{!rootOnly && (
 																<span className="text-xs text-muted-foreground">
 																	{provider?.name}
+																	{mapping.region && (
+																		<span className="ml-1">
+																			({mapping.region})
+																		</span>
+																	)}
 																</span>
 															)}
 														</div>

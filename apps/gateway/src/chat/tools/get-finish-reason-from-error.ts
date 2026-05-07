@@ -34,11 +34,35 @@ export function getFinishReasonFromError(
 		return "content_filter";
 	}
 
+	// ByteDance / DeepSeek provider moderation block
+	if (errorText?.includes("SensitiveContentDetected")) {
+		return "content_filter";
+	}
+
+	// Alibaba / DashScope moderation block
+	if (
+		errorText?.includes("data_inspection_failed") ||
+		errorText?.includes("Input data may contain inappropriate content")
+	) {
+		return "content_filter";
+	}
+
 	// xAI (Grok) content safety violations (e.g. SAFETY_CHECK_TYPE_CSAM, usage guidelines)
 	if (
 		statusCode === 403 &&
 		errorText?.includes("Content violates usage guidelines")
 	) {
+		return "content_filter";
+	}
+
+	// Azure OpenAI prompt-side content filter (distinct from ResponsibleAIPolicyViolation,
+	// which fires on the response side and includes inner_error details)
+	if (errorText?.includes("Microsoft's content management policy")) {
+		return "content_filter";
+	}
+
+	// OpenAI safety system rejection (e.g. gpt-image-2 image generation)
+	if (errorText?.includes("Your request was rejected by the safety system")) {
 		return "content_filter";
 	}
 

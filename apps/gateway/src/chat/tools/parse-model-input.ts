@@ -11,6 +11,7 @@ export interface ParseModelInputResult {
 	requestedModel: Model;
 	requestedProvider: Provider | undefined;
 	customProviderName: string | undefined;
+	requestedRegion: string | undefined;
 }
 
 /**
@@ -19,6 +20,7 @@ export interface ParseModelInputResult {
  * Handles various input formats:
  * - "auto" or "custom" -> llmgateway provider
  * - "provider/model" -> specific provider and model
+ * - "provider/model:region" -> specific provider, model, and region
  * - "customProvider/model" -> custom provider with any model name
  * - "model-id" -> model ID lookup
  *
@@ -28,6 +30,7 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 	let requestedModel: Model = modelInput as Model;
 	let requestedProvider: Provider | undefined;
 	let customProviderName: string | undefined;
+	let requestedRegion: string | undefined;
 
 	// check if there is an exact model match
 	if (modelInput === "auto" || modelInput === "custom") {
@@ -48,15 +51,29 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 			requestedProvider = providerCandidate as Provider;
 		}
 		// Handle model names with multiple slashes (e.g. together.ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
-		const modelName = split.slice(1).join("/");
+		let modelName = split.slice(1).join("/");
+
+		// Parse optional region suffix (e.g. "qwen-plus:cn-beijing")
+		if (modelName.includes(":")) {
+			const colonIdx = modelName.lastIndexOf(":");
+			requestedRegion = modelName.slice(colonIdx + 1);
+			modelName = modelName.slice(0, colonIdx);
+		}
 
 		// For custom providers, we don't need to validate the model name
 		// since they can use any OpenAI-compatible model name
 		if (requestedProvider === "custom") {
 			requestedModel = modelName as Model;
 		} else {
-			// First try to find by base model name
-			let modelDef = models.find((m) => m.id === modelName);
+			// First try to find by base model name with matching provider
+			let modelDef = models.find(
+				(m) =>
+					m.id === modelName &&
+					m.providers.some((p) => p.providerId === requestedProvider),
+			);
+
+			// Fall back to matching by model name only
+			modelDef ??= models.find((m) => m.id === modelName);
 
 			modelDef ??= models.find((m) =>
 				m.providers.some(
@@ -124,5 +141,6 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 		requestedModel,
 		requestedProvider,
 		customProviderName,
+		requestedRegion,
 	};
 }

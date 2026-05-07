@@ -8,6 +8,19 @@ on:
     branches:
       - main
 jobs:
+  quality:
+    if: github.event_name == 'pull_request' && github.head_ref != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Ensure at most one new migration
+        run: bash scripts/check-new-migrations.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+
   lint:
     uses: ./.github/workflows/run.yml
     secrets: inherit

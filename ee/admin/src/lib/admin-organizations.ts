@@ -31,6 +31,12 @@ export async function loadProjectLogsAction(
 	orgId: string,
 	projectId: string,
 	cursor?: string,
+	filters?: {
+		provider?: string;
+		model?: string;
+		source?: string;
+		unifiedFinishReason?: string;
+	},
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
@@ -38,7 +44,7 @@ export async function loadProjectLogsAction(
 		{
 			params: {
 				path: { orgId, projectId },
-				query: { limit: 50, cursor },
+				query: { limit: 50, cursor, ...filters },
 			},
 		},
 	);
@@ -65,10 +71,33 @@ export async function giftCreditsToOrganization(
 	return { success: true };
 }
 
-export async function deleteUser(userId: string): Promise<boolean> {
+export async function setOrganizationStatus(
+	orgId: string,
+	status: "active" | "deleted",
+): Promise<{ success: boolean; error?: string }> {
 	const $api = await createServerApiClient();
-	const { data } = await $api.DELETE("/admin/users/{userId}", {
-		params: { path: { userId } },
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/status",
+		{
+			params: { path: { orgId } },
+			body: { status },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update organization status";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
+export async function getLogContent(logId: string): Promise<string | null> {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/logs/{id}", {
+		params: { path: { id: logId } },
 	});
-	return data?.success ?? false;
+	return data?.log?.content ?? null;
 }

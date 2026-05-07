@@ -1,5 +1,11 @@
 "use client";
-import { RefreshCcw, Copy, Brain, GlobeIcon } from "lucide-react";
+import {
+	RefreshCcw,
+	Copy,
+	Brain,
+	GlobeIcon,
+	AlertTriangle,
+} from "lucide-react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
 import { toast } from "sonner";
 
@@ -65,6 +71,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
@@ -126,6 +133,8 @@ interface ChatUIProps {
 	setImageSize: (value: string) => void;
 	alibabaImageSize: string;
 	setAlibabaImageSize: (value: string) => void;
+	imageQuality: string;
+	setImageQuality: (value: string) => void;
 	imageCount: 1 | 2 | 3 | 4;
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	supportsWebSearch: boolean;
@@ -142,6 +151,7 @@ interface ChatUIProps {
 	) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
+	finishReason?: string | null;
 	floatingInput?: boolean;
 }
 
@@ -222,6 +232,18 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 	};
 }
 
+function getFinishReasonLabel(reason: string): string {
+	switch (reason) {
+		case "length":
+			return "Response reached the maximum token limit";
+		case "content-filter":
+		case "content_filter":
+			return "Response was filtered by content policy";
+		default:
+			return `Generation stopped: ${reason}`;
+	}
+}
+
 // rerender-memo: Memoize message component to prevent re-renders when only streaming status changes
 const AssistantMessage = memo(
 	({
@@ -229,11 +251,13 @@ const AssistantMessage = memo(
 		isLastMessage,
 		status,
 		regenerate,
+		finishReason,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
 		regenerate: () => void;
+		finishReason?: string | null;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -309,6 +333,13 @@ const AssistantMessage = memo(
 						))}
 					</Sources>
 				) : null}
+
+				{isLastMessage && finishReason && (
+					<div className="mt-2 flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200">
+						<AlertTriangle className="size-3.5 shrink-0" />
+						<span>{getFinishReasonLabel(finishReason)}</span>
+					</div>
+				)}
 
 				{isLastMessage && (
 					<Actions className="mt-2">
@@ -410,6 +441,8 @@ export const ChatUI = ({
 	setImageSize,
 	alibabaImageSize,
 	setAlibabaImageSize,
+	imageQuality,
+	setImageQuality,
 	imageCount,
 	setImageCount,
 	supportsWebSearch,
@@ -418,10 +451,17 @@ export const ChatUI = ({
 	onUserMessage,
 	isLoading = false,
 	error = null,
+	finishReason = null,
 	floatingInput = false,
 }: ChatUIProps) => {
-	// Check if the model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
+	const isGptImage =
+		selectedModel.toLowerCase().includes("gpt-image") ||
+		selectedModel.toLowerCase().includes("openai/gpt-image");
+
+	// Check if the model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
 	const usesPixelDimensions =
+		isGptImage ||
 		selectedModel.toLowerCase().includes("alibaba") ||
 		selectedModel.toLowerCase().includes("qwen-image") ||
 		selectedModel.toLowerCase().includes("zai") ||
@@ -443,6 +483,8 @@ export const ChatUI = ({
 			? (["0.5K", "1K", "2K", "4K"] as const)
 			: (["1K", "2K", "4K"] as const);
 
+	const qualityOptions = ["auto", "low", "medium", "high"] as const;
+
 	const [activeGroup, setActiveGroup] =
 		useState<keyof typeof heroSuggestionGroups>("Create");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -463,6 +505,11 @@ export const ChatUI = ({
 		}
 		return () => observer.disconnect();
 	}, [updateInputHeight]);
+	// Centralized busy/active gates: isBusy blocks new submissions; isActive
+	// governs the Stop button which should only show while a request is in flight.
+	const isActive = status === "streaming" || status === "submitted";
+	const isBusy = isLoading || isActive;
+
 	const handlePromptSubmit = async (
 		textContent: string,
 		files?: Array<{
@@ -471,7 +518,7 @@ export const ChatUI = ({
 			filename?: string | null;
 		}>,
 	) => {
-		if (isLoading || status === "streaming") {
+		if (isBusy) {
 			return;
 		}
 
@@ -592,30 +639,41 @@ export const ChatUI = ({
 				)}
 			</div>
 		) : (
-			messages.map((m, messageIndex) => {
-				const isLastMessage = messageIndex === messages.length - 1;
+			<>
+				{messages.map((m, messageIndex) => {
+					const isLastMessage = messageIndex === messages.length - 1;
 
-				if (m.role === "assistant") {
-					return (
-						<AssistantMessage
-							key={m.id}
-							message={m}
-							isLastMessage={isLastMessage}
-							status={status}
-							regenerate={regenerate}
-						/>
-					);
-				} else {
-					return (
-						<UserMessage
-							key={m.id}
-							message={m}
-							isLastMessage={isLastMessage}
-							status={status}
-						/>
-					);
-				}
-			})
+					if (m.role === "assistant") {
+						return (
+							<AssistantMessage
+								key={m.id}
+								message={m}
+								isLastMessage={isLastMessage}
+								status={status}
+								regenerate={regenerate}
+								finishReason={isLastMessage ? finishReason : null}
+							/>
+						);
+					} else {
+						return (
+							<UserMessage
+								key={m.id}
+								message={m}
+								isLastMessage={isLastMessage}
+								status={status}
+							/>
+						);
+					}
+				})}
+				{messages.length > 0 &&
+					messages[messages.length - 1].role === "user" &&
+					error && (
+						<div className="message-item mt-2 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+							<AlertTriangle className="size-3.5 shrink-0" />
+							<span>{error}</span>
+						</div>
+					)}
+			</>
 		);
 
 	const inputArea = (
@@ -635,10 +693,11 @@ export const ChatUI = ({
 				}
 			>
 				<PromptInput
+					key={supportsImages ? "prompt-input-images" : "prompt-input-text"}
 					accept={supportsImages ? "image/*" : undefined}
 					multiple
-					globalDrop
-					aria-disabled={isLoading || status === "streaming"}
+					globalDrop={supportsImages}
+					aria-disabled={isBusy}
 					onSubmit={(message) => {
 						void handlePromptSubmit(message.text ?? "", message.files);
 					}}
@@ -656,12 +715,14 @@ export const ChatUI = ({
 					</PromptInputBody>
 					<PromptInputToolbar>
 						<PromptInputTools>
-							<PromptInputActionMenu>
-								<PromptInputActionMenuTrigger />
-								<PromptInputActionMenuContent>
-									<PromptInputActionAddAttachments />
-								</PromptInputActionMenuContent>
-							</PromptInputActionMenu>
+							{supportsImages && (
+								<PromptInputActionMenu>
+									<PromptInputActionMenuTrigger />
+									<PromptInputActionMenuContent>
+										<PromptInputActionAddAttachments />
+									</PromptInputActionMenuContent>
+								</PromptInputActionMenu>
+							)}
 							<PromptInputSpeechButton
 								onTranscriptionChange={setText}
 								textareaRef={textareaRef}
@@ -772,7 +833,38 @@ export const ChatUI = ({
 									</Select>
 								</>
 							)}
-							{supportsImageGen && usesPixelDimensions && (
+							{supportsImageGen && usesPixelDimensions && isGptImage && (
+								<>
+									<Select
+										value={alibabaImageSize}
+										onValueChange={setAlibabaImageSize}
+									>
+										<SelectTrigger size="sm" className="min-w-[130px]">
+											<SelectValue placeholder="Resolution" />
+										</SelectTrigger>
+										<SelectContent>
+											{GPT_IMAGE_SIZES.map((size) => (
+												<SelectItem key={size} value={size}>
+													{size === "auto" ? "Auto" : size}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<Select value={imageQuality} onValueChange={setImageQuality}>
+										<SelectTrigger size="sm" className="min-w-[100px]">
+											<SelectValue placeholder="Quality" />
+										</SelectTrigger>
+										<SelectContent>
+											{qualityOptions.map((q) => (
+												<SelectItem key={q} value={q}>
+													{q.charAt(0).toUpperCase() + q.slice(1)}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</>
+							)}
+							{supportsImageGen && usesPixelDimensions && !isGptImage && (
 								<Select
 									value={alibabaImageSize}
 									onValueChange={setAlibabaImageSize}
@@ -809,14 +901,20 @@ export const ChatUI = ({
 									</SelectContent>
 								</Select>
 							)}
-							{status === "streaming" ? (
+							{isActive ? (
 								<PromptInputButton onClick={() => stop()} variant="ghost">
 									Stop
 								</PromptInputButton>
 							) : null}
 							<PromptInputSubmit
-								status={status === "streaming" ? "streaming" : "ready"}
-								disabled={isLoading}
+								status={
+									status === "streaming"
+										? "streaming"
+										: status === "submitted"
+											? "submitted"
+											: "ready"
+								}
+								disabled={isBusy}
 							/>
 						</div>
 					</PromptInputToolbar>

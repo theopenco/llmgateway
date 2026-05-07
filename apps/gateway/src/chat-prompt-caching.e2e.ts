@@ -10,6 +10,7 @@ import {
 	getTestOptions,
 	hasOnlyModels,
 	logMode,
+	matchesTestModel,
 	specifiedModels,
 	validateLogByRequestId,
 	validateResponse,
@@ -51,10 +52,9 @@ const promptCachingModels = filteredModels
 				continue;
 			}
 
-			// Filter by TEST_MODELS if specified
+			// Filter by TEST_MODELS if specified (supports region: "alibaba/model:cn-beijing")
 			if (specifiedModels) {
-				const providerModelId = `${provider.providerId}/${model.id}`;
-				if (!specifiedModels.includes(providerModelId)) {
+				if (!matchesTestModel(provider.providerId, model.id, provider.region)) {
 					continue;
 				}
 				// TEST_MODELS takes precedence over test: "skip", so don't skip if model is in TEST_MODELS
@@ -71,7 +71,7 @@ const promptCachingModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${model.id}`,
+				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
 				provider,
 				originalModel: model.id,
 				minCacheableTokens: provider.minCacheableTokens ?? 1024,
@@ -167,32 +167,59 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 					});
 				}
 
-				// Second request - should read from cache
-				const secondRequestId = generateTestRequestId();
-				const secondRes = await app.request("/v1/chat/completions", {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						"x-request-id": secondRequestId,
-						Authorization: `Bearer real-token`,
-					},
-					body: JSON.stringify({
-						model: model,
-						messages: [
-							{
-								role: "system",
-								content: longSystemPrompt,
-							},
-							{
-								role: "user",
-								content:
-									"Just reply with 'OK' to confirm you received the context.",
-							},
-						],
-					}),
-				});
+				// Second request - should read from cache.
+				// Anthropic prompt cache writes are eventually consistent, so a
+				// back-to-back request can occasionally miss. Retry with backoff
+				// until we observe a cache read or run out of attempts.
+				const sendCacheRequest = async () => {
+					const secondRequestId = generateTestRequestId();
+					const res = await app.request("/v1/chat/completions", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"x-request-id": secondRequestId,
+							Authorization: `Bearer real-token`,
+						},
+						body: JSON.stringify({
+							model: model,
+							messages: [
+								{
+									role: "system",
+									content: longSystemPrompt,
+								},
+								{
+									role: "user",
+									content:
+										"Just reply with 'OK' to confirm you received the context.",
+								},
+							],
+						}),
+					});
+					const json = await res.json();
+					return { res, json, secondRequestId };
+				};
 
-				const secondJson = await secondRes.json();
+				let attempt = 0;
+				const maxAttempts = 4;
+				let secondRes: Response;
+				let secondJson: any;
+				let secondRequestId: string;
+				do {
+					attempt++;
+					({
+						res: secondRes,
+						json: secondJson,
+						secondRequestId,
+					} = await sendCacheRequest());
+					const cached =
+						secondJson?.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+					if (secondRes.status !== 200 || cached > 0) {
+						break;
+					}
+					if (attempt < maxAttempts) {
+						await new Promise((r) => setTimeout(r, 750 * attempt));
+					}
+				} while (attempt < maxAttempts);
 				if (logMode) {
 					console.log("Second response:", JSON.stringify(secondJson, null, 2));
 				}

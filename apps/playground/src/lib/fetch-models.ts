@@ -19,10 +19,16 @@ export interface ApiModelProviderMapping {
 	modelId: string;
 	providerId: string;
 	modelName: string;
+	region?: string | null;
 	inputPrice: string | null;
 	outputPrice: string | null;
 	cachedInputPrice: string | null;
+	cacheWriteInputPrice: string | null;
+	cacheWriteInputPrice1h: string | null;
 	imageInputPrice: string | null;
+	imageOutputPrice: string | null;
+	imageInputTokensByResolution: Record<string, number> | null;
+	imageOutputTokensByResolution: Record<string, number> | null;
 	requestPrice: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
@@ -37,6 +43,11 @@ export interface ApiModelProviderMapping {
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;
+	supportedVideoSizes: string[] | null;
+	supportedVideoDurationsSeconds: number[] | null;
+	supportsVideoAudio: boolean | null;
+	supportsVideoWithoutAudio: boolean | null;
+	perSecondPrice: Record<string, string> | null;
 	deprecatedAt: string | null;
 	deactivatedAt: string | null;
 	status: "active" | "inactive";

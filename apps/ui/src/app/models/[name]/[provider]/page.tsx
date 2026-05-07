@@ -1,7 +1,6 @@
 import {
 	AlertTriangle,
 	ArrowLeft,
-	Play,
 	Zap,
 	Eye,
 	Wrench,
@@ -14,22 +13,23 @@ import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
+import { adaptModel } from "@/components/models/adapt-model";
 import { CopyModelName } from "@/components/models/copy-model-name";
+import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import {
 	GlobalDiscountBanner,
 	type DiscountData,
 } from "@/components/models/global-discount-banner";
-import { ModelProviderCard } from "@/components/models/model-provider-card";
+import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import { Button } from "@/lib/components/button";
-import { getConfig } from "@/lib/config-server";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	expandAllProviderRegions,
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
@@ -41,7 +41,6 @@ interface PageProps {
 }
 
 export default async function ModelProviderPage({ params }: PageProps) {
-	const config = getConfig();
 	const { name, provider } = await params;
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
@@ -54,13 +53,17 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		notFound();
 	}
 
-	const staticProviderMapping = modelDef.providers.find(
+	// Get ALL mappings for this provider (including regional variants)
+	const expandedProviders = expandAllProviderRegions(modelDef.providers);
+	const providerMappings = expandedProviders.filter(
 		(p) => p.providerId === decodedProvider,
 	);
 
-	if (!staticProviderMapping) {
+	if (providerMappings.length === 0) {
 		notFound();
 	}
+
+	const staticProviderMapping = providerMappings[0];
 
 	const providerInfo = providerDefinitions.find(
 		(p) => p.id === decodedProvider,
@@ -303,16 +306,12 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								]}
 							/>
 
-							<a
-								href={`${config.playgroundUrl}?model=${encodeURIComponent(`${decodedProvider}/${modelDef.id}`)}`}
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								<Button variant="outline" size="sm" className="gap-2">
-									<Play className="h-3 w-3" />
-									Try in Playground
-								</Button>
-							</a>
+							<ModelCtaButton
+								modelId={decodedName}
+								size="sm"
+								className="gap-2"
+								iconClassName="h-3 w-3"
+							/>
 						</div>
 
 						{/* Capabilities */}
@@ -365,8 +364,8 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										color: "text-cyan-500",
 									});
 								}
-								const hasImageGen = Array.isArray((modelDef as any)?.output)
-									? ((modelDef as any).output as string[]).includes("image")
+								const hasImageGen = Array.isArray(modelDef.output)
+									? modelDef.output.includes("image")
 									: false;
 								if (hasImageGen) {
 									items.push({
@@ -420,17 +419,16 @@ export default async function ModelProviderPage({ params }: PageProps) {
 							</div>
 						</div>
 
-						<div className="max-w-md">
-							<ModelProviderCard
-								provider={{
-									...providerMapping,
+						<DetailProviderCards
+							model={adaptModel(
+								modelDef,
+								providerMappings.map((p) => ({
+									...p,
 									providerInfo,
-								}}
-								modelName={decodedName}
-								modelStability={modelDef.stability}
-								modelOutput={modelDef.output}
-							/>
-						</div>
+									discount: globalDiscount ?? p.discount,
+								})),
+							)}
+						/>
 					</div>
 				</div>
 			</div>

@@ -172,7 +172,7 @@ export default async function ChatPage({
 				/>
 			) : null}
 			<ChatPageClient
-				models={models}
+				models={models.filter((m) => !m.output?.includes("video"))}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

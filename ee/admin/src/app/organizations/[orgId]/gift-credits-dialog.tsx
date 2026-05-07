@@ -28,7 +28,7 @@ interface GiftCreditsDialogProps {
 }
 
 export function GiftCreditsDialog({
-	orgId,
+	orgId: _orgId,
 	orgName,
 	onGift,
 }: GiftCreditsDialogProps) {

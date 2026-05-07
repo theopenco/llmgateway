@@ -1,9 +1,14 @@
 import type { Provider } from "@llmgateway/models";
 
 /**
- * Extracts tool calls from streaming data based on provider format
+ * Extracts tool calls from streaming data based on provider format.
+ * For openai/azure, pass transformedData to handle Responses API format.
  */
-export function extractToolCalls(data: any, provider: Provider): any[] | null {
+export function extractToolCalls(
+	data: any,
+	provider: Provider,
+	transformedData?: any,
+): any[] | null {
 	switch (provider) {
 		case "anthropic":
 			// Anthropic streaming tool calls come as content_block_start with tool_use type
@@ -39,8 +44,9 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 			}
 			return null;
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
-		case "obsidian": {
+		case "quartz": {
 			// Google AI Studio tool calls in streaming
 			// Include thoughtSignature if present (required for Gemini 3 multi-turn conversations)
 			// Note: Redis caching of thought_signature happens in transform-streaming-to-openai.ts
@@ -103,7 +109,10 @@ export function extractToolCalls(data: any, provider: Provider): any[] | null {
 			}
 			return null;
 		}
-		default: // OpenAI format
+		case "openai":
+		case "azure":
+			return (transformedData ?? data).choices?.[0]?.delta?.tool_calls ?? null;
+		default: // OpenAI-compatible format
 			return data.choices?.[0]?.delta?.tool_calls ?? null;
 	}
 }

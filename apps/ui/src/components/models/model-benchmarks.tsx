@@ -1,0 +1,347 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import {
+	Activity,
+	AlertTriangle,
+	CheckCircle2,
+	Code,
+	ExternalLink,
+	MessageSquare,
+	Server,
+	ShieldCheck,
+	Trophy,
+	Zap,
+} from "lucide-react";
+
+import { Badge } from "@/lib/components/badge";
+import { useAppConfig } from "@/lib/config";
+import { cn } from "@/lib/utils";
+
+import { getProviderIcon } from "@llmgateway/shared/components";
+
+interface ProviderBenchmark {
+	providerId: string;
+	providerName: string;
+	logsCount: number;
+	errorsCount: number;
+	cachedCount: number;
+	avgTimeToFirstToken: number | null;
+	tokensPerSecond: number | null;
+	errorRate: number;
+	uptime: number | null;
+	windowHours: number;
+}
+
+interface ArenaScore {
+	rank: number;
+	score: number;
+	matchedName: string;
+}
+
+interface ArenaBenchmark {
+	text: ArenaScore | null;
+	code: ArenaScore | null;
+	source: string;
+	fetchedAt: string;
+}
+
+interface BenchmarkData {
+	modelId: string;
+	providers: ProviderBenchmark[];
+	arena: ArenaBenchmark;
+}
+
+export function ModelBenchmarks({ modelId }: { modelId: string }) {
+	const config = useAppConfig();
+
+	const { data, isLoading } = useQuery<BenchmarkData>({
+		queryKey: ["model-benchmarks", modelId],
+		queryFn: async () => {
+			const response = await fetch(
+				`${config.apiUrl}/internal/models/${encodeURIComponent(modelId)}/benchmarks`,
+			);
+			if (!response.ok) {
+				throw new Error("Failed to fetch benchmarks");
+			}
+			return await response.json();
+		},
+		staleTime: 5 * 60 * 1000,
+	});
+
+	const providers = data?.providers ?? [];
+	const arena = data?.arena;
+	const hasProviderData = providers.some((p) => p.logsCount > 0);
+	const hasArenaData = arena?.text !== null || arena?.code !== null;
+
+	if (isLoading) {
+		return (
+			<div className="rounded-lg border border-border p-6">
+				<div className="h-6 w-48 animate-pulse rounded bg-muted mb-4" />
+				<div className="space-y-3">
+					{[1, 2, 3].map((i) => (
+						<div key={i} className="h-16 animate-pulse rounded bg-muted" />
+					))}
+				</div>
+			</div>
+		);
+	}
+
+	if (!hasProviderData && !hasArenaData) {
+		return null;
+	}
+
+	const sorted = [...providers]
+		.filter((p) => p.logsCount > 0)
+		.sort((a, b) => {
+			if (a.uptime === null && b.uptime === null) {
+				return b.logsCount - a.logsCount;
+			}
+			if (a.uptime === null) {
+				return 1;
+			}
+			if (b.uptime === null) {
+				return -1;
+			}
+			if (b.uptime !== a.uptime) {
+				return b.uptime - a.uptime;
+			}
+			return b.logsCount - a.logsCount;
+		});
+
+	// Pick the most stable provider: highest uptime among those with meaningful
+	// traffic. Require at least 20 requests to avoid awarding a provider that
+	// only handled a handful of calls.
+	const stabilityCandidates = sorted.filter(
+		(p) => p.uptime !== null && p.logsCount >= 20,
+	);
+	const mostStableProviderId =
+		stabilityCandidates.length > 1 ? stabilityCandidates[0].providerId : null;
+
+	return (
+		<div className="space-y-8">
+			{/* Arena Benchmarks */}
+			{hasArenaData && (
+				<div>
+					<div className="flex items-center gap-2 mb-4">
+						<Trophy className="h-5 w-5 text-muted-foreground" />
+						<h2 className="text-xl md:text-2xl font-semibold">
+							Quality Benchmarks
+						</h2>
+					</div>
+					<p className="text-sm text-muted-foreground mb-4">
+						Crowdsourced quality ratings from{" "}
+						<a
+							href={arena?.source ?? "https://arena.ai/leaderboard"}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="underline hover:text-foreground inline-flex items-center gap-1"
+						>
+							Chatbot Arena
+							<ExternalLink className="h-3 w-3" />
+						</a>
+						. Higher ELO score = better quality. Updated{" "}
+						{arena?.fetchedAt ?? "recently"}.
+					</p>
+
+					<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						{arena?.text && (
+							<div className="rounded-lg border border-border p-4">
+								<div className="flex items-center gap-2 mb-3">
+									<MessageSquare className="h-4 w-4 text-blue-500" />
+									<span className="text-sm font-medium">Overall (Text)</span>
+								</div>
+								<div className="flex items-baseline gap-3">
+									<span className="text-3xl font-bold tabular-nums">
+										{arena.text.score}
+									</span>
+									<span className="text-sm text-muted-foreground">ELO</span>
+								</div>
+								<div className="mt-2 flex items-center gap-2">
+									<Badge
+										variant="outline"
+										className={cn(
+											"text-xs",
+											arena.text.rank <= 10
+												? "text-amber-600 border-amber-500/50"
+												: arena.text.rank <= 30
+													? "text-blue-600 border-blue-500/50"
+													: "",
+										)}
+									>
+										#{arena.text.rank}
+									</Badge>
+									<span className="text-xs text-muted-foreground truncate">
+										{arena.text.matchedName}
+									</span>
+								</div>
+							</div>
+						)}
+						{arena?.code && (
+							<div className="rounded-lg border border-border p-4">
+								<div className="flex items-center gap-2 mb-3">
+									<Code className="h-4 w-4 text-purple-500" />
+									<span className="text-sm font-medium">Coding</span>
+								</div>
+								<div className="flex items-baseline gap-3">
+									<span className="text-3xl font-bold tabular-nums">
+										{arena.code.score}
+									</span>
+									<span className="text-sm text-muted-foreground">ELO</span>
+								</div>
+								<div className="mt-2 flex items-center gap-2">
+									<Badge
+										variant="outline"
+										className={cn(
+											"text-xs",
+											arena.code.rank <= 10
+												? "text-amber-600 border-amber-500/50"
+												: arena.code.rank <= 30
+													? "text-blue-600 border-blue-500/50"
+													: "",
+										)}
+									>
+										#{arena.code.rank}
+									</Badge>
+									<span className="text-xs text-muted-foreground truncate">
+										{arena.code.matchedName}
+									</span>
+								</div>
+							</div>
+						)}
+					</div>
+				</div>
+			)}
+
+			{/* Provider Performance Benchmarks */}
+			{sorted.length > 0 && (
+				<div>
+					<div className="flex items-center gap-2 mb-4">
+						<Activity className="h-5 w-5 text-muted-foreground" />
+						<h2 className="text-xl md:text-2xl font-semibold">
+							Provider Performance
+						</h2>
+					</div>
+					<p className="text-sm text-muted-foreground mb-4">
+						Real performance data from LLM Gateway over the last{" "}
+						{sorted[0]?.windowHours ?? 24} hours. Higher uptime and throughput
+						are better.
+					</p>
+
+					<div className="grid gap-3">
+						{sorted.map((provider) => {
+							const ProviderIcon = getProviderIcon(provider.providerId);
+							const isMostStable = provider.providerId === mostStableProviderId;
+
+							return (
+								<div
+									key={provider.providerId}
+									className={cn(
+										"rounded-lg border p-4 transition-colors",
+										isMostStable
+											? "border-green-500/50 bg-green-50/50 dark:bg-green-950/20"
+											: "border-border",
+									)}
+								>
+									<div className="flex items-center justify-between gap-4 flex-wrap">
+										<div className="flex items-center gap-3 min-w-0">
+											{ProviderIcon ? (
+												<ProviderIcon className="h-5 w-5 shrink-0" />
+											) : (
+												<Server className="h-5 w-5 shrink-0 text-muted-foreground" />
+											)}
+											<div className="min-w-0">
+												<div className="flex items-center gap-2">
+													<span className="font-medium truncate">
+														{provider.providerName}
+													</span>
+													{isMostStable && (
+														<Badge
+															variant="outline"
+															className="text-green-600 border-green-500/50 text-xs gap-1"
+														>
+															<ShieldCheck className="h-3 w-3" />
+															Most stable
+														</Badge>
+													)}
+												</div>
+												<span className="text-xs text-muted-foreground">
+													{provider.logsCount.toLocaleString()} requests
+												</span>
+											</div>
+										</div>
+
+										<div className="flex items-center gap-6 text-sm">
+											<div className="text-center">
+												<div className="flex items-center gap-1 text-muted-foreground mb-0.5">
+													<Zap className="h-3 w-3" />
+													<span className="text-xs">Throughput</span>
+												</div>
+												<span
+													className={cn(
+														"font-mono font-medium",
+														provider.tokensPerSecond === null
+															? "text-muted-foreground"
+															: "",
+													)}
+													title="Output tokens per second across all requests in the window"
+												>
+													{provider.tokensPerSecond !== null
+														? `${provider.tokensPerSecond.toLocaleString()} tok/s`
+														: "\u2014"}
+												</span>
+											</div>
+
+											<div className="text-center">
+												<div className="flex items-center gap-1 text-muted-foreground mb-0.5">
+													<CheckCircle2 className="h-3 w-3" />
+													<span className="text-xs">Uptime</span>
+												</div>
+												<span
+													className={cn(
+														"font-mono font-medium",
+														provider.uptime === null
+															? "text-muted-foreground"
+															: provider.uptime >= 99
+																? "text-green-600"
+																: provider.uptime >= 95
+																	? "text-amber-500"
+																	: "text-red-500",
+													)}
+													title={`Uptime over last ${provider.windowHours}h`}
+												>
+													{provider.uptime !== null
+														? `${provider.uptime.toFixed(2)}%`
+														: "\u2014"}
+												</span>
+											</div>
+
+											<div className="text-center hidden sm:block">
+												<div className="flex items-center gap-1 text-muted-foreground mb-0.5">
+													<AlertTriangle className="h-3 w-3" />
+													<span className="text-xs">Errors</span>
+												</div>
+												<span
+													className={cn(
+														"font-mono font-medium",
+														provider.errorRate > 5
+															? "text-red-500"
+															: provider.errorRate > 1
+																? "text-amber-500"
+																: "text-green-600",
+													)}
+												>
+													{provider.errorRate}%
+												</span>
+											</div>
+										</div>
+									</div>
+								</div>
+							);
+						})}
+					</div>
+				</div>
+			)}
+		</div>
+	);
+}

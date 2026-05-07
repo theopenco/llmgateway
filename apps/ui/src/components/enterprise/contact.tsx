@@ -2,15 +2,12 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import {
-	sendContactEmail,
-	type ContactFormData,
-} from "@/app/actions/send-contact-email";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -29,6 +26,7 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { Textarea } from "@/lib/components/textarea";
+import { useAppConfig } from "@/lib/config";
 import { countries } from "@/lib/countries";
 
 const contactFormSchema = z.object({
@@ -41,7 +39,11 @@ const contactFormSchema = z.object({
 	timestamp: z.number().optional(),
 });
 
+type ContactFormData = z.infer<typeof contactFormSchema>;
+
 export function ContactFormEnterprise() {
+	const config = useAppConfig();
+	const posthog = usePostHog();
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
 	const [formLoadTime] = useState(() => Date.now());
@@ -65,11 +67,32 @@ export function ContactFormEnterprise() {
 	}, [form, formLoadTime]);
 
 	const onSubmit = async (data: ContactFormData) => {
+		posthog.capture("enterprise_contact_submitted", {
+			country: data.country,
+			companySize: data.size,
+		});
 		setIsSubmitting(true);
 		try {
-			const result = await sendContactEmail(data);
+			const response = await fetch(
+				`${config.apiUrl}/public/contact/enterprise`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(data),
+				},
+			);
+			const result = (await response.json()) as {
+				success: boolean;
+				message?: string;
+			};
 
-			if (result.success) {
+			if (response.ok && result.success) {
+				posthog.capture("enterprise_contact_success", {
+					country: data.country,
+					companySize: data.size,
+				});
 				setIsSuccess(true);
 				form.reset();
 				toast.success("Message sent successfully!", {

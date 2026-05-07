@@ -1,8 +1,14 @@
 "use client";
 
-import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import {
+	addDays,
+	addHours,
+	differenceInCalendarDays,
+	format,
+	parseISO,
+} from "date-fns";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
 	Bar,
 	BarChart,
@@ -31,6 +37,7 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
+import type { TimeRangeValue } from "@/components/time-range-picker";
 import type { ActivitT, ActivityModelUsage } from "@/types/activity";
 import type { TooltipProps } from "recharts";
 
@@ -74,6 +81,27 @@ function getModelColor(model: string, index: number): string {
 	return colors[index % colors.length];
 }
 
+function isHourlyRange(
+	timeRange: TimeRangeValue | undefined,
+): timeRange is "1h" | "4h" | "24h" {
+	return timeRange === "1h" || timeRange === "4h" || timeRange === "24h";
+}
+
+function getTimeRangeHours(timeRange: TimeRangeValue): number {
+	switch (timeRange) {
+		case "1h":
+			return 1;
+		case "4h":
+			return 4;
+		case "24h":
+			return 24;
+		case "7d":
+			return 7 * 24;
+		case "30d":
+			return 30 * 24;
+	}
+}
+
 interface TooltipPayload {
 	dataKey: string;
 	name: string;
@@ -92,6 +120,7 @@ interface CustomTooltipProps extends TooltipProps<number, string> {
 	payload?: TooltipPayload[];
 	label?: string;
 	breakdownField?: "requests" | "cost" | "tokens";
+	hourly?: boolean;
 }
 
 const CustomTooltip = ({
@@ -99,13 +128,18 @@ const CustomTooltip = ({
 	payload,
 	label,
 	breakdownField = "requests",
+	hourly = false,
 }: CustomTooltipProps) => {
 	if (active && payload && payload.length) {
 		const data = payload[0].payload;
 		return (
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
 				<p className="font-medium">
-					{label && format(parseISO(label), "MMM d, yyyy")}
+					{label &&
+						format(
+							parseISO(label),
+							hourly ? "MMM d, yyyy HH:mm" : "MMM d, yyyy",
+						)}
 				</p>
 				<p className="text-sm">
 					<span className="font-medium">{data.requestCount}</span> requests
@@ -152,7 +186,9 @@ const CustomTooltip = ({
 								<p key={`${entry.dataKey}-${index}`} className="text-xs">
 									<span
 										className="inline-block w-3 h-3 mr-1"
-										style={{ backgroundColor: entry.color }}
+										style={{
+											backgroundColor: entry.color,
+										}}
 									/>
 									{entry.name}:{" "}
 									{breakdownField === "cost"
@@ -179,9 +215,14 @@ const CustomTooltip = ({
 interface ActivityChartProps {
 	initialData?: ActivitT;
 	apiKeyId?: string;
+	timeRange?: TimeRangeValue;
 }
 
-export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
+export function ActivityChart({
+	initialData,
+	apiKeyId,
+	timeRange,
+}: ActivityChartProps) {
 	const searchParams = useSearchParams();
 	const [breakdownField, setBreakdownField] = useState<
 		"requests" | "cost" | "tokens"
@@ -190,29 +231,55 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 	const { selectedProject } = useDashboardNavigation();
 	const api = useApi();
 
-	const { from, to } = getDateRangeFromParams(searchParams);
-	const fromStr = format(from, "yyyy-MM-dd");
-	const toStr = format(to, "yyyy-MM-dd");
-	const totalDays = differenceInCalendarDays(to, from) + 1;
+	const hourly = isHourlyRange(timeRange);
+
+	// Build query params based on whether we're using timeRange or date range
+	const queryParams = useMemo(() => {
+		if (timeRange) {
+			return {
+				timeRange,
+				...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+				...(apiKeyId ? { apiKeyId } : {}),
+			};
+		}
+		const { from, to } = getDateRangeFromParams(searchParams);
+		return {
+			from: format(from, "yyyy-MM-dd"),
+			to: format(to, "yyyy-MM-dd"),
+			...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+			...(apiKeyId ? { apiKeyId } : {}),
+		};
+	}, [timeRange, searchParams, selectedProject?.id, apiKeyId]);
 
 	const { data, isLoading, error } = api.useQuery(
 		"get",
 		"/activity",
 		{
 			params: {
-				query: {
-					from: fromStr,
-					to: toStr,
-					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
-					...(apiKeyId ? { apiKeyId } : {}),
-				},
+				query: queryParams,
 			},
 		},
 		{
 			enabled: !!selectedProject?.id,
-			initialData: initialData,
+			initialData: timeRange ? undefined : initialData,
 		},
 	);
+
+	const periodLabel = useMemo(() => {
+		if (timeRange) {
+			const hours = getTimeRangeHours(timeRange);
+			if (hours < 24) {
+				return `last ${hours} hour${hours > 1 ? "s" : ""}`;
+			}
+			if (hours === 24) {
+				return "last 24 hours";
+			}
+			return `last ${hours / 24} days`;
+		}
+		const { from, to } = getDateRangeFromParams(searchParams);
+		const days = differenceInCalendarDays(to, from) + 1;
+		return `${days} days`;
+	}, [timeRange, searchParams]);
 
 	if (!selectedProject) {
 		return (
@@ -238,7 +305,7 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 				<CardHeader>
 					<CardTitle>Model Usage Overview</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {totalDays} days
+						Stacked model {breakdownField} over {periodLabel}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -256,7 +323,7 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 				<CardHeader>
 					<CardTitle>Model Usage Overview</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {totalDays} days
+						Stacked model {breakdownField} over {periodLabel}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -274,7 +341,7 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 				<CardHeader>
 					<CardTitle>Model Usage Overview</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {totalDays} days
+						Stacked model {breakdownField} over {periodLabel}
 						{selectedProject && (
 							<span className="block mt-1 text-sm">
 								Project: {selectedProject.name}
@@ -291,20 +358,46 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 		);
 	}
 
-	const dateRange: string[] = [];
-
-	for (let i = 0; i < totalDays; i++) {
-		const date = addDays(from, i);
-		dateRange.push(format(date, "yyyy-MM-dd"));
+	// Generate the expected time slots (hourly or daily)
+	const slots: string[] = [];
+	if (hourly && timeRange) {
+		const totalHours = getTimeRangeHours(timeRange);
+		const now = new Date();
+		// Truncate to the current hour
+		const endHour = new Date(
+			now.getFullYear(),
+			now.getMonth(),
+			now.getDate(),
+			now.getHours(),
+		);
+		const startHour = addHours(endHour, -totalHours);
+		for (let i = 0; i < totalHours; i++) {
+			const hour = addHours(startHour, i);
+			slots.push(format(hour, "yyyy-MM-dd'T'HH:mm:ss"));
+		}
+	} else if (timeRange) {
+		const totalDays = getTimeRangeHours(timeRange) / 24;
+		const now = new Date();
+		for (let i = totalDays - 1; i >= 0; i--) {
+			const d = addDays(now, -i);
+			slots.push(format(d, "yyyy-MM-dd"));
+		}
+	} else {
+		const { from, to } = getDateRangeFromParams(searchParams);
+		const totalDays = differenceInCalendarDays(to, from) + 1;
+		for (let i = 0; i < totalDays; i++) {
+			const date = addDays(from, i);
+			slots.push(format(date, "yyyy-MM-dd"));
+		}
 	}
 
-	// Create a map of existing data by date
+	// Create a map of existing data by date/timestamp
 	const dataByDate = new Map(data.activity.map((item) => [item.date, item]));
 
-	// Fill in the chart data with all dates, using zero values for missing dates
-	const chartData = dateRange.map((date) => {
-		if (dataByDate.has(date)) {
-			const dayData = dataByDate.get(date)!;
+	// Fill in the chart data with all slots, using zero values for missing ones
+	const chartData = slots.map((slot) => {
+		if (dataByDate.has(slot)) {
+			const dayData = dataByDate.get(slot)!;
 
 			// Process model breakdown data for stacked bars
 			const result: Record<
@@ -319,7 +412,9 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 				  }[]
 			> = {
 				...dayData,
-				formattedDate: format(parseISO(date), "MMM d"),
+				formattedDate: hourly
+					? format(parseISO(slot), "HH:mm")
+					: format(parseISO(slot), "MMM d"),
 			};
 
 			// Add each model's selected metric as a separate property for stacking
@@ -341,8 +436,10 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 			return result;
 		}
 		return {
-			date,
-			formattedDate: format(parseISO(date), "MMM d"),
+			date: slot,
+			formattedDate: hourly
+				? format(parseISO(slot), "HH:mm")
+				: format(parseISO(slot), "MMM d"),
 			requestCount: 0,
 			inputTokens: 0,
 			outputTokens: 0,
@@ -361,7 +458,7 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 				<div>
 					<CardTitle>Model Usage Overview</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {totalDays} days
+						Stacked model {breakdownField} over {periodLabel}
 						{selectedProject && (
 							<span className="block mt-1 text-sm">
 								Project: {selectedProject.name}
@@ -423,9 +520,15 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 						<CartesianGrid strokeDasharray="3 3" vertical={false} />
 						<XAxis
 							dataKey="date"
-							tickFormatter={(value: string) =>
-								format(parseISO(value), "MMM d")
-							}
+							tickFormatter={(value: string) => {
+								try {
+									return hourly
+										? format(parseISO(value), "HH:mm")
+										: format(parseISO(value), "MMM d");
+								} catch {
+									return value;
+								}
+							}}
 							stroke="#888888"
 							fontSize={12}
 							tickLine={false}
@@ -444,7 +547,12 @@ export function ActivityChart({ initialData, apiKeyId }: ActivityChartProps) {
 							}}
 						/>
 						<Tooltip
-							content={<CustomTooltip breakdownField={breakdownField} />}
+							content={
+								<CustomTooltip
+									breakdownField={breakdownField}
+									hourly={hourly}
+								/>
+							}
 							cursor={{
 								fill: "color-mix(in srgb, currentColor 15%, transparent)",
 							}}

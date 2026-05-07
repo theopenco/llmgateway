@@ -5,7 +5,19 @@ import { z } from "zod";
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { and, db, desc, eq, gte, isNull, or, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	desc,
+	eq,
+	gte,
+	isNull,
+	or,
+	sql,
+	tables,
+	projectHourlyStats,
+} from "@llmgateway/db";
+import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -34,6 +46,7 @@ const organizationSchema = z.object({
 	// Dev Plans fields
 	isPersonal: z.boolean(),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
+	devPlanCycle: z.enum(["monthly", "annual"]),
 	devPlanCreditsUsed: z.string(),
 	devPlanCreditsLimit: z.string(),
 	devPlanBillingCycleStart: z.date().nullable(),
@@ -67,8 +80,19 @@ const updateOrganizationSchema = z.object({
 	retentionLevel: z.enum(["retain", "none"]).optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
-	autoTopUpAmount: z.number().min(10).optional(),
+	autoTopUpAmount: z
+		.number()
+		.int()
+		.min(10)
+		.max(CREDIT_TOP_UP_MAX_AMOUNT)
+		.optional(),
 });
+
+const AUTO_TOP_UP_AUDIT_FIELDS = [
+	"autoTopUpEnabled",
+	"autoTopUpThreshold",
+	"autoTopUpAmount",
+] as const;
 
 const transactionSchema = z.object({
 	id: z.string(),
@@ -138,7 +162,7 @@ organization.openapi(getOrganizations, async (c) => {
 	const organizations = userOrganizations
 		.map((uo) => uo.organization!)
 		.filter((org) => org.status !== "deleted")
-		// Hide personal orgs from regular UI - they are only visible on code.llmgateway.io
+		// Hide personal orgs from regular UI - they are only visible on devpass.llmgateway.io
 		.filter((org) => !org.isPersonal);
 
 	return c.json({
@@ -433,6 +457,11 @@ organization.openapi(updateOrganization, async (c) => {
 	}
 	if (autoTopUpEnabled !== undefined) {
 		updateData.autoTopUpEnabled = autoTopUpEnabled;
+		if (autoTopUpEnabled && !userOrganization.organization?.autoTopUpEnabled) {
+			updateData.paymentFailureCount = 0;
+			updateData.lastPaymentFailureAt = null;
+			updateData.paymentFailureStartedAt = null;
+		}
 	}
 	if (autoTopUpThreshold !== undefined) {
 		updateData.autoTopUpThreshold = autoTopUpThreshold.toString();
@@ -449,6 +478,7 @@ organization.openapi(updateOrganization, async (c) => {
 
 	// Build changes metadata for audit log
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	const autoTopUpChanges: Record<string, { old: unknown; new: unknown }> = {};
 	const oldOrg = userOrganization.organization!;
 	if (name !== undefined && name !== oldOrg.name) {
 		changes.name = { old: oldOrg.name, new: name };
@@ -493,32 +523,58 @@ organization.openapi(updateOrganization, async (c) => {
 		autoTopUpEnabled !== undefined &&
 		autoTopUpEnabled !== oldOrg.autoTopUpEnabled
 	) {
-		changes.autoTopUpEnabled = {
+		autoTopUpChanges.autoTopUpEnabled = {
 			old: oldOrg.autoTopUpEnabled,
 			new: autoTopUpEnabled,
 		};
 	}
-	if (autoTopUpThreshold !== undefined) {
-		changes.autoTopUpThreshold = {
+	if (
+		autoTopUpThreshold !== undefined &&
+		autoTopUpThreshold.toString() !== oldOrg.autoTopUpThreshold
+	) {
+		autoTopUpChanges.autoTopUpThreshold = {
 			old: oldOrg.autoTopUpThreshold,
 			new: autoTopUpThreshold.toString(),
 		};
 	}
-	if (autoTopUpAmount !== undefined) {
-		changes.autoTopUpAmount = {
+	if (
+		autoTopUpAmount !== undefined &&
+		autoTopUpAmount.toString() !== oldOrg.autoTopUpAmount
+	) {
+		autoTopUpChanges.autoTopUpAmount = {
 			old: oldOrg.autoTopUpAmount,
 			new: autoTopUpAmount.toString(),
 		};
 	}
 
-	if (Object.keys(changes).length > 0) {
+	const organizationChanges = Object.fromEntries(
+		Object.entries(changes).filter(
+			([field]) =>
+				!AUTO_TOP_UP_AUDIT_FIELDS.includes(
+					field as (typeof AUTO_TOP_UP_AUDIT_FIELDS)[number],
+				),
+		),
+	);
+
+	if (Object.keys(organizationChanges).length > 0) {
 		await logAuditEvent({
 			organizationId: id,
 			userId: user.id,
 			action: "organization.update",
 			resourceType: "organization",
 			resourceId: id,
-			metadata: { changes },
+			metadata: { changes: organizationChanges },
+		});
+	}
+
+	if (Object.keys(autoTopUpChanges).length > 0) {
+		await logAuditEvent({
+			organizationId: id,
+			userId: user.id,
+			action: "payment.auto_topup.update",
+			resourceType: "organization",
+			resourceId: id,
+			metadata: { changes: autoTopUpChanges },
 		});
 	}
 
@@ -607,7 +663,7 @@ organization.openapi(deleteOrganization, async (c) => {
 	if (userOrganization.organization?.isPersonal) {
 		throw new HTTPException(403, {
 			message:
-				"Personal organizations cannot be deleted. Please cancel your dev plan at code.llmgateway.io instead.",
+				"Personal organizations cannot be deleted. Please cancel your dev plan at devpass.llmgateway.io instead.",
 		});
 	}
 
@@ -814,6 +870,90 @@ organization.openapi(getOrgDiscounts, async (c) => {
 	return c.json({
 		orgDiscounts,
 		globalDiscounts,
+	});
+});
+
+// ─── Credits Runway ──────────────────────────────────────────────────────────
+
+const getCreditsRunway = createRoute({
+	method: "get",
+	path: "/{id}/credits-runway",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						avgDailySpend7d: z.number(),
+						runwayDays: z.number().nullable(),
+						balance: z.number(),
+					}),
+				},
+			},
+			description: "Credits runway computed successfully",
+		},
+	},
+});
+
+organization.openapi(getCreditsRunway, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	if (!hasAccess) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const balance = Number(org.credits ?? 0);
+
+	// Rolling 7-day average daily spend from projectHourlyStats
+	// eslint-disable-next-line no-mixed-operators
+	const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+	const result = await db
+		.select({
+			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`,
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(tables.project.id, projectHourlyStats.projectId),
+		)
+		.where(
+			and(
+				eq(tables.project.organizationId, id),
+				gte(projectHourlyStats.hourTimestamp, sevenDaysAgo),
+			),
+		);
+
+	const totalCost7d = Number(result[0]?.totalCost ?? 0);
+	const avgDailySpend7d = totalCost7d / 7;
+
+	let runwayDays: number | null = null;
+	if (avgDailySpend7d > 0) {
+		const raw = balance / avgDailySpend7d;
+		runwayDays = raw > 30 ? 31 : Math.round(raw); // 31 = "30+"
+	}
+
+	return c.json({
+		avgDailySpend7d: Math.round(avgDailySpend7d * 100) / 100,
+		runwayDays,
+		balance,
 	});
 });
 

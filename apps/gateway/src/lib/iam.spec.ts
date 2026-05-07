@@ -32,7 +32,7 @@ function makeRule(
 
 /**
  * A model with 3 providers – mirrors the Nano Banana pattern (google-vertex,
- * google-ai-studio, obsidian) but uses generic ids so the tests are self-contained.
+ * google-ai-studio, quartz) but uses generic ids so the tests are self-contained.
  */
 const threeProviderModel: ModelDefinition = {
 	id: "test-model-3p",

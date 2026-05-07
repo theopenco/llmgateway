@@ -1,12 +1,13 @@
 import {
+	Activity,
 	AlertTriangle,
 	ArrowLeft,
-	Play,
 	Zap,
 	Eye,
 	Wrench,
 	MessageSquare,
 	ImagePlus,
+	Video,
 	Braces,
 } from "lucide-react";
 import Link from "next/link";
@@ -14,22 +15,24 @@ import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
+import { adaptModel } from "@/components/models/adapt-model";
 import { CopyModelName } from "@/components/models/copy-model-name";
+import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import {
 	GlobalDiscountBanner,
 	type DiscountData,
 } from "@/components/models/global-discount-banner";
-import { ModelProviderCard } from "@/components/models/model-provider-card";
+import { ModelBenchmarks } from "@/components/models/model-benchmarks";
+import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import { Button } from "@/lib/components/button";
-import { getConfig } from "@/lib/config-server";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	expandAllProviderRegions,
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
@@ -112,7 +115,6 @@ function getEffectiveProviderDiscount(
 }
 
 export default async function ModelPage({ params }: PageProps) {
-	const config = getConfig();
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
@@ -154,7 +156,8 @@ export default async function ModelPage({ params }: PageProps) {
 	};
 
 	const allDiscounts = await getModelDiscounts(decodedName);
-	const modelProviders = modelDef.providers.map((provider) => {
+	const expandedProviders = expandAllProviderRegions(modelDef.providers);
+	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(
 			(p) => p.id === provider.providerId,
 		);
@@ -171,6 +174,8 @@ export default async function ModelPage({ params }: PageProps) {
 		};
 	});
 	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);
+
+	const adaptedModel = adaptModel(modelDef, modelProviders);
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
@@ -197,11 +202,11 @@ export default async function ModelPage({ params }: PageProps) {
 		],
 	};
 
-	const lowestInputPrice = Math.min(
-		...modelProviders
-			.filter((p) => p.inputPrice)
-			.map((p) => p.inputPrice! * 1e6 * (p.discount ? 1 - p.discount : 1)),
-	);
+	const providerPrices = modelProviders
+		.filter((p) => p.inputPrice)
+		.map((p) => p.inputPrice! * 1e6 * (p.discount ? 1 - p.discount : 1));
+	const lowestInputPrice = Math.min(...providerPrices);
+	const highestInputPrice = Math.max(...providerPrices);
 
 	const productSchema = {
 		"@context": "https://schema.org",
@@ -218,6 +223,7 @@ export default async function ModelPage({ params }: PageProps) {
 			"@type": "AggregateOffer",
 			priceCurrency: "USD",
 			lowPrice: isFinite(lowestInputPrice) ? lowestInputPrice : 0,
+			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
 			offerCount: modelProviders.length,
 			availability: "https://schema.org/InStock",
 		},
@@ -299,16 +305,20 @@ export default async function ModelPage({ params }: PageProps) {
 								}))}
 							/>
 
-							<a
-								href={`${config.playgroundUrl}?model=${encodeURIComponent(modelDef.id)}`}
-								target="_blank"
-								rel="noopener noreferrer"
+							<ModelCtaButton
+								modelId={decodedName}
+								size="sm"
+								className="gap-2"
+								iconClassName="h-3 w-3"
+							/>
+
+							<Link
+								href={`/models/${encodeURIComponent(decodedName)}/uptime`}
+								className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
 							>
-								<Button variant="outline" size="sm" className="gap-2">
-									<Play className="h-3 w-3" />
-									Try in Playground
-								</Button>
-							</a>
+								<Activity className="h-3.5 w-3.5" />
+								View uptime
+							</Link>
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
@@ -399,6 +409,36 @@ export default async function ModelPage({ params }: PageProps) {
 									image output tokens
 								</div>
 							)}
+							{modelProviders.some(
+								(p) =>
+									p.perSecondPrice && Object.keys(p.perSecondPrice).length > 0,
+							) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										let minPrice: number | undefined;
+										for (const p of modelProviders) {
+											if (!p.perSecondPrice) {
+												continue;
+											}
+											for (const v of Object.values(p.perSecondPrice)) {
+												const n =
+													typeof v === "number" ? v : parseFloat(String(v));
+												if (
+													Number.isFinite(n) &&
+													(minPrice === undefined || n < minPrice)
+												) {
+													minPrice = n;
+												}
+											}
+										}
+										return minPrice !== undefined
+											? `$${minPrice}/sec`
+											: "Unknown";
+									})()}{" "}
+									video generation
+								</div>
+							)}
 						</div>
 
 						{/* Capabilities (using same icons as /models) */}
@@ -415,8 +455,11 @@ export default async function ModelPage({ params }: PageProps) {
 								const hasTools = modelProviders.some((p) => p.tools);
 								const hasReasoning = modelProviders.some((p) => p.reasoning);
 								const hasJsonOutput = modelProviders.some((p) => p.jsonOutput);
-								const hasImageGen = Array.isArray((modelDef as any)?.output)
-									? ((modelDef as any).output as string[]).includes("image")
+								const hasImageGen = Array.isArray(modelDef.output)
+									? modelDef.output.includes("image")
+									: false;
+								const hasVideoGen = Array.isArray(modelDef.output)
+									? modelDef.output.includes("video")
 									: false;
 
 								if (hasStreaming) {
@@ -467,6 +510,14 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-pink-500",
 									});
 								}
+								if (hasVideoGen) {
+									items.push({
+										key: "video",
+										icon: Video,
+										label: "Video Generation",
+										color: "text-violet-500",
+									});
+								}
 
 								return items.map(({ key, icon: Icon, label, color }) => (
 									<div
@@ -511,17 +562,11 @@ export default async function ModelPage({ params }: PageProps) {
 							</div>
 						</div>
 
-						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-							{modelProviders.map((provider) => (
-								<ModelProviderCard
-									key={`${provider.providerId}-${provider.modelName}-${decodedName}`}
-									provider={provider}
-									modelName={decodedName}
-									modelStability={modelDef.stability}
-									modelOutput={modelDef.output}
-								/>
-							))}
-						</div>
+						<DetailProviderCards model={adaptedModel} />
+					</div>
+
+					<div className="mb-8">
+						<ModelBenchmarks modelId={decodedName} />
 					</div>
 				</div>
 			</div>

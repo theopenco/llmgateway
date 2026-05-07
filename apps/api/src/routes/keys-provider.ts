@@ -33,6 +33,12 @@ const providerKeySchema = z.object({
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
+			azure_deployment_name: z.string().optional(),
+			azure_ai_foundry_resource: z.string().optional(),
+			azure_ai_foundry_api_version: z.string().optional(),
+			alibaba_region: z
+				.enum(["singapore", "us-virginia", "cn-beijing"])
+				.optional(),
 		})
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -47,7 +53,13 @@ const createProviderKeySchema = z.object({
 			message:
 				"Invalid provider. Must be one of the supported providers or 'custom'.",
 		}),
-	token: z.string().min(1, "API key is required"),
+	token: z
+		.string()
+		.min(1, "API key is required")
+		.regex(
+			/^[\x21-\x7E]+$/,
+			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
+		),
 	name: z
 		.string()
 		.regex(/^[a-z]+$/, "Name must contain only lowercase letters a-z")
@@ -60,6 +72,13 @@ const createProviderKeySchema = z.object({
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
+			azure_deployment_name: z.string().min(1).optional(),
+			azure_ai_foundry_resource: z.string().optional(),
+			azure_ai_foundry_api_version: z.string().optional(),
+			alibaba_region: z
+				.enum(["singapore", "us-virginia", "cn-beijing"])
+				.optional(),
+			google_vertex_project_id: z.string().optional(),
 		})
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
@@ -149,25 +168,35 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
-	// Check if a provider key already exists for this provider and organization
-	const existingKey = await db.query.providerKey.findFirst({
-		where: {
-			status: {
-				ne: "deleted",
-			},
-			provider: {
-				eq: provider,
-			},
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-	});
-
-	if (existingKey) {
+	if (provider === "custom" && (!name || !baseUrl)) {
 		throw new HTTPException(400, {
-			message: `A key for provider '${provider}' already exists for this project`,
+			message: "Custom providers require both a name and base URL",
 		});
+	}
+
+	if (provider === "custom" && name) {
+		const existingCustomProvider = await db.query.providerKey.findFirst({
+			where: {
+				status: {
+					ne: "deleted",
+				},
+				provider: {
+					eq: "custom",
+				},
+				name: {
+					eq: name,
+				},
+				organizationId: {
+					eq: organizationId,
+				},
+			},
+		});
+
+		if (existingCustomProvider) {
+			throw new HTTPException(400, {
+				message: `A custom provider named '${name}' already exists for this organization`,
+			});
+		}
 	}
 
 	let validationResult;
@@ -200,7 +229,7 @@ keysProvider.openapi(create, async (c) => {
 	}
 
 	if (validationResult.error) {
-		const errorMessage = validationResult.error || "Upstream server error";
+		const errorMessage = validationResult.error ?? "Upstream server error";
 		logger.warn("Provider key validation failed", {
 			provider,
 			model: validationResult.model ?? "unknown",
@@ -215,7 +244,7 @@ keysProvider.openapi(create, async (c) => {
 			? ` using model ${validationResult.model}`
 			: "";
 		throw new HTTPException(400, {
-			message: `Error from provider: ${errorMessage}${statusPart}${modelPart}. Please try again later or contact support.`,
+			message: `Error from provider ${provider}: ${errorMessage}${statusPart}${modelPart}. Please try again later or contact support.`,
 		});
 	}
 

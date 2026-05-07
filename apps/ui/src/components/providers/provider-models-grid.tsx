@@ -6,11 +6,13 @@ import {
 	Wrench,
 	MessageSquare,
 	Braces,
+	FileJson2,
 	ImagePlus,
+	Gift,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-import { ProviderModelCard } from "@/components/providers/provider-model-card";
+import { ModelCard } from "@/components/models/model-card";
 
 import type {
 	ApiModel,
@@ -18,6 +20,7 @@ import type {
 	ApiProvider,
 } from "@/lib/fetch-models";
 import type { StabilityLevel } from "@llmgateway/models";
+import type { LucideProps } from "lucide-react";
 
 interface ModelWithProviders extends ApiModel {
 	providerDetails: Array<{
@@ -37,7 +40,13 @@ export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 		providerMapping: ApiModelProviderMapping,
 		model?: ApiModel,
 	) => {
-		const capabilities = [];
+		const capabilities: Array<{
+			icon: React.ForwardRefExoticComponent<
+				Omit<LucideProps, "ref"> & React.RefAttributes<SVGSVGElement>
+			>;
+			label: string;
+			color: string;
+		}> = [];
 		if (providerMapping.streaming) {
 			capabilities.push({
 				icon: Zap,
@@ -73,11 +82,28 @@ export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 				color: "text-cyan-500",
 			});
 		}
-		if (model?.output?.includes("image")) {
+		if (providerMapping.jsonOutputSchema) {
+			capabilities.push({
+				icon: FileJson2,
+				label: "JSON Schema",
+				color: "text-teal-500",
+			});
+		}
+		const hasImageGen = Array.isArray(model?.output)
+			? model.output.includes("image")
+			: false;
+		if (hasImageGen) {
 			capabilities.push({
 				icon: ImagePlus,
 				label: "Image Generation",
 				color: "text-pink-500",
+			});
+		}
+		if (providerMapping.discount && parseFloat(providerMapping.discount) > 0) {
+			capabilities.push({
+				icon: Gift,
+				label: `${(parseFloat(providerMapping.discount) * 100).toFixed(0)}% Discount`,
+				color: "text-green-500",
 			});
 		}
 		return capabilities;
@@ -102,9 +128,11 @@ export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 		}
 		const priceNum = parseFloat(price);
 		const discountNum = discount ? parseFloat(discount) : 0;
-		const originalPrice = (priceNum * 1e6).toFixed(2);
+		const originalPrice = parseFloat((priceNum * 1e6).toFixed(4));
 		if (discountNum > 0) {
-			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
+			const discountedPrice = parseFloat(
+				(priceNum * 1e6 * (1 - discountNum)).toFixed(4),
+			);
 			return (
 				<div className="flex flex-col justify-items-center">
 					<div className="flex items-center gap-1">
@@ -124,7 +152,7 @@ export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 	return (
 		<div className="grid gap-6 md:grid-cols-3">
 			{models.map((model, index) => (
-				<ProviderModelCard
+				<ModelCard
 					key={`${model.providerDetails[0].provider.providerId}-${model.id}-${index}`}
 					model={model}
 					shouldShowStabilityWarning={shouldShowStabilityWarning}

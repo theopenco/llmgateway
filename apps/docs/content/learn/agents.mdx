@@ -1,0 +1,37 @@
+---
+title: Agents
+description: Monitor your AI coding agents and their activity
+icon: Bot
+---
+
+import { ThemedImage } from "@/components/themed-image";
+
+The Agents page lets you monitor your AI coding agents — such as Claude Code, SoulForge, OpenCode, and others — and track their activity, costs, and token usage across sessions.
+
+<ThemedImage alt="Agents" basePath="/learn/agents" />
+
+## Agent Cards
+
+Each agent is displayed as a card showing:
+
+- **Name** — The agent's identifier (e.g., SoulForge, Claude Code)
+- **Total cost** — Cumulative spend for this agent
+- **Requests** — Total number of API requests made
+- **Tokens** — Total tokens consumed
+- **Last Active** — When the agent was last used
+
+Click on any agent card to view its detailed activity.
+
+## Agent Detail
+
+<ThemedImage alt="Agent Detail" basePath="/learn/agents-detail" />
+
+The detail view shows all sessions for a specific agent. Each session row displays:
+
+- **Time range** — When the session started and ended
+- **Requests** — Number of API calls in the session
+- **Tokens** — Total tokens consumed
+- **Duration** — How long the session lasted
+- **Cost** — Total cost for the session
+
+Expand a session to see individual requests with their response previews, model used, cache status, token counts, cost, and source.

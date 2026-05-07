@@ -94,7 +94,6 @@ Each provider processes data under their own privacy terms.
 If you belong to an organization:
 
 - Owners and Admins can view and manage member data and roles.
-- Team features are available on the **Pro plan** and above.
 - Access is limited by assigned roles (Owner, Admin, Developer, Restricted Access).
 
 You can manage permissions from the **Team Settings** page.
@@ -142,12 +141,12 @@ We do not knowingly collect personal information from minors.
 ## 10. Changes to This Policy
 
 We may update this Privacy Policy periodically.  
-The latest version will always be available at [https://llmgateway.io/privacy](https://llmgateway.io/privacy).
+The latest version will always be available on our [Privacy Policy page](https://llmgateway.io/privacy).
 
 ---
 
 ## 11. Contact Us
 
 If you have any questions about this Privacy Policy or your data, contact us at:  
-📧 **contact@llmgateway.io**  
-🌐 **https://llmgateway.io**
+📧 **[contact@llmgateway.io](mailto:contact@llmgateway.io)**
+🌐 **[llmgateway.io](https://llmgateway.io)**

@@ -2,6 +2,7 @@
 
 import { useChat } from "@ai-sdk/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
@@ -24,8 +25,10 @@ import {
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
+import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
 import type {
@@ -78,6 +81,7 @@ export default function ChatPageClient({
 	enableWebSearch = false,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -119,11 +123,19 @@ export default function ChatPageClient({
 		| "8:1"
 	>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const config = getModelImageConfig(getInitialModel());
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
+	const [imageQuality, setImageQuality] = useState<string>(() => {
+		const config = getModelImageConfig(getInitialModel());
+		return config.defaultQuality ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [finishReason, setFinishReason] = useState<string | null>(null);
 	const [showTopUp, setShowTopUp] = useState(false);
 
 	// MCP servers management
@@ -144,6 +156,7 @@ export default function ChatPageClient({
 	const chatIdRef = useRef(currentChatId);
 	const isNewChatRef = useRef(false);
 	const errorOccurredRef = useRef(false);
+	const isSendingRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
 	// Flag to indicate we should clear messages on next URL change (set by handleChatSelect)
 	const shouldClearMessagesRef = useRef(false);
@@ -151,6 +164,7 @@ export default function ChatPageClient({
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
 			onError: async (e) => {
+				isSendingRef.current = false;
 				errorOccurredRef.current = true;
 				const msg = getErrorMessage(e);
 				setError(msg);
@@ -174,8 +188,16 @@ export default function ChatPageClient({
 					}
 				}
 			},
-			onFinish: async ({ message }) => {
+			onFinish: async ({ message, finishReason: reason }) => {
+				isSendingRef.current = false;
 				isNewChatRef.current = false;
+
+				// Track finish reason for inline display
+				if (reason && reason !== "stop" && reason !== "tool-calls") {
+					setFinishReason(reason);
+				} else {
+					setFinishReason(null);
+				}
 
 				// If an error already occurred during streaming, skip saving the response
 				if (errorOccurredRef.current) {
@@ -375,31 +397,40 @@ export default function ChatPageClient({
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
-	const sendMessageWithHeaders = useCallback(
-		(message: any, options?: any) => {
-			// Check if the user message contains image attachments (vision request)
-			const hasImageAttachments = message.parts?.some(
-				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
-			);
-
+	const buildRequestOptions = useCallback(
+		(hasImageAttachments: boolean, options?: any) => {
 			// Only use image gen when the model supports it AND user didn't attach images for vision
 			const useImageGen =
 				supportsImageGen && !(supportsImages && hasImageAttachments);
 
-			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			// Check if model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
+			const isGptImage =
+				selectedModel.toLowerCase().includes("gpt-image") ||
+				selectedModel.toLowerCase().includes("openai/gpt-image");
 			const usesPixelDimensions =
+				isGptImage ||
 				selectedModel.toLowerCase().includes("alibaba") ||
 				selectedModel.toLowerCase().includes("qwen-image") ||
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
+			// Always forward the user's quality choice (including "auto") so it
+			// surfaces in the activity log; the gateway treats "auto" as a no-op
+			// upstream.
+			const includeQuality = isGptImage && !!imageQuality;
+
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
 				? usesPixelDimensions
 					? {
-							...(alibabaImageSize !== "1024x1024" && {
-								image_size: alibabaImageSize,
-							}),
+							...(isGptImage
+								? alibabaImageSize !== "auto" && {
+										image_size: alibabaImageSize,
+									}
+								: alibabaImageSize !== "1024x1024" && {
+										image_size: alibabaImageSize,
+									}),
+							...(includeQuality && { image_quality: imageQuality }),
 							n: imageCount,
 						}
 					: {
@@ -411,17 +442,12 @@ export default function ChatPageClient({
 						}
 				: undefined;
 
-			// Automatically disable provider fallback for provider-specific model selections
-			const isProviderSpecific = selectedModel.includes("/");
-			const localStorageOverride =
-				typeof window !== "undefined" &&
-				localStorage.getItem("llmgateway_no_fallback") === "true";
-			const noFallback = isProviderSpecific || localStorageOverride;
+			const noFallback = shouldDisableFallback(selectedModel);
 
 			// Get enabled MCP servers
 			const enabledMcpServers = getEnabledMcpServers();
 
-			const mergedOptions = {
+			return {
 				...options,
 				headers: {
 					...(options?.headers ?? {}),
@@ -429,6 +455,7 @@ export default function ChatPageClient({
 				},
 				body: {
 					...(options?.body ?? {}),
+					model: selectedModel,
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
 					...(useImageGen ? { is_image_gen: true } : {}),
@@ -440,23 +467,49 @@ export default function ChatPageClient({
 						: {}),
 				},
 			};
-
-			return sendMessage(message, mergedOptions);
 		},
 		[
-			sendMessage,
 			reasoningEffort,
 			supportsImageGen,
 			supportsImages,
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,
+			imageQuality,
 			imageCount,
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
 			getEnabledMcpServers,
 		],
+	);
+
+	const sendMessageWithHeaders = useCallback(
+		(message: any, options?: any) => {
+			const hasImageAttachments = message.parts?.some(
+				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+			);
+			return sendMessage(
+				message,
+				buildRequestOptions(!!hasImageAttachments, options),
+			);
+		},
+		[sendMessage, buildRequestOptions],
+	);
+
+	const regenerateWithHeaders = useCallback(
+		(options?: any) => {
+			const lastUserMessage = [...messages]
+				.reverse()
+				.find((m) => m.role === "user");
+			const hasImageAttachments = lastUserMessage?.parts?.some(
+				(p: any) =>
+					(p.type === "file" && p.mediaType?.startsWith("image/")) ||
+					p.type === "image_url",
+			);
+			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
+		},
+		[regenerate, messages, buildRequestOptions],
 	);
 
 	// Additional comparison chat windows (primary + up to two comparison panels)
@@ -479,7 +532,7 @@ export default function ChatPageClient({
 	useChats();
 
 	useEffect(() => {
-		if (!currentChatData?.messages) {
+		if (!currentChatData?.messages || isSendingRef.current) {
 			return;
 		}
 
@@ -650,8 +703,15 @@ export default function ChatPageClient({
 		}
 
 		setError(null);
+		setFinishReason(null);
 		setIsLoading(true);
+		posthog.capture("playground_chat_sent", {
+			model: selectedModel,
+			has_images: !!images?.length,
+			web_search: webSearchEnabled,
+		});
 		errorOccurredRef.current = false;
+		isSendingRef.current = true;
 
 		const isNewChat = !chatIdRef.current;
 		if (isNewChat) {
@@ -737,16 +797,16 @@ export default function ChatPageClient({
 		// submitted prompt into each extra window as a separate user message.
 		if (syncInput) {
 			const submitFns = Object.values(extraSubmitRefs.current);
-			for (const submit of submitFns) {
-				try {
-					await submit(content);
-				} catch (mirrorError) {
-					// Don't surface comparison errors as hard failures
-
-					console.warn(
-						"Failed to mirror prompt to comparison window",
-						mirrorError,
-					);
+			const results = await Promise.allSettled(
+				submitFns.map((submit) => submit(content)),
+			);
+			for (const result of results) {
+				if (result.status === "rejected") {
+					// Don't surface comparison errors as hard failures;
+					// capture as telemetry instead of logging to console.
+					posthog.capture("playground_mirror_prompt_failure", {
+						reason: String(result.reason),
+					});
 				}
 			}
 		}
@@ -754,6 +814,7 @@ export default function ChatPageClient({
 
 	const clearMessages = () => {
 		setError(null);
+		setFinishReason(null);
 		shouldClearMessagesRef.current = true;
 		setMessages([]);
 		// Remove chat param from URL
@@ -768,6 +829,7 @@ export default function ChatPageClient({
 	const handleNewChat = async () => {
 		setIsLoading(true);
 		setError(null);
+		setFinishReason(null);
 		try {
 			shouldClearMessagesRef.current = true;
 			setMessages([]);
@@ -790,6 +852,7 @@ export default function ChatPageClient({
 
 	const handleChatSelect = (chatId: string) => {
 		setError(null);
+		setFinishReason(null);
 		shouldClearMessagesRef.current = true; // Request message clear on URL change
 		// Update URL with chat ID - this will trigger the useEffect to update state
 		const params = new URLSearchParams(searchParams.toString());
@@ -799,15 +862,16 @@ export default function ChatPageClient({
 
 	// keep URL in sync with selected model
 	useEffect(() => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		// Read current URL params directly to avoid stale searchParams closure
+		const currentParams = new URLSearchParams(window.location.search);
 		if (selectedModel) {
-			params.set("model", selectedModel);
+			currentParams.set("model", selectedModel);
 		} else {
-			params.delete("model");
+			currentParams.delete("model");
 		}
-		const qs = params.toString();
-		router.replace(qs ? `?${qs}` : "");
-	}, [selectedModel]);
+		const qs = currentParams.toString();
+		router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+	}, [selectedModel, pathname, router]);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;
@@ -825,21 +889,26 @@ export default function ChatPageClient({
 		}
 	}, [supportsReasoning, reasoningEffort]);
 
-	// Reset image size when switching models with different supported sizes
+	// Reset image size/quality only when the selected model changes and the
+	// current value is not valid for the new model. Including alibabaImageSize
+	// or imageQuality in the deps would clobber a user's explicit selection.
 	useEffect(() => {
-		const isSeedream =
-			selectedModel.toLowerCase().includes("seedream") ||
-			selectedModel.toLowerCase().includes("bytedance/seedream");
-		const isGemini31FlashImage = selectedModel
-			.toLowerCase()
-			.includes("gemini-3.1-flash-image");
-		if (isSeedream && (imageSize === "1K" || imageSize === "0.5K")) {
-			setImageSize("2K");
+		const config = getModelImageConfig(selectedModel);
+		if (config.usesPixelDimensions) {
+			if (!config.availableSizes.includes(alibabaImageSize as never)) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (!config.availableSizes.includes(imageSize as never)) {
+			setImageSize(config.defaultSize);
 		}
-		if (!isGemini31FlashImage && imageSize === "0.5K") {
-			setImageSize("1K");
+		if (
+			config.supportsQuality &&
+			!(config.availableQualities as readonly string[]).includes(imageQuality)
+		) {
+			setImageQuality(config.defaultQuality ?? "auto");
 		}
-	}, [selectedModel, imageSize]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
 		const params = new URLSearchParams(Array.from(searchParams.entries()));
@@ -892,6 +961,9 @@ export default function ChatPageClient({
 
 	return (
 		<SidebarProvider>
+			<h1 className="sr-only">
+				LLM Gateway Playground - Chat with 210+ AI Models
+			</h1>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				<ChatSidebar
 					onNewChat={handleNewChat}
@@ -908,8 +980,8 @@ export default function ChatPageClient({
 					onSelectProject={handleSelectProject}
 					onProjectCreated={handleProjectCreated}
 				/>
-				<div className="flex flex-1 flex-col w-full min-h-0 overflow-hidden">
-					<div className="shrink-0">
+				<main className="flex flex-1 flex-col w-full min-h-0 overflow-hidden">
+					<header className="shrink-0">
 						<ChatHeader
 							models={models}
 							providers={providers}
@@ -933,7 +1005,7 @@ export default function ChatPageClient({
 							onRemoveMcpServer={removeMcpServer}
 							onToggleMcpServer={toggleMcpServer}
 						/>
-					</div>
+					</header>
 					{comparisonEnabled ? (
 						<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
 							<div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -993,7 +1065,7 @@ export default function ChatPageClient({
 							</div>
 						</div>
 					) : null}
-					<div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
+					<section className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
 						<div
 							className={`grid h-full ${
 								!comparisonEnabled || extraPanelIds.length === 0
@@ -1031,7 +1103,7 @@ export default function ChatPageClient({
 											setText={setPrimaryText}
 											status={status}
 											stop={stop}
-											regenerate={regenerate}
+											regenerate={regenerateWithHeaders}
 											reasoningEffort={reasoningEffort}
 											setReasoningEffort={setReasoningEffort}
 											supportsReasoning={supportsReasoning}
@@ -1041,11 +1113,14 @@ export default function ChatPageClient({
 											setImageSize={setImageSize}
 											alibabaImageSize={alibabaImageSize}
 											setAlibabaImageSize={setAlibabaImageSize}
+											imageQuality={imageQuality}
+											setImageQuality={setImageQuality}
 											imageCount={imageCount}
 											setImageCount={setImageCount}
 											onUserMessage={handleUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
+											finishReason={finishReason}
 											setWebSearchEnabled={setWebSearchEnabled}
 											supportsWebSearch={supportsWebSearch}
 											webSearchEnabled={webSearchEnabled}
@@ -1064,7 +1139,7 @@ export default function ChatPageClient({
 										setText={setPrimaryText}
 										status={status}
 										stop={stop}
-										regenerate={regenerate}
+										regenerate={regenerateWithHeaders}
 										reasoningEffort={reasoningEffort}
 										setReasoningEffort={setReasoningEffort}
 										supportsReasoning={supportsReasoning}
@@ -1074,6 +1149,8 @@ export default function ChatPageClient({
 										setImageSize={setImageSize}
 										alibabaImageSize={alibabaImageSize}
 										setAlibabaImageSize={setAlibabaImageSize}
+										imageQuality={imageQuality}
+										setImageQuality={setImageQuality}
 										imageCount={imageCount}
 										setImageCount={setImageCount}
 										supportsWebSearch={supportsWebSearch}
@@ -1082,6 +1159,7 @@ export default function ChatPageClient({
 										onUserMessage={handleUserMessage}
 										isLoading={isLoading || isChatLoading}
 										error={error}
+										finishReason={finishReason}
 										floatingInput
 									/>
 								</div>
@@ -1110,8 +1188,8 @@ export default function ChatPageClient({
 									))
 								: null}
 						</div>
-					</div>
-				</div>
+					</section>
+				</main>
 			</div>
 			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
@@ -1168,7 +1246,14 @@ function ExtraChatPanel({
 		| "8:1"
 	>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const config = getModelImageConfig(initialModel);
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
+	const [imageQuality, setImageQuality] = useState<string>(() => {
+		const config = getModelImageConfig(initialModel);
+		return config.defaultQuality ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 	const [text, setText] = useState("");
@@ -1236,31 +1321,58 @@ function ExtraChatPanel({
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
-	const sendMessageWithHeaders = useCallback(
-		(message: any, options?: any) => {
-			// Check if the user message contains image attachments (vision request)
-			const hasImageAttachments = message.parts?.some(
-				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
-			);
+	useEffect(() => {
+		const config = getModelImageConfig(selectedModel);
+		if (config.usesPixelDimensions) {
+			if (!config.availableSizes.includes(alibabaImageSize as never)) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (!config.availableSizes.includes(imageSize as never)) {
+			setImageSize(config.defaultSize);
+		}
+		if (
+			config.supportsQuality &&
+			!(config.availableQualities as readonly string[]).includes(imageQuality)
+		) {
+			setImageQuality(config.defaultQuality ?? "auto");
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedModel]);
 
+	const buildRequestOptions = useCallback(
+		(hasImageAttachments: boolean, options?: any) => {
 			// Only use image gen when the model supports it AND user didn't attach images for vision
 			const useImageGen =
 				supportsImageGen && !(supportsImages && hasImageAttachments);
 
-			// Check if model uses WIDTHxHEIGHT format (Alibaba or ZAI)
+			// Check if model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
+			const isGptImage =
+				selectedModel.toLowerCase().includes("gpt-image") ||
+				selectedModel.toLowerCase().includes("openai/gpt-image");
 			const usesPixelDimensions =
+				isGptImage ||
 				selectedModel.toLowerCase().includes("alibaba") ||
 				selectedModel.toLowerCase().includes("qwen-image") ||
 				selectedModel.toLowerCase().includes("zai") ||
 				selectedModel.toLowerCase().includes("cogview");
 
+			// Always forward the user's quality choice (including "auto") so it
+			// surfaces in the activity log; the gateway treats "auto" as a no-op
+			// upstream.
+			const includeQuality = isGptImage && !!imageQuality;
+
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
 				? usesPixelDimensions
 					? {
-							...(alibabaImageSize !== "1024x1024" && {
-								image_size: alibabaImageSize,
-							}),
+							...(isGptImage
+								? alibabaImageSize !== "auto" && {
+										image_size: alibabaImageSize,
+									}
+								: alibabaImageSize !== "1024x1024" && {
+										image_size: alibabaImageSize,
+									}),
+							...(includeQuality && { image_quality: imageQuality }),
 							n: imageCount,
 						}
 					: {
@@ -1272,13 +1384,9 @@ function ExtraChatPanel({
 						}
 				: undefined;
 
-			const isProviderSpecific = selectedModel.includes("/");
-			const localStorageOverride =
-				typeof window !== "undefined" &&
-				localStorage.getItem("llmgateway_no_fallback") === "true";
-			const noFallback = isProviderSpecific || localStorageOverride;
+			const noFallback = shouldDisableFallback(selectedModel);
 
-			const mergedOptions = {
+			return {
 				...options,
 				headers: {
 					...(options?.headers ?? {}),
@@ -1286,6 +1394,7 @@ function ExtraChatPanel({
 				},
 				body: {
 					...(options?.body ?? {}),
+					model: selectedModel,
 					...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 					...(imageConfig ? { image_config: imageConfig } : {}),
 					...(useImageGen ? { is_image_gen: true } : {}),
@@ -1294,22 +1403,48 @@ function ExtraChatPanel({
 						: {}),
 				},
 			};
-
-			return sendMessage(message, mergedOptions);
 		},
 		[
-			sendMessage,
 			reasoningEffort,
 			supportsImageGen,
 			supportsImages,
 			imageAspectRatio,
 			imageSize,
 			alibabaImageSize,
+			imageQuality,
 			imageCount,
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
 		],
+	);
+
+	const sendMessageWithHeaders = useCallback(
+		(message: any, options?: any) => {
+			const hasImageAttachments = message.parts?.some(
+				(p: any) => p.type === "file" && p.mediaType?.startsWith("image/"),
+			);
+			return sendMessage(
+				message,
+				buildRequestOptions(!!hasImageAttachments, options),
+			);
+		},
+		[sendMessage, buildRequestOptions],
+	);
+
+	const regenerateWithHeaders = useCallback(
+		(options?: any) => {
+			const lastUserMessage = [...messages]
+				.reverse()
+				.find((m) => m.role === "user");
+			const hasImageAttachments = lastUserMessage?.parts?.some(
+				(p: any) =>
+					(p.type === "file" && p.mediaType?.startsWith("image/")) ||
+					p.type === "image_url",
+			);
+			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
+		},
+		[regenerate, messages, buildRequestOptions],
 	);
 
 	const effectiveText = syncInput ? syncedText : text;
@@ -1389,7 +1524,7 @@ function ExtraChatPanel({
 					setText={handleSetText}
 					status={status}
 					stop={stop}
-					regenerate={regenerate}
+					regenerate={regenerateWithHeaders}
 					reasoningEffort={reasoningEffort}
 					setReasoningEffort={setReasoningEffort}
 					supportsReasoning={supportsReasoning}
@@ -1399,6 +1534,8 @@ function ExtraChatPanel({
 					setImageSize={setImageSize}
 					alibabaImageSize={alibabaImageSize}
 					setAlibabaImageSize={setAlibabaImageSize}
+					imageQuality={imageQuality}
+					setImageQuality={setImageQuality}
 					imageCount={imageCount}
 					setImageCount={setImageCount}
 					supportsWebSearch={supportsWebSearch}

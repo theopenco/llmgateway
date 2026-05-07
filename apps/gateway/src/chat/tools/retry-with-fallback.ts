@@ -1,11 +1,21 @@
 export const MAX_RETRIES = 2;
 
+export type RetryableErrorType =
+	| "network_error"
+	| "provider_error"
+	| "upstream_error"
+	| "upstream_timeout"
+	| "gateway_error";
+
 export interface RoutingAttempt {
 	provider: string;
 	model: string;
+	region?: string;
 	status_code: number;
 	error_type: string;
 	succeeded: boolean;
+	apiKeyHash?: string;
+	logId?: string;
 }
 
 /**
@@ -13,13 +23,14 @@ export interface RoutingAttempt {
  */
 export type FailedAttempt = RoutingAttempt;
 
-/**
- * Checks if an HTTP status code (or 0 for network errors) is retryable.
- * Retryable: 5xx server errors, 429 rate limits, 0 (network failures/timeouts).
- * NOT retryable: 404 (model not found), 400 (client error), 401/403 (auth).
- */
-export function isRetryableError(statusCode: number): boolean {
-	return statusCode === 429 || statusCode >= 500 || statusCode === 0;
+export function isRetryableErrorType(errorType: string): boolean {
+	return (
+		errorType === "network_error" ||
+		errorType === "provider_error" ||
+		errorType === "upstream_error" ||
+		errorType === "upstream_timeout" ||
+		errorType === "gateway_error"
+	);
 }
 
 /**
@@ -30,7 +41,7 @@ export function isRetryableError(statusCode: number): boolean {
 export function shouldRetryRequest(opts: {
 	requestedProvider: string | undefined;
 	noFallback: boolean;
-	statusCode: number;
+	errorType: string;
 	retryCount: number;
 	remainingProviders: number;
 	usedProvider: string;
@@ -41,7 +52,7 @@ export function shouldRetryRequest(opts: {
 	if (opts.noFallback) {
 		return false;
 	}
-	if (!isRetryableError(opts.statusCode)) {
+	if (!isRetryableErrorType(opts.errorType)) {
 		return false;
 	}
 	if (opts.retryCount >= MAX_RETRIES) {
@@ -57,22 +68,45 @@ export function shouldRetryRequest(opts: {
 }
 
 /**
+ * Build a composite key for identifying a provider+region combination.
+ * Used by the retry system to track which provider-region pairs have been tried.
+ */
+export function providerRetryKey(providerId: string, region?: string): string {
+	return region ? `${providerId}:${region}` : providerId;
+}
+
+/**
  * Selects the next-best provider from the scored provider list,
  * excluding any providers that have already been tried and failed.
  * Returns the provider mapping with providerId and modelName, or null if none available.
+ * When region is present on scores, uses composite providerId:region keys for deduplication.
  */
 export function selectNextProvider(
-	providerScores: Array<{ providerId: string; score: number }>,
+	providerScores: Array<{
+		providerId: string;
+		score: number;
+		region?: string;
+		excludedByContentFilter?: boolean;
+	}>,
 	failedProviders: Set<string>,
-	modelProviders: Array<{ providerId: string; modelName: string }>,
-): { providerId: string; modelName: string } | null {
+	modelProviders: Array<{
+		providerId: string;
+		modelName: string;
+		region?: string;
+	}>,
+): { providerId: string; modelName: string; region?: string } | null {
 	const sorted = [...providerScores].sort((a, b) => a.score - b.score);
 	for (const score of sorted) {
-		if (failedProviders.has(score.providerId)) {
+		if (score.excludedByContentFilter) {
+			continue;
+		}
+
+		const key = providerRetryKey(score.providerId, score.region);
+		if (failedProviders.has(key)) {
 			continue;
 		}
 		const mapping = modelProviders.find(
-			(p) => p.providerId === score.providerId,
+			(p) => p.providerId === score.providerId && p.region === score.region,
 		);
 		if (mapping) {
 			return mapping;
@@ -90,6 +124,9 @@ export function getErrorType(statusCode: number): string {
 	}
 	if (statusCode === 429) {
 		return "rate_limited";
+	}
+	if (statusCode === 401 || statusCode === 403) {
+		return "gateway_error";
 	}
 	return "upstream_error";
 }

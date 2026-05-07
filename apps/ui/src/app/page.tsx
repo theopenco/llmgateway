@@ -1,9 +1,12 @@
 import dynamic from "next/dynamic";
 
-import Features from "@/components/landing/features";
 import { HeroRSC } from "@/components/landing/hero-rsc";
-import { Testimonials } from "@/components/landing/testimonials";
+import { ProductHuntPopup } from "@/components/landing/product-hunt-popup";
 
+const Features = dynamic(() => import("@/components/landing/features"));
+const Testimonials = dynamic(() =>
+	import("@/components/landing/testimonials").then((mod) => mod.Testimonials),
+);
 const Graph = dynamic(() =>
 	import("@/components/landing/graph").then((mod) => mod.Graph),
 );
@@ -12,6 +15,11 @@ const CodeExample = dynamic(() =>
 );
 const Faq = dynamic(() =>
 	import("@/components/landing/faq").then((mod) => mod.Faq),
+);
+const EnterpriseCTA = dynamic(() =>
+	import("@/components/landing/enterprise-cta").then(
+		(mod) => mod.EnterpriseCTA,
+	),
 );
 const CallToAction = dynamic(() => import("@/components/landing/cta"));
 const Footer = dynamic(() => import("@/components/landing/footer"));
@@ -25,8 +33,10 @@ export default function Home() {
 			<CodeExample />
 			<Testimonials />
 			<Faq />
+			<EnterpriseCTA />
 			<CallToAction />
 			<Footer />
+			<ProductHuntPopup />
 		</>
 	);
 }

@@ -104,6 +104,11 @@ const PROJECT_NAVIGATION: readonly {
 		icon: AnimatedActivity,
 	},
 	{
+		href: "agents",
+		label: "Agents",
+		icon: AnimatedBotMessageSquare,
+	},
+	{
 		href: "model-usage",
 		label: "Model Usage",
 		icon: AnimatedChartColumnBig,

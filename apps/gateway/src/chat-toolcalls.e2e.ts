@@ -34,6 +34,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -74,7 +75,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 							},
 						},
 					],
-					tool_choice: "auto",
+					tool_choice: "required",
 				}),
 			});
 
@@ -141,6 +142,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				headers: {
 					"Content-Type": "application/json",
 					"x-request-id": requestId,
+					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
 				body: JSON.stringify({
@@ -182,7 +184,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 							},
 						},
 					],
-					tool_choice: "auto",
+					tool_choice: "required",
 				}),
 			});
 

@@ -10,8 +10,10 @@ import {
 } from "vitest";
 
 import { and, db, eq, tables, type Log } from "@llmgateway/db";
+import { getProviderDefinition } from "@llmgateway/models";
 
 import { app } from "./app.js";
+import { getApiKeyFingerprint } from "./lib/api-key-fingerprint.js";
 import {
 	startMockServer,
 	stopMockServer,
@@ -22,9 +24,78 @@ import { clearCache, waitForLogs, readAll } from "./test-utils/test-helpers.js";
 describe("fallback and error status code handling", () => {
 	let mockServerUrl: string;
 
+	async function ensureBaseFixtures() {
+		await db
+			.insert(tables.user)
+			.values({
+				id: "user-id",
+				name: "user",
+				email: "user",
+			})
+			.onConflictDoNothing();
+
+		await db
+			.insert(tables.organization)
+			.values({
+				id: "org-id",
+				name: "Test Organization",
+				billingEmail: "user",
+				plan: "pro",
+				retentionLevel: "retain",
+				credits: "100.00",
+			})
+			.onConflictDoNothing();
+
+		await db
+			.insert(tables.userOrganization)
+			.values({
+				id: "user-org-id",
+				userId: "user-id",
+				organizationId: "org-id",
+			})
+			.onConflictDoNothing();
+
+		await db
+			.insert(tables.project)
+			.values({
+				id: "project-id",
+				name: "Test Project",
+				organizationId: "org-id",
+				mode: "api-keys",
+			})
+			.onConflictDoNothing();
+	}
+
+	async function ensureProviders(providerIds: string[]) {
+		for (const providerId of providerIds) {
+			const providerDefinition = getProviderDefinition(providerId);
+			await db
+				.insert(tables.provider)
+				.values({
+					id: providerId,
+					name: providerDefinition?.name ?? providerId,
+					description:
+						providerDefinition?.description ?? `${providerId} provider`,
+					streaming: providerDefinition?.streaming ?? true,
+					cancellation: providerDefinition?.cancellation ?? false,
+					color: providerDefinition?.color ?? "#000000",
+					website: providerDefinition?.website ?? `https://${providerId}.com`,
+					announcement: providerDefinition?.announcement,
+					status: "active",
+				})
+				.onConflictDoNothing();
+		}
+	}
+
 	async function resetTestState() {
 		resetFailOnceCounter();
 		await clearCache();
+		await db.update(tables.modelProviderMapping).set({
+			routingUptime: null,
+			routingLatency: null,
+			routingThroughput: null,
+			routingTotalRequests: null,
+		});
 
 		await Promise.all([
 			db.delete(tables.log),
@@ -60,33 +131,7 @@ describe("fallback and error status code handling", () => {
 	});
 
 	beforeEach(async () => {
-		await db.insert(tables.user).values({
-			id: "user-id",
-			name: "user",
-			email: "user",
-		});
-
-		await db.insert(tables.organization).values({
-			id: "org-id",
-			name: "Test Organization",
-			billingEmail: "user",
-			plan: "pro",
-			retentionLevel: "retain",
-			credits: "100.00",
-		});
-
-		await db.insert(tables.userOrganization).values({
-			id: "user-org-id",
-			userId: "user-id",
-			organizationId: "org-id",
-		});
-
-		await db.insert(tables.project).values({
-			id: "project-id",
-			name: "Test Project",
-			organizationId: "org-id",
-			mode: "api-keys",
-		});
+		await ensureBaseFixtures();
 	});
 
 	afterEach(async () => {
@@ -95,6 +140,8 @@ describe("fallback and error status code handling", () => {
 
 	// Helper to set up API key and provider key
 	async function setupKeys(provider = "openai") {
+		await ensureBaseFixtures();
+
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -114,6 +161,8 @@ describe("fallback and error status code handling", () => {
 
 	// Helper to set up API key and llmgateway custom provider key
 	async function setupCustomKeys() {
+		await ensureBaseFixtures();
+
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -132,6 +181,8 @@ describe("fallback and error status code handling", () => {
 	}
 
 	async function setupMultiProviderKeys() {
+		await ensureBaseFixtures();
+
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -144,7 +195,7 @@ describe("fallback and error status code handling", () => {
 			{
 				id: "provider-key-together",
 				token: "sk-together-key",
-				provider: "together.ai",
+				provider: "together-ai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
@@ -158,25 +209,95 @@ describe("fallback and error status code handling", () => {
 		]);
 	}
 
+	async function setupSingleProviderWithMultipleKeys(provider = "together-ai") {
+		await ensureBaseFixtures();
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values([
+			{
+				id: `${provider}-key-primary`,
+				token: `${provider}-primary-token`,
+				provider,
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+			{
+				id: `${provider}-key-secondary`,
+				token: `${provider}-secondary-token`,
+				provider,
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+		]);
+	}
+
 	async function setRoutingMetrics(
 		modelId: string,
 		providerId: string,
 		routingUptime: number,
+		options?: {
+			region?: string;
+			routingLatency?: number;
+			routingThroughput?: number;
+			routingTotalRequests?: number;
+		},
 	) {
+		const conditions = [
+			eq(tables.modelProviderMapping.modelId, modelId),
+			eq(tables.modelProviderMapping.providerId, providerId),
+		];
+
+		if (options?.region) {
+			conditions.push(eq(tables.modelProviderMapping.region, options.region));
+		}
+
 		await db
 			.update(tables.modelProviderMapping)
 			.set({
 				routingUptime,
-				routingLatency: 100,
-				routingThroughput: 100,
-				routingTotalRequests: 100,
+				routingLatency: options?.routingLatency ?? 100,
+				routingThroughput: options?.routingThroughput ?? 100,
+				routingTotalRequests: options?.routingTotalRequests ?? 100,
 			})
-			.where(
-				and(
-					eq(tables.modelProviderMapping.modelId, modelId),
-					eq(tables.modelProviderMapping.providerId, providerId),
-				),
-			);
+			.where(and(...conditions));
+	}
+
+	/** Ensure a regional modelProviderMapping row exists for routing tests. */
+	async function ensureRegionalMapping(
+		modelId: string,
+		providerId: string,
+		region: string,
+	) {
+		const id = `${modelId}::${providerId}::${region}`;
+		// Ensure the parent model row exists (seed may not include it)
+		await db
+			.insert(tables.model)
+			.values({
+				id: modelId,
+				name: modelId,
+				description: modelId,
+				family: "test",
+				status: "active",
+			})
+			.onConflictDoNothing();
+		await db
+			.insert(tables.modelProviderMapping)
+			.values({
+				id,
+				modelId,
+				providerId,
+				modelName: `${modelId}:${region}`,
+				region,
+				status: "active",
+			})
+			.onConflictDoNothing();
 	}
 
 	async function insertIamRules(
@@ -401,10 +522,13 @@ describe("fallback and error status code handling", () => {
 			});
 
 			expect(res.status).toBe(200);
+			const responseRequestId = res.headers.get("x-request-id");
+			expect(responseRequestId).toBeTruthy();
 			const json = await res.json();
 
 			// Verify response metadata
 			expect(json).toHaveProperty("metadata");
+			expect(json.metadata).toHaveProperty("request_id", responseRequestId);
 			expect(json.metadata).toHaveProperty(
 				"requested_model",
 				"openai/gpt-4o-mini",
@@ -573,6 +697,44 @@ describe("fallback and error status code handling", () => {
 				"The provided model identifier is invalid for this account.",
 			);
 		});
+
+		test("streaming aws-bedrock success closes cleanly", async () => {
+			await setupKeys("aws-bedrock");
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "aws-bedrock/claude-opus-4-6",
+					messages: [{ role: "user", content: "Reply with exactly: hi" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.errorEvents).toHaveLength(0);
+			expect(streamResult.hasUsage).toBe(true);
+			expect(
+				streamResult.chunks.some(
+					(chunk) => chunk.choices?.[0]?.finish_reason === "stop",
+				),
+			).toBe(true);
+
+			const logs = await waitForLogs(1);
+			const log = logs[0];
+			expect(log.finishReason).toBe("stop");
+			expect(log.unifiedFinishReason).toBe("completed");
+			expect(log.hasError).toBe(false);
+			expect(log.streamed).toBe(true);
+			expect(log.usedProvider).toBe("aws-bedrock");
+		});
 	});
 
 	describe("deactivated provider fallback with metadata", () => {
@@ -660,11 +822,11 @@ describe("fallback and error status code handling", () => {
 	});
 
 	describe("low-uptime fallback respects IAM provider rules", () => {
-		const modelId = "llama-3.1-8b-instruct";
+		const modelId = "glm-4.7";
 
 		beforeEach(async () => {
 			await setupMultiProviderKeys();
-			await setRoutingMetrics(modelId, "together.ai", 0);
+			await setRoutingMetrics(modelId, "together-ai", 0);
 			await setRoutingMetrics(modelId, "cerebras", 100);
 		});
 
@@ -673,7 +835,7 @@ describe("fallback and error status code handling", () => {
 				{
 					id: "iam-allow-together",
 					ruleType: "allow_providers",
-					providers: ["together.ai"],
+					providers: ["together-ai"],
 				},
 			]);
 
@@ -684,20 +846,20 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "together.ai/llama-3.1-8b-instruct",
+					model: "together-ai/glm-4.7",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.metadata.used_provider).toBe("together.ai");
-			expect(json.metadata.requested_provider).toBe("together.ai");
+			expect(json.metadata.used_provider).toBe("together-ai");
+			expect(json.metadata.requested_provider).toBe("together-ai");
 
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
-			expect(logs[0].usedProvider).toBe("together.ai");
-			expect(logs[0].routingMetadata?.selectedProvider).toBe("together.ai");
+			expect(logs[0].usedProvider).toBe("together-ai");
+			expect(logs[0].routingMetadata?.selectedProvider).toBe("together-ai");
 			expect(logs[0].routingMetadata?.selectionReason).not.toBe(
 				"low-uptime-fallback",
 			);
@@ -719,19 +881,19 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "together.ai/llama-3.1-8b-instruct",
+					model: "together-ai/glm-4.7",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.metadata.used_provider).toBe("together.ai");
+			expect(json.metadata.used_provider).toBe("together-ai");
 
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
-			expect(logs[0].usedProvider).toBe("together.ai");
-			expect(logs[0].routingMetadata?.selectedProvider).toBe("together.ai");
+			expect(logs[0].usedProvider).toBe("together-ai");
+			expect(logs[0].routingMetadata?.selectedProvider).toBe("together-ai");
 			expect(logs[0].routingMetadata?.selectionReason).not.toBe(
 				"low-uptime-fallback",
 			);
@@ -742,7 +904,7 @@ describe("fallback and error status code handling", () => {
 				{
 					id: "iam-allow-together-combo",
 					ruleType: "allow_providers",
-					providers: ["together.ai"],
+					providers: ["together-ai"],
 				},
 				{
 					id: "iam-deny-cerebras-combo",
@@ -758,26 +920,566 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "together.ai/llama-3.1-8b-instruct",
+					model: "together-ai/glm-4.7",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.metadata.used_provider).toBe("together.ai");
+			expect(json.metadata.used_provider).toBe("together-ai");
 
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
-			expect(logs[0].usedProvider).toBe("together.ai");
-			expect(logs[0].routingMetadata?.selectedProvider).toBe("together.ai");
+			expect(logs[0].usedProvider).toBe("together-ai");
+			expect(logs[0].routingMetadata?.selectedProvider).toBe("together-ai");
 			expect(logs[0].routingMetadata?.selectionReason).not.toBe(
 				"low-uptime-fallback",
+			);
+		});
+
+		test("low-uptime fallback ignores synthetic root region mappings", async () => {
+			await ensureProviders(["zai", "alibaba", "novita"]);
+
+			await db.insert(tables.providerKey).values([
+				{
+					id: "provider-key-zai",
+					token: "sk-zai-key",
+					provider: "zai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-alibaba",
+					token: "sk-alibaba-key",
+					provider: "alibaba",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-novita",
+					token: "sk-novita-key",
+					provider: "novita",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+			]);
+
+			await db
+				.insert(tables.model)
+				.values({
+					id: "glm-4.6",
+					name: "GLM-4.6",
+					family: "glm",
+					releasedAt: new Date("2025-09-30"),
+				})
+				.onConflictDoNothing();
+
+			await db
+				.insert(tables.modelProviderMapping)
+				.values([
+					{
+						id: "glm-4-6-zai-root",
+						modelId: "glm-4.6",
+						providerId: "zai",
+						modelName: "glm-4.6",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-root",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-cn-beijing",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6:cn-beijing",
+						region: "cn-beijing",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-novita-root",
+						modelId: "glm-4.6",
+						providerId: "novita",
+						modelName: "zai-org/glm-4.6",
+						streaming: true,
+					},
+				])
+				.onConflictDoNothing();
+
+			await setRoutingMetrics("glm-4.6", "zai", 55, {
+				routingLatency: 238,
+				routingThroughput: 65,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				routingLatency: 10,
+				routingThroughput: 1000,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 400,
+				routingThroughput: 80,
+			});
+			await setRoutingMetrics("glm-4.6", "novita", 100, {
+				routingLatency: 1200,
+				routingThroughput: 30,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "zai/glm-4.6",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("alibaba");
+			expect(logs[0].usedModel).toBe("alibaba/glm-4.6:cn-beijing");
+			expect(logs[0].routingMetadata?.selectedProvider).toBe("alibaba");
+			expect(logs[0].routingMetadata?.selectionReason).toBe(
+				"low-uptime-fallback",
+			);
+			expect(
+				logs[0].routingMetadata?.providerScores?.some(
+					(score) => score.providerId === "alibaba" && !score.region,
+				),
+			).toBe(false);
+			expect(
+				logs[0].routingMetadata?.providerScores?.some(
+					(score) =>
+						score.providerId === "alibaba" && score.region === "singapore",
+				),
+			).toBe(false);
+		});
+
+		test("auto routing ignores synthetic root region mappings", async () => {
+			await ensureProviders(["zai", "alibaba", "novita"]);
+
+			await db.insert(tables.providerKey).values([
+				{
+					id: "provider-key-zai",
+					token: "sk-zai-key",
+					provider: "zai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-alibaba",
+					token: "sk-alibaba-key",
+					provider: "alibaba",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-novita",
+					token: "sk-novita-key",
+					provider: "novita",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+			]);
+
+			await db
+				.insert(tables.model)
+				.values({
+					id: "glm-4.6",
+					name: "GLM-4.6",
+					family: "glm",
+					releasedAt: new Date("2025-09-30"),
+				})
+				.onConflictDoNothing();
+
+			await db
+				.insert(tables.modelProviderMapping)
+				.values([
+					{
+						id: "glm-4-6-zai-auto-root",
+						modelId: "glm-4.6",
+						providerId: "zai",
+						modelName: "glm-4.6",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-auto-root",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-auto-cn-beijing",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6:cn-beijing",
+						region: "cn-beijing",
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-novita-auto-root",
+						modelId: "glm-4.6",
+						providerId: "novita",
+						modelName: "zai-org/glm-4.6",
+						streaming: true,
+					},
+				])
+				.onConflictDoNothing();
+
+			await setRoutingMetrics("glm-4.6", "zai", 100, {
+				routingLatency: 250,
+				routingThroughput: 90,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				routingLatency: 1,
+				routingThroughput: 1000,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 20,
+				routingThroughput: 400,
+			});
+			await setRoutingMetrics("glm-4.6", "novita", 100, {
+				routingLatency: 1200,
+				routingThroughput: 30,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "glm-4.6",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			const log =
+				logs.find((entry) => entry.requestedModel === "glm-4.6") ?? logs.at(-1);
+			expect(log).toBeTruthy();
+			expect(log?.usedProvider).toBe("alibaba");
+			expect(log?.usedModel).toBe("alibaba/glm-4.6:cn-beijing");
+			expect(
+				log?.routingMetadata?.providerScores?.some(
+					(score) => score.providerId === "alibaba" && !score.region,
+				),
+			).toBe(false);
+			expect(
+				log?.routingMetadata?.providerScores?.some(
+					(score) =>
+						score.providerId === "alibaba" && score.region === "singapore",
+				),
+			).toBe(false);
+		});
+
+		test("routing excludes providers whose maxOutput is below max_tokens", async () => {
+			await ensureProviders(["zai", "alibaba", "novita"]);
+
+			await db.insert(tables.providerKey).values([
+				{
+					id: "provider-key-zai",
+					token: "sk-zai-key",
+					provider: "zai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-alibaba",
+					token: "sk-alibaba-key",
+					provider: "alibaba",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-novita",
+					token: "sk-novita-key",
+					provider: "novita",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+			]);
+
+			await db
+				.insert(tables.model)
+				.values({
+					id: "glm-4.6",
+					name: "GLM-4.6",
+					family: "glm",
+					releasedAt: new Date("2025-09-30"),
+				})
+				.onConflictDoNothing();
+
+			await db
+				.insert(tables.modelProviderMapping)
+				.values([
+					{
+						id: "glm-4-6-zai-root-max-tokens",
+						modelId: "glm-4.6",
+						providerId: "zai",
+						modelName: "glm-4.6",
+						maxOutput: 32768,
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-alibaba-cn-beijing-max-tokens",
+						modelId: "glm-4.6",
+						providerId: "alibaba",
+						modelName: "glm-4.6:cn-beijing",
+						region: "cn-beijing",
+						maxOutput: 16384,
+						streaming: true,
+					},
+					{
+						id: "glm-4-6-novita-root-max-tokens",
+						modelId: "glm-4.6",
+						providerId: "novita",
+						modelName: "zai-org/glm-4.6",
+						maxOutput: 32768,
+						streaming: true,
+					},
+				])
+				.onConflictDoNothing();
+
+			await setRoutingMetrics("glm-4.6", "zai", 100, {
+				routingLatency: 20,
+				routingThroughput: 500,
+			});
+			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 5,
+				routingThroughput: 1000,
+			});
+			await setRoutingMetrics("glm-4.6", "novita", 70, {
+				routingLatency: 1200,
+				routingThroughput: 20,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "zai/glm-4.6",
+					max_tokens: 20000,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).not.toBe(400);
+
+			const logs = await waitForLogs(1);
+			const log =
+				logs.find((entry) => entry.requestedModel === "glm-4.6") ?? logs.at(-1);
+			expect(log).toBeTruthy();
+			expect(log?.usedProvider).not.toBe("alibaba");
+			expect(log?.usedModel).not.toBe("alibaba/glm-4.6:cn-beijing");
+			expect(log?.routingMetadata?.providerScores).not.toContainEqual(
+				expect.objectContaining({
+					providerId: "alibaba",
+					region: "cn-beijing",
+				}),
 			);
 		});
 	});
 
 	describe("routing metadata in DB log entries", () => {
+		test("direct provider selection picks the best available region", async () => {
+			await setupKeys("alibaba");
+
+			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "singapore");
+			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "cn-beijing");
+
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "singapore",
+				routingLatency: 1200,
+				routingThroughput: 10,
+			});
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 900,
+				routingThroughput: 20,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/deepseek-v3.2",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			const singaporeScore = logs[0].routingMetadata?.providerScores?.find(
+				(score) =>
+					score.providerId === "alibaba" && score.region === "singapore",
+			);
+			const beijingScore = logs[0].routingMetadata?.providerScores?.find(
+				(score) =>
+					score.providerId === "alibaba" && score.region === "cn-beijing",
+			);
+
+			expect(logs[0].usedModel).toBe("alibaba/deepseek-v3.2:cn-beijing");
+			expect(logs[0].routingMetadata?.selectionReason).toBe(
+				"direct-provider-specified",
+			);
+			expect(singaporeScore).toBeTruthy();
+			expect(beijingScore).toBeTruthy();
+			expect(beijingScore?.score).not.toBeUndefined();
+			expect(singaporeScore?.score).not.toBeUndefined();
+			expect(logs[0].routingMetadata?.routing).toEqual([
+				expect.objectContaining({
+					provider: "alibaba",
+					model: "deepseek-v3.2",
+					region: "cn-beijing",
+					status_code: 200,
+					succeeded: true,
+				}),
+			]);
+		});
+
+		test("direct provider selection only records the direct region", async () => {
+			await setupKeys("alibaba");
+			await db
+				.update(tables.providerKey)
+				.set({
+					options: {
+						alibaba_region: "singapore",
+					},
+				})
+				.where(eq(tables.providerKey.id, "provider-key-id"));
+
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "singapore",
+				routingLatency: 866,
+				routingThroughput: 1,
+			});
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 1767,
+				routingThroughput: 0.5,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/deepseek-v3.2",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			const singaporeScore = logs[0].routingMetadata?.providerScores?.find(
+				(score) =>
+					score.providerId === "alibaba" && score.region === "singapore",
+			);
+			const beijingScore = logs[0].routingMetadata?.providerScores?.find(
+				(score) =>
+					score.providerId === "alibaba" && score.region === "cn-beijing",
+			);
+			expect(logs[0].routingMetadata?.selectionReason).toBe(
+				"direct-provider-specified",
+			);
+			expect(singaporeScore).toBeTruthy();
+			expect(beijingScore).toBeFalsy();
+			expect(
+				logs[0].routingMetadata?.providerScores?.some(
+					(score) => score.providerId === "alibaba" && !score.region,
+				),
+			).toBe(false);
+			expect(logs[0].routingMetadata?.routing).toEqual([
+				expect.objectContaining({
+					provider: "alibaba",
+					model: "deepseek-v3.2",
+					region: "singapore",
+					status_code: 200,
+					succeeded: true,
+				}),
+			]);
+			expect(logs[0].routingMetadata?.providerScores).toEqual([
+				expect.objectContaining({
+					providerId: "alibaba",
+					region: "singapore",
+					score: 1,
+				}),
+			]);
+		});
+
+		test("provider-agnostic routing keeps regional mappings aggregated", async () => {
+			await setupKeys("alibaba");
+
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 99, {
+				routingLatency: 950,
+				routingThroughput: 15,
+			});
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "singapore",
+				routingLatency: 1200,
+				routingThroughput: 10,
+			});
+			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+				region: "cn-beijing",
+				routingLatency: 900,
+				routingThroughput: 20,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "deepseek-v3.2",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			expect(logs[0].routingMetadata?.providerScores).toContainEqual(
+				expect.objectContaining({
+					providerId: "alibaba",
+					region: "cn-beijing",
+					score: expect.any(Number),
+				}),
+			);
+			expect(
+				logs[0].routingMetadata?.providerScores?.some(
+					(score) =>
+						score.providerId === "alibaba" && score.region === "singapore",
+				),
+			).toBe(false);
+		});
+
 		test("successful request stores routing metadata with selection reason in DB log", async () => {
 			await setupKeys("openai");
 
@@ -859,6 +1561,188 @@ describe("fallback and error status code handling", () => {
 			const log = logs[0];
 			expect(log.routingMetadata).toBeTruthy();
 			expect(log.routingMetadata).toHaveProperty("noFallback", true);
+			expect(log.routingMetadata).toHaveProperty("xNoFallbackHeaderSet", true);
+		});
+
+		test("content filter hit reroutes away from content-filter providers and records it in routing metadata", async () => {
+			await setupMultiProviderKeys();
+
+			const togetherProvider = getProviderDefinition("together-ai");
+			expect(togetherProvider).toBeDefined();
+			if (!togetherProvider) {
+				throw new Error("Missing together-ai provider fixture");
+			}
+
+			const originalContentFilterFlag = togetherProvider.contentFilter;
+			const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+			const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
+			const previousContentFilterModels = process.env.LLM_CONTENT_FILTER_MODELS;
+			const previousContentFilterKeywords =
+				process.env.LLM_CONTENT_FILTER_KEYWORDS;
+
+			togetherProvider.contentFilter = true;
+			process.env.LLM_CONTENT_FILTER_MODE = "enabled";
+			process.env.LLM_CONTENT_FILTER_METHOD = "keywords";
+			process.env.LLM_CONTENT_FILTER_MODELS = "glm-4.7";
+			process.env.LLM_CONTENT_FILTER_KEYWORDS = "blocked";
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "glm-4.7",
+						messages: [{ role: "user", content: "this request is blocked" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+
+				const log = logs[0];
+				expect(log.usedProvider).toBe("cerebras");
+				expect(log.internalContentFilter).toBe(true);
+				expect(log.routingMetadata).toMatchObject({
+					selectedProvider: "cerebras",
+					contentFilterMatched: true,
+					contentFilterRerouted: true,
+					contentFilterExcludedProviders: ["together-ai"],
+				});
+				expect(log.routingMetadata?.providerScores).toContainEqual(
+					expect.objectContaining({
+						providerId: "together-ai",
+						contentFilterProvider: true,
+						excludedByContentFilter: true,
+					}),
+				);
+			} finally {
+				if (originalContentFilterFlag === undefined) {
+					delete togetherProvider.contentFilter;
+				} else {
+					togetherProvider.contentFilter = originalContentFilterFlag;
+				}
+
+				if (previousContentFilterMode === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODE;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+				}
+
+				if (previousContentFilterMethod === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_METHOD;
+				} else {
+					process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
+				}
+
+				if (previousContentFilterModels === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODELS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODELS = previousContentFilterModels;
+				}
+
+				if (previousContentFilterKeywords === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_KEYWORDS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_KEYWORDS =
+						previousContentFilterKeywords;
+				}
+			}
+		});
+
+		test("content filter monitor mode does not reroute away from content-filter providers", async () => {
+			await setupMultiProviderKeys();
+
+			const togetherProvider = getProviderDefinition("together-ai");
+			expect(togetherProvider).toBeDefined();
+			if (!togetherProvider) {
+				throw new Error("Missing together-ai provider fixture");
+			}
+
+			const originalContentFilterFlag = togetherProvider.contentFilter;
+			const previousContentFilterMode = process.env.LLM_CONTENT_FILTER_MODE;
+			const previousContentFilterMethod = process.env.LLM_CONTENT_FILTER_METHOD;
+			const previousContentFilterModels = process.env.LLM_CONTENT_FILTER_MODELS;
+			const previousContentFilterKeywords =
+				process.env.LLM_CONTENT_FILTER_KEYWORDS;
+
+			togetherProvider.contentFilter = true;
+			process.env.LLM_CONTENT_FILTER_MODE = "monitor";
+			process.env.LLM_CONTENT_FILTER_METHOD = "keywords";
+			process.env.LLM_CONTENT_FILTER_MODELS = "glm-4.7";
+			process.env.LLM_CONTENT_FILTER_KEYWORDS = "blocked";
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "glm-4.7",
+						messages: [{ role: "user", content: "this request is blocked" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				const logs = await waitForLogs(1);
+				expect(logs.length).toBe(1);
+
+				const log = logs[0];
+				expect(log.usedProvider).toBe("together-ai");
+				expect(log.internalContentFilter).toBe(true);
+				expect(log.routingMetadata).toMatchObject({
+					selectedProvider: "together-ai",
+					contentFilterMatched: true,
+					contentFilterRerouted: false,
+				});
+				expect(
+					log.routingMetadata?.contentFilterExcludedProviders,
+				).toBeUndefined();
+				expect(log.routingMetadata?.providerScores).not.toContainEqual(
+					expect.objectContaining({
+						providerId: "together-ai",
+						excludedByContentFilter: true,
+					}),
+				);
+			} finally {
+				if (originalContentFilterFlag === undefined) {
+					delete togetherProvider.contentFilter;
+				} else {
+					togetherProvider.contentFilter = originalContentFilterFlag;
+				}
+
+				if (previousContentFilterMode === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODE;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+				}
+
+				if (previousContentFilterMethod === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_METHOD;
+				} else {
+					process.env.LLM_CONTENT_FILTER_METHOD = previousContentFilterMethod;
+				}
+
+				if (previousContentFilterModels === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_MODELS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_MODELS = previousContentFilterModels;
+				}
+
+				if (previousContentFilterKeywords === undefined) {
+					delete process.env.LLM_CONTENT_FILTER_KEYWORDS;
+				} else {
+					process.env.LLM_CONTENT_FILTER_KEYWORDS =
+						previousContentFilterKeywords;
+				}
+			}
 		});
 	});
 
@@ -966,7 +1850,7 @@ describe("fallback and error status code handling", () => {
 				},
 				body: JSON.stringify({
 					// No provider prefix - auto-routing required for retry
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1040,7 +1924,7 @@ describe("fallback and error status code handling", () => {
 					"X-No-Fallback": "true",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1051,7 +1935,7 @@ describe("fallback and error status code handling", () => {
 			expect(json).toHaveProperty("error");
 		});
 
-		test("non-streaming: does not retry on non-retryable 401 error", async () => {
+		test("non-streaming: retries on 403 and succeeds on fallback provider", async () => {
 			await setupMultiProviderKeys();
 
 			const res = await app.request("/v1/chat/completions", {
@@ -1061,21 +1945,161 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
-					messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
+					model: "glm-4.7",
+					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE_403 hello" }],
 				}),
 			});
 
-			// 401 is not retryable, so the gateway should return the error
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json).toHaveProperty("error");
-			expect(json.error.type).toBe("gateway_error");
 
-			const logs = await waitForLogs(1);
-			const log = logs[0];
-			expect(log.finishReason).toBe("gateway_error");
-			expect(log.hasError).toBe(true);
+			expect(json).toHaveProperty(["choices", 0, "message", "content"]);
+			expect(json.metadata.routing).toBeDefined();
+			expect(json.metadata.routing.length).toBeGreaterThanOrEqual(2);
+			expect(json.metadata.routing[0]).toMatchObject({
+				status_code: 403,
+				error_type: "gateway_error",
+				succeeded: false,
+			});
+			expect(
+				json.metadata.routing[json.metadata.routing.length - 1],
+			).toMatchObject({
+				succeeded: true,
+			});
+		});
+
+		test("non-streaming: retries on 404 and succeeds on fallback provider", async () => {
+			await setupMultiProviderKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "glm-4.7",
+					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE_404 hello" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+
+			expect(json).toHaveProperty(["choices", 0, "message", "content"]);
+			expect(json.metadata.routing).toBeDefined();
+			expect(json.metadata.routing.length).toBeGreaterThanOrEqual(2);
+			expect(json.metadata.routing[0]).toMatchObject({
+				status_code: 404,
+				error_type: "upstream_error",
+				succeeded: false,
+			});
+			expect(
+				json.metadata.routing[json.metadata.routing.length - 1],
+			).toMatchObject({
+				succeeded: true,
+			});
+
+			const logs = await waitForLogs(2);
+			const successLog = logs.find(
+				(l: Log) => l.finishReason === "stop" || !l.hasError,
+			);
+			const failedLog = logs.find((l: Log) => l.hasError);
+			const successRouting = successLog?.routingMetadata?.routing;
+			const lastSuccessAttempt = successRouting?.at(-1);
+
+			expect(successRouting?.[0]).toMatchObject({
+				status_code: 404,
+				error_type: "upstream_error",
+				succeeded: false,
+			});
+			expect(successRouting?.[0]?.logId).toBe(failedLog?.id);
+			expect(lastSuccessAttempt).toMatchObject({
+				succeeded: true,
+			});
+			expect(lastSuccessAttempt?.logId).toBe(successLog?.id);
+			expect(failedLog?.retried).toBe(true);
+			expect(failedLog?.retriedByLogId).toBe(successLog?.id);
+		});
+
+		test("non-streaming: retries after random exploration selects a bad provider", async () => {
+			await setupMultiProviderKeys();
+
+			const randomSpy = vi
+				.spyOn(Math, "random")
+				.mockReturnValueOnce(0)
+				.mockReturnValue(0);
+			const originalArgv = process.argv;
+			const originalNodeEnv = process.env.NODE_ENV;
+			const originalVitest = process.env.VITEST;
+			delete process.env.NODE_ENV;
+			delete process.env.VITEST;
+			process.argv = ["node", "/tmp/not-a-test-run.mjs"];
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "glm-4.7",
+						messages: [
+							{ role: "user", content: "TRIGGER_FAIL_ONCE_404 hello" },
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+
+				expect(json.metadata.routing).toBeDefined();
+				expect(json.metadata.routing.length).toBeGreaterThanOrEqual(2);
+				expect(json.metadata.routing[0]).toMatchObject({
+					status_code: 404,
+					error_type: "upstream_error",
+					succeeded: false,
+				});
+				expect(
+					json.metadata.routing[json.metadata.routing.length - 1],
+				).toMatchObject({
+					succeeded: true,
+				});
+
+				const logs = await waitForLogs(2);
+				const successLog = logs.find(
+					(l: Log) => l.finishReason === "stop" || !l.hasError,
+				);
+				const failedLog = logs.find((l: Log) => l.hasError);
+
+				expect(successLog?.routingMetadata?.selectionReason).toBe(
+					"random-exploration",
+				);
+				expect(
+					successLog?.routingMetadata?.providerScores?.length,
+				).toBeGreaterThan(1);
+				expect(successLog?.routingMetadata?.routing?.[0]?.logId).toBe(
+					failedLog?.id,
+				);
+				expect(successLog?.routingMetadata?.routing?.at(-1)?.logId).toBe(
+					successLog?.id,
+				);
+				expect(failedLog?.retried).toBe(true);
+			} finally {
+				randomSpy.mockRestore();
+				process.argv = originalArgv;
+				if (originalNodeEnv !== undefined) {
+					process.env.NODE_ENV = originalNodeEnv;
+				} else {
+					delete process.env.NODE_ENV;
+				}
+				if (originalVitest !== undefined) {
+					process.env.VITEST = originalVitest;
+				} else {
+					delete process.env.VITEST;
+				}
+			}
 		});
 
 		test("non-streaming: does not retry when specific provider is requested", async () => {
@@ -1089,7 +2113,7 @@ describe("fallback and error status code handling", () => {
 				},
 				body: JSON.stringify({
 					// Explicit provider prefix - retry disabled
-					model: "together.ai/llama-3.1-8b-instruct",
+					model: "together-ai/glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1098,6 +2122,116 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(500);
 			const json = await res.json();
 			expect(json).toHaveProperty("error");
+		});
+
+		test("non-streaming: retries another key for the same explicit provider before provider fallback", async () => {
+			await setupSingleProviderWithMultipleKeys("together-ai");
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "together-ai/glm-4.7",
+					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+
+			expect(json.metadata.used_provider).toBe("together-ai");
+			expect(json.metadata.routing).toBeDefined();
+			expect(json.metadata.routing).toHaveLength(2);
+			expect(json.metadata.routing[0]).toMatchObject({
+				provider: "together-ai",
+				status_code: 500,
+				succeeded: false,
+			});
+			expect(json.metadata.routing[1]).toMatchObject({
+				provider: "together-ai",
+				succeeded: true,
+			});
+
+			const logs = await waitForLogs(2);
+			const successLog = logs.find(
+				(l: Log) => l.finishReason === "stop" || !l.hasError,
+			);
+			expect(successLog?.routingMetadata?.routing).toHaveLength(2);
+			expect(successLog?.routingMetadata?.routing?.[0]?.provider).toBe(
+				"together-ai",
+			);
+			expect(successLog?.routingMetadata?.routing?.[1]?.provider).toBe(
+				"together-ai",
+			);
+		});
+
+		test("non-streaming: retries another key for the same provider when X-No-Fallback is set", async () => {
+			await setupSingleProviderWithMultipleKeys("together-ai");
+			const primaryKeyHash = getApiKeyFingerprint("together-ai-primary-token");
+			const secondaryKeyHash = getApiKeyFingerprint(
+				"together-ai-secondary-token",
+			);
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"X-No-Fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "together-ai/glm-4.7",
+					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+
+			expect(json.metadata.used_provider).toBe("together-ai");
+			expect(json.metadata.routing).toBeDefined();
+			expect(json.metadata.routing).toHaveLength(2);
+			const jsonRoutingHashes = json.metadata.routing.map(
+				(attempt: { apiKeyHash?: string }) => attempt.apiKeyHash,
+			);
+			expect(new Set(jsonRoutingHashes)).toEqual(
+				new Set([primaryKeyHash, secondaryKeyHash]),
+			);
+			expect(json.metadata.routing[0]).toMatchObject({
+				provider: "together-ai",
+				status_code: 500,
+				succeeded: false,
+			});
+			expect(json.metadata.routing[1]).toMatchObject({
+				provider: "together-ai",
+				succeeded: true,
+			});
+
+			const logs = await waitForLogs(2);
+			const successLog = logs.find(
+				(l: Log) => l.finishReason === "stop" || !l.hasError,
+			);
+			expect(successLog?.routingMetadata?.noFallback).toBe(true);
+			expect(successLog?.routingMetadata?.usedApiKeyHash).toBe(
+				successLog?.routingMetadata?.routing?.[1]?.apiKeyHash,
+			);
+			expect(successLog?.routingMetadata?.routing).toHaveLength(2);
+			expect(
+				new Set(
+					successLog?.routingMetadata?.routing?.map(
+						(attempt) => attempt.apiKeyHash,
+					),
+				),
+			).toEqual(new Set([primaryKeyHash, secondaryKeyHash]));
+			expect(successLog?.routingMetadata?.routing?.[0]).toMatchObject({
+				provider: "together-ai",
+			});
+			expect(successLog?.routingMetadata?.routing?.[1]).toMatchObject({
+				provider: "together-ai",
+			});
 		});
 
 		test("streaming: retries on 500 and delivers response on fallback provider", async () => {
@@ -1110,7 +2244,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 					stream: true,
 				}),
@@ -1158,13 +2292,180 @@ describe("fallback and error status code handling", () => {
 			expect(failedLog!.retriedByLogId).toBe(successLog!.id);
 		});
 
+		test("streaming: retries when provider sends immediate 404 SSE error", async () => {
+			await setupMultiProviderKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "glm-4.7",
+					messages: [
+						{ role: "user", content: "TRIGGER_STREAM_FAIL_ONCE_404 hello" },
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.hasContent).toBe(true);
+
+			const logs = await waitForLogs(2);
+			expect(logs.length).toBeGreaterThanOrEqual(2);
+
+			const failedLog = logs.find(
+				(log: Log) =>
+					log.hasError === true && log.errorDetails?.statusCode === 404,
+			);
+			expect(failedLog).toBeDefined();
+			expect(failedLog!.retried).toBe(true);
+
+			const successLog = logs.find(
+				(log: Log) =>
+					log.hasError === false &&
+					log.routingMetadata?.routing &&
+					log.content?.includes("mock response from the test server"),
+			);
+			expect(successLog).toBeDefined();
+			expect(successLog!.routingMetadata!.routing).toHaveLength(2);
+			expect(successLog!.routingMetadata!.routing![0]).toMatchObject({
+				status_code: 404,
+				error_type: "upstream_error",
+				succeeded: false,
+			});
+			expect(successLog!.routingMetadata!.routing![1]).toMatchObject({
+				succeeded: true,
+			});
+			expect(failedLog!.retriedByLogId).toBe(successLog!.id);
+		});
+
+		test("streaming: retries another key for the same provider after timeout", async () => {
+			await setupSingleProviderWithMultipleKeys("together-ai");
+			const primaryKeyHash = getApiKeyFingerprint("together-ai-primary-token");
+			const secondaryKeyHash = getApiKeyFingerprint(
+				"together-ai-secondary-token",
+			);
+			const originalStreamingTimeout = process.env.AI_STREAMING_TIMEOUT_MS;
+			process.env.AI_STREAMING_TIMEOUT_MS = "10";
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"X-No-Fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "together-ai/glm-4.7",
+						messages: [{ role: "user", content: "TRIGGER_TIMEOUT_FAIL_ONCE" }],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				const streamResult = await readAll(res.body);
+				expect(streamResult.hasError).toBe(false);
+				expect(streamResult.hasContent).toBe(true);
+
+				const logs = await waitForLogs(2);
+				const failedLog = logs.find(
+					(log: Log) => log.hasError && log.errorDetails?.statusCode === 0,
+				);
+				const successLog = logs.find(
+					(log: Log) => !log.hasError && log.routingMetadata?.routing,
+				);
+
+				expect(failedLog?.retried).toBe(true);
+				expect(successLog?.routingMetadata?.noFallback).toBe(true);
+				expect(successLog?.routingMetadata?.routing).toHaveLength(2);
+				expect(
+					new Set(
+						successLog?.routingMetadata?.routing?.map(
+							(attempt) => attempt.apiKeyHash,
+						),
+					),
+				).toEqual(new Set([primaryKeyHash, secondaryKeyHash]));
+				expect(successLog?.routingMetadata?.routing?.[0]).toMatchObject({
+					provider: "together-ai",
+					status_code: 0,
+					succeeded: false,
+				});
+				expect(successLog?.routingMetadata?.routing?.[1]).toMatchObject({
+					provider: "together-ai",
+					succeeded: true,
+				});
+			} finally {
+				if (originalStreamingTimeout === undefined) {
+					delete process.env.AI_STREAMING_TIMEOUT_MS;
+				} else {
+					process.env.AI_STREAMING_TIMEOUT_MS = originalStreamingTimeout;
+				}
+			}
+		});
+
+		test("streaming: retries when immediate SSE error omits status fields", async () => {
+			await setupMultiProviderKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "glm-4.7",
+					messages: [
+						{ role: "user", content: "TRIGGER_STREAM_FAIL_ONCE_NO_STATUS" },
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.hasContent).toBe(true);
+
+			const logs = await waitForLogs(2);
+			const failedLog = logs.find(
+				(log: Log) => log.hasError && log.errorDetails?.statusCode === 500,
+			);
+			const successLog = logs.find(
+				(log: Log) =>
+					!log.hasError &&
+					log.routingMetadata?.routing &&
+					log.content?.includes("mock response from the test server"),
+			);
+
+			expect(failedLog).toBeDefined();
+			expect(failedLog?.retried).toBe(true);
+			expect(successLog?.routingMetadata?.routing).toHaveLength(2);
+			expect(successLog?.routingMetadata?.routing?.[0]).toMatchObject({
+				status_code: 500,
+				error_type: "upstream_error",
+				succeeded: false,
+			});
+			expect(successLog?.routingMetadata?.routing?.[1]).toMatchObject({
+				succeeded: true,
+			});
+		});
+
 		test("non-streaming: IAM allow_providers prevents retry fallback to a different provider", async () => {
 			await setupMultiProviderKeys();
 			await insertIamRules([
 				{
 					id: "iam-retry-allow-together",
 					ruleType: "allow_providers",
-					providers: ["together.ai"],
+					providers: ["together-ai"],
 				},
 			]);
 
@@ -1175,7 +2476,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1184,7 +2485,7 @@ describe("fallback and error status code handling", () => {
 
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
-			expect(logs[0].usedProvider).toBe("together.ai");
+			expect(logs[0].usedProvider).toBe("together-ai");
 			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
 		});
 
@@ -1205,7 +2506,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1214,7 +2515,7 @@ describe("fallback and error status code handling", () => {
 
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
-			expect(logs[0].usedProvider).toBe("together.ai");
+			expect(logs[0].usedProvider).toBe("together-ai");
 			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
 		});
 
@@ -1224,7 +2525,7 @@ describe("fallback and error status code handling", () => {
 				{
 					id: "iam-retry-allow-together-combo",
 					ruleType: "allow_providers",
-					providers: ["together.ai"],
+					providers: ["together-ai"],
 				},
 				{
 					id: "iam-retry-deny-cerebras-combo",
@@ -1240,7 +2541,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "llama-3.1-8b-instruct",
+					model: "glm-4.7",
 					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
 				}),
 			});
@@ -1249,7 +2550,7 @@ describe("fallback and error status code handling", () => {
 
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
-			expect(logs[0].usedProvider).toBe("together.ai");
+			expect(logs[0].usedProvider).toBe("together-ai");
 			expect(logs.some((log) => log.usedProvider === "cerebras")).toBe(false);
 		});
 	});

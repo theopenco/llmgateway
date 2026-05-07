@@ -7,6 +7,8 @@ icon: ArrowRightLeft
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
+<section>
+
 LLM Gateway works just like OpenRouter—same API format, same model names—but with built-in analytics and the option to self-host. Migration takes two lines of code.
 
 ## Quick Migration
@@ -19,6 +21,10 @@ Change your base URL and API key:
 + const baseURL = "https://api.llmgateway.io/v1";
 + const apiKey = process.env.LLM_GATEWAY_API_KEY;
 ```
+
+</section>
+
+<section>
 
 ## Migration Steps
 
@@ -135,6 +141,10 @@ const { text } = await generateText({
 </Step>
 </Steps>
 
+</section>
+
+<section>
+
 ## Model Name Mapping
 
 Most model names are compatible, but here are some common mappings:
@@ -146,6 +156,10 @@ Most model names are compatible, but here are some common mappings:
 | bedrock/claude-opus-4-5-20251101 | claude-opus-4-5-20251101 or aws-bedrock/claude-opus-4-5-20251101  |
 
 Check the [models page](https://llmgateway.io/models) for the full list of available models.
+
+</section>
+
+<section>
 
 ## Streaming Support
 
@@ -163,12 +177,22 @@ for await (const chunk of stream) {
 }
 ```
 
+</section>
+
+<section>
+
 ## Full Comparison
 
 Want to see a detailed breakdown of all features? Check out our [LLM Gateway vs OpenRouter comparison page](https://llmgateway.io/compare/open-router).
+
+</section>
+
+<footer>
 
 ## Need Help?
 
 - Browse available models at [llmgateway.io/models](https://llmgateway.io/models)
 - Read the [API documentation](https://docs.llmgateway.io)
 - Contact support at contact@llmgateway.io
+
+</footer>

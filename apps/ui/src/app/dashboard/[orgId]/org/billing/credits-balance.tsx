@@ -1,11 +1,42 @@
 "use client";
 
-import { AlertCircle, CheckCircle, CreditCard } from "lucide-react";
+import { AlertCircle, CheckCircle, Clock, CreditCard } from "lucide-react";
+import { usePostHog } from "posthog-js/react";
+import { useEffect, useRef } from "react";
 
+import { Button } from "@/lib/components/button";
 import { useDashboardState } from "@/lib/dashboard-state";
+import { useApi } from "@/lib/fetch-client";
 
 export function CreditsBalance() {
 	const { selectedOrganization } = useDashboardState();
+	const api = useApi();
+	const posthog = usePostHog();
+	const tracked = useRef(false);
+
+	const { data: runwayData } = api.useQuery(
+		"get",
+		"/orgs/{id}/credits-runway",
+		{ params: { path: { id: selectedOrganization?.id ?? "" } } },
+		{ enabled: !!selectedOrganization?.id },
+	);
+
+	useEffect(() => {
+		if (runwayData && !tracked.current) {
+			tracked.current = true;
+			const bucket =
+				runwayData.runwayDays === null
+					? "no_usage"
+					: runwayData.runwayDays > 30
+						? "30+"
+						: runwayData.runwayDays > 14
+							? "14+"
+							: runwayData.runwayDays >= 3
+								? "3-14"
+								: "0-3";
+			posthog.capture("runway_display_viewed", { runway_bucket: bucket });
+		}
+	}, [runwayData, posthog]);
 
 	if (!selectedOrganization) {
 		return (
@@ -23,6 +54,27 @@ export function CreditsBalance() {
 
 	const isLowCredits = creditsBalance < 1;
 	const hasNoCredits = creditsBalance <= 0;
+
+	const runwayDays = runwayData?.runwayDays ?? null;
+	const avgDailySpend = runwayData?.avgDailySpend7d ?? 0;
+	const hasUsage = avgDailySpend > 0;
+
+	const runwayColor =
+		runwayDays === null
+			? "text-muted-foreground"
+			: runwayDays > 14
+				? "text-green-600"
+				: runwayDays >= 3
+					? "text-yellow-600"
+					: "text-destructive";
+
+	const runwayLabel = !hasUsage
+		? "No recent usage"
+		: runwayDays !== null && runwayDays > 30
+			? "30+ days of credits remaining"
+			: runwayDays !== null
+				? `~${runwayDays} day${runwayDays !== 1 ? "s" : ""} of credits remaining at your current usage`
+				: null;
 
 	return (
 		<div className="space-y-4">
@@ -52,8 +104,19 @@ export function CreditsBalance() {
 							Available Balance
 						</p>
 						<p className="text-3xl font-bold">${formattedBalance}</p>
+						{runwayLabel && (
+							<div className={`flex items-center gap-1 mt-1 ${runwayColor}`}>
+								<Clock className="h-3.5 w-3.5" />
+								<p className="text-sm">{runwayLabel}</p>
+							</div>
+						)}
 					</div>
 				</div>
+				{runwayDays !== null && runwayDays < 3 && hasUsage && (
+					<Button size="sm" asChild>
+						<a href="#top-up">Top up now</a>
+					</Button>
+				)}
 			</div>
 
 			{hasNoCredits && (

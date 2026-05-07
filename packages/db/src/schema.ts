@@ -11,9 +11,11 @@ import {
 	text,
 	timestamp,
 	unique,
+	uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
+import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type z from "zod";
 
@@ -50,6 +52,12 @@ export const user = pgTable("user", {
 	emailVerified: boolean().notNull().default(false),
 	image: text(),
 	onboardingCompleted: boolean().notNull().default(false),
+	newsletterSubscribed: boolean().notNull().default(false),
+	status: text({
+		enum: ["active", "deactivated"],
+	})
+		.notNull()
+		.default("active"),
 });
 
 export const session = pgTable(
@@ -146,6 +154,7 @@ export const organization = pgTable("organization", {
 	referralEarnings: decimal().notNull().default("0"),
 	paymentFailureCount: integer().notNull().default(0),
 	lastPaymentFailureAt: timestamp(),
+	paymentFailureStartedAt: timestamp(),
 	// Dev Plans fields (for personal accounts)
 	isPersonal: boolean().notNull().default(false),
 	devPlan: text({
@@ -159,7 +168,12 @@ export const organization = pgTable("organization", {
 	devPlanStripeSubscriptionId: text().unique(),
 	devPlanCancelled: boolean().notNull().default(false),
 	devPlanExpiresAt: timestamp(),
+	devPlanCycle: text({ enum: ["monthly", "annual"] })
+		.notNull()
+		.default("monthly"),
 	devPlanAllowAllModels: boolean().notNull().default(false),
+	// Last top-up amount (used for low balance alert thresholds)
+	lastTopUpAmount: decimal(),
 });
 
 export const referral = pgTable(
@@ -245,13 +259,79 @@ export const followUpEmail = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
 		emailType: text({
-			enum: ["no_purchase", "low_usage", "no_repurchase"],
+			enum: [
+				"no_purchase",
+				"low_usage",
+				"no_repurchase",
+				"low_balance_20",
+				"low_balance_5",
+			],
 		}).notNull(),
 		sentTo: text().notNull(),
 	},
 	(table) => [
 		unique().on(table.organizationId, table.emailType),
 		index("follow_up_email_organization_id_idx").on(table.organizationId),
+	],
+);
+
+export const paymentFailure = pgTable(
+	"payment_failure",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userEmail: text(),
+		amount: decimal(),
+		currency: text().notNull().default("USD"),
+		declineCode: text(),
+		errorCode: text(),
+		failureMessage: text(),
+		stripePaymentIntentId: text(),
+		source: text(), // "auto_topup" | "manual" | "checkout"
+	},
+	(table) => [
+		index("payment_failure_organization_id_idx").on(table.organizationId),
+		index("payment_failure_created_at_idx").on(table.createdAt),
+		index("payment_failure_decline_code_idx").on(table.declineCode),
+		unique("payment_failure_stripe_pi_idx").on(table.stripePaymentIntentId),
+	],
+);
+
+export const enterpriseContactSubmission = pgTable(
+	"enterprise_contact_submission",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text().notNull(),
+		email: text().notNull(),
+		country: text().notNull(),
+		size: text().notNull(),
+		message: text().notNull(),
+		honeypot: text(),
+		clientTimestampMs: text(),
+		ipAddress: text(),
+		userAgent: text(),
+		spamFilterStatus: text({
+			enum: ["pending", "rejected", "delivered", "delivery_failed"],
+		})
+			.notNull()
+			.default("pending"),
+		rejectionReason: text(),
+		archivedAt: timestamp(),
+	},
+	(table) => [
+		index("enterprise_contact_submission_created_at_idx").on(table.createdAt),
+		index("enterprise_contact_submission_email_idx").on(table.email),
+		index("enterprise_contact_submission_status_idx").on(
+			table.spamFilterStatus,
+		),
 	],
 );
 
@@ -325,6 +405,13 @@ export const apiKey = pgTable(
 		}).default("active"),
 		usageLimit: decimal(),
 		usage: decimal().notNull().default("0"),
+		periodUsageLimit: decimal(),
+		periodUsageDurationValue: integer(),
+		periodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
+		currentPeriodUsage: decimal().notNull().default("0"),
+		currentPeriodStartedAt: timestamp(),
 		projectId: text()
 			.notNull()
 			.references(() => project.id, { onDelete: "cascade" }),
@@ -391,6 +478,11 @@ export interface ProviderKeyOptions {
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
+	azure_deployment_name?: string;
+	azure_ai_foundry_resource?: string;
+	azure_ai_foundry_api_version?: string;
+	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
+	google_vertex_project_id?: string;
 }
 
 export const providerKey = pgTable(
@@ -454,6 +546,7 @@ export const log = pgTable(
 		totalTokens: decimal(),
 		reasoningTokens: decimal(),
 		cachedTokens: decimal(),
+		cacheWriteTokens: decimal(),
 		messages: json(),
 		temperature: real(),
 		maxTokens: integer(),
@@ -470,12 +563,16 @@ export const log = pgTable(
 		inputCost: real(),
 		outputCost: real(),
 		cachedInputCost: real(),
+		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
 		imageInputTokens: decimal(),
 		imageOutputTokens: decimal(),
 		imageInputCost: real(),
 		imageOutputCost: real(),
+		videoOutputCost: real(),
+		videoDownloadCount: integer().notNull().default(0),
+		lastVideoDownloadedAt: timestamp(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
 		pricingTier: text(),
@@ -494,27 +591,41 @@ export const log = pgTable(
 			availableProviders?: string[];
 			selectedProvider?: string;
 			selectionReason?: string;
+			usedApiKeyHash?: string;
 			providerScores?: Array<{
 				providerId: string;
+				region?: string;
 				score: number;
 				uptime?: number;
 				latency?: number;
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				cacheSupported?: boolean;
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
+				rate_limited?: boolean;
+				contentFilterProvider?: boolean;
+				excludedByContentFilter?: boolean;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;
+			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
+			xNoFallbackHeaderSet?: boolean;
+			contentFilterMatched?: boolean;
+			contentFilterRerouted?: boolean;
+			contentFilterExcludedProviders?: string[];
 			routing?: Array<{
 				provider: string;
 				model: string;
+				region?: string;
 				status_code: number;
 				error_type: string;
 				succeeded: boolean;
+				apiKeyHash?: string;
+				logId?: string;
 			}>;
 			filteredProviders?: Array<{
 				providerId: string;
@@ -546,9 +657,15 @@ export const log = pgTable(
 		}>(),
 		retried: boolean().default(false),
 		retriedByLogId: text(),
+		internalContentFilter: boolean(),
+		gatewayContentFilterResponse:
+			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
+		responsesApiId: text(),
+		responsesApiData: jsonb(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
+		index("log_request_id_idx").on(table.requestId),
 		// Index for worker stats queries: WHERE createdAt >= ? AND createdAt < ? GROUP BY usedModel, usedProvider
 		index("log_created_at_used_model_used_provider_idx").on(
 			table.createdAt,
@@ -566,6 +683,176 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
+	],
+);
+
+export const videoJob = pgTable(
+	"video_job",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		requestId: text().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text()
+			.notNull()
+			.references(() => apiKey.id, { onDelete: "cascade" }),
+		mode: text({
+			enum: ["api-keys", "credits", "hybrid"],
+		}).notNull(),
+		usedMode: text({
+			enum: ["api-keys", "credits"],
+		}).notNull(),
+		model: text().notNull(),
+		requestedProvider: text(),
+		usedProvider: text().notNull(),
+		usedModel: text().notNull(),
+		providerConfigIndex: integer(),
+		upstreamId: text().notNull(),
+		prompt: text().notNull(),
+		status: text({
+			enum: [
+				"queued",
+				"in_progress",
+				"completed",
+				"failed",
+				"canceled",
+				"expired",
+			],
+		})
+			.notNull()
+			.default("queued"),
+		progress: integer().notNull().default(0),
+		error: jsonb().$type<{
+			code?: string;
+			message: string;
+			details?: unknown;
+		}>(),
+		contentUrl: text(),
+		storageProvider: text(),
+		storageBucket: text(),
+		storageObjectPath: text(),
+		storageUri: text(),
+		storageExpiresAt: timestamp(),
+		contentType: text(),
+		completedAt: timestamp(),
+		expiresAt: timestamp(),
+		lastPolledAt: timestamp(),
+		nextPollAt: timestamp().notNull().defaultNow(),
+		pollAttemptCount: integer().notNull().default(0),
+		callbackUrl: text(),
+		callbackSecret: text(),
+		callbackStatus: text({
+			enum: ["none", "pending", "delivered", "failed"],
+		})
+			.notNull()
+			.default("none"),
+		callbackEventId: text(),
+		callbackEventType: text(),
+		callbackDeliveredAt: timestamp(),
+		resultLoggedAt: timestamp(),
+		routingMetadata: jsonb().$type<{
+			availableProviders?: string[];
+			selectedProvider?: string;
+			selectionReason?: string;
+			usedApiKeyHash?: string;
+			providerScores?: Array<{
+				providerId: string;
+				region?: string;
+				score: number;
+				uptime?: number;
+				latency?: number;
+				throughput?: number;
+				price?: number;
+				priority?: number;
+				cacheSupported?: boolean;
+				failed?: boolean;
+				status_code?: number;
+				error_type?: string;
+				rate_limited?: boolean;
+				contentFilterProvider?: boolean;
+				excludedByContentFilter?: boolean;
+			}>;
+			originalProvider?: string;
+			originalProviderUptime?: number;
+			originalProviderRateLimited?: boolean;
+			noFallback?: boolean;
+			xNoFallbackHeaderSet?: boolean;
+			contentFilterMatched?: boolean;
+			contentFilterRerouted?: boolean;
+			contentFilterExcludedProviders?: string[];
+			routing?: Array<{
+				provider: string;
+				model: string;
+				region?: string;
+				status_code: number;
+				error_type: string;
+				succeeded: boolean;
+				apiKeyHash?: string;
+				logId?: string;
+			}>;
+		}>(),
+		upstreamCreateResponse: jsonb(),
+		upstreamStatusResponse: jsonb(),
+	},
+	(table) => [
+		index("video_job_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("video_job_status_next_poll_at_idx").on(
+			table.status,
+			table.nextPollAt,
+		),
+		index("video_job_upstream_id_idx").on(table.upstreamId),
+		index("video_job_callback_status_idx").on(table.callbackStatus),
+	],
+);
+
+export const webhookDeliveryLog = pgTable(
+	"webhook_delivery_log",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		videoJobId: text()
+			.notNull()
+			.references(() => videoJob.id, { onDelete: "cascade" }),
+		eventId: text().notNull(),
+		eventType: text().notNull(),
+		targetUrl: text().notNull(),
+		attempt: integer().notNull().default(1),
+		status: text({
+			enum: ["pending", "retrying", "delivered", "failed"],
+		})
+			.notNull()
+			.default("pending"),
+		lastTriedAt: timestamp(),
+		nextRetryAt: timestamp().notNull().defaultNow(),
+		deliveredAt: timestamp(),
+		requestHeaders: jsonb(),
+		requestBody: jsonb(),
+		responseStatus: integer(),
+		responseBody: text(),
+		error: text(),
+	},
+	(table) => [
+		index("webhook_delivery_log_video_job_id_idx").on(table.videoJobId),
+		index("webhook_delivery_log_status_next_retry_at_idx").on(
+			table.status,
+			table.nextRetryAt,
+		),
 	],
 );
 
@@ -690,6 +977,68 @@ export const message = pgTable(
 	(table) => [index("message_chat_id_idx").on(table.chatId)],
 );
 
+export const chatSupportConversation = pgTable(
+	"chat_support_conversation",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text(),
+		email: text(),
+		ipAddress: text(),
+		userAgent: text(),
+		messageCount: integer().notNull().default(0),
+		escalatedAt: timestamp(),
+		archivedAt: timestamp(),
+	},
+	(table) => [
+		index("chat_support_conversation_created_at_idx").on(table.createdAt),
+	],
+);
+
+export const chatSupportMessage = pgTable(
+	"chat_support_message",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		conversationId: text()
+			.notNull()
+			.references(() => chatSupportConversation.id, { onDelete: "cascade" }),
+		role: text({
+			enum: ["user", "assistant", "admin"],
+		}).notNull(),
+		content: text().notNull(),
+		sequence: integer().notNull(),
+	},
+	(table) => [
+		index("chat_support_message_conversation_id_idx").on(table.conversationId),
+	],
+);
+
+export const chatSupportReadStatus = pgTable(
+	"chat_support_read_status",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		conversationId: text()
+			.notNull()
+			.references(() => chatSupportConversation.id, { onDelete: "cascade" }),
+		adminUserId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		lastReadMessageCount: integer().notNull().default(0),
+		readAt: timestamp().notNull().defaultNow(),
+	},
+	(table) => [
+		uniqueIndex("chat_support_read_status_conv_admin_idx").on(
+			table.conversationId,
+			table.adminUserId,
+		),
+	],
+);
+
 export const installation = pgTable("installation", {
 	id: text().primaryKey().$defaultFn(shortid),
 	createdAt: timestamp().notNull().defaultNow(),
@@ -791,9 +1140,12 @@ export const modelProviderMapping = pgTable(
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
 		modelName: text().notNull(),
+		region: text(),
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
+		cacheWriteInputPrice: decimal(),
+		cacheWriteInputPrice1h: decimal(),
 		imageInputPrice: decimal(),
 		requestPrice: decimal(),
 		contextSize: integer(),
@@ -840,7 +1192,7 @@ export const modelProviderMapping = pgTable(
 		statsUpdatedAt: timestamp(),
 	},
 	(table) => [
-		unique().on(table.modelId, table.providerId),
+		unique().on(table.modelId, table.providerId, table.region),
 		index("model_provider_mapping_status_idx").on(table.status),
 	],
 );
@@ -892,6 +1244,17 @@ export const modelProviderMappingHistory = pgTable(
 			table.minuteTimestamp,
 			table.modelId,
 		),
+		// Index for admin model detail queries (filter by model + time range)
+		index("model_provider_mapping_history_model_id_minute_timestamp_idx").on(
+			table.modelId,
+			table.minuteTimestamp,
+		),
+		// Index for admin provider+model mapping queries
+		index("model_provider_mapping_history_id_ts_idx").on(
+			table.providerId,
+			table.modelId,
+			table.minuteTimestamp,
+		),
 	],
 );
 
@@ -928,6 +1291,11 @@ export const modelHistory = pgTable(
 		unique().on(table.modelId, table.minuteTimestamp),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_history_minute_timestamp_idx").on(table.minuteTimestamp),
+		// Index for admin model history queries (filter by model + time range)
+		index("model_history_model_id_minute_timestamp_idx").on(
+			table.modelId,
+			table.minuteTimestamp,
+		),
 	],
 );
 
@@ -966,6 +1334,8 @@ export const auditLogActions = [
 	"payment.method.set_default",
 	"payment.method.delete",
 	"payment.credit_topup",
+	"payment.auto_topup.update",
+	"payment.auto_topup.disable",
 	// Credits
 	"credits.gift",
 	// Dev Plan
@@ -974,6 +1344,7 @@ export const auditLogActions = [
 	"dev_plan.resume",
 	"dev_plan.change_tier",
 	"dev_plan.update_settings",
+	"dev_plan.rotate_api_key",
 ] as const;
 
 export const auditLogResourceTypes = [
@@ -1225,6 +1596,48 @@ export const discount = pgTable(
 	],
 );
 
+// Rate Limit - Admin-configurable provider/model caps
+// Can be global (organizationId = null) or org-specific
+export const rateLimit = pgTable(
+	"rate_limit",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Scope: null = global rate limit, otherwise org-specific
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		// Target: provider-only, model-only, or both
+		// null provider = applies to all providers
+		provider: text(),
+		// null model = applies to all models (of provider if specified)
+		model: text(),
+		// Maximum requests per minute
+		maxRpm: integer(),
+		// Maximum requests per day
+		maxRpd: integer(),
+		// Optional metadata
+		reason: text(),
+	},
+	(table) => [
+		// One row per org/provider/model combo with both RPM and RPD on the same row.
+		// Coalesce nulls to sentinels so Postgres treats them as equal.
+		uniqueIndex("rate_limit_org_provider_model_unique").using(
+			"btree",
+			sql`coalesce(${table.organizationId}, '__global__')`,
+			sql`coalesce(${table.provider}, '__all_providers__')`,
+			sql`coalesce(${table.model}, '__all_models__')`,
+		),
+		index("rate_limit_organization_id_idx").on(table.organizationId),
+		index("rate_limit_provider_idx").on(table.provider),
+		index("rate_limit_model_idx").on(table.model),
+	],
+);
+
 // Project hourly statistics aggregation - used for fast dashboard queries
 export const projectHourlyStats = pgTable(
 	"project_hourly_stats",
@@ -1260,6 +1673,7 @@ export const projectHourlyStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1269,7 +1683,9 @@ export const projectHourlyStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1323,6 +1739,7 @@ export const projectHourlyModelStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1332,7 +1749,9 @@ export const projectHourlyModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1356,6 +1775,17 @@ export const projectHourlyModelStats = pgTable(
 		),
 		// Index for worker refresh queries
 		index("project_hourly_model_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+		// Index for admin model detail queries (global aggregation by model)
+		index("project_hourly_model_stats_used_model_hour_timestamp_idx").on(
+			table.usedModel,
+			table.hourTimestamp,
+		),
+		// Index for admin provider+model queries
+		index("project_hourly_model_stats_p_m_time_idx").on(
+			table.usedProvider,
+			table.usedModel,
 			table.hourTimestamp,
 		),
 	],
@@ -1397,6 +1827,7 @@ export const apiKeyHourlyStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1406,7 +1837,9 @@ export const apiKeyHourlyStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1471,6 +1904,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1480,7 +1914,9 @@ export const apiKeyHourlyModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),

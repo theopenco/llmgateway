@@ -15,6 +15,7 @@ import { AnimatedGroup } from "./animated-group";
 import { Navbar } from "./navbar";
 
 import type { Variants } from "@/components/motion-wrapper";
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { ProviderId } from "@llmgateway/models";
 
 const transitionVariants: { item: Variants } = {
@@ -41,7 +42,7 @@ const transitionVariants: { item: Variants } = {
 const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "OpenAI", providerId: "openai" },
 	{ name: "Anthropic", providerId: "anthropic" },
-	{ name: "Together AI", providerId: "together.ai" },
+	{ name: "Together AI", providerId: "together-ai" },
 	{ name: "Groq", providerId: "groq" },
 	{ name: "xAI", providerId: "xai" },
 	{ name: "DeepSeek", providerId: "deepseek" },
@@ -52,7 +53,6 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Nebius", providerId: "nebius" },
 	{ name: "Zai", providerId: "zai" },
 	{ name: "NanoGPT", providerId: "nanogpt" },
-	{ name: "Canopywave", providerId: "canopywave" },
 	{ name: "AWS Bedrock", providerId: "aws-bedrock" },
 	{ name: "Azure", providerId: "azure" },
 	{ name: "Inference.net", providerId: "inference.net" },
@@ -105,17 +105,23 @@ export function Hero({
 	sticky = true,
 	children,
 	migrations = [],
+	models,
+	providers,
 }: {
 	navbarOnly?: boolean;
 	sticky?: boolean;
 	children: React.ReactNode;
 	migrations?: MigrationData[];
+	models?: ApiModel[];
+	providers?: ApiProvider[];
 }) {
 	const config = useAppConfig();
 
 	return (
 		<>
-			<Navbar sticky={sticky}>{children}</Navbar>
+			<Navbar sticky={sticky} models={models} providers={providers}>
+				{children}
+			</Navbar>
 			{!navbarOnly && (
 				<main className="overflow-hidden">
 					<div
@@ -136,26 +142,30 @@ export function Hero({
 								{/* Announcement badge - centered */}
 								<div className="mb-10 lg:mb-12 flex justify-center">
 									<AnimatedGroup variants={transitionVariants}>
-										<Link
-											href="/cost-simulator"
-											className="hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
+										<a
+											href="https://www.producthunt.com/products/devpass-by-llm-gateway"
+											target="_blank"
+											rel="noopener noreferrer"
+											className="group flex w-fit items-center gap-3 rounded-full border border-orange-500/40 bg-gradient-to-r from-orange-500 to-red-500 p-1 pl-4 shadow-md shadow-orange-500/20 transition-all duration-300 hover:shadow-orange-500/40"
 										>
-											<span className="text-foreground text-sm">
-												See How Much You Can Save on LLMs
+											<span className="flex size-5 items-center justify-center rounded-full bg-white text-[11px] font-bold text-orange-500">
+												P
 											</span>
-											<span className="dark:border-background block h-4 w-0.5 border-l bg-white dark:bg-zinc-700" />
-
-											<div className="bg-background group-hover:bg-muted size-6 overflow-hidden rounded-full duration-500">
+											<span className="text-sm font-medium text-white">
+												DevPass is live on Product Hunt — upvote us today
+											</span>
+											<span className="block h-4 w-0.5 border-l border-white/30" />
+											<div className="size-6 overflow-hidden rounded-full bg-white/15 duration-500 group-hover:bg-white/25">
 												<div className="flex w-12 -translate-x-1/2 duration-500 ease-in-out group-hover:translate-x-0">
 													<span className="flex size-6">
-														<ArrowRight className="m-auto size-3" />
+														<ArrowRight className="m-auto size-3 text-white" />
 													</span>
 													<span className="flex size-6">
-														<ArrowRight className="m-auto size-3" />
+														<ArrowRight className="m-auto size-3 text-white" />
 													</span>
 												</div>
 											</div>
-										</Link>
+										</a>
 									</AnimatedGroup>
 								</div>
 

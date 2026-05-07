@@ -15,16 +15,16 @@ This file provides guidance to AI agents when working with code in this reposito
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
 - `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, Code on :3004, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006)
-- `pnpm build` - Build all applications for production. Always run this after finishing work on a feature.
+- `pnpm build` - Build all applications for production. ALWAYS run this after finishing work on a feature. ALWAYS run a full build to make sure things fork.
 - `pnpm clean` - Clean build artifacts and cache directories
 
 ### Code Quality
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-Always run `pnpm format` before committing code. Run `pnpm build` if API routes were modified.
+ALWAYS run `pnpm format` before committing code. Run `pnpm build` if API routes were modified.
 
-- `pnpm format` - Format code and fix linting issues. Always run this before committing code.
+- `pnpm format` - Format code and fix linting issues. ALWAYS run this before committing code.
 - `pnpm lint` - Check linting and formatting (without fixing)
 
 ### Writing code
@@ -32,9 +32,13 @@ Always run `pnpm format` before committing code. Run `pnpm build` if API routes 
 This is a pure TypeScript project. Never use `any` or `as any` unless absolutely necessary.
 This repository always uses tabs for indentation.
 
+When you are done writing code features or bug fixes, ALWAYS commit your changes. If in doubt, commit any changes.
+
 ### Testing
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
+
+Do not run test files or suites in parallel unless the repository instructions for that exact suite explicitly require it. Some gateway and worker tests share ports, databases, and process state, so parallel test runs can produce false failures.
 
 - `pnpm test:unit` - Run unit tests (\*.spec.ts files)
 - `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
@@ -140,6 +144,9 @@ When creating a new package in `packages/`, include these config files. Copy the
 
 ### Code Standards
 
+- Always use the internal api (`apps/api/`) for any backend operations, never use NextJS API routes.
+- In frontend apps (`apps/ui`, `apps/playground`, `apps/code`, `ee/admin`), always use the generated typed API client (`useFetchClient()` or `useApi()` from `@/lib/fetch-client`) to call the Hono API. Never use raw `fetch()` for API calls. The client is auto-generated from the OpenAPI spec (`pnpm --filter api generate && pnpm --filter <app> generate`). For non-hook contexts (e.g., utility functions), accept the fetch client as a parameter from the calling component.
+- Do not use useEffect for data fetching in the UI; instead, use TanStack Query for all data fetching and state management.
 - Always use top-level `import`, never use require or dynamic imports
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - Do not --amend commits after pushing to remote
@@ -149,11 +156,15 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse
+- Do not add explicit caching or memoization around `process.env` reads or parsed env-var values unless there is a measured hot-path need
+- Exception: in `packages/models`, explicit duplication of model/provider mappings is acceptable and preferred over helper-based expansion. This is the only place in the repo where duplicating model definitions is OK.
 - No unnecessary code comments
+- Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
 
 ### Testing and Quality Assurance
 
-- Run `pnpm test:unit` and `pnpm test:e2e` after adding features
+- Run `pnpm test:unit` after adding features
+- NEVER RUN THE FULL E2E suite, instead run specific tests related to your changes. Use `TEST_MODELS` to limit the models tested for faster feedback.
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
 
@@ -219,7 +230,7 @@ LLM Gateway is available under a dual license:
 
 - Advanced billing and subscription management
 - Extended data retention (90 days vs 3 days)
-- Provider API key management (Pro plan)
+- Provider API key management
 - Team and organization management
 - Priority support
 - And more to be defined

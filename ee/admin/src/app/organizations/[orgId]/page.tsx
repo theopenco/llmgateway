@@ -23,11 +23,13 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { giftCreditsToOrganization } from "@/lib/admin-organizations";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 import { GiftCreditsDialog } from "./gift-credits-dialog";
 import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgMetricsSection } from "./org-metrics";
+import { SendEmailDialog } from "./send-email-dialog";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -125,6 +127,8 @@ export default async function OrganizationPage({
 		tab?: string;
 	}>;
 }) {
+	await requireSession();
+
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
 	const txPage = Math.max(1, parseInt(searchParamsData?.txPage ?? "1", 10));
@@ -226,7 +230,7 @@ export default async function OrganizationPage({
 						</span>
 					</div>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2">
 					<GiftCreditsDialog
 						orgId={orgId}
 						orgName={org.name}
@@ -238,6 +242,11 @@ export default async function OrganizationPage({
 					<Button variant="outline" size="sm" asChild>
 						<Link href={`/organizations/${orgId}/discounts`}>
 							Manage Discounts
+						</Link>
+					</Button>
+					<Button variant="outline" size="sm" asChild>
+						<Link href={`/organizations/${orgId}/rate-limits`}>
+							Manage Rate Limits
 						</Link>
 					</Button>
 				</div>
@@ -292,7 +301,7 @@ export default async function OrganizationPage({
 			)}
 
 			<Tabs defaultValue={activeTab}>
-				<TabsList>
+				<TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
 					<TabsTrigger value="transactions">
 						<Receipt className="mr-1.5 h-4 w-4" />
 						Transactions ({txTotal})
@@ -384,7 +393,7 @@ export default async function OrganizationPage({
 						</div>
 
 						{txTotalPages > 1 && (
-							<div className="flex items-center justify-between">
+							<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
 								<p className="text-sm text-muted-foreground">
 									Showing {txOffset + 1} to{" "}
 									{Math.min(txOffset + txLimit, txTotal)} of {txTotal}
@@ -506,7 +515,7 @@ export default async function OrganizationPage({
 						</div>
 
 						{akTotalPages > 1 && (
-							<div className="flex items-center justify-between">
+							<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
 								<p className="text-sm text-muted-foreground">
 									Showing {akOffset + 1} to{" "}
 									{Math.min(akOffset + akLimit, akTotal)} of {akTotal}
@@ -566,13 +575,16 @@ export default async function OrganizationPage({
 										<TableHead>Verified</TableHead>
 										<TableHead>Role</TableHead>
 										<TableHead>Joined</TableHead>
+										<TableHead className="w-10">
+											<span className="sr-only">Actions</span>
+										</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{members.length === 0 ? (
 										<TableRow>
 											<TableCell
-												colSpan={5}
+												colSpan={6}
 												className="h-24 text-center text-muted-foreground"
 											>
 												No members found
@@ -613,6 +625,14 @@ export default async function OrganizationPage({
 												</TableCell>
 												<TableCell className="text-muted-foreground">
 													{formatDate(member.createdAt)}
+												</TableCell>
+												<TableCell>
+													<SendEmailDialog
+														userName={member.user.name ?? ""}
+														userEmail={member.user.email}
+														orgName={org.name}
+														plan={org.plan}
+													/>
 												</TableCell>
 											</TableRow>
 										))

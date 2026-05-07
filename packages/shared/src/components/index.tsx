@@ -1,4 +1,5 @@
 export * from "./integration-icons";
+export * from "./log-card";
 export * from "./model-selector";
 export * from "./multi-model-selector";
 export * from "./multi-provider-selector";

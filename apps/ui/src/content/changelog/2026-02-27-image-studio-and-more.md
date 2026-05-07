@@ -1,5 +1,5 @@
 ---
-id: "40"
+id: "41"
 slug: "image-studio-and-more"
 date: "2026-02-27"
 title: "Image Studio, Image Edits API & More"

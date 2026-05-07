@@ -31,17 +31,15 @@ export async function getMappingHistory(
 	providerId: string,
 	modelId: string,
 	window: HistoryWindow,
+	projectId?: string,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
 		"/admin/providers/{providerId}/models/{modelId}/history",
 		{
 			params: {
-				path: {
-					providerId,
-					modelId: encodeURIComponent(modelId),
-				},
-				query: { window },
+				path: { providerId, modelId },
+				query: { window, ...(projectId ? { projectId } : {}) },
 			},
 		},
 	);
@@ -53,9 +51,47 @@ export async function getModelDetail(modelId: string, window?: HistoryWindow) {
 	const { data } = await $api.GET("/admin/models/{modelId}", {
 		params: {
 			path: { modelId: encodeURIComponent(modelId) },
-			query: window ? { window } : undefined,
+			query: {
+				...(window ? { window } : {}),
+			} as any,
 		},
 	});
+	return data ?? null;
+}
+
+export async function getProviderDetail(
+	providerId: string,
+	window?: HistoryWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/providers/{providerId}", {
+		params: {
+			path: { providerId },
+			query: {
+				...(window ? { window } : {}),
+			} as any,
+		},
+	});
+	return data ?? null;
+}
+
+export async function getMappingDetail(
+	providerId: string,
+	modelId: string,
+	window?: HistoryWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/providers/{providerId}/models/{modelId}",
+		{
+			params: {
+				path: { providerId, modelId: encodeURIComponent(modelId) },
+				query: {
+					...(window ? { window } : {}),
+				} as any,
+			},
+		},
+	);
 	return data ?? null;
 }
 

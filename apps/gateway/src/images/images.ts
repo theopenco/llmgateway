@@ -29,7 +29,7 @@ const imageGenerationsRequestSchema = z.object({
 		example: "1024x1024",
 	}),
 	quality: z
-		.enum(["standard", "hd", "low", "medium", "high"])
+		.enum(["standard", "hd", "low", "medium", "high", "auto"])
 		.optional()
 		.openapi({
 			description:
@@ -100,6 +100,32 @@ const generations = createRoute({
 		},
 	},
 });
+
+/**
+ * Normalize OpenAI's legacy DALL-E quality values ("standard", "hd") into the
+ * gpt-image-2 vocabulary ("low" | "medium" | "high" | "auto") so downstream
+ * provider request preparation only ever sees supported strings.
+ */
+function normalizeQuality(
+	quality: string | undefined,
+): "low" | "medium" | "high" | "auto" | undefined {
+	if (!quality) {
+		return undefined;
+	}
+	switch (quality) {
+		case "standard":
+			return "medium";
+		case "hd":
+			return "high";
+		case "low":
+		case "medium":
+		case "high":
+		case "auto":
+			return quality;
+		default:
+			return undefined;
+	}
+}
 
 /**
  * Parse a size string like "1024x1024" into an aspect ratio string.
@@ -252,6 +278,13 @@ async function extractImagesFromChatResponse(
 	}
 
 	if (imageObjects.length === 0) {
+		if (chatResponse.choices?.[0]?.finish_reason === "content_filter") {
+			logger.warn("Images API - content filtered response", {
+				model,
+			});
+			return [];
+		}
+
 		logger.warn("Images API - no images found in chat completions response", {
 			model,
 			hasContent: !!chatResponse.choices?.[0]?.message?.content,
@@ -271,6 +304,10 @@ async function extractImagesFromChatResponse(
 }
 
 function forwardHeaders(c: Context): Record<string, string> {
+	const noFallbackHeader =
+		c.req.raw.headers.get("x-no-fallback") ??
+		c.req.raw.headers.get("X-No-Fallback");
+
 	return {
 		"Content-Type": "application/json",
 		Authorization: c.req.header("Authorization") ?? "",
@@ -279,6 +316,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		"x-request-id": c.req.header("x-request-id") ?? "",
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
+		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 	};
 }
@@ -370,11 +408,14 @@ images.openapi(generations, async (c) => {
 		stream: false,
 	};
 
-	// Pass image configuration if we have an aspect ratio, size, or n > 1
-	if (aspectRatio || request.size || request.n > 1) {
+	const normalizedQuality = normalizeQuality(request.quality);
+
+	// Pass image configuration if we have an aspect ratio, size, quality, or n > 1
+	if (aspectRatio || request.size || normalizedQuality || request.n > 1) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(request.size && { image_size: request.size }),
+			...(normalizedQuality && { image_quality: normalizedQuality }),
 			n: request.n,
 		};
 	}
@@ -383,6 +424,7 @@ images.openapi(generations, async (c) => {
 		model: request.model,
 		prompt: request.prompt.slice(0, 200),
 		size: request.size,
+		quality: normalizedQuality,
 		n: request.n,
 	});
 
@@ -394,14 +436,17 @@ images.openapi(generations, async (c) => {
 		request.model,
 	);
 
+	// Truncate to the requested number of images
+	const truncatedImages = imageObjects.slice(0, request.n);
+
 	// Build the OpenAI-compatible images response
 	const imagesResponse = {
 		created: Math.floor(Date.now() / 1000),
-		data: imageObjects,
+		data: truncatedImages,
 	};
 
 	logger.debug("Images API - returning response", {
-		imageCount: imageObjects.length,
+		imageCount: truncatedImages.length,
 		model: request.model,
 	});
 
@@ -454,13 +499,16 @@ const imageEditsRequestSchema = z.object({
 		description: "Output quality for image models.",
 		example: "high",
 	}),
-	size: z
-		.enum(["auto", "1024x1024", "1536x1024", "1024x1536"])
-		.optional()
-		.openapi({
-			description: "Requested output image size.",
-			example: "1024x1024",
-		}),
+	size: z.string().optional().openapi({
+		description:
+			"Requested output image size. Supported values depend on the model and provider.",
+		example: "1024x1024",
+	}),
+	aspect_ratio: z.string().optional().openapi({
+		description:
+			"The aspect ratio of the edited images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size-derived defaults.",
+		example: "16:9",
+	}),
 });
 
 type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
@@ -469,7 +517,7 @@ const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
 	background: z.enum(["transparent", "opaque"]).optional(),
 	output_format: z.enum(["png", "webp", "jpeg"]).optional(),
 	quality: z.enum(["low", "medium", "high"]).optional(),
-	size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).optional(),
+	size: z.string().optional(),
 	usage: z
 		.object({
 			input_tokens: z.number(),
@@ -712,9 +760,9 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 	});
 
 	const requestedSize = request.size === "auto" ? undefined : request.size;
-	const aspectRatio = requestedSize
-		? sizeToAspectRatio(requestedSize)
-		: undefined;
+	const aspectRatio =
+		request.aspect_ratio ??
+		(requestedSize ? sizeToAspectRatio(requestedSize) : undefined);
 
 	const model =
 		request.model === "auto" || !request.model
@@ -732,15 +780,19 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 		stream: false,
 	};
 
+	const normalizedEditQuality = normalizeQuality(request.quality);
+
 	if (
 		aspectRatio ||
 		requestedSize ||
 		(request.n !== undefined && request.n > 1) ||
-		request.output_format
+		request.output_format ||
+		normalizedEditQuality
 	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(requestedSize && { image_size: requestedSize }),
+			...(normalizedEditQuality && { image_quality: normalizedEditQuality }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.output_compression !== undefined && {
@@ -755,6 +807,7 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 		imageCount: imageUrls.length,
 		n: request.n,
 		size: request.size,
+		aspectRatio: request.aspect_ratio,
 		quality: request.quality,
 		outputFormat: request.output_format,
 	});

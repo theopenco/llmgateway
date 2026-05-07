@@ -10,6 +10,7 @@ export interface TextContent {
 	text: string;
 	cache_control?: {
 		type: "ephemeral";
+		ttl?: "5m" | "1h";
 	};
 }
 
@@ -60,6 +61,12 @@ export interface ToolCall {
 	};
 }
 
+export interface ReasoningDetail {
+	text?: string;
+	type?: string;
+	[key: string]: unknown;
+}
+
 // Base message structure
 export interface BaseMessage {
 	role: "system" | "user" | "assistant" | "tool";
@@ -67,6 +74,9 @@ export interface BaseMessage {
 	name?: string;
 	tool_calls?: ToolCall[];
 	tool_call_id?: string;
+	reasoning?: string;
+	reasoning_content?: string;
+	reasoning_details?: ReasoningDetail[];
 }
 
 // Provider-specific message formats
@@ -202,6 +212,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 		include_usage: boolean;
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	extra_body?: Record<string, unknown>;
 }
 
 export interface OpenAIResponsesFunctionCall {
@@ -257,6 +268,7 @@ export interface AnthropicSystemContent {
 	text: string;
 	cache_control?: {
 		type: "ephemeral";
+		ttl?: "5m" | "1h";
 	};
 }
 
@@ -265,12 +277,16 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 	system?: string | AnthropicSystemContent[];
 	tools?: AnthropicTool[];
 	tool_choice?: AnthropicToolChoice;
-	thinking?: {
-		type: "enabled";
-		budget_tokens: number;
-	};
+	thinking?:
+		| {
+				type: "enabled";
+				budget_tokens: number;
+		  }
+		| {
+				type: "adaptive";
+		  };
 	output_config?: {
-		effort?: "low" | "medium" | "high";
+		effort?: "low" | "medium" | "high" | "xhigh" | "max";
 	};
 }
 
@@ -319,9 +335,12 @@ export interface ModelWithPricing {
 		providerId: string;
 		inputPrice?: number;
 		outputPrice?: number;
+		perSecondPrice?: Record<string, number>;
 		supportedParameters?: string[];
 		modelName: string;
 		discount?: number;
+		region?: string;
+		stability?: string;
 	}>;
 }
 
@@ -329,6 +348,7 @@ export interface ModelWithPricing {
 export interface AvailableModelProvider {
 	providerId: string;
 	modelName: string;
+	region?: string;
 }
 
 // Function type definitions
@@ -356,7 +376,11 @@ export type RequestBodyPreparer = (
 	maxImageSizeMB?: number,
 	userPlan?: "free" | "pro" | null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
-	image_config?: { aspect_ratio?: string; image_size?: string },
+	image_config?: {
+		aspect_ratio?: string;
+		image_size?: string;
+		image_quality?: string;
+	},
 ) => Promise<ProviderRequestBody>;
 
 // Type guards

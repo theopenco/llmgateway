@@ -19,6 +19,12 @@ export const completionsRequestSchema = z.object({
 							z.object({
 								type: z.literal("text"),
 								text: z.string(),
+								cache_control: z
+									.object({
+										type: z.literal("ephemeral"),
+										ttl: z.enum(["5m", "1h"]).optional(),
+									})
+									.optional(),
 							}),
 							z.object({
 								type: z.literal("image_url"),
@@ -60,6 +66,18 @@ export const completionsRequestSchema = z.object({
 						},
 					],
 				}),
+			reasoning: z.string().optional(),
+			reasoning_content: z.string().optional(),
+			reasoning_details: z
+				.array(
+					z
+						.object({
+							text: z.string().optional(),
+							type: z.string().optional(),
+						})
+						.passthrough(),
+				)
+				.optional(),
 		}),
 	),
 	temperature: z
@@ -227,6 +245,7 @@ export const completionsRequestSchema = z.object({
 		.object({
 			aspect_ratio: z.string().optional(),
 			image_size: z.string().optional(),
+			image_quality: z.enum(["low", "medium", "high", "auto"]).optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),
 		})

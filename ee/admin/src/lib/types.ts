@@ -65,6 +65,10 @@ export type DiscountsListResponse = GetJsonResponse<"/admin/discounts">;
 export type Discount = DiscountsListResponse["discounts"][number];
 export type DiscountOptions = GetJsonResponse<"/admin/discounts/options">;
 export type ProviderModelMapping = DiscountOptions["mappings"][number];
+export type RateLimitOptions = GetJsonResponse<"/admin/rate-limits/options">;
+export type RateLimitModelMapping = RateLimitOptions["mappings"][number];
+export type RateLimitsListResponse = GetJsonResponse<"/admin/rate-limits">;
+export type RateLimitEntry = RateLimitsListResponse["rateLimits"][number];
 
 // Providers
 export type ProvidersListResponse = GetJsonResponse<"/admin/providers">;
@@ -77,6 +81,16 @@ export type ModelStats = ModelsListResponse["models"][number];
 // Model detail
 export type ModelDetailResponse = GetJsonResponse<"/admin/models/{modelId}">;
 export type ModelProviderStats = ModelDetailResponse["providers"][number];
+
+// Provider detail
+export type ProviderDetailResponse =
+	GetJsonResponse<"/admin/providers/{providerId}">;
+export type ProviderModelStats = ProviderDetailResponse["models"][number];
+
+// Mapping detail
+export type MappingDetailResponse =
+	GetJsonResponse<"/admin/providers/{providerId}/models/{modelId}">;
+export type MappingDetail = MappingDetailResponse["mapping"];
 
 // History
 export type HistoryResponse =

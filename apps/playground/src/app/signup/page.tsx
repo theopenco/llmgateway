@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState, useEffect } from "react";
+import { Suspense } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod/v3";
@@ -42,7 +43,15 @@ function getSafeRedirectUrl(url: string | null): string {
 	return "/";
 }
 
-export default function Signup() {
+export default function SignupPage() {
+	return (
+		<Suspense>
+			<Signup />
+		</Suspense>
+	);
+}
+
+function Signup() {
 	const searchParams = useSearchParams();
 	const queryClient = useQueryClient();
 	const router = useRouter();

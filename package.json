@@ -21,29 +21,29 @@
 		"prepare-codex": "mv ~/.nvm ~/.nvm-bak && export PATH=\"${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH\" && . ~/.bashrc && sudo service postgresql start && sudo service redis-server start && sleep 20 && pnpm sync",
 		"push": "pnpm push-dev && pnpm push-test",
 		"push-dev": "pnpm --filter db push",
-		"push-test": "cross-env-shell \"DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}\" pnpm --filter db push",
+		"push-test": "DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test} pnpm --filter db push",
 		"seed": "pnpm --filter db seed",
 		"setup": "pnpm build:core && docker compose down -v && docker compose up -d && sleep 5 && pnpm push-test && pnpm push-dev && pnpm seed",
 		"sync": "pnpm push-dev; pnpm push-test",
-		"test:e2e": "pnpm build:core && cross-env-shell \"DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}\" E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
-		"test:unit": "pnpm build:core && cross-env-shell \"DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}\" vitest run --no-file-parallelism"
+		"test:e2e": "pnpm build:core && E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
+		"test:unit": "pnpm build:core && vitest run --no-file-parallelism"
 	},
 	"commitlint": {
 		"extends": "@steebchen/commitlint-config"
 	},
 	"prettier": "@steebchen/prettier-config",
 	"devDependencies": {
-		"@abinnovision/eslint-config-react": "3.0.2",
-		"@semantic-release/exec": "^7.0.3",
+		"@abinnovision/eslint-config-react": "3.1.1",
+		"@semantic-release/exec": "^7.1.0",
 		"@semantic-release/npm": "^12.0.1",
 		"@steebchen/commitlint-config": "^1.6.1",
 		"@steebchen/eslint-config": "^1.11.1",
 		"@steebchen/lint-base": "1.1.0",
 		"@steebchen/prettier-config": "^1.5.0",
+		"@types/canvas-confetti": "1.9.0",
 		"@types/node": "25.3.0",
 		"commitlint": "20.4.3",
 		"concurrently": "^9.2.1",
-		"cross-env-shell": "7.0.3",
 		"dotenv": "16.5.0",
 		"esbuild-fix-imports-plugin": "1.0.23",
 		"eslint": "^9.34.0",
@@ -51,7 +51,7 @@
 		"eslint-plugin-import": "2.32.0",
 		"eslint-plugin-no-relative-import-paths": "1.6.1",
 		"husky": "^9.1.7",
-		"lint-staged": "16.0.0",
+		"lint-staged": "16.4.0",
 		"nodemon": "3.1.10",
 		"prettier": "^3.6.2",
 		"resolve-tspaths": "0.8.23",
@@ -63,7 +63,7 @@
 		"tsx": "4.20.6",
 		"turbo": "^2.7.2",
 		"typescript": "5.9.2",
-		"vite": "^7.1.11",
+		"vite": "^7.3.2",
 		"vite-tsconfig-paths": "^5.1.4",
 		"vitest": "^4.0.5"
 	},
@@ -74,7 +74,22 @@
 		"overrides": {
 			"shiki": "3.22.0",
 			"flatted": ">=3.4.0",
-			"rollup": ">=4.59.0"
+			"rollup": ">=4.59.0",
+			"handlebars": ">=4.7.9",
+			"protobufjs": "^7.5.5",
+			"minimatch@>=3 <3.1.4": "^3.1.4",
+			"minimatch@>=4 <4.2.5": "^4.2.5",
+			"minimatch@>=5 <5.1.8": "^5.1.8",
+			"minimatch@>=6 <6.2.2": "^6.2.2",
+			"minimatch@>=7 <7.4.8": "^7.4.8",
+			"minimatch@>=8 <8.0.6": "^8.0.6",
+			"minimatch@>=9 <9.0.7": "^9.0.7",
+			"minimatch@>=10 <10.2.3": "^10.2.3",
+			"defu@<6.1.5": "^6.1.7",
+			"lodash@<4.18.0": "^4.18.1",
+			"lodash-es@<4.18.0": "^4.18.1",
+			"picomatch@<2.3.2": "^2.3.2",
+			"picomatch@>=4 <4.0.4": "^4.0.4"
 		},
 		"packageExtensions": {
 			"@hookform/resolvers": {
@@ -83,5 +98,8 @@
 				}
 			}
 		}
+	},
+	"dependencies": {
+		"canvas-confetti": "1.9.4"
 	}
 }

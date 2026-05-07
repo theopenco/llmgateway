@@ -96,6 +96,10 @@ function getHealthKey(envVarName: string, keyIndex: number): string {
 	return `${envVarName}:${keyIndex}`;
 }
 
+function getTrackedHealthKey(keyId: string): string {
+	return `tracked:${keyId}`;
+}
+
 /**
  * Prune old entries from history that are outside the metrics window
  */
@@ -178,6 +182,31 @@ export function isKeyHealthy(envVarName: string, keyIndex: number): boolean {
 	return true;
 }
 
+export function isTrackedKeyHealthy(keyId: string): boolean {
+	const healthKey = getTrackedHealthKey(keyId);
+	const health = keyHealthMap.get(healthKey);
+
+	if (!health) {
+		return true; // No health data = healthy
+	}
+
+	if (health.permanentlyBlacklisted) {
+		return false;
+	}
+
+	if (health.consecutiveErrors >= ERROR_THRESHOLD) {
+		// Check if blacklist period has expired
+		const timeSinceError = Date.now() - health.lastErrorTime;
+		if (timeSinceError < BLACKLIST_DURATION_MS) {
+			return false;
+		}
+		// Reset after blacklist period expires
+		health.consecutiveErrors = 0;
+	}
+
+	return true;
+}
+
 /**
  * Get metrics for a specific API key
  * @returns KeyMetrics with uptime, tracked request count, and health status.
@@ -188,6 +217,30 @@ export function getKeyMetrics(
 	keyIndex: number,
 ): KeyMetrics {
 	const healthKey = getHealthKey(envVarName, keyIndex);
+	const health = keyHealthMap.get(healthKey);
+
+	if (!health) {
+		return {
+			uptime: 100,
+			totalRequests: 0,
+			consecutiveErrors: 0,
+			permanentlyBlacklisted: false,
+		};
+	}
+
+	const now = Date.now();
+	pruneHistory(health, now);
+
+	return {
+		uptime: calculateUptime(health, now),
+		totalRequests: health.history.length,
+		consecutiveErrors: health.consecutiveErrors,
+		permanentlyBlacklisted: health.permanentlyBlacklisted,
+	};
+}
+
+export function getTrackedKeyMetrics(keyId: string): KeyMetrics {
+	const healthKey = getTrackedHealthKey(keyId);
 	const health = keyHealthMap.get(healthKey);
 
 	if (!health) {
@@ -252,6 +305,30 @@ export function reportKeySuccess(envVarName: string, keyIndex: number): void {
 	}
 
 	// Add success to history
+	health.history.push({ timestamp: now, success: true });
+	pruneHistory(health, now);
+}
+
+export function reportTrackedKeySuccess(keyId: string): void {
+	const healthKey = getTrackedHealthKey(keyId);
+	let health = keyHealthMap.get(healthKey);
+
+	const now = Date.now();
+
+	if (!health) {
+		health = {
+			consecutiveErrors: 0,
+			lastErrorTime: 0,
+			permanentlyBlacklisted: false,
+			history: [],
+		};
+		keyHealthMap.set(healthKey, health);
+	}
+
+	if (!health.permanentlyBlacklisted) {
+		health.consecutiveErrors = 0;
+	}
+
 	health.history.push({ timestamp: now, success: true });
 	pruneHistory(health, now);
 }
@@ -321,6 +398,60 @@ export function reportKeyError(
 	health.lastErrorTime = now;
 
 	// Add error to history
+	health.history.push({ timestamp: now, success: false });
+	pruneHistory(health, now);
+}
+
+export function reportTrackedKeyError(
+	keyId: string,
+	statusCode?: number,
+	errorText?: string,
+): void {
+	const healthKey = getTrackedHealthKey(keyId);
+	let health = keyHealthMap.get(healthKey);
+
+	const now = Date.now();
+
+	if (!health) {
+		health = {
+			consecutiveErrors: 0,
+			lastErrorTime: 0,
+			permanentlyBlacklisted: false,
+			history: [],
+		};
+		keyHealthMap.set(healthKey, health);
+	}
+
+	const isPermanentErrorMessage =
+		errorText !== undefined &&
+		PERMANENT_ERROR_MESSAGES.some((msg) => errorText.includes(msg));
+
+	if (
+		statusCode !== undefined &&
+		statusCode >= 400 &&
+		statusCode < 500 &&
+		!UPTIME_RELEVANT_4XX_CODES.has(statusCode) &&
+		!isPermanentErrorMessage
+	) {
+		return;
+	}
+
+	if (statusCode && PERMANENT_ERROR_CODES.includes(statusCode)) {
+		health.permanentlyBlacklisted = true;
+		health.history.push({ timestamp: now, success: false });
+		pruneHistory(health, now);
+		return;
+	}
+
+	if (isPermanentErrorMessage) {
+		health.permanentlyBlacklisted = true;
+		health.history.push({ timestamp: now, success: false });
+		pruneHistory(health, now);
+		return;
+	}
+
+	health.consecutiveErrors++;
+	health.lastErrorTime = now;
 	health.history.push({ timestamp: now, success: false });
 	pruneHistory(health, now);
 }

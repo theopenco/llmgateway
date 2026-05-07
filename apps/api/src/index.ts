@@ -21,7 +21,10 @@ import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
+import { publicChatSupport } from "./routes/public-chat-support.js";
+import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
+import { publicNewsletter } from "./routes/public-newsletter.js";
 import { referral } from "./routes/referral.js";
 import { stripeRoutes } from "./stripe.js";
 
@@ -222,6 +225,9 @@ app.route("/", referral);
 app.route("/internal", internalModels);
 
 app.route("/public/discounts", publicDiscounts);
+app.route("/public/contact", publicContact);
+app.route("/public/newsletter", publicNewsletter);
+app.route("/public/chat-support", publicChatSupport);
 
 app.doc("/json", config);
 

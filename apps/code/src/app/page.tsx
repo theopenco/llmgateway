@@ -1,210 +1,314 @@
-import { Code, Zap, Shield, Check } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 import Link from "next/link";
 
+import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
+import { Faq } from "@/components/Faq";
+import { Footer } from "@/components/Footer";
+import { Header } from "@/components/Header";
+import {
+	CodeCTATracker,
+	LandingPageTracker,
+} from "@/components/LandingTracker";
+import { PricingPlans } from "@/components/PricingPlans";
+import { ProductHuntIcon } from "@/components/ProductHuntIcon";
+import { SoulForgeBoost } from "@/components/SoulForgeBoost";
+import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
+import { getConfig } from "@/lib/config-server";
 
-const plans = [
+import { getDevPlanCreditsLimit } from "@llmgateway/shared";
+import {
+	AnthropicIcon,
+	OpenCodeIcon,
+	SoulForgeIcon,
+} from "@llmgateway/shared/components";
+
+const featuredTools = [
 	{
-		name: "Lite",
-		price: 29,
-		description: "For small dev tasks and getting started",
-		features: [
-			"Access to all LLM models",
-			"Claude, GPT-4, and more",
-			"Usage resets monthly",
-		],
-		tier: "lite",
+		name: "Claude Code",
+		icon: AnthropicIcon,
+		description:
+			"Two env vars and Claude Code routes through LLM Gateway. Use any model — Claude, GPT-5, Gemini, GLM — with a single ANTHROPIC_MODEL flip.",
+		setup: "ANTHROPIC_BASE_URL + AUTH_TOKEN",
 	},
 	{
-		name: "Pro",
-		price: 79,
-		description: "For advanced usage and daily development",
-		features: [
-			"Access to all LLM models",
-			"Claude, GPT-4, and more",
-			"Usage resets monthly",
-			"Best value for developers",
-		],
-		tier: "pro",
-		popular: true,
+		name: "OpenCode",
+		icon: OpenCodeIcon,
+		description:
+			"LLM Gateway is built into OpenCode. Run `opencode`, type `/connect`, paste your DevPass key. No env vars, no config files.",
+		setup: "/connect → LLM Gateway",
 	},
 	{
-		name: "Max",
-		price: 179,
-		description: "For ultra high usage and power users",
-		features: [
-			"Access to all LLM models",
-			"Claude, GPT-4, and more",
-			"Usage resets monthly",
-			"Perfect for heavy usage",
-		],
-		tier: "max",
+		name: "SoulForge",
+		icon: SoulForgeIcon,
+		description:
+			"Aggressive prompt caching cuts roughly 50% of tokens on multi-turn agent runs. Pair with DevPass to effectively double your monthly usage.",
+		setup: "/keys → paste your key",
+		highlight: "Saves ~50% tokens",
 	},
 ];
 
 export default function LandingPage() {
+	const config = getConfig();
+	const credits = {
+		lite: getDevPlanCreditsLimit("lite"),
+		pro: getDevPlanCreditsLimit("pro"),
+		max: getDevPlanCreditsLimit("max"),
+	};
+
 	return (
 		<div className="min-h-screen bg-background">
-			<header className="border-b">
-				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
-					<div className="flex items-center gap-2">
-						<Code className="h-6 w-6" />
-						<span className="font-semibold text-lg">LLM Gateway Code</span>
-					</div>
-					<div className="flex items-center gap-4">
-						<Button variant="ghost" asChild>
-							<Link href="/login">Sign in</Link>
-						</Button>
-						<Button asChild>
-							<Link href="/signup">Get Started</Link>
-						</Button>
-					</div>
-				</div>
-			</header>
+			<LandingPageTracker />
+			<Header />
 
 			<main>
-				<section className="py-20 px-4">
-					<div className="container mx-auto text-center max-w-4xl">
-						<h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
-							Dev Plans for
-							<span className="text-primary"> AI-Powered Coding</span>
-						</h1>
-						<p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-							Subscribe to a monthly plan for Claude Code, Cursor, Windsurf, and
-							other AI coding tools. Simple pricing, powerful models.
-						</p>
-						<div className="flex gap-4 justify-center">
-							<Link href="/signup">
-								<Button size="lg">Get Started</Button>
-							</Link>
-							<Button size="lg" variant="outline" asChild>
-								<Link href="#pricing">View Pricing</Link>
-							</Button>
-						</div>
-					</div>
-				</section>
-
-				<section className="py-16 px-4 bg-muted/50">
-					<div className="container mx-auto">
-						<div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-							<div className="text-center">
-								<div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-4">
-									<Zap className="h-6 w-6 text-primary" />
-								</div>
-								<h3 className="font-semibold mb-2">Monthly Usage</h3>
-								<p className="text-sm text-muted-foreground">
-									Get 3x your subscription price in usage every month,
-									automatically refreshed.
-								</p>
+				{/* Hero */}
+				<section className="relative overflow-hidden">
+					<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-muted/60 via-transparent to-transparent" />
+					<div className="container relative mx-auto px-4 pt-20 pb-16 sm:pt-28 sm:pb-20">
+						<div className="mx-auto max-w-3xl text-center">
+							<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/50 px-4 py-1.5 text-sm text-muted-foreground">
+								<Sparkles className="h-3.5 w-3.5" />
+								Built for Claude Code · OpenCode · SoulForge
 							</div>
-							<div className="text-center">
-								<div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-4">
-									<Code className="h-6 w-6 text-primary" />
-								</div>
-								<h3 className="font-semibold mb-2">All Models Included</h3>
-								<p className="text-sm text-muted-foreground">
-									Access Claude, GPT-4, Gemini, and more through a single API.
-								</p>
-							</div>
-							<div className="text-center">
-								<div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-4">
-									<Shield className="h-6 w-6 text-primary" />
-								</div>
-								<h3 className="font-semibold mb-2">Simple Billing</h3>
-								<p className="text-sm text-muted-foreground">
-									No surprises. Pay a fixed monthly price for predictable usage.
-								</p>
-							</div>
-						</div>
-					</div>
-				</section>
-
-				<section id="pricing" className="py-20 px-4">
-					<div className="container mx-auto">
-						<div className="text-center mb-12">
-							<h2 className="text-3xl font-bold mb-4">Choose Your Dev Plan</h2>
-							<p className="text-muted-foreground max-w-2xl mx-auto">
-								All plans include access to every model. Your usage resets at
-								the start of each billing cycle.
+							<h1 className="mb-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
+								One key. Every model.
+								<br />
+								<span className="text-muted-foreground">
+									Three flat prices.
+								</span>
+							</h1>
+							<p className="mx-auto mb-4 max-w-xl text-lg leading-relaxed text-muted-foreground">
+								DevPass turns every dollar you spend into{" "}
+								<span className="font-semibold text-foreground">$3</span> of
+								model usage at provider rates. Pair it with{" "}
+								<span className="font-semibold text-foreground">SoulForge</span>{" "}
+								and prompt caching pushes that to roughly{" "}
+								<span className="font-semibold text-foreground">$6</span>.
 							</p>
-						</div>
-						<div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-							{plans.map((plan) => (
-								<div
-									key={plan.tier}
-									className={`rounded-lg border p-6 ${
-										plan.popular
-											? "border-primary ring-2 ring-primary/20 relative"
-											: ""
-									}`}
-								>
-									{plan.popular && (
-										<div className="absolute -top-3 left-1/2 -translate-x-1/2">
-											<span className="bg-primary text-primary-foreground text-xs font-medium px-3 py-1 rounded-full">
-												Most Popular
-											</span>
-										</div>
-									)}
-									<div className="text-center mb-6">
-										<h3 className="font-semibold text-lg mb-1">{plan.name}</h3>
-										<p className="text-sm text-muted-foreground mb-4">
-											{plan.description}
-										</p>
-										<div className="flex items-baseline justify-center gap-1">
-											<span className="text-4xl font-bold">${plan.price}</span>
-											<span className="text-muted-foreground">/month</span>
-										</div>
-									</div>
-									<ul className="space-y-3 mb-6">
-										{plan.features.map((feature) => (
-											<li key={feature} className="flex items-center gap-2">
-												<Check className="h-4 w-4 text-primary flex-shrink-0" />
-												<span className="text-sm">{feature}</span>
-											</li>
-										))}
-									</ul>
-									<Button
-										className="w-full"
-										variant={plan.popular ? "default" : "outline"}
-										asChild
-									>
-										<Link href={`/signup?plan=${plan.tier}`} className="block">
-											Get Started
+							<p className="mx-auto mb-10 max-w-xl text-sm text-muted-foreground">
+								Works the same in Claude Code, OpenCode, SoulForge, Cline, and
+								every OpenAI-compatible tool — no SDK changes.
+							</p>
+							<div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+								<CodeCTATracker cta="start_coding" location="hero">
+									<Button size="lg" className="gap-2 px-8" asChild>
+										<Link href="/signup">
+											Get your DevPass
+											<ArrowRight className="h-4 w-4" />
 										</Link>
 									</Button>
+								</CodeCTATracker>
+								<CodeCTATracker cta="view_plans" location="hero">
+									<Button size="lg" variant="outline" asChild>
+										<Link href="/pricing">See pricing</Link>
+									</Button>
+								</CodeCTATracker>
+							</div>
+
+							<div className="mt-6 flex justify-center">
+								<a
+									href="https://www.producthunt.com/products/devpass-by-llm-gateway?launch=devpass-by-llm-gateway"
+									target="_blank"
+									rel="noreferrer"
+									className="inline-flex items-center gap-2.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-5 py-2.5 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-300"
+								>
+									<ProductHuntIcon className="h-6 w-6" />
+
+									<span>
+										We&apos;re live on Product Hunt. Help us by upvoting
+									</span>
+									<ArrowRight className="h-4 w-4" />
+								</a>
+							</div>
+						</div>
+
+						<TerminalPreview />
+					</div>
+				</section>
+
+				{/* Built for these tools */}
+				<section className="py-20 px-4">
+					<div className="container mx-auto max-w-6xl">
+						<div className="mb-14 max-w-2xl">
+							<p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+								Native fit
+							</p>
+							<h2 className="mb-3 text-3xl font-bold tracking-tight sm:text-4xl">
+								Drop-in for the agents you already use
+							</h2>
+							<p className="text-muted-foreground">
+								DevPass is built around how Claude Code, OpenCode, and SoulForge
+								actually work — not a generic OpenAI-compatible proxy you have
+								to glue together.
+							</p>
+						</div>
+						<div className="grid gap-5 md:grid-cols-3">
+							{featuredTools.map((tool) => {
+								const Icon = tool.icon;
+								return (
+									<div
+										key={tool.name}
+										className="relative flex flex-col rounded-2xl border bg-card p-6 transition-all hover:shadow-md"
+									>
+										<div className="mb-5 flex items-center justify-between">
+											<div className="flex h-11 w-11 items-center justify-center rounded-xl bg-foreground text-background">
+												<Icon className="h-5 w-5" />
+											</div>
+											{tool.highlight && (
+												<span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+													{tool.highlight}
+												</span>
+											)}
+										</div>
+										<h3 className="mb-2 text-lg font-semibold">{tool.name}</h3>
+										<p className="mb-5 flex-1 text-sm leading-relaxed text-muted-foreground">
+											{tool.description}
+										</p>
+										<div className="rounded-md border border-dashed bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+											{tool.setup}
+										</div>
+									</div>
+								);
+							})}
+						</div>
+						<div className="mt-8 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+							<span className="h-px w-12 bg-border" />
+							<span>
+								+ Cline, Cursor, Aider, Continue & any OpenAI-compatible tool
+							</span>
+							<span className="h-px w-12 bg-border" />
+						</div>
+					</div>
+				</section>
+
+				{/* SoulForge boost band */}
+				<SoulForgeBoost />
+
+				{/* Pricing */}
+				<section id="pricing" className="scroll-mt-16 py-20 px-4">
+					<div className="container mx-auto max-w-6xl">
+						<div className="mb-12 mx-auto max-w-2xl text-center">
+							<p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+								Pricing
+							</p>
+							<h2 className="mb-4 text-3xl font-bold tracking-tight sm:text-4xl">
+								What you pay vs. what you get
+							</h2>
+							<p className="text-muted-foreground">
+								Every plan includes the full 200+ model catalog. The only thing
+								that changes is the size of your monthly usage allowance.
+							</p>
+						</div>
+						<PricingPlans credits={credits} />
+						<div className="mt-8 text-center">
+							<Link
+								href="/pricing"
+								className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+							>
+								Compare every feature on the pricing page
+								<ArrowRight className="h-3.5 w-3.5" />
+							</Link>
+						</div>
+					</div>
+				</section>
+
+				{/* How it works */}
+				<section className="bg-muted/30 py-20 px-4">
+					<div className="container mx-auto max-w-3xl">
+						<div className="mb-14 text-center">
+							<h2 className="mb-3 text-3xl font-bold tracking-tight">
+								Up and running in minutes
+							</h2>
+						</div>
+						<div className="space-y-8">
+							{[
+								{
+									step: "01",
+									title: "Pick a plan",
+									description:
+										"Choose Lite, Pro, or Max. Your DevPass key works everywhere — no separate keys per tool.",
+								},
+								{
+									step: "02",
+									title: "Plug it into your agent",
+									description:
+										"Two env vars for Claude Code, /providers in OpenCode, /keys in SoulForge. No SDK changes, no code refactor.",
+								},
+								{
+									step: "03",
+									title: "Switch models freely",
+									description:
+										"Claude Opus 4.7 for architecture, GPT-5.5 for review, Gemini 3.1 Pro for fresh eyes — same key, no extra cost.",
+								},
+							].map((item) => (
+								<div key={item.step} className="flex gap-5">
+									<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-card font-mono text-xs font-semibold tabular-nums">
+										{item.step}
+									</div>
+									<div className="pt-1.5">
+										<h3 className="font-semibold">{item.title}</h3>
+										<p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+											{item.description}
+										</p>
+									</div>
 								</div>
 							))}
 						</div>
 					</div>
 				</section>
 
-				<section className="py-16 px-4 bg-muted/50">
-					<div className="container mx-auto text-center max-w-2xl">
-						<h2 className="text-2xl font-bold mb-4">
-							Ready to supercharge your coding?
+				{/* Models showcase */}
+				<section className="py-20 px-4">
+					<div className="container mx-auto max-w-6xl">
+						<div className="mb-10 max-w-2xl">
+							<p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+								The latest flagships
+							</p>
+							<h2 className="mb-3 text-3xl font-bold tracking-tight sm:text-4xl">
+								Every plan ships with the newest models
+							</h2>
+							<p className="text-muted-foreground">
+								Claude Opus 4.7, Gemini 3.1 Pro, GPT-5.5 Pro, plus the strongest
+								open-weight Chinese coders — included on every tier.
+							</p>
+						</div>
+						<CodingModelsShowcase uiUrl={config.uiUrl} />
+					</div>
+				</section>
+
+				{/* FAQ */}
+				<Faq />
+
+				{/* Final CTA */}
+				<section className="border-t py-20 px-4">
+					<div className="container mx-auto max-w-2xl text-center">
+						<h2 className="mb-4 text-3xl font-bold tracking-tight">
+							Stop watching your token balance
 						</h2>
-						<p className="text-muted-foreground mb-8">
-							Join thousands of developers using LLM Gateway for AI-assisted
-							development.
+						<p className="mb-8 text-muted-foreground">
+							Pick a plan, set two env vars, get back to building.
 						</p>
-						<Button size="lg" asChild>
-							<Link href="/signup">Get Started</Link>
-						</Button>
+						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+							<CodeCTATracker cta="get_started" location="bottom_cta">
+								<Button size="lg" className="gap-2 px-8" asChild>
+									<Link href="/signup">
+										Get your DevPass
+										<ArrowRight className="h-4 w-4" />
+									</Link>
+								</Button>
+							</CodeCTATracker>
+							<CodeCTATracker cta="browse_models" location="bottom_cta">
+								<Button size="lg" variant="ghost" asChild>
+									<Link href="/coding-models">Browse all models</Link>
+								</Button>
+							</CodeCTATracker>
+						</div>
 					</div>
 				</section>
 			</main>
 
-			<footer className="border-t py-8 px-4">
-				<div className="container mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-					<div className="flex items-center gap-2">
-						<Code className="h-5 w-5" />
-						<span className="font-medium">LLM Gateway Code</span>
-					</div>
-					<p className="text-sm text-muted-foreground">
-						&copy; {new Date().getFullYear()} LLM Gateway. All rights reserved.
-					</p>
-				</div>
-			</footer>
+			<Footer />
 		</div>
 	);
 }

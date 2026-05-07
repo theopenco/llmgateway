@@ -14,7 +14,7 @@ export default defineConfig({
 		environment: "node",
 		testTimeout: 30000, // Increased timeout for tests
 		hookTimeout: 20000, // Timeout for hooks
-		setupFiles: [],
+		setupFiles: ["./vitest/test-database-setup.ts"],
 		reporters: ["default"],
 		coverage: {
 			reporter: ["text", "json", "html"],

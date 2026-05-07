@@ -11,13 +11,15 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
+
+import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
 
 function AutoTopUpSettings() {
 	const { toast } = useToast();
@@ -33,15 +35,26 @@ function AutoTopUpSettings() {
 	const [enabled, setEnabled] = useState(false);
 	const [threshold, setThreshold] = useState(10);
 	const [amount, setAmount] = useState(10);
+	const isAmountValid =
+		Number.isInteger(amount) &&
+		amount >= 10 &&
+		amount <= CREDIT_TOP_UP_MAX_AMOUNT;
+
+	const defaultPaymentMethod = paymentMethods?.paymentMethods?.find(
+		(pm) => pm.isDefault,
+	);
 
 	const { data: feeData, isLoading: feeDataLoading } = api.useQuery(
 		"post",
 		"/payments/calculate-fees",
 		{
-			body: { amount },
+			body: {
+				amount,
+				paymentMethodId: defaultPaymentMethod?.id,
+			},
 		},
 		{
-			enabled: amount >= 5,
+			enabled: isAmountValid,
 		},
 	);
 
@@ -140,7 +153,7 @@ function AutoTopUpSettings() {
 							low
 						</p>
 					</div>
-					<Checkbox
+					<Switch
 						id="auto-topup-enabled"
 						checked={enabled}
 						onCheckedChange={(checked) => setEnabled(!!checked)}
@@ -185,17 +198,31 @@ function AutoTopUpSettings() {
 							id="amount"
 							type="number"
 							min={10}
+							max={CREDIT_TOP_UP_MAX_AMOUNT}
+							step={1}
 							value={amount}
 							onChange={(e) => setAmount(Number(e.target.value))}
 							disabled={!enabled}
 						/>
 						<p className="text-xs text-muted-foreground">
-							Minimum $10. Amount to add when auto top-up triggers.
+							Minimum $10. Maximum $
+							{CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}. Amount to add
+							when auto top-up triggers.
 						</p>
+						{amount > CREDIT_TOP_UP_MAX_AMOUNT ? (
+							<p className="text-xs text-destructive">
+								Maximum top-up amount is $
+								{CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}.
+							</p>
+						) : !Number.isInteger(amount) ? (
+							<p className="text-xs text-destructive">
+								Amount must be a whole dollar amount.
+							</p>
+						) : null}
 					</div>
 				</div>
 
-				{enabled && amount >= 10 && (
+				{enabled && isAmountValid && (
 					<div className="border rounded-lg p-4 bg-muted/50">
 						<p className="font-medium mb-2">Estimated Auto Top-up Fees</p>
 						{feeDataLoading ? (
@@ -215,6 +242,12 @@ function AutoTopUpSettings() {
 									<span>Platform fee (5%)</span>
 									<span>${feeData.platformFee.toFixed(2)}</span>
 								</div>
+								{feeData.internationalFee > 0 ? (
+									<div className="flex justify-between">
+										<span>International card fee (1.5%)</span>
+										<span>${feeData.internationalFee.toFixed(2)}</span>
+									</div>
+								) : null}
 								<div className="border-t pt-1 flex justify-between font-medium text-foreground">
 									<span>Estimated total</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>
@@ -231,6 +264,7 @@ function AutoTopUpSettings() {
 							Boolean(updateOrganization.isPending) ||
 							threshold < 5 ||
 							amount < 10 ||
+							amount > CREDIT_TOP_UP_MAX_AMOUNT ||
 							(enabled && feeDataLoading)
 						}
 					>

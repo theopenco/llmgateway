@@ -4,19 +4,31 @@ import { Suspense } from "react";
 
 import { ModelDetailClient } from "@/components/model-detail-client";
 import { Button } from "@/components/ui/button";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 export default async function ModelDetailPage({
 	params,
+	searchParams,
 }: {
 	params: Promise<{ modelId: string }>;
+	searchParams?: Promise<{ window?: string }>;
 }) {
+	await requireSession();
+
 	const { modelId } = await params;
+	const searchParamsData = await searchParams;
+	const window = searchParamsData?.window;
 	const decodedModelId = decodeURIComponent(modelId);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/models/{modelId}", {
-		params: { path: { modelId: encodeURIComponent(decodedModelId) } },
+		params: {
+			path: { modelId: encodeURIComponent(decodedModelId) },
+			query: {
+				...(window ? { window } : {}),
+			} as any,
+		},
 	});
 
 	if (!data) {

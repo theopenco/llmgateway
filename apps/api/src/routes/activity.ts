@@ -40,6 +40,7 @@ const dailyActivitySchema = z.object({
 	inputTokens: z.number(),
 	outputTokens: z.number(),
 	cachedTokens: z.number(),
+	cacheWriteTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
 	inputCost: z.number(),
@@ -48,7 +49,9 @@ const dailyActivitySchema = z.object({
 	dataStorageCost: z.number(),
 	imageInputCost: z.number(),
 	imageOutputCost: z.number(),
+	videoOutputCost: z.number(),
 	cachedInputCost: z.number(),
+	cacheWriteInputCost: z.number(),
 	errorCount: z.number(),
 	errorRate: z.number(),
 	cacheCount: z.number(),
@@ -78,6 +81,7 @@ const getActivity = createRoute({
 			to: z.string().optional(),
 			projectId: z.string().optional(),
 			apiKeyId: z.string().optional(),
+			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d"]).optional(),
 		}),
 	},
 	responses: {
@@ -86,10 +90,11 @@ const getActivity = createRoute({
 				"application/json": {
 					schema: z.object({
 						activity: z.array(dailyActivitySchema),
+						granularity: z.enum(["hourly", "daily"]).optional(),
 					}),
 				},
 			},
-			description: "Activity data grouped by day",
+			description: "Activity data grouped by day or hour",
 		},
 	},
 });
@@ -104,13 +109,40 @@ activity.openapi(getActivity, async (c) => {
 	}
 
 	// Get the query parameters
-	const { days, from, to, projectId, apiKeyId } = c.req.valid("query");
+	const { days, from, to, projectId, apiKeyId, timeRange } =
+		c.req.valid("query");
 
-	// Calculate the date range
+	// Calculate the date range and granularity
 	let startDate: Date;
 	let endDate: Date;
+	let granularity: "hourly" | "daily" = "daily";
 
-	if (from && to) {
+	if (timeRange) {
+		endDate = new Date();
+		startDate = new Date();
+		switch (timeRange) {
+			case "1h":
+				startDate.setHours(startDate.getHours() - 1);
+				granularity = "hourly";
+				break;
+			case "4h":
+				startDate.setHours(startDate.getHours() - 4);
+				granularity = "hourly";
+				break;
+			case "24h":
+				startDate.setHours(startDate.getHours() - 24);
+				granularity = "hourly";
+				break;
+			case "7d":
+				startDate.setDate(startDate.getDate() - 7);
+				granularity = "daily";
+				break;
+			case "30d":
+				startDate.setDate(startDate.getDate() - 30);
+				granularity = "daily";
+				break;
+		}
+	} else if (from && to) {
 		startDate = new Date(from + "T00:00:00");
 		endDate = new Date(to + "T23:59:59.999");
 	} else {
@@ -119,6 +151,9 @@ activity.openapi(getActivity, async (c) => {
 		startDate = new Date();
 		startDate.setDate(startDate.getDate() - effectiveDays);
 	}
+
+	// SQL expressions that change based on granularity
+	const isHourly = granularity === "hourly";
 
 	// Get all organizations the user is a member of
 	const organizationIds = await getUserOrganizationIds(user.id);
@@ -158,10 +193,14 @@ activity.openapi(getActivity, async (c) => {
 
 	// If filtering by apiKeyId, use the apiKeyHourlyStats aggregation table
 	if (apiKeyId) {
-		// Query daily aggregated data from apiKeyHourlyStats table
+		// Query aggregated data from apiKeyHourlyStats table
 		const hourlyAggregates = await db
 			.select({
-				date: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				date: isHourly
+					? sql<string>`to_char(${apiKeyHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
+							"date",
+						)
+					: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
 				requestCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 						"requestCount",
@@ -217,13 +256,25 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageOutputCost}), 0)`.as(
 						"imageOutputCost",
 					),
+				videoOutputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.videoOutputCost}), 0)`.as(
+						"videoOutputCost",
+					),
 				cachedTokens:
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.cachedTokens} AS NUMERIC)), 0)`.as(
 						"cachedTokens",
 					),
+				cacheWriteTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+						"cacheWriteTokens",
+					),
 				cachedInputCost:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cachedInputCost}), 0)`.as(
 						"cachedInputCost",
+					),
+				cacheWriteInputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheWriteInputCost}), 0)`.as(
+						"cacheWriteInputCost",
 					),
 				creditsRequestCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsRequestCount}), 0)`.as(
@@ -259,15 +310,27 @@ activity.openapi(getActivity, async (c) => {
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),
 			)
-			.groupBy(sql`DATE(${apiKeyHourlyStats.hourTimestamp})`)
-			.orderBy(sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC`);
+			.groupBy(
+				isHourly
+					? sql`${apiKeyHourlyStats.hourTimestamp}`
+					: sql`DATE(${apiKeyHourlyStats.hourTimestamp})`,
+			)
+			.orderBy(
+				isHourly
+					? sql`${apiKeyHourlyStats.hourTimestamp} ASC`
+					: sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC`,
+			);
 
 		// Query model breakdown from apiKeyHourlyModelStats table
 		const modelBreakdowns = await db
 			.select({
-				date: sql<string>`DATE(${apiKeyHourlyModelStats.hourTimestamp})`.as(
-					"date",
-				),
+				date: isHourly
+					? sql<string>`to_char(${apiKeyHourlyModelStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
+							"date",
+						)
+					: sql<string>`DATE(${apiKeyHourlyModelStats.hourTimestamp})`.as(
+							"date",
+						),
 				usedModel: apiKeyHourlyModelStats.usedModel,
 				usedProvider: apiKeyHourlyModelStats.usedProvider,
 				requestCount:
@@ -300,10 +363,14 @@ activity.openapi(getActivity, async (c) => {
 				),
 			)
 			.groupBy(
-				sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}), ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
+				isHourly
+					? sql`${apiKeyHourlyModelStats.hourTimestamp}, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`
+					: sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}), ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
 			)
 			.orderBy(
-				sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}) ASC, ${apiKeyHourlyModelStats.usedModel} ASC`,
+				isHourly
+					? sql`${apiKeyHourlyModelStats.hourTimestamp} ASC, ${apiKeyHourlyModelStats.usedModel} ASC`
+					: sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}) ASC, ${apiKeyHourlyModelStats.usedModel} ASC`,
 			);
 
 		const modelBreakdownByDate = new Map<
@@ -331,6 +398,7 @@ activity.openapi(getActivity, async (c) => {
 			const inputTokens = Number(day.inputTokens);
 			const outputTokens = Number(day.outputTokens);
 			const cachedTokens = Number(day.cachedTokens);
+			const cacheWriteTokens = Number(day.cacheWriteTokens);
 			const totalTokens = Number(day.totalTokens);
 			const cost = Number(day.cost);
 			const inputCost = Number(day.inputCost);
@@ -342,7 +410,9 @@ activity.openapi(getActivity, async (c) => {
 			const discountSavings = Number(day.discountSavings);
 			const imageInputCost = Number(day.imageInputCost);
 			const imageOutputCost = Number(day.imageOutputCost);
+			const videoOutputCost = Number(day.videoOutputCost);
 			const cachedInputCost = Number(day.cachedInputCost);
+			const cacheWriteInputCost = Number(day.cacheWriteInputCost);
 
 			const creditsRequestCount = Number(day.creditsRequestCount);
 			const apiKeysRequestCount = Number(day.apiKeysRequestCount);
@@ -362,6 +432,7 @@ activity.openapi(getActivity, async (c) => {
 				inputTokens,
 				outputTokens,
 				cachedTokens,
+				cacheWriteTokens,
 				totalTokens,
 				cost,
 				inputCost,
@@ -370,7 +441,9 @@ activity.openapi(getActivity, async (c) => {
 				dataStorageCost,
 				imageInputCost,
 				imageOutputCost,
+				videoOutputCost,
 				cachedInputCost,
+				cacheWriteInputCost,
 				errorCount,
 				errorRate,
 				cacheCount,
@@ -388,14 +461,19 @@ activity.openapi(getActivity, async (c) => {
 
 		return c.json({
 			activity: activityData,
+			...(timeRange ? { granularity } : {}),
 		});
 	}
 
 	// Use aggregation tables for fast queries (when not filtering by apiKeyId)
-	// Query hourly aggregated data from projectHourlyStats table
+	// Query aggregated data from projectHourlyStats table
 	const hourlyAggregates = await db
 		.select({
-			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			date: isHourly
+				? sql<string>`to_char(${projectHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
+						"date",
+					)
+				: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
 			requestCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 					"requestCount",
@@ -411,6 +489,10 @@ activity.openapi(getActivity, async (c) => {
 			cachedTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cachedTokens} AS NUMERIC)), 0)`.as(
 					"cachedTokens",
+				),
+			cacheWriteTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+					"cacheWriteTokens",
 				),
 			totalTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
@@ -443,9 +525,17 @@ activity.openapi(getActivity, async (c) => {
 				sql<number>`COALESCE(SUM(${projectHourlyStats.imageOutputCost}), 0)`.as(
 					"imageOutputCost",
 				),
+			videoOutputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.videoOutputCost}), 0)`.as(
+					"videoOutputCost",
+				),
 			cachedInputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
 					"cachedInputCost",
+				),
+			cacheWriteInputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+					"cacheWriteInputCost",
 				),
 			errorCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.errorCount}), 0)`.as(
@@ -492,15 +582,27 @@ activity.openapi(getActivity, async (c) => {
 				lte(projectHourlyStats.hourTimestamp, endDate),
 			),
 		)
-		.groupBy(sql`DATE(${projectHourlyStats.hourTimestamp})`)
-		.orderBy(sql`DATE(${projectHourlyStats.hourTimestamp}) ASC`);
+		.groupBy(
+			isHourly
+				? sql`${projectHourlyStats.hourTimestamp}`
+				: sql`DATE(${projectHourlyStats.hourTimestamp})`,
+		)
+		.orderBy(
+			isHourly
+				? sql`${projectHourlyStats.hourTimestamp} ASC`
+				: sql`DATE(${projectHourlyStats.hourTimestamp}) ASC`,
+		);
 
 	// Query model breakdown from projectHourlyModelStats table
 	const modelBreakdowns = await db
 		.select({
-			date: sql<string>`DATE(${projectHourlyModelStats.hourTimestamp})`.as(
-				"date",
-			),
+			date: isHourly
+				? sql<string>`to_char(${projectHourlyModelStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
+						"date",
+					)
+				: sql<string>`DATE(${projectHourlyModelStats.hourTimestamp})`.as(
+						"date",
+					),
 			usedModel: projectHourlyModelStats.usedModel,
 			usedProvider: projectHourlyModelStats.usedProvider,
 			requestCount:
@@ -532,10 +634,14 @@ activity.openapi(getActivity, async (c) => {
 			),
 		)
 		.groupBy(
-			sql`DATE(${projectHourlyModelStats.hourTimestamp}), ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`,
+			isHourly
+				? sql`${projectHourlyModelStats.hourTimestamp}, ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`
+				: sql`DATE(${projectHourlyModelStats.hourTimestamp}), ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`,
 		)
 		.orderBy(
-			sql`DATE(${projectHourlyModelStats.hourTimestamp}) ASC, ${projectHourlyModelStats.usedModel} ASC`,
+			isHourly
+				? sql`${projectHourlyModelStats.hourTimestamp} ASC, ${projectHourlyModelStats.usedModel} ASC`
+				: sql`DATE(${projectHourlyModelStats.hourTimestamp}) ASC, ${projectHourlyModelStats.usedModel} ASC`,
 		);
 
 	// Create a map to organize model breakdowns by date
@@ -565,6 +671,7 @@ activity.openapi(getActivity, async (c) => {
 		const inputTokens = Number(day.inputTokens);
 		const outputTokens = Number(day.outputTokens);
 		const cachedTokens = Number(day.cachedTokens);
+		const cacheWriteTokens = Number(day.cacheWriteTokens);
 		const totalTokens = Number(day.totalTokens);
 		const cost = Number(day.cost);
 		const inputCost = Number(day.inputCost);
@@ -573,7 +680,9 @@ activity.openapi(getActivity, async (c) => {
 		const dataStorageCost = Number(day.dataStorageCost);
 		const imageInputCost = Number(day.imageInputCost);
 		const imageOutputCost = Number(day.imageOutputCost);
+		const videoOutputCost = Number(day.videoOutputCost);
 		const cachedInputCost = Number(day.cachedInputCost);
+		const cacheWriteInputCost = Number(day.cacheWriteInputCost);
 		const errorCount = Number(day.errorCount);
 		const cacheCount = Number(day.cacheCount);
 		const discountSavings = Number(day.discountSavings);
@@ -594,6 +703,7 @@ activity.openapi(getActivity, async (c) => {
 			inputTokens,
 			outputTokens,
 			cachedTokens,
+			cacheWriteTokens,
 			totalTokens,
 			cost,
 			inputCost,
@@ -602,7 +712,9 @@ activity.openapi(getActivity, async (c) => {
 			dataStorageCost,
 			imageInputCost,
 			imageOutputCost,
+			videoOutputCost,
 			cachedInputCost,
+			cacheWriteInputCost,
 			errorCount,
 			errorRate,
 			cacheCount,
@@ -620,5 +732,6 @@ activity.openapi(getActivity, async (c) => {
 
 	return c.json({
 		activity: activityData,
+		...(timeRange ? { granularity } : {}),
 	});
 });

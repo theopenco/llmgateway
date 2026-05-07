@@ -234,4 +234,31 @@ describe("transformOpenaiStreaming", () => {
 
 		expect(result.usage).toBeNull();
 	});
+
+	test("should normalize MiniMax reasoning_details to reasoning", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "MiniMax-M2",
+			choices: [
+				{
+					index: 0,
+					delta: {
+						role: "assistant",
+						reasoning_details: [{ text: "step 1" }, { text: " step 2" }],
+					},
+				},
+			],
+			usage: null,
+		};
+
+		const result = transformOpenaiStreaming(input, "MiniMax-M2");
+
+		expect(result.choices[0].delta).toHaveProperty(
+			"reasoning",
+			"step 1 step 2",
+		);
+		expect(result.choices[0].delta).not.toHaveProperty("reasoning_details");
+	});
 });

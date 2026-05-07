@@ -26,6 +26,10 @@ export const relations = defineRelations(schema, (r) => ({
 		userOrganizations: r.many.userOrganization(),
 		projects: r.many.project(),
 		providerKeys: r.many.providerKey(),
+		videoJobs: r.many.videoJob({
+			from: r.organization.id,
+			to: r.videoJob.organizationId,
+		}),
 		referralsGiven: r.many.referral({
 			from: r.organization.id,
 			to: r.referral.referrerOrganizationId,
@@ -50,9 +54,17 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.discount.organizationId,
 		}),
+		rateLimits: r.many.rateLimit({
+			from: r.organization.id,
+			to: r.rateLimit.organizationId,
+		}),
 		followUpEmails: r.many.followUpEmail({
 			from: r.organization.id,
 			to: r.followUpEmail.organizationId,
+		}),
+		paymentFailures: r.many.paymentFailure({
+			from: r.organization.id,
+			to: r.paymentFailure.organizationId,
 		}),
 	},
 	referral: {
@@ -82,6 +94,10 @@ export const relations = defineRelations(schema, (r) => ({
 		}),
 		apiKeys: r.many.apiKey(),
 		logs: r.many.log(),
+		videoJobs: r.many.videoJob({
+			from: r.project.id,
+			to: r.videoJob.projectId,
+		}),
 	},
 	apiKey: {
 		project: r.one.project({
@@ -89,6 +105,10 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.project.id,
 		}),
 		logs: r.many.log(),
+		videoJobs: r.many.videoJob({
+			from: r.apiKey.id,
+			to: r.videoJob.apiKeyId,
+		}),
 		iamRules: r.many.apiKeyIamRule(),
 		creator: r.one.user({
 			from: r.apiKey.createdBy,
@@ -115,6 +135,30 @@ export const relations = defineRelations(schema, (r) => ({
 		apiKey: r.one.apiKey({
 			from: r.log.apiKeyId,
 			to: r.apiKey.id,
+		}),
+	},
+	videoJob: {
+		organization: r.one.organization({
+			from: r.videoJob.organizationId,
+			to: r.organization.id,
+		}),
+		project: r.one.project({
+			from: r.videoJob.projectId,
+			to: r.project.id,
+		}),
+		apiKey: r.one.apiKey({
+			from: r.videoJob.apiKeyId,
+			to: r.apiKey.id,
+		}),
+		webhookDeliveryLogs: r.many.webhookDeliveryLog({
+			from: r.videoJob.id,
+			to: r.webhookDeliveryLog.videoJobId,
+		}),
+	},
+	webhookDeliveryLog: {
+		videoJob: r.one.videoJob({
+			from: r.webhookDeliveryLog.videoJobId,
+			to: r.videoJob.id,
 		}),
 	},
 	passkey: {
@@ -195,9 +239,21 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.organization.id,
 		}),
 	},
+	rateLimit: {
+		organization: r.one.organization({
+			from: r.rateLimit.organizationId,
+			to: r.organization.id,
+		}),
+	},
 	followUpEmail: {
 		organization: r.one.organization({
 			from: r.followUpEmail.organizationId,
+			to: r.organization.id,
+		}),
+	},
+	paymentFailure: {
+		organization: r.one.organization({
+			from: r.paymentFailure.organizationId,
 			to: r.organization.id,
 		}),
 	},

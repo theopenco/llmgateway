@@ -1,15 +1,17 @@
 import "dotenv/config";
 import { describe, expect, it } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables, type ProviderKeyOptions } from "@llmgateway/db";
 import {
 	type ModelDefinition,
+	getProviderDefinition,
 	getProviderEnvVar,
 	models,
 	type ProviderModelMapping,
 	providers,
 	getConcurrentTestOptions,
 	getTestOptions,
+	expandAllProviderRegions,
 } from "@llmgateway/models";
 
 import {
@@ -28,10 +30,66 @@ export const fullMode = process.env.FULL_MODE;
 export const logMode = process.env.LOG_MODE;
 
 // Parse TEST_MODELS environment variable
+// Supports optional region filter: "alibaba/deepseek-v3.2:cn-beijing"
 export const testModelsEnv = process.env.TEST_MODELS;
 export const specifiedModels = testModelsEnv
 	? testModelsEnv.split(",").map((m) => m.trim())
 	: null;
+
+interface ParsedTestModel {
+	providerId: string;
+	modelId: string;
+	region?: string;
+}
+
+function parseTestModel(spec: string): ParsedTestModel {
+	const [providerModel, region] = spec.split(":");
+	const [providerId, ...modelParts] = providerModel.split("/");
+	return {
+		providerId,
+		modelId: modelParts.join("/"),
+		region,
+	};
+}
+
+const parsedTestModels = specifiedModels?.map(parseTestModel) ?? null;
+
+/**
+ * Check if a provider/model/region matches any TEST_MODELS entry.
+ * "alibaba/model" matches all regions. "alibaba/model:cn-beijing" matches only that region.
+ */
+export function matchesTestModel(
+	providerId: string,
+	modelId: string,
+	region?: string,
+): boolean {
+	if (!parsedTestModels) {
+		return false;
+	}
+	return parsedTestModels.some(
+		(t) =>
+			t.providerId === providerId &&
+			t.modelId === modelId &&
+			(t.region === undefined || t.region === region),
+	);
+}
+
+/**
+ * Check if a model (any provider) matches any TEST_MODELS entry.
+ */
+function modelMatchesAnyTestModel(
+	modelId: string,
+	providers: ProviderModelMapping[],
+): boolean {
+	if (!parsedTestModels) {
+		return false;
+	}
+	// Expand regions so "alibaba/model:cn-beijing" matches a nested region entry
+	const expanded = expandAllProviderRegions(providers);
+	return expanded.some((p) =>
+		matchesTestModel(p.providerId, modelId, p.region),
+	);
+}
 
 // Parse TEST_PROVIDERS environment variable (filter by provider name)
 export const testProvidersEnv = process.env.TEST_PROVIDERS;
@@ -44,6 +102,23 @@ if (specifiedModels) {
 }
 if (specifiedProviders) {
 	console.log(`TEST_PROVIDERS specified: ${specifiedProviders.join(", ")}`);
+}
+
+function hasAllRequiredProviderEnvVars(providerId: string): boolean {
+	const def = getProviderDefinition(providerId);
+	if (!def) {
+		return false;
+	}
+	const required = def.env.required as Record<string, string | undefined>;
+	for (const envVarName of Object.values(required)) {
+		if (!envVarName) {
+			continue;
+		}
+		if (!process.env[envVarName]) {
+			return false;
+		}
+	}
+	return true;
 }
 
 // Filter models based on test skip/only property
@@ -68,6 +143,11 @@ if (hasOnlyModels) {
 export const filteredModels = models
 	// Filter out auto/custom models
 	.filter((model) => !["custom", "auto"].includes(model.id))
+	// Filter out video-only models (they use the /v1/videos endpoint, not chat completions)
+	.filter((model) => {
+		const output = (model as ModelDefinition).output;
+		return !output || !output.includes("video") || output.includes("text");
+	})
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {
@@ -104,11 +184,9 @@ export const filteredModels = models
 			}
 		}
 		if (specifiedModels) {
-			const modelInTestModels = model.providers.some(
-				(provider: ProviderModelMapping) => {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					return specifiedModels.includes(providerModelId);
-				},
+			const modelInTestModels = modelMatchesAnyTestModel(
+				model.id,
+				model.providers as ProviderModelMapping[],
 			);
 			if (modelInTestModels) {
 				return true;
@@ -148,11 +226,9 @@ export const filteredModels = models
 			}
 		}
 		if (specifiedModels) {
-			const modelInTestModels = model.providers.some(
-				(provider: ProviderModelMapping) => {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					return specifiedModels.includes(providerModelId);
-				},
+			const modelInTestModels = modelMatchesAnyTestModel(
+				model.id,
+				model.providers as ProviderModelMapping[],
 			);
 			if (modelInTestModels) {
 				return true;
@@ -166,12 +242,14 @@ export const filteredModels = models
 		if (!specifiedModels && !specifiedProviders) {
 			return true;
 		}
-		return model.providers.some((provider: ProviderModelMapping) => {
+		const expanded = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		return expanded.some((provider: ProviderModelMapping) => {
 			if (specifiedProviders) {
 				return specifiedProviders.includes(provider.providerId);
 			}
-			const providerModelId = `${provider.providerId}/${model.id}`;
-			return specifiedModels!.includes(providerModelId);
+			return matchesTestModel(provider.providerId, model.id, provider.region);
 		});
 	});
 
@@ -192,14 +270,18 @@ export const testModels = filteredModels
 			// test root model without a specific provider
 			testCases.push({
 				model: model.id,
-				providers: model.providers.filter(
-					(provider: ProviderModelMapping) => provider.test !== "skip",
-				),
+				providers: expandAllProviderRegions(
+					model.providers as ProviderModelMapping[],
+				).filter((provider: ProviderModelMapping) => provider.test !== "skip"),
 			});
 		}
 
 		// Create entries for provider-specific requests using provider/model format
-		for (const provider of model.providers as ProviderModelMapping[]) {
+		// Expand regions so each provider:region combo becomes a separate test case
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
 			// Skip deactivated provider mappings
 			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
 				continue;
@@ -217,8 +299,9 @@ export const testModels = filteredModels
 						continue;
 					}
 				} else {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					if (!specifiedModels!.includes(providerModelId)) {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
 						continue;
 					}
 				}
@@ -226,6 +309,14 @@ export const testModels = filteredModels
 			} else {
 				// Skip providers marked with test: "skip" (only when TEST_MODELS/TEST_PROVIDERS is not specified)
 				if (provider.test === "skip") {
+					continue;
+				}
+
+				// Skip providers whose required env vars aren't set (no creds to hit them)
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
 					continue;
 				}
 			}
@@ -243,8 +334,9 @@ export const testModels = filteredModels
 							continue;
 						}
 					} else if (specifiedModels) {
-						const providerModelId = `${provider.providerId}/${model.id}`;
-						if (!specifiedModels.includes(providerModelId)) {
+						if (
+							!matchesTestModel(provider.providerId, model.id, provider.region)
+						) {
 							continue;
 						}
 					} else {
@@ -259,7 +351,7 @@ export const testModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${model.id}`,
+				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
 				providers: [provider],
 				originalModel: model.id, // Keep track of the original model for reference
 			});
@@ -281,7 +373,11 @@ export const providerModels = filteredModels
 	.flatMap((model) => {
 		const testCases = [];
 
-		for (const provider of model.providers as ProviderModelMapping[]) {
+		// Expand regions so each provider:region combo becomes a separate test case
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
 			// Skip deactivated provider mappings
 			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
 				continue;
@@ -299,8 +395,9 @@ export const providerModels = filteredModels
 						continue;
 					}
 				} else {
-					const providerModelId = `${provider.providerId}/${model.id}`;
-					if (!specifiedModels!.includes(providerModelId)) {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
 						continue;
 					}
 				}
@@ -308,6 +405,14 @@ export const providerModels = filteredModels
 			} else {
 				// Skip providers marked with test: "skip" (only when TEST_MODELS/TEST_PROVIDERS is not specified)
 				if (provider.test === "skip") {
+					continue;
+				}
+
+				// Skip providers whose required env vars aren't set (no creds to hit them)
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
 					continue;
 				}
 
@@ -330,7 +435,7 @@ export const providerModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${model.id}`,
+				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
 				provider,
 				originalModel: model.id, // Keep track of the original model for reference
 			});
@@ -453,6 +558,8 @@ export async function createProviderKey(
 	provider: string,
 	token: string,
 	keyType: "api-keys" | "credits" = "api-keys",
+	baseUrl?: string,
+	options?: ProviderKeyOptions,
 ) {
 	const keyId =
 		keyType === "credits" ? `env-${provider}` : `provider-key-${provider}`;
@@ -463,8 +570,17 @@ export async function createProviderKey(
 			token,
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId: "org-id",
+			baseUrl,
+			options,
 		})
-		.onConflictDoNothing();
+		.onConflictDoUpdate({
+			target: tables.providerKey.id,
+			set: {
+				token,
+				baseUrl,
+				options,
+			},
+		});
 }
 
 export function validateResponse(json: any) {
@@ -559,11 +675,51 @@ export async function beforeAllHook() {
 	for (const provider of providers) {
 		const envVarName = getProviderEnvVar(provider.id);
 		const envVarValue = envVarName ? process.env[envVarName] : undefined;
+		const baseUrlEnvName = (
+			provider.env.required as Record<string, string | undefined>
+		).baseUrl;
+		const baseUrlValue = baseUrlEnvName
+			? process.env[baseUrlEnvName]
+			: undefined;
+		const providerOptions = providerEnvOptionsForTests(provider.id);
 		if (envVarValue) {
-			await createProviderKey(provider.id, envVarValue, "api-keys");
-			await createProviderKey(provider.id, envVarValue, "credits");
+			await createProviderKey(
+				provider.id,
+				envVarValue,
+				"api-keys",
+				baseUrlValue,
+				providerOptions,
+			);
+			await createProviderKey(
+				provider.id,
+				envVarValue,
+				"credits",
+				baseUrlValue,
+				providerOptions,
+			);
 		}
 	}
+}
+
+function providerEnvOptionsForTests(
+	providerId: string,
+): ProviderKeyOptions | undefined {
+	if (providerId === "azure" && process.env.LLM_AZURE_RESOURCE) {
+		return { azure_resource: process.env.LLM_AZURE_RESOURCE };
+	}
+	if (providerId === "azure-ai-foundry") {
+		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
+		const apiVersion = process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
+		const opts: ProviderKeyOptions = {};
+		if (resource) {
+			opts.azure_ai_foundry_resource = resource;
+		}
+		if (apiVersion) {
+			opts.azure_ai_foundry_api_version = apiVersion;
+		}
+		return Object.keys(opts).length > 0 ? opts : undefined;
+	}
+	return undefined;
 }
 
 export async function beforeEachHook() {

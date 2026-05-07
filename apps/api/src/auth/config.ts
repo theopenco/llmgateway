@@ -11,7 +11,7 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getResendClient } from "@llmgateway/shared/email";
+import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 
 const apiUrl = process.env.API_URL ?? "http://localhost:4002";
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
@@ -364,6 +364,7 @@ async function createResendContact(
 		});
 
 		const { data, error } = await client.contacts.create({
+			audienceId: resendAudienceId,
 			email,
 			firstName: firstName ?? undefined,
 			lastName: lastName ?? undefined,
@@ -385,6 +386,37 @@ async function createResendContact(
 			email,
 			name,
 			attributes,
+		});
+	}
+}
+
+export async function deleteResendContact(email: string): Promise<void> {
+	const client = getResendClient();
+
+	if (!client) {
+		logger.debug("RESEND_API_KEY not configured, skipping contact deletion");
+		return;
+	}
+
+	try {
+		const { error } = await client.contacts.remove({
+			audienceId: resendAudienceId,
+			email,
+		});
+
+		if (error) {
+			logger.warn("Resend API error during contact deletion", {
+				email,
+				errorMessage: error.message,
+			});
+			return;
+		}
+
+		logger.info("Successfully deleted Resend contact", { email });
+	} catch (error) {
+		logger.error("Failed to delete Resend contact", {
+			...(error instanceof Error ? { err: error } : { error }),
+			email,
 		});
 	}
 }
@@ -423,6 +455,7 @@ export async function updateResendContact(
 		});
 
 		const { data, error } = await client.contacts.update({
+			audienceId: resendAudienceId,
 			email,
 			...(firstName && { firstName }),
 			...(lastName && { lastName }),
@@ -486,6 +519,56 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			],
 			emailAndPassword: {
 				enabled: true,
+				sendResetPassword: async ({
+					user,
+					url,
+				}: {
+					user: { email: string; name?: string | null };
+					url: string;
+					token: string;
+				}) => {
+					const text = `Hey${user.name ? ` ${user.name}` : ""},
+
+We received a request to reset the password for your LLM Gateway account.
+
+Click the link below to set a new password — it expires in 1 hour:
+
+${url}
+
+If you didn't request this, you can safely ignore this email. Your password won't change.
+
+— The LLM Gateway Team`.trim();
+
+					if (process.env.NODE_ENV !== "production") {
+						const redactedUrl = url.replace(
+							/\/reset-password\/[^/?#]+/,
+							"/reset-password/<redacted-token>",
+						);
+						logger.info("Password reset link generated (dev only)", {
+							email: user.email,
+							redactedUrl,
+						});
+					}
+
+					try {
+						await sendTransactionalEmail({
+							to: user.email,
+							subject: "Reset your LLM Gateway password",
+							text,
+							strict: true,
+							logSafe: true,
+						});
+					} catch (error) {
+						logger.error(
+							"Failed to send password reset email",
+							error instanceof Error ? error : new Error(String(error)),
+							{ email: user.email },
+						);
+						throw new Error(
+							"Failed to send password reset email. Please try again.",
+						);
+					}
+				},
 			},
 			baseURL: apiUrl || "http://localhost:4002",
 			secret: process.env.AUTH_SECRET ?? "dev-secret-key-must-be-32-chars!",
@@ -549,7 +632,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 							user: { email: string; name?: string | null };
 							token: string;
 						}) => {
-							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${uiUrl}/dashboard?emailVerified=true`;
+							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(`${uiUrl}/dashboard?emailVerified=true`)}`;
 
 							const text = `Hey${user.name ? ` ${user.name}` : ""}!
 
@@ -591,6 +674,30 @@ The LLM Gateway Team`.trim();
 					},
 			hooks: {
 				before: createAuthMiddleware(async (ctx) => {
+					if (ctx.path.startsWith("/sign-in")) {
+						const body = ctx.body as { email?: string } | undefined;
+						const email = body?.email?.trim().toLowerCase();
+						if (email) {
+							const existingUser = await db.query.user.findFirst({
+								where: { email: { eq: email } },
+								columns: { status: true },
+							});
+							if (existingUser?.status === "deactivated") {
+								return new Response(
+									JSON.stringify({
+										error: "account_deactivated",
+										message:
+											"Your account has been deactivated. Please contact support.",
+									}),
+									{
+										status: 403,
+										headers: { "Content-Type": "application/json" },
+									},
+								);
+							}
+						}
+					}
+
 					// Check and record rate limit for ALL signup attempts (skip in development)
 					if (
 						ctx.path.startsWith("/sign-up") &&
@@ -690,6 +797,27 @@ The LLM Gateway Team`.trim();
 					}
 
 					const userId = newSession.user.id;
+
+					const dbUser = await db.query.user.findFirst({
+						where: { id: { eq: userId } },
+						columns: { status: true },
+					});
+					if (dbUser?.status === "deactivated") {
+						await db
+							.delete(tables.session)
+							.where(eq(tables.session.userId, userId));
+						return new Response(
+							JSON.stringify({
+								error: "account_deactivated",
+								message:
+									"Your account has been deactivated. Please contact support.",
+							}),
+							{
+								status: 403,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
 
 					// Check if the user already has any active organizations
 					const userOrganizations = await db.query.userOrganization.findMany({
@@ -822,6 +950,9 @@ The LLM Gateway Team`.trim();
 							);
 						}
 					}
+
+					// eslint-disable-next-line no-useless-return
+					return;
 				}),
 			},
 		}),

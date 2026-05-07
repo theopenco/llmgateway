@@ -11,8 +11,11 @@ import {
 	desc,
 	eq,
 	errorDetails,
+	gatewayContentFilterResponseSchema,
+	getTableColumns,
 	gt,
 	gte,
+	type InferSelectModel,
 	inArray,
 	lt,
 	lte,
@@ -23,10 +26,64 @@ import {
 	toolResults,
 	tools,
 } from "@llmgateway/db";
+import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const logs = new OpenAPIHono<ServerTypes>();
+
+type LogRecord = InferSelectModel<typeof tables.log>;
+
+const logSelection = {
+	...getTableColumns(tables.log),
+	organizationName: tables.organization.name,
+	projectName: tables.project.name,
+	apiKeyName: tables.apiKey.description,
+};
+
+async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
+	logEntries: T[],
+): Promise<T[]> {
+	const hasVideoLogState = (log: T) =>
+		log.videoOutputCost !== null ||
+		log.videoDownloadCount > 0 ||
+		log.lastVideoDownloadedAt !== null;
+
+	return logEntries.map((log) =>
+		hasVideoLogState(log) &&
+		(log.content !== null || (log.videoOutputCost ?? 0) > 0)
+			? { ...log, content: buildSignedGatewayVideoLogContentUrl(log.id) }
+			: log,
+	);
+}
+
+const BASE64_INPUT_PLACEHOLDER = "[base64_image_input_redacted]";
+
+function scrubMessagesBase64(messages: unknown): unknown {
+	if (messages === null || messages === undefined) {
+		return messages;
+	}
+	if (typeof messages === "string") {
+		if (
+			messages.length > 1000 &&
+			(messages.includes(";base64,") || /[A-Za-z0-9+/=]{800,}/.test(messages))
+		) {
+			return BASE64_INPUT_PLACEHOLDER;
+		}
+		return messages;
+	}
+	if (Array.isArray(messages)) {
+		return messages.map((item) => scrubMessagesBase64(item));
+	}
+	if (typeof messages === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(messages)) {
+			out[key] = scrubMessagesBase64(value);
+		}
+		return out;
+	}
+	return messages;
+}
 
 // Use the log schema directly from the database
 // Using z.object directly instead of createSelectSchema due to compatibility issues
@@ -36,8 +93,11 @@ const logSchema = z.object({
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	organizationId: z.string(),
+	organizationName: z.string().nullable().optional(),
 	projectId: z.string(),
+	projectName: z.string().nullable().optional(),
 	apiKeyId: z.string(),
+	apiKeyName: z.string().nullable().optional(),
 	duration: z.number(),
 	requestedModel: z.string(),
 	requestedProvider: z.string().nullable(),
@@ -52,6 +112,7 @@ const logSchema = z.object({
 	completionTokens: z.string().nullable(),
 	totalTokens: z.string().nullable(),
 	reasoningTokens: z.string().nullable(),
+	cacheWriteTokens: z.string().nullable().optional(),
 	messages: z.any(),
 	temperature: z.number().nullable(),
 	maxTokens: z.number().nullable(),
@@ -70,10 +131,16 @@ const logSchema = z.object({
 	inputCost: z.number().nullable(),
 	outputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
+	cachedInputCost: z.number().nullable().optional(),
+	cacheWriteInputCost: z.number().nullable().optional(),
+	webSearchCost: z.number().nullable().optional(),
 	imageInputTokens: z.string().nullable(),
 	imageOutputTokens: z.string().nullable(),
 	imageInputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
+	videoOutputCost: z.number().nullable(),
+	videoDownloadCount: z.number().nullable(),
+	lastVideoDownloadedAt: z.date().nullable(),
 	estimatedCost: z.boolean().nullable(),
 	canceled: z.boolean().nullable(),
 	streamed: z.boolean().nullable(),
@@ -87,25 +154,42 @@ const logSchema = z.object({
 			availableProviders: z.array(z.string()).optional(),
 			selectedProvider: z.string().optional(),
 			selectionReason: z.string().optional(),
+			usedApiKeyHash: z.string().optional(),
 			providerScores: z
 				.array(
 					z.object({
 						providerId: z.string(),
+						region: z.string().optional(),
 						score: z.number(),
 						uptime: z.number().optional(),
 						latency: z.number().optional(),
+						throughput: z.number().optional(),
 						price: z.number().optional(),
+						priority: z.number().optional(),
+						cacheSupported: z.boolean().optional(),
+						failed: z.boolean().optional(),
+						status_code: z.number().optional(),
+						error_type: z.string().optional(),
+						rate_limited: z.boolean().optional(),
+						contentFilterProvider: z.boolean().optional(),
+						excludedByContentFilter: z.boolean().optional(),
 					}),
 				)
 				.optional(),
+			contentFilterMatched: z.boolean().optional(),
+			contentFilterRerouted: z.boolean().optional(),
+			contentFilterExcludedProviders: z.array(z.string()).optional(),
 			routing: z
 				.array(
 					z.object({
 						provider: z.string(),
 						model: z.string(),
+						region: z.string().optional(),
 						status_code: z.number(),
 						error_type: z.string(),
 						succeeded: z.boolean(),
+						apiKeyHash: z.string().optional(),
+						logId: z.string().optional(),
 					}),
 				)
 				.optional(),
@@ -114,6 +198,9 @@ const logSchema = z.object({
 		.optional(),
 	retried: z.boolean().nullable().optional(),
 	retriedByLogId: z.string().nullable().optional(),
+	gatewayContentFilterResponse: gatewayContentFilterResponseSchema
+		.nullable()
+		.optional(),
 });
 
 // GET /logs/:id - Fetch a single log by ID
@@ -138,35 +225,6 @@ const getById = createRoute({
 			description: "Log not found",
 		},
 	},
-});
-
-logs.openapi(getById, async (c) => {
-	const user = c.get("user");
-
-	if (!user) {
-		throw new HTTPException(401, { message: "Unauthorized" });
-	}
-
-	const { id } = c.req.valid("param");
-
-	const log = await db.query.log.findFirst({
-		where: { id },
-	});
-
-	if (!log) {
-		throw new HTTPException(404, { message: "Log not found" });
-	}
-
-	// Verify user has access to this log's organization
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
-
-	if (!organizationIds.includes(log.organizationId)) {
-		throw new HTTPException(403, {
-			message: "You don't have access to this log",
-		});
-	}
-
-	return c.json({ log });
 });
 
 const querySchema = z.object({
@@ -447,10 +505,14 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(lte(tables.log.createdAt, new Date(endDate)));
 	}
 
-	// Add model filter - match the model name part after the slash
+	// Add model filter - match the model name part after the slash,
+	// or the full value if there's no slash (seed data / legacy format)
 	if (model) {
 		whereConditions.push(
-			sql`SPLIT_PART(${tables.log.usedModel}, '/', 2) = ${model}`,
+			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
+				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
+				ELSE ${tables.log.usedModel}
+			END = ${model}`,
 		);
 	}
 
@@ -492,9 +554,14 @@ logs.openapi(get, async (c) => {
 		);
 	}
 
-	// Add source filter if provided
+	// Add source filter if provided (supports comma-separated values)
 	if (source) {
-		whereConditions.push(eq(tables.log.source, source));
+		const sources = source.split(",").map((s) => s.trim());
+		if (sources.length === 1) {
+			whereConditions.push(eq(tables.log.source, sources[0]));
+		} else {
+			whereConditions.push(inArray(tables.log.source, sources));
+		}
 	}
 
 	// Add cursor-based pagination conditions
@@ -543,7 +610,15 @@ logs.openapi(get, async (c) => {
 			: [desc(tables.log.createdAt), desc(tables.log.id)];
 
 	// Execute the query using select
-	let dbQuery = db.select().from(tables.log);
+	let dbQuery = db
+		.select(logSelection)
+		.from(tables.log)
+		.leftJoin(
+			tables.organization,
+			eq(tables.log.organizationId, tables.organization.id),
+		)
+		.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
+		.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id));
 
 	if (finalWhereClause) {
 		// @ts-ignore
@@ -575,8 +650,19 @@ logs.openapi(get, async (c) => {
 		});
 	}
 
+	const enrichedLogs = await enrichLogsWithVideoContentUrls(paginatedLogs);
+
+	const logsForResponse = enrichedLogs.map((log) => {
+		const scrubbedMessages = scrubMessagesBase64(log.messages);
+		const next =
+			log.content && log.content.includes(";base64,")
+				? { ...log, content: "[image_generated]" }
+				: log;
+		return { ...next, messages: scrubbedMessages };
+	});
+
 	return c.json({
-		logs: paginatedLogs,
+		logs: logsForResponse,
 		pagination: {
 			nextCursor,
 			hasMore,
@@ -637,6 +723,7 @@ logs.openapi(uniqueModelsGet, async (c) => {
 	if (!organizationIds.length) {
 		return c.json({
 			models: [],
+			providers: [],
 		});
 	}
 
@@ -669,6 +756,7 @@ logs.openapi(uniqueModelsGet, async (c) => {
 	if (!projects.length) {
 		return c.json({
 			models: [],
+			providers: [],
 		});
 	}
 
@@ -689,46 +777,83 @@ logs.openapi(uniqueModelsGet, async (c) => {
 		whereConditions.push(inArray(tables.log.projectId, projectIds));
 	}
 
-	// Execute query to get distinct usedModel values
 	const finalWhereClause =
 		whereConditions.length > 0 ? and(...whereConditions) : undefined;
 
-	let dbQuery = db
-		.selectDistinct({ usedModel: tables.log.usedModel })
-		.from(tables.log);
+	const [uniqueUsedModels, uniqueUsedProviders] = await Promise.all([
+		db
+			.selectDistinct({ usedModel: tables.log.usedModel })
+			.from(tables.log)
+			.where(finalWhereClause!),
+		db
+			.selectDistinct({ usedProvider: tables.log.usedProvider })
+			.from(tables.log)
+			.where(finalWhereClause!),
+	]);
 
-	if (finalWhereClause) {
-		// @ts-ignore
-		dbQuery = dbQuery.where(finalWhereClause);
+	const modelNames = new Set<string>();
+	const providerNames = new Set<string>();
+
+	for (const row of uniqueUsedProviders) {
+		if (row.usedProvider) {
+			providerNames.add(row.usedProvider);
+		}
 	}
-
-	const uniqueUsedModels = await dbQuery;
-
-	// Extract model names and provider names from usedModel field
-	const modelNames: string[] = [];
-	const providerNames: string[] = [];
 
 	for (const row of uniqueUsedModels) {
 		const usedModel = row.usedModel;
+		if (!usedModel) {
+			continue;
+		}
+
 		const slashIndex = usedModel.indexOf("/");
 		if (slashIndex !== -1) {
-			const provider = usedModel.substring(0, slashIndex);
-			const model = usedModel.substring(slashIndex + 1);
-			if (!providerNames.includes(provider)) {
-				providerNames.push(provider);
-			}
-			if (!modelNames.includes(model)) {
-				modelNames.push(model);
-			}
+			providerNames.add(usedModel.substring(0, slashIndex));
+			modelNames.add(usedModel.substring(slashIndex + 1));
 		} else {
-			if (!modelNames.includes(usedModel)) {
-				modelNames.push(usedModel);
-			}
+			modelNames.add(usedModel);
 		}
 	}
 
 	return c.json({
-		models: modelNames.sort(),
-		providers: providerNames.sort(),
+		models: Array.from(modelNames).sort(),
+		providers: Array.from(providerNames).sort(),
 	});
+});
+
+logs.openapi(getById, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const [log] = await db
+		.select(logSelection)
+		.from(tables.log)
+		.leftJoin(
+			tables.organization,
+			eq(tables.log.organizationId, tables.organization.id),
+		)
+		.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
+		.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id))
+		.where(eq(tables.log.id, id))
+		.limit(1);
+
+	if (!log) {
+		throw new HTTPException(404, { message: "Log not found" });
+	}
+
+	// Verify user has access to this log's organization
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
+
+	if (!organizationIds.includes(log.organizationId)) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this log",
+		});
+	}
+
+	return c.json({ log });
 });

@@ -6,7 +6,13 @@ import {
 } from "fumadocs-ui/components/ui/collapsible";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { type SyntheticEvent, useEffect, useState, useTransition } from "react";
+import {
+	type SyntheticEvent,
+	useEffect,
+	useReducer,
+	useState,
+	useTransition,
+} from "react";
 
 import { cn } from "../lib/cn";
 import { buttonVariants } from "./ui/button";
@@ -37,24 +43,27 @@ interface Result extends Feedback {
 	response?: ActionResponse;
 }
 
+function readStoredFeedback(url: string): Result | null {
+	const item = localStorage.getItem(`docs-feedback-${url}`);
+	return item === null ? null : (JSON.parse(item) as Result);
+}
+
 export function Feedback({
 	onRateAction,
 }: {
 	onRateAction: (url: string, feedback: Feedback) => Promise<ActionResponse>;
 }) {
 	const url = usePathname();
-	const [previous, setPrevious] = useState<Result | null>(null);
+	const [previous, replacePrevious] = useReducer(
+		(_previous: Result | null, nextPrevious: Result | null) => nextPrevious,
+		null,
+	);
 	const [opinion, setOpinion] = useState<"good" | "bad" | null>(null);
 	const [message, setMessage] = useState("");
 	const [isPending, startTransition] = useTransition();
 
 	useEffect(() => {
-		const item = localStorage.getItem(`docs-feedback-${url}`);
-
-		if (item === null) {
-			return;
-		}
-		setPrevious(JSON.parse(item) as Result);
+		replacePrevious(readStoredFeedback(url));
 	}, [url]);
 
 	useEffect(() => {
@@ -79,7 +88,7 @@ export function Feedback({
 			};
 
 			void onRateAction(url, feedback).then((response) => {
-				setPrevious({
+				replacePrevious({
 					response,
 					...feedback,
 				});
@@ -162,7 +171,7 @@ export function Feedback({
 								)}
 								onClick={() => {
 									setOpinion(previous.opinion);
-									setPrevious(null);
+									replacePrevious(null);
 								}}
 							>
 								Submit Again

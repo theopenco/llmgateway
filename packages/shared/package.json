@@ -9,6 +9,14 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
 		},
+		"./gcs": {
+			"types": "./dist/gcs.d.ts",
+			"import": "./dist/gcs.js"
+		},
+		"./video-access": {
+			"types": "./dist/video-access.d.ts",
+			"import": "./dist/video-access.js"
+		},
 		"./components": {
 			"types": "./dist/components/index.d.ts",
 			"import": "./dist/components/index.js"
@@ -30,6 +38,7 @@
 		"lint": "eslint . && prettier --check ."
 	},
 	"dependencies": {
+		"@google-cloud/storage": "7.19.0",
 		"@llmgateway/models": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"@radix-ui/react-avatar": "1.1.11",
@@ -52,9 +61,11 @@
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
+		"date-fns": "4.1.0",
 		"embla-carousel-react": "8.6.0",
 		"lucide-react": "0.561.0",
 		"next-themes": "^0.4.6",
+		"pretty-bytes": "7.1.0",
 		"react": "19.2.4",
 		"react-dom": "19.2.4",
 		"react-hook-form": "7.65.0",

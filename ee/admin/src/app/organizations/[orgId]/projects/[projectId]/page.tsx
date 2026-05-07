@@ -1,10 +1,17 @@
-import { ArrowLeft, FolderOpen } from "lucide-react";
+import { ArrowLeft, FolderOpen, LayoutGrid } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
+
+import {
+	models as modelDefinitions,
+	providers as providerDefinitions,
+	type ModelDefinition,
+} from "@llmgateway/models";
 
 import { ProjectLogsSection } from "./project-logs";
 import { ProjectMetricsSection } from "./project-metrics";
@@ -42,6 +49,8 @@ export default async function ProjectDetailPage({
 }: {
 	params: Promise<{ orgId: string; projectId: string }>;
 }) {
+	await requireSession();
+
 	const { orgId, projectId } = await params;
 
 	const $api = await createServerApiClient();
@@ -59,6 +68,21 @@ export default async function ProjectDetailPage({
 	if (!project) {
 		notFound();
 	}
+
+	const providerOptions = providerDefinitions
+		.map((p) => ({ id: p.id, label: p.name }))
+		.toSorted((a, b) => a.label.localeCompare(b.label));
+
+	const modelOptions = (modelDefinitions as readonly ModelDefinition[])
+		.map((m) => ({
+			id: m.id,
+			label: m.name ?? m.id,
+			aliases: m.aliases ?? [],
+			providerIds: Array.from(
+				new Set(m.providers.map((p) => p.providerId)),
+			).toSorted(),
+		}))
+		.toSorted((a, b) => a.label.localeCompare(b.label));
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -96,7 +120,23 @@ export default async function ProjectDetailPage({
 
 			<ProjectMetricsSection orgId={orgId} projectId={projectId} />
 
-			<ProjectLogsSection orgId={orgId} projectId={projectId} />
+			<div>
+				<Button variant="outline" size="sm" asChild>
+					<Link
+						href={`/organizations/${orgId}/projects/${projectId}/model-provider-mappings`}
+					>
+						<LayoutGrid className="mr-2 h-4 w-4" />
+						Model-Provider Mappings
+					</Link>
+				</Button>
+			</div>
+
+			<ProjectLogsSection
+				orgId={orgId}
+				projectId={projectId}
+				providerOptions={providerOptions}
+				modelOptions={modelOptions}
+			/>
 		</div>
 	);
 }

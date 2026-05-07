@@ -1,10 +1,12 @@
 import { ArrowRightIcon } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 
-import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-import type { Migration } from "content-collections";
+import { allMigrations } from "content-collections";
+
+const Footer = dynamic(() => import("@/components/landing/footer"));
 
 export const metadata = {
 	title: "Migration Guides | LLM Gateway",
@@ -38,8 +40,6 @@ const providerIcons: Record<string, React.ReactNode> = {
 };
 
 export default async function MigrationPage() {
-	const { allMigrations } = await import("content-collections");
-
 	return (
 		<div>
 			<HeroRSC navbarOnly />
@@ -57,7 +57,7 @@ export default async function MigrationPage() {
 					</div>
 
 					<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 max-w-5xl mx-auto">
-						{allMigrations.map((migration: Migration) => (
+						{allMigrations.map((migration) => (
 							<Link
 								key={migration.slug}
 								href={`/migration/${migration.slug}`}

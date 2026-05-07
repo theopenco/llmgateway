@@ -1,15 +1,19 @@
 import { eq } from "drizzle-orm";
 import { describe, it, expect, beforeEach } from "vitest";
 
+import { redisClient } from "@llmgateway/cache";
+
 import { db } from "./db.js";
 import {
 	getProviderMetrics,
 	getProviderMetricsForCombinations,
+	metricsKey,
 } from "./provider-metrics.js";
 import { provider, model, modelProviderMapping } from "./schema.js";
 
 describe("provider-metrics", () => {
 	beforeEach(async () => {
+		await redisClient.flushdb();
 		await db.delete(modelProviderMapping);
 		await db.delete(model);
 		await db.delete(provider);
@@ -90,7 +94,9 @@ describe("provider-metrics", () => {
 			const metrics = await getProviderMetrics();
 
 			expect(metrics.size).toBe(1);
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(
+				metricsKey("gpt-4", "openai", undefined, "gpt-4"),
+			);
 			expect(metric).toBeDefined();
 			expect(metric?.modelId).toBe("gpt-4");
 			expect(metric?.providerId).toBe("openai");
@@ -125,12 +131,21 @@ describe("provider-metrics", () => {
 
 			expect(metrics.size).toBe(2);
 
-			const gptMetric = metrics.get("gpt-4:openai");
+			const gptMetric = metrics.get(
+				metricsKey("gpt-4", "openai", undefined, "gpt-4"),
+			);
 			expect(gptMetric?.uptime).toBe(80);
 			expect(gptMetric?.averageLatency).toBe(1000);
 			expect(gptMetric?.totalRequests).toBe(100);
 
-			const claudeMetric = metrics.get("claude-3-5-sonnet:anthropic");
+			const claudeMetric = metrics.get(
+				metricsKey(
+					"claude-3-5-sonnet",
+					"anthropic",
+					undefined,
+					"claude-3-5-sonnet-20241022",
+				),
+			);
 			expect(claudeMetric?.uptime).toBe(95);
 			expect(claudeMetric?.averageLatency).toBe(2000);
 			expect(claudeMetric?.totalRequests).toBe(200);
@@ -151,8 +166,19 @@ describe("provider-metrics", () => {
 
 			const metrics = await getProviderMetrics();
 			expect(metrics.size).toBe(1);
-			expect(metrics.has("claude-3-5-sonnet:anthropic")).toBe(true);
-			expect(metrics.has("gpt-4:openai")).toBe(false);
+			expect(
+				metrics.has(
+					metricsKey(
+						"claude-3-5-sonnet",
+						"anthropic",
+						undefined,
+						"claude-3-5-sonnet-20241022",
+					),
+				),
+			).toBe(true);
+			expect(
+				metrics.has(metricsKey("gpt-4", "openai", undefined, "gpt-4")),
+			).toBe(false);
 		});
 
 		it("should skip mappings with zero total requests", async () => {
@@ -182,7 +208,9 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(
+				metricsKey("gpt-4", "openai", undefined, "gpt-4"),
+			);
 			expect(metric?.uptime).toBe(100);
 		});
 
@@ -198,7 +226,9 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(
+				metricsKey("gpt-4", "openai", undefined, "gpt-4"),
+			);
 			expect(metric?.uptime).toBe(0);
 		});
 
@@ -214,7 +244,9 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(
+				metricsKey("gpt-4", "openai", undefined, "gpt-4"),
+			);
 			expect(metric).toBeDefined();
 			expect(metric?.uptime).toBe(95);
 			expect(metric?.averageLatency).toBeUndefined();
@@ -234,7 +266,9 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetrics();
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(
+				metricsKey("gpt-4", "openai", undefined, "gpt-4"),
+			);
 			expect(metric).toBeDefined();
 			expect(metric?.uptime).toBeUndefined();
 			expect(metric?.averageLatency).toBe(500);
@@ -271,12 +305,23 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-2"));
 
 			const metrics = await getProviderMetricsForCombinations([
-				{ modelId: "gpt-4", providerId: "openai" },
+				{ modelId: "gpt-4", providerId: "openai", modelName: "gpt-4" },
 			]);
 
 			expect(metrics.size).toBe(1);
-			expect(metrics.has("gpt-4:openai")).toBe(true);
-			expect(metrics.has("claude-3-5-sonnet:anthropic")).toBe(false);
+			expect(
+				metrics.has(metricsKey("gpt-4", "openai", undefined, "gpt-4")),
+			).toBe(true);
+			expect(
+				metrics.has(
+					metricsKey(
+						"claude-3-5-sonnet",
+						"anthropic",
+						undefined,
+						"claude-3-5-sonnet-20241022",
+					),
+				),
+			).toBe(false);
 		});
 
 		it("should return metrics for multiple combinations", async () => {
@@ -301,15 +346,29 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-2"));
 
 			const metrics = await getProviderMetricsForCombinations([
-				{ modelId: "gpt-4", providerId: "openai" },
-				{ modelId: "claude-3-5-sonnet", providerId: "anthropic" },
+				{ modelId: "gpt-4", providerId: "openai", modelName: "gpt-4" },
+				{
+					modelId: "claude-3-5-sonnet",
+					providerId: "anthropic",
+					modelName: "claude-3-5-sonnet-20241022",
+				},
 			]);
 
 			expect(metrics.size).toBe(2);
-			expect(metrics.get("gpt-4:openai")?.totalRequests).toBe(100);
-			expect(metrics.get("claude-3-5-sonnet:anthropic")?.totalRequests).toBe(
-				200,
-			);
+			expect(
+				metrics.get(metricsKey("gpt-4", "openai", undefined, "gpt-4"))
+					?.totalRequests,
+			).toBe(100);
+			expect(
+				metrics.get(
+					metricsKey(
+						"claude-3-5-sonnet",
+						"anthropic",
+						undefined,
+						"claude-3-5-sonnet-20241022",
+					),
+				)?.totalRequests,
+			).toBe(200);
 		});
 
 		it("should only return combinations that have routing data", async () => {
@@ -325,13 +384,28 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetricsForCombinations([
-				{ modelId: "gpt-4", providerId: "openai" },
-				{ modelId: "claude-3-5-sonnet", providerId: "anthropic" },
+				{ modelId: "gpt-4", providerId: "openai", modelName: "gpt-4" },
+				{
+					modelId: "claude-3-5-sonnet",
+					providerId: "anthropic",
+					modelName: "claude-3-5-sonnet-20241022",
+				},
 			]);
 
 			expect(metrics.size).toBe(1);
-			expect(metrics.has("gpt-4:openai")).toBe(true);
-			expect(metrics.has("claude-3-5-sonnet:anthropic")).toBe(false);
+			expect(
+				metrics.has(metricsKey("gpt-4", "openai", undefined, "gpt-4")),
+			).toBe(true);
+			expect(
+				metrics.has(
+					metricsKey(
+						"claude-3-5-sonnet",
+						"anthropic",
+						undefined,
+						"claude-3-5-sonnet-20241022",
+					),
+				),
+			).toBe(false);
 		});
 
 		it("should skip combinations with zero total requests", async () => {
@@ -346,7 +420,7 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetricsForCombinations([
-				{ modelId: "gpt-4", providerId: "openai" },
+				{ modelId: "gpt-4", providerId: "openai", modelName: "gpt-4" },
 			]);
 
 			expect(metrics.size).toBe(0);
@@ -364,17 +438,88 @@ describe("provider-metrics", () => {
 				.where(eq(modelProviderMapping.id, "mapping-1"));
 
 			const metrics = await getProviderMetricsForCombinations([
-				{ modelId: "gpt-4", providerId: "openai" },
+				{ modelId: "gpt-4", providerId: "openai", modelName: "gpt-4" },
 			]);
 
 			expect(metrics.size).toBe(1);
-			const metric = metrics.get("gpt-4:openai");
+			const metric = metrics.get(
+				metricsKey("gpt-4", "openai", undefined, "gpt-4"),
+			);
 			expect(metric?.modelId).toBe("gpt-4");
 			expect(metric?.providerId).toBe("openai");
 			expect(metric?.uptime).toBe(75);
 			expect(metric?.averageLatency).toBe(1500);
 			expect(metric?.throughput).toBe(25);
 			expect(metric?.totalRequests).toBe(100);
+		});
+
+		it("disambiguates virtual model variants that share modelId/providerId/region", async () => {
+			await db.insert(model).values({
+				id: "virtual-grok",
+				name: "Virtual Grok",
+				family: "grok",
+				status: "active",
+			});
+
+			await db.insert(modelProviderMapping).values([
+				{
+					id: "virtual-grok-non-reasoning",
+					modelId: "virtual-grok",
+					providerId: "openai",
+					modelName: "virtual-grok-non-reasoning",
+					status: "active",
+					routingUptime: 99,
+					routingLatency: 100,
+					routingThroughput: 200,
+					routingTotalRequests: 100,
+				},
+				{
+					id: "virtual-grok-reasoning",
+					modelId: "virtual-grok",
+					providerId: "openai",
+					modelName: "virtual-grok-reasoning",
+					status: "active",
+					routingUptime: 50,
+					routingLatency: 1000,
+					routingThroughput: 10,
+					routingTotalRequests: 100,
+				},
+			]);
+
+			const metrics = await getProviderMetricsForCombinations([
+				{
+					modelId: "virtual-grok",
+					providerId: "openai",
+					modelName: "virtual-grok-non-reasoning",
+				},
+				{
+					modelId: "virtual-grok",
+					providerId: "openai",
+					modelName: "virtual-grok-reasoning",
+				},
+			]);
+
+			const nonReasoning = metrics.get(
+				metricsKey(
+					"virtual-grok",
+					"openai",
+					undefined,
+					"virtual-grok-non-reasoning",
+				),
+			);
+			const reasoning = metrics.get(
+				metricsKey(
+					"virtual-grok",
+					"openai",
+					undefined,
+					"virtual-grok-reasoning",
+				),
+			);
+
+			expect(nonReasoning?.uptime).toBe(99);
+			expect(nonReasoning?.averageLatency).toBe(100);
+			expect(reasoning?.uptime).toBe(50);
+			expect(reasoning?.averageLatency).toBe(1000);
 		});
 	});
 });

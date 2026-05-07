@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import type { ChartConfig } from "@/components/ui/chart";
 
 export type HistoryWindow =
+	| "1m"
 	| "2m"
 	| "5m"
 	| "15m"
@@ -30,7 +31,6 @@ export type HistoryWindow =
 	| "4h"
 	| "12h"
 	| "24h"
-	| "1d"
 	| "2d"
 	| "7d";
 
@@ -38,6 +38,9 @@ export interface HistoryDataPoint {
 	timestamp: string;
 	logsCount: number;
 	errorsCount: number;
+	clientErrorsCount?: number;
+	gatewayErrorsCount?: number;
+	upstreamErrorsCount?: number;
 	cachedCount: number;
 	avgTtft: number | null;
 	avgDuration: number | null;
@@ -53,8 +56,9 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 		cachedCount: { label: "Cached", color: "hsl(142 71% 45%)" },
 	},
 	errors: {
-		errorsCount: { label: "Errors", color: "hsl(0 84% 60%)" },
-		logsCount: { label: "Total", color: "hsl(221 83% 53%)" },
+		clientErrorsCount: { label: "Client", color: "hsl(38 92% 50%)" },
+		gatewayErrorsCount: { label: "Gateway", color: "hsl(262 83% 58%)" },
+		upstreamErrorsCount: { label: "Upstream", color: "hsl(0 84% 60%)" },
 	},
 	latency: {
 		avgTtft: { label: "Avg TTFT (ms)", color: "hsl(262 83% 58%)" },
@@ -69,6 +73,7 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 };
 
 export const windowOptions: { value: HistoryWindow; label: string }[] = [
+	{ value: "1m", label: "1m" },
 	{ value: "2m", label: "2m" },
 	{ value: "5m", label: "5m" },
 	{ value: "15m", label: "15m" },
@@ -77,7 +82,6 @@ export const windowOptions: { value: HistoryWindow; label: string }[] = [
 	{ value: "4h", label: "4h" },
 	{ value: "12h", label: "12h" },
 	{ value: "24h", label: "24h" },
-	{ value: "1d", label: "1d" },
 	{ value: "2d", label: "2d" },
 	{ value: "7d", label: "7d" },
 ];
@@ -139,17 +143,45 @@ export function HistoryChart({
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);
 
+	const ttftPoints = data.filter((d) => d.avgTtft !== null);
+	const durationPoints = data.filter((d) => d.avgDuration !== null);
+	const throughputPoints = data.filter(
+		(d) =>
+			d.avgDuration !== null &&
+			(d.avgDuration ?? 0) > 0 &&
+			d.logsCount > 0 &&
+			d.totalTokens > 0,
+	);
+	const throughputTotalMs = throughputPoints.reduce((sum, d) => {
+		const durationMs = (d.avgDuration ?? 0) * d.logsCount;
+		return sum + durationMs;
+	}, 0);
+	const throughputTotalTokens = throughputPoints.reduce(
+		(sum, d) => sum + d.totalTokens,
+		0,
+	);
 	const summaryStats = {
 		totalRequests: data.reduce((sum, d) => sum + d.logsCount, 0),
 		totalErrors: data.reduce((sum, d) => sum + d.errorsCount, 0),
+		totalTokens: data.reduce((sum, d) => sum + d.totalTokens, 0),
+		totalCost: data.reduce((sum, d) => sum + d.totalCost, 0),
 		avgTtft:
-			data.filter((d) => d.avgTtft !== null).length > 0
+			ttftPoints.length > 0
 				? Math.round(
-						data
-							.filter((d) => d.avgTtft !== null)
-							.reduce((sum, d) => sum + (d.avgTtft ?? 0), 0) /
-							data.filter((d) => d.avgTtft !== null).length,
+						ttftPoints.reduce((sum, d) => sum + (d.avgTtft ?? 0), 0) /
+							ttftPoints.length,
 					)
+				: null,
+		avgDuration:
+			durationPoints.length > 0
+				? Math.round(
+						durationPoints.reduce((sum, d) => sum + (d.avgDuration ?? 0), 0) /
+							durationPoints.length,
+					)
+				: null,
+		tokensPerSecond:
+			throughputTotalMs > 0
+				? Math.round(throughputTotalTokens / (throughputTotalMs / 1000))
 				: null,
 		errorRate:
 			data.reduce((sum, d) => sum + d.logsCount, 0) > 0
@@ -160,6 +192,19 @@ export function HistoryChart({
 					).toFixed(1)
 				: "0.0",
 	};
+
+	function formatCompact(n: number): string {
+		if (n >= 1_000_000_000) {
+			return `${(n / 1_000_000_000).toFixed(1)}B`;
+		}
+		if (n >= 1_000_000) {
+			return `${(n / 1_000_000).toFixed(1)}M`;
+		}
+		if (n >= 1_000) {
+			return `${(n / 1_000).toFixed(1)}k`;
+		}
+		return n.toLocaleString();
+	}
 
 	return (
 		<Card>
@@ -185,7 +230,7 @@ export function HistoryChart({
 						</div>
 					)}
 				</div>
-				<div className="flex items-center gap-4 text-xs text-muted-foreground">
+				<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
 					<span>
 						Reqs:{" "}
 						<strong className="text-foreground">
@@ -199,11 +244,39 @@ export function HistoryChart({
 						</strong>{" "}
 						({summaryStats.errorRate}%)
 					</span>
+					<span>
+						Tokens:{" "}
+						<strong className="text-foreground">
+							{formatCompact(summaryStats.totalTokens)}
+						</strong>
+					</span>
+					<span>
+						Cost:{" "}
+						<strong className="text-foreground">
+							${summaryStats.totalCost.toFixed(4)}
+						</strong>
+					</span>
 					{summaryStats.avgTtft !== null && (
 						<span>
 							Avg TTFT:{" "}
 							<strong className="text-foreground">
 								{summaryStats.avgTtft}ms
+							</strong>
+						</span>
+					)}
+					{summaryStats.avgDuration !== null && (
+						<span>
+							Avg Duration:{" "}
+							<strong className="text-foreground">
+								{summaryStats.avgDuration}ms
+							</strong>
+						</span>
+					)}
+					{summaryStats.tokensPerSecond !== null && (
+						<span>
+							t/s:{" "}
+							<strong className="text-foreground">
+								{summaryStats.tokensPerSecond.toLocaleString()}
 							</strong>
 						</span>
 					)}

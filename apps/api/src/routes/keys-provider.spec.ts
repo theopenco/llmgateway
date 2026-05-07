@@ -130,6 +130,22 @@ describe("provider keys route", () => {
 		expect(providerKey?.provider).toBe("inference.net");
 	});
 
+	test("POST /keys/provider rejects token with non-ASCII characters", async () => {
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				provider: "openai",
+				token: "sk-realprefix••••••••",
+				organizationId: "test-org-id",
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+
 	test("POST /keys/provider with invalid provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",
@@ -154,6 +170,43 @@ describe("provider keys route", () => {
 			},
 			body: JSON.stringify({
 				provider: "openai",
+				token: "test-provider-token-2",
+				organizationId: "test-org-id",
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		const providerKeys = await db.query.providerKey.findMany({
+			where: {
+				provider: {
+					eq: "openai",
+				},
+			},
+		});
+		expect(providerKeys).toHaveLength(2);
+	});
+
+	test("POST /keys/provider rejects duplicate custom provider names", async () => {
+		await db.insert(tables.providerKey).values({
+			id: "test-custom-provider-key-id",
+			token: "test-custom-provider-token",
+			provider: "custom",
+			name: "mycustomprovider",
+			baseUrl: "https://example.com",
+			organizationId: "test-org-id",
+		});
+
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				provider: "custom",
+				token: "test-custom-provider-token-2",
+				name: "mycustomprovider",
+				baseUrl: "https://example-2.com",
 				organizationId: "test-org-id",
 			}),
 		});

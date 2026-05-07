@@ -42,13 +42,21 @@ export const metadata: Metadata = {
 	publisher: "LLM Gateway",
 	icons: {
 		icon: [
-			{ url: "/favicon/favicon.ico", sizes: "any" },
-			{ url: "/favicon/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-			{ url: "/favicon/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+			{ url: "/favicon/favicon.ico?v=1", sizes: "any" },
+			{
+				url: "/favicon/favicon-16x16.png?v=1",
+				sizes: "16x16",
+				type: "image/png",
+			},
+			{
+				url: "/favicon/favicon-32x32.png?v=1",
+				sizes: "32x32",
+				type: "image/png",
+			},
 		],
-		apple: [{ url: "/favicon/apple-touch-icon.png", sizes: "180x180" }],
+		apple: [{ url: "/favicon/apple-touch-icon.png?v=1", sizes: "180x180" }],
 	},
-	manifest: "/favicon/site.webmanifest",
+	manifest: "/favicon/site.webmanifest?v=1",
 	alternates: {
 		canonical: "./",
 	},
@@ -88,7 +96,12 @@ const organizationSchema = {
 	"@type": "Organization",
 	name: "LLM Gateway",
 	url: "https://llmgateway.io",
-	logo: "https://llmgateway.io/favicon/android-chrome-512x512.png",
+	logo: {
+		"@type": "ImageObject",
+		url: "https://llmgateway.io/favicon/android-chrome-512x512.png",
+		width: 512,
+		height: 512,
+	},
 	description:
 		"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface.",
 	sameAs: [

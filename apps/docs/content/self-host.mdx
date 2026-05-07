@@ -4,8 +4,6 @@ description: Simple guide to self-hosting LLMGateway using Docker.
 icon: Server
 ---
 
-# Self Host LLMGateway
-
 LLMGateway is a self-hostable platform that provides a unified API gateway for multiple LLM providers. This guide offers two simple options to get started.
 
 ## Prerequisites
@@ -18,6 +16,10 @@ LLMGateway is a self-hostable platform that provides a unified API gateway for m
 This option uses a single Docker container that includes all services (UI, API, Gateway, Database, Redis).
 
 ```bash
+# Set a strong secret first
+export LLM_GATEWAY_SECRET="your-secret-key-here"
+export GATEWAY_API_KEY_HASH_SECRET="your-api-key-hash-secret-here"
+
 # Run the container
 docker run -d \
   --name llmgateway \
@@ -28,10 +30,14 @@ docker run -d \
   -p 3006:3006 \
   -p 4001:4001 \
   -p 4002:4002 \
-  -v ~/llmgateway_data:/var/lib/postgresql/data \
-  -e AUTH_SECRET=your-secret-key-here \
+  -v llmgateway_postgres:/var/lib/postgresql/data \
+  -v llmgateway_redis:/var/lib/redis \
+  -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
+  -e GATEWAY_API_KEY_HASH_SECRET="$GATEWAY_API_KEY_HASH_SECRET" \
   ghcr.io/theopenco/llmgateway-unified:latest
 ```
+
+Docker will create the named volumes automatically on first run. Do not bind-mount a host directory directly to `/var/lib/postgresql/data`, because PostgreSQL initialization inside the container needs to manage permissions on that path.
 
 Note: it is recommended to use the latest version tag from here instead of `latest`: https://github.com/theopenco/llmgateway/releases
 
@@ -40,10 +46,10 @@ Note: it is recommended to use the latest version tag from here instead of `late
 ```bash
 # Download the compose file
 curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/infra/docker-compose.unified.yml
-curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/.env.example
+curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/.env.unified.example
 
 # Configure environment
-cp .env.example .env
+cp .env.unified.example .env
 # Edit .env with your configuration
 
 # Start the service
@@ -90,6 +96,7 @@ POSTGRES_PASSWORD=your_secure_password_here
 
 # Authentication
 AUTH_SECRET=your-secret-key-here
+GATEWAY_API_KEY_HASH_SECRET=your-api-key-hash-secret-here
 
 # LLM Provider API Keys (add the ones you need)
 LLM_OPENAI_API_KEY=sk-...
@@ -174,3 +181,15 @@ Once your LLMGateway is running:
 2. **Create your first organization** and project
 3. **Generate API keys** for your applications
 4. **Test the gateway** by making API calls to http://localhost:4001
+
+## Helm Chart
+
+You can also deploy LLMGateway to Kubernetes using the Helm chart, which is published as an OCI artifact on GitHub Container Registry:
+
+```bash
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway
+```
+
+This installs the latest published version. To pin to a specific release, append `--version <version>` (matching a published release tag without the `v` prefix, e.g. `1.2.3`).
+
+See the [Helm chart README](https://github.com/theopenco/llmgateway/tree/main/infra/helm) for configuration and the [list of available versions](https://github.com/theopenco/llmgateway/pkgs/container/charts%2Fllmgateway).

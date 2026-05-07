@@ -36,9 +36,10 @@ export async function publishToQueue(
 
 export async function consumeFromQueue(
 	queue: string,
+	count = 100,
 ): Promise<string[] | null> {
 	try {
-		const result = await redisClient.lpop(queue, 10);
+		const result = await redisClient.lpop(queue, count);
 
 		if (!result) {
 			return null;

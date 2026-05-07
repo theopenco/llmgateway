@@ -36,6 +36,21 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/chat",
+				destination: "https://chat.llmgateway.io",
+				permanent: true,
+			},
+			{
+				source: "/code",
+				destination: "https://devpass.llmgateway.io",
+				permanent: true,
+			},
+			{
+				source: "/devpass",
+				destination: "https://devpass.llmgateway.io",
+				permanent: true,
+			},
+			{
 				source: "/discord",
 				destination: "https://discord.gg/3u7jpXf36B",
 				permanent: true,
@@ -53,6 +68,11 @@ const nextConfig: NextConfig = {
 			{
 				source: "/x",
 				destination: "https://x.com/llmgateway",
+				permanent: true,
+			},
+			{
+				source: "/cost-simulator",
+				destination: "/token-cost-calculator",
 				permanent: true,
 			},
 			{
@@ -74,6 +94,22 @@ const nextConfig: NextConfig = {
 				source: "/privacy-policy",
 				destination: "/legal/privacy",
 				permanent: true,
+			},
+		];
+	},
+	async rewrites() {
+		return [
+			{
+				source: "/llms.txt",
+				destination: "https://docs.llmgateway.io/llms.txt",
+			},
+			{
+				source: "/llms-full.txt",
+				destination: "https://docs.llmgateway.io/llms-full.txt",
+			},
+			{
+				source: "/docs-health",
+				destination: "https://docs.llmgateway.io/health",
 			},
 		];
 	},

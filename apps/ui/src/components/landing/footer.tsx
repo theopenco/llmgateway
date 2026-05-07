@@ -3,6 +3,7 @@ import { DiscordLogoIcon } from "@radix-ui/react-icons";
 import { GithubIcon } from "lucide-react";
 import Link from "next/link";
 
+import Newsletter from "@/components/landing/newsletter";
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { XIcon } from "@/lib/icons/XIcon";
@@ -21,6 +22,8 @@ export default function Footer() {
 			<div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
 
 			<div className="container mx-auto px-4">
+				<Newsletter />
+
 				<div className="flex flex-col md:flex-row md:justify-between md:items-start">
 					<div className="mb-6 md:mb-0">
 						<div className="flex items-center space-x-2">
@@ -110,6 +113,16 @@ export default function Footer() {
 									>
 										Changelog
 									</Link>
+								</li>
+								<li>
+									<a
+										href="https://devpass.llmgateway.io"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										DevPass
+									</a>
 								</li>
 								<li>
 									<Link
@@ -210,11 +223,11 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href="/cost-simulator"
+										href="/token-cost-calculator"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch
 									>
-										Cost Simulator
+										Token Cost Calculator
 									</Link>
 								</li>
 								<li>
@@ -408,6 +421,18 @@ export default function Footer() {
 						&copy; {new Date().getFullYear()} LLM Gateway. All rights reserved.
 					</p>
 					<div className="flex items-center gap-6">
+						<a
+							href="https://status.llmgateway.io/"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+						>
+							<span className="relative flex h-2.5 w-2.5">
+								<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+								<span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+							</span>
+							All systems operational
+						</a>
 						<Link
 							href="/legal/privacy"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
