@@ -33,7 +33,7 @@ jobs:
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6.0.3
+      - uses: pnpm/action-setup@v6.0.4
         with:
           version: ${{ env.pnpm_version }}
 
@@ -75,15 +75,14 @@ jobs:
           LLM_AWS_BEDROCK_REGION: ${{ secrets.AWS_BEDROCK_REGION }}
           LLM_AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           LLM_AZURE_RESOURCE: ${{ secrets.AZURE_RESOURCE }}
-          LLM_CANOPY_WAVE_API_KEY: ${{ secrets.CANOPY_WAVE_API_KEY }}
+          LLM_AZURE_AI_FOUNDRY_API_KEY: ${{ secrets.LLM_AZURE_AI_FOUNDRY_API_KEY }}
+          LLM_AZURE_AI_FOUNDRY_RESOURCE: ${{ secrets.LLM_AZURE_AI_FOUNDRY_RESOURCE }}
           LLM_CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           LLM_BYTEDANCE_API_KEY: ${{ secrets.LLM_BYTEDANCE_API_KEY }}
           LLM_MINIMAX_API_KEY: ${{ secrets.LLM_MINIMAX_API_KEY }}
           LLM_EMBERCLOUD_API_KEY: ${{ secrets.LLM_EMBERCLOUD_API_KEY }}
           LLM_ALIBABA_API_KEY__US_VIRGINIA: ${{ secrets.LLM_ALIBABA_API_KEY__US_VIRGINIA }}
           LLM_ALIBABA_API_KEY__CN_BEIJING: ${{ secrets.LLM_ALIBABA_API_KEY__CN_BEIJING }}
-          LLM_BLUESTONE_API_KEY: ${{ secrets.LLM_BLUESTONE_API_KEY }}
-          LLM_BLUESTONE_BASE_URL: ${{ secrets.LLM_BLUESTONE_BASE_URL }}
 
       - name: Upload shard results
         if: always()
@@ -109,7 +108,7 @@ jobs:
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6.0.3
+      - uses: pnpm/action-setup@v6.0.4
         with:
           version: ${{ env.pnpm_version }}
 

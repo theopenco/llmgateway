@@ -4,6 +4,37 @@ import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
+async function prepareOpenAIImageRequest(imageConfig: {
+	aspect_ratio?: string;
+	image_size?: string;
+	image_quality?: string;
+	n?: number;
+}) {
+	return await prepareRequestBody(
+		"openai",
+		"gpt-image-2",
+		[{ role: "user", content: "Generate a cinematic landscape" }],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		false,
+		false,
+		20,
+		null,
+		undefined,
+		imageConfig,
+		undefined,
+		true,
+	);
+}
+
 describe("prepareRequestBody - Anthropic", () => {
 	test("should extract system messages to system field for caching", async () => {
 		const requestBody = (await prepareRequestBody(
@@ -159,6 +190,51 @@ describe("prepareRequestBody - Anthropic", () => {
 
 		// Should be exactly 4 (the limit)
 		expect(totalCacheControlBlocks).toBe(4);
+	});
+});
+
+describe("prepareRequestBody - OpenAI image generation", () => {
+	test.each([
+		"1024x1024",
+		"1536x1024",
+		"1024x1536",
+		"2048x2048",
+		"3072x2160",
+		"3840x2160",
+		"2160x3840",
+		"auto",
+	])("should pass image_size %s straight through", async (size) => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: size,
+			image_quality: "high",
+			n: 1,
+		})) as any;
+
+		expect(requestBody).toMatchObject({
+			model: "gpt-image-2",
+			prompt: "Generate a cinematic landscape",
+			size,
+			quality: "high",
+			n: 1,
+		});
+	});
+
+	test("should not derive size from aspect_ratio", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			aspect_ratio: "16:9",
+		})) as any;
+
+		expect(requestBody.size).toBeUndefined();
+	});
+
+	test("should drop unsupported quality values", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: "1024x1024",
+			image_quality: "standard",
+		})) as any;
+
+		expect(requestBody.size).toBe("1024x1024");
+		expect(requestBody.quality).toBeUndefined();
 	});
 });
 
@@ -711,6 +787,106 @@ describe("prepareRequestBody - MiniMax", () => {
 });
 
 describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: "Cache this system prompt.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "5m" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "Cache this system prompt." },
+			{ cachePoint: { type: "default", ttl: "1h" } },
+		]);
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default", ttl: "5m" } },
+		]);
+	});
+
+	test("should drop ttl:1h on bedrock models that do not support 1h TTL", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-3-7-sonnet-20250219-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: "Cache this system prompt.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "Cache this system prompt." },
+			{ cachePoint: { type: "default" } },
+		]);
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default" } },
+		]);
+	});
+
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",

@@ -111,6 +111,12 @@ function isImageGenModel(model: Pick<ApiModel, "output">): boolean {
 	return Array.isArray(model.output) && model.output.includes("image");
 }
 
+function hasEstimatedImageCost(mapping: ApiModelProviderMapping): boolean {
+	return Boolean(
+		mapping.imageOutputPrice && mapping.imageOutputTokensByResolution,
+	);
+}
+
 export function ModelCard({
 	model,
 	shouldShowStabilityWarning,
@@ -507,6 +513,9 @@ export function ProviderSection({
 	const providerModelId = activeMapping.region
 		? `${providerId}/${modelId}:${activeMapping.region}`
 		: `${providerId}/${modelId}`;
+	const hasImageCostEstimate = hasEstimatedImageCost(activeMapping);
+	const shouldShowTokenPricing =
+		!isImageGen || showTokenPricing || !hasImageCostEstimate;
 
 	return (
 		<div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
@@ -660,11 +669,11 @@ export function ProviderSection({
 								outputCost = preferred[1] * outPrice;
 								resolutionKey = preferred[0];
 							}
-						}
-						if (requestPriceNum > 0 || outputCost > 0) {
-							perImage = requestPriceNum + outputCost;
-							if (resolutionKey) {
-								label = `Per image (${resolutionKey})`;
+							if (requestPriceNum > 0 || outputCost > 0) {
+								perImage = requestPriceNum + outputCost;
+								if (resolutionKey) {
+									label = `Per image (${resolutionKey})`;
+								}
 							}
 						}
 						if (perImage === null) {
@@ -697,8 +706,7 @@ export function ProviderSection({
 					})()}
 
 				{/* Token pricing (hidden by default for image-gen models) */}
-				{isImageGen &&
-				!showTokenPricing ? null : activeMapping.perSecondPrice &&
+				{!shouldShowTokenPricing ? null : activeMapping.perSecondPrice &&
 				  Object.keys(activeMapping.perSecondPrice).length > 0 ? (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
@@ -781,10 +789,13 @@ export function ProviderSection({
 
 				{/* Image pricing (if applicable) */}
 				{(activeMapping.imageInputTokensByResolution ??
-					activeMapping.imageOutputTokensByResolution) && (
+					activeMapping.imageOutputTokensByResolution ??
+					activeMapping.imageOutputPrice) && (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
-							Image Pricing (est. per image)
+							{activeMapping.imageOutputTokensByResolution
+								? "Image Pricing (est. per image)"
+								: "Image Pricing"}
 						</div>
 						{activeMapping.imageInputPrice &&
 							activeMapping.imageInputTokensByResolution &&
@@ -843,6 +854,26 @@ export function ProviderSection({
 									</div>
 								);
 							})()}
+						{activeMapping.imageOutputPrice &&
+							!activeMapping.imageOutputTokensByResolution && (
+								<div>
+									<div className="text-[10px] text-muted-foreground mb-0.5">
+										Image Output
+									</div>
+									<div className="flex justify-between items-center text-xs py-0.5">
+										<span className="text-muted-foreground">Tokens</span>
+										<div className="font-mono tabular-nums flex items-center gap-1">
+											{formatPrice(
+												activeMapping.imageOutputPrice,
+												activeMapping.discount,
+											)}
+											<span className="text-muted-foreground/60">
+												/M tokens
+											</span>
+										</div>
+									</div>
+								</div>
+							)}
 						{activeMapping.imageOutputPrice &&
 							activeMapping.imageOutputTokensByResolution &&
 							(() => {
@@ -924,7 +955,7 @@ export function ProviderSection({
 					</div>
 				) : null}
 
-				{isImageGen && (
+				{isImageGen && hasImageCostEstimate && (
 					<button
 						type="button"
 						className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"

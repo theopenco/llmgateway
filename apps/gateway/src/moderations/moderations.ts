@@ -369,6 +369,12 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
+	if (organization.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Organization has been disabled and is no longer accessible",
+		});
+	}
+
 	const retentionLevel = organization.retentionLevel ?? "none";
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;

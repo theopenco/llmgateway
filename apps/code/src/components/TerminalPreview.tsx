@@ -12,11 +12,21 @@ import {
 
 type Tool = "claude-code" | "soulforge" | "autohand" | "opencode" | "cline";
 
-const tools: { id: Tool; name: string; icon: typeof AnthropicIcon }[] = [
+const tools: {
+	id: Tool;
+	name: string;
+	icon: typeof AnthropicIcon;
+	highlight?: string;
+}[] = [
 	{ id: "claude-code", name: "Claude Code", icon: AnthropicIcon },
-	{ id: "soulforge", name: "SoulForge", icon: SoulForgeIcon },
-	{ id: "autohand", name: "Autohand", icon: AutohandIcon },
 	{ id: "opencode", name: "OpenCode", icon: OpenCodeIcon },
+	{
+		id: "soulforge",
+		name: "SoulForge",
+		icon: SoulForgeIcon,
+		highlight: "−50%",
+	},
+	{ id: "autohand", name: "Autohand", icon: AutohandIcon },
 	{ id: "cline", name: "Cline", icon: ClineIcon },
 ];
 
@@ -47,7 +57,7 @@ const snippets: Record<
 	soulforge: {
 		lines: [],
 		command: "soulforge",
-		comment: "# type /keys to set your LLM Gateway key — saves ~50% tokens",
+		comment: "# /keys, paste your LLM Gateway key — caches cut ~50% tokens",
 	},
 	autohand: {
 		lines: [
@@ -67,7 +77,7 @@ const snippets: Record<
 	opencode: {
 		lines: [],
 		command: "opencode",
-		comment: "# LLM Gateway is built-in — type /providers to connect",
+		comment: "# LLM Gateway is built-in — type /connect to link your key",
 	},
 	cline: {
 		lines: [
@@ -153,6 +163,11 @@ export function TerminalPreview() {
 								>
 									<tool.icon className="h-5 w-5" />
 									<span className="text-sm font-medium">{tool.name}</span>
+									{tool.highlight && (
+										<span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+											{tool.highlight}
+										</span>
+									)}
 								</button>
 							))}
 						</div>

@@ -84,6 +84,39 @@ describe("parseProviderResponse", () => {
 			expect(result.promptTokens).toBe(150); // 100 + 0 + 50
 		});
 
+		it("extracts cache creation tokens from cacheDetails by TTL", () => {
+			const json = {
+				output: {
+					message: {
+						content: [{ text: "Hello" }],
+						role: "assistant",
+					},
+				},
+				stopReason: "end_turn",
+				usage: {
+					inputTokens: 100,
+					cacheReadInputTokens: 0,
+					cacheWriteInputTokens: 1000,
+					cacheDetails: [
+						{ ttl: "1h", inputTokens: 700 },
+						{ ttl: "5m", inputTokens: 300 },
+					],
+					outputTokens: 200,
+					totalTokens: 1300,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				json,
+			);
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(300);
+			expect(result.cacheCreation1hTokens).toBe(700);
+		});
+
 		it("returns cachedTokens with correct value when cacheReadInputTokens > 0", () => {
 			const json = {
 				output: {
@@ -246,6 +279,7 @@ describe("parseProviderResponse", () => {
 			);
 
 			expect(result.cachedTokens).toBe(0);
+			expect(result.cacheCreationTokens).toBe(50);
 			expect(result.promptTokens).toBe(150); // 100 + 50 + 0
 		});
 
@@ -268,6 +302,7 @@ describe("parseProviderResponse", () => {
 			);
 
 			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(0);
 			expect(result.promptTokens).toBe(900); // 100 + 0 + 800
 		});
 
@@ -288,6 +323,56 @@ describe("parseProviderResponse", () => {
 			);
 
 			expect(result.cachedTokens).toBe(0);
+		});
+
+		it("extracts 1h cache creation tokens from cache_creation breakdown", () => {
+			const json = {
+				content: [{ type: "text", text: "Hello" }],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 1000,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 400,
+						ephemeral_1h_input_tokens: 600,
+					},
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-3-sonnet",
+				json,
+			);
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBe(600);
+		});
+
+		it("returns null cacheCreation1hTokens when cache_creation breakdown is absent", () => {
+			const json = {
+				content: [{ type: "text", text: "Hello" }],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 400,
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-3-sonnet",
+				json,
+			);
+
+			expect(result.cacheCreationTokens).toBe(400);
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
 		});
 	});
 

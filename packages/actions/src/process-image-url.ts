@@ -11,22 +11,13 @@ function getImageSizeErrorMessage(
 	const isHosted = process.env.HOSTED === "true";
 	const isPaidMode = process.env.PAID_MODE === "true";
 
-	// Get the pro limit for upgrade messaging
-	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
-
 	let message = `Image size (${actualSizeMB.toFixed(1)}MB) exceeds your current limit of ${maxSizeMB}MB.`;
 
-	// Only show upgrade message in hosted paid mode
 	if (isHosted && isPaidMode) {
-		if (userPlan === "free") {
-			message += ` Upgrade to Pro plan for ${proLimitMB}MB image uploads.`;
-		} else if (userPlan === "pro") {
-			message += ` Contact us for Enterprise plans with higher limits.`;
-		} else if (userPlan === "enterprise") {
+		if (userPlan === "enterprise") {
 			message += ` Contact us to increase your Enterprise plan limits.`;
 		} else {
-			// When plan is unknown, provide generic upgrade message
-			message += ` Upgrade your plan for higher limits (Pro: ${proLimitMB}MB).`;
+			message += ` Contact us for Enterprise plans with higher limits.`;
 		}
 	}
 

@@ -10,13 +10,14 @@ import { models, type ModelDefinition } from "@llmgateway/models";
 import { getProviderIcon } from "@llmgateway/shared/components";
 
 const RECOMMENDED_MODEL_IDS: string[] = [
-	"claude-opus-4-5-20251101",
-	"gemini-3-pro-preview",
+	"claude-opus-4-7",
+	"gemini-3.1-pro-preview",
+	"gpt-5.5-pro",
+	"gpt-5.3-codex",
 	"glm-4.7",
+	"kimi-k2.6",
 	"qwen3-coder",
-	"minimax-m2.1",
-	"grok-4-1-fast-reasoning",
-	"grok-code-fast-1",
+	"deepseek-v4-pro",
 ];
 
 interface CodingModelsShowcaseProps {

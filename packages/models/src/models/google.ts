@@ -1733,27 +1733,4 @@ export const googleModels = [
 			},
 		],
 	},
-	{
-		id: "gemma-2-27b-it-together",
-		name: "Gemma 2 27B IT",
-		description: "Gemma 2 27B via Together AI inference.",
-		family: "google",
-		releasedAt: new Date("2024-06-27"),
-		providers: [
-			{
-				test: "skip",
-				providerId: "together-ai",
-				modelName: "google/gemma-2-27b-it",
-				inputPrice: 0.08 / 1e6,
-				outputPrice: 0.08 / 1e6,
-				requestPrice: 0,
-				contextSize: 8192,
-				maxOutput: undefined,
-				streaming: true,
-				vision: false,
-				tools: false,
-				jsonOutput: false,
-			},
-		],
-	},
 ] as const satisfies ModelDefinition[];

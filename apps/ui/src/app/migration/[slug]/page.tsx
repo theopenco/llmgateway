@@ -31,6 +31,8 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 		"@type": "TechArticle",
 		headline: migration.title,
 		description: migration.description ?? "Migration guide for LLM Gateway",
+		datePublished: migration.date,
+		dateModified: migration.date,
 		author: {
 			"@type": "Organization",
 			name: "LLM Gateway",
@@ -46,6 +48,13 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 			"@id": `https://llmgateway.io/migration/${slug}`,
 		},
 	};
+
+	const formattedDate = new Date(migration.date).toLocaleDateString("en-US", {
+		year: "numeric",
+		month: "long",
+		day: "numeric",
+		timeZone: "UTC",
+	});
 
 	return (
 		<>
@@ -84,9 +93,15 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 									{migration.description}
 								</p>
 							)}
+							<p className="text-sm text-muted-foreground">
+								Published <time dateTime={migration.date}>{formattedDate}</time>
+							</p>
 						</header>
 
-						<section className="prose prose-lg dark:prose-invert max-w-none">
+						<section
+							className="prose prose-lg dark:prose-invert max-w-none"
+							aria-label="Migration guide content"
+						>
 							<Markdown options={getMarkdownOptions()}>
 								{migration.content}
 							</Markdown>

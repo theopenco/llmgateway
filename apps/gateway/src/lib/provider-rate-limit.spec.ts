@@ -5,6 +5,7 @@ import {
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
 	peekProviderRateLimit,
+	pickNonRateLimitedCandidates,
 } from "./provider-rate-limit.js";
 
 vi.mock("@llmgateway/cache", () => ({
@@ -242,6 +243,94 @@ describe("filterRateLimitedProviders", () => {
 
 		expect(result.has("openai")).toBe(true);
 		expect(result.has("anthropic")).toBe(false);
+	});
+});
+
+describe("pickNonRateLimitedCandidates", () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+	});
+
+	const cappedRpm = {
+		maxRpm: 10,
+		maxRpd: 0,
+		rpmSource: "global_provider",
+		rpdSource: "none",
+		rpmRateLimitId: "rl-rpm",
+	} as const;
+
+	const openRpm = {
+		maxRpm: 100,
+		maxRpd: 0,
+		rpmSource: "global_provider",
+		rpdSource: "none",
+		rpmRateLimitId: "rl-rpm",
+	} as const;
+
+	it("drops a rate-limited candidate so the router falls back to the next one", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit)
+			.mockResolvedValueOnce(cappedRpm)
+			.mockResolvedValueOnce(openRpm);
+		vi.mocked(redis.zcard).mockResolvedValueOnce(10).mockResolvedValueOnce(20);
+		vi.mocked(redis.zrange).mockResolvedValueOnce([
+			"member",
+			Date.now().toString(),
+		]);
+
+		const result = await pickNonRateLimitedCandidates("org-1", "glm-4.7", [
+			{ providerId: "together-ai", modelName: "glm-4.7" },
+			{ providerId: "cerebras", modelName: "glm-4.7" },
+		]);
+
+		expect(result).toEqual([{ providerId: "cerebras", modelName: "glm-4.7" }]);
+	});
+
+	it("fails open when every candidate is rate-limited", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit)
+			.mockResolvedValueOnce(cappedRpm)
+			.mockResolvedValueOnce(cappedRpm);
+		vi.mocked(redis.zcard).mockResolvedValueOnce(10).mockResolvedValueOnce(10);
+		vi.mocked(redis.zrange)
+			.mockResolvedValueOnce(["m1", Date.now().toString()])
+			.mockResolvedValueOnce(["m2", Date.now().toString()]);
+
+		const candidates = [
+			{ providerId: "together-ai", modelName: "glm-4.7" },
+			{ providerId: "cerebras", modelName: "glm-4.7" },
+		];
+		const result = await pickNonRateLimitedCandidates(
+			"org-1",
+			"glm-4.7",
+			candidates,
+		);
+
+		expect(result).toEqual(candidates);
+	});
+
+	it("dedupes peeks across region-expanded variants of the same provider+model", async () => {
+		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValueOnce(openRpm);
+		vi.mocked(redis.zcard).mockResolvedValueOnce(0);
+
+		const candidates = [
+			{ providerId: "alibaba", modelName: "glm-4.6", region: "singapore" },
+			{ providerId: "alibaba", modelName: "glm-4.6", region: "cn-beijing" },
+			{ providerId: "alibaba", modelName: "glm-4.6", region: "us-east-1" },
+		];
+		const result = await pickNonRateLimitedCandidates(
+			"org-1",
+			"glm-4.6",
+			candidates,
+		);
+
+		expect(vi.mocked(mockDb.getEffectiveRateLimit)).toHaveBeenCalledTimes(1);
+		expect(result).toEqual(candidates);
+	});
+
+	it("returns an empty list unchanged without calling Redis", async () => {
+		const result = await pickNonRateLimitedCandidates("org-1", "glm-4.7", []);
+
+		expect(result).toEqual([]);
+		expect(vi.mocked(mockDb.getEffectiveRateLimit)).not.toHaveBeenCalled();
 	});
 });
 

@@ -30,6 +30,7 @@ interface ImageRequestBody {
 			| "1:8"
 			| "8:1";
 		image_size?: "0.5K" | "1K" | "2K" | "4K" | string;
+		image_quality?: "auto" | "low" | "medium" | "high" | string;
 		n?: number;
 	};
 	input_images?: { url: string; mediaType: string }[];
@@ -117,6 +118,13 @@ export async function POST(req: Request) {
 				: {}),
 			...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
 				? { aspectRatio: image_config.aspect_ratio }
+				: {}),
+			...(image_config?.image_quality
+				? {
+						providerOptions: {
+							llmgateway: { quality: image_config.image_quality },
+						},
+					}
 				: {}),
 		});
 

@@ -2,7 +2,10 @@ import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
-import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	adjustGoogleCandidateTokens,
+	extractBedrockCacheCreationDetails,
+} from "./extract-token-usage.js";
 import {
 	extractReasoningDetailsText,
 	splitReasoningFromTaggedContent,
@@ -31,6 +34,10 @@ export function parseProviderResponse(
 	let reasoningTokens = null;
 	let cachedTokens = null;
 	let cacheCreationTokens = null;
+	let cacheCreation5mTokens: number | null = null;
+	let cacheCreation1hTokens: number | null = null;
+	let imageInputTokens: number | null = null;
+	let imageOutputTokens: number | null = null;
 	let toolResults = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
@@ -100,6 +107,7 @@ export function parseProviderResponse(
 				const inputTokens = json.usage.inputTokens ?? 0;
 				const cacheReadTokens = json.usage.cacheReadInputTokens ?? 0;
 				const cacheWriteTokens = json.usage.cacheWriteInputTokens ?? 0;
+				const cacheDetails = extractBedrockCacheCreationDetails(json.usage);
 
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
@@ -108,6 +116,8 @@ export function parseProviderResponse(
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheWriteTokens;
+				cacheCreation5mTokens = cacheDetails.cacheCreation5mTokens;
+				cacheCreation1hTokens = cacheDetails.cacheCreation1hTokens;
 			}
 
 			// Extract tool calls if present
@@ -187,7 +197,14 @@ export function parseProviderResponse(
 			// We need to add cache_creation_input_tokens to get total input tokens
 			if (json.usage) {
 				const inputTokens = json.usage.input_tokens ?? 0;
+				// Anthropic supports two cache TTLs (5m at 1.25x, 1h at 2x).
+				// `cache_creation_input_tokens` is the sum; the per-TTL breakdown is in
+				// `usage.cache_creation.{ephemeral_5m_input_tokens, ephemeral_1h_input_tokens}`.
 				const cacheCreation = json.usage.cache_creation_input_tokens ?? 0;
+				const cacheCreation5m =
+					json.usage.cache_creation?.ephemeral_5m_input_tokens ?? 0;
+				const cacheCreation1h =
+					json.usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
 				const cacheReadTokens = json.usage.cache_read_input_tokens ?? 0;
 
 				// Total prompt tokens = non-cached + cache creation + cache read
@@ -197,6 +214,8 @@ export function parseProviderResponse(
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheCreation;
+				cacheCreation5mTokens = cacheCreation5m > 0 ? cacheCreation5m : null;
+				cacheCreation1hTokens = cacheCreation1h > 0 ? cacheCreation1h : null;
 				totalTokens =
 					promptTokens && completionTokens
 						? promptTokens + completionTokens
@@ -526,10 +545,10 @@ export function parseProviderResponse(
 			break;
 		}
 		default: // OpenAI format
-			// Check if this is an OpenAI image generation response (e.g. gpt-image-2)
+			// Check if this is an OpenAI / Azure image generation response (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string, revised_prompt?: string }], usage?: {...} }
 			if (
-				usedProvider === "openai" &&
+				(usedProvider === "openai" || usedProvider === "azure") &&
 				json.data &&
 				Array.isArray(json.data) &&
 				json.data.length > 0 &&
@@ -554,6 +573,10 @@ export function parseProviderResponse(
 				promptTokens = json.usage?.input_tokens ?? 0;
 				completionTokens = json.usage?.output_tokens ?? 0;
 				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
+				imageInputTokens =
+					json.usage?.input_tokens_details?.image_tokens ?? null;
+				imageOutputTokens =
+					json.usage?.output_tokens_details?.image_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens ?? 0) + (completionTokens ?? 0);
@@ -835,8 +858,8 @@ export function parseProviderResponse(
 		}
 	}
 
-	// For non-reasoning models that return their answer in reasoning_content
-	// (e.g. CanopyWave Mimo), move reasoning to content so the response is visible.
+	// For non-reasoning models that return their answer in reasoning_content,
+	// move reasoning to content so the response is visible.
 	if (!supportsReasoning && !content && reasoningContent) {
 		content = reasoningContent;
 		reasoningContent = null;
@@ -852,6 +875,10 @@ export function parseProviderResponse(
 		reasoningTokens,
 		cachedTokens,
 		cacheCreationTokens,
+		cacheCreation5mTokens,
+		cacheCreation1hTokens,
+		imageInputTokens,
+		imageOutputTokens,
 		toolResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,

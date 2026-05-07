@@ -130,6 +130,22 @@ describe("provider keys route", () => {
 		expect(providerKey?.provider).toBe("inference.net");
 	});
 
+	test("POST /keys/provider rejects token with non-ASCII characters", async () => {
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				provider: "openai",
+				token: "sk-realprefix••••••••",
+				organizationId: "test-org-id",
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+
 	test("POST /keys/provider with invalid provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",

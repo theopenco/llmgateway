@@ -52,8 +52,15 @@ function SignupForm() {
 	const { posthogKey } = useAppConfig();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signUp } = useAuth();
-	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
+	const baseReturnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
 	const selectedPlan = searchParams.get("plan");
+	const selectedCycle = searchParams.get("cycle");
+	// Carry the chosen billing cycle through to the dashboard so
+	// InactivePlanChooser can preselect Monthly vs Annual.
+	const returnUrl =
+		selectedCycle === "annual" || selectedCycle === "monthly"
+			? `${baseReturnUrl}${baseReturnUrl.includes("?") ? "&" : "?"}cycle=${selectedCycle}`
+			: baseReturnUrl;
 
 	useUser({
 		redirectTo: returnUrl,

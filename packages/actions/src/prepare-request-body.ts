@@ -18,12 +18,37 @@ import {
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
+type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+
 interface OpenAIImageRequest {
 	model: string;
 	prompt: string;
 	size?: string;
+	quality?: OpenAIImageQuality;
 	n?: number;
 	image?: string | string[];
+}
+
+/**
+ * Narrow a free-form quality string to the values gpt-image-2 accepts.
+ * Returns undefined for unknown values so they get dropped from the request.
+ */
+function normalizeImageQuality(
+	quality: string | undefined,
+): OpenAIImageQuality | undefined {
+	if (!quality) {
+		return undefined;
+	}
+	const normalized = quality.toLowerCase();
+	if (
+		normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high" ||
+		normalized === "auto"
+	) {
+		return normalized;
+	}
+	return undefined;
 }
 
 /**
@@ -619,6 +644,7 @@ export async function prepareRequestBody(
 	image_config?: {
 		aspect_ratio?: string;
 		image_size?: string;
+		image_quality?: string;
 		n?: number;
 		seed?: number;
 	},
@@ -628,8 +654,11 @@ export async function prepareRequestBody(
 	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
 ): Promise<ProviderRequestBody | FormData> {
-	// Handle OpenAI image generation models (e.g. gpt-image-2)
-	if (imageGenerations && usedProvider === "openai") {
+	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
+	if (
+		imageGenerations &&
+		(usedProvider === "openai" || usedProvider === "azure")
+	) {
 		// Extract prompt and image URLs from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
@@ -656,46 +685,16 @@ export async function prepareRequestBody(
 			}
 		}
 
-		// Normalize size to OpenAI gpt-image accepted values.
-		// gpt-image-1/2 accepts: "1024x1024", "1024x1536", "1536x1024", "auto".
-		const rawSize = image_config?.image_size;
-		const aspectRatio = image_config?.aspect_ratio;
-		let openaiSize: string | undefined;
-		if (rawSize) {
-			const normalized = rawSize.toLowerCase();
-			if (
-				normalized === "1024x1024" ||
-				normalized === "1024x1536" ||
-				normalized === "1536x1024" ||
-				normalized === "auto"
-			) {
-				openaiSize = rawSize;
-			} else if (normalized === "1k") {
-				// Map resolution presets with aspect ratio when available
-				if (aspectRatio === "16:9" || aspectRatio === "3:2") {
-					openaiSize = "1536x1024";
-				} else if (aspectRatio === "9:16" || aspectRatio === "2:3") {
-					openaiSize = "1024x1536";
-				} else {
-					openaiSize = "1024x1024";
-				}
-			} else {
-				openaiSize = "auto";
-			}
-		} else if (aspectRatio && aspectRatio !== "auto") {
-			if (aspectRatio === "16:9" || aspectRatio === "3:2") {
-				openaiSize = "1536x1024";
-			} else if (aspectRatio === "9:16" || aspectRatio === "2:3") {
-				openaiSize = "1024x1536";
-			} else if (aspectRatio === "1:1") {
-				openaiSize = "1024x1024";
-			}
-		}
+		// Pass image_size straight through to OpenAI as `WxH` (or `auto`).
+		// OpenAI returns a 4xx for unsupported sizes, which we propagate.
+		const openaiSize = image_config?.image_size;
+		const openaiQuality = normalizeImageQuality(image_config?.image_quality);
 
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedModel,
 			prompt,
 			...(openaiSize && { size: openaiSize }),
+			...(openaiQuality && { quality: openaiQuality }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -707,6 +706,9 @@ export async function prepareRequestBody(
 			formData.append("prompt", openaiImageRequest.prompt);
 			if (openaiImageRequest.size) {
 				formData.append("size", openaiImageRequest.size);
+			}
+			if (openaiImageRequest.quality) {
+				formData.append("quality", openaiImageRequest.quality);
 			}
 			if (openaiImageRequest.n !== undefined) {
 				formData.append("n", String(openaiImageRequest.n));
@@ -954,9 +956,20 @@ export async function prepareRequestBody(
 	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
 	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
 	// clients usually drop reasoning between turns, so translate the OpenAI-style
-	// `reasoning` field back to provider-style `reasoning_content`, defaulting to
-	// an empty string when neither is present.
-	if (usedProvider === "deepseek" || usedProvider === "moonshot") {
+	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek
+	// accepts an empty string, but Moonshot's newer reasoning models (kimi-k2.5,
+	// kimi-k2.6) treat an empty string as missing — use a single space as a
+	// non-empty placeholder there. Novita proxies DeepSeek V4 with the same
+	// upstream constraint, so apply the DeepSeek behavior there too.
+	const isNovitaDeepseekV4 =
+		usedProvider === "novita" && usedModel.startsWith("deepseek/deepseek-v4");
+	if (
+		usedProvider === "deepseek" ||
+		usedProvider === "moonshot" ||
+		isNovitaDeepseekV4
+	) {
+		const fallback =
+			usedProvider === "moonshot" || isNovitaDeepseekV4 ? " " : "";
 		processedMessages = processedMessages.map((m) => {
 			if (
 				m.role !== "assistant" ||
@@ -967,7 +980,8 @@ export async function prepareRequestBody(
 			) {
 				return m;
 			}
-			return { ...m, reasoning_content: m.reasoning ?? "" };
+			const reasoning = m.reasoning ?? fallback;
+			return { ...m, reasoning_content: reasoning || fallback };
 		});
 	}
 
@@ -1020,6 +1034,15 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// Alibaba's API defaults `enable_thinking` to ON for thinking models.
+	// Mirror the OpenAI/Anthropic/Google/ZAI contract: thinking is opt-in via
+	// `reasoning_effort`. Unset or `minimal` => off, anything else => on.
+	if (usedProvider === "alibaba" && supportsReasoning) {
+		const wantsThinking =
+			reasoning_effort !== undefined && reasoning_effort !== "minimal";
+		requestBody.enable_thinking = wantsThinking;
+	}
+
 	if (forcesToolUse && usedProvider === "moonshot") {
 		const providerMapping = modelDef?.providers.find(
 			(p) => p.modelName === usedModel && p.providerId === usedProvider,
@@ -1035,6 +1058,16 @@ export async function prepareRequestBody(
 			resolvedToolChoice = "auto";
 			requestBody.tool_choice = "auto";
 		}
+	}
+
+	if (
+		forcesToolUse &&
+		usedProvider === "azure" &&
+		usedModel === "gpt-oss-120b"
+	) {
+		// Azure's gpt-oss-120b rejects tool_choice="required" with UnsupportedToolUse.
+		resolvedToolChoice = "auto";
+		requestBody.tool_choice = "auto";
 	}
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
@@ -1273,10 +1306,14 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// ZAI/GLM models use 'thinking' parameter for reasoning instead of 'reasoning_effort'
+			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
+			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
+			// `reasoning_effort`. Unset or `minimal` => disabled, anything else => enabled.
 			if (supportsReasoning) {
+				const wantsThinking =
+					reasoning_effort !== undefined && reasoning_effort !== "minimal";
 				requestBody.thinking = {
-					type: "enabled",
+					type: wantsThinking ? "enabled" : "disabled",
 				};
 			}
 			// Add sensitive_word_check if provided (Z.ai specific)
@@ -1343,7 +1380,7 @@ export async function prepareRequestBody(
 				const systemContent: Array<{
 					type: "text";
 					text: string;
-					cache_control?: { type: "ephemeral" };
+					cache_control?: { type: "ephemeral"; ttl?: "5m" | "1h" };
 				}> = [];
 
 				// Detect whether any text block in the incoming system messages has
@@ -1587,6 +1624,9 @@ export async function prepareRequestBody(
 			// Track cache control usage (max 4 blocks per Anthropic/Bedrock limit)
 			let bedrockCacheControlCount = 0;
 			const bedrockMaxCacheControlBlocks = 4;
+			interface BedrockCachePoint {
+				cachePoint: { type: "default"; ttl?: "5m" | "1h" };
+			}
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const bedrockProviderMapping = modelDef?.providers.find(
@@ -1596,6 +1636,25 @@ export async function prepareRequestBody(
 				bedrockProviderMapping?.minCacheableTokens ?? 1024;
 			// Approximate 4 characters per token
 			const bedrockMinCacheableChars = bedrockMinCacheableTokens * 4;
+
+			// AWS Bedrock supports 1h TTL only on Claude Opus/Haiku/Sonnet 4.5+. For
+			// other models, forwarding ttl:"1h" causes Bedrock to reject the request.
+			// Use cacheWriteInputPrice1h on the model definition as the source of
+			// truth and silently downgrade unsupported 1h hints to the default 5m.
+			const bedrockSupports1hTtl =
+				bedrockProviderMapping?.cacheWriteInputPrice1h !== undefined;
+			const createBedrockCachePoint = (
+				ttl?: "5m" | "1h",
+			): BedrockCachePoint => {
+				const effectiveTtl =
+					ttl === "1h" && !bedrockSupports1hTtl ? undefined : ttl;
+				return {
+					cachePoint: {
+						type: "default",
+						...(effectiveTtl && { ttl: effectiveTtl }),
+					},
+				};
+			};
 
 			// Extract system messages for Bedrock's system field (required for prompt caching)
 			const bedrockSystemMessages = processedMessages.filter(
@@ -1612,13 +1671,12 @@ export async function prepareRequestBody(
 			// cachePoint, and fall back to a length heuristic when nothing was
 			// explicitly opted in.
 			if (bedrockSystemMessages.length > 0) {
-				const systemContent: Array<
-					{ text: string } | { cachePoint: { type: "default" } }
-				> = [];
+				const systemContent: Array<{ text: string } | BedrockCachePoint> = [];
 
 				const collectedBedrockBlocks: Array<{
 					text: string;
 					hasExplicitCacheControl: boolean;
+					ttl?: "5m" | "1h";
 				}> = [];
 				for (const sysMsg of bedrockSystemMessages) {
 					if (typeof sysMsg.content === "string") {
@@ -1634,6 +1692,7 @@ export async function prepareRequestBody(
 								collectedBedrockBlocks.push({
 									text: part.text,
 									hasExplicitCacheControl: !!part.cache_control,
+									ttl: part.cache_control?.ttl,
 								});
 							}
 						}
@@ -1650,7 +1709,7 @@ export async function prepareRequestBody(
 					if (block.hasExplicitCacheControl) {
 						if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
 							bedrockCacheControlCount++;
-							systemContent.push({ cachePoint: { type: "default" } });
+							systemContent.push(createBedrockCachePoint(block.ttl));
 						}
 						continue;
 					}
@@ -1662,7 +1721,7 @@ export async function prepareRequestBody(
 
 					if (shouldHeuristicCache) {
 						bedrockCacheControlCount++;
-						systemContent.push({ cachePoint: { type: "default" } });
+						systemContent.push(createBedrockCachePoint());
 					}
 				}
 
@@ -1763,9 +1822,7 @@ export async function prepareRequestBody(
 
 						if (shouldCache) {
 							bedrockCacheControlCount++;
-							bedrockMessage.content.push({
-								cachePoint: { type: "default" },
-							});
+							bedrockMessage.content.push(createBedrockCachePoint());
 						}
 					}
 				} else if (Array.isArray(msg.content)) {
@@ -1781,9 +1838,9 @@ export async function prepareRequestBody(
 								if (part.cache_control) {
 									if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
 										bedrockCacheControlCount++;
-										bedrockMessage.content.push({
-											cachePoint: { type: "default" },
-										});
+										bedrockMessage.content.push(
+											createBedrockCachePoint(part.cache_control.ttl),
+										);
 									}
 								} else {
 									// Add cachePoint as separate block for long text parts
@@ -1794,9 +1851,7 @@ export async function prepareRequestBody(
 
 									if (shouldCache) {
 										bedrockCacheControlCount++;
-										bedrockMessage.content.push({
-											cachePoint: { type: "default" },
-										});
+										bedrockMessage.content.push(createBedrockCachePoint());
 									}
 								}
 							}
@@ -1841,9 +1896,7 @@ export async function prepareRequestBody(
 							boundaryMsg.content[boundaryMsg.content.length - 1];
 						// Only add if the last block isn't already a cachePoint.
 						if (!lastBlock.cachePoint) {
-							boundaryMsg.content.push({
-								cachePoint: { type: "default" },
-							});
+							boundaryMsg.content.push(createBedrockCachePoint());
 							bedrockCacheControlCount++;
 						}
 					}

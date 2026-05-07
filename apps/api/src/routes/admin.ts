@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { deleteResendContact } from "@/auth/config.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -132,6 +133,8 @@ const orgMetricsSchema = z.object({
 	outputCost: z.number(),
 	cachedTokens: z.number(),
 	cachedCost: z.number(),
+	cacheWriteTokens: z.number(),
+	cacheWriteCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -1003,6 +1006,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	let outputCost = 0;
 	let cachedTokens = 0;
 	let cachedCost = 0;
+	let cacheWriteTokens = 0;
+	let cacheWriteCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -1028,6 +1033,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cachedTokens} AS INTEGER)), 0)`.as(
 						"cachedTokens",
 					),
+				cacheWriteTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cacheWriteTokens} AS INTEGER)), 0)`.as(
+						"cacheWriteTokens",
+					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
 						"totalTokens",
@@ -1051,6 +1060,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
 						"cachedInputCost",
 					),
+				cacheWriteInputCost:
+					sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+						"cacheWriteInputCost",
+					),
 			})
 			.from(projectHourlyStats)
 			.where(
@@ -1071,6 +1084,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			outputCost = Number(totals.outputCost) || 0;
 			cachedTokens = Number(totals.cachedTokens) || 0;
 			cachedCost = Number(totals.cachedInputCost) || 0;
+			cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
+			cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
 			discountSavings = Number(totals.discountSavings) || 0;
 		}
 
@@ -1130,6 +1145,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		outputCost,
 		cachedTokens,
 		cachedCost,
+		cacheWriteTokens,
+		cacheWriteCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -1386,6 +1403,8 @@ const projectMetricsSchema = z.object({
 	outputCost: z.number(),
 	cachedTokens: z.number(),
 	cachedCost: z.number(),
+	cacheWriteTokens: z.number(),
+	cacheWriteCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -1462,6 +1481,8 @@ admin.openapi(getProjectMetrics, async (c) => {
 	let outputCost = 0;
 	let cachedTokens = 0;
 	let cachedCost = 0;
+	let cacheWriteTokens = 0;
+	let cacheWriteCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -1484,6 +1505,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 			cachedTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cachedTokens} AS INTEGER)), 0)`.as(
 					"cachedTokens",
+				),
+			cacheWriteTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cacheWriteTokens} AS INTEGER)), 0)`.as(
+					"cacheWriteTokens",
 				),
 			totalTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
@@ -1508,6 +1533,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
 					"cachedInputCost",
 				),
+			cacheWriteInputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+					"cacheWriteInputCost",
+				),
 		})
 		.from(projectHourlyStats)
 		.where(
@@ -1528,6 +1557,8 @@ admin.openapi(getProjectMetrics, async (c) => {
 		outputCost = Number(totals.outputCost) || 0;
 		cachedTokens = Number(totals.cachedTokens) || 0;
 		cachedCost = Number(totals.cachedInputCost) || 0;
+		cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
+		cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
 		discountSavings = Number(totals.discountSavings) || 0;
 	}
 
@@ -1584,6 +1615,8 @@ admin.openapi(getProjectMetrics, async (c) => {
 		outputCost,
 		cachedTokens,
 		cachedCost,
+		cacheWriteTokens,
+		cacheWriteCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -1608,12 +1641,14 @@ const logEntrySchema = z.object({
 	totalTokens: z.string().nullable(),
 	reasoningTokens: z.string().nullable(),
 	cachedTokens: z.string().nullable(),
+	cacheWriteTokens: z.string().nullable(),
 	imageInputTokens: z.string().nullable(),
 	imageOutputTokens: z.string().nullable(),
 	cost: z.number().nullable(),
 	inputCost: z.number().nullable(),
 	outputCost: z.number().nullable(),
 	cachedInputCost: z.number().nullable(),
+	cacheWriteInputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
 	webSearchCost: z.number().nullable(),
 	imageInputCost: z.number().nullable(),
@@ -1793,12 +1828,14 @@ admin.openapi(getProjectLogs, async (c) => {
 			totalTokens: tables.log.totalTokens,
 			reasoningTokens: tables.log.reasoningTokens,
 			cachedTokens: tables.log.cachedTokens,
+			cacheWriteTokens: tables.log.cacheWriteTokens,
 			imageInputTokens: tables.log.imageInputTokens,
 			imageOutputTokens: tables.log.imageOutputTokens,
 			cost: tables.log.cost,
 			inputCost: tables.log.inputCost,
 			outputCost: tables.log.outputCost,
 			cachedInputCost: tables.log.cachedInputCost,
+			cacheWriteInputCost: tables.log.cacheWriteInputCost,
 			requestCost: tables.log.requestCost,
 			webSearchCost: tables.log.webSearchCost,
 			imageInputCost: tables.log.imageInputCost,
@@ -1866,6 +1903,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			totalTokens: l.totalTokens ? String(l.totalTokens) : null,
 			reasoningTokens: l.reasoningTokens ? String(l.reasoningTokens) : null,
 			cachedTokens: l.cachedTokens ? String(l.cachedTokens) : null,
+			cacheWriteTokens: l.cacheWriteTokens ? String(l.cacheWriteTokens) : null,
 			imageInputTokens: l.imageInputTokens ? String(l.imageInputTokens) : null,
 			imageOutputTokens: l.imageOutputTokens
 				? String(l.imageOutputTokens)
@@ -4059,45 +4097,171 @@ admin.openapi(giftCreditsRoute, async (c) => {
 	});
 });
 
-// --- Delete User ---
+// --- Set Organization Status ---
 
-const deleteUserRoute = createRoute({
-	method: "delete",
-	path: "/users/{userId}",
+const orgStatusSchema = z.enum(["active", "deleted"]);
+
+const setOrganizationStatusRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/status",
 	request: {
 		params: z.object({
-			userId: z.string(),
+			orgId: z.string(),
 		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: orgStatusSchema,
+					}),
+				},
+			},
+		},
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ success: z.boolean() }).openapi({}),
+					schema: z.object({
+						message: z.string(),
+						status: orgStatusSchema,
+					}),
 				},
 			},
-			description: "User deleted.",
+			description: "Organization status updated.",
+		},
+		403: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Personal organizations cannot be disabled.",
 		},
 		404: {
-			description: "User not found.",
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
 		},
 	},
 });
 
-admin.openapi(deleteUserRoute, async (c) => {
-	const { userId } = c.req.valid("param");
+admin.openapi(setOrganizationStatusRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { status } = c.req.valid("json");
 
-	const existingUser = await db.query.user.findFirst({
-		where: { id: { eq: userId } },
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
 	});
 
-	if (!existingUser) {
-		throw new HTTPException(404, { message: "User not found" });
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
 	}
 
-	await db.delete(tables.user).where(eq(tables.user.id, userId));
+	if (status === "deleted" && org.isPersonal) {
+		throw new HTTPException(403, {
+			message: "Personal organizations cannot be disabled.",
+		});
+	}
 
-	return c.json({ success: true });
+	const memberLinks = await db.query.userOrganization.findMany({
+		where: { organizationId: { eq: orgId } },
+		columns: { userId: true },
+	});
+	const memberUserIds = memberLinks.map((m) => m.userId);
+
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.organization)
+			.set({ status })
+			.where(eq(tables.organization.id, orgId));
+
+		if (memberUserIds.length === 0) {
+			return;
+		}
+
+		if (status === "deleted") {
+			await tx
+				.update(tables.user)
+				.set({ status: "deactivated" })
+				.where(inArray(tables.user.id, memberUserIds));
+
+			await tx
+				.delete(tables.session)
+				.where(inArray(tables.session.userId, memberUserIds));
+		} else {
+			const otherLinks = await tx.query.userOrganization.findMany({
+				where: { userId: { in: memberUserIds } },
+				with: {
+					organization: {
+						columns: { id: true, status: true },
+					},
+				},
+			});
+
+			const stillBlocked = new Set(
+				otherLinks
+					.filter(
+						(link) =>
+							link.organization?.id !== orgId &&
+							link.organization?.status === "deleted",
+					)
+					.map((link) => link.userId),
+			);
+
+			const reactivateIds = memberUserIds.filter((id) => !stillBlocked.has(id));
+
+			if (reactivateIds.length > 0) {
+				await tx
+					.update(tables.user)
+					.set({ status: "active" })
+					.where(inArray(tables.user.id, reactivateIds));
+			}
+		}
+	});
+
+	if (status === "deleted" && memberUserIds.length > 0) {
+		const members = await db.query.user.findMany({
+			where: { id: { in: memberUserIds } },
+			columns: { email: true },
+		});
+
+		await Promise.all(
+			members.map((member) => deleteResendContact(member.email)),
+		);
+	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action:
+			status === "deleted" ? "organization.delete" : "organization.update",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			resourceName: org.name,
+			previousStatus: org.status ?? "active",
+			newStatus: status,
+			source: "admin",
+			affectedUserCount: memberUserIds.length,
+		},
+	});
+
+	return c.json({
+		message:
+			status === "deleted"
+				? "Organization disabled successfully"
+				: "Organization re-enabled successfully",
+		status,
+	});
 });
 
 // --- History endpoints ---
@@ -4928,6 +5092,8 @@ const mappingDetailSchema = z.object({
 		inputPrice: z.string().nullable(),
 		outputPrice: z.string().nullable(),
 		cachedInputPrice: z.string().nullable(),
+		cacheWriteInputPrice: z.string().nullable(),
+		cacheWriteInputPrice1h: z.string().nullable(),
 		imageInputPrice: z.string().nullable(),
 		requestPrice: z.string().nullable(),
 		contextSize: z.number().nullable(),
@@ -4984,6 +5150,9 @@ admin.openapi(getMappingDetail, async (c) => {
 			inputPrice: tables.modelProviderMapping.inputPrice,
 			outputPrice: tables.modelProviderMapping.outputPrice,
 			cachedInputPrice: tables.modelProviderMapping.cachedInputPrice,
+			cacheWriteInputPrice: tables.modelProviderMapping.cacheWriteInputPrice,
+			cacheWriteInputPrice1h:
+				tables.modelProviderMapping.cacheWriteInputPrice1h,
 			imageInputPrice: tables.modelProviderMapping.imageInputPrice,
 			requestPrice: tables.modelProviderMapping.requestPrice,
 			contextSize: tables.modelProviderMapping.contextSize,
@@ -5071,6 +5240,8 @@ admin.openapi(getMappingDetail, async (c) => {
 			inputPrice: m.inputPrice,
 			outputPrice: m.outputPrice,
 			cachedInputPrice: m.cachedInputPrice,
+			cacheWriteInputPrice: m.cacheWriteInputPrice,
+			cacheWriteInputPrice1h: m.cacheWriteInputPrice1h,
 			imageInputPrice: m.imageInputPrice,
 			requestPrice: m.requestPrice,
 			contextSize: m.contextSize,
@@ -7091,8 +7262,6 @@ const getDevpassSubscriber = createRoute({
 	},
 });
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
 function tierPriceOf(tier: string): number {
 	if (tier === "lite" || tier === "pro" || tier === "max") {
 		return DEV_PLAN_PRICES[tier];
@@ -7542,11 +7711,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue =
-			(row.paymentFailureCount ?? 0) > 0 ||
-			(lastPaymentFailureAt !== null &&
-				new Date(lastPaymentFailureAt).getTime() >
-					now.getTime() - THIRTY_DAYS_MS);
+		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
 
 		return {
 			id: row.id,
@@ -7708,12 +7873,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue =
-		(org.paymentFailureCount ?? 0) > 0 ||
-		(lastFailureRow?.lastFailureAt !== undefined &&
-			lastFailureRow.lastFailureAt !== null &&
-			new Date(lastFailureRow.lastFailureAt).getTime() >
-				now.getTime() - THIRTY_DAYS_MS);
+	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
 
 	const subscriber = {
 		id: org.id,

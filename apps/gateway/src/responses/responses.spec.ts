@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
+import { responsesRequestSchema } from "./schemas.js";
 import { convertChatResponseToResponses } from "./tools/convert-chat-to-responses.js";
 import { convertResponsesInputToMessages } from "./tools/convert-responses-to-chat.js";
 import {
@@ -37,6 +38,54 @@ vi.mock("@llmgateway/logger", () => ({
 		error: vi.fn(),
 	},
 }));
+
+describe("responsesRequestSchema", () => {
+	it("accepts reasoning items with function call outputs", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.3-codex",
+			input: [
+				{
+					type: "reasoning",
+					id: "rs_123",
+					summary: [],
+				},
+				{
+					type: "function_call",
+					call_id: "call_123",
+					name: "view_image",
+					arguments: '{"path":"/tmp/a.png"}',
+				},
+				{
+					type: "function_call_output",
+					call_id: "call_123",
+					output: "tool result",
+				},
+			],
+		});
+
+		expect(result.success).toBe(true);
+	});
+
+	it("accepts structured function call outputs", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.3-codex",
+			input: [
+				{
+					type: "function_call_output",
+					call_id: "call_123",
+					output: [
+						{
+							type: "input_text",
+							text: "tool failed: invalid image path",
+						},
+					],
+				},
+			],
+		});
+
+		expect(result.success).toBe(true);
+	});
+});
 
 describe("convertResponsesInputToMessages", () => {
 	it("converts string input to user message", () => {
@@ -129,6 +178,34 @@ describe("convertResponsesInputToMessages", () => {
 		]);
 	});
 
+	it("stringifies structured function_call_output for tool messages", () => {
+		const input = [
+			{
+				type: "function_call_output" as const,
+				call_id: "call_123",
+				output: [
+					{
+						type: "input_text" as const,
+						text: "tool failed: invalid image path",
+					},
+				],
+			},
+		];
+		const result = convertResponsesInputToMessages(input);
+		expect(result).toEqual([
+			{
+				role: "tool",
+				content: JSON.stringify([
+					{
+						type: "input_text",
+						text: "tool failed: invalid image path",
+					},
+				]),
+				tool_call_id: "call_123",
+			},
+		]);
+	});
+
 	it("converts input_text content type to text", () => {
 		const input = [
 			{
@@ -205,8 +282,8 @@ describe("convertChatResponseToResponses", () => {
 		expect(result.id).toMatch(/^resp_/);
 		expect(result.status).toBe("completed");
 		expect(result.model).toBe("gpt-4o-mini");
-		expect(result.usage.input_tokens).toBe(10);
-		expect(result.usage.output_tokens).toBe(5);
+		expect(result.usage!.input_tokens).toBe(10);
+		expect(result.usage!.output_tokens).toBe(5);
 
 		const messageOutput = result.output.find((o) => o.type === "message");
 		expect(messageOutput).toBeDefined();
@@ -366,8 +443,8 @@ describe("convertChatResponseToResponses", () => {
 
 		const result = convertChatResponseToResponses(chatResponse, "gpt-4o-mini");
 
-		expect(result.usage.cost).toBe(0.001);
-		expect(result.usage.cost_details).toEqual({
+		expect(result.usage!.cost).toBe(0.001);
+		expect(result.usage!.cost_details).toEqual({
 			upstream_inference_cost: 0.001,
 			upstream_inference_prompt_cost: 0.0005,
 			upstream_inference_completions_cost: 0.0005,

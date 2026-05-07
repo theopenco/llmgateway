@@ -22,6 +22,7 @@ export const completionsRequestSchema = z.object({
 								cache_control: z
 									.object({
 										type: z.literal("ephemeral"),
+										ttl: z.enum(["5m", "1h"]).optional(),
 									})
 									.optional(),
 							}),
@@ -244,6 +245,7 @@ export const completionsRequestSchema = z.object({
 		.object({
 			aspect_ratio: z.string().optional(),
 			image_size: z.string().optional(),
+			image_quality: z.enum(["low", "medium", "high", "auto"]).optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),
 		})

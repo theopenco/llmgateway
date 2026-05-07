@@ -31,6 +31,7 @@ export const xaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-05-15"),
 			},
 		],
 	},
@@ -169,6 +170,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				modelName: "grok-4-0709",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				pricingTiers: [
@@ -251,6 +253,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-fast-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -293,6 +296,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-fast-non-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -335,6 +339,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				modelName: "grok-code-fast-1",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				cachedInputPrice: 0.02 / 1e6,
 				outputPrice: 1.5 / 1e6,
@@ -359,6 +364,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-1-fast-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -389,6 +395,24 @@ export const xaiModels = [
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
+			{
+				providerId: "azure-ai-foundry",
+				modelName: "grok-4-1-fast-reasoning",
+				inputPrice: 0.2 / 1e6,
+				outputPrice: 0.5 / 1e6,
+				requestPrice: 0,
+				imageInputPrice: undefined,
+				discount: 0.2,
+				contextSize: 2_000_000,
+				maxOutput: 30000,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				reasoningOutput: "omit",
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
 		],
 	},
 	{
@@ -401,6 +425,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-1-fast-non-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -430,6 +455,22 @@ export const xaiModels = [
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
+			{
+				providerId: "azure-ai-foundry",
+				modelName: "grok-4-1-fast-non-reasoning",
+				inputPrice: 0.2 / 1e6,
+				outputPrice: 0.5 / 1e6,
+				requestPrice: 0,
+				imageInputPrice: undefined,
+				discount: 0.2,
+				contextSize: 2_000_000,
+				maxOutput: 30000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
 		],
 	},
 	{
@@ -444,6 +485,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-fast-non-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -477,6 +519,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-fast-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -521,6 +564,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				modelName: "grok-4-1-fast-non-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -550,10 +594,27 @@ export const xaiModels = [
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
+			{
+				providerId: "azure-ai-foundry",
+				modelName: "grok-4-1-fast-non-reasoning",
+				inputPrice: 0.2 / 1e6,
+				outputPrice: 0.5 / 1e6,
+				requestPrice: 0,
+				imageInputPrice: undefined,
+				discount: 0.2,
+				contextSize: 2_000_000,
+				maxOutput: 30000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
 			// Reasoning variant (used when reasoning_effort is set)
 			{
 				providerId: "xai",
 				modelName: "grok-4-1-fast-reasoning",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0.2 / 1e6,
 				outputPrice: 0.5 / 1e6,
 				pricingTiers: [
@@ -580,6 +641,24 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
+			{
+				providerId: "azure-ai-foundry",
+				modelName: "grok-4-1-fast-reasoning",
+				inputPrice: 0.2 / 1e6,
+				outputPrice: 0.5 / 1e6,
+				requestPrice: 0,
+				imageInputPrice: undefined,
+				discount: 0.2,
+				contextSize: 2_000_000,
+				maxOutput: 30000,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
@@ -716,6 +795,48 @@ export const xaiModels = [
 		],
 	},
 	{
+		id: "grok-4-3",
+		name: "Grok 4.3",
+		description:
+			"xAI's flagship reasoning model with 1M context, vision, and tool support.",
+		family: "xai",
+		releasedAt: new Date("2026-04-30"),
+		providers: [
+			{
+				providerId: "xai",
+				modelName: "grok-4.3",
+				inputPrice: 1.25 / 1e6,
+				outputPrice: 2.5 / 1e6,
+				cachedInputPrice: 0.3125 / 1e6,
+				pricingTiers: [
+					{
+						name: "Up to 200K",
+						upToTokens: 200000,
+						inputPrice: 1.25 / 1e6,
+						outputPrice: 2.5 / 1e6,
+						cachedInputPrice: 0.3125 / 1e6,
+					},
+					{
+						name: "Over 200K",
+						upToTokens: Infinity,
+						inputPrice: 2.5 / 1e6,
+						outputPrice: 5.0 / 1e6,
+						cachedInputPrice: 0,
+					},
+				],
+				requestPrice: 0,
+				contextSize: 1_000_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
+		],
+	},
+	{
 		id: "grok-imagine-image-pro",
 		name: "Grok Imagine Image Pro",
 		description:
@@ -728,6 +849,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				modelName: "grok-imagine-image-pro",
+				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: 0,
 				outputPrice: 0,
 				requestPrice: 0.07,

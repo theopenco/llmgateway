@@ -3,7 +3,10 @@ import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages } from "./extract-images.js";
-import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	adjustGoogleCandidateTokens,
+	extractBedrockCacheCreationDetails,
+} from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
@@ -14,23 +17,43 @@ function normalizeAnthropicUsage(usage: any): any {
 	if (!usage || typeof usage !== "object") {
 		return null;
 	}
-	const inputTokens = usage.input_tokens ?? 0;
-	const cacheCreation = usage.cache_creation_input_tokens ?? 0;
-	const cacheRead = usage.cache_read_input_tokens ?? 0;
-	const outputTokens = usage.output_tokens ?? 0;
-	const promptTokens = inputTokens + cacheCreation + cacheRead;
-	const hasCacheInfo = cacheRead > 0 || cacheCreation > 0;
-	return {
-		prompt_tokens: promptTokens,
-		completion_tokens: outputTokens,
-		total_tokens: promptTokens + outputTokens,
-		...(hasCacheInfo && {
-			prompt_tokens_details: {
-				cached_tokens: cacheRead,
-				...(cacheCreation > 0 && { cache_creation_tokens: cacheCreation }),
-			},
-		}),
+	const hasInputUsage =
+		usage.input_tokens !== undefined ||
+		usage.cache_creation_input_tokens !== undefined ||
+		usage.cache_read_input_tokens !== undefined;
+	const outputTokens = usage.output_tokens;
+	if (!hasInputUsage && outputTokens === undefined) {
+		return null;
+	}
+
+	const inputTokens = hasInputUsage ? (usage.input_tokens ?? 0) : null;
+	const cacheCreation = hasInputUsage
+		? (usage.cache_creation_input_tokens ?? 0)
+		: null;
+	const cacheRead = hasInputUsage ? (usage.cache_read_input_tokens ?? 0) : null;
+	const promptTokens = hasInputUsage
+		? (inputTokens ?? 0) + (cacheCreation ?? 0) + (cacheRead ?? 0)
+		: null;
+	const normalizedUsage: Record<string, any> = {
+		...(promptTokens !== null && { prompt_tokens: promptTokens }),
+		...(outputTokens !== undefined && { completion_tokens: outputTokens }),
+		...(promptTokens !== null &&
+			outputTokens !== undefined && {
+				total_tokens: promptTokens + outputTokens,
+			}),
+		...(cacheRead !== null &&
+			cacheCreation !== null &&
+			(cacheRead > 0 || cacheCreation > 0) && {
+				prompt_tokens_details: {
+					cached_tokens: cacheRead,
+					...(cacheCreation > 0 && {
+						cache_write_tokens: cacheCreation,
+						cache_creation_tokens: cacheCreation,
+					}),
+				},
+			}),
 	};
+	return normalizedUsage;
 }
 
 export function transformStreamingToOpenai(
@@ -66,7 +89,25 @@ export function transformStreamingToOpenai(
 
 	switch (usedProvider) {
 		case "anthropic": {
-			if (data.type === "content_block_delta" && data.delta?.text) {
+			const usage = data.message?.usage ?? data.usage;
+			if (data.type === "message_start") {
+				transformedData = {
+					id: data.message?.id ?? data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.message?.model ?? data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+					usage: normalizeAnthropicUsage(usage),
+				};
+			} else if (data.type === "content_block_delta" && data.delta?.text) {
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -82,7 +123,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_delta" &&
@@ -104,7 +145,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_start" &&
@@ -130,7 +171,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_start" &&
@@ -161,7 +202,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_delta" &&
@@ -187,7 +228,7 @@ export function transformStreamingToOpenai(
 								finish_reason: null,
 							},
 						],
-						usage: normalizeAnthropicUsage(data.usage),
+						usage: normalizeAnthropicUsage(usage),
 					};
 				} else {
 					transformedData = {
@@ -212,7 +253,7 @@ export function transformStreamingToOpenai(
 								finish_reason: null,
 							},
 						],
-						usage: normalizeAnthropicUsage(data.usage),
+						usage: normalizeAnthropicUsage(usage),
 					};
 				}
 			} else if (
@@ -248,7 +289,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
 				const stopReason = data.delta.stop_reason;
@@ -266,7 +307,7 @@ export function transformStreamingToOpenai(
 							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "message_stop" || data.stop_reason) {
 				const stopReason = data.stop_reason ?? "end_turn";
@@ -284,7 +325,7 @@ export function transformStreamingToOpenai(
 							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.delta?.text) {
 				transformedData = {
@@ -302,7 +343,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "ping") {
 				return null;
@@ -328,7 +369,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			}
 			break;
@@ -679,6 +720,24 @@ export function transformStreamingToOpenai(
 
 		case "azure":
 		case "openai": {
+			// Azure precedes every stream with a prompt-filter-only chunk that has
+			// empty id/object/model and no choices. The default OpenAI fallback
+			// path passes the empty values through and breaks downstream
+			// hasOpenAIFormat checks. Drop it — if any prompt filter actually
+			// fires, Azure surfaces it via a content_filter error/finish_reason.
+			// Responses API events also lack top-level id/object/choices/usage
+			// but always carry a `type` field, so guard against dropping them.
+			if (
+				usedProvider === "azure" &&
+				!data.type &&
+				!data.id &&
+				!data.object &&
+				(!data.choices || data.choices.length === 0) &&
+				!data.usage
+			) {
+				transformedData = null;
+				break;
+			}
 			if (data.type) {
 				switch (data.type) {
 					case "keepalive":
@@ -1168,7 +1227,11 @@ export function transformStreamingToOpenai(
 				const inputTokens = data.usage.inputTokens ?? 0;
 				const cacheReadTokens = data.usage.cacheReadInputTokens ?? 0;
 				const cacheWriteTokens = data.usage.cacheWriteInputTokens ?? 0;
+				const cacheDetails = extractBedrockCacheCreationDetails(data.usage);
 				const promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+				const hasCacheCreationDetails =
+					cacheDetails.cacheCreation5mTokens !== null ||
+					cacheDetails.cacheCreation1hTokens !== null;
 
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -1186,9 +1249,27 @@ export function transformStreamingToOpenai(
 						prompt_tokens: promptTokens,
 						completion_tokens: data.usage.outputTokens ?? 0,
 						total_tokens: data.usage.totalTokens ?? 0,
-						...(cacheReadTokens > 0 && {
+						...((cacheReadTokens > 0 || cacheWriteTokens > 0) && {
 							prompt_tokens_details: {
 								cached_tokens: cacheReadTokens,
+								...(cacheWriteTokens > 0 && {
+									cache_write_tokens: cacheWriteTokens,
+									cache_creation_tokens: cacheWriteTokens,
+								}),
+								...(cacheWriteTokens > 0 &&
+									hasCacheCreationDetails && {
+										cache_creation: {
+											ephemeral_5m_input_tokens:
+												cacheDetails.cacheCreation5mTokens ??
+												Math.max(
+													0,
+													cacheWriteTokens -
+														(cacheDetails.cacheCreation1hTokens ?? 0),
+												),
+											ephemeral_1h_input_tokens:
+												cacheDetails.cacheCreation1hTokens ?? 0,
+										},
+									}),
 							},
 						}),
 					},
@@ -1212,12 +1293,10 @@ export function transformStreamingToOpenai(
 		case "cerebras":
 		case "xai":
 		case "deepseek":
-		case "bluestone":
 		case "alibaba":
 		case "moonshot":
 		case "perplexity":
 		case "nebius":
-		case "canopywave":
 		case "inference.net":
 		case "together-ai":
 		case "custom":
@@ -1225,7 +1304,23 @@ export function transformStreamingToOpenai(
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "azure-ai-foundry":
 		case "llmgateway": {
+			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
+			// chunk on some models — empty id/object/choices, no usage. Drop it
+			// for the same reason: it breaks downstream hasOpenAIFormat checks.
+			// Skip the guard for Responses API events (identified by `data.type`).
+			if (
+				usedProvider === "azure-ai-foundry" &&
+				!data.type &&
+				!data.id &&
+				!data.object &&
+				(!data.choices || data.choices.length === 0) &&
+				!data.usage
+			) {
+				transformedData = null;
+				break;
+			}
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(
 				data,

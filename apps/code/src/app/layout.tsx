@@ -23,7 +23,7 @@ const geistMono = Geist_Mono({
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-	metadataBase: new URL("https://code.llmgateway.io"),
+	metadataBase: new URL("https://devpass.llmgateway.io"),
 	title: {
 		default: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		template: "%s | DevPass by LLM Gateway",
@@ -53,7 +53,7 @@ export const metadata: Metadata = {
 			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool.",
 		images: ["/opengraph.png?v=1"],
 		type: "website",
-		url: "https://code.llmgateway.io",
+		url: "https://devpass.llmgateway.io",
 		siteName: "DevPass by LLM Gateway",
 		locale: "en_US",
 	},
@@ -71,7 +71,7 @@ const webSiteSchema = {
 	"@context": "https://schema.org",
 	"@type": "WebSite",
 	name: "DevPass by LLM Gateway",
-	url: "https://code.llmgateway.io",
+	url: "https://devpass.llmgateway.io",
 	description:
 		"Fixed-price dev plans for AI-powered coding with Claude Code, Cursor, Cline, and any OpenAI-compatible tool. One subscription, every model.",
 	publisher: {

@@ -36,6 +36,9 @@ export function Header() {
 						</a>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
+						<Link href="/pricing">Pricing</Link>
+					</Button>
+					<Button variant="ghost" size="sm" asChild>
 						<a href={config.docsUrl} target="_blank" rel="noopener noreferrer">
 							Docs
 						</a>
@@ -73,6 +76,13 @@ export function Header() {
 						onClick={() => setMenuOpen(false)}
 					>
 						Models
+					</Link>
+					<Link
+						href="/pricing"
+						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+						onClick={() => setMenuOpen(false)}
+					>
+						Pricing
 					</Link>
 					<a
 						href={config.docsUrl}

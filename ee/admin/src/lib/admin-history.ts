@@ -31,17 +31,15 @@ export async function getMappingHistory(
 	providerId: string,
 	modelId: string,
 	window: HistoryWindow,
+	projectId?: string,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
 		"/admin/providers/{providerId}/models/{modelId}/history",
 		{
 			params: {
-				path: {
-					providerId,
-					modelId: encodeURIComponent(modelId),
-				},
-				query: { window },
+				path: { providerId, modelId },
+				query: { window, ...(projectId ? { projectId } : {}) },
 			},
 		},
 	);

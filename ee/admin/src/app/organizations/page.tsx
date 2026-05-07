@@ -9,7 +9,7 @@ import {
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { DeleteUserButton } from "@/components/delete-user-button";
+import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,7 +20,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { deleteUser } from "@/lib/admin-organizations";
+import { setOrganizationStatus } from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -179,13 +179,13 @@ export default async function OrganizationsPage({
 		redirect(`/organizations?page=1${searchParam}${sortParam}`);
 	}
 
-	async function handleDeleteUser(
-		userId: string,
-	): Promise<{ success: boolean }> {
+	async function handleToggleOrgStatus(
+		orgId: string,
+		status: "active" | "deleted",
+	): Promise<{ success: boolean; error?: string }> {
 		"use server";
 
-		const success = await deleteUser(userId);
-		return { success };
+		return await setOrganizationStatus(orgId, status);
 	}
 
 	return (
@@ -375,13 +375,14 @@ export default async function OrganizationsPage({
 										</Badge>
 									</TableCell>
 									<TableCell>
-										{org.ownerUserId && (
-											<DeleteUserButton
-												userId={org.ownerUserId}
-												userEmail={org.ownerEmail ?? org.billingEmail}
-												onDelete={handleDeleteUser}
+										<div className="flex items-center gap-1">
+											<OrgStatusToggleButton
+												orgId={org.id}
+												orgName={org.name}
+												currentStatus={org.status}
+												onToggle={handleToggleOrgStatus}
 											/>
-										)}
+										</div>
 									</TableCell>
 								</TableRow>
 							))

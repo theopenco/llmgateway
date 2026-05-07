@@ -1,3 +1,5 @@
+import { interruptibleSleep, isStopRequested } from "@/shutdown.js";
+
 import {
 	and,
 	db,
@@ -189,7 +191,7 @@ async function sendAndRecord(
 
 	if (process.env.EMAIL_FOLLOW_UPS === "true") {
 		await sendFollowUpEmail({ to: recipientEmail, subject, text });
-		await new Promise((resolve) => setTimeout(resolve, 1000));
+		await interruptibleSleep(1000);
 	} else {
 		logger.info("Follow-up email (dry run)", {
 			kind: "email_follow_up",
@@ -233,6 +235,9 @@ async function processNoPurchaseEmails(): Promise<void> {
 		);
 
 	for (const { organizationId } of eligibleOrgs) {
+		if (isStopRequested()) {
+			break;
+		}
 		try {
 			const email = await getOrgRecipientEmail(organizationId);
 			if (!email) {
@@ -298,6 +303,9 @@ async function processLowUsageEmails(): Promise<void> {
 	`);
 
 	for (const row of rows.rows) {
+		if (isStopRequested()) {
+			break;
+		}
 		const organizationId = row.organization_id;
 		try {
 			const email = await getOrgRecipientEmail(organizationId);
@@ -372,6 +380,9 @@ async function processNoRepurchaseEmails(): Promise<void> {
 	`);
 
 	for (const row of rows.rows) {
+		if (isStopRequested()) {
+			break;
+		}
 		const organizationId = row.organization_id;
 		try {
 			const email = await getOrgRecipientEmail(organizationId);

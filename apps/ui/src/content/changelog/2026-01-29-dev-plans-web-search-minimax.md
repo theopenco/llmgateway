@@ -15,7 +15,7 @@ image:
 
 We're launching **Dev Plans** — a new way to plan and execute software projects with AI assistance. Break down complex features into actionable steps, get implementation guidance, and ship faster.
 
-**[Try Dev Plans now](https://code.llmgateway.io)** — we're looking for early feedback to shape the product.
+**[Try Dev Plans now](https://devpass.llmgateway.io)** — we're looking for early feedback to shape the product.
 
 ### What you can do
 
@@ -177,7 +177,7 @@ Eight new models from ByteDance including GPT-OSS-120B variants. **[View all Byt
 
 ---
 
-**[Try Dev Plans](https://code.llmgateway.io)** — your feedback shapes the product.
+**[Try Dev Plans](https://devpass.llmgateway.io)** — your feedback shapes the product.
 
 **[Explore new models](/models)** — find the right model for your use case.
 

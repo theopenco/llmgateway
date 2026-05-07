@@ -4,7 +4,8 @@ export type RetryableErrorType =
 	| "network_error"
 	| "provider_error"
 	| "upstream_error"
-	| "upstream_timeout";
+	| "upstream_timeout"
+	| "gateway_error";
 
 export interface RoutingAttempt {
 	provider: string;
@@ -27,7 +28,8 @@ export function isRetryableErrorType(errorType: string): boolean {
 		errorType === "network_error" ||
 		errorType === "provider_error" ||
 		errorType === "upstream_error" ||
-		errorType === "upstream_timeout"
+		errorType === "upstream_timeout" ||
+		errorType === "gateway_error"
 	);
 }
 
@@ -122,6 +124,9 @@ export function getErrorType(statusCode: number): string {
 	}
 	if (statusCode === 429) {
 		return "rate_limited";
+	}
+	if (statusCode === 401 || statusCode === 403) {
+		return "gateway_error";
 	}
 	return "upstream_error";
 }

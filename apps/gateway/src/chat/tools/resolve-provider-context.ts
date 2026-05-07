@@ -82,6 +82,7 @@ export interface ProviderContextOptions {
 		| {
 				aspect_ratio?: string;
 				image_size?: string;
+				image_quality?: string;
 				n?: number;
 				seed?: number;
 		  }
@@ -108,6 +109,40 @@ interface OrgInfo {
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
 	devPlanExpiresAt: Date | null;
+}
+
+// Mirrors the initial credit gate in chat.ts so retry/fallback paths that
+// switch to LLMGateway env-var tokens cannot be used to bill an organization
+// with non-positive credits. Free models (explicitly flagged in the catalog)
+// are exempt.
+function assertOrganizationHasCreditsForEnvFallback(
+	organization: OrgInfo,
+	modelInfo: ModelDefinition,
+): void {
+	if (modelInfo.free) {
+		return;
+	}
+	const regularCredits = parseFloat(organization.credits ?? "0");
+	const devPlanCreditsRemaining =
+		organization.devPlan !== "none"
+			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+				parseFloat(organization.devPlanCreditsUsed ?? "0")
+			: 0;
+	const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+	if (totalAvailableCredits > 0) {
+		return;
+	}
+	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+		const renewalDate = organization.devPlanExpiresAt
+			? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		});
+	}
+	throw new HTTPException(402, {
+		message: `Organization ${organization.id} has insufficient credits`,
+	});
 }
 
 export function formatUsedModelForDisplay(
@@ -140,12 +175,14 @@ export async function resolveProviderContext(
 ): Promise<ProviderContext> {
 	const usedProvider = providerMapping.providerId as Provider;
 	const usedModel = providerMapping.modelName;
-	// Strip :region suffix for the actual upstream API call
-	const upstreamModelName = stripRegionFromModelName(
+	// Strip :region suffix for the actual upstream API call. The
+	// per-provider-key azure_deployment_name override is applied below once
+	// providerKey is resolved.
+	const strippedModelName = stripRegionFromModelName(
 		usedModel,
 		providerMapping.region,
 	);
-	const baseModelName = modelInfo.id || upstreamModelName;
+	const baseModelName = modelInfo.id || strippedModelName;
 	const usedModelMapping = usedModel;
 	const usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
@@ -184,6 +221,7 @@ export async function resolveProviderContext(
 
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
+		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 		const envResult = getProviderEnv(usedProvider as Provider, {
 			excludedIndices: options.excludedEnvKeyIndices,
 		});
@@ -210,6 +248,7 @@ export async function resolveProviderContext(
 		if (providerKey) {
 			usedToken = providerKey.token;
 		} else {
+			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 			const envResult = getProviderEnv(usedProvider as Provider, {
 				excludedIndices: options.excludedEnvKeyIndices,
 			});
@@ -273,6 +312,15 @@ export async function resolveProviderContext(
 	// --- Image generation check ---
 	const isImageGeneration =
 		providerMappingForSelected?.imageGenerations === true;
+
+	// Apply azure_deployment_name override (if set) to the upstream model
+	// name. Must run after providerKey is resolved so retry fallbacks also
+	// pick up the override.
+	const azureDeploymentName =
+		usedProvider === "azure"
+			? providerKey?.options?.azure_deployment_name
+			: undefined;
+	const upstreamModelName = azureDeploymentName || strippedModelName;
 
 	// --- URL resolution ---
 	// When using a provider key (BYOK), skip env vars entirely —
