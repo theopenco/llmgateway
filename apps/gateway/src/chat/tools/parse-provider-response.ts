@@ -31,6 +31,10 @@ export function parseProviderResponse(
 	let reasoningTokens = null;
 	let cachedTokens = null;
 	let cacheCreationTokens = null;
+	let cacheCreation5mTokens: number | null = null;
+	let cacheCreation1hTokens: number | null = null;
+	let imageInputTokens: number | null = null;
+	let imageOutputTokens: number | null = null;
 	let toolResults = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
@@ -187,7 +191,14 @@ export function parseProviderResponse(
 			// We need to add cache_creation_input_tokens to get total input tokens
 			if (json.usage) {
 				const inputTokens = json.usage.input_tokens ?? 0;
+				// Anthropic supports two cache TTLs (5m at 1.25x, 1h at 2x).
+				// `cache_creation_input_tokens` is the sum; the per-TTL breakdown is in
+				// `usage.cache_creation.{ephemeral_5m_input_tokens, ephemeral_1h_input_tokens}`.
 				const cacheCreation = json.usage.cache_creation_input_tokens ?? 0;
+				const cacheCreation5m =
+					json.usage.cache_creation?.ephemeral_5m_input_tokens ?? 0;
+				const cacheCreation1h =
+					json.usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
 				const cacheReadTokens = json.usage.cache_read_input_tokens ?? 0;
 
 				// Total prompt tokens = non-cached + cache creation + cache read
@@ -197,6 +208,8 @@ export function parseProviderResponse(
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheCreation;
+				cacheCreation5mTokens = cacheCreation5m > 0 ? cacheCreation5m : null;
+				cacheCreation1hTokens = cacheCreation1h > 0 ? cacheCreation1h : null;
 				totalTokens =
 					promptTokens && completionTokens
 						? promptTokens + completionTokens
@@ -526,6 +539,43 @@ export function parseProviderResponse(
 			break;
 		}
 		default: // OpenAI format
+			// Check if this is an OpenAI / Azure image generation response (e.g. gpt-image-2)
+			// Format: { created: number, data: [{ b64_json?: string, url?: string, revised_prompt?: string }], usage?: {...} }
+			if (
+				(usedProvider === "openai" || usedProvider === "azure") &&
+				json.data &&
+				Array.isArray(json.data) &&
+				json.data.length > 0 &&
+				(json.data[0]?.b64_json || json.data[0]?.url)
+			) {
+				const imageData = json.data;
+				images = imageData.map((item: any): ImageObject => {
+					let url: string;
+					if (item.b64_json) {
+						url = `data:image/png;base64,${item.b64_json}`;
+					} else {
+						url = item.url;
+					}
+					return {
+						type: "image_url",
+						image_url: { url },
+					};
+				});
+				content = imageLabel;
+				finishReason = "stop";
+				// OpenAI gpt-image models return usage with input/output tokens
+				promptTokens = json.usage?.input_tokens ?? 0;
+				completionTokens = json.usage?.output_tokens ?? 0;
+				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
+				imageInputTokens =
+					json.usage?.input_tokens_details?.image_tokens ?? null;
+				imageOutputTokens =
+					json.usage?.output_tokens_details?.image_tokens ?? null;
+				totalTokens =
+					json.usage?.total_tokens ??
+					(promptTokens ?? 0) + (completionTokens ?? 0);
+				break;
+			}
 			// Check if this is an xAI Grok Imagine image generation response
 			// Format: { data: [{ url: "..." }] }
 			if (usedProvider === "xai" && json.data && Array.isArray(json.data)) {
@@ -802,33 +852,8 @@ export function parseProviderResponse(
 		}
 	}
 
-	// Cache reasoning_content for Moonshot thinking models when tool_calls are present
-	// This is needed for multi-turn tool call conversations because Moonshot requires
-	// reasoning_content to be included in assistant messages with tool_calls
-	if (
-		usedProvider === "moonshot" &&
-		reasoningContent &&
-		toolResults &&
-		Array.isArray(toolResults) &&
-		toolResults.length > 0
-	) {
-		for (const toolCall of toolResults) {
-			if (toolCall.id) {
-				redisClient
-					.setex(
-						`reasoning_content:${toolCall.id}`,
-						86400, // 1 day expiration
-						reasoningContent,
-					)
-					.catch((err) => {
-						logger.error("Failed to cache reasoning_content", { err });
-					});
-			}
-		}
-	}
-
-	// For non-reasoning models that return their answer in reasoning_content
-	// (e.g. CanopyWave Mimo), move reasoning to content so the response is visible.
+	// For non-reasoning models that return their answer in reasoning_content,
+	// move reasoning to content so the response is visible.
 	if (!supportsReasoning && !content && reasoningContent) {
 		content = reasoningContent;
 		reasoningContent = null;
@@ -844,6 +869,10 @@ export function parseProviderResponse(
 		reasoningTokens,
 		cachedTokens,
 		cacheCreationTokens,
+		cacheCreation5mTokens,
+		cacheCreation1hTokens,
+		imageInputTokens,
+		imageOutputTokens,
 		toolResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,

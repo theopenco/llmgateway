@@ -4,7 +4,11 @@ import { z } from "zod";
 
 import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
+import {
+	getDevPlanCreditsLimit,
+	type DevPlanCycle,
+	type DevPlanTier,
+} from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
@@ -211,6 +215,9 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 			case "invoice.payment_succeeded":
 				await handleInvoicePaymentSucceeded(event);
 				break;
+			case "invoice.payment_failed":
+				await handleInvoicePaymentFailed(event);
+				break;
 			case "customer.subscription.created":
 				await handleSubscriptionCreated(event);
 				break;
@@ -277,6 +284,8 @@ async function handleCheckoutSessionCompleted(
 	// Check if this is a dev plan subscription
 	const isDevPlan = metadata?.subscriptionType === "dev_plan";
 	const devPlanTier = metadata?.devPlan as DevPlanTier | undefined;
+	const devPlanCycle: DevPlanCycle =
+		metadata?.devPlanCycle === "annual" ? "annual" : "monthly";
 
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlan: ${isDevPlan}`,
@@ -296,6 +305,7 @@ async function handleCheckoutSessionCompleted(
 					devPlanBillingCycleStart: new Date(),
 					devPlanStripeSubscriptionId: subscriptionId,
 					devPlanCancelled: false,
+					devPlanCycle,
 				})
 				.where(eq(tables.organization.id, organizationId));
 
@@ -380,7 +390,7 @@ async function handleCheckoutSessionCompleted(
 				},
 			});
 		} else {
-			// Handle regular pro plan subscription
+			// Handle regular pro subscription
 			// Skip setting plan to "pro" for personal orgs - they use devPlan field instead
 			if (organization.isPersonal) {
 				logger.warn(
@@ -400,7 +410,7 @@ async function handleCheckoutSessionCompleted(
 				.returning();
 
 			logger.info(
-				`Successfully upgraded organization ${organizationId} to pro plan via checkout. Updated rows: ${result.length}`,
+				`Successfully upgraded organization ${organizationId} to pro tier via checkout. Updated rows: ${result.length}`,
 			);
 
 			// Check for existing transaction to avoid duplicates
@@ -825,7 +835,12 @@ async function handlePaymentIntentSucceeded(
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
 
-	// Get the credit amount (base amount without fees) from metadata
+	// payment_intent.succeeded also fires for subscription invoice payments;
+	// only credit top-up payment intents set baseAmount in metadata.
+	if (paymentIntent.metadata.baseAmount === undefined) {
+		return;
+	}
+
 	const creditAmount = Number(paymentIntent.metadata.baseAmount);
 	if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
 		logger.error("Invalid baseAmount in payment intent metadata", {
@@ -1538,7 +1553,7 @@ async function handleInvoicePaymentSucceeded(
 			},
 		});
 	} else {
-		// Handle regular pro plan subscription
+		// Handle regular pro subscription
 		// Create transaction record for subscription start
 		const [transaction] = await db
 			.insert(tables.transaction)
@@ -1554,7 +1569,7 @@ async function handleInvoicePaymentSucceeded(
 			})
 			.returning();
 
-		// Update organization to pro plan and mark subscription as not cancelled
+		// Update organization to pro tier and mark subscription as not cancelled
 		try {
 			const result = await db
 				.update(tables.organization)
@@ -1566,7 +1581,7 @@ async function handleInvoicePaymentSucceeded(
 				.returning();
 
 			logger.info(
-				`Successfully upgraded organization ${organizationId} to pro plan. Updated rows: ${result.length}`,
+				`Successfully upgraded organization ${organizationId} to pro tier. Updated rows: ${result.length}`,
 			);
 
 			logger.info(
@@ -1614,12 +1629,164 @@ async function handleInvoicePaymentSucceeded(
 			});
 		} catch (error) {
 			logger.error(
-				`Error updating organization ${organizationId} to pro plan:`,
+				`Error updating organization ${organizationId} to pro tier:`,
 				error as Error,
 			);
 			throw error;
 		}
 	}
+}
+
+async function freezeDevPlanCredits(
+	organizationId: string,
+	organization: { devPlanCreditsUsed: string | null },
+	reason: string,
+) {
+	// Cap the devPlan credit limit at what's already been used so the gateway's
+	// `limit - used` balance check returns 0. Stops further dev-plan spend
+	// without revoking the tier (so we don't lose the tier metadata before
+	// dunning resolves one way or the other).
+	const used = organization.devPlanCreditsUsed ?? "0";
+	await db
+		.update(tables.organization)
+		.set({
+			devPlanCreditsLimit: used,
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	logger.warn(
+		`Froze dev plan credits for organization ${organizationId} (reason: ${reason}); credits limit set to ${used}`,
+	);
+}
+
+async function restoreDevPlanCredits(
+	organizationId: string,
+	organization: {
+		devPlan: DevPlanTier | "none" | null;
+		devPlanCreditsLimit: string | null;
+	},
+	reason: string,
+) {
+	// Counterpart to freezeDevPlanCredits: when the subscription returns to a
+	// healthy state, raise the credit limit back to the tier's expected cap so
+	// previously-frozen accounts aren't permanently stuck at the freeze value.
+	if (!organization.devPlan || organization.devPlan === "none") {
+		return;
+	}
+	const expectedLimit = getDevPlanCreditsLimit(organization.devPlan);
+	const currentLimit = parseFloat(organization.devPlanCreditsLimit ?? "0");
+	if (currentLimit >= expectedLimit) {
+		return;
+	}
+	await db
+		.update(tables.organization)
+		.set({
+			devPlanCreditsLimit: expectedLimit.toString(),
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	logger.info(
+		`Restored dev plan credits for organization ${organizationId} (reason: ${reason}); credits limit raised from ${currentLimit} to ${expectedLimit}`,
+	);
+}
+
+async function handleInvoicePaymentFailed(
+	event: Stripe.InvoicePaymentFailedEvent,
+) {
+	const invoice = event.data.object;
+	const { customer, metadata } = invoice;
+	// Stripe v18 removed the top-level `Invoice.subscription` from the typed
+	// surface. The subscription that produced this invoice now lives under
+	// `invoice.parent.subscription_details`. Fall back to the per-line item
+	// pointer for invoices created before this restructuring landed.
+	const parentSubscription =
+		invoice.parent?.subscription_details?.subscription ?? null;
+
+	let subscriptionId: string | null | undefined =
+		typeof parentSubscription === "string"
+			? parentSubscription
+			: parentSubscription?.id;
+	if (
+		!subscriptionId &&
+		invoice.lines &&
+		invoice.lines.data &&
+		invoice.lines.data.length > 0
+	) {
+		const firstLineItem = invoice.lines.data[0];
+		if (
+			firstLineItem.parent &&
+			firstLineItem.parent.subscription_item_details
+		) {
+			subscriptionId =
+				firstLineItem.parent.subscription_item_details.subscription;
+		}
+	}
+
+	if (!subscriptionId) {
+		logger.info("Invoice payment failed but not for a subscription, skipping");
+		return;
+	}
+
+	const result = await resolveOrganizationFromStripeEvent({
+		metadata: metadata as { organizationId?: string } | undefined,
+		customer: typeof customer === "string" ? customer : customer?.id,
+		subscription: subscriptionId,
+		lines: invoice.lines,
+	});
+
+	if (!result) {
+		logger.error(
+			`Organization not found for failed invoice (customer: ${customer}, subscription: ${subscriptionId})`,
+		);
+		return;
+	}
+
+	const { organizationId, organization } = result;
+
+	const isDevPlan =
+		organization.devPlanStripeSubscriptionId === subscriptionId &&
+		organization.devPlan !== "none";
+
+	if (!isDevPlan) {
+		// Pro subscription failures are tracked via payment_intent.payment_failed
+		// (with email throttling). Nothing extra to do here.
+		return;
+	}
+
+	// Webhook delivery isn't guaranteed in order. Smart Retries can have
+	// recovered the invoice (or the customer paid out-of-band) before this
+	// event reaches us — in which case the subscription is already back to
+	// active/trialing and we'd freeze a healthy account. Fetch the live
+	// subscription state and only freeze on a confirmed failure status.
+	let liveSubscription: Stripe.Subscription;
+	try {
+		liveSubscription = await getStripe().subscriptions.retrieve(subscriptionId);
+	} catch (error) {
+		logger.error(
+			`Failed to retrieve subscription ${subscriptionId} for failed invoice ${invoice.id}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return;
+	}
+
+	const failureStatuses: Stripe.Subscription.Status[] = [
+		"past_due",
+		"unpaid",
+		"incomplete",
+		"incomplete_expired",
+	];
+	if (!failureStatuses.includes(liveSubscription.status)) {
+		logger.info(
+			`Skipping freeze for organization ${organizationId}: subscription ${subscriptionId} is ${liveSubscription.status} (invoice ${invoice.id})`,
+		);
+		return;
+	}
+
+	await freezeDevPlanCredits(
+		organizationId,
+		organization,
+		`invoice.payment_failed (invoice ${invoice.id}, status ${liveSubscription.status})`,
+	);
 }
 
 async function handleSubscriptionUpdated(
@@ -1684,6 +1851,35 @@ async function handleSubscriptionUpdated(
 			})
 			.where(eq(tables.organization.id, organizationId));
 
+		// If Stripe is reporting the subscription as past_due / unpaid /
+		// incomplete, freeze further dev-plan spend. Without this, customers
+		// keep burning credits during dunning (or after a failed mid-cycle
+		// upgrade) while we never collect the invoice.
+		const nonActiveStatuses: Stripe.Subscription.Status[] = [
+			"past_due",
+			"unpaid",
+			"incomplete",
+			"incomplete_expired",
+		];
+		if (nonActiveStatuses.includes(subscription.status)) {
+			await freezeDevPlanCredits(
+				organizationId,
+				organization,
+				`subscription.updated status=${subscription.status}`,
+			);
+		} else if (
+			subscription.status === "active" ||
+			subscription.status === "trialing"
+		) {
+			// Recover from a previous freeze (e.g. dunning resolved). No-op when
+			// the limit is already at or above the tier's expected cap.
+			await restoreDevPlanCredits(
+				organizationId,
+				organization,
+				`subscription.updated status=${subscription.status}`,
+			);
+		}
+
 		// Track dev plan reactivation if it was previously cancelled and is now active
 		if (isSubscriptionActive && wasDevPlanCancelled) {
 			posthog.capture({
@@ -1707,7 +1903,7 @@ async function handleSubscriptionUpdated(
 			`Updated dev plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
 		);
 	} else {
-		// Handle regular pro plan subscription update
+		// Handle regular pro subscription update
 		const wasSubscriptionCancelled = organization.subscriptionCancelled;
 
 		// Create transaction record for subscription cancellation if it was cancelled
@@ -1842,7 +2038,7 @@ async function handleSubscriptionDeleted(
 			`Ended dev plan ${previousDevPlan} for organization ${organizationId}`,
 		);
 	} else {
-		// Handle regular pro plan subscription deletion
+		// Handle regular pro subscription deletion
 		// Create transaction record for subscription end
 		await db.insert(tables.transaction).values({
 			organizationId,

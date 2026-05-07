@@ -780,7 +780,7 @@ export const googleModels = [
 	{
 		id: "veo-3.1-generate-preview",
 		name: "Veo 3.1",
-		description: "Google Veo 3.1 preview video generation with audio.",
+		description: "Google Veo 3.1 video generation with audio.",
 		family: "google",
 		output: ["video"],
 		maxVideoDurationSeconds: 10,
@@ -789,7 +789,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-vertex",
-				modelName: "veo-3.1-generate-preview",
+				modelName: "veo-3.1-generate-001",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -853,7 +853,7 @@ export const googleModels = [
 	{
 		id: "veo-3.1-fast-generate-preview",
 		name: "Veo 3.1 Fast",
-		description: "Google Veo 3.1 Fast preview video generation with audio.",
+		description: "Google Veo 3.1 Fast video generation with audio.",
 		family: "google",
 		output: ["video"],
 		maxVideoDurationSeconds: 10,
@@ -862,7 +862,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-vertex",
-				modelName: "veo-3.1-fast-generate-preview",
+				modelName: "veo-3.1-fast-generate-001",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1730,29 +1730,6 @@ export const googleModels = [
 				tools: false,
 				jsonOutput: false,
 				deactivatedAt: new Date("2026-04-30"),
-			},
-		],
-	},
-	{
-		id: "gemma-2-27b-it-together",
-		name: "Gemma 2 27B IT",
-		description: "Gemma 2 27B via Together AI inference.",
-		family: "google",
-		releasedAt: new Date("2024-06-27"),
-		providers: [
-			{
-				test: "skip",
-				providerId: "together.ai",
-				modelName: "google/gemma-2-27b-it",
-				inputPrice: 0.08 / 1e6,
-				outputPrice: 0.08 / 1e6,
-				requestPrice: 0,
-				contextSize: 8192,
-				maxOutput: undefined,
-				streaming: true,
-				vision: false,
-				tools: false,
-				jsonOutput: false,
 			},
 		],
 	},

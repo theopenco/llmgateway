@@ -10,6 +10,7 @@ export interface TextContent {
 	text: string;
 	cache_control?: {
 		type: "ephemeral";
+		ttl?: "5m" | "1h";
 	};
 }
 
@@ -267,6 +268,7 @@ export interface AnthropicSystemContent {
 	text: string;
 	cache_control?: {
 		type: "ephemeral";
+		ttl?: "5m" | "1h";
 	};
 }
 
@@ -374,7 +376,11 @@ export type RequestBodyPreparer = (
 	maxImageSizeMB?: number,
 	userPlan?: "free" | "pro" | null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
-	image_config?: { aspect_ratio?: string; image_size?: string },
+	image_config?: {
+		aspect_ratio?: string;
+		image_size?: string;
+		image_quality?: string;
+	},
 ) => Promise<ProviderRequestBody>;
 
 // Type guards

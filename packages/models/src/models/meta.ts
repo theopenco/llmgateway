@@ -21,6 +21,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 			{
 				providerId: "nebius",
@@ -34,6 +35,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 			{
 				providerId: "inference.net",
@@ -48,9 +50,10 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 			{
-				providerId: "together.ai",
+				providerId: "together-ai",
 				modelName: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 				// Retired from Together.ai serverless API
 				deactivatedAt: new Date("2026-03-27"),
@@ -84,6 +87,7 @@ export const metaModels = [
 					"top_p",
 					"response_format",
 				],
+				deactivatedAt: new Date("2026-04-25"),
 			},
 			{
 				providerId: "novita",
@@ -97,6 +101,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 		],
 	},
@@ -315,7 +320,7 @@ export const metaModels = [
 		releasedAt: new Date("2025-04-05"),
 		providers: [
 			{
-				providerId: "together.ai",
+				providerId: "together-ai",
 				stability: "unstable" as const,
 				modelName: "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
 				inputPrice: 0.18 / 1e6,
@@ -327,6 +332,7 @@ export const metaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-04-25"),
 			},
 		],
 	},

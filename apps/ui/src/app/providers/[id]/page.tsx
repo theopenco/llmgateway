@@ -68,6 +68,9 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					inputPrice: map.inputPrice?.toString() ?? null,
 					outputPrice: map.outputPrice?.toString() ?? null,
 					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,
+					cacheWriteInputPrice: map.cacheWriteInputPrice?.toString() ?? null,
+					cacheWriteInputPrice1h:
+						map.cacheWriteInputPrice1h?.toString() ?? null,
 					imageInputPrice: map.imageInputPrice?.toString() ?? null,
 					imageOutputPrice: map.imageOutputPrice?.toString() ?? null,
 					imageInputTokensByResolution:

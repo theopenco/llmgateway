@@ -46,6 +46,7 @@ const organizationSchema = z.object({
 	// Dev Plans fields
 	isPersonal: z.boolean(),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
+	devPlanCycle: z.enum(["monthly", "annual"]),
 	devPlanCreditsUsed: z.string(),
 	devPlanCreditsLimit: z.string(),
 	devPlanBillingCycleStart: z.date().nullable(),
@@ -161,7 +162,7 @@ organization.openapi(getOrganizations, async (c) => {
 	const organizations = userOrganizations
 		.map((uo) => uo.organization!)
 		.filter((org) => org.status !== "deleted")
-		// Hide personal orgs from regular UI - they are only visible on code.llmgateway.io
+		// Hide personal orgs from regular UI - they are only visible on devpass.llmgateway.io
 		.filter((org) => !org.isPersonal);
 
 	return c.json({
@@ -662,7 +663,7 @@ organization.openapi(deleteOrganization, async (c) => {
 	if (userOrganization.organization?.isPersonal) {
 		throw new HTTPException(403, {
 			message:
-				"Personal organizations cannot be deleted. Please cancel your dev plan at code.llmgateway.io instead.",
+				"Personal organizations cannot be deleted. Please cancel your dev plan at devpass.llmgateway.io instead.",
 		});
 	}
 

@@ -12,7 +12,7 @@ export const providerLogoUrls: Partial<
 	"google-vertex": ProviderIcons["google-vertex"],
 	quartz: ProviderIcons.quartz,
 	"inference.net": ProviderIcons["inference.net"],
-	"together.ai": ProviderIcons["together.ai"],
+	"together-ai": ProviderIcons["together-ai"],
 	mistral: ProviderIcons.mistral,
 	groq: ProviderIcons.groq,
 	xai: ProviderIcons.xai,
@@ -26,7 +26,6 @@ export const providerLogoUrls: Partial<
 	nanogpt: ProviderIcons.nanogpt,
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
-	canopywave: ProviderIcons.canopywave,
 	cerebras: ProviderIcons.cerebras,
 };
 

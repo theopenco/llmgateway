@@ -5,12 +5,13 @@ import {
 	Activity,
 	AlertTriangle,
 	CheckCircle2,
-	Clock,
 	Code,
 	ExternalLink,
 	MessageSquare,
 	Server,
+	ShieldCheck,
 	Trophy,
+	Zap,
 } from "lucide-react";
 
 import { Badge } from "@/lib/components/badge";
@@ -26,6 +27,7 @@ interface ProviderBenchmark {
 	errorsCount: number;
 	cachedCount: number;
 	avgTimeToFirstToken: number | null;
+	tokensPerSecond: number | null;
 	errorRate: number;
 	uptime: number | null;
 	windowHours: number;
@@ -92,26 +94,29 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 	const sorted = [...providers]
 		.filter((p) => p.logsCount > 0)
 		.sort((a, b) => {
-			if (a.avgTimeToFirstToken === null && b.avgTimeToFirstToken === null) {
+			if (a.uptime === null && b.uptime === null) {
 				return b.logsCount - a.logsCount;
 			}
-			if (a.avgTimeToFirstToken === null) {
+			if (a.uptime === null) {
 				return 1;
 			}
-			if (b.avgTimeToFirstToken === null) {
+			if (b.uptime === null) {
 				return -1;
 			}
-			return a.avgTimeToFirstToken - b.avgTimeToFirstToken;
+			if (b.uptime !== a.uptime) {
+				return b.uptime - a.uptime;
+			}
+			return b.logsCount - a.logsCount;
 		});
 
-	const bestTtft =
-		sorted.length > 0
-			? Math.min(
-					...sorted
-						.filter((p) => p.avgTimeToFirstToken !== null)
-						.map((p) => p.avgTimeToFirstToken!),
-				)
-			: null;
+	// Pick the most stable provider: highest uptime among those with meaningful
+	// traffic. Require at least 20 requests to avoid awarding a provider that
+	// only handled a handful of calls.
+	const stabilityCandidates = sorted.filter(
+		(p) => p.uptime !== null && p.logsCount >= 20,
+	);
+	const mostStableProviderId =
+		stabilityCandidates.length > 1 ? stabilityCandidates[0].providerId : null;
 
 	return (
 		<div className="space-y-8">
@@ -218,25 +223,22 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 						</h2>
 					</div>
 					<p className="text-sm text-muted-foreground mb-4">
-						Real latency and uptime data from LLM Gateway over the last{" "}
-						{sorted[0]?.windowHours ?? 24} hours. Lower TTFT (time to first
-						token) is better.
+						Real performance data from LLM Gateway over the last{" "}
+						{sorted[0]?.windowHours ?? 24} hours. Higher uptime and throughput
+						are better.
 					</p>
 
 					<div className="grid gap-3">
 						{sorted.map((provider) => {
 							const ProviderIcon = getProviderIcon(provider.providerId);
-							const isBestTtft =
-								bestTtft !== null &&
-								provider.avgTimeToFirstToken !== null &&
-								provider.avgTimeToFirstToken === bestTtft;
+							const isMostStable = provider.providerId === mostStableProviderId;
 
 							return (
 								<div
 									key={provider.providerId}
 									className={cn(
 										"rounded-lg border p-4 transition-colors",
-										isBestTtft
+										isMostStable
 											? "border-green-500/50 bg-green-50/50 dark:bg-green-950/20"
 											: "border-border",
 									)}
@@ -253,12 +255,13 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 													<span className="font-medium truncate">
 														{provider.providerName}
 													</span>
-													{isBestTtft && (
+													{isMostStable && (
 														<Badge
 															variant="outline"
-															className="text-green-600 border-green-500/50 text-xs"
+															className="text-green-600 border-green-500/50 text-xs gap-1"
 														>
-															Fastest
+															<ShieldCheck className="h-3 w-3" />
+															Most stable
 														</Badge>
 													)}
 												</div>
@@ -271,21 +274,20 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 										<div className="flex items-center gap-6 text-sm">
 											<div className="text-center">
 												<div className="flex items-center gap-1 text-muted-foreground mb-0.5">
-													<Clock className="h-3 w-3" />
-													<span className="text-xs">TTFT</span>
+													<Zap className="h-3 w-3" />
+													<span className="text-xs">Throughput</span>
 												</div>
 												<span
 													className={cn(
 														"font-mono font-medium",
-														provider.avgTimeToFirstToken !== null
-															? isBestTtft
-																? "text-green-600"
-																: ""
-															: "text-muted-foreground",
+														provider.tokensPerSecond === null
+															? "text-muted-foreground"
+															: "",
 													)}
+													title="Output tokens per second across all requests in the window"
 												>
-													{provider.avgTimeToFirstToken !== null
-														? `${Math.round(provider.avgTimeToFirstToken)}ms`
+													{provider.tokensPerSecond !== null
+														? `${provider.tokensPerSecond.toLocaleString()} tok/s`
 														: "\u2014"}
 												</span>
 											</div>

@@ -274,15 +274,10 @@ export async function transformAnthropicMessages(
 			continue;
 		}
 
-		// Remove tool_calls and tool_call_id from the message as Anthropic doesn't expect these fields
-		const { tool_calls: _, tool_call_id: __, ...messageWithoutToolFields } = m;
-
 		// Map role correctly for Anthropic (no system or tool roles)
-		const anthropicRole =
-			messageWithoutToolFields.role === "assistant" ? "assistant" : "user";
+		const anthropicRole = m.role === "assistant" ? "assistant" : "user";
 
 		results.push({
-			...messageWithoutToolFields,
 			content: filteredContent,
 			role: anthropicRole,
 		});

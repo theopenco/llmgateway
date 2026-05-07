@@ -23,6 +23,53 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it("maps Anthropic message_start usage with cache creation details", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"anthropic",
+			"claude-sonnet-4-5",
+			{
+				type: "message_start",
+				message: {
+					id: "msg_123",
+					model: "claude-sonnet-4-5",
+					usage: {
+						input_tokens: 10,
+						cache_creation_input_tokens: 1000,
+						cache_read_input_tokens: 0,
+						output_tokens: 1,
+					},
+				},
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "msg_123",
+			object: "chat.completion.chunk",
+			model: "claude-sonnet-4-5",
+			choices: [
+				{
+					index: 0,
+					delta: { role: "assistant" },
+					finish_reason: null,
+				},
+			],
+			usage: {
+				prompt_tokens: 1010,
+				completion_tokens: 1,
+				total_tokens: 1011,
+				prompt_tokens_details: {
+					cached_tokens: 0,
+					cache_write_tokens: 1000,
+					cache_creation_tokens: 1000,
+				},
+			},
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
 	it("ignores OpenAI keepalive events without warning", () => {
 		warn.mockClear();
 
@@ -199,5 +246,74 @@ describe("transformStreamingToOpenai", () => {
 
 		expect(result).toBeNull();
 		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("drops Azure prompt-filter-only leading chunk", () => {
+		const result = transformStreamingToOpenai(
+			"azure",
+			"gpt-5.5",
+			{
+				id: "",
+				object: "",
+				created: 0,
+				model: "",
+				choices: [],
+				prompt_filter_results: [
+					{ prompt_index: 0, content_filter_results: {} },
+				],
+			},
+			[],
+		);
+
+		expect(result).toBeNull();
+	});
+
+	it("preserves Azure Responses API output_text deltas", () => {
+		const result = transformStreamingToOpenai(
+			"azure",
+			"gpt-5.5",
+			{
+				type: "response.output_text.delta",
+				content_index: 0,
+				delta: "Hi",
+				item_id: "msg_123",
+				output_index: 1,
+				sequence_number: 6,
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]?.delta?.content).toBe("Hi");
+	});
+
+	it("preserves Azure Responses API response.completed usage", () => {
+		const result = transformStreamingToOpenai(
+			"azure",
+			"gpt-5.5",
+			{
+				type: "response.completed",
+				response: {
+					id: "resp_123",
+					created_at: 1234567890,
+					model: "gpt-5.5",
+					usage: {
+						input_tokens: 8,
+						output_tokens: 17,
+						total_tokens: 25,
+						output_tokens_details: { reasoning_tokens: 9 },
+					},
+				},
+				sequence_number: 11,
+			},
+			[],
+		);
+
+		expect(result?.usage).toMatchObject({
+			prompt_tokens: 8,
+			completion_tokens: 17,
+			total_tokens: 25,
+			reasoning_tokens: 9,
+		});
+		expect(result?.choices?.[0]?.finish_reason).toBe("stop");
 	});
 });

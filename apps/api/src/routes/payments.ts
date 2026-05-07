@@ -7,6 +7,7 @@ import { ensureStripeCustomer } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import {
 	calculateFees,
 	CREDIT_TOP_UP_MAX_AMOUNT,
@@ -14,6 +15,10 @@ import {
 } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
+import type {
+	ClientErrorStatusCode,
+	ServerErrorStatusCode,
+} from "hono/utils/http-status";
 
 let _stripe: Stripe | null = null;
 
@@ -36,8 +41,21 @@ export const payments = new OpenAPIHono<ServerTypes>();
 const creditTopUpAmountSchema = z
 	.number()
 	.int()
-	.min(CREDIT_TOP_UP_MIN_AMOUNT, "Minimum top-up amount is $5.")
+	.min(
+		CREDIT_TOP_UP_MIN_AMOUNT,
+		`Minimum top-up amount is $${CREDIT_TOP_UP_MIN_AMOUNT}.`,
+	)
 	.max(CREDIT_TOP_UP_MAX_AMOUNT, "Maximum top-up amount is $5000.");
+
+export async function isInternationalPaymentMethod(
+	stripePaymentMethodId: string,
+): Promise<boolean> {
+	const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
+		stripePaymentMethodId,
+	);
+	const country = stripePaymentMethod.card?.country;
+	return Boolean(country) && country !== "US";
+}
 
 const createPaymentIntent = createRoute({
 	method: "post",
@@ -48,6 +66,7 @@ const createPaymentIntent = createRoute({
 				"application/json": {
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
+						stripePaymentMethodId: z.string().optional(),
 					}),
 				},
 			},
@@ -59,6 +78,8 @@ const createPaymentIntent = createRoute({
 				"application/json": {
 					schema: z.object({
 						clientSecret: z.string(),
+						totalAmount: z.number(),
+						isInternational: z.boolean(),
 					}),
 				},
 			},
@@ -84,7 +105,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 		});
 	}
 
-	const { amount } = c.req.valid("json");
+	const { amount, stripePaymentMethodId } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -105,8 +126,33 @@ payments.openapi(createPaymentIntent, async (c) => {
 
 	const stripeCustomerId = await ensureStripeCustomer(organizationId);
 
+	let isInternational = false;
+	if (stripePaymentMethodId) {
+		const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
+			stripePaymentMethodId,
+		);
+
+		const paymentMethodCustomer =
+			typeof stripePaymentMethod.customer === "string"
+				? stripePaymentMethod.customer
+				: (stripePaymentMethod.customer?.id ?? null);
+
+		// Freshly created PMs are unattached (customer === null) until the
+		// setup_intent.succeeded webhook attaches them. Reject only when the
+		// PM is attached to a *different* customer.
+		if (paymentMethodCustomer && paymentMethodCustomer !== stripeCustomerId) {
+			throw new HTTPException(403, {
+				message: "Payment method does not belong to this customer",
+			});
+		}
+
+		const country = stripePaymentMethod.card?.country;
+		isInternational = Boolean(country) && country !== "US";
+	}
+
 	const feeBreakdown = calculateFees({
 		amount,
+		isInternational,
 	});
 
 	const paymentIntent = await getStripe().paymentIntents.create({
@@ -114,10 +160,13 @@ payments.openapi(createPaymentIntent, async (c) => {
 		currency: "usd",
 		description: `Credit purchase for ${amount} USD (including fees)`,
 		customer: stripeCustomerId,
+		...(stripePaymentMethodId ? { payment_method: stripePaymentMethodId } : {}),
 		metadata: {
 			organizationId,
 			baseAmount: amount.toString(),
 			platformFee: feeBreakdown.platformFee.toString(),
+			internationalFee: feeBreakdown.internationalFee.toString(),
+			isInternational: isInternational.toString(),
 			userEmail: user.email,
 			userId: user.id,
 		},
@@ -125,6 +174,8 @@ payments.openapi(createPaymentIntent, async (c) => {
 
 	return c.json({
 		clientSecret: paymentIntent.client_secret ?? "",
+		totalAmount: feeBreakdown.totalAmount,
+		isInternational,
 	});
 });
 
@@ -571,8 +622,13 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
+	const isInternational = await isInternationalPaymentMethod(
+		paymentMethod.stripePaymentMethodId,
+	);
+
 	const feeBreakdown = calculateFees({
 		amount,
+		isInternational,
 	});
 
 	let paymentIntent: Stripe.PaymentIntent;
@@ -590,6 +646,8 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 				organizationId: userOrganization.organization.id,
 				baseAmount: amount.toString(),
 				platformFee: feeBreakdown.platformFee.toString(),
+				internationalFee: feeBreakdown.internationalFee.toString(),
+				isInternational: isInternational.toString(),
 				userEmail: user.email,
 				userId: user.id,
 			},
@@ -620,6 +678,28 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 			throw new HTTPException(402, {
 				message: userMessage,
 			});
+		}
+
+		if (err instanceof Stripe.errors.StripeError) {
+			logger.error("Stripe error on credit top-up", err, {
+				organizationId: userOrganization.organization.id,
+				userId: user.id,
+				paymentMethodId,
+				amount,
+				stripeType: err.type,
+				stripeCode: err.code,
+				stripeStatusCode: err.statusCode,
+				stripeRequestId: err.requestId,
+			});
+
+			throw new HTTPException(
+				(err.statusCode ?? 400) as
+					| ClientErrorStatusCode
+					| ServerErrorStatusCode,
+				{
+					message: err.message,
+				},
+			);
 		}
 
 		throw err;
@@ -722,9 +802,6 @@ payments.openapi(createCheckoutSession, async (c) => {
 
 	const defaultBillingUrl = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organizationId}/org/billing`;
 
-	let successUrl: string;
-	let cancelUrl: string;
-
 	const isAllowedReturn = (() => {
 		if (!returnUrl) {
 			return false;
@@ -739,12 +816,12 @@ payments.openapi(createCheckoutSession, async (c) => {
 		}
 	})();
 
+	const successUrl = `${defaultBillingUrl}?success=true`;
+	let cancelUrl: string;
 	if (isAllowedReturn && returnUrl) {
 		const separator = returnUrl.includes("?") ? "&" : "?";
-		successUrl = `${returnUrl}${separator}success=true`;
 		cancelUrl = `${returnUrl}${separator}canceled=true`;
 	} else {
-		successUrl = `${defaultBillingUrl}?success=true`;
 		cancelUrl = `${defaultBillingUrl}?canceled=true`;
 	}
 
@@ -814,7 +891,9 @@ const calculateFeesRoute = createRoute({
 					schema: z.object({
 						baseAmount: z.number(),
 						platformFee: z.number(),
+						internationalFee: z.number(),
 						totalAmount: z.number(),
+						isInternational: z.boolean(),
 						bonusAmount: z.number().optional(),
 						finalCreditAmount: z.number().optional(),
 						bonusEnabled: z.boolean(),
@@ -839,7 +918,10 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		});
 	}
 
-	const { amount }: { amount: number } = c.req.valid("json");
+	const {
+		amount,
+		paymentMethodId,
+	}: { amount: number; paymentMethodId?: string } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -857,8 +939,25 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		});
 	}
 
+	let isInternational = false;
+	if (paymentMethodId) {
+		const paymentMethod = await db.query.paymentMethod.findFirst({
+			where: {
+				id: paymentMethodId,
+				organizationId: userOrganization.organization.id,
+			},
+		});
+
+		if (paymentMethod) {
+			isInternational = await isInternationalPaymentMethod(
+				paymentMethod.stripePaymentMethodId,
+			);
+		}
+	}
+
 	const feeBreakdown = calculateFees({
 		amount,
+		isInternational,
 	});
 
 	// Calculate bonus for first-time and second top-up credit purchases
@@ -937,6 +1036,7 @@ payments.openapi(calculateFeesRoute, async (c) => {
 
 	return c.json({
 		...feeBreakdown,
+		isInternational,
 		bonusAmount: bonusAmount > 0 ? bonusAmount : undefined,
 		finalCreditAmount: bonusAmount > 0 ? finalCreditAmount : undefined,
 		bonusEnabled,

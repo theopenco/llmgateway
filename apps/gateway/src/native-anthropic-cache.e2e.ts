@@ -518,4 +518,74 @@ describe("e2e native /v1/messages cache", getConcurrentTestOptions(), () => {
 			).toBeGreaterThan(0);
 		},
 	);
+
+	// 1h cache TTL via /v1/messages: opts into Anthropic's 1h cache write rate
+	// (2x base) and asserts the gateway round-trips both the request opt-in
+	// and the response breakdown (usage.cache_creation.ephemeral_1h_input_tokens)
+	// per Anthropic's spec, so SDK clients can attribute spend across rates.
+	(hasAnthropicKey ? test : test.skip)(
+		"native messages forwards 1h ttl and surfaces cache_creation breakdown",
+		getTestOptions(),
+		async () => {
+			const longText = buildLongSystemPrompt();
+			const body = {
+				model: "anthropic/claude-haiku-4-5",
+				max_tokens: 50,
+				system: [
+					{
+						type: "text" as const,
+						text: longText,
+						cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
+					},
+				],
+				messages: [
+					{
+						role: "user" as const,
+						content: "Just reply OK.",
+					},
+				],
+			};
+
+			const send = async () => {
+				const requestId = generateTestRequestId();
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify(body),
+				});
+				const json = await res.json();
+				if (logMode) {
+					console.log(
+						"native /v1/messages 1h",
+						requestId,
+						"status",
+						res.status,
+						"usage",
+						JSON.stringify(json.usage),
+					);
+				}
+				return { status: res.status, json };
+			};
+
+			const first = await send();
+			expect(first.status).toBe(200);
+			// On the priming call Anthropic should write to the 1h cache.
+			// If the schema strips ttl, this falls back to 5m and the breakdown
+			// either omits ephemeral_1h_input_tokens or reports 0.
+			const firstBreakdown = first.json.usage?.cache_creation;
+			if (first.json.usage?.cache_creation_input_tokens > 0) {
+				expect(firstBreakdown).toBeDefined();
+				expect(firstBreakdown.ephemeral_1h_input_tokens).toBeGreaterThan(0);
+				expect(firstBreakdown.ephemeral_5m_input_tokens).toBe(0);
+				expect(
+					firstBreakdown.ephemeral_5m_input_tokens +
+						firstBreakdown.ephemeral_1h_input_tokens,
+				).toBe(first.json.usage.cache_creation_input_tokens);
+			}
+		},
+	);
 });

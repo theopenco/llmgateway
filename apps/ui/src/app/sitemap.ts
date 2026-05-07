@@ -190,6 +190,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		});
 
+		// Model uptime page
+		modelPages.push({
+			url: `${baseUrl}/models/${encodeURIComponent(model.id)}/uptime`,
+			lastModified: new Date(),
+			changeFrequency: "hourly",
+			priority: 0.7,
+		});
+
 		// Model + provider pages
 		const uniqueProviders = Array.from(
 			new Set(model.providers.map((p) => p.providerId)),

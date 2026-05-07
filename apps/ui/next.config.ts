@@ -42,12 +42,12 @@ const nextConfig: NextConfig = {
 			},
 			{
 				source: "/code",
-				destination: "https://code.llmgateway.io",
+				destination: "https://devpass.llmgateway.io",
 				permanent: true,
 			},
 			{
 				source: "/devpass",
-				destination: "https://code.llmgateway.io",
+				destination: "https://devpass.llmgateway.io",
 				permanent: true,
 			},
 			{

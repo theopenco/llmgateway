@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { processPendingVideoJobs } from "worker";
 
 import { app } from "@/app.js";
@@ -15,9 +15,20 @@ describe("videos", () => {
 		mockServerPort: 3002,
 	});
 	let mockServerUrl: string;
+	let originalGoogleVertexBaseUrl: string | undefined;
 
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
+		originalGoogleVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+	});
+
+	afterAll(() => {
+		if (originalGoogleVertexBaseUrl !== undefined) {
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL = originalGoogleVertexBaseUrl;
+		} else {
+			delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		}
 	});
 
 	async function setRoutingMetrics(
@@ -473,7 +484,7 @@ describe("videos", () => {
 			});
 			expect(videoJob).toBeTruthy();
 			expect(videoJob?.usedProvider).toBe("google-vertex");
-			expect(videoJob?.usedModel).toBe("veo-3.1-generate-preview");
+			expect(videoJob?.usedModel).toBe("veo-3.1-generate-001");
 			expect(videoJob?.upstreamId).toContain("projects/runtime-project/");
 			expect(
 				(
@@ -513,7 +524,7 @@ describe("videos", () => {
 				`mock-video-${videoJob!.upstreamId}`,
 			);
 
-			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-preview");
+			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-001");
 			expect(logs[0].content).toBe(
 				`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
 			);
@@ -820,7 +831,7 @@ describe("videos", () => {
 				where: { id: { eq: created.id } },
 			});
 			expect(videoJob?.usedProvider).toBe("google-vertex");
-			expect(videoJob?.usedModel).toBe("veo-3.1-generate-preview");
+			expect(videoJob?.usedModel).toBe("veo-3.1-generate-001");
 
 			const mockVideo = getMockVideo(videoJob!.upstreamId);
 			expect(mockVideo?.referenceImages).toEqual([
