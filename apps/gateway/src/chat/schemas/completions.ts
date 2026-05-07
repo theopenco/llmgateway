@@ -22,6 +22,7 @@ export const completionsRequestSchema = z.object({
 								cache_control: z
 									.object({
 										type: z.literal("ephemeral"),
+										ttl: z.enum(["5m", "1h"]).optional(),
 									})
 									.optional(),
 							}),

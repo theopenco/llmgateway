@@ -23,6 +23,53 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it("maps Anthropic message_start usage with cache creation details", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"anthropic",
+			"claude-sonnet-4-5",
+			{
+				type: "message_start",
+				message: {
+					id: "msg_123",
+					model: "claude-sonnet-4-5",
+					usage: {
+						input_tokens: 10,
+						cache_creation_input_tokens: 1000,
+						cache_read_input_tokens: 0,
+						output_tokens: 1,
+					},
+				},
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "msg_123",
+			object: "chat.completion.chunk",
+			model: "claude-sonnet-4-5",
+			choices: [
+				{
+					index: 0,
+					delta: { role: "assistant" },
+					finish_reason: null,
+				},
+			],
+			usage: {
+				prompt_tokens: 1010,
+				completion_tokens: 1,
+				total_tokens: 1011,
+				prompt_tokens_details: {
+					cached_tokens: 0,
+					cache_write_tokens: 1000,
+					cache_creation_tokens: 1000,
+				},
+			},
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
 	it("ignores OpenAI keepalive events without warning", () => {
 		warn.mockClear();
 

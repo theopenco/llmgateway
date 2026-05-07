@@ -903,6 +903,7 @@ export interface paths {
                                 completionTokens: string | null;
                                 totalTokens: string | null;
                                 reasoningTokens: string | null;
+                                cacheWriteTokens?: string | null;
                                 messages?: unknown;
                                 temperature: number | null;
                                 maxTokens: number | null;
@@ -963,6 +964,7 @@ export interface paths {
                                 outputCost: number | null;
                                 requestCost: number | null;
                                 cachedInputCost?: number | null;
+                                cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
                                 imageInputTokens: string | null;
                                 imageOutputTokens: string | null;
@@ -1151,6 +1153,7 @@ export interface paths {
                                 completionTokens: string | null;
                                 totalTokens: string | null;
                                 reasoningTokens: string | null;
+                                cacheWriteTokens?: string | null;
                                 messages?: unknown;
                                 temperature: number | null;
                                 maxTokens: number | null;
@@ -1211,6 +1214,7 @@ export interface paths {
                                 outputCost: number | null;
                                 requestCost: number | null;
                                 cachedInputCost?: number | null;
+                                cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
                                 imageInputTokens: string | null;
                                 imageOutputTokens: string | null;
@@ -1340,6 +1344,7 @@ export interface paths {
                                 inputTokens: number;
                                 outputTokens: number;
                                 cachedTokens: number;
+                                cacheWriteTokens: number;
                                 totalTokens: number;
                                 cost: number;
                                 inputCost: number;
@@ -1350,6 +1355,7 @@ export interface paths {
                                 imageOutputCost: number;
                                 videoOutputCost: number;
                                 cachedInputCost: number;
+                                cacheWriteInputCost: number;
                                 errorCount: number;
                                 errorRate: number;
                                 cacheCount: number;
@@ -1605,6 +1611,8 @@ export interface paths {
                             outputCost: number;
                             cachedTokens: number;
                             cachedCost: number;
+                            cacheWriteTokens: number;
+                            cacheWriteCost: number;
                             mostUsedModel: string | null;
                             mostUsedProvider: string | null;
                             mostUsedModelCost: number;
@@ -1928,6 +1936,8 @@ export interface paths {
                             outputCost: number;
                             cachedTokens: number;
                             cachedCost: number;
+                            cacheWriteTokens: number;
+                            cacheWriteCost: number;
                             mostUsedModel: string | null;
                             mostUsedProvider: string | null;
                             mostUsedModelCost: number;
@@ -2002,12 +2012,14 @@ export interface paths {
                                 totalTokens: string | null;
                                 reasoningTokens: string | null;
                                 cachedTokens: string | null;
+                                cacheWriteTokens: string | null;
                                 imageInputTokens: string | null;
                                 imageOutputTokens: string | null;
                                 cost: number | null;
                                 inputCost: number | null;
                                 outputCost: number | null;
                                 cachedInputCost: number | null;
+                                cacheWriteInputCost: number | null;
                                 requestCost: number | null;
                                 webSearchCost: number | null;
                                 imageInputCost: number | null;
@@ -3405,6 +3417,8 @@ export interface paths {
                                 inputPrice: string | null;
                                 outputPrice: string | null;
                                 cachedInputPrice: string | null;
+                                cacheWriteInputPrice: string | null;
+                                cacheWriteInputPrice1h: string | null;
                                 imageInputPrice: string | null;
                                 requestPrice: string | null;
                                 contextSize: number | null;
@@ -7719,6 +7733,43 @@ export interface paths {
         };
         trace?: never;
     };
+    "/dev-plans/rotate-api-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description API key rotated successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            apiKey: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audit-logs/{organizationId}": {
         parameters: {
             query?: never;
@@ -7759,7 +7810,7 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
                                 /** @enum {string} */
                                 resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
@@ -8684,6 +8735,8 @@ export interface operations {
                                 inputPrice: string | null;
                                 outputPrice: string | null;
                                 cachedInputPrice: string | null;
+                                cacheWriteInputPrice: string | null;
+                                cacheWriteInputPrice1h: string | null;
                                 imageInputPrice: string | null;
                                 imageOutputPrice: string | null;
                                 imageInputTokensByResolution: {
@@ -8786,6 +8839,7 @@ export interface operations {
                             errorsCount: number;
                             cachedCount: number;
                             avgTimeToFirstToken: number | null;
+                            tokensPerSecond: number | null;
                             errorRate: number;
                             uptime: number | null;
                             windowHours: number;

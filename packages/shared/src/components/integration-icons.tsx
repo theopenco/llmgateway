@@ -206,28 +206,24 @@ export const AutohandIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
-// SoulForge Icon
-export const SoulForgeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
-	props,
-) => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 120 24"
-		fill="none"
-		{...props}
-	>
-		<text
-			x="0"
-			y="19"
-			fontFamily="system-ui, sans-serif"
-			fontWeight="800"
-			fontSize="20"
-			letterSpacing="2"
-			fill="#8B5CF6"
-		>
-			SOULFORGE
-		</text>
-	</svg>
+// SoulForge Icon — rendered as a raster mark (anvil + flame) hosted from each
+// app's public dir at /integrations/soulforge.png. The component still accepts
+// SVGProps for backward compatibility with callers that pass className.
+export const SoulForgeIcon: React.FC<React.SVGProps<SVGSVGElement>> = ({
+	className,
+	style,
+}) => (
+	<img
+		src="/integrations/soulforge.png"
+		alt="SoulForge"
+		className={className as string | undefined}
+		style={
+			{
+				objectFit: "contain",
+				...(style as React.CSSProperties | undefined),
+			} as React.CSSProperties
+		}
+	/>
 );
 
 // OpenClaw Icon

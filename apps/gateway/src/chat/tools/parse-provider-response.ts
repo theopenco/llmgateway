@@ -31,6 +31,8 @@ export function parseProviderResponse(
 	let reasoningTokens = null;
 	let cachedTokens = null;
 	let cacheCreationTokens = null;
+	let cacheCreation5mTokens: number | null = null;
+	let cacheCreation1hTokens: number | null = null;
 	let imageInputTokens: number | null = null;
 	let imageOutputTokens: number | null = null;
 	let toolResults = null;
@@ -189,7 +191,14 @@ export function parseProviderResponse(
 			// We need to add cache_creation_input_tokens to get total input tokens
 			if (json.usage) {
 				const inputTokens = json.usage.input_tokens ?? 0;
+				// Anthropic supports two cache TTLs (5m at 1.25x, 1h at 2x).
+				// `cache_creation_input_tokens` is the sum; the per-TTL breakdown is in
+				// `usage.cache_creation.{ephemeral_5m_input_tokens, ephemeral_1h_input_tokens}`.
 				const cacheCreation = json.usage.cache_creation_input_tokens ?? 0;
+				const cacheCreation5m =
+					json.usage.cache_creation?.ephemeral_5m_input_tokens ?? 0;
+				const cacheCreation1h =
+					json.usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
 				const cacheReadTokens = json.usage.cache_read_input_tokens ?? 0;
 
 				// Total prompt tokens = non-cached + cache creation + cache read
@@ -199,6 +208,8 @@ export function parseProviderResponse(
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheCreation;
+				cacheCreation5mTokens = cacheCreation5m > 0 ? cacheCreation5m : null;
+				cacheCreation1hTokens = cacheCreation1h > 0 ? cacheCreation1h : null;
 				totalTokens =
 					promptTokens && completionTokens
 						? promptTokens + completionTokens
@@ -858,6 +869,8 @@ export function parseProviderResponse(
 		reasoningTokens,
 		cachedTokens,
 		cacheCreationTokens,
+		cacheCreation5mTokens,
+		cacheCreation1hTokens,
 		imageInputTokens,
 		imageOutputTokens,
 		toolResults,
