@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import { calculateCosts } from "./costs.js";
 
 const { mockGetEffectiveDiscount } = vi.hoisted(() => ({
@@ -539,7 +541,12 @@ describe("calculateCosts", () => {
 			reportedImageOutputTokens,
 		);
 
-		const discountMultiplier = 0.8; // azure has 20% hardcoded discount
+		// Read discount from the model definition so the test stays correct
+		// even if the azure discount value changes.
+		const azureProvider = models
+			.find((m) => m.id === "gpt-image-2")
+			?.providers.find((p) => p.providerId === "azure");
+		const discountMultiplier = 1 - (azureProvider?.discount ?? 0);
 		const expectedTextInputCost =
 			(promptTokens - reportedImageInputTokens) *
 			(5 / 1e6) *
