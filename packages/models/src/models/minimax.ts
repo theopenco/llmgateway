@@ -21,7 +21,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 			{
@@ -77,7 +77,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
