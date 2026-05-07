@@ -1,0 +1,183 @@
+---
+title: Vertex AI Anthropic (Claude) Setup
+description: Run Claude models on Google Cloud Vertex AI with automatic OAuth2 token management
+icon: Cloud
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+Use Claude models (Sonnet, Opus, Haiku) via Google Cloud Vertex AI. This guide covers setting up service account authentication with automatic token refresh — no manual token rotation needed.
+
+## Prerequisites
+
+- A Google Cloud project with the Vertex AI API enabled
+- Claude models enabled in your project's Model Garden
+- A GCP service account with the `Vertex AI User` role
+
+## Setup
+
+<Steps>
+<Step>
+### Enable Vertex AI API
+
+In the [Google Cloud Console](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com), enable the **Vertex AI API** for your project.
+
+</Step>
+
+<Step>
+### Enable Claude Models in Model Garden
+
+Navigate to **Vertex AI > Model Garden** in the Cloud Console. Search for the Claude models you want to use and click **Enable** on each one.
+
+Available models:
+
+- `claude-sonnet-4-6`
+- `claude-sonnet-4-5`
+- `claude-haiku-4-5`
+- `claude-opus-4-5`
+- `claude-opus-4-6`
+- `claude-opus-4-7`
+
+</Step>
+
+<Step>
+### Create a Service Account
+
+Create a service account with the required permissions:
+
+```bash
+# Create the service account
+gcloud iam service-accounts create vertex-ai-caller \
+  --display-name="Vertex AI Caller" \
+  --project=YOUR_PROJECT_ID
+
+# Grant the Vertex AI User role
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+```
+
+</Step>
+
+<Step>
+### Download the Service Account Key
+
+```bash
+gcloud iam service-accounts keys create service-account.json \
+  --iam-account=vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com
+```
+
+Store this file securely on your server. The gateway will read it to generate OAuth2 tokens automatically.
+
+</Step>
+
+<Step>
+### Configure Environment Variables
+
+Add the following to your `.env` file:
+
+```bash
+# Path to the service account JSON key file
+GCP_SERVICE_ACCOUNT_KEY_FILE=/path/to/service-account.json
+
+# Vertex AI Anthropic configuration
+LLM_VERTEX_ANTHROPIC_API_KEY=placeholder
+LLM_VERTEX_ANTHROPIC_PROJECT=YOUR_PROJECT_ID
+LLM_VERTEX_ANTHROPIC_REGION=us-east5
+```
+
+<Callout type="info">
+	The `LLM_VERTEX_ANTHROPIC_API_KEY` value is a placeholder — the gateway
+	automatically generates OAuth2 tokens from the service account file and
+	overrides this value at runtime.
+</Callout>
+
+</Step>
+
+<Step>
+### Verify the Setup
+
+Send a test request to verify everything works:
+
+```bash
+curl http://localhost:4001/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY" \
+  -d '{
+    "model": "vertex-anthropic/claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+</Step>
+</Steps>
+
+## How Token Refresh Works
+
+The gateway handles OAuth2 token lifecycle automatically:
+
+1. On first request, it reads the service account JSON and signs a JWT
+2. The JWT is exchanged for an OAuth2 access token via Google's token endpoint
+3. The token is cached in Redis with a **50-minute TTL** (Google tokens expire after 60 minutes)
+4. An in-memory cache avoids Redis round-trips on subsequent requests
+5. When the cached token expires, a new one is generated transparently
+
+This means:
+
+- No manual `gcloud auth print-access-token` commands
+- No cron jobs to refresh tokens
+- Works at any request rate (token generation happens once per 50 minutes)
+- Multi-instance deployments share the cached token via Redis
+
+## Available Regions
+
+Claude models on Vertex AI are available in these regions:
+
+| Region            | Location                 |
+| ----------------- | ------------------------ |
+| `us-east5`        | Columbus, Ohio (default) |
+| `us-central1`     | Iowa                     |
+| `europe-west1`    | Belgium                  |
+| `europe-west4`    | Netherlands              |
+| `asia-southeast1` | Singapore                |
+
+Set `LLM_VERTEX_ANTHROPIC_REGION` to your preferred region.
+
+## Using with BYOK (Bring Your Own Key)
+
+If you prefer to manage tokens manually or use a different service account per organization, you can configure a provider key in the dashboard:
+
+1. Go to **Provider Keys** in your organization settings
+2. Add a new key for **Vertex Anthropic**
+3. Paste an OAuth2 Bearer token (generated via `gcloud auth print-access-token`)
+4. Set the project ID and region in the key options
+
+<Callout type="warn">
+	Manually provided tokens expire after 1 hour. For production use, the service
+	account file approach (above) is strongly recommended.
+</Callout>
+
+## Troubleshooting
+
+### 401 UNAUTHENTICATED / ACCESS_TOKEN_TYPE_UNSUPPORTED
+
+This means the gateway is sending an invalid token. Check:
+
+- `GCP_SERVICE_ACCOUNT_KEY_FILE` points to a valid JSON file
+- The service account has `roles/aiplatform.user` on the project
+- The project ID in `LLM_VERTEX_ANTHROPIC_PROJECT` matches the service account's project
+
+### 403 Permission Denied
+
+The service account lacks permissions. Ensure it has the `Vertex AI User` role:
+
+```bash
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+```
+
+### Model Not Found
+
+The Claude model may not be enabled in your project's Model Garden, or may not be available in the selected region. Check the [Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) in Cloud Console.
