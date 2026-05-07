@@ -588,4 +588,83 @@ describe("e2e native /v1/messages cache", getConcurrentTestOptions(), () => {
 			}
 		},
 	);
+
+	// 1h cache TTL via Bedrock /v1/chat/completions: opts into Bedrock's 1h
+	// cache write rate (2x base) on a model that supports it (Haiku 4.5) and
+	// asserts the gateway forwards ttl:"1h" to the Converse API cachePoint and
+	// surfaces the response breakdown
+	// (prompt_tokens_details.cache_creation.ephemeral_1h_input_tokens) so SDK
+	// clients can attribute spend across rates.
+	(hasBedrockKey ? test : test.skip)(
+		"openai-compat /v1/chat/completions forwards 1h ttl and surfaces cache_creation breakdown for bedrock",
+		getTestOptions(),
+		async () => {
+			const longText = buildLongSystemPrompt();
+			const body = {
+				model: "aws-bedrock/claude-sonnet-4-6",
+				messages: [
+					{
+						role: "system",
+						content: [
+							{
+								type: "text" as const,
+								text: longText,
+								cache_control: {
+									type: "ephemeral" as const,
+									ttl: "1h" as const,
+								},
+							},
+						],
+					},
+					{ role: "user", content: "Just reply OK." },
+				],
+			};
+
+			const send = async () => {
+				const requestId = generateTestRequestId();
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify(body),
+				});
+				const json = await res.json();
+				if (logMode) {
+					console.log(
+						"openai-compat bedrock 1h",
+						requestId,
+						"status",
+						res.status,
+						"usage",
+						JSON.stringify(json.usage),
+					);
+				}
+				return { status: res.status, json };
+			};
+
+			const first = await send();
+			expect(first.status).toBe(200);
+			// On the priming call Bedrock should write to the 1h cache. If
+			// prepare-request-body strips ttl, the write falls back to 5m and
+			// ephemeral_1h_input_tokens will be 0 / absent.
+			const cacheWriteTokens =
+				first.json.usage?.prompt_tokens_details?.cache_creation_tokens ??
+				first.json.usage?.prompt_tokens_details?.cache_write_tokens ??
+				0;
+			if (cacheWriteTokens > 0) {
+				const breakdown =
+					first.json.usage?.prompt_tokens_details?.cache_creation;
+				expect(breakdown).toBeDefined();
+				expect(breakdown.ephemeral_1h_input_tokens).toBeGreaterThan(0);
+				expect(breakdown.ephemeral_5m_input_tokens).toBe(0);
+				expect(
+					breakdown.ephemeral_5m_input_tokens +
+						breakdown.ephemeral_1h_input_tokens,
+				).toBe(cacheWriteTokens);
+			}
+		},
+	);
 });

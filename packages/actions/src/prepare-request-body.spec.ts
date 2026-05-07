@@ -787,6 +787,106 @@ describe("prepareRequestBody - MiniMax", () => {
 });
 
 describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: "Cache this system prompt.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "5m" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "Cache this system prompt." },
+			{ cachePoint: { type: "default", ttl: "1h" } },
+		]);
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default", ttl: "5m" } },
+		]);
+	});
+
+	test("should drop ttl:1h on bedrock models that do not support 1h TTL", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-3-7-sonnet-20250219-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: "Cache this system prompt.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "Cache this system prompt." },
+			{ cachePoint: { type: "default" } },
+		]);
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default" } },
+		]);
+	});
+
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",

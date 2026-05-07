@@ -200,6 +200,42 @@ describe("calculateCosts", () => {
 		expect(result.cacheWriteInputCost).toBeCloseTo(1000 * (3.75 / 1e6));
 	});
 
+	it("should calculate AWS Bedrock Claude cache write costs", async () => {
+		// Bedrock Claude Haiku 4.5 input is 1.0/1M; 5m write 1.25/1M; 1h write 2.0/1M.
+		const result = await calculateCosts(
+			"claude-haiku-4-5",
+			"aws-bedrock",
+			1004,
+			50,
+			0,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			{
+				cacheWriteTokens: 1000,
+				cacheWrite1hTokens: 700,
+			},
+		);
+
+		const discountMultiplier = 0.8;
+		expect(result.inputCost).toBeCloseTo(4 * (1.0 / 1e6) * discountMultiplier);
+		expect(result.outputCost).toBeCloseTo(
+			50 * (5.0 / 1e6) * discountMultiplier,
+		);
+		const fiveMinuteCacheWriteCost = 300 * (1.25 / 1e6);
+		const oneHourCacheWriteCost = 700 * (2.0 / 1e6);
+		expect(result.cacheWriteInputCost).toBeCloseTo(
+			(fiveMinuteCacheWriteCost + oneHourCacheWriteCost) * discountMultiplier,
+		);
+		expect(result.discount).toBeCloseTo(0.2);
+		expect(result.cacheWriteTokens).toBe(1000);
+	});
+
 	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", async () => {
 		// For Anthropic subsequent request: 4 non-cached + 1659 cache read = 1663 total tokens, 1659 cache reads
 		const result = await calculateCosts(
