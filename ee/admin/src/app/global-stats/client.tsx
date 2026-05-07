@@ -2,7 +2,8 @@
 
 import { format, parseISO } from "date-fns";
 import { BarChart3, Coins, Cpu, Layers } from "lucide-react";
-import { useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo } from "react";
 import {
 	CartesianGrid,
 	Cell,
@@ -96,6 +97,28 @@ const timeseriesChartConfig = {
 
 type TimeseriesMetric = keyof typeof timeseriesChartConfig;
 
+const VALID_RANGES: Range[] = ["7d", "30d", "90d", "365d"];
+const VALID_GROUPS: GroupBy[] = ["model", "source"];
+const VALID_METRICS: TimeseriesMetric[] = [
+	"requestCount",
+	"cost",
+	"totalTokens",
+];
+
+function parseRange(value: string | null): Range {
+	return VALID_RANGES.includes(value as Range) ? (value as Range) : "30d";
+}
+
+function parseGroupBy(value: string | null): GroupBy {
+	return VALID_GROUPS.includes(value as GroupBy) ? (value as GroupBy) : "model";
+}
+
+function parseMetric(value: string | null): TimeseriesMetric {
+	return VALID_METRICS.includes(value as TimeseriesMetric)
+		? (value as TimeseriesMetric)
+		: "cost";
+}
+
 function StatCard({
 	label,
 	value,
@@ -169,9 +192,35 @@ function compactMetricFormatter(metric: TimeseriesMetric) {
 }
 
 export function GlobalStatsClient() {
-	const [range, setRange] = useState<Range>("30d");
-	const [groupBy, setGroupBy] = useState<GroupBy>("model");
-	const [chartMetric, setChartMetric] = useState<TimeseriesMetric>("cost");
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+
+	const range = parseRange(searchParams.get("range"));
+	const groupBy = parseGroupBy(searchParams.get("groupBy"));
+	const chartMetric = parseMetric(searchParams.get("metric"));
+
+	const updateParam = useCallback(
+		(key: string, value: string) => {
+			const params = new URLSearchParams(searchParams.toString());
+			params.set(key, value);
+			router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+		},
+		[router, pathname, searchParams],
+	);
+
+	const setRange = useCallback(
+		(value: Range) => updateParam("range", value),
+		[updateParam],
+	);
+	const setGroupBy = useCallback(
+		(value: GroupBy) => updateParam("groupBy", value),
+		[updateParam],
+	);
+	const setChartMetric = useCallback(
+		(value: TimeseriesMetric) => updateParam("metric", value),
+		[updateParam],
+	);
 
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
