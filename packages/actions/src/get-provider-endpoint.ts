@@ -51,9 +51,6 @@ function buildVertexCompatibleEndpoint(
 
 	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
 	const queryParams = [];
-	if (token) {
-		queryParams.push(`key=${token}`);
-	}
 	if (stream) {
 		queryParams.push("alt=sse");
 	}
