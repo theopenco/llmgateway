@@ -39,7 +39,6 @@ export function getProviderHeaders(
 		case "google-vertex":
 		case "quartz":
 			return requestIdHeader;
-		case "obsidian":
 		case "avalanche":
 			return {
 				...requestIdHeader,
@@ -52,6 +51,7 @@ export function getProviderHeaders(
 				"Content-Type": "application/json",
 			};
 		case "azure":
+		case "azure-ai-foundry":
 			return {
 				...requestIdHeader,
 				"api-key": token,
@@ -67,7 +67,6 @@ export function getProviderHeaders(
 		case "alibaba":
 		case "nebius":
 		case "zai":
-		case "canopywave":
 		case "embercloud":
 		case "custom":
 		default:

@@ -18,6 +18,80 @@ import {
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
+type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+
+interface OpenAIImageRequest {
+	model: string;
+	prompt: string;
+	size?: string;
+	quality?: OpenAIImageQuality;
+	n?: number;
+	image?: string | string[];
+}
+
+/**
+ * Narrow a free-form quality string to the values gpt-image-2 accepts.
+ * Returns undefined for unknown values so they get dropped from the request.
+ */
+function normalizeImageQuality(
+	quality: string | undefined,
+): OpenAIImageQuality | undefined {
+	if (!quality) {
+		return undefined;
+	}
+	const normalized = quality.toLowerCase();
+	if (
+		normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high" ||
+		normalized === "auto"
+	) {
+		return normalized;
+	}
+	return undefined;
+}
+
+/**
+ * Decode an input image URL (https URL or data URL) into a Blob for multipart upload.
+ * Returns the Blob with the mime type and a filename with a matching extension.
+ */
+async function fetchImageAsBlob(
+	url: string,
+	index: number,
+): Promise<{ blob: Blob; filename: string }> {
+	const dataUrlMatch = url.match(/^data:([^;,]+)(?:;[^,]*)?,(.*)$/);
+	if (dataUrlMatch) {
+		const mimeType = dataUrlMatch[1] || "image/png";
+		const payload = dataUrlMatch[2] ?? "";
+		const isBase64 = /;base64,/i.test(url.slice(0, url.indexOf(",") + 1));
+		const raw = isBase64
+			? Buffer.from(payload, "base64")
+			: Buffer.from(decodeURIComponent(payload), "utf-8");
+		const buffer = new ArrayBuffer(raw.byteLength);
+		new Uint8Array(buffer).set(raw);
+		const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+		return {
+			blob: new Blob([buffer], { type: mimeType }),
+			filename: `image-${index}.${ext}`,
+		};
+	}
+
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new Error(
+			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
+		);
+	}
+	const mimeType =
+		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
+	const buffer = await response.arrayBuffer();
+	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+	return {
+		blob: new Blob([buffer], { type: mimeType }),
+		filename: `image-${index}.${ext}`,
+	};
+}
+
 /**
  * Type guard to check if a tool is a function tool
  */
@@ -570,6 +644,7 @@ export async function prepareRequestBody(
 	image_config?: {
 		aspect_ratio?: string;
 		image_size?: string;
+		image_quality?: string;
 		n?: number;
 		seed?: number;
 	},
@@ -578,7 +653,80 @@ export async function prepareRequestBody(
 	webSearchTool?: WebSearchTool,
 	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
-): Promise<ProviderRequestBody> {
+): Promise<ProviderRequestBody | FormData> {
+	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
+	if (
+		imageGenerations &&
+		(usedProvider === "openai" || usedProvider === "azure")
+	) {
+		// Extract prompt and image URLs from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		const imageUrls: string[] = [];
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
+			}
+		}
+
+		// Pass image_size straight through to OpenAI as `WxH` (or `auto`).
+		// OpenAI returns a 4xx for unsupported sizes, which we propagate.
+		const openaiSize = image_config?.image_size;
+		const openaiQuality = normalizeImageQuality(image_config?.image_quality);
+
+		const openaiImageRequest: OpenAIImageRequest = {
+			model: usedModel,
+			prompt,
+			...(openaiSize && { size: openaiSize }),
+			...(openaiQuality && { quality: openaiQuality }),
+			...(image_config?.n && { n: image_config.n }),
+		};
+
+		if (imageUrls.length > 0) {
+			// Edits flow: chat.ts swaps the URL to /v1/images/edits, which requires
+			// multipart/form-data with binary image files rather than JSON.
+			const formData = new FormData();
+			formData.append("model", openaiImageRequest.model);
+			formData.append("prompt", openaiImageRequest.prompt);
+			if (openaiImageRequest.size) {
+				formData.append("size", openaiImageRequest.size);
+			}
+			if (openaiImageRequest.quality) {
+				formData.append("quality", openaiImageRequest.quality);
+			}
+			if (openaiImageRequest.n !== undefined) {
+				formData.append("n", String(openaiImageRequest.n));
+			}
+
+			const decoded = await Promise.all(
+				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+			);
+			const fieldName = decoded.length === 1 ? "image" : "image[]";
+			for (const { blob, filename } of decoded) {
+				formData.append(fieldName, blob, filename);
+			}
+			return formData;
+		}
+
+		return openaiImageRequest as unknown as ProviderRequestBody;
+	}
+
 	// Handle xAI image generation models
 	if (imageGenerations && usedProvider === "xai") {
 		// Extract prompt and image URLs from last user message
@@ -805,6 +953,38 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
+	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
+	// clients usually drop reasoning between turns, so translate the OpenAI-style
+	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek
+	// accepts an empty string, but Moonshot's newer reasoning models (kimi-k2.5,
+	// kimi-k2.6) treat an empty string as missing — use a single space as a
+	// non-empty placeholder there. Novita proxies DeepSeek V4 with the same
+	// upstream constraint, so apply the DeepSeek behavior there too.
+	const isNovitaDeepseekV4 =
+		usedProvider === "novita" && usedModel.startsWith("deepseek/deepseek-v4");
+	if (
+		usedProvider === "deepseek" ||
+		usedProvider === "moonshot" ||
+		isNovitaDeepseekV4
+	) {
+		const fallback =
+			usedProvider === "moonshot" || isNovitaDeepseekV4 ? " " : "";
+		processedMessages = processedMessages.map((m) => {
+			if (
+				m.role !== "assistant" ||
+				!m.tool_calls ||
+				!Array.isArray(m.tool_calls) ||
+				m.tool_calls.length === 0 ||
+				m.reasoning_content !== undefined
+			) {
+				return m;
+			}
+			const reasoning = m.reasoning ?? fallback;
+			return { ...m, reasoning_content: reasoning || fallback };
+		});
+	}
+
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedModel,
@@ -854,8 +1034,40 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// Alibaba's API defaults `enable_thinking` to ON for thinking models.
+	// Mirror the OpenAI/Anthropic/Google/ZAI contract: thinking is opt-in via
+	// `reasoning_effort`. Unset or `minimal` => off, anything else => on.
+	if (usedProvider === "alibaba" && supportsReasoning) {
+		const wantsThinking =
+			reasoning_effort !== undefined && reasoning_effort !== "minimal";
+		requestBody.enable_thinking = wantsThinking;
+	}
+
 	if (forcesToolUse && usedProvider === "moonshot") {
-		requestBody.thinking = { enabled: false };
+		const providerMapping = modelDef?.providers.find(
+			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+		);
+		const isReasoningModel =
+			providerMapping &&
+			"reasoning" in providerMapping &&
+			providerMapping.reasoning === true;
+		if (isReasoningModel) {
+			// Moonshot rejects tool_choice="required" (and forced function choice)
+			// when thinking is enabled, and thinking cannot be disabled on
+			// reasoning models. Downgrade to "auto" so the request still works.
+			resolvedToolChoice = "auto";
+			requestBody.tool_choice = "auto";
+		}
+	}
+
+	if (
+		forcesToolUse &&
+		usedProvider === "azure" &&
+		usedModel === "gpt-oss-120b"
+	) {
+		// Azure's gpt-oss-120b rejects tool_choice="required" with UnsupportedToolUse.
+		resolvedToolChoice = "auto";
+		requestBody.tool_choice = "auto";
 	}
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
@@ -1094,10 +1306,14 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// ZAI/GLM models use 'thinking' parameter for reasoning instead of 'reasoning_effort'
+			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
+			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
+			// `reasoning_effort`. Unset or `minimal` => disabled, anything else => enabled.
 			if (supportsReasoning) {
+				const wantsThinking =
+					reasoning_effort !== undefined && reasoning_effort !== "minimal";
 				requestBody.thinking = {
-					type: "enabled",
+					type: wantsThinking ? "enabled" : "disabled",
 				};
 			}
 			// Add sensitive_word_check if provided (Z.ai specific)
@@ -1164,7 +1380,7 @@ export async function prepareRequestBody(
 				const systemContent: Array<{
 					type: "text";
 					text: string;
-					cache_control?: { type: "ephemeral" };
+					cache_control?: { type: "ephemeral"; ttl?: "5m" | "1h" };
 				}> = [];
 
 				// Detect whether any text block in the incoming system messages has
@@ -1715,40 +1931,74 @@ export async function prepareRequestBody(
 
 			// Enable thinking for Bedrock Anthropic models when reasoning is supported
 			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				const getThinkingBudget = (effort?: string) => {
-					if (reasoning_max_tokens !== undefined) {
-						return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
+				if (bedrockProviderMapping?.reasoningMode === "adaptive") {
+					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
+					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
+					requestBody.additionalModelRequestFields ??= {};
+					requestBody.additionalModelRequestFields.thinking = {
+						type: "adaptive",
+					};
+					const mapEffort = (
+						e: typeof reasoning_effort,
+					): "low" | "medium" | "high" | "xhigh" | "max" => {
+						switch (e) {
+							case "minimal":
+							case "low":
+								return "low";
+							case "medium":
+								return "medium";
+							case "high":
+								return "high";
+							case "xhigh":
+								return "xhigh";
+							default:
+								return "high";
+						}
+					};
+					const adaptiveEffort =
+						effort ??
+						(reasoning_effort ? mapEffort(reasoning_effort) : undefined);
+					if (adaptiveEffort !== undefined) {
+						requestBody.additionalModelRequestFields.output_config = {
+							effort: adaptiveEffort,
+						};
 					}
-					if (!effort) {
-						return 2000;
-					}
-					switch (effort) {
-						case "low":
-							return 1024;
-						case "high":
-							return 4000;
-						case "xhigh":
-							return 16000;
-						default:
+				} else {
+					const getThinkingBudget = (effort?: string) => {
+						if (reasoning_max_tokens !== undefined) {
+							return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
+						}
+						if (!effort) {
 							return 2000;
+						}
+						switch (effort) {
+							case "low":
+								return 1024;
+							case "high":
+								return 4000;
+							case "xhigh":
+								return 16000;
+							default:
+								return 2000;
+						}
+					};
+					const thinkingBudget = getThinkingBudget(reasoning_effort);
+					requestBody.additionalModelRequestFields ??= {};
+					requestBody.additionalModelRequestFields.thinking = {
+						type: "enabled",
+						budget_tokens: thinkingBudget,
+					};
+					// Ensure max_tokens is sufficient for thinking + response
+					const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
+					if (
+						!inferenceConfig.maxTokens ||
+						inferenceConfig.maxTokens < minMaxTokens
+					) {
+						inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
 					}
-				};
-				const thinkingBudget = getThinkingBudget(reasoning_effort);
-				requestBody.additionalModelRequestFields ??= {};
-				requestBody.additionalModelRequestFields.thinking = {
-					type: "enabled",
-					budget_tokens: thinkingBudget,
-				};
+				}
 				// Anthropic requires temperature to be exactly 1 when thinking is enabled
 				inferenceConfig.temperature = 1;
-				// Ensure max_tokens is sufficient for thinking + response
-				const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
-				if (
-					!inferenceConfig.maxTokens ||
-					inferenceConfig.maxTokens < minMaxTokens
-				) {
-					inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
-				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
 				}
@@ -1764,12 +2014,13 @@ export async function prepareRequestBody(
 					...response_format.json_schema.schema,
 					additionalProperties: false,
 				} as Record<string, unknown>;
-				requestBody.additionalModelRequestFields = {
-					anthropic_beta: ["structured-outputs-2025-11-13"],
-					output_format: {
-						type: "json_schema",
-						schema,
-					},
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.anthropic_beta = [
+					"structured-outputs-2025-11-13",
+				];
+				requestBody.additionalModelRequestFields.output_format = {
+					type: "json_schema",
+					schema,
 				};
 				requestBody.additionalModelResponseFieldPaths = ["/output_format"];
 			}
@@ -1779,8 +2030,7 @@ export async function prepareRequestBody(
 		case "google-ai-studio":
 		case "glacier":
 		case "google-vertex":
-		case "quartz":
-		case "obsidian": {
+		case "quartz": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
@@ -1937,7 +2187,7 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "inference.net":
-		case "together.ai": {
+		case "together-ai": {
 			if (usedModel.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedModel.substring(usedProvider.length + 1);
 			}

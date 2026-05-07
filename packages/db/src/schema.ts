@@ -53,6 +53,11 @@ export const user = pgTable("user", {
 	image: text(),
 	onboardingCompleted: boolean().notNull().default(false),
 	newsletterSubscribed: boolean().notNull().default(false),
+	status: text({
+		enum: ["active", "deactivated"],
+	})
+		.notNull()
+		.default("active"),
 });
 
 export const session = pgTable(
@@ -163,6 +168,9 @@ export const organization = pgTable("organization", {
 	devPlanStripeSubscriptionId: text().unique(),
 	devPlanCancelled: boolean().notNull().default(false),
 	devPlanExpiresAt: timestamp(),
+	devPlanCycle: text({ enum: ["monthly", "annual"] })
+		.notNull()
+		.default("monthly"),
 	devPlanAllowAllModels: boolean().notNull().default(false),
 	// Last top-up amount (used for low balance alert thresholds)
 	lastTopUpAmount: decimal(),
@@ -470,6 +478,9 @@ export interface ProviderKeyOptions {
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
+	azure_deployment_name?: string;
+	azure_ai_foundry_resource?: string;
+	azure_ai_foundry_api_version?: string;
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
 	google_vertex_project_id?: string;
 }
@@ -535,6 +546,7 @@ export const log = pgTable(
 		totalTokens: decimal(),
 		reasoningTokens: decimal(),
 		cachedTokens: decimal(),
+		cacheWriteTokens: decimal(),
 		messages: json(),
 		temperature: real(),
 		maxTokens: integer(),
@@ -551,6 +563,7 @@ export const log = pgTable(
 		inputCost: real(),
 		outputCost: real(),
 		cachedInputCost: real(),
+		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
 		imageInputTokens: decimal(),
@@ -588,6 +601,7 @@ export const log = pgTable(
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				cacheSupported?: boolean;
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
@@ -646,6 +660,7 @@ export const log = pgTable(
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
+		index("log_request_id_idx").on(table.requestId),
 		// Index for worker stats queries: WHERE createdAt >= ? AND createdAt < ? GROUP BY usedModel, usedProvider
 		index("log_created_at_used_model_used_provider_idx").on(
 			table.createdAt,
@@ -753,6 +768,7 @@ export const videoJob = pgTable(
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				cacheSupported?: boolean;
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
@@ -1123,6 +1139,8 @@ export const modelProviderMapping = pgTable(
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
+		cacheWriteInputPrice: decimal(),
+		cacheWriteInputPrice1h: decimal(),
 		imageInputPrice: decimal(),
 		requestPrice: decimal(),
 		contextSize: integer(),
@@ -1321,6 +1339,7 @@ export const auditLogActions = [
 	"dev_plan.resume",
 	"dev_plan.change_tier",
 	"dev_plan.update_settings",
+	"dev_plan.rotate_api_key",
 ] as const;
 
 export const auditLogResourceTypes = [
@@ -1649,6 +1668,7 @@ export const projectHourlyStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1660,6 +1680,7 @@ export const projectHourlyStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1713,6 +1734,7 @@ export const projectHourlyModelStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1724,6 +1746,7 @@ export const projectHourlyModelStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1799,6 +1822,7 @@ export const apiKeyHourlyStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1810,6 +1834,7 @@ export const apiKeyHourlyStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1874,6 +1899,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1885,6 +1911,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),

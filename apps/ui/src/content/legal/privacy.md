@@ -94,7 +94,6 @@ Each provider processes data under their own privacy terms.
 If you belong to an organization:
 
 - Owners and Admins can view and manage member data and roles.
-- Team features are available on the **Pro plan** and above.
 - Access is limited by assigned roles (Owner, Admin, Developer, Restricted Access).
 
 You can manage permissions from the **Team Settings** page.

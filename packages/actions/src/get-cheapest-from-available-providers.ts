@@ -1,10 +1,29 @@
 import { type ProviderMetrics, metricsKey } from "@llmgateway/db";
 import {
 	getProviderDefinition,
+	models,
 	type AvailableModelProvider,
 	type ModelWithPricing,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+
+/**
+ * Resolve the model id to use when looking up routing metrics for a candidate.
+ *
+ * For virtual models like `grok-4-1-fast`, the worker writes metrics to the
+ * concrete variant's mapping row (e.g. `grok-4-1-fast-non-reasoning`) because
+ * the request flows through the concrete model. The candidate's `modelName`
+ * matches that concrete model's id, so we use it. For non-virtual models the
+ * candidate's `modelName` is a provider-specific name with no matching catalog
+ * entry, and we fall back to the parent model id.
+ */
+export function resolveMetricsModelId(
+	parentModelId: string,
+	candidateModelName: string,
+): string {
+	const concrete = models.find((m) => m.id === candidateModelName);
+	return concrete?.id ?? parentModelId;
+}
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -13,6 +32,7 @@ interface ProviderScore<T extends AvailableModelProvider> {
 	uptime?: number;
 	latency?: number;
 	throughput?: number;
+	cacheSupported?: boolean;
 }
 
 // Scoring weights
@@ -24,6 +44,11 @@ const IMAGE_PRICE_WEIGHT = 0.5; // Higher weight for image generation models
 const UPTIME_WEIGHT = 0.5;
 const THROUGHPUT_WEIGHT = 0.05;
 const LATENCY_WEIGHT = 0.025;
+const CACHE_WEIGHT = 0.2;
+
+// Prompt-token threshold above which prompt caching becomes a meaningful
+// cost lever, so a provider's cache support starts to influence routing.
+const CACHE_PROMPT_TOKEN_THRESHOLD = 5000;
 
 // Uptime threshold below which exponential penalty kicks in
 const UPTIME_PENALTY_THRESHOLD = 95;
@@ -99,6 +124,7 @@ export interface RoutingMetadata {
 		throughput?: number;
 		price: number;
 		priority?: number;
+		cacheSupported?: boolean;
 		// Populated after retry loop if this provider was attempted and failed
 		failed?: boolean;
 		status_code?: number;
@@ -147,6 +173,67 @@ export interface ProviderSelectionOptions {
 	metricsMap?: Map<string, ProviderMetrics>;
 	isStreaming?: boolean;
 	videoPricing?: VideoPricingContext;
+	/**
+	 * Estimated prompt tokens for the request. When provided and at or above
+	 * CACHE_PROMPT_TOKEN_THRESHOLD, cache support is factored into the
+	 * weighted score.
+	 */
+	promptTokens?: number;
+}
+
+function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
+	providers: P[],
+	candidate: AvailableModelProvider,
+): P | undefined {
+	const exactMatch = providers.find(
+		(p) =>
+			p.providerId === candidate.providerId &&
+			p.region === candidate.region &&
+			p.modelName === candidate.modelName,
+	);
+	if (exactMatch) {
+		return exactMatch;
+	}
+	return providers.find(
+		(p) =>
+			p.providerId === candidate.providerId && p.region === candidate.region,
+	);
+}
+
+function providerSupportsCaching(
+	providerInfo:
+		| {
+				cachedInputPrice?: number;
+				pricingTiers?: ProviderModelMapping["pricingTiers"];
+				regions?: ProviderModelMapping["regions"];
+		  }
+		| undefined,
+): boolean {
+	if (!providerInfo) {
+		return false;
+	}
+	if (providerInfo.cachedInputPrice !== undefined) {
+		return true;
+	}
+	if (
+		providerInfo.pricingTiers?.some(
+			(tier) => tier.cachedInputPrice !== undefined,
+		)
+	) {
+		return true;
+	}
+	if (
+		providerInfo.regions?.some(
+			(region) =>
+				region.cachedInputPrice !== undefined ||
+				region.pricingTiers?.some(
+					(tier) => tier.cachedInputPrice !== undefined,
+				),
+		)
+	) {
+		return true;
+	}
+	return false;
 }
 
 export interface VideoPricingContext {
@@ -248,18 +335,23 @@ export function getCheapestFromAvailableProviders<
 	const metricsMap = options?.metricsMap;
 	const isStreaming = options?.isStreaming ?? false;
 	const videoPricing = options?.videoPricing;
+	const promptTokens = options?.promptTokens;
 	// Use higher price weight for image generation models
 	const isImageModel = modelWithPricing.output?.includes("image") ?? false;
 	const effectivePriceWeight = isImageModel ? IMAGE_PRICE_WEIGHT : PRICE_WEIGHT;
+	// Cache support only matters once the prompt is large enough for caching
+	// to meaningfully reduce cost. Below that threshold the weight is zero.
+	const cacheSupportRelevant =
+		promptTokens !== undefined && promptTokens >= CACHE_PROMPT_TOKEN_THRESHOLD;
 	if (availableModelProviders.length === 0) {
 		return null;
 	}
 
 	// Filter out unstable and experimental providers
 	const stableProviders = availableModelProviders.filter((provider) => {
-		const providerInfo = modelWithPricing.providers.find(
-			(p) =>
-				p.providerId === provider.providerId && p.region === provider.region,
+		const providerInfo = findProviderMapping(
+			modelWithPricing.providers,
+			provider,
 		);
 		const providerStability = providerInfo?.stability;
 		const modelStability =
@@ -289,18 +381,18 @@ export function getCheapestFromAvailableProviders<
 				selectedProvider: randomProvider.providerId,
 				selectionReason: "random-exploration",
 				providerScores: stableProviders.map((provider) => {
-					const providerInfo = modelWithPricing.providers.find(
-						(p) =>
-							p.providerId === provider.providerId &&
-							p.region === provider.region,
+					const providerInfo = findProviderMapping(
+						modelWithPricing.providers,
+						provider,
 					);
 					const providerDef = getProviderDefinition(provider.providerId);
 					const priority = providerDef?.priority ?? 1;
 					const metrics = metricsMap?.get(
 						metricsKey(
-							modelWithPricing.id,
+							resolveMetricsModelId(modelWithPricing.id, provider.modelName),
 							provider.providerId,
 							provider.region,
+							provider.modelName,
 						),
 					);
 
@@ -313,6 +405,9 @@ export function getCheapestFromAvailableProviders<
 						throughput: metrics?.throughput,
 						price: getProviderSelectionPrice(providerInfo, videoPricing),
 						priority,
+						cacheSupported: providerSupportsCaching(
+							providerInfo as ProviderModelMapping | undefined,
+						),
 					};
 				}),
 			},
@@ -328,16 +423,17 @@ export function getCheapestFromAvailableProviders<
 	const providerScores: ProviderScore<T>[] = [];
 
 	for (const provider of stableProviders) {
-		const providerInfo = modelWithPricing.providers.find(
-			(p) =>
-				p.providerId === provider.providerId && p.region === provider.region,
+		const providerInfo = findProviderMapping(
+			modelWithPricing.providers,
+			provider,
 		);
 		const price = getProviderSelectionPrice(providerInfo, videoPricing);
 
 		const mKey = metricsKey(
-			modelWithPricing.id,
+			resolveMetricsModelId(modelWithPricing.id, provider.modelName),
 			provider.providerId,
 			provider.region,
+			provider.modelName,
 		);
 		const metrics = metricsMap.get(mKey);
 
@@ -348,6 +444,9 @@ export function getCheapestFromAvailableProviders<
 			uptime: metrics?.uptime,
 			latency: metrics?.averageLatency,
 			throughput: metrics?.throughput,
+			cacheSupported: providerSupportsCaching(
+				providerInfo as ProviderModelMapping | undefined,
+			),
 		});
 	}
 
@@ -403,21 +502,29 @@ export function getCheapestFromAvailableProviders<
 			/* eslint-enable no-mixed-operators */
 		}
 
+		// Cache score: 0 when this provider supports prompt caching, 1 otherwise.
+		// Only weighted in when the prompt is large enough for caching to matter.
+		const cacheScore = providerScore.cacheSupported ? 0 : 1;
+
 		// Calculate base weighted score (lower is better)
-		// When not streaming, latency weight (0.1) is redistributed to other factors
-		// Image generation models use 2x price weight
+		// When not streaming, latency weight is redistributed to other factors
+		// Image generation models use a higher price weight, and cache weight is
+		// dropped for short prompts where caching has no measurable effect.
 		const effectiveLatencyWeight = isStreaming ? LATENCY_WEIGHT : 0;
+		const effectiveCacheWeight = cacheSupportRelevant ? CACHE_WEIGHT : 0;
 		const weightSum =
 			effectivePriceWeight +
 			UPTIME_WEIGHT +
 			THROUGHPUT_WEIGHT +
-			effectiveLatencyWeight;
+			effectiveLatencyWeight +
+			effectiveCacheWeight;
 		/* eslint-disable no-mixed-operators */
 		const baseScore =
 			(effectivePriceWeight / weightSum) * priceScore +
 			(UPTIME_WEIGHT / weightSum) * uptimeScore +
 			(THROUGHPUT_WEIGHT / weightSum) * throughputScore +
-			(effectiveLatencyWeight / weightSum) * latencyScore;
+			(effectiveLatencyWeight / weightSum) * latencyScore +
+			(effectiveCacheWeight / weightSum) * cacheScore;
 		/* eslint-enable no-mixed-operators */
 
 		// Apply provider priority: lower priority = higher score (less preferred)
@@ -459,6 +566,7 @@ export function getCheapestFromAvailableProviders<
 				throughput: p.throughput,
 				price: p.price, // Keep full precision for very small prices
 				priority,
+				cacheSupported: p.cacheSupported,
 			};
 		}),
 	};
@@ -489,9 +597,9 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	}> = [];
 
 	for (const provider of stableProviders) {
-		const providerInfo = modelWithPricing.providers.find(
-			(p) =>
-				p.providerId === provider.providerId && p.region === provider.region,
+		const providerInfo = findProviderMapping(
+			modelWithPricing.providers,
+			provider,
 		);
 		const totalPrice = getProviderSelectionPrice(providerInfo, videoPricing);
 

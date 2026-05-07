@@ -62,6 +62,7 @@ const modelSchema = z.object({
 		request: z.string().optional(),
 		input_cache_read: z.string().optional(),
 		input_cache_write: z.string().optional(),
+		input_cache_write_1h: z.string().optional(),
 		web_search: z.string().optional(),
 		internal_reasoning: z.string().optional(),
 	}),
@@ -250,7 +251,10 @@ modelsApi.openapi(listModels, async (c) => {
 					request: firstProviderWithPricing?.requestPrice?.toString() ?? "0",
 					input_cache_read:
 						firstProviderWithPricing?.cachedInputPrice?.toString() ?? "0",
-					input_cache_write: "0", // Not defined in model definitions yet
+					input_cache_write:
+						firstProviderWithPricing?.cacheWriteInputPrice?.toString() ?? "0",
+					input_cache_write_1h:
+						firstProviderWithPricing?.cacheWriteInputPrice1h?.toString() ?? "0",
 					web_search: "0", // Not defined in model definitions yet
 					internal_reasoning: "0", // Not defined in model definitions yet
 				},

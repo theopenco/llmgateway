@@ -1,4 +1,5 @@
 import {
+	Activity,
 	AlertTriangle,
 	ArrowLeft,
 	Zap,
@@ -305,11 +306,19 @@ export default async function ModelPage({ params }: PageProps) {
 							/>
 
 							<ModelCtaButton
-								modelId={`${modelProviders[0]?.providerId}/${decodedName}`}
+								modelId={decodedName}
 								size="sm"
 								className="gap-2"
 								iconClassName="h-3 w-3"
 							/>
+
+							<Link
+								href={`/models/${encodeURIComponent(decodedName)}/uptime`}
+								className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+							>
+								<Activity className="h-3.5 w-3.5" />
+								View uptime
+							</Link>
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">

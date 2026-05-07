@@ -1,9 +1,10 @@
 import "dotenv/config";
 import { describe, expect, it } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables, type ProviderKeyOptions } from "@llmgateway/db";
 import {
 	type ModelDefinition,
+	getProviderDefinition,
 	getProviderEnvVar,
 	models,
 	type ProviderModelMapping,
@@ -101,6 +102,23 @@ if (specifiedModels) {
 }
 if (specifiedProviders) {
 	console.log(`TEST_PROVIDERS specified: ${specifiedProviders.join(", ")}`);
+}
+
+function hasAllRequiredProviderEnvVars(providerId: string): boolean {
+	const def = getProviderDefinition(providerId);
+	if (!def) {
+		return false;
+	}
+	const required = def.env.required as Record<string, string | undefined>;
+	for (const envVarName of Object.values(required)) {
+		if (!envVarName) {
+			continue;
+		}
+		if (!process.env[envVarName]) {
+			return false;
+		}
+	}
+	return true;
 }
 
 // Filter models based on test skip/only property
@@ -293,6 +311,14 @@ export const testModels = filteredModels
 				if (provider.test === "skip") {
 					continue;
 				}
+
+				// Skip providers whose required env vars aren't set (no creds to hit them)
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
 			}
 
 			// Skip unstable providers if not in full mode, unless they have test: "only" or are in TEST_MODELS/TEST_PROVIDERS
@@ -379,6 +405,14 @@ export const providerModels = filteredModels
 			} else {
 				// Skip providers marked with test: "skip" (only when TEST_MODELS/TEST_PROVIDERS is not specified)
 				if (provider.test === "skip") {
+					continue;
+				}
+
+				// Skip providers whose required env vars aren't set (no creds to hit them)
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
 					continue;
 				}
 
@@ -524,6 +558,8 @@ export async function createProviderKey(
 	provider: string,
 	token: string,
 	keyType: "api-keys" | "credits" = "api-keys",
+	baseUrl?: string,
+	options?: ProviderKeyOptions,
 ) {
 	const keyId =
 		keyType === "credits" ? `env-${provider}` : `provider-key-${provider}`;
@@ -534,8 +570,17 @@ export async function createProviderKey(
 			token,
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId: "org-id",
+			baseUrl,
+			options,
 		})
-		.onConflictDoNothing();
+		.onConflictDoUpdate({
+			target: tables.providerKey.id,
+			set: {
+				token,
+				baseUrl,
+				options,
+			},
+		});
 }
 
 export function validateResponse(json: any) {
@@ -630,11 +675,51 @@ export async function beforeAllHook() {
 	for (const provider of providers) {
 		const envVarName = getProviderEnvVar(provider.id);
 		const envVarValue = envVarName ? process.env[envVarName] : undefined;
+		const baseUrlEnvName = (
+			provider.env.required as Record<string, string | undefined>
+		).baseUrl;
+		const baseUrlValue = baseUrlEnvName
+			? process.env[baseUrlEnvName]
+			: undefined;
+		const providerOptions = providerEnvOptionsForTests(provider.id);
 		if (envVarValue) {
-			await createProviderKey(provider.id, envVarValue, "api-keys");
-			await createProviderKey(provider.id, envVarValue, "credits");
+			await createProviderKey(
+				provider.id,
+				envVarValue,
+				"api-keys",
+				baseUrlValue,
+				providerOptions,
+			);
+			await createProviderKey(
+				provider.id,
+				envVarValue,
+				"credits",
+				baseUrlValue,
+				providerOptions,
+			);
 		}
 	}
+}
+
+function providerEnvOptionsForTests(
+	providerId: string,
+): ProviderKeyOptions | undefined {
+	if (providerId === "azure" && process.env.LLM_AZURE_RESOURCE) {
+		return { azure_resource: process.env.LLM_AZURE_RESOURCE };
+	}
+	if (providerId === "azure-ai-foundry") {
+		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
+		const apiVersion = process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
+		const opts: ProviderKeyOptions = {};
+		if (resource) {
+			opts.azure_ai_foundry_resource = resource;
+		}
+		if (apiVersion) {
+			opts.azure_ai_foundry_api_version = apiVersion;
+		}
+		return Object.keys(opts).length > 0 ? opts : undefined;
+	}
+	return undefined;
 }
 
 export async function beforeEachHook() {

@@ -1,0 +1,17 @@
+{{- if .Values.code.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llmgateway.fullname" . }}-code
+  labels:
+    {{- include "llmgateway.componentLabels" (dict "context" . "component" "code") | nindent 4 }}
+spec:
+  type: {{ .Values.code.service.type | default "ClusterIP" }}
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "code") | nindent 4 }}
+{{- end }}

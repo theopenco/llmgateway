@@ -39,39 +39,74 @@ When cost breakdown is enabled, your API responses will include additional cost 
 		"prompt_tokens": 10,
 		"completion_tokens": 15,
 		"total_tokens": 25,
-		"cost_usd_total": 0.000125,
-		"cost_usd_input": 0.000025,
-		"cost_usd_output": 0.0001,
-		"cost_usd_cached_input": 0,
-		"cost_usd_request": 0,
-		"cost_usd_data_storage": 0.00000025
+		"cost": 0.000125,
+		"cost_details": {
+			"upstream_inference_cost": 0.000125,
+			"upstream_inference_prompt_cost": 0.000025,
+			"upstream_inference_completions_cost": 0.0001,
+			"total_cost": 0.000125,
+			"input_cost": 0.000025,
+			"output_cost": 0.0001,
+			"cached_input_cost": 0,
+			"request_cost": 0,
+			"web_search_cost": 0,
+			"image_input_cost": null,
+			"image_output_cost": null,
+			"data_storage_cost": 0.00000025
+		},
+		"prompt_tokens_details": {
+			"cached_tokens": 0,
+			"cache_write_tokens": 0,
+			"audio_tokens": 0,
+			"video_tokens": 0
+		},
+		"completion_tokens_details": {
+			"reasoning_tokens": 0,
+			"image_tokens": 0,
+			"audio_tokens": 0
+		}
 	}
 }
 ```
 
 ## Cost Fields
 
-| Field                   | Description                                                                        |
-| ----------------------- | ---------------------------------------------------------------------------------- |
-| `cost_usd_total`        | Total inference cost for the request in USD (excludes storage)                     |
-| `cost_usd_input`        | Cost for input/prompt tokens in USD                                                |
-| `cost_usd_output`       | Cost for output/completion tokens in USD                                           |
-| `cost_usd_cached_input` | Cost for cached input tokens in USD (discounted rate)                              |
-| `cost_usd_request`      | Per-request cost in USD (for models with request-based pricing)                    |
-| `cost_usd_data_storage` | LLM Gateway storage cost in USD ($0.01 per 1M tokens, only when retention enabled) |
+| Field                                              | Description                                                              |
+| -------------------------------------------------- | ------------------------------------------------------------------------ |
+| `cost`                                             | Total inference cost for the request in USD                              |
+| `cost_details.upstream_inference_cost`             | Combined upstream inference cost in USD (prompt + completions)           |
+| `cost_details.upstream_inference_prompt_cost`      | Upstream cost for prompt tokens in USD (includes cached prompt discount) |
+| `cost_details.upstream_inference_completions_cost` | Upstream cost for completion tokens in USD                               |
+| `cost_details.total_cost`                          | Total request cost in USD (LLM Gateway extended field)                   |
+| `cost_details.input_cost`                          | Cost for non-cached prompt tokens in USD                                 |
+| `cost_details.output_cost`                         | Cost for completion tokens in USD                                        |
+| `cost_details.cached_input_cost`                   | Cost for cached prompt tokens in USD                                     |
+| `cost_details.request_cost`                        | Per-request flat fee in USD (when the model applies one)                 |
+| `cost_details.web_search_cost`                     | Cost for web search tool calls in USD                                    |
+| `cost_details.image_input_cost`                    | Cost for image inputs in USD                                             |
+| `cost_details.image_output_cost`                   | Cost for image outputs in USD                                            |
+| `cost_details.data_storage_cost`                   | Storage cost for retained request/response payloads in USD               |
 
-<Callout type="info">
-	**Note:** `cost_usd_total` includes only provider/inference costs. Data
-	storage costs (`cost_usd_data_storage`) are billed separately by LLM Gateway
-	when data retention is enabled in organization policies.
-</Callout>
+## Token Detail Fields
+
+The `usage` object also includes detailed token counters that mirror OpenAI's extended format:
+
+| Field                                        | Description                                                      |
+| -------------------------------------------- | ---------------------------------------------------------------- |
+| `prompt_tokens_details.cached_tokens`        | Number of prompt tokens served from the provider's prompt cache  |
+| `prompt_tokens_details.cache_write_tokens`   | Number of prompt tokens written into the provider's prompt cache |
+| `prompt_tokens_details.audio_tokens`         | Number of audio prompt tokens                                    |
+| `prompt_tokens_details.video_tokens`         | Number of video prompt tokens                                    |
+| `completion_tokens_details.reasoning_tokens` | Number of reasoning tokens produced by reasoning models          |
+| `completion_tokens_details.image_tokens`     | Number of image tokens produced                                  |
+| `completion_tokens_details.audio_tokens`     | Number of audio tokens produced                                  |
 
 ## Streaming Responses
 
 Cost information is also available in streaming responses. The cost fields are included in the final usage chunk sent before the `[DONE]` message:
 
 ```
-data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[...],"usage":{"prompt_tokens":10,"completion_tokens":15,"total_tokens":25,"cost_usd_total":0.000125,"cost_usd_input":0.000025,"cost_usd_output":0.0001}}
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[...],"usage":{"prompt_tokens":10,"completion_tokens":15,"total_tokens":25,"cost":0.000125,"cost_details":{"upstream_inference_cost":0.000125,"upstream_inference_prompt_cost":0.000025,"upstream_inference_completions_cost":0.0001,"total_cost":0.000125,"input_cost":0.000025,"output_cost":0.0001,"cached_input_cost":0,"request_cost":0,"web_search_cost":0,"image_input_cost":null,"image_output_cost":null,"data_storage_cost":0.00000025}}}
 
 data: [DONE]
 ```
@@ -96,13 +131,18 @@ async function trackCosts() {
 
 	const usage = response.usage as any;
 
-	if (usage.cost_usd_total !== undefined) {
-		console.log(`Request cost: $${usage.cost_usd_total.toFixed(6)}`);
-		console.log(`  Input: $${usage.cost_usd_input.toFixed(6)}`);
-		console.log(`  Output: $${usage.cost_usd_output.toFixed(6)}`);
+	if (usage.cost !== undefined) {
+		console.log(`Request cost: $${usage.cost.toFixed(6)}`);
+		console.log(
+			`  Prompt: $${usage.cost_details.upstream_inference_prompt_cost.toFixed(6)}`,
+		);
+		console.log(
+			`  Completions: $${usage.cost_details.upstream_inference_completions_cost.toFixed(6)}`,
+		);
 
-		if (usage.cost_usd_cached_input > 0) {
-			console.log(`  Cached: $${usage.cost_usd_cached_input.toFixed(6)}`);
+		const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+		if (cachedTokens > 0) {
+			console.log(`  Cached prompt tokens: ${cachedTokens}`);
 		}
 	}
 
@@ -126,7 +166,7 @@ async function makeRequest(messages: Message[]) {
 		messages,
 	});
 
-	const cost = (response.usage as any).cost_usd_total || 0;
+	const cost = (response.usage as any).cost || 0;
 	totalSpent += cost;
 
 	if (totalSpent > BUDGET_LIMIT) {
@@ -150,7 +190,7 @@ async function makeRequestForUser(userId: string, messages: Message[]) {
 		messages,
 	});
 
-	const cost = (response.usage as any).cost_usd_total || 0;
+	const cost = (response.usage as any).cost || 0;
 	const currentCost = userCosts.get(userId) || 0;
 	userCosts.set(userId, currentCost + cost);
 
@@ -166,8 +206,8 @@ Aggregate costs by model, time period, or any other dimension:
 interface CostEntry {
 	timestamp: Date;
 	model: string;
-	inputCost: number;
-	outputCost: number;
+	promptCost: number;
+	completionsCost: number;
 	totalCost: number;
 }
 
@@ -184,30 +224,15 @@ async function loggedRequest(model: string, messages: Message[]) {
 	costLog.push({
 		timestamp: new Date(),
 		model: response.model,
-		inputCost: usage.cost_usd_input || 0,
-		outputCost: usage.cost_usd_output || 0,
-		totalCost: usage.cost_usd_total || 0,
+		promptCost: usage.cost_details?.upstream_inference_prompt_cost || 0,
+		completionsCost:
+			usage.cost_details?.upstream_inference_completions_cost || 0,
+		totalCost: usage.cost || 0,
 	});
 
 	return response;
 }
 ```
-
-## Data Storage Costs
-
-When data retention is enabled in organization policies, LLM Gateway stores full request and response payloads for the configured retention period. This storage incurs a small additional cost:
-
-- **Rate**: $0.01 per 1 million tokens
-- **Applies to**: Input, cached, output, and reasoning tokens
-- **When charged**: Only when retention level is set to "Retain All Data"
-- **Billing mode**: In API keys mode, only storage costs are deducted from credits (inference costs are billed to your provider keys)
-
-Storage costs are displayed separately from inference costs in the dashboard and usage breakdown to maintain transparency between provider costs and LLM Gateway platform costs.
-
-<Callout type="success">
-	Enable [auto top-up](/dashboard) in billing settings to prevent request
-	failures when storage costs deplete your credits.
-</Callout>
 
 ## Self-Hosted Deployments
 

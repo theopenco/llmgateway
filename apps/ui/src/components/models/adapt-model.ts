@@ -46,6 +46,8 @@ export function adaptProviderMapping(
 			inputPrice: toStr(p.inputPrice),
 			outputPrice: toStr(p.outputPrice),
 			cachedInputPrice: toStr(p.cachedInputPrice),
+			cacheWriteInputPrice: toStr(p.cacheWriteInputPrice),
+			cacheWriteInputPrice1h: toStr(p.cacheWriteInputPrice1h),
 			imageInputPrice: toStr(p.imageInputPrice),
 			imageOutputPrice: toStr(p.imageOutputPrice),
 			imageInputTokensByResolution: p.imageInputTokensByResolution ?? null,

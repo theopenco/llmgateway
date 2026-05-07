@@ -50,6 +50,12 @@ import {
 	processPendingVideoJobs,
 	processPendingWebhookDeliveries,
 } from "./services/video-jobs.js";
+import {
+	interruptibleSleep,
+	isStopRequested,
+	requestStop,
+	resetShutdown,
+} from "./shutdown.js";
 
 // Configuration for current minute history calculation interval (defaults to 5 seconds)
 const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
@@ -181,9 +187,11 @@ const schema = z.object({
 	total_tokens: z.string().nullable(),
 	reasoning_tokens: z.string().nullable(),
 	cached_tokens: z.string().nullable(),
+	cache_write_tokens: z.string().nullable(),
 	input_cost: z.number().nullable(),
 	output_cost: z.number().nullable(),
 	cached_input_cost: z.number().nullable(),
+	cache_write_input_cost: z.number().nullable(),
 	estimated_cost: z.boolean().nullable(),
 	error_details: z
 		.object({
@@ -264,6 +272,9 @@ export async function processAutoTopUp(): Promise<void> {
 		});
 
 		for (const org of filteredOrgs) {
+			if (isStopRequested()) {
+				break;
+			}
 			try {
 				// Check if there's a recent pending transaction
 				const recentTransaction = await db.query.transaction.findFirst({
@@ -425,9 +436,24 @@ export async function processAutoTopUp(): Promise<void> {
 					},
 				});
 
-				// Use centralized fee calculator
+				let isInternational = false;
+				try {
+					const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
+						defaultPaymentMethod.stripePaymentMethodId,
+					);
+					const country = stripePaymentMethod.card?.country;
+					isInternational = Boolean(country) && country !== "US";
+				} catch (err) {
+					logger.error(
+						`Failed to retrieve payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id}; skipping auto top-up cycle to avoid undercharging international cards`,
+						err as Error,
+					);
+					continue;
+				}
+
 				const feeBreakdown = calculateFees({
 					amount: topUpAmount,
+					isInternational,
 				});
 
 				// Insert pending transaction before creating payment intent
@@ -464,6 +490,8 @@ export async function processAutoTopUp(): Promise<void> {
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
 							platformFee: feeBreakdown.platformFee.toString(),
+							internationalFee: feeBreakdown.internationalFee.toString(),
+							isInternational: isInternational.toString(),
 							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
 					});
@@ -560,7 +588,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 
 		// Process all organizations in batches (no plan distinction)
 		let hasMoreRecords = true;
-		while (hasMoreRecords) {
+		while (hasMoreRecords && !isStopRequested()) {
 			const batchResult = await db.transaction(async (tx) => {
 				// Hint the planner to prefer index scans for this transaction.
 				// Without this, PostgreSQL's default random_page_cost=4 causes it to
@@ -680,9 +708,11 @@ export async function batchProcessLogs(): Promise<void> {
 					total_tokens: log.totalTokens,
 					reasoning_tokens: log.reasoningTokens,
 					cached_tokens: log.cachedTokens,
+					cache_write_tokens: log.cacheWriteTokens,
 					input_cost: log.inputCost,
 					output_cost: log.outputCost,
 					cached_input_cost: log.cachedInputCost,
+					cache_write_input_cost: log.cacheWriteInputCost,
 					estimated_cost: log.estimatedCost,
 					error_details: log.errorDetails,
 					trace_id: log.traceId,
@@ -726,6 +756,7 @@ export async function batchProcessLogs(): Promise<void> {
 					inputCost: row.input_cost,
 					outputCost: row.output_cost,
 					cachedInputCost: row.cached_input_cost,
+					cacheWriteInputCost: row.cache_write_input_cost,
 					estimatedCost: row.estimated_cost,
 					error: !!row.hasError,
 					cached: row.cached,
@@ -744,6 +775,7 @@ export async function batchProcessLogs(): Promise<void> {
 					totalTokens: row.total_tokens,
 					reasoningTokens: row.reasoning_tokens,
 					cachedTokens: row.cached_tokens,
+					cacheWriteTokens: row.cache_write_tokens,
 					errorDetails: row.error_details,
 					traceId: row.trace_id,
 					unifiedFinishReason: row.unified_finish_reason,
@@ -1079,7 +1111,43 @@ async function enqueueLowBalanceEmail(
 	});
 }
 
+// Circuit breaker: skip queue consumption while postgres is known-down.
+export const logInsertCircuit = {
+	consecutiveFailures: 0,
+	nextAttemptAt: 0,
+};
+
+const LOG_INSERT_BACKOFF_BASE_MS = 1000;
+const LOG_INSERT_BACKOFF_MAX_MS = 5 * 60 * 1000;
+
+function recordLogInsertFailure(): void {
+	logInsertCircuit.consecutiveFailures += 1;
+	const backoff = Math.min(
+		LOG_INSERT_BACKOFF_BASE_MS *
+			Math.pow(2, logInsertCircuit.consecutiveFailures - 1),
+		LOG_INSERT_BACKOFF_MAX_MS,
+	);
+	logInsertCircuit.nextAttemptAt = Date.now() + backoff;
+	logger.warn(
+		`Postgres log insertion failing; backing off for ${backoff}ms (consecutive failures: ${logInsertCircuit.consecutiveFailures})`,
+	);
+}
+
+function recordLogInsertSuccess(): void {
+	if (logInsertCircuit.consecutiveFailures > 0) {
+		logger.info(
+			`Postgres log insertion recovered after ${logInsertCircuit.consecutiveFailures} consecutive failures`,
+		);
+	}
+	logInsertCircuit.consecutiveFailures = 0;
+	logInsertCircuit.nextAttemptAt = 0;
+}
+
 export async function processLogQueue(): Promise<void> {
+	if (Date.now() < logInsertCircuit.nextAttemptAt) {
+		return;
+	}
+
 	const message = await consumeFromQueue(LOG_QUEUE, LOG_QUEUE_BATCH_SIZE);
 
 	if (!message) {
@@ -1136,6 +1204,7 @@ export async function processLogQueue(): Promise<void> {
 			try {
 				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
 				await db.insert(log).values(processedLogData as LogInsertData[]);
+				recordLogInsertSuccess();
 				return; // Success, exit function
 			} catch (insertError) {
 				lastError =
@@ -1143,20 +1212,24 @@ export async function processLogQueue(): Promise<void> {
 						? insertError
 						: new Error(String(insertError));
 
-				if (attempt < MAX_RETRIES) {
+				if (attempt < MAX_RETRIES && !isStopRequested()) {
 					const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s, 8s, 16s, ...
 					logger.warn(
 						`Failed to insert logs (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms...`,
 						lastError,
 					);
-					await new Promise((resolve) => {
-						setTimeout(resolve, delay);
-					});
+					await interruptibleSleep(delay);
+					if (isStopRequested()) {
+						break;
+					}
+				} else {
+					break;
 				}
 			}
 		}
 
 		// All retries exhausted, push messages back to queue for later processing
+		recordLogInsertFailure();
 		logger.error(
 			`Failed to insert logs after ${MAX_RETRIES + 1} attempts, pushing back to queue`,
 			lastError,
@@ -1167,6 +1240,9 @@ export async function processLogQueue(): Promise<void> {
 			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
 		}
 	} catch (error) {
+		// Opens the circuit when the pre-insert postgres read (cdb.select) throws,
+		// so we stop draining the queue while postgres is down.
+		recordLogInsertFailure();
 		logger.error(
 			"Error processing log message",
 			error instanceof Error ? error : new Error(String(error)),
@@ -1189,50 +1265,24 @@ export async function processLogQueue(): Promise<void> {
 }
 
 let isWorkerRunning = false;
-let shouldStop = false;
 let activeLoops = 0;
 let stopFailed = false;
-
-/**
- * Sleep that can be interrupted by shouldStop.
- * Breaks long delays into short chunks so loops exit promptly on shutdown.
- */
-async function interruptibleSleep(ms: number): Promise<void> {
-	const chunkMs = 500;
-	let remaining = ms;
-
-	while (remaining > 0 && !shouldStop) {
-		await new Promise((resolve) => {
-			setTimeout(resolve, Math.min(remaining, chunkMs));
-		});
-		remaining -= chunkMs;
-	}
-}
 
 // Independent worker loops
 async function runLogQueueLoop() {
 	activeLoops++;
 	logger.info("Starting log queue processing loop...");
 	try {
-		while (!shouldStop) {
+		while (!isStopRequested()) {
 			try {
 				await processLogQueue();
-
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, 1000);
-					});
-				}
+				await interruptibleSleep(1000);
 			} catch (error) {
 				logger.error(
 					"Error in log queue loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, 5000);
-					});
-				}
+				await interruptibleSleep(5000);
 			}
 		}
 	} finally {
@@ -1249,25 +1299,17 @@ async function runAutoTopUpLoop() {
 	);
 
 	try {
-		while (!shouldStop) {
+		while (!isStopRequested()) {
 			try {
 				await processAutoTopUp();
 
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, interval);
-					});
-				}
+				await interruptibleSleep(interval);
 			} catch (error) {
 				logger.error(
 					"Error in auto top-up loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, 5000);
-					});
-				}
+				await interruptibleSleep(5000);
 			}
 		}
 	} finally {
@@ -1284,25 +1326,17 @@ async function runBatchProcessLoop() {
 	);
 
 	try {
-		while (!shouldStop) {
+		while (!isStopRequested()) {
 			try {
 				await batchProcessLogs();
 
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, interval);
-					});
-				}
+				await interruptibleSleep(interval);
 			} catch (error) {
 				logger.error(
 					"Error in batch process loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, 5000);
-					});
-				}
+				await interruptibleSleep(5000);
 			}
 		}
 	} finally {
@@ -1328,7 +1362,7 @@ async function runMinutelyHistoryLoop() {
 			);
 		}
 
-		while (!shouldStop) {
+		while (!isStopRequested()) {
 			// Calculate delay to next minute boundary
 			const now = new Date();
 			const nextMinute = new Date(
@@ -1344,7 +1378,7 @@ async function runMinutelyHistoryLoop() {
 
 			await interruptibleSleep(delay);
 
-			if (shouldStop) {
+			if (isStopRequested()) {
 				break;
 			}
 
@@ -1371,25 +1405,17 @@ async function runCurrentMinuteHistoryLoop() {
 	);
 
 	try {
-		while (!shouldStop) {
+		while (!isStopRequested()) {
 			try {
 				await calculateCurrentMinuteHistory();
 
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, interval);
-					});
-				}
+				await interruptibleSleep(interval);
 			} catch (error) {
 				logger.error(
 					"Error in current minute history loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, 5000);
-					});
-				}
+				await interruptibleSleep(5000);
 			}
 		}
 	} finally {
@@ -1406,25 +1432,17 @@ async function runVideoJobsLoop() {
 	);
 
 	try {
-		while (!shouldStop) {
+		while (!isStopRequested()) {
 			try {
 				await processPendingVideoJobs();
 
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, interval);
-					});
-				}
+				await interruptibleSleep(interval);
 			} catch (error) {
 				logger.error(
 					"Error in video jobs loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, 5000);
-					});
-				}
+				await interruptibleSleep(5000);
 			}
 		}
 	} finally {
@@ -1441,25 +1459,17 @@ async function runVideoWebhookLoop() {
 	);
 
 	try {
-		while (!shouldStop) {
+		while (!isStopRequested()) {
 			try {
 				await processPendingWebhookDeliveries();
 
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, interval);
-					});
-				}
+				await interruptibleSleep(interval);
 			} catch (error) {
 				logger.error(
 					"Error in video webhook loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, 5000);
-					});
-				}
+				await interruptibleSleep(5000);
 			}
 		}
 	} finally {
@@ -1471,7 +1481,7 @@ async function runVideoWebhookLoop() {
 async function runAggregatedStatsLoop() {
 	activeLoops++;
 	logger.info(
-		"Starting aggregated stats loop (every 5min, aligned to 5-min boundary)...",
+		"Starting aggregated stats loop (every 1min, aligned to minute boundary)...",
 	);
 
 	try {
@@ -1485,25 +1495,23 @@ async function runAggregatedStatsLoop() {
 			);
 		}
 
-		while (!shouldStop) {
-			// Calculate delay to next 5-minute boundary
+		while (!isStopRequested()) {
 			const now = new Date();
-			const currentMinute = now.getMinutes();
-			const nextFiveMinuteMark = Math.ceil((currentMinute + 1) / 5) * 5;
-			const nextRun = new Date(now);
-			nextRun.setSeconds(0, 100); // 100ms buffer
-			if (nextFiveMinuteMark >= 60) {
-				nextRun.setMinutes(0);
-				nextRun.setHours(nextRun.getHours() + 1);
-			} else {
-				nextRun.setMinutes(nextFiveMinuteMark);
-			}
+			const nextRun = new Date(
+				now.getFullYear(),
+				now.getMonth(),
+				now.getDate(),
+				now.getHours(),
+				now.getMinutes() + 1,
+				0,
+				100, // 100ms buffer
+			);
 
 			const delay = nextRun.getTime() - now.getTime();
 
 			await interruptibleSleep(delay);
 
-			if (shouldStop) {
+			if (isStopRequested()) {
 				break;
 			}
 
@@ -1530,25 +1538,17 @@ async function runProjectStatsLoop() {
 	);
 
 	try {
-		while (!shouldStop) {
+		while (!isStopRequested()) {
 			try {
 				await refreshProjectHourlyStats();
 
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, interval);
-					});
-				}
+				await interruptibleSleep(interval);
 			} catch (error) {
 				logger.error(
 					"Error in project stats loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, 5000);
-					});
-				}
+				await interruptibleSleep(5000);
 			}
 		}
 	} finally {
@@ -1565,25 +1565,17 @@ async function runDataRetentionLoop() {
 	);
 
 	try {
-		while (!shouldStop) {
+		while (!isStopRequested()) {
 			try {
 				await cleanupExpiredLogData();
 
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, interval);
-					});
-				}
+				await interruptibleSleep(interval);
 			} catch (error) {
 				logger.error(
 					"Error in data retention loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
-				if (!shouldStop) {
-					await new Promise((resolve) => {
-						setTimeout(resolve, 5000);
-					});
-				}
+				await interruptibleSleep(5000);
 			}
 		}
 	} finally {
@@ -1613,7 +1605,7 @@ export async function startWorker() {
 	}
 
 	isWorkerRunning = true;
-	shouldStop = false;
+	resetShutdown();
 	logger.info("Starting worker application...");
 
 	// Initialize providers and models sync - must complete before other stats syncs
@@ -1657,7 +1649,7 @@ export async function startWorker() {
 		`- Video webhooks: runs every ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds for callback delivery`,
 	);
 	logger.info(
-		"- Aggregated stats: runs every 5 minutes at minute boundaries (0, 5, 10, 15, etc.)",
+		"- Aggregated stats: runs every 1 minute at the start of each minute",
 	);
 	logger.info(
 		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,
@@ -1677,7 +1669,7 @@ export async function startWorker() {
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
 	void runFollowUpEmailsLoop({
-		shouldStop: () => shouldStop,
+		shouldStop: isStopRequested,
 		acquireLock,
 		releaseLock,
 		interruptibleSleep,
@@ -1697,7 +1689,7 @@ export async function stopWorker(): Promise<boolean> {
 	}
 
 	logger.info("Stopping worker...");
-	shouldStop = true;
+	requestStop();
 
 	// Wait for all loops to finish by polling activeLoops counter
 	const maxWaitTime = 15000; // 15 seconds timeout
@@ -1716,7 +1708,7 @@ export async function stopWorker(): Promise<boolean> {
 				`Timeout reached (${maxWaitTime}ms) while waiting for worker loops to exit. ${activeLoops} loop(s) still active. Worker stop failed.`,
 			);
 			stopFailed = true;
-			// Keep shouldStop = true and isWorkerRunning = true to prevent new loops from starting
+			// Keep stop state and isWorkerRunning = true to prevent new loops from starting
 			return false;
 		}
 

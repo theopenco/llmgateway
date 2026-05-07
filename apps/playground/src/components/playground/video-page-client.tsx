@@ -69,10 +69,18 @@ export default function VideoPageClient({
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	const videoGenModels = useMemo(
-		() => models.filter((m) => m.output?.includes("video")),
-		[models],
-	);
+	const videoGenModels = useMemo(() => {
+		const now = new Date();
+		return models.filter((m) => {
+			if (!m.output?.includes("video")) {
+				return false;
+			}
+			return m.mappings.some(
+				(mapping) =>
+					!mapping.deactivatedAt || new Date(mapping.deactivatedAt) > now,
+			);
+		});
+	}, [models]);
 
 	const mapped = useMemo(
 		() => mapModels(videoGenModels, providers),
@@ -323,22 +331,30 @@ export default function VideoPageClient({
 
 	// Keep URL in sync with selected model(s)
 	useEffect(() => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		// Read current URL params directly to avoid stale searchParams closure
+		// and to prevent an infinite loop where router.replace produces a new
+		// searchParams reference that re-triggers this effect (each such cycle
+		// causes Next.js to refetch the RSC, re-hitting /orgs forever).
+		const currentParams = new URLSearchParams(window.location.search);
 		if (comparisonMode) {
-			params.set("model", selectedModels.join(","));
-			params.set("compare", "1");
+			currentParams.set("model", selectedModels.join(","));
+			currentParams.set("compare", "1");
 		} else {
 			const primary = selectedModels[0];
 			if (primary) {
-				params.set("model", primary);
+				currentParams.set("model", primary);
 			} else {
-				params.delete("model");
+				currentParams.delete("model");
 			}
-			params.delete("compare");
+			currentParams.delete("compare");
 		}
-		const qs = params.toString();
-		router.replace(qs ? `?${qs}` : "");
-	}, [comparisonMode, router, searchParams, selectedModels]);
+		const qs = currentParams.toString();
+		const nextUrl = `${pathname}${qs ? `?${qs}` : ""}`;
+		const currentUrl = `${window.location.pathname}${window.location.search}`;
+		if (nextUrl !== currentUrl) {
+			router.replace(nextUrl, { scroll: false });
+		}
+	}, [comparisonMode, pathname, router, selectedModels]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {

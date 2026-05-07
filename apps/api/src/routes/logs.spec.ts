@@ -177,6 +177,9 @@ describe("logs route", () => {
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
+			expect(json.logs[0].organizationName).toBe("Test Organization");
+			expect(json.logs[0].projectName).toBe("Test Project");
+			expect(json.logs[0].apiKeyName).toBe("Test API Key");
 			expect(json.logs[0].gatewayContentFilterResponse).toEqual([
 				{
 					id: "modr-test-log-id-1",
@@ -206,6 +209,9 @@ describe("logs route", () => {
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
+			expect(json.log.organizationName).toBe("Test Organization");
+			expect(json.log.projectName).toBe("Test Project");
+			expect(json.log.apiKeyName).toBe("Test API Key");
 			expect(json.log.gatewayContentFilterResponse).toEqual([
 				{
 					id: "modr-test-log-id-1",
