@@ -5,11 +5,11 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Agents | LLM Gateway",
+	title: "AI Agents — Pre-built Tool-Calling Agents",
 	description:
 		"Pre-built AI agents ready to integrate into your applications. Weather, search, and more.",
 	openGraph: {
-		title: "Agents | LLM Gateway",
+		title: "AI Agents — Pre-built Tool-Calling Agents",
 		description:
 			"Pre-built AI agents ready to integrate into your applications. Weather, search, and more.",
 	},

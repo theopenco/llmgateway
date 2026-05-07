@@ -42,7 +42,7 @@ const featuredTools = [
 		name: "SoulForge",
 		icon: SoulForgeIcon,
 		description:
-			"Aggressive prompt caching cuts roughly 50% of tokens on multi-turn agent runs. Pair with DevPass to effectively double your monthly usage.",
+			"Saves ~50% of tokens on multi-turn coding sessions. Instead of grepping and dumping whole files into the chat, SoulForge builds a live map of your codebase and lets the agent jump straight to the function it needs — one symbol at a time. Less waste, faster turns, cleaner edits. Pair with DevPass to effectively double your monthly usage.",
 		setup: "/keys → paste your key",
 		highlight: "Saves ~50% tokens",
 	},

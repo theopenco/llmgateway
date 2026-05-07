@@ -594,7 +594,7 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${model.name ?? model.id} – AI Model on LLM Gateway`;
+	const title = `${model.name ?? model.id} — AI Model Pricing & Capabilities`;
 	const description =
 		model.description ??
 		`Details, pricing, and capabilities for ${model.name ?? model.id} on LLM Gateway.`;

@@ -168,14 +168,12 @@ export function Footer() {
 							</h3>
 							<ul className="space-y-2">
 								<li>
-									<a
-										href={`${config.uiUrl}/models`}
-										target="_blank"
-										rel="noopener noreferrer"
+									<Link
+										href="/coding-models"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
-										Models
-									</a>
+										Coding Models
+									</Link>
 								</li>
 								<li>
 									<Link
@@ -187,9 +185,19 @@ export function Footer() {
 								</li>
 								<li>
 									<a
-										href={config.uiUrl}
+										href={`${config.uiUrl}/models`}
+										rel="noopener"
 										target="_blank"
-										rel="noopener noreferrer"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										All Models
+									</a>
+								</li>
+								<li>
+									<a
+										href={config.uiUrl}
+										rel="noopener"
+										target="_blank"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										LLM Gateway
@@ -206,7 +214,7 @@ export function Footer() {
 									<a
 										href={config.docsUrl}
 										target="_blank"
-										rel="noopener noreferrer"
+										rel="noopener"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Documentation
@@ -216,7 +224,7 @@ export function Footer() {
 									<a
 										href={`${config.uiUrl}/integrations`}
 										target="_blank"
-										rel="noopener noreferrer"
+										rel="noopener"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Integrations
@@ -226,7 +234,7 @@ export function Footer() {
 									<a
 										href={`${config.uiUrl}/blog`}
 										target="_blank"
-										rel="noopener noreferrer"
+										rel="noopener"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Blog
