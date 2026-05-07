@@ -10,6 +10,7 @@ import {
 	LandingPageTracker,
 } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
+import { ProductHuntIcon } from "@/components/ProductHuntIcon";
 import { SoulForgeBoost } from "@/components/SoulForgeBoost";
 import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
@@ -46,24 +47,6 @@ const featuredTools = [
 		highlight: "Saves ~50% tokens",
 	},
 ];
-
-function ProductHuntIcon({ className }: { className?: string }) {
-	return (
-		<svg
-			className={className}
-			viewBox="0 0 24 24"
-			xmlns="http://www.w3.org/2000/svg"
-			aria-hidden="true"
-			focusable="false"
-		>
-			<circle cx="12" cy="12" r="12" fill="#FF6154" />
-			<path
-				d="M13.604 8.4h-3.405V12h3.405a1.8 1.8 0 0 0 0-3.6zM13.604 14.4h-3.405V18H8.4V6h5.204a4.2 4.2 0 0 1 0 8.4z"
-				fill="#FFFFFF"
-			/>
-		</svg>
-	);
-}
 
 export default function LandingPage() {
 	const config = getConfig();
