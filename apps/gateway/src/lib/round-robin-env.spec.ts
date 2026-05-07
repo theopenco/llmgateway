@@ -188,6 +188,26 @@ describe("round-robin-env", () => {
 			expect(result2.index).toBe(0);
 		});
 
+		it("should keep env key health isolated per model scope", () => {
+			reportKeyError("TEST_VAR", 0, 500, undefined, "gpt-4");
+			reportKeyError("TEST_VAR", 0, 500, undefined, "gpt-4");
+			reportKeyError("TEST_VAR", 0, 500, undefined, "gpt-4");
+
+			const gpt4Selection = getRoundRobinValue(
+				"TEST_VAR",
+				"value1,value2",
+				"gpt-4",
+			);
+			const claudeSelection = getRoundRobinValue(
+				"TEST_VAR",
+				"value1,value2",
+				"claude-3-5-sonnet",
+			);
+
+			expect(gpt4Selection.index).toBe(1);
+			expect(claudeSelection.index).toBe(0);
+		});
+
 		it("should keep using the primary key when uptimes are identical", () => {
 			// Key 0 and 1 both have 100% uptime
 			for (let i = 0; i < 5; i++) {

@@ -1,3 +1,5 @@
+import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
+
 export const MAX_RETRIES = 2;
 
 export type RetryableErrorType =
@@ -30,6 +32,28 @@ export function isRetryableErrorType(errorType: string): boolean {
 		errorType === "upstream_error" ||
 		errorType === "upstream_timeout" ||
 		errorType === "gateway_error"
+	);
+}
+
+/**
+ * Determines whether a failed request should be retried against another key
+ * for the same provider.
+ *
+ * Auth failures (401/403) are not eligible for cross-provider fallback, but
+ * they should still rotate to another configured key for the current provider
+ * because the failure is often isolated to a single credential.
+ */
+export function shouldRetryAlternateKey(
+	errorType: string,
+	statusCode?: number,
+	errorText?: string,
+): boolean {
+	return (
+		isRetryableErrorType(errorType) ||
+		(errorType === "gateway_error" &&
+			((statusCode !== undefined &&
+				(statusCode === 401 || statusCode === 403)) ||
+				hasInvalidProviderCredentialError(errorText)))
 	);
 }
 

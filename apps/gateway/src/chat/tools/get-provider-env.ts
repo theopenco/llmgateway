@@ -20,6 +20,7 @@ export interface ProviderEnvResult {
 interface GetProviderEnvOptions {
 	advanceRoundRobin?: boolean;
 	excludedIndices?: ReadonlySet<number>;
+	selectionScope?: string;
 }
 
 /**
@@ -62,9 +63,10 @@ export function getProviderEnv(
 
 	const advanceRoundRobin = options.advanceRoundRobin ?? true;
 	const excludedIndices = options.excludedIndices;
+	const selectionScope = options.selectionScope;
 	const result = advanceRoundRobin
-		? getRoundRobinValue(envVar, envValue, excludedIndices)
-		: peekRoundRobinValue(envVar, envValue, excludedIndices);
+		? getRoundRobinValue(envVar, envValue, selectionScope, excludedIndices)
+		: peekRoundRobinValue(envVar, envValue, selectionScope, excludedIndices);
 
 	return { token: result.value, configIndex: result.index, envVarName: envVar };
 }

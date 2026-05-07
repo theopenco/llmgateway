@@ -3,7 +3,10 @@ import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages } from "./extract-images.js";
-import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	adjustGoogleCandidateTokens,
+	extractBedrockCacheCreationDetails,
+} from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
@@ -1224,7 +1227,11 @@ export function transformStreamingToOpenai(
 				const inputTokens = data.usage.inputTokens ?? 0;
 				const cacheReadTokens = data.usage.cacheReadInputTokens ?? 0;
 				const cacheWriteTokens = data.usage.cacheWriteInputTokens ?? 0;
+				const cacheDetails = extractBedrockCacheCreationDetails(data.usage);
 				const promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+				const hasCacheCreationDetails =
+					cacheDetails.cacheCreation5mTokens !== null ||
+					cacheDetails.cacheCreation1hTokens !== null;
 
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -1242,9 +1249,27 @@ export function transformStreamingToOpenai(
 						prompt_tokens: promptTokens,
 						completion_tokens: data.usage.outputTokens ?? 0,
 						total_tokens: data.usage.totalTokens ?? 0,
-						...(cacheReadTokens > 0 && {
+						...((cacheReadTokens > 0 || cacheWriteTokens > 0) && {
 							prompt_tokens_details: {
 								cached_tokens: cacheReadTokens,
+								...(cacheWriteTokens > 0 && {
+									cache_write_tokens: cacheWriteTokens,
+									cache_creation_tokens: cacheWriteTokens,
+								}),
+								...(cacheWriteTokens > 0 &&
+									hasCacheCreationDetails && {
+										cache_creation: {
+											ephemeral_5m_input_tokens:
+												cacheDetails.cacheCreation5mTokens ??
+												Math.max(
+													0,
+													cacheWriteTokens -
+														(cacheDetails.cacheCreation1hTokens ?? 0),
+												),
+											ephemeral_1h_input_tokens:
+												cacheDetails.cacheCreation1hTokens ?? 0,
+										},
+									}),
 							},
 						}),
 					},

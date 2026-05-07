@@ -2783,11 +2783,11 @@ describe("api", () => {
 			expect(logs[0].hasError).toBe(true);
 			expect(logs[0].errorDetails?.statusCode).toBe(401);
 
-			expect(isTrackedKeyHealthy("provider-key-id-stream-auth-error")).toBe(
-				false,
-			);
 			expect(
-				getTrackedKeyMetrics("provider-key-id-stream-auth-error"),
+				isTrackedKeyHealthy("provider-key-id-stream-auth-error", "custom"),
+			).toBe(false);
+			expect(
+				getTrackedKeyMetrics("provider-key-id-stream-auth-error", "custom"),
 			).toMatchObject({
 				permanentlyBlacklisted: true,
 				totalRequests: 1,
