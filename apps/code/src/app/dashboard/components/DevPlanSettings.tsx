@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, Lock } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -22,7 +22,7 @@ export default function DevPlanSettings({
 	devPlanAllowAllModels: initialAllowAllModels,
 	cachingEnabled: initialCachingEnabled,
 	cacheDurationSeconds: initialCacheDurationSeconds,
-	retentionLevel,
+	retentionLevel: initialRetentionLevel,
 }: DevPlanSettingsProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -39,7 +39,10 @@ export default function DevPlanSettings({
 	const [isSavingCaching, setIsSavingCaching] = useState(false);
 	const [isTogglingCaching, setIsTogglingCaching] = useState(false);
 
-	const isMetadataOnlyRetention = retentionLevel === "none";
+	const [retainData, setRetainData] = useState(
+		initialRetentionLevel === "retain",
+	);
+	const [isUpdatingRetention, setIsUpdatingRetention] = useState(false);
 
 	const updateSettingsMutation = api.useMutation(
 		"patch",
@@ -72,9 +75,6 @@ export default function DevPlanSettings({
 	};
 
 	const handleCachingToggle = async (checked: boolean) => {
-		if (isMetadataOnlyRetention) {
-			return;
-		}
 		setIsTogglingCaching(true);
 		try {
 			await updateSettingsMutation.mutateAsync({
@@ -111,6 +111,24 @@ export default function DevPlanSettings({
 			toast.error("Failed to update cache duration");
 		} finally {
 			setIsSavingCaching(false);
+		}
+	};
+
+	const handleRetentionToggle = async (checked: boolean) => {
+		setIsUpdatingRetention(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { retentionLevel: checked ? "retain" : "none" },
+			});
+			setRetainData(checked);
+			await invalidateStatus();
+			toast.success(
+				checked ? "Data retention enabled" : "Switched to metadata-only",
+			);
+		} catch {
+			toast.error("Failed to update data retention");
+		} finally {
+			setIsUpdatingRetention(false);
 		}
 	};
 
@@ -170,30 +188,17 @@ export default function DevPlanSettings({
 						</div>
 						<Switch
 							id="enable-caching"
-							checked={cachingEnabled && !isMetadataOnlyRetention}
+							checked={cachingEnabled}
 							onCheckedChange={handleCachingToggle}
-							disabled={isTogglingCaching || isMetadataOnlyRetention}
+							disabled={isTogglingCaching}
 						/>
 					</div>
-
-					{isMetadataOnlyRetention && (
-						<div className="flex gap-3 rounded-lg bg-muted p-3.5">
-							<Lock className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-							<p className="text-xs leading-relaxed text-muted-foreground">
-								Caching is disabled because your organization is using
-								metadata-only data retention. Switch to "Retain All Data" in
-								organization policies to enable caching.
-							</p>
-						</div>
-					)}
 
 					<div className="space-y-2">
 						<Label
 							htmlFor="cache-duration"
 							className={`text-sm font-medium ${
-								!cachingEnabled || isMetadataOnlyRetention
-									? "text-muted-foreground"
-									: ""
+								!cachingEnabled ? "text-muted-foreground" : ""
 							}`}
 						>
 							Cache duration (seconds)
@@ -207,7 +212,7 @@ export default function DevPlanSettings({
 								className="w-40 h-9"
 								value={cacheDuration}
 								onChange={(e) => setCacheDuration(Number(e.target.value))}
-								disabled={!cachingEnabled || isMetadataOnlyRetention}
+								disabled={!cachingEnabled}
 							/>
 							<Button
 								type="button"
@@ -216,7 +221,6 @@ export default function DevPlanSettings({
 								onClick={handleSaveCacheDuration}
 								disabled={
 									!cachingEnabled ||
-									isMetadataOnlyRetention ||
 									isSavingCaching ||
 									cacheDuration === savedCacheDuration
 								}
@@ -231,6 +235,26 @@ export default function DevPlanSettings({
 							Min 10, max 31,536,000 (1 year). Changes may take up to 5 minutes
 							to take effect.
 						</p>
+					</div>
+				</div>
+
+				<div className="rounded-xl border p-5 space-y-4">
+					<div className="flex items-center justify-between gap-4">
+						<div className="space-y-0.5">
+							<Label htmlFor="retain-data" className="text-sm font-medium">
+								Retain request data
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Store full request and response payloads for analytics and
+								debugging. When off, only metadata is kept.
+							</p>
+						</div>
+						<Switch
+							id="retain-data"
+							checked={retainData}
+							onCheckedChange={handleRetentionToggle}
+							disabled={isUpdatingRetention}
+						/>
 					</div>
 				</div>
 			</div>

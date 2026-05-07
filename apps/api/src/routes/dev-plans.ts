@@ -849,6 +849,7 @@ const updateSettings = createRoute({
 						devPlanAllowAllModels: z.boolean().optional(),
 						cachingEnabled: z.boolean().optional(),
 						cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+						retentionLevel: z.enum(["retain", "none"]).optional(),
 					}),
 				},
 			},
@@ -863,6 +864,7 @@ const updateSettings = createRoute({
 						devPlanAllowAllModels: z.boolean(),
 						cachingEnabled: z.boolean(),
 						cacheDurationSeconds: z.number(),
+						retentionLevel: z.enum(["retain", "none"]),
 					}),
 				},
 			},
@@ -873,8 +875,12 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanAllowAllModels, cachingEnabled, cacheDurationSeconds } =
-		c.req.valid("json");
+	const {
+		devPlanAllowAllModels,
+		cachingEnabled,
+		cacheDurationSeconds,
+		retentionLevel,
+	} = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -908,10 +914,16 @@ devPlans.openapi(updateSettings, async (c) => {
 		});
 	}
 
-	const updateData: { devPlanAllowAllModels?: boolean } = {};
+	const updateData: {
+		devPlanAllowAllModels?: boolean;
+		retentionLevel?: "retain" | "none";
+	} = {};
 
 	if (devPlanAllowAllModels !== undefined) {
 		updateData.devPlanAllowAllModels = devPlanAllowAllModels;
+	}
+	if (retentionLevel !== undefined) {
+		updateData.retentionLevel = retentionLevel;
 	}
 
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
@@ -929,6 +941,15 @@ devPlans.openapi(updateSettings, async (c) => {
 			changes.devPlanAllowAllModels = {
 				old: personalOrg.devPlanAllowAllModels,
 				new: devPlanAllowAllModels,
+			};
+		}
+		if (
+			retentionLevel !== undefined &&
+			retentionLevel !== personalOrg.retentionLevel
+		) {
+			changes.retentionLevel = {
+				old: personalOrg.retentionLevel,
+				new: retentionLevel,
 			};
 		}
 	}
@@ -998,6 +1019,7 @@ devPlans.openapi(updateSettings, async (c) => {
 		cachingEnabled: cachingEnabled ?? project?.cachingEnabled ?? false,
 		cacheDurationSeconds:
 			cacheDurationSeconds ?? project?.cacheDurationSeconds ?? 60,
+		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 	});
 });
 

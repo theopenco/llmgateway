@@ -7719,6 +7719,8 @@ export interface paths {
                         devPlanAllowAllModels?: boolean;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        /** @enum {string} */
+                        retentionLevel?: "retain" | "none";
                     };
                 };
             };
@@ -7734,6 +7736,8 @@ export interface paths {
                             devPlanAllowAllModels: boolean;
                             cachingEnabled: boolean;
                             cacheDurationSeconds: number;
+                            /** @enum {string} */
+                            retentionLevel: "retain" | "none";
                         };
                     };
                 };
