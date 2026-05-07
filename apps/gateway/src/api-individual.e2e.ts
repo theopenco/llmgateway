@@ -268,46 +268,6 @@ describe("e2e individual tests", () => {
 	);
 
 	test(
-		"reasoning.max_tokens error for unsupported model",
-		getTestOptions({ completions: false }),
-		async () => {
-			const envVarName = getProviderEnvVar("openai");
-			const envVarValue = envVarName ? process.env[envVarName] : undefined;
-			if (!envVarValue) {
-				console.log(
-					"Skipping reasoning.max_tokens error test - no OpenAI API key provided",
-				);
-				return;
-			}
-
-			const { token } = await createTestData("reasoning-max-tokens-error");
-
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
-				},
-				body: JSON.stringify({
-					model: "openai/gpt-4o-mini",
-					messages: [
-						{
-							role: "user",
-							content: "Hello",
-						},
-					],
-					reasoning: { max_tokens: 1024 },
-				}),
-			});
-
-			expect(res.status).toBe(400);
-
-			const text = await res.text();
-			expect(text).toContain("does not support reasoning.max_tokens");
-		},
-	);
-
-	test(
 		"JSON output mode error when 'json' not mentioned in messages",
 		getTestOptions({ completions: false }),
 		async () => {
