@@ -1945,9 +1945,11 @@ export const apiKeyHourlyModelStats = pgTable(
 	],
 );
 
-// Global daily model statistics — cross-org, cross-project aggregation by model
-export const globalDailyModelStats = pgTable(
-	"global_daily_model_stats",
+// Global model statistics — cross-org, cross-project aggregation by model.
+// Rows are day-bucketed (`dayTimestamp`); the worker can update them at any
+// cadence via the configurable bucket size.
+export const globalModelStats = pgTable(
+	"global_model_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
 		createdAt: timestamp().notNull().defaultNow(),
@@ -2004,12 +2006,12 @@ export const globalDailyModelStats = pgTable(
 	},
 	(table) => [
 		unique().on(table.dayTimestamp, table.usedModel, table.usedProvider),
-		index("global_daily_model_stats_day_timestamp_idx").on(table.dayTimestamp),
-		index("global_daily_model_stats_used_model_day_timestamp_idx").on(
+		index("global_model_stats_day_timestamp_idx").on(table.dayTimestamp),
+		index("global_model_stats_used_model_day_timestamp_idx").on(
 			table.usedModel,
 			table.dayTimestamp,
 		),
-		index("global_daily_model_stats_p_m_time_idx").on(
+		index("global_model_stats_p_m_time_idx").on(
 			table.usedProvider,
 			table.usedModel,
 			table.dayTimestamp,
@@ -2017,9 +2019,9 @@ export const globalDailyModelStats = pgTable(
 	],
 );
 
-// Global daily source statistics — cross-org, cross-project aggregation by x-source header
-export const globalDailySourceStats = pgTable(
-	"global_daily_source_stats",
+// Global source statistics — cross-org, cross-project aggregation by x-source header.
+export const globalSourceStats = pgTable(
+	"global_source_stats",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
 		createdAt: timestamp().notNull().defaultNow(),
@@ -2077,27 +2079,24 @@ export const globalDailySourceStats = pgTable(
 	},
 	(table) => [
 		unique().on(table.dayTimestamp, table.source),
-		index("global_daily_source_stats_day_timestamp_idx").on(table.dayTimestamp),
-		index("global_daily_source_stats_source_day_timestamp_idx").on(
+		index("global_source_stats_day_timestamp_idx").on(table.dayTimestamp),
+		index("global_source_stats_source_day_timestamp_idx").on(
 			table.source,
 			table.dayTimestamp,
 		),
 	],
 );
 
-// Singleton state row for the hourly incremental global-daily aggregator.
-// `lastProcessedHour` is the last UTC hour that has been folded into the
-// global daily stats. `lastSafetyNetDay` is the most recent UTC day that
-// has been fully recomputed by the daily safety-net pass.
-export const globalDailyAggregationState = pgTable(
-	"global_daily_aggregation_state",
-	{
-		id: text().primaryKey().notNull().default("singleton"),
-		lastProcessedHour: timestamp(),
-		lastSafetyNetDay: timestamp(),
-		updatedAt: timestamp()
-			.notNull()
-			.defaultNow()
-			.$onUpdate(() => new Date()),
-	},
-);
+// Singleton state row for the incremental global-stats aggregator.
+// `lastProcessedHour` is the last UTC bucket that has been folded into the
+// daily stats. `lastSafetyNetDay` is the most recent UTC day that has been
+// fully recomputed by the safety-net pass.
+export const globalAggregationState = pgTable("global_aggregation_state", {
+	id: text().primaryKey().notNull().default("singleton"),
+	lastProcessedHour: timestamp(),
+	lastSafetyNetDay: timestamp(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+});

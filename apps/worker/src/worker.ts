@@ -36,7 +36,7 @@ import {
 	sendLowBalanceEmail,
 } from "./services/follow-up-emails.js";
 import {
-	GLOBAL_DAILY_STATS_INTERVAL_SECONDS,
+	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
 import {
@@ -1561,11 +1561,11 @@ async function runProjectStatsLoop() {
 	}
 }
 
-async function runGlobalDailyStatsLoop() {
+async function runGlobalStatsLoop() {
 	activeLoops++;
-	const interval = GLOBAL_DAILY_STATS_INTERVAL_SECONDS * 1000;
+	const interval = GLOBAL_STATS_INTERVAL_SECONDS * 1000;
 	logger.info(
-		`Starting global daily stats loop (interval: ${GLOBAL_DAILY_STATS_INTERVAL_SECONDS} seconds)...`,
+		`Starting global stats loop (interval: ${GLOBAL_STATS_INTERVAL_SECONDS} seconds)...`,
 	);
 
 	try {
@@ -1584,7 +1584,7 @@ async function runGlobalDailyStatsLoop() {
 		}
 	} finally {
 		activeLoops--;
-		logger.info("Global daily stats loop stopped");
+		logger.info("Global stats loop stopped");
 	}
 }
 
@@ -1686,7 +1686,7 @@ export async function startWorker() {
 		`- Project hourly stats: runs every ${PROJECT_STATS_REFRESH_INTERVAL_SECONDS} seconds for dashboard aggregations`,
 	);
 	logger.info(
-		`- Global daily stats: runs every ${GLOBAL_DAILY_STATS_INTERVAL_SECONDS} seconds, processes closed hours incrementally`,
+		`- Global stats: runs every ${GLOBAL_STATS_INTERVAL_SECONDS} seconds, processes closed buckets incrementally`,
 	);
 	logger.info(
 		"- Follow-up emails: runs every hour to check for lifecycle emails",
@@ -1698,7 +1698,7 @@ export async function startWorker() {
 	void runVideoWebhookLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
-	void runGlobalDailyStatsLoop();
+	void runGlobalStatsLoop();
 	void runLogQueueLoop();
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();

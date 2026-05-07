@@ -24,8 +24,8 @@ import {
 	tables,
 	projectHourlyStats,
 	projectHourlyModelStats,
-	globalDailyModelStats,
-	globalDailySourceStats,
+	globalModelStats,
+	globalSourceStats,
 	modelProviderMappingHistory,
 	modelHistory,
 } from "@llmgateway/db";
@@ -808,10 +808,10 @@ admin.openapi(getTimeseries, async (c) => {
 	});
 });
 
-const globalDailyStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d"]);
-const globalDailyStatsGroupBySchema = z.enum(["model", "source"]);
+const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d"]);
+const globalStatsGroupBySchema = z.enum(["model", "source"]);
 
-const globalDailyStatsMetricsSchema = z.object({
+const globalStatsMetricsSchema = z.object({
 	requestCount: z.number(),
 	errorCount: z.number(),
 	cacheCount: z.number(),
@@ -825,50 +825,49 @@ const globalDailyStatsMetricsSchema = z.object({
 	outputCost: z.number(),
 });
 
-const globalDailyStatsTimeseriesPointSchema = globalDailyStatsMetricsSchema
+const globalStatsTimeseriesPointSchema = globalStatsMetricsSchema
 	.extend({
 		date: z.string(),
 	})
 	.openapi({});
 
-const globalDailyStatsBreakdownItemSchema = globalDailyStatsMetricsSchema
+const globalStatsBreakdownItemSchema = globalStatsMetricsSchema
 	.extend({
 		key: z.string(),
 		label: z.string(),
 	})
 	.openapi({});
 
-const globalDailyStatsResponseSchema = z.object({
-	range: globalDailyStatsRangeSchema,
-	groupBy: globalDailyStatsGroupBySchema,
-	totals: globalDailyStatsMetricsSchema,
-	timeseries: z.array(globalDailyStatsTimeseriesPointSchema),
-	breakdown: z.array(globalDailyStatsBreakdownItemSchema),
+const globalStatsResponseSchema = z.object({
+	range: globalStatsRangeSchema,
+	groupBy: globalStatsGroupBySchema,
+	totals: globalStatsMetricsSchema,
+	timeseries: z.array(globalStatsTimeseriesPointSchema),
+	breakdown: z.array(globalStatsBreakdownItemSchema),
 });
 
-const getGlobalDailyStats = createRoute({
+const getGlobalStats = createRoute({
 	method: "get",
-	path: "/global-daily-stats",
+	path: "/global-stats",
 	request: {
 		query: z.object({
-			range: globalDailyStatsRangeSchema.default("30d").optional(),
-			groupBy: globalDailyStatsGroupBySchema.default("model").optional(),
+			range: globalStatsRangeSchema.default("30d").optional(),
+			groupBy: globalStatsGroupBySchema.default("model").optional(),
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: globalDailyStatsResponseSchema.openapi({}),
+					schema: globalStatsResponseSchema.openapi({}),
 				},
 			},
-			description:
-				"Global daily aggregated stats grouped by model or x-source.",
+			description: "Global aggregated stats grouped by model or x-source.",
 		},
 	},
 });
 
-admin.openapi(getGlobalDailyStats, async (c) => {
+admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
 	const range = query.range ?? "30d";
 	const groupBy = query.groupBy ?? "model";
@@ -888,7 +887,7 @@ admin.openapi(getGlobalDailyStats, async (c) => {
 	startDate.setTime(startMs);
 
 	const sourceTable =
-		groupBy === "model" ? globalDailyModelStats : globalDailySourceStats;
+		groupBy === "model" ? globalModelStats : globalSourceStats;
 
 	const metricSums = {
 		requestCount:
@@ -949,7 +948,7 @@ admin.openapi(getGlobalDailyStats, async (c) => {
 
 	const timeseriesMap = new Map<
 		string,
-		z.infer<typeof globalDailyStatsTimeseriesPointSchema>
+		z.infer<typeof globalStatsTimeseriesPointSchema>
 	>();
 	for (const row of timeseriesRows) {
 		timeseriesMap.set(row.date, {
@@ -968,7 +967,7 @@ admin.openapi(getGlobalDailyStats, async (c) => {
 		});
 	}
 
-	const totals: z.infer<typeof globalDailyStatsMetricsSchema> = {
+	const totals: z.infer<typeof globalStatsMetricsSchema> = {
 		requestCount: 0,
 		errorCount: 0,
 		cacheCount: 0,
@@ -982,8 +981,7 @@ admin.openapi(getGlobalDailyStats, async (c) => {
 		outputCost: 0,
 	};
 
-	const timeseries: z.infer<typeof globalDailyStatsTimeseriesPointSchema>[] =
-		[];
+	const timeseries: z.infer<typeof globalStatsTimeseriesPointSchema>[] = [];
 	for (let i = 0; i < days; i++) {
 		const cur = new Date(startDate.getTime() + i * dayMs); // eslint-disable-line no-mixed-operators
 		const dateStr = cur.toISOString().split("T")[0];
@@ -1019,28 +1017,25 @@ admin.openapi(getGlobalDailyStats, async (c) => {
 		groupBy === "model"
 			? await db
 					.select({
-						usedModel: globalDailyModelStats.usedModel,
-						usedProvider: globalDailyModelStats.usedProvider,
+						usedModel: globalModelStats.usedModel,
+						usedProvider: globalModelStats.usedProvider,
 						...metricSums,
 					})
-					.from(globalDailyModelStats)
-					.where(gte(globalDailyModelStats.dayTimestamp, startDate))
-					.groupBy(
-						globalDailyModelStats.usedModel,
-						globalDailyModelStats.usedProvider,
-					)
+					.from(globalModelStats)
+					.where(gte(globalModelStats.dayTimestamp, startDate))
+					.groupBy(globalModelStats.usedModel, globalModelStats.usedProvider)
 					.orderBy(desc(metricSums.requestCount))
 			: await db
 					.select({
-						source: globalDailySourceStats.source,
+						source: globalSourceStats.source,
 						...metricSums,
 					})
-					.from(globalDailySourceStats)
-					.where(gte(globalDailySourceStats.dayTimestamp, startDate))
-					.groupBy(globalDailySourceStats.source)
+					.from(globalSourceStats)
+					.where(gte(globalSourceStats.dayTimestamp, startDate))
+					.groupBy(globalSourceStats.source)
 					.orderBy(desc(metricSums.requestCount));
 
-	const breakdown: z.infer<typeof globalDailyStatsBreakdownItemSchema>[] =
+	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
 		breakdownRows.map((row) => {
 			const isModel = "usedModel" in row;
 			const key = isModel ? `${row.usedProvider}/${row.usedModel}` : row.source;

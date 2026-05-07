@@ -3,9 +3,9 @@ import { isStopRequested } from "@/shutdown.js";
 import {
 	db,
 	log,
-	globalDailyModelStats,
-	globalDailySourceStats,
-	globalDailyAggregationState,
+	globalModelStats,
+	globalSourceStats,
+	globalAggregationState,
 	sql,
 	and,
 	eq,
@@ -18,23 +18,23 @@ import {
 	getCommonAggregationFields,
 } from "./project-stats-aggregator.js";
 
-export const GLOBAL_DAILY_STATS_INTERVAL_SECONDS =
-	Number(process.env.GLOBAL_DAILY_STATS_INTERVAL_SECONDS) || 3600;
+export const GLOBAL_STATS_INTERVAL_SECONDS =
+	Number(process.env.GLOBAL_STATS_INTERVAL_SECONDS) || 3600;
 
 // Hours that have closed within this many minutes are still considered
 // "in flight" — we wait this long after an hour ends before processing it,
 // so log inserts that landed slightly after their createdAt aren't missed
 // by the incremental path.
 const SETTLING_BUFFER_MINUTES =
-	Number(process.env.GLOBAL_DAILY_STATS_SETTLING_BUFFER_MINUTES) || 5;
+	Number(process.env.GLOBAL_STATS_SETTLING_BUFFER_MINUTES) || 5;
 
 // On first run (no watermark yet), how far back to seed.
 const INITIAL_LOOKBACK_DAYS =
-	Number(process.env.GLOBAL_DAILY_STATS_INITIAL_LOOKBACK_DAYS) || 30;
+	Number(process.env.GLOBAL_STATS_INITIAL_LOOKBACK_DAYS) || 30;
 
 // Cap per tick so a large catch-up doesn't tie up the worker.
-const MAX_HOURS_PER_TICK =
-	Number(process.env.GLOBAL_DAILY_STATS_MAX_HOURS_PER_TICK) || 100;
+const MAX_BUCKETS_PER_TICK =
+	Number(process.env.GLOBAL_STATS_MAX_BUCKETS_PER_TICK) || 100;
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -45,14 +45,13 @@ const DAY_MS = 24 * HOUR_MS;
 //
 // WARNING: changing this on a running deployment will corrupt aggregates
 // because the watermark math assumes a fixed bucket size. Reset by deleting
-// the global_daily_aggregation_state row and the affected day's stats rows.
-const BUCKET_SECONDS =
-	Number(process.env.GLOBAL_DAILY_STATS_BUCKET_SECONDS) || 3600;
+// the global_aggregation_state row and the affected day's stats rows.
+const BUCKET_SECONDS = Number(process.env.GLOBAL_STATS_BUCKET_SECONDS) || 3600;
 const BUCKET_MS = BUCKET_SECONDS * 1000;
 
 if (DAY_MS % BUCKET_MS !== 0) {
 	throw new Error(
-		`GLOBAL_DAILY_STATS_BUCKET_SECONDS=${BUCKET_SECONDS} must evenly divide 86400 (one day in seconds)`,
+		`GLOBAL_STATS_BUCKET_SECONDS=${BUCKET_SECONDS} must evenly divide 86400 (one day in seconds)`,
 	);
 }
 
@@ -118,8 +117,8 @@ function buildAddUpsertSet(table: AnyTable) {
 	return set;
 }
 
-const MODEL_ADD_SET = buildAddUpsertSet(globalDailyModelStats);
-const SOURCE_ADD_SET = buildAddUpsertSet(globalDailySourceStats);
+const MODEL_ADD_SET = buildAddUpsertSet(globalModelStats);
+const SOURCE_ADD_SET = buildAddUpsertSet(globalSourceStats);
 
 // Snap to the nearest bucket boundary at or below `d`. Works in UTC because
 // JS timestamps are unix-epoch milliseconds and bucketMs evenly divides a day.
@@ -136,7 +135,7 @@ function floorToDay(d: Date): Date {
 // Inferred drizzle transaction type so helpers can be called inside a tx.
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-async function aggregateWindowIntoDailyStats(
+async function aggregateWindowIntoStats(
 	database: Tx,
 	windowStart: Date,
 	windowMs: number,
@@ -165,7 +164,7 @@ async function aggregateWindowIntoDailyStats(
 	for (const row of modelRows) {
 		const { usedModel, usedProvider, ...stats } = row;
 		await database
-			.insert(globalDailyModelStats)
+			.insert(globalModelStats)
 			.values({
 				dayTimestamp: sql`${dayTimestamp}::timestamp`,
 				usedModel,
@@ -174,9 +173,9 @@ async function aggregateWindowIntoDailyStats(
 			})
 			.onConflictDoUpdate({
 				target: [
-					globalDailyModelStats.dayTimestamp,
-					globalDailyModelStats.usedModel,
-					globalDailyModelStats.usedProvider,
+					globalModelStats.dayTimestamp,
+					globalModelStats.usedModel,
+					globalModelStats.usedProvider,
 				],
 				set: {
 					...MODEL_ADD_SET,
@@ -197,17 +196,14 @@ async function aggregateWindowIntoDailyStats(
 	for (const row of sourceRows) {
 		const { source, ...stats } = row;
 		await database
-			.insert(globalDailySourceStats)
+			.insert(globalSourceStats)
 			.values({
 				dayTimestamp: sql`${dayTimestamp}::timestamp`,
 				source,
 				...stats,
 			})
 			.onConflictDoUpdate({
-				target: [
-					globalDailySourceStats.dayTimestamp,
-					globalDailySourceStats.source,
-				],
+				target: [globalSourceStats.dayTimestamp, globalSourceStats.source],
 				set: {
 					...SOURCE_ADD_SET,
 					updatedAt: new Date(),
@@ -219,28 +215,28 @@ async function aggregateWindowIntoDailyStats(
 async function readState() {
 	const [row] = await db
 		.select()
-		.from(globalDailyAggregationState)
-		.where(eq(globalDailyAggregationState.id, STATE_ROW_ID))
+		.from(globalAggregationState)
+		.where(eq(globalAggregationState.id, STATE_ROW_ID))
 		.limit(1);
 	return row;
 }
 
 async function setLastProcessedHour(database: Tx, hour: Date): Promise<void> {
 	await database
-		.insert(globalDailyAggregationState)
+		.insert(globalAggregationState)
 		.values({ id: STATE_ROW_ID, lastProcessedHour: hour })
 		.onConflictDoUpdate({
-			target: globalDailyAggregationState.id,
+			target: globalAggregationState.id,
 			set: { lastProcessedHour: hour, updatedAt: new Date() },
 		});
 }
 
 async function setLastSafetyNetDay(day: Date): Promise<void> {
 	await db
-		.insert(globalDailyAggregationState)
+		.insert(globalAggregationState)
 		.values({ id: STATE_ROW_ID, lastSafetyNetDay: day })
 		.onConflictDoUpdate({
-			target: globalDailyAggregationState.id,
+			target: globalAggregationState.id,
 			set: { lastSafetyNetDay: day, updatedAt: new Date() },
 		});
 }
@@ -255,13 +251,11 @@ async function recomputeDayFully(day: Date): Promise<void> {
 
 	await db.transaction(async (tx) => {
 		await tx
-			.delete(globalDailyModelStats)
-			.where(sql`${globalDailyModelStats.dayTimestamp} = ${dayStr}::timestamp`);
+			.delete(globalModelStats)
+			.where(sql`${globalModelStats.dayTimestamp} = ${dayStr}::timestamp`);
 		await tx
-			.delete(globalDailySourceStats)
-			.where(
-				sql`${globalDailySourceStats.dayTimestamp} = ${dayStr}::timestamp`,
-			);
+			.delete(globalSourceStats)
+			.where(sql`${globalSourceStats.dayTimestamp} = ${dayStr}::timestamp`);
 	});
 
 	for (let h = 0; h < 24; h++) {
@@ -273,7 +267,7 @@ async function recomputeDayFully(day: Date): Promise<void> {
 		}
 		const hour = new Date(day.getTime() + h * HOUR_MS); // eslint-disable-line no-mixed-operators
 		await db.transaction(async (tx) => {
-			await aggregateWindowIntoDailyStats(tx, hour, HOUR_MS);
+			await aggregateWindowIntoStats(tx, hour, HOUR_MS);
 		});
 	}
 }
@@ -332,7 +326,7 @@ export async function processClosedHours(): Promise<void> {
 	}
 
 	let processed = 0;
-	while (nextBucket <= latestSafeBucket && processed < MAX_HOURS_PER_TICK) {
+	while (nextBucket <= latestSafeBucket && processed < MAX_BUCKETS_PER_TICK) {
 		if (isStopRequested()) {
 			logger.info(`[global] Stop requested, processed ${processed} buckets`);
 			break;
@@ -340,7 +334,7 @@ export async function processClosedHours(): Promise<void> {
 
 		const bucket = nextBucket;
 		await db.transaction(async (tx) => {
-			await aggregateWindowIntoDailyStats(tx, bucket, BUCKET_MS);
+			await aggregateWindowIntoStats(tx, bucket, BUCKET_MS);
 			await setLastProcessedHour(tx, bucket);
 		});
 
@@ -348,9 +342,9 @@ export async function processClosedHours(): Promise<void> {
 		nextBucket = new Date(bucket.getTime() + BUCKET_MS);
 	}
 
-	if (processed >= MAX_HOURS_PER_TICK && nextBucket <= latestSafeBucket) {
+	if (processed >= MAX_BUCKETS_PER_TICK && nextBucket <= latestSafeBucket) {
 		logger.info(
-			`[global] Hit per-tick cap (${MAX_HOURS_PER_TICK}), more buckets pending — will continue next tick`,
+			`[global] Hit per-tick cap (${MAX_BUCKETS_PER_TICK}), more buckets pending — will continue next tick`,
 		);
 	}
 

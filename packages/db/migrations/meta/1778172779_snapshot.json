@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "441400f3-a33a-4ed6-969c-33f681c89943",
+  "id": "94e283ad-6647-46e7-a4e8-76eee5ea6706",
   "prevId": "efe567e7-e675-497d-9405-474aacdf5237",
   "ddl": [
     {
@@ -84,19 +84,19 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "global_daily_aggregation_state",
+      "name": "global_aggregation_state",
       "entityType": "tables",
       "schema": "public"
     },
     {
       "isRlsEnabled": false,
-      "name": "global_daily_model_stats",
+      "name": "global_model_stats",
       "entityType": "tables",
       "schema": "public"
     },
     {
       "isRlsEnabled": false,
-      "name": "global_daily_source_stats",
+      "name": "global_source_stats",
       "entityType": "tables",
       "schema": "public"
     },
@@ -3066,7 +3066,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_aggregation_state"
+      "table": "global_aggregation_state"
     },
     {
       "type": "timestamp",
@@ -3079,7 +3079,7 @@
       "name": "last_processed_hour",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_aggregation_state"
+      "table": "global_aggregation_state"
     },
     {
       "type": "timestamp",
@@ -3092,7 +3092,7 @@
       "name": "last_safety_net_day",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_aggregation_state"
+      "table": "global_aggregation_state"
     },
     {
       "type": "timestamp",
@@ -3108,7 +3108,7 @@
       "name": "updated_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_aggregation_state"
+      "table": "global_aggregation_state"
     },
     {
       "type": "text",
@@ -3121,7 +3121,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "timestamp",
@@ -3137,7 +3137,7 @@
       "name": "created_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "timestamp",
@@ -3153,7 +3153,7 @@
       "name": "updated_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "timestamp",
@@ -3166,7 +3166,7 @@
       "name": "day_timestamp",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "text",
@@ -3179,7 +3179,7 @@
       "name": "used_model",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "text",
@@ -3192,7 +3192,7 @@
       "name": "used_provider",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3208,7 +3208,7 @@
       "name": "request_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3224,7 +3224,7 @@
       "name": "error_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3240,7 +3240,7 @@
       "name": "cache_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3256,7 +3256,7 @@
       "name": "streamed_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3272,7 +3272,7 @@
       "name": "non_streamed_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3288,7 +3288,7 @@
       "name": "completed_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3304,7 +3304,7 @@
       "name": "length_limit_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3320,7 +3320,7 @@
       "name": "content_filter_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3336,7 +3336,7 @@
       "name": "tool_calls_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3352,7 +3352,7 @@
       "name": "canceled_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3368,7 +3368,7 @@
       "name": "unknown_finish_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3384,7 +3384,7 @@
       "name": "client_error_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3400,7 +3400,7 @@
       "name": "gateway_error_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3416,7 +3416,7 @@
       "name": "upstream_error_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "numeric",
@@ -3432,7 +3432,7 @@
       "name": "input_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "numeric",
@@ -3448,7 +3448,7 @@
       "name": "output_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "numeric",
@@ -3464,7 +3464,7 @@
       "name": "total_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "numeric",
@@ -3480,7 +3480,7 @@
       "name": "reasoning_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "numeric",
@@ -3496,7 +3496,7 @@
       "name": "cached_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "numeric",
@@ -3512,7 +3512,7 @@
       "name": "cache_write_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3528,7 +3528,7 @@
       "name": "cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3544,7 +3544,7 @@
       "name": "input_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3560,7 +3560,7 @@
       "name": "output_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3576,7 +3576,7 @@
       "name": "request_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3592,7 +3592,7 @@
       "name": "data_storage_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3608,7 +3608,7 @@
       "name": "discount_savings",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3624,7 +3624,7 @@
       "name": "image_input_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3640,7 +3640,7 @@
       "name": "image_output_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3656,7 +3656,7 @@
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3672,7 +3672,7 @@
       "name": "cached_input_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3688,7 +3688,7 @@
       "name": "cache_write_input_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3704,7 +3704,7 @@
       "name": "credits_request_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "integer",
@@ -3720,7 +3720,7 @@
       "name": "api_keys_request_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3736,7 +3736,7 @@
       "name": "credits_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3752,7 +3752,7 @@
       "name": "api_keys_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3768,7 +3768,7 @@
       "name": "credits_data_storage_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "real",
@@ -3784,7 +3784,7 @@
       "name": "api_keys_data_storage_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "type": "text",
@@ -3797,7 +3797,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "timestamp",
@@ -3813,7 +3813,7 @@
       "name": "created_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "timestamp",
@@ -3829,7 +3829,7 @@
       "name": "updated_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "timestamp",
@@ -3842,7 +3842,7 @@
       "name": "day_timestamp",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "text",
@@ -3855,7 +3855,7 @@
       "name": "source",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -3871,7 +3871,7 @@
       "name": "request_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -3887,7 +3887,7 @@
       "name": "error_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -3903,7 +3903,7 @@
       "name": "cache_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -3919,7 +3919,7 @@
       "name": "streamed_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -3935,7 +3935,7 @@
       "name": "non_streamed_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -3951,7 +3951,7 @@
       "name": "completed_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -3967,7 +3967,7 @@
       "name": "length_limit_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -3983,7 +3983,7 @@
       "name": "content_filter_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -3999,7 +3999,7 @@
       "name": "tool_calls_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -4015,7 +4015,7 @@
       "name": "canceled_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -4031,7 +4031,7 @@
       "name": "unknown_finish_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -4047,7 +4047,7 @@
       "name": "client_error_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -4063,7 +4063,7 @@
       "name": "gateway_error_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -4079,7 +4079,7 @@
       "name": "upstream_error_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "numeric",
@@ -4095,7 +4095,7 @@
       "name": "input_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "numeric",
@@ -4111,7 +4111,7 @@
       "name": "output_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "numeric",
@@ -4127,7 +4127,7 @@
       "name": "total_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "numeric",
@@ -4143,7 +4143,7 @@
       "name": "reasoning_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "numeric",
@@ -4159,7 +4159,7 @@
       "name": "cached_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "numeric",
@@ -4175,7 +4175,7 @@
       "name": "cache_write_tokens",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4191,7 +4191,7 @@
       "name": "cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4207,7 +4207,7 @@
       "name": "input_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4223,7 +4223,7 @@
       "name": "output_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4239,7 +4239,7 @@
       "name": "request_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4255,7 +4255,7 @@
       "name": "data_storage_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4271,7 +4271,7 @@
       "name": "discount_savings",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4287,7 +4287,7 @@
       "name": "image_input_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4303,7 +4303,7 @@
       "name": "image_output_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4319,7 +4319,7 @@
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4335,7 +4335,7 @@
       "name": "cached_input_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4351,7 +4351,7 @@
       "name": "cache_write_input_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -4367,7 +4367,7 @@
       "name": "credits_request_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "integer",
@@ -4383,7 +4383,7 @@
       "name": "api_keys_request_count",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4399,7 +4399,7 @@
       "name": "credits_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4415,7 +4415,7 @@
       "name": "api_keys_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4431,7 +4431,7 @@
       "name": "credits_data_storage_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "real",
@@ -4447,7 +4447,7 @@
       "name": "api_keys_data_storage_cost",
       "entityType": "columns",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "type": "text",
@@ -13139,10 +13139,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "global_daily_model_stats_day_timestamp_idx",
+      "name": "global_model_stats_day_timestamp_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "nameExplicit": true,
@@ -13167,10 +13167,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "global_daily_model_stats_used_model_day_timestamp_idx",
+      "name": "global_model_stats_used_model_day_timestamp_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "nameExplicit": true,
@@ -13202,10 +13202,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "global_daily_model_stats_p_m_time_idx",
+      "name": "global_model_stats_p_m_time_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "nameExplicit": true,
@@ -13223,10 +13223,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "global_daily_source_stats_day_timestamp_idx",
+      "name": "global_source_stats_day_timestamp_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "nameExplicit": true,
@@ -13251,10 +13251,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "global_daily_source_stats_source_day_timestamp_idx",
+      "name": "global_source_stats_source_day_timestamp_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "nameExplicit": true,
@@ -15204,9 +15204,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "global_daily_aggregation_state_pkey",
+      "name": "global_aggregation_state_pkey",
       "schema": "public",
-      "table": "global_daily_aggregation_state",
+      "table": "global_aggregation_state",
       "entityType": "pks"
     },
     {
@@ -15214,9 +15214,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "global_daily_model_stats_pkey",
+      "name": "global_model_stats_pkey",
       "schema": "public",
-      "table": "global_daily_model_stats",
+      "table": "global_model_stats",
       "entityType": "pks"
     },
     {
@@ -15224,9 +15224,9 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "global_daily_source_stats_pkey",
+      "name": "global_source_stats_pkey",
       "schema": "public",
-      "table": "global_daily_source_stats",
+      "table": "global_source_stats",
       "entityType": "pks"
     },
     {
@@ -15588,10 +15588,10 @@
         "used_provider"
       ],
       "nullsNotDistinct": false,
-      "name": "global_daily_model_stats_day_timestamp_used_model_used_provider_unique",
+      "name": "global_model_stats_day_timestamp_used_model_used_provider_unique",
       "entityType": "uniques",
       "schema": "public",
-      "table": "global_daily_model_stats"
+      "table": "global_model_stats"
     },
     {
       "nameExplicit": false,
@@ -15600,10 +15600,10 @@
         "source"
       ],
       "nullsNotDistinct": false,
-      "name": "global_daily_source_stats_day_timestamp_source_unique",
+      "name": "global_source_stats_day_timestamp_source_unique",
       "entityType": "uniques",
       "schema": "public",
-      "table": "global_daily_source_stats"
+      "table": "global_source_stats"
     },
     {
       "nameExplicit": false,

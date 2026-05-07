@@ -1,11 +1,11 @@
-CREATE TABLE "global_daily_aggregation_state" (
+CREATE TABLE "global_aggregation_state" (
 	"id" text PRIMARY KEY DEFAULT 'singleton',
 	"last_processed_hour" timestamp,
 	"last_safety_net_day" timestamp,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "global_daily_model_stats" (
+CREATE TABLE "global_model_stats" (
 	"id" text PRIMARY KEY,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
@@ -49,10 +49,10 @@ CREATE TABLE "global_daily_model_stats" (
 	"api_keys_cost" real DEFAULT 0 NOT NULL,
 	"credits_data_storage_cost" real DEFAULT 0 NOT NULL,
 	"api_keys_data_storage_cost" real DEFAULT 0 NOT NULL,
-	CONSTRAINT "global_daily_model_stats_day_timestamp_used_model_used_provider_unique" UNIQUE("day_timestamp","used_model","used_provider")
+	CONSTRAINT "global_model_stats_day_timestamp_used_model_used_provider_unique" UNIQUE("day_timestamp","used_model","used_provider")
 );
 --> statement-breakpoint
-CREATE TABLE "global_daily_source_stats" (
+CREATE TABLE "global_source_stats" (
 	"id" text PRIMARY KEY,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
@@ -95,11 +95,11 @@ CREATE TABLE "global_daily_source_stats" (
 	"api_keys_cost" real DEFAULT 0 NOT NULL,
 	"credits_data_storage_cost" real DEFAULT 0 NOT NULL,
 	"api_keys_data_storage_cost" real DEFAULT 0 NOT NULL,
-	CONSTRAINT "global_daily_source_stats_day_timestamp_source_unique" UNIQUE("day_timestamp","source")
+	CONSTRAINT "global_source_stats_day_timestamp_source_unique" UNIQUE("day_timestamp","source")
 );
 --> statement-breakpoint
-CREATE INDEX "global_daily_model_stats_day_timestamp_idx" ON "global_daily_model_stats" ("day_timestamp");--> statement-breakpoint
-CREATE INDEX "global_daily_model_stats_used_model_day_timestamp_idx" ON "global_daily_model_stats" ("used_model","day_timestamp");--> statement-breakpoint
-CREATE INDEX "global_daily_model_stats_p_m_time_idx" ON "global_daily_model_stats" ("used_provider","used_model","day_timestamp");--> statement-breakpoint
-CREATE INDEX "global_daily_source_stats_day_timestamp_idx" ON "global_daily_source_stats" ("day_timestamp");--> statement-breakpoint
-CREATE INDEX "global_daily_source_stats_source_day_timestamp_idx" ON "global_daily_source_stats" ("source","day_timestamp");
+CREATE INDEX "global_model_stats_day_timestamp_idx" ON "global_model_stats" ("day_timestamp");--> statement-breakpoint
+CREATE INDEX "global_model_stats_used_model_day_timestamp_idx" ON "global_model_stats" ("used_model","day_timestamp");--> statement-breakpoint
+CREATE INDEX "global_model_stats_p_m_time_idx" ON "global_model_stats" ("used_provider","used_model","day_timestamp");--> statement-breakpoint
+CREATE INDEX "global_source_stats_day_timestamp_idx" ON "global_source_stats" ("day_timestamp");--> statement-breakpoint
+CREATE INDEX "global_source_stats_source_day_timestamp_idx" ON "global_source_stats" ("source","day_timestamp");

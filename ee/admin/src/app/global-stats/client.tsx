@@ -168,7 +168,7 @@ function compactMetricFormatter(metric: TimeseriesMetric) {
 	}
 }
 
-export function GlobalDailyStatsClient() {
+export function GlobalStatsClient() {
 	const [range, setRange] = useState<Range>("30d");
 	const [groupBy, setGroupBy] = useState<GroupBy>("model");
 	const [chartMetric, setChartMetric] = useState<TimeseriesMetric>("cost");
@@ -176,7 +176,7 @@ export function GlobalDailyStatsClient() {
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
 		"get",
-		"/admin/global-daily-stats",
+		"/admin/global-stats",
 		{
 			params: { query: { range, groupBy } },
 		},
@@ -230,7 +230,7 @@ export function GlobalDailyStatsClient() {
 			<header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 				<div>
 					<h1 className="text-3xl font-semibold tracking-tight">
-						Global Daily Stats
+						Global Stats
 					</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
 						Cross-organization usage aggregated by day, grouped by model or

@@ -1495,7 +1495,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/global-daily-stats": {
+    "/admin/global-stats": {
         parameters: {
             query?: never;
             header?: never;
@@ -1514,7 +1514,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Global daily aggregated stats grouped by model or x-source. */
+                /** @description Global aggregated stats grouped by model or x-source. */
                 200: {
                     headers: {
                         [name: string]: unknown;

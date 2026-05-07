@@ -86,7 +86,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
 	const isDevpass = pathname.startsWith("/devpass");
-	const isGlobalDailyStats = pathname.startsWith("/global-daily-stats");
+	const isGlobalStats = pathname.startsWith("/global-stats");
 	const isDiscounts = pathname === "/discounts";
 	const isRateLimits = pathname === "/rate-limits";
 	const isProviders = pathname === "/providers";
@@ -157,10 +157,10 @@ export function AdminShell({ children }: AdminShellProps) {
 								</Link>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
-								<Link href="/global-daily-stats" className="block">
-									<SidebarMenuButton isActive={isGlobalDailyStats} size="lg">
+								<Link href="/global-stats" className="block">
+									<SidebarMenuButton isActive={isGlobalStats} size="lg">
 										<BarChart3 className="h-4 w-4" />
-										<span>Global Daily Stats</span>
+										<span>Global Stats</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
