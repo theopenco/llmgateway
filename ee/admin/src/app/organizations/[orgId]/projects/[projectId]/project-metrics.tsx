@@ -265,6 +265,13 @@ export function ProjectMetricsSection({
 					accent="purple"
 				/>
 				<MetricCard
+					label="Cache Write Tokens & Cost"
+					value={`${formatCompactNumber(safeNumber(metrics.cacheWriteTokens))} • ${currencyFormatter.format(safeNumber(metrics.cacheWriteCost))}`}
+					subtitle="Tokens and cost paid to write into the cache"
+					icon={<Server className="h-4 w-4" />}
+					accent="purple"
+				/>
+				<MetricCard
 					label="Most Used Model (by cost)"
 					value={metrics.mostUsedModel ?? "—"}
 					subtitle={

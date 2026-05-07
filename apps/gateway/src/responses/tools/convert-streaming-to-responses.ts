@@ -41,6 +41,7 @@ interface StreamingState {
 			input_cost?: number | null;
 			output_cost?: number | null;
 			cached_input_cost?: number | null;
+			cache_write_input_cost?: number | null;
 			request_cost?: number | null;
 			web_search_cost?: number | null;
 			image_input_cost?: number | null;

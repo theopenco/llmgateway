@@ -132,6 +132,8 @@ const orgMetricsSchema = z.object({
 	outputCost: z.number(),
 	cachedTokens: z.number(),
 	cachedCost: z.number(),
+	cacheWriteTokens: z.number(),
+	cacheWriteCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -1003,6 +1005,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	let outputCost = 0;
 	let cachedTokens = 0;
 	let cachedCost = 0;
+	let cacheWriteTokens = 0;
+	let cacheWriteCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -1028,6 +1032,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cachedTokens} AS INTEGER)), 0)`.as(
 						"cachedTokens",
 					),
+				cacheWriteTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cacheWriteTokens} AS INTEGER)), 0)`.as(
+						"cacheWriteTokens",
+					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
 						"totalTokens",
@@ -1051,6 +1059,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
 						"cachedInputCost",
 					),
+				cacheWriteInputCost:
+					sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+						"cacheWriteInputCost",
+					),
 			})
 			.from(projectHourlyStats)
 			.where(
@@ -1071,6 +1083,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			outputCost = Number(totals.outputCost) || 0;
 			cachedTokens = Number(totals.cachedTokens) || 0;
 			cachedCost = Number(totals.cachedInputCost) || 0;
+			cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
+			cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
 			discountSavings = Number(totals.discountSavings) || 0;
 		}
 
@@ -1130,6 +1144,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		outputCost,
 		cachedTokens,
 		cachedCost,
+		cacheWriteTokens,
+		cacheWriteCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -1386,6 +1402,8 @@ const projectMetricsSchema = z.object({
 	outputCost: z.number(),
 	cachedTokens: z.number(),
 	cachedCost: z.number(),
+	cacheWriteTokens: z.number(),
+	cacheWriteCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -1462,6 +1480,8 @@ admin.openapi(getProjectMetrics, async (c) => {
 	let outputCost = 0;
 	let cachedTokens = 0;
 	let cachedCost = 0;
+	let cacheWriteTokens = 0;
+	let cacheWriteCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -1484,6 +1504,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 			cachedTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cachedTokens} AS INTEGER)), 0)`.as(
 					"cachedTokens",
+				),
+			cacheWriteTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cacheWriteTokens} AS INTEGER)), 0)`.as(
+					"cacheWriteTokens",
 				),
 			totalTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
@@ -1508,6 +1532,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
 					"cachedInputCost",
 				),
+			cacheWriteInputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+					"cacheWriteInputCost",
+				),
 		})
 		.from(projectHourlyStats)
 		.where(
@@ -1528,6 +1556,8 @@ admin.openapi(getProjectMetrics, async (c) => {
 		outputCost = Number(totals.outputCost) || 0;
 		cachedTokens = Number(totals.cachedTokens) || 0;
 		cachedCost = Number(totals.cachedInputCost) || 0;
+		cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
+		cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
 		discountSavings = Number(totals.discountSavings) || 0;
 	}
 
@@ -1584,6 +1614,8 @@ admin.openapi(getProjectMetrics, async (c) => {
 		outputCost,
 		cachedTokens,
 		cachedCost,
+		cacheWriteTokens,
+		cacheWriteCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -1608,12 +1640,14 @@ const logEntrySchema = z.object({
 	totalTokens: z.string().nullable(),
 	reasoningTokens: z.string().nullable(),
 	cachedTokens: z.string().nullable(),
+	cacheWriteTokens: z.string().nullable(),
 	imageInputTokens: z.string().nullable(),
 	imageOutputTokens: z.string().nullable(),
 	cost: z.number().nullable(),
 	inputCost: z.number().nullable(),
 	outputCost: z.number().nullable(),
 	cachedInputCost: z.number().nullable(),
+	cacheWriteInputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
 	webSearchCost: z.number().nullable(),
 	imageInputCost: z.number().nullable(),
@@ -1793,12 +1827,14 @@ admin.openapi(getProjectLogs, async (c) => {
 			totalTokens: tables.log.totalTokens,
 			reasoningTokens: tables.log.reasoningTokens,
 			cachedTokens: tables.log.cachedTokens,
+			cacheWriteTokens: tables.log.cacheWriteTokens,
 			imageInputTokens: tables.log.imageInputTokens,
 			imageOutputTokens: tables.log.imageOutputTokens,
 			cost: tables.log.cost,
 			inputCost: tables.log.inputCost,
 			outputCost: tables.log.outputCost,
 			cachedInputCost: tables.log.cachedInputCost,
+			cacheWriteInputCost: tables.log.cacheWriteInputCost,
 			requestCost: tables.log.requestCost,
 			webSearchCost: tables.log.webSearchCost,
 			imageInputCost: tables.log.imageInputCost,
@@ -1866,6 +1902,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			totalTokens: l.totalTokens ? String(l.totalTokens) : null,
 			reasoningTokens: l.reasoningTokens ? String(l.reasoningTokens) : null,
 			cachedTokens: l.cachedTokens ? String(l.cachedTokens) : null,
+			cacheWriteTokens: l.cacheWriteTokens ? String(l.cacheWriteTokens) : null,
 			imageInputTokens: l.imageInputTokens ? String(l.imageInputTokens) : null,
 			imageOutputTokens: l.imageOutputTokens
 				? String(l.imageOutputTokens)
@@ -5043,6 +5080,8 @@ const mappingDetailSchema = z.object({
 		inputPrice: z.string().nullable(),
 		outputPrice: z.string().nullable(),
 		cachedInputPrice: z.string().nullable(),
+		cacheWriteInputPrice: z.string().nullable(),
+		cacheWriteInputPrice1h: z.string().nullable(),
 		imageInputPrice: z.string().nullable(),
 		requestPrice: z.string().nullable(),
 		contextSize: z.number().nullable(),
@@ -5099,6 +5138,9 @@ admin.openapi(getMappingDetail, async (c) => {
 			inputPrice: tables.modelProviderMapping.inputPrice,
 			outputPrice: tables.modelProviderMapping.outputPrice,
 			cachedInputPrice: tables.modelProviderMapping.cachedInputPrice,
+			cacheWriteInputPrice: tables.modelProviderMapping.cacheWriteInputPrice,
+			cacheWriteInputPrice1h:
+				tables.modelProviderMapping.cacheWriteInputPrice1h,
 			imageInputPrice: tables.modelProviderMapping.imageInputPrice,
 			requestPrice: tables.modelProviderMapping.requestPrice,
 			contextSize: tables.modelProviderMapping.contextSize,
@@ -5186,6 +5228,8 @@ admin.openapi(getMappingDetail, async (c) => {
 			inputPrice: m.inputPrice,
 			outputPrice: m.outputPrice,
 			cachedInputPrice: m.cachedInputPrice,
+			cacheWriteInputPrice: m.cacheWriteInputPrice,
+			cacheWriteInputPrice1h: m.cacheWriteInputPrice1h,
 			imageInputPrice: m.imageInputPrice,
 			requestPrice: m.requestPrice,
 			contextSize: m.contextSize,

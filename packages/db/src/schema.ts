@@ -546,6 +546,7 @@ export const log = pgTable(
 		totalTokens: decimal(),
 		reasoningTokens: decimal(),
 		cachedTokens: decimal(),
+		cacheWriteTokens: decimal(),
 		messages: json(),
 		temperature: real(),
 		maxTokens: integer(),
@@ -562,6 +563,7 @@ export const log = pgTable(
 		inputCost: real(),
 		outputCost: real(),
 		cachedInputCost: real(),
+		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
 		imageInputTokens: decimal(),
@@ -1137,6 +1139,8 @@ export const modelProviderMapping = pgTable(
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
+		cacheWriteInputPrice: decimal(),
+		cacheWriteInputPrice1h: decimal(),
 		imageInputPrice: decimal(),
 		requestPrice: decimal(),
 		contextSize: integer(),
@@ -1664,6 +1668,7 @@ export const projectHourlyStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1675,6 +1680,7 @@ export const projectHourlyStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1728,6 +1734,7 @@ export const projectHourlyModelStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1739,6 +1746,7 @@ export const projectHourlyModelStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1814,6 +1822,7 @@ export const apiKeyHourlyStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1825,6 +1834,7 @@ export const apiKeyHourlyStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1889,6 +1899,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1900,6 +1911,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),

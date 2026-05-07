@@ -1046,6 +1046,16 @@ function generateSeedModelProviderMappings() {
 					p.cachedInputPrice !== undefined && p.cachedInputPrice !== null
 						? String(p.cachedInputPrice)
 						: null,
+				cacheWriteInputPrice:
+					p.cacheWriteInputPrice !== undefined &&
+					p.cacheWriteInputPrice !== null
+						? String(p.cacheWriteInputPrice)
+						: null,
+				cacheWriteInputPrice1h:
+					p.cacheWriteInputPrice1h !== undefined &&
+					p.cacheWriteInputPrice1h !== null
+						? String(p.cacheWriteInputPrice1h)
+						: null,
 				imageInputPrice:
 					p.imageInputPrice !== undefined && p.imageInputPrice !== null
 						? String(p.imageInputPrice)
