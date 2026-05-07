@@ -52,6 +52,12 @@ describe("Models", () => {
 	});
 
 	it("should have free: true when provider mapping has zero pricing", () => {
+		// Image-output models like gpt-image-2 explicitly set outputPrice=0
+		// because the model never returns text output, but still bill via
+		// imageOutputPrice. Treat them as priced.
+		const hasImagePricing = (provider: ProviderModelMapping) =>
+			!!provider.imageInputPrice || !!provider.imageOutputPrice;
+
 		// Filter models that have zero input/output pricing AND no request or per-second price
 		const modelsWithZeroPricing = models.filter((model) =>
 			model.providers.some(
@@ -60,7 +66,8 @@ describe("Models", () => {
 					!(provider as ProviderModelMapping).requestPrice &&
 					!Object.values(
 						(provider as ProviderModelMapping).perSecondPrice ?? {},
-					).some((price) => price > 0),
+					).some((price) => price > 0) &&
+					!hasImagePricing(provider as ProviderModelMapping),
 			),
 		);
 
@@ -76,7 +83,8 @@ describe("Models", () => {
 						!(p as ProviderModelMapping).requestPrice &&
 						!Object.values(
 							(p as ProviderModelMapping).perSecondPrice ?? {},
-						).some((price) => price > 0),
+						).some((price) => price > 0) &&
+						!hasImagePricing(p as ProviderModelMapping),
 				);
 				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.modelName} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
 			});

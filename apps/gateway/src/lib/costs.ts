@@ -342,9 +342,9 @@ export async function calculateCosts(
 		imageSize,
 	);
 	const imageInputPricePerToken = providerInfo.imageInputPrice;
+	const cachedImageInputPricePerToken = providerInfo.cachedImageInputPrice;
 	const isImageOutputModel = modelInfo.output?.includes("image") ?? false;
 	let imageInputTokens: number | null = null;
-	let imageInputCost: Decimal | null = null;
 	if (
 		imageInputPricePerToken &&
 		isImageOutputModel &&
@@ -352,17 +352,11 @@ export async function calculateCosts(
 		reportedImageInputTokens > 0
 	) {
 		imageInputTokens = reportedImageInputTokens;
-		imageInputCost = new Decimal(imageInputTokens)
-			.times(imageInputPricePerToken)
-			.times(discountMultiplier);
 	} else if (imageInputPricePerToken && inputImageCount > 0) {
 		const LEGACY_TOKENS_PER_INPUT_IMAGE = 560;
 		const tokensPerImage =
 			imageInputTokensPerImage ?? LEGACY_TOKENS_PER_INPUT_IMAGE;
 		imageInputTokens = inputImageCount * tokensPerImage;
-		imageInputCost = new Decimal(imageInputTokens)
-			.times(imageInputPricePerToken)
-			.times(discountMultiplier);
 	}
 
 	// Calculate input cost accounting for cached tokens
@@ -380,14 +374,43 @@ export async function calculateCosts(
 			separatelyPricedCacheWriteTokens,
 	);
 	// For providers whose upstream usage already folds image tokens into
-	// prompt_tokens (OpenAI/Azure/xAI on image-output models), subtract them
-	// so the image portion isn't billed at both inputPrice and imageInputPrice.
+	// prompt_tokens (OpenAI/Azure/xAI on image-output models), the cached_tokens
+	// count covers a mix of text and image. OpenAI doesn't expose the split, so
+	// we apportion by the overall image:text ratio in prompt_tokens. The cached
+	// image portion is billed at cachedImageInputPrice; the rest at
+	// cachedInputPrice (text-cached). Without cachedImageInputPrice we keep the
+	// legacy single-rate behavior.
 	const promptIncludesImageTokens =
 		isImageOutputModel &&
 		(provider === "openai" || provider === "azure" || provider === "xai");
+	let cachedImageTokens = 0;
+	if (
+		promptIncludesImageTokens &&
+		cachedImageInputPricePerToken !== undefined &&
+		imageInputTokens &&
+		cachedReadTokens > 0 &&
+		calculatedPromptTokens > 0
+	) {
+		const imageRatio = Math.min(1, imageInputTokens / calculatedPromptTokens);
+		cachedImageTokens = Math.min(
+			cachedReadTokens,
+			imageInputTokens,
+			Math.round(cachedReadTokens * imageRatio),
+		);
+	}
+	const cachedTextTokens = cachedReadTokens - cachedImageTokens;
+	const uncachedImageTokens = imageInputTokens
+		? Math.max(0, imageInputTokens - cachedImageTokens)
+		: 0;
+	let imageInputCost: Decimal | null = null;
+	if (imageInputTokens && imageInputPricePerToken) {
+		imageInputCost = new Decimal(uncachedImageTokens)
+			.times(imageInputPricePerToken)
+			.times(discountMultiplier);
+	}
 	const billableTextPromptTokens =
 		promptIncludesImageTokens && imageInputTokens
-			? Math.max(0, uncachedPromptTokens - imageInputTokens)
+			? Math.max(0, uncachedPromptTokens - uncachedImageTokens)
 			: uncachedPromptTokens;
 	// inputCost includes both text and image input costs when applicable
 	const inputCost = new Decimal(billableTextPromptTokens)
@@ -443,9 +466,16 @@ export async function calculateCosts(
 			.times(outputPrice)
 			.times(discountMultiplier);
 	}
+	const cachedImageInputPriceDecimal =
+		cachedImageInputPricePerToken !== undefined
+			? new Decimal(cachedImageInputPricePerToken)
+			: cachedInputPrice;
 	const cachedInputCost = cachedTokens
-		? new Decimal(cachedTokens)
+		? new Decimal(cachedTextTokens)
 				.times(cachedInputPrice)
+				.plus(
+					new Decimal(cachedImageTokens).times(cachedImageInputPriceDecimal),
+				)
 				.times(discountMultiplier)
 		: new Decimal(0);
 	// `cacheWriteTokens` is the total cache-creation tokens (5m + 1h).
