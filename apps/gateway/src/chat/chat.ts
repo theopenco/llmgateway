@@ -39,6 +39,7 @@ import {
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
 	peekProviderRateLimit,
+	pickNonRateLimitedCandidates,
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
@@ -2161,23 +2162,11 @@ chat.openapi(completions, async (c) => {
 					return true;
 				});
 
-				// Also filter out rate-limited alternatives
-				const rateLimitedAlternatives = await filterRateLimitedProviders(
+				const candidatesForRouting = await pickNonRateLimitedCandidates(
 					project.organizationId,
-					availableModelProviders.map((p) => ({
-						providerId: p.providerId,
-						model: baseModelId,
-						providerModelName: p.modelName,
-					})),
+					baseModelId,
+					availableModelProviders,
 				);
-				const nonRateLimitedAlternatives = availableModelProviders.filter(
-					(p) => !rateLimitedAlternatives.has(p.providerId),
-				);
-
-				const candidatesForRouting =
-					nonRateLimitedAlternatives.length > 0
-						? nonRateLimitedAlternatives
-						: availableModelProviders;
 
 				if (candidatesForRouting.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
@@ -2326,7 +2315,13 @@ chat.openapi(completions, async (c) => {
 						),
 				);
 
-				if (availableModelProviders.length > 0) {
+				const uptimeFallbackCandidates = await pickNonRateLimitedCandidates(
+					project.organizationId,
+					baseModelId,
+					availableModelProviders,
+				);
+
+				if (uptimeFallbackCandidates.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
 					const modelWithPricing = rawModelForFallback
 						? {
@@ -2339,7 +2334,7 @@ chat.openapi(completions, async (c) => {
 
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
-						const metricsCombinations = availableModelProviders.map((p) => ({
+						const metricsCombinations = uptimeFallbackCandidates.map((p) => ({
 							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
 							providerId: p.providerId,
 							region: p.region,
@@ -2349,7 +2344,7 @@ chat.openapi(completions, async (c) => {
 							await getProviderMetricsForCombinations(metricsCombinations);
 						const providerAgnosticCandidates =
 							collapseProvidersToBestRegionPerProvider(
-								availableModelProviders,
+								uptimeFallbackCandidates,
 								modelWithPricing,
 								{
 									metricsMap: allMetricsMap,
