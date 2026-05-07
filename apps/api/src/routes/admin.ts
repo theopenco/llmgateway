@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { deleteResendContact } from "@/auth/config.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -4226,6 +4227,17 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 			}
 		}
 	});
+
+	if (status === "deleted" && memberUserIds.length > 0) {
+		const members = await db.query.user.findMany({
+			where: { id: { in: memberUserIds } },
+			columns: { email: true },
+		});
+
+		await Promise.all(
+			members.map((member) => deleteResendContact(member.email)),
+		);
+	}
 
 	await logAuditEvent({
 		organizationId: orgId,
