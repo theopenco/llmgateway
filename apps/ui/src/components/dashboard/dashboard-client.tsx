@@ -29,6 +29,7 @@ import { useEffect } from "react";
 import { CreateApiKeyDialog } from "@/components/api-keys/create-api-key-dialog";
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
 import { CostBreakdownCard } from "@/components/dashboard/cost-breakdown-card";
+import { DevPassCard } from "@/components/dashboard/devpass-card";
 import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
@@ -321,6 +322,8 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 				</div>
 
 				<ReferralBanner />
+
+				<DevPassCard />
 
 				<DateRangePicker buildUrl={buildUrl} />
 

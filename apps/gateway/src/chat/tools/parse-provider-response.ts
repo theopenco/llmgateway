@@ -2,7 +2,10 @@ import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
-import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	adjustGoogleCandidateTokens,
+	extractBedrockCacheCreationDetails,
+} from "./extract-token-usage.js";
 import {
 	extractReasoningDetailsText,
 	splitReasoningFromTaggedContent,
@@ -104,6 +107,7 @@ export function parseProviderResponse(
 				const inputTokens = json.usage.inputTokens ?? 0;
 				const cacheReadTokens = json.usage.cacheReadInputTokens ?? 0;
 				const cacheWriteTokens = json.usage.cacheWriteInputTokens ?? 0;
+				const cacheDetails = extractBedrockCacheCreationDetails(json.usage);
 
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
@@ -112,6 +116,8 @@ export function parseProviderResponse(
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheWriteTokens;
+				cacheCreation5mTokens = cacheDetails.cacheCreation5mTokens;
+				cacheCreation1hTokens = cacheDetails.cacheCreation1hTokens;
 			}
 
 			// Extract tool calls if present

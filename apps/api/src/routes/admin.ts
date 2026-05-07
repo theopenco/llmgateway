@@ -24,6 +24,8 @@ import {
 	tables,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	globalModelStats,
+	globalSourceStats,
 	modelProviderMappingHistory,
 	modelHistory,
 } from "@llmgateway/db";
@@ -803,6 +805,264 @@ admin.openapi(getTimeseries, async (c) => {
 			paidCustomers: cumulativePaid,
 			revenue: totalRevenue,
 		},
+	});
+});
+
+const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d"]);
+const globalStatsGroupBySchema = z.enum(["model", "source"]);
+
+const globalStatsMetricsSchema = z.object({
+	requestCount: z.number(),
+	errorCount: z.number(),
+	cacheCount: z.number(),
+	inputTokens: z.number(),
+	cachedTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+	inputCost: z.number(),
+	cachedInputCost: z.number(),
+	outputCost: z.number(),
+});
+
+const globalStatsTimeseriesPointSchema = globalStatsMetricsSchema
+	.extend({
+		date: z.string(),
+	})
+	.openapi({});
+
+const globalStatsBreakdownItemSchema = globalStatsMetricsSchema
+	.extend({
+		key: z.string(),
+		label: z.string(),
+	})
+	.openapi({});
+
+const globalStatsResponseSchema = z.object({
+	range: globalStatsRangeSchema,
+	groupBy: globalStatsGroupBySchema,
+	totals: globalStatsMetricsSchema,
+	timeseries: z.array(globalStatsTimeseriesPointSchema),
+	breakdown: z.array(globalStatsBreakdownItemSchema),
+});
+
+const getGlobalStats = createRoute({
+	method: "get",
+	path: "/global-stats",
+	request: {
+		query: z.object({
+			range: globalStatsRangeSchema.default("30d").optional(),
+			groupBy: globalStatsGroupBySchema.default("model").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: globalStatsResponseSchema.openapi({}),
+				},
+			},
+			description: "Global aggregated stats grouped by model or x-source.",
+		},
+	},
+});
+
+admin.openapi(getGlobalStats, async (c) => {
+	const query = c.req.valid("query");
+	const range = query.range ?? "30d";
+	const groupBy = query.groupBy ?? "model";
+
+	const rangeDays: Record<typeof range, number> = {
+		"7d": 7,
+		"30d": 30,
+		"90d": 90,
+		"365d": 365,
+	};
+	const days = rangeDays[range];
+
+	const dayMs = 24 * 60 * 60 * 1000;
+	const startDate = new Date();
+	startDate.setUTCHours(0, 0, 0, 0);
+	const startMs = startDate.getTime() - (days - 1) * dayMs; // eslint-disable-line no-mixed-operators
+	startDate.setTime(startMs);
+
+	const sourceTable =
+		groupBy === "model" ? globalModelStats : globalSourceStats;
+
+	const metricSums = {
+		requestCount:
+			sql<number>`COALESCE(SUM(${sourceTable.requestCount}), 0)::int`.as(
+				"requestCount",
+			),
+		errorCount:
+			sql<number>`COALESCE(SUM(${sourceTable.errorCount}), 0)::int`.as(
+				"errorCount",
+			),
+		cacheCount:
+			sql<number>`COALESCE(SUM(${sourceTable.cacheCount}), 0)::int`.as(
+				"cacheCount",
+			),
+		inputTokens:
+			sql<number>`COALESCE(SUM(CAST(${sourceTable.inputTokens} AS NUMERIC)), 0)::float8`.as(
+				"inputTokens",
+			),
+		cachedTokens:
+			sql<number>`COALESCE(SUM(CAST(${sourceTable.cachedTokens} AS NUMERIC)), 0)::float8`.as(
+				"cachedTokens",
+			),
+		outputTokens:
+			sql<number>`COALESCE(SUM(CAST(${sourceTable.outputTokens} AS NUMERIC)), 0)::float8`.as(
+				"outputTokens",
+			),
+		totalTokens:
+			sql<number>`COALESCE(SUM(CAST(${sourceTable.totalTokens} AS NUMERIC)), 0)::float8`.as(
+				"totalTokens",
+			),
+		cost: sql<number>`COALESCE(SUM(${sourceTable.cost}), 0)::float8`.as("cost"),
+		inputCost:
+			sql<number>`COALESCE(SUM(${sourceTable.inputCost}), 0)::float8`.as(
+				"inputCost",
+			),
+		cachedInputCost:
+			sql<number>`COALESCE(SUM(${sourceTable.cachedInputCost}), 0)::float8`.as(
+				"cachedInputCost",
+			),
+		outputCost:
+			sql<number>`COALESCE(SUM(${sourceTable.outputCost}), 0)::float8`.as(
+				"outputCost",
+			),
+	};
+
+	const dateExpr =
+		sql<string>`to_char(${sourceTable.dayTimestamp}, 'YYYY-MM-DD')`.as("date");
+
+	const timeseriesRows = await db
+		.select({
+			date: dateExpr,
+			...metricSums,
+		})
+		.from(sourceTable)
+		.where(gte(sourceTable.dayTimestamp, startDate))
+		.groupBy(sourceTable.dayTimestamp)
+		.orderBy(asc(sourceTable.dayTimestamp));
+
+	const timeseriesMap = new Map<
+		string,
+		z.infer<typeof globalStatsTimeseriesPointSchema>
+	>();
+	for (const row of timeseriesRows) {
+		timeseriesMap.set(row.date, {
+			date: row.date,
+			requestCount: Number(row.requestCount),
+			errorCount: Number(row.errorCount),
+			cacheCount: Number(row.cacheCount),
+			inputTokens: Number(row.inputTokens),
+			cachedTokens: Number(row.cachedTokens),
+			outputTokens: Number(row.outputTokens),
+			totalTokens: Number(row.totalTokens),
+			cost: Number(row.cost),
+			inputCost: Number(row.inputCost),
+			cachedInputCost: Number(row.cachedInputCost),
+			outputCost: Number(row.outputCost),
+		});
+	}
+
+	const totals: z.infer<typeof globalStatsMetricsSchema> = {
+		requestCount: 0,
+		errorCount: 0,
+		cacheCount: 0,
+		inputTokens: 0,
+		cachedTokens: 0,
+		outputTokens: 0,
+		totalTokens: 0,
+		cost: 0,
+		inputCost: 0,
+		cachedInputCost: 0,
+		outputCost: 0,
+	};
+
+	const timeseries: z.infer<typeof globalStatsTimeseriesPointSchema>[] = [];
+	for (let i = 0; i < days; i++) {
+		const cur = new Date(startDate.getTime() + i * dayMs); // eslint-disable-line no-mixed-operators
+		const dateStr = cur.toISOString().split("T")[0];
+		const point = timeseriesMap.get(dateStr) ?? {
+			date: dateStr,
+			requestCount: 0,
+			errorCount: 0,
+			cacheCount: 0,
+			inputTokens: 0,
+			cachedTokens: 0,
+			outputTokens: 0,
+			totalTokens: 0,
+			cost: 0,
+			inputCost: 0,
+			cachedInputCost: 0,
+			outputCost: 0,
+		};
+		timeseries.push(point);
+		totals.requestCount += point.requestCount;
+		totals.errorCount += point.errorCount;
+		totals.cacheCount += point.cacheCount;
+		totals.inputTokens += point.inputTokens;
+		totals.cachedTokens += point.cachedTokens;
+		totals.outputTokens += point.outputTokens;
+		totals.totalTokens += point.totalTokens;
+		totals.cost += point.cost;
+		totals.inputCost += point.inputCost;
+		totals.cachedInputCost += point.cachedInputCost;
+		totals.outputCost += point.outputCost;
+	}
+
+	const breakdownRows =
+		groupBy === "model"
+			? await db
+					.select({
+						usedModel: globalModelStats.usedModel,
+						usedProvider: globalModelStats.usedProvider,
+						...metricSums,
+					})
+					.from(globalModelStats)
+					.where(gte(globalModelStats.dayTimestamp, startDate))
+					.groupBy(globalModelStats.usedModel, globalModelStats.usedProvider)
+					.orderBy(desc(metricSums.requestCount))
+			: await db
+					.select({
+						source: globalSourceStats.source,
+						...metricSums,
+					})
+					.from(globalSourceStats)
+					.where(gte(globalSourceStats.dayTimestamp, startDate))
+					.groupBy(globalSourceStats.source)
+					.orderBy(desc(metricSums.requestCount));
+
+	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
+		breakdownRows.map((row) => {
+			const isModel = "usedModel" in row;
+			const key = isModel ? `${row.usedProvider}/${row.usedModel}` : row.source;
+			const label = isModel ? row.usedModel : row.source;
+			return {
+				key,
+				label,
+				requestCount: Number(row.requestCount),
+				errorCount: Number(row.errorCount),
+				cacheCount: Number(row.cacheCount),
+				inputTokens: Number(row.inputTokens),
+				cachedTokens: Number(row.cachedTokens),
+				outputTokens: Number(row.outputTokens),
+				totalTokens: Number(row.totalTokens),
+				cost: Number(row.cost),
+				inputCost: Number(row.inputCost),
+				cachedInputCost: Number(row.cachedInputCost),
+				outputCost: Number(row.outputCost),
+			};
+		});
+
+	return c.json({
+		range,
+		groupBy,
+		totals,
+		timeseries,
+		breakdown,
 	});
 });
 

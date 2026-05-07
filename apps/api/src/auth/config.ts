@@ -16,10 +16,28 @@ import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 const apiUrl = process.env.API_URL ?? "http://localhost:4002";
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
+const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
 const originUrls =
 	process.env.ORIGIN_URLS ??
 	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
 const isHosted = process.env.HOSTED === "true";
+
+function resolveCallbackBaseUrl(request?: Request): string {
+	const originHeader =
+		request?.headers.get("origin") ?? request?.headers.get("referer");
+	if (!originHeader) {
+		return uiUrl;
+	}
+	try {
+		const requestOrigin = new URL(originHeader).origin;
+		if (requestOrigin === new URL(codeUrl).origin) {
+			return codeUrl;
+		}
+	} catch {
+		// fall through to default
+	}
+	return uiUrl;
+}
 
 export const redisClient = new Redis({
 	host: process.env.REDIS_HOST ?? "localhost",
@@ -502,8 +520,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			},
 			session: {
 				cookieCache: {
-					enabled: true,
-					maxAge: 5 * 60,
+					enabled: false,
 				},
 				expiresIn: 60 * 60 * 24 * 30, // 30 days
 				updateAge: 60 * 60 * 24, // 1 day (every 1 day the session expiration is updated)
@@ -625,14 +642,18 @@ If you didn't request this, you can safely ignore this email. Your password won'
 							// Send Discord notification for new verified signup
 							await notifyUserSignup(user.email, user.name, "Email");
 						},
-						sendVerificationEmail: async ({
-							user,
-							token,
-						}: {
-							user: { email: string; name?: string | null };
-							token: string;
-						}) => {
-							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(`${uiUrl}/dashboard?emailVerified=true`)}`;
+						sendVerificationEmail: async (
+							{
+								user,
+								token,
+							}: {
+								user: { email: string; name?: string | null };
+								token: string;
+							},
+							request?: Request,
+						) => {
+							const callbackBase = resolveCallbackBaseUrl(request);
+							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(`${callbackBase}/dashboard?emailVerified=true`)}`;
 
 							const text = `Hey${user.name ? ` ${user.name}` : ""}!
 

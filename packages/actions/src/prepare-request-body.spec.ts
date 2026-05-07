@@ -35,6 +35,43 @@ async function prepareOpenAIImageRequest(imageConfig: {
 	);
 }
 
+async function prepareOpenAITextRequest(options: {
+	provider?: "openai" | "azure";
+	model?: string;
+	useResponsesApi?: boolean;
+	promptCacheKey?: string;
+	promptCacheRetention?: "in_memory" | "24h";
+}) {
+	return await prepareRequestBody(
+		options.provider ?? "openai",
+		options.model ?? "gpt-5.5",
+		[{ role: "user", content: "Hello!" }],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		false,
+		false,
+		20,
+		null,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		options.useResponsesApi ?? false,
+		options.promptCacheKey,
+		options.promptCacheRetention,
+	);
+}
+
 describe("prepareRequestBody - Anthropic", () => {
 	test("should extract system messages to system field for caching", async () => {
 		const requestBody = (await prepareRequestBody(
@@ -235,6 +272,69 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 
 		expect(requestBody.size).toBe("1024x1024");
 		expect(requestBody.quality).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - OpenAI prompt caching", () => {
+	test("should forward prompt cache controls to OpenAI chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			promptCacheKey: "tenant-a",
+			promptCacheRetention: "24h",
+		})) as any;
+
+		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_retention).toBe("24h");
+	});
+
+	test("should forward prompt cache controls to OpenAI Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			useResponsesApi: true,
+			promptCacheKey: "tenant-a",
+			promptCacheRetention: "in_memory",
+		})) as any;
+
+		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_retention).toBe("in_memory");
+	});
+
+	test("should not forward OpenAI prompt cache controls to Azure", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			promptCacheKey: "tenant-a",
+			promptCacheRetention: "24h",
+		})) as any;
+
+		expect(requestBody.prompt_cache_key).toBeUndefined();
+		expect(requestBody.prompt_cache_retention).toBeUndefined();
+	});
+
+	test("should strip prompt_cache_retention=24h on models that don't support extended retention", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			promptCacheKey: "tenant-a",
+			promptCacheRetention: "24h",
+		})) as any;
+
+		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_retention).toBeUndefined();
+	});
+
+	test("should still forward prompt_cache_retention=in_memory on models without 24h support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			promptCacheRetention: "in_memory",
+		})) as any;
+
+		expect(requestBody.prompt_cache_retention).toBe("in_memory");
+	});
+
+	test("should forward prompt_cache_retention=24h on models that do support extended retention", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4.1",
+			promptCacheRetention: "24h",
+		})) as any;
+
+		expect(requestBody.prompt_cache_retention).toBe("24h");
 	});
 });
 
@@ -787,6 +887,106 @@ describe("prepareRequestBody - MiniMax", () => {
 });
 
 describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: "Cache this system prompt.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "5m" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "Cache this system prompt." },
+			{ cachePoint: { type: "default", ttl: "1h" } },
+		]);
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default", ttl: "5m" } },
+		]);
+	});
+
+	test("should drop ttl:1h on bedrock models that do not support 1h TTL", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-3-7-sonnet-20250219-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: "Cache this system prompt.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "Cache this system prompt." },
+			{ cachePoint: { type: "default" } },
+		]);
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default" } },
+		]);
+	});
+
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
@@ -970,5 +1170,139 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 				},
 			],
 		});
+	});
+});
+
+describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
+	const budget = 1024;
+
+	test("anthropic forwards budget into thinking.budget_tokens", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens (must exceed thinking budget)
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			budget, // reasoning_max_tokens
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: budget,
+		});
+	});
+
+	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			budget,
+		)) as any;
+
+		expect(requestBody.additionalModelRequestFields?.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: budget,
+		});
+	});
+
+	test("google-ai-studio forwards budget into generationConfig.thinkingConfig.thinkingBudget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			budget,
+		)) as any;
+
+		expect(requestBody.generationConfig?.thinkingConfig?.thinkingBudget).toBe(
+			budget,
+		);
+	});
+
+	test("google-vertex forwards budget into generationConfig.thinkingConfig.thinkingBudget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-vertex",
+			"gemini-2.5-pro",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			budget,
+		)) as any;
+
+		expect(requestBody.generationConfig?.thinkingConfig?.thinkingBudget).toBe(
+			budget,
+		);
 	});
 });

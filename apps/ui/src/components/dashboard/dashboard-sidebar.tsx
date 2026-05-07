@@ -38,6 +38,7 @@ import {
 	AnimatedPercent,
 	AnimatedShield,
 	AnimatedShieldAlert,
+	AnimatedTerminal,
 } from "@/components/dashboard/animated-nav-icons";
 import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
@@ -881,6 +882,15 @@ export function DashboardSidebar({
 
 	const toolsResources = useMemo(
 		() => [
+			{
+				href:
+					process.env.NODE_ENV === "development"
+						? "http://localhost:3004"
+						: "https://devpass.llmgateway.io",
+				label: "DevPass",
+				icon: AnimatedTerminal,
+				internal: false,
+			},
 			{
 				href: "/models",
 				label: "Supported Models",

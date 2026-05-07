@@ -158,6 +158,50 @@ describe("transformStreamingToOpenai", () => {
 		expect(warn).not.toHaveBeenCalled();
 	});
 
+	it("maps AWS Bedrock metadata cache creation details", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			{
+				__aws_event_type: "metadata",
+				usage: {
+					inputTokens: 10,
+					cacheReadInputTokens: 0,
+					cacheWriteInputTokens: 1000,
+					cacheDetails: [
+						{ ttl: "1h", inputTokens: 700 },
+						{ ttl: "5m", inputTokens: 300 },
+					],
+					outputTokens: 1,
+					totalTokens: 1011,
+				},
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			object: "chat.completion.chunk",
+			model: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			usage: {
+				prompt_tokens: 1010,
+				completion_tokens: 1,
+				total_tokens: 1011,
+				prompt_tokens_details: {
+					cached_tokens: 0,
+					cache_write_tokens: 1000,
+					cache_creation_tokens: 1000,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 300,
+						ephemeral_1h_input_tokens: 700,
+					},
+				},
+			},
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
 	it("treats non-text AWS Bedrock contentBlockDelta members as handled", () => {
 		warn.mockClear();
 

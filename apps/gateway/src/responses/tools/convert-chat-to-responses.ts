@@ -155,6 +155,7 @@ export interface ResponsesEchoRequest {
 	metadata?: Record<string, unknown>;
 	safety_identifier?: string;
 	prompt_cache_key?: string;
+	prompt_cache_retention?: "in_memory" | "24h";
 }
 
 /**

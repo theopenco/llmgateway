@@ -274,6 +274,44 @@ export async function filterRateLimitedProviders(
 }
 
 /**
+ * Pick fallback candidates that are not at their RPM/RPD cap.
+ * Dedupes peeks by providerId+modelName since region-expanded variants share
+ * the same rate-limit window. Falls open to the original candidates if every
+ * one is capped, so callers always get a non-empty list when input was non-empty.
+ */
+export async function pickNonRateLimitedCandidates<
+	T extends { providerId: string; modelName: string },
+>(organizationId: string, baseModelId: string, candidates: T[]): Promise<T[]> {
+	if (candidates.length === 0) {
+		return candidates;
+	}
+
+	const uniquePeekCandidates = Array.from(
+		new Map(
+			candidates.map((p) => [
+				`${p.providerId}:${p.modelName}`,
+				{
+					providerId: p.providerId,
+					model: baseModelId,
+					providerModelName: p.modelName,
+				},
+			]),
+		).values(),
+	);
+
+	const rateLimited = await filterRateLimitedProviders(
+		organizationId,
+		uniquePeekCandidates,
+	);
+
+	const nonRateLimited = candidates.filter(
+		(p) => !rateLimited.has(p.providerId),
+	);
+
+	return nonRateLimited.length > 0 ? nonRateLimited : candidates;
+}
+
+/**
  * Check configurable provider/model caps stored in the database.
  * Uses a Redis sliding window approach identical to free model rate limiting.
  */
