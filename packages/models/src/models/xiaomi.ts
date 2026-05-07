@@ -165,6 +165,7 @@ export const xiaomiModels = [
 				modelName: "mimo-v2-flash",
 				inputPrice: 0.1 / 1e6,
 				outputPrice: 0.3 / 1e6,
+				// Flash model uses a 10% cache discount (not 20% like other MiMo models)
 				cachedInputPrice: 0.01 / 1e6,
 				requestPrice: 0,
 				contextSize: 256000,
