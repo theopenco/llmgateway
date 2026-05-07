@@ -140,6 +140,30 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(403)).toBe("gateway_error");
 	});
 
+	it("returns gateway_error for 400 invalid API key payloads", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"API key not valid. Please pass a valid API key.","type":"authentication_error","code":"invalid_api_key"}}',
+			),
+		).toBe("gateway_error");
+	});
+
+	it("returns gateway_error for invalid_api_key code only", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"Some unfamiliar wording","code":"invalid_api_key"}}',
+			),
+		).toBe("gateway_error");
+	});
+
+	it("returns gateway_error for 'Incorrect API key provided' wording", () => {
+		expect(
+			getFinishReasonFromError(401, "Incorrect API key provided: sk-test***"),
+		).toBe("gateway_error");
+	});
+
 	it("returns client_error when no error text provided for other 4xx", () => {
 		expect(getFinishReasonFromError(400)).toBe("client_error");
 		expect(getFinishReasonFromError(422)).toBe("client_error");

@@ -99,7 +99,7 @@ import {
 	type WebSearchTool,
 	expandAllProviderRegions,
 	getProviderDefinition,
-	getRegionSpecificEnvValue,
+	getRegionSpecificEnvVarName,
 	stripRegionFromModelName,
 } from "@llmgateway/models";
 
@@ -156,6 +156,7 @@ import {
 	MAX_RETRIES,
 	providerRetryKey,
 	selectNextProvider,
+	shouldRetryAlternateKey,
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
 import {
@@ -1585,7 +1586,6 @@ chat.openapi(completions, async (c) => {
 		const customProviderKey = await findCustomProviderKey(
 			project.organizationId,
 			customProviderName,
-			requestId,
 		);
 		if (!customProviderKey) {
 			throw new HTTPException(400, {
@@ -1968,7 +1968,7 @@ chat.openapi(completions, async (c) => {
 				const providerKey = await findProviderKey(
 					project.organizationId,
 					usedProvider,
-					requestId,
+					modelInfo.id || stripRegionFromModelName(usedModel, usedRegion),
 				);
 				lockedRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -2668,7 +2668,7 @@ chat.openapi(completions, async (c) => {
 				const providerKey = await findProviderKey(
 					project.organizationId,
 					requestedProvider,
-					requestId,
+					modelInfo.id || stripRegionFromModelName(usedModel, usedRegion),
 				);
 				explicitDirectRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -2897,6 +2897,12 @@ chat.openapi(completions, async (c) => {
 	let usedApiKeyHash: string | undefined;
 	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
+	// ID for tracked-key health attribution. Equal to providerKey.id when the
+	// DB-provided key is what's actually sent. Cleared when a region-specific
+	// env var override replaces the token, so health failures route to the env
+	// credential via envVarName instead of blaming an unused DB key. Endpoint
+	// and option resolution still use providerKey for BYOK base URLs/options.
+	let trackedKeyHealthId: string | undefined;
 	if (
 		project.mode === "credits" &&
 		(usedProvider === "custom" || usedProvider === "llmgateway")
@@ -2913,13 +2919,13 @@ chat.openapi(completions, async (c) => {
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				customProviderName,
-				requestId,
+				baseModelName,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				requestId,
+				baseModelName,
 			);
 		}
 
@@ -2934,12 +2940,25 @@ chat.openapi(completions, async (c) => {
 		}
 
 		usedToken = providerKey.token;
+		trackedKeyHealthId = providerKey.id;
 		usedRegion ??= resolveRegionFromProviderKey(providerKey);
-		// Override with region-specific env var if the DB key doesn't match the requested region
+		// Override with region-specific env var if the DB key doesn't match the requested region.
+		// When we do override, route health attribution to the regional env credential.
+		// providerKey stays set so endpoint/options/baseUrl construction keeps the BYOK context;
+		// only trackedKeyHealthId is cleared so reportTrackedKey* doesn't blame the unused DB key.
 		if (usedRegion) {
-			const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-			if (regionToken && regionToken !== usedToken) {
-				usedToken = regionToken;
+			const regionEnvVarName = getRegionSpecificEnvVarName(
+				usedProvider,
+				usedRegion,
+			);
+			if (regionEnvVarName) {
+				const regionToken = process.env[regionEnvVarName];
+				if (regionToken && regionToken !== usedToken) {
+					usedToken = regionToken;
+					envVarName = regionEnvVarName;
+					configIndex = 0;
+					trackedKeyHealthId = undefined;
+				}
 			}
 		}
 	} else if (project.mode === "credits") {
@@ -2979,16 +2998,27 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		const envResult = getProviderEnv(usedProvider);
+		const envResult = getProviderEnv(usedProvider, {
+			selectionScope: baseModelName,
+		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
 		envVarName = envResult.envVarName;
 
-		// Override with region-specific env var if a non-default region is selected
+		// Override with region-specific env var if a non-default region is selected.
+		// Health attribution must follow the credential we actually send.
 		if (usedRegion) {
-			const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-			if (regionToken) {
-				usedToken = regionToken;
+			const regionEnvVarName = getRegionSpecificEnvVarName(
+				usedProvider,
+				usedRegion,
+			);
+			if (regionEnvVarName) {
+				const regionToken = process.env[regionEnvVarName];
+				if (regionToken) {
+					usedToken = regionToken;
+					envVarName = regionEnvVarName;
+					configIndex = 0;
+				}
 			}
 		}
 	} else if (project.mode === "hybrid") {
@@ -2997,24 +3027,36 @@ chat.openapi(completions, async (c) => {
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				customProviderName,
-				requestId,
+				baseModelName,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				requestId,
+				baseModelName,
 			);
 		}
 
 		if (providerKey) {
 			usedToken = providerKey.token;
+			trackedKeyHealthId = providerKey.id;
 			usedRegion ??= resolveRegionFromProviderKey(providerKey);
-			// Override with region-specific env var if the DB key doesn't match the requested region
+			// Override with region-specific env var if the DB key doesn't match the requested region.
+			// Route health attribution to the env credential while keeping providerKey for
+			// endpoint/options resolution (BYOK base URLs and provider options).
 			if (usedRegion) {
-				const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-				if (regionToken && regionToken !== usedToken) {
-					usedToken = regionToken;
+				const regionEnvVarName = getRegionSpecificEnvVarName(
+					usedProvider,
+					usedRegion,
+				);
+				if (regionEnvVarName) {
+					const regionToken = process.env[regionEnvVarName];
+					if (regionToken && regionToken !== usedToken) {
+						usedToken = regionToken;
+						envVarName = regionEnvVarName;
+						configIndex = 0;
+						trackedKeyHealthId = undefined;
+					}
 				}
 			}
 		} else {
@@ -3053,16 +3095,27 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			const envResult = getProviderEnv(usedProvider);
+			const envResult = getProviderEnv(usedProvider, {
+				selectionScope: baseModelName,
+			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
 			envVarName = envResult.envVarName;
 
-			// Override with region-specific env var if a non-default region is selected
+			// Override with region-specific env var if a non-default region is selected.
+			// Health attribution must follow the credential we actually send.
 			if (usedRegion) {
-				const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-				if (regionToken) {
-					usedToken = regionToken;
+				const regionEnvVarName = getRegionSpecificEnvVarName(
+					usedProvider,
+					usedRegion,
+				);
+				if (regionEnvVarName) {
+					const regionToken = process.env[regionEnvVarName];
+					if (regionToken) {
+						usedToken = regionToken;
+						envVarName = regionEnvVarName;
+						configIndex = 0;
+					}
 				}
 			}
 		}
@@ -4184,6 +4237,7 @@ chat.openapi(completions, async (c) => {
 		usedToken = ctx.usedToken;
 		usedApiKeyHash = ctx.usedApiKeyHash;
 		providerKey = ctx.providerKey;
+		trackedKeyHealthId = ctx.trackedKeyHealthId;
 		configIndex = ctx.configIndex;
 		envVarName = ctx.envVarName;
 		url = ctx.url;
@@ -5049,10 +5103,21 @@ chat.openapi(completions, async (c) => {
 
 							// Report key health for the selected token source
 							if (envVarName !== undefined) {
-								reportKeyError(envVarName, configIndex, 0);
+								reportKeyError(
+									envVarName,
+									configIndex,
+									0,
+									undefined,
+									baseModelName,
+								);
 							}
-							if (providerKey?.id) {
-								reportTrackedKeyError(providerKey.id, 0);
+							if (trackedKeyHealthId) {
+								reportTrackedKeyError(
+									trackedKeyHealthId,
+									0,
+									undefined,
+									baseModelName,
+								);
 							}
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
@@ -5161,7 +5226,13 @@ chat.openapi(completions, async (c) => {
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
 						> | null = null;
-						if (isRetryableErrorType(finishReason)) {
+						if (
+							shouldRetryAlternateKey(
+								finishReason,
+								res.status,
+								errorResponseText,
+							)
+						) {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
@@ -5285,13 +5356,15 @@ chat.openapi(completions, async (c) => {
 								configIndex,
 								res.status,
 								errorResponseText,
+								baseModelName,
 							);
 						}
-						if (providerKey?.id && finishReason !== "content_filter") {
+						if (trackedKeyHealthId && finishReason !== "content_filter") {
 							reportTrackedKeyError(
-								providerKey.id,
+								trackedKeyHealthId,
 								res.status,
 								errorResponseText,
+								baseModelName,
 							);
 						}
 
@@ -5430,7 +5503,13 @@ chat.openapi(completions, async (c) => {
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
 						> | null = null;
-						if (isRetryableErrorType(errorType)) {
+						if (
+							shouldRetryAlternateKey(
+								errorType,
+								inferredStatusCode,
+								errorResponseText,
+							)
+						) {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
@@ -5539,13 +5618,15 @@ chat.openapi(completions, async (c) => {
 								configIndex,
 								inferredStatusCode,
 								errorResponseText,
+								baseModelName,
 							);
 						}
-						if (providerKey?.id && errorType !== "content_filter") {
+						if (trackedKeyHealthId && errorType !== "content_filter") {
 							reportTrackedKeyError(
-								providerKey.id,
+								trackedKeyHealthId,
 								inferredStatusCode,
 								errorResponseText,
+								baseModelName,
 							);
 						}
 
@@ -7939,16 +8020,27 @@ chat.openapi(completions, async (c) => {
 					// Report key health for the selected token source
 					if (envVarName !== undefined) {
 						if (streamingError !== null) {
-							reportKeyError(envVarName, configIndex, streamingErrorStatusCode);
+							reportKeyError(
+								envVarName,
+								configIndex,
+								streamingErrorStatusCode,
+								undefined,
+								baseModelName,
+							);
 						} else {
-							reportKeySuccess(envVarName, configIndex);
+							reportKeySuccess(envVarName, configIndex, baseModelName);
 						}
 					}
-					if (providerKey?.id) {
+					if (trackedKeyHealthId) {
 						if (streamingError !== null) {
-							reportTrackedKeyError(providerKey.id, streamingErrorStatusCode);
+							reportTrackedKeyError(
+								trackedKeyHealthId,
+								streamingErrorStatusCode,
+								undefined,
+								baseModelName,
+							);
 						} else {
-							reportTrackedKeySuccess(providerKey.id);
+							reportTrackedKeySuccess(trackedKeyHealthId, baseModelName);
 						}
 					}
 
@@ -8294,10 +8386,10 @@ chat.openapi(completions, async (c) => {
 
 			// Report key health for the selected token source
 			if (envVarName !== undefined) {
-				reportKeyError(envVarName, configIndex, 0);
+				reportKeyError(envVarName, configIndex, 0, undefined, baseModelName);
 			}
-			if (providerKey?.id) {
-				reportTrackedKeyError(providerKey.id, 0);
+			if (trackedKeyHealthId) {
+				reportTrackedKeyError(trackedKeyHealthId, 0, undefined, baseModelName);
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
@@ -8653,7 +8745,9 @@ chat.openapi(completions, async (c) => {
 			let sameProviderRetryContext: Awaited<
 				ReturnType<typeof resolveProviderContext>
 			> | null = null;
-			if (isRetryableErrorType(finishReason)) {
+			if (
+				shouldRetryAlternateKey(finishReason, res.status, errorResponseText)
+			) {
 				rememberFailedKey(usedProvider, usedRegion, {
 					envVarName,
 					configIndex,
@@ -8778,10 +8872,21 @@ chat.openapi(completions, async (c) => {
 			// Report key health for the selected token source
 			// Don't report content_filter as a key error - it's intentional provider behavior
 			if (envVarName !== undefined && finishReason !== "content_filter") {
-				reportKeyError(envVarName, configIndex, res.status, errorResponseText);
+				reportKeyError(
+					envVarName,
+					configIndex,
+					res.status,
+					errorResponseText,
+					baseModelName,
+				);
 			}
-			if (providerKey?.id && finishReason !== "content_filter") {
-				reportTrackedKeyError(providerKey.id, res.status, errorResponseText);
+			if (trackedKeyHealthId && finishReason !== "content_filter") {
+				reportTrackedKeyError(
+					trackedKeyHealthId,
+					res.status,
+					errorResponseText,
+					baseModelName,
+				);
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
@@ -9672,10 +9777,10 @@ chat.openapi(completions, async (c) => {
 	// Report key health for the selected token source
 	// Note: We don't report empty responses as key errors since they're not upstream errors
 	if (envVarName !== undefined) {
-		reportKeySuccess(envVarName, configIndex);
+		reportKeySuccess(envVarName, configIndex, baseModelName);
 	}
-	if (providerKey?.id) {
-		reportTrackedKeySuccess(providerKey.id);
+	if (trackedKeyHealthId) {
+		reportTrackedKeySuccess(trackedKeyHealthId, baseModelName);
 	}
 
 	if (cachingEnabled && cacheKey && !stream && !hasEmptyNonStreamingResponse) {

@@ -28,6 +28,18 @@ const closeServer = (server: ServerType): Promise<void> => {
 	});
 };
 
+const waitForServerListening = (server: ServerType): Promise<void> => {
+	const httpServer = server as Server;
+
+	if (httpServer.listening) {
+		return Promise.resolve();
+	}
+
+	return new Promise((resolve) => {
+		httpServer.once("listening", () => resolve());
+	});
+};
+
 // Recommended implementation: server.close() + periodic idle connection drain + timeout
 const closeServerWithTimeout = (
 	server: ServerType,
@@ -109,6 +121,7 @@ describe("graceful shutdown", () => {
 		});
 
 		const server = serve({ fetch: app.fetch, port: 0 });
+		await waitForServerListening(server);
 		const address = server.address();
 		const port =
 			typeof address === "object" && address !== null ? address.port : 0;
@@ -157,6 +170,7 @@ describe("graceful shutdown", () => {
 		});
 
 		const server = serve({ fetch: app.fetch, port: 0 });
+		await waitForServerListening(server);
 		const address = server.address();
 		const port =
 			typeof address === "object" && address !== null ? address.port : 0;
@@ -200,6 +214,7 @@ describe("graceful shutdown", () => {
 		app.get("/fast", (c) => c.json({ message: "ok" }));
 
 		const server = serve({ fetch: app.fetch, port: 0 });
+		await waitForServerListening(server);
 		const address = server.address();
 		const port =
 			typeof address === "object" && address !== null ? address.port : 0;
@@ -238,6 +253,7 @@ describe("graceful shutdown", () => {
 		});
 
 		const server = serve({ fetch: app.fetch, port: 0 });
+		await waitForServerListening(server);
 		const address = server.address();
 		const port =
 			typeof address === "object" && address !== null ? address.port : 0;
@@ -287,6 +303,7 @@ describe("graceful shutdown", () => {
 		});
 
 		const server = serve({ fetch: app.fetch, port: 0 });
+		await waitForServerListening(server);
 		const address = server.address();
 		const port =
 			typeof address === "object" && address !== null ? address.port : 0;
@@ -333,6 +350,7 @@ describe("graceful shutdown", () => {
 		});
 
 		const server = serve({ fetch: app.fetch, port: 0 });
+		await waitForServerListening(server);
 		const address = server.address();
 		const port =
 			typeof address === "object" && address !== null ? address.port : 0;
@@ -386,6 +404,7 @@ describe("graceful shutdown", () => {
 		});
 
 		const server = serve({ fetch: app.fetch, port: 0 });
+		await waitForServerListening(server);
 		const address = server.address();
 		const port =
 			typeof address === "object" && address !== null ? address.port : 0;
