@@ -240,8 +240,16 @@ export default function DashboardClient() {
 				posthog.capture("dev_plan_subscribe_started", { tier, cycle });
 			}
 			window.location.href = result.checkoutUrl;
-		} catch {
-			toast.error("Failed to start subscription");
+		} catch (error: unknown) {
+			const apiMessage =
+				error && typeof error === "object" && "message" in error
+					? (error as { message?: unknown }).message
+					: undefined;
+			toast.error(
+				typeof apiMessage === "string" && apiMessage.length > 0
+					? apiMessage
+					: "Failed to start subscription",
+			);
 		} finally {
 			setSubscribingTier(null);
 		}
