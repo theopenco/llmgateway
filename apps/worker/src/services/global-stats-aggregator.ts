@@ -38,6 +38,24 @@ const MAX_HOURS_PER_TICK =
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+
+// Bucket size for the incremental walker. Defaults to 1 hour for production,
+// but can be shrunk in dev (e.g. 60s) to see test data flow through within
+// seconds. Must evenly divide one day so buckets align to day boundaries.
+//
+// WARNING: changing this on a running deployment will corrupt aggregates
+// because the watermark math assumes a fixed bucket size. Reset by deleting
+// the global_daily_aggregation_state row and the affected day's stats rows.
+const BUCKET_SECONDS =
+	Number(process.env.GLOBAL_DAILY_STATS_BUCKET_SECONDS) || 3600;
+const BUCKET_MS = BUCKET_SECONDS * 1000;
+
+if (DAY_MS % BUCKET_MS !== 0) {
+	throw new Error(
+		`GLOBAL_DAILY_STATS_BUCKET_SECONDS=${BUCKET_SECONDS} must evenly divide 86400 (one day in seconds)`,
+	);
+}
+
 const STATE_ROW_ID = "singleton";
 
 // Columns the aggregator sums into the daily totals. Excludes id / createdAt
@@ -103,18 +121,10 @@ function buildAddUpsertSet(table: AnyTable) {
 const MODEL_ADD_SET = buildAddUpsertSet(globalDailyModelStats);
 const SOURCE_ADD_SET = buildAddUpsertSet(globalDailySourceStats);
 
-function floorToHour(d: Date): Date {
-	return new Date(
-		Date.UTC(
-			d.getUTCFullYear(),
-			d.getUTCMonth(),
-			d.getUTCDate(),
-			d.getUTCHours(),
-			0,
-			0,
-			0,
-		),
-	);
+// Snap to the nearest bucket boundary at or below `d`. Works in UTC because
+// JS timestamps are unix-epoch milliseconds and bucketMs evenly divides a day.
+function floorToBucket(d: Date, bucketMs: number): Date {
+	return new Date(Math.floor(d.getTime() / bucketMs) * bucketMs);
 }
 
 function floorToDay(d: Date): Date {
@@ -126,16 +136,20 @@ function floorToDay(d: Date): Date {
 // Inferred drizzle transaction type so helpers can be called inside a tx.
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-async function aggregateHourIntoDailyStats(
+async function aggregateWindowIntoDailyStats(
 	database: Tx,
-	hour: Date,
+	windowStart: Date,
+	windowMs: number,
 ): Promise<void> {
-	const hourTimestamp = formatUTCTimestamp(hour);
-	const dayTimestamp = formatUTCTimestamp(floorToDay(hour));
+	const startTimestamp = formatUTCTimestamp(windowStart);
+	const endTimestamp = formatUTCTimestamp(
+		new Date(windowStart.getTime() + windowMs),
+	);
+	const dayTimestamp = formatUTCTimestamp(floorToDay(windowStart));
 
-	const hourWindow = and(
-		sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
-		sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+	const window = and(
+		sql`${log.createdAt} >= ${startTimestamp}::timestamp`,
+		sql`${log.createdAt} < ${endTimestamp}::timestamp`,
 	);
 
 	const modelRows = await database
@@ -145,7 +159,7 @@ async function aggregateHourIntoDailyStats(
 			...getCommonAggregationFields(),
 		})
 		.from(log)
-		.where(hourWindow)
+		.where(window)
 		.groupBy(log.usedModel, log.usedProvider);
 
 	for (const row of modelRows) {
@@ -177,7 +191,7 @@ async function aggregateHourIntoDailyStats(
 			...getCommonAggregationFields(),
 		})
 		.from(log)
-		.where(hourWindow)
+		.where(window)
 		.groupBy(sql`coalesce(${log.source}, 'unknown')`);
 
 	for (const row of sourceRows) {
@@ -233,7 +247,9 @@ async function setLastSafetyNetDay(day: Date): Promise<void> {
 
 // Recompute a closed day from scratch: wipe its rows, then re-aggregate each
 // of its 24 hours into the now-empty bucket. Catches late-arriving logs that
-// the incremental path missed.
+// the incremental path missed. Walks in 1-hour chunks regardless of the
+// configured BUCKET_MS so the safety net keeps a bounded number of queries
+// (24/day) even when small dev buckets are in use.
 async function recomputeDayFully(day: Date): Promise<void> {
 	const dayStr = formatUTCTimestamp(day);
 
@@ -257,7 +273,7 @@ async function recomputeDayFully(day: Date): Promise<void> {
 		}
 		const hour = new Date(day.getTime() + h * HOUR_MS); // eslint-disable-line no-mixed-operators
 		await db.transaction(async (tx) => {
-			await aggregateHourIntoDailyStats(tx, hour);
+			await aggregateWindowIntoDailyStats(tx, hour, HOUR_MS);
 		});
 	}
 }
@@ -288,51 +304,52 @@ export async function processClosedHours(): Promise<void> {
 	const start = Date.now();
 	const now = new Date();
 	const settlingMs = SETTLING_BUFFER_MINUTES * 60 * 1000;
-	const cutoffMs = now.getTime() - HOUR_MS - settlingMs;
-	const latestSafeHour = floorToHour(new Date(cutoffMs));
+	const cutoffMs = now.getTime() - BUCKET_MS - settlingMs;
+	const latestSafeBucket = floorToBucket(new Date(cutoffMs), BUCKET_MS);
 
 	const state = await readState();
 
-	let nextHour: Date;
+	let nextBucket: Date;
 	if (state?.lastProcessedHour) {
-		nextHour = new Date(state.lastProcessedHour.getTime() + HOUR_MS);
+		nextBucket = new Date(state.lastProcessedHour.getTime() + BUCKET_MS);
 	} else {
 		const lookbackMs = INITIAL_LOOKBACK_DAYS * DAY_MS;
-		nextHour = floorToHour(new Date(now.getTime() - lookbackMs));
+		nextBucket = floorToBucket(new Date(now.getTime() - lookbackMs), BUCKET_MS);
 		logger.info(
-			`[global] No watermark, seeding from ${formatUTCTimestamp(nextHour)}`,
+			`[global] No watermark, seeding from ${formatUTCTimestamp(nextBucket)}`,
 		);
 	}
 
 	let processed = 0;
-	while (nextHour <= latestSafeHour && processed < MAX_HOURS_PER_TICK) {
+	while (nextBucket <= latestSafeBucket && processed < MAX_HOURS_PER_TICK) {
 		if (isStopRequested()) {
-			logger.info(`[global] Stop requested, processed ${processed} hours`);
+			logger.info(`[global] Stop requested, processed ${processed} buckets`);
 			break;
 		}
 
-		const hour = nextHour;
+		const bucket = nextBucket;
 		await db.transaction(async (tx) => {
-			await aggregateHourIntoDailyStats(tx, hour);
-			await setLastProcessedHour(tx, hour);
+			await aggregateWindowIntoDailyStats(tx, bucket, BUCKET_MS);
+			await setLastProcessedHour(tx, bucket);
 		});
 
 		processed++;
-		nextHour = new Date(hour.getTime() + HOUR_MS);
+		nextBucket = new Date(bucket.getTime() + BUCKET_MS);
 	}
 
-	if (processed >= MAX_HOURS_PER_TICK && nextHour <= latestSafeHour) {
+	if (processed >= MAX_HOURS_PER_TICK && nextBucket <= latestSafeBucket) {
 		logger.info(
-			`[global] Hit per-tick cap (${MAX_HOURS_PER_TICK}), more hours pending — will continue next tick`,
+			`[global] Hit per-tick cap (${MAX_HOURS_PER_TICK}), more buckets pending — will continue next tick`,
 		);
 	}
 
 	if (processed > 0) {
+		const lastProcessed = new Date(nextBucket.getTime() - BUCKET_MS);
 		logger.info(
-			`[global] Processed ${processed} closed hours in ${Date.now() - start}ms (watermark now ${formatUTCTimestamp(new Date(nextHour.getTime() - HOUR_MS))})`,
+			`[global] Processed ${processed} closed bucket(s) in ${Date.now() - start}ms (watermark now ${formatUTCTimestamp(lastProcessed)})`,
 		);
 	} else {
-		logger.debug("[global] No new closed hours to process");
+		logger.debug("[global] No new closed buckets to process");
 	}
 
 	if (!isStopRequested()) {

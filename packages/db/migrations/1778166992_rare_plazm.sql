@@ -1,3 +1,10 @@
+CREATE TABLE "global_daily_aggregation_state" (
+	"id" text PRIMARY KEY DEFAULT 'singleton',
+	"last_processed_hour" timestamp,
+	"last_safety_net_day" timestamp,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "global_daily_model_stats" (
 	"id" text PRIMARY KEY,
 	"created_at" timestamp DEFAULT now() NOT NULL,

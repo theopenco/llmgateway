@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "8c9912e3-e386-4b7d-b988-818a00182dc1",
+  "id": "441400f3-a33a-4ed6-969c-33f681c89943",
   "prevId": "efe567e7-e675-497d-9405-474aacdf5237",
   "ddl": [
     {
@@ -79,6 +79,12 @@
     {
       "isRlsEnabled": false,
       "name": "follow_up_email",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "global_daily_aggregation_state",
       "entityType": "tables",
       "schema": "public"
     },
@@ -3045,6 +3051,64 @@
       "entityType": "columns",
       "schema": "public",
       "table": "follow_up_email"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'singleton'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_daily_aggregation_state"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_processed_hour",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_daily_aggregation_state"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_safety_net_day",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_daily_aggregation_state"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_daily_aggregation_state"
     },
     {
       "type": "text",
@@ -15133,6 +15197,16 @@
       "name": "follow_up_email_pkey",
       "schema": "public",
       "table": "follow_up_email",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "global_daily_aggregation_state_pkey",
+      "schema": "public",
+      "table": "global_daily_aggregation_state",
       "entityType": "pks"
     },
     {
