@@ -45,6 +45,17 @@ export interface PricingTier {
 	 * Price per cached input token in USD for this tier
 	 */
 	cachedInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD for this tier (5-minute TTL).
+	 * For Anthropic, this is the 1.25x base-input rate.
+	 */
+	cacheWriteInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD for this tier (1-hour TTL).
+	 * For Anthropic, this is the 2x base-input rate. When unset, 1-hour writes
+	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
+	 */
+	cacheWriteInputPrice1h?: number;
 }
 
 /**
@@ -72,6 +83,15 @@ export interface ProviderRegion {
 	 * Price per cached input token in USD for this region
 	 */
 	cachedInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD for this region (5-minute TTL)
+	 */
+	cacheWriteInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD for this region (1-hour TTL).
+	 * When unset, 1-hour writes fall back to `cacheWriteInputPrice`.
+	 */
+	cacheWriteInputPrice1h?: number;
 	/**
 	 * Context-length based pricing tiers for this region.
 	 * When absent, falls back to the mapping-level pricingTiers.
@@ -133,6 +153,17 @@ export interface ProviderModelMapping {
 	 * Price per cached input token in USD
 	 */
 	cachedInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD (5-minute TTL).
+	 * For Anthropic, this is the 1.25x base-input rate.
+	 */
+	cacheWriteInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD (1-hour TTL).
+	 * For Anthropic, this is the 2x base-input rate. When unset, 1-hour writes
+	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
+	 */
+	cacheWriteInputPrice1h?: number;
 	/**
 	 * Minimum number of tokens required for a segment to be cacheable.
 	 * Prompts smaller than this threshold won't be cached even with cache_control set.

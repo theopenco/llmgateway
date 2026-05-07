@@ -14,23 +14,43 @@ function normalizeAnthropicUsage(usage: any): any {
 	if (!usage || typeof usage !== "object") {
 		return null;
 	}
-	const inputTokens = usage.input_tokens ?? 0;
-	const cacheCreation = usage.cache_creation_input_tokens ?? 0;
-	const cacheRead = usage.cache_read_input_tokens ?? 0;
-	const outputTokens = usage.output_tokens ?? 0;
-	const promptTokens = inputTokens + cacheCreation + cacheRead;
-	const hasCacheInfo = cacheRead > 0 || cacheCreation > 0;
-	return {
-		prompt_tokens: promptTokens,
-		completion_tokens: outputTokens,
-		total_tokens: promptTokens + outputTokens,
-		...(hasCacheInfo && {
-			prompt_tokens_details: {
-				cached_tokens: cacheRead,
-				...(cacheCreation > 0 && { cache_creation_tokens: cacheCreation }),
-			},
-		}),
+	const hasInputUsage =
+		usage.input_tokens !== undefined ||
+		usage.cache_creation_input_tokens !== undefined ||
+		usage.cache_read_input_tokens !== undefined;
+	const outputTokens = usage.output_tokens;
+	if (!hasInputUsage && outputTokens === undefined) {
+		return null;
+	}
+
+	const inputTokens = hasInputUsage ? (usage.input_tokens ?? 0) : null;
+	const cacheCreation = hasInputUsage
+		? (usage.cache_creation_input_tokens ?? 0)
+		: null;
+	const cacheRead = hasInputUsage ? (usage.cache_read_input_tokens ?? 0) : null;
+	const promptTokens = hasInputUsage
+		? (inputTokens ?? 0) + (cacheCreation ?? 0) + (cacheRead ?? 0)
+		: null;
+	const normalizedUsage: Record<string, any> = {
+		...(promptTokens !== null && { prompt_tokens: promptTokens }),
+		...(outputTokens !== undefined && { completion_tokens: outputTokens }),
+		...(promptTokens !== null &&
+			outputTokens !== undefined && {
+				total_tokens: promptTokens + outputTokens,
+			}),
+		...(cacheRead !== null &&
+			cacheCreation !== null &&
+			(cacheRead > 0 || cacheCreation > 0) && {
+				prompt_tokens_details: {
+					cached_tokens: cacheRead,
+					...(cacheCreation > 0 && {
+						cache_write_tokens: cacheCreation,
+						cache_creation_tokens: cacheCreation,
+					}),
+				},
+			}),
 	};
+	return normalizedUsage;
 }
 
 export function transformStreamingToOpenai(
@@ -67,7 +87,25 @@ export function transformStreamingToOpenai(
 	switch (usedProvider) {
 		case "anthropic":
 		case "vertex-anthropic": {
-			if (data.type === "content_block_delta" && data.delta?.text) {
+			const usage = data.message?.usage ?? data.usage;
+			if (data.type === "message_start") {
+				transformedData = {
+					id: data.message?.id ?? data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.message?.model ?? data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+					usage: normalizeAnthropicUsage(usage),
+				};
+			} else if (data.type === "content_block_delta" && data.delta?.text) {
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -83,7 +121,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_delta" &&
@@ -105,7 +143,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_start" &&
@@ -131,7 +169,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_start" &&
@@ -162,7 +200,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_delta" &&
@@ -188,7 +226,7 @@ export function transformStreamingToOpenai(
 								finish_reason: null,
 							},
 						],
-						usage: normalizeAnthropicUsage(data.usage),
+						usage: normalizeAnthropicUsage(usage),
 					};
 				} else {
 					transformedData = {
@@ -213,7 +251,7 @@ export function transformStreamingToOpenai(
 								finish_reason: null,
 							},
 						],
-						usage: normalizeAnthropicUsage(data.usage),
+						usage: normalizeAnthropicUsage(usage),
 					};
 				}
 			} else if (
@@ -249,7 +287,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
 				const stopReason = data.delta.stop_reason;
@@ -267,7 +305,7 @@ export function transformStreamingToOpenai(
 							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "message_stop" || data.stop_reason) {
 				const stopReason = data.stop_reason ?? "end_turn";
@@ -285,7 +323,7 @@ export function transformStreamingToOpenai(
 							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.delta?.text) {
 				transformedData = {
@@ -303,7 +341,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "ping") {
 				return null;
@@ -329,7 +367,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			}
 			break;

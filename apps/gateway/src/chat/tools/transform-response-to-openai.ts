@@ -8,6 +8,7 @@ export interface CostData {
 	inputCost: number | null;
 	outputCost: number | null;
 	cachedInputCost: number | null;
+	cacheWriteInputCost?: number | null;
 	requestCost: number | null;
 	webSearchCost: number | null;
 	imageInputCost: number | null;
@@ -22,6 +23,8 @@ export function applyExtendedUsageFields(
 		costs?: CostData | null;
 		cachedTokens?: number | null;
 		cacheCreationTokens?: number | null;
+		cacheCreation5mTokens?: number | null;
+		cacheCreation1hTokens?: number | null;
 		reasoningTokens?: number | null;
 		imageInputTokens?: number | null;
 		imageOutputTokens?: number | null;
@@ -31,6 +34,8 @@ export function applyExtendedUsageFields(
 		costs,
 		cachedTokens,
 		cacheCreationTokens,
+		cacheCreation5mTokens,
+		cacheCreation1hTokens,
 		reasoningTokens,
 		imageInputTokens,
 		imageOutputTokens,
@@ -47,8 +52,9 @@ export function applyExtendedUsageFields(
 		if (hasInferenceCosts) {
 			const inputCost = costs.inputCost ?? 0;
 			const cachedInputCost = costs.cachedInputCost ?? 0;
+			const cacheWriteInputCost = costs.cacheWriteInputCost ?? 0;
 			const outputCost = costs.outputCost ?? 0;
-			const promptCost = inputCost + cachedInputCost;
+			const promptCost = inputCost + cachedInputCost + cacheWriteInputCost;
 			const completionsCost = outputCost;
 			// upstream_inference_cost intentionally excludes requestCost/webSearchCost, so usage.cost may be larger.
 			usage.cost_details = {
@@ -59,6 +65,7 @@ export function applyExtendedUsageFields(
 				input_cost: costs.inputCost,
 				output_cost: costs.outputCost,
 				cached_input_cost: costs.cachedInputCost,
+				cache_write_input_cost: costs.cacheWriteInputCost,
 				request_cost: costs.requestCost,
 				web_search_cost: costs.webSearchCost,
 				image_input_cost: costs.imageInputCost,
@@ -82,6 +89,28 @@ export function applyExtendedUsageFields(
 		0;
 	const resolvedPromptImageTokens =
 		imageInputTokens ?? existingPromptDetails.image_tokens ?? 0;
+	// `cache_write_tokens` is the canonical field; `cache_creation_tokens` is emitted
+	// alongside it for backward compatibility with consumers that read the older name.
+	// Readers should prefer `cache_write_tokens ?? cache_creation_tokens`.
+	const existingBreakdown =
+		(existingPromptDetails.cache_creation as
+			| {
+					ephemeral_5m_input_tokens?: number;
+					ephemeral_1h_input_tokens?: number;
+			  }
+			| undefined) ?? undefined;
+	const resolved1h =
+		cacheCreation1hTokens ??
+		existingBreakdown?.ephemeral_1h_input_tokens ??
+		null;
+	const resolved5m =
+		cacheCreation5mTokens ??
+		existingBreakdown?.ephemeral_5m_input_tokens ??
+		(resolvedCacheWrite > 0 && resolved1h !== null
+			? Math.max(0, resolvedCacheWrite - resolved1h)
+			: null);
+	const includeBreakdown =
+		resolvedCacheWrite > 0 && (resolved5m !== null || resolved1h !== null);
 	usage.prompt_tokens_details = {
 		...existingPromptDetails,
 		cached_tokens: resolvedCacheRead,
@@ -91,6 +120,12 @@ export function applyExtendedUsageFields(
 		image_tokens: resolvedPromptImageTokens,
 		...(resolvedCacheWrite > 0 && {
 			cache_creation_tokens: resolvedCacheWrite,
+		}),
+		...(includeBreakdown && {
+			cache_creation: {
+				ephemeral_5m_input_tokens: resolved5m ?? 0,
+				ephemeral_1h_input_tokens: resolved1h ?? 0,
+			},
 		}),
 	};
 
@@ -212,6 +247,8 @@ function buildUsageObject(
 	cacheCreationTokens: number | null = null,
 	imageInputTokens: number | null = null,
 	imageOutputTokens: number | null = null,
+	cacheCreation5mTokens: number | null = null,
+	cacheCreation1hTokens: number | null = null,
 ) {
 	const usage: Record<string, any> = {
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
@@ -233,6 +270,8 @@ function buildUsageObject(
 		costs,
 		cachedTokens,
 		cacheCreationTokens,
+		cacheCreation5mTokens,
+		cacheCreation1hTokens,
 		reasoningTokens,
 		imageInputTokens,
 		imageOutputTokens,
@@ -270,6 +309,8 @@ export function transformResponseToOpenai(
 	cacheCreationTokens: number | null = null,
 	imageInputTokens: number | null = null,
 	imageOutputTokens: number | null = null,
+	cacheCreation5mTokens: number | null = null,
+	cacheCreation1hTokens: number | null = null,
 ) {
 	let transformedResponse = json;
 
@@ -314,6 +355,8 @@ export function transformResponseToOpenai(
 					cacheCreationTokens,
 					imageInputTokens,
 					imageOutputTokens,
+					cacheCreation5mTokens,
+					cacheCreation1hTokens,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -365,6 +408,8 @@ export function transformResponseToOpenai(
 					cacheCreationTokens,
 					imageInputTokens,
 					imageOutputTokens,
+					cacheCreation5mTokens,
+					cacheCreation1hTokens,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -412,6 +457,8 @@ export function transformResponseToOpenai(
 						cacheCreationTokens,
 						imageInputTokens,
 						imageOutputTokens,
+						cacheCreation5mTokens,
+						cacheCreation1hTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -503,6 +550,8 @@ export function transformResponseToOpenai(
 					cacheCreationTokens,
 					imageInputTokens,
 					imageOutputTokens,
+					cacheCreation5mTokens,
+					cacheCreation1hTokens,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -548,6 +597,8 @@ export function transformResponseToOpenai(
 						cacheCreationTokens,
 						imageInputTokens,
 						imageOutputTokens,
+						cacheCreation5mTokens,
+						cacheCreation1hTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -645,6 +696,8 @@ export function transformResponseToOpenai(
 						cacheCreationTokens,
 						imageInputTokens,
 						imageOutputTokens,
+						cacheCreation5mTokens,
+						cacheCreation1hTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -693,6 +746,8 @@ export function transformResponseToOpenai(
 						cacheCreationTokens,
 						imageInputTokens,
 						imageOutputTokens,
+						cacheCreation5mTokens,
+						cacheCreation1hTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -789,6 +844,8 @@ export function transformResponseToOpenai(
 						cacheCreationTokens,
 						imageInputTokens,
 						imageOutputTokens,
+						cacheCreation5mTokens,
+						cacheCreation1hTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -876,6 +933,8 @@ export function transformResponseToOpenai(
 						cacheCreationTokens,
 						imageInputTokens,
 						imageOutputTokens,
+						cacheCreation5mTokens,
+						cacheCreation1hTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,
@@ -964,6 +1023,8 @@ export function transformResponseToOpenai(
 						cacheCreationTokens,
 						imageInputTokens,
 						imageOutputTokens,
+						cacheCreation5mTokens,
+						cacheCreation1hTokens,
 					),
 					metadata: buildMetadata(
 						requestedModel,

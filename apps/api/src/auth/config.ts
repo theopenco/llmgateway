@@ -390,6 +390,37 @@ async function createResendContact(
 	}
 }
 
+export async function deleteResendContact(email: string): Promise<void> {
+	const client = getResendClient();
+
+	if (!client) {
+		logger.debug("RESEND_API_KEY not configured, skipping contact deletion");
+		return;
+	}
+
+	try {
+		const { error } = await client.contacts.remove({
+			audienceId: resendAudienceId,
+			email,
+		});
+
+		if (error) {
+			logger.warn("Resend API error during contact deletion", {
+				email,
+				errorMessage: error.message,
+			});
+			return;
+		}
+
+		logger.info("Successfully deleted Resend contact", { email });
+	} catch (error) {
+		logger.error("Failed to delete Resend contact", {
+			...(error instanceof Error ? { err: error } : { error }),
+			email,
+		});
+	}
+}
+
 export async function updateResendContact(
 	email: string,
 	options?: {

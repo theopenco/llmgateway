@@ -903,6 +903,7 @@ export interface paths {
                                 completionTokens: string | null;
                                 totalTokens: string | null;
                                 reasoningTokens: string | null;
+                                cacheWriteTokens?: string | null;
                                 messages?: unknown;
                                 temperature: number | null;
                                 maxTokens: number | null;
@@ -963,6 +964,7 @@ export interface paths {
                                 outputCost: number | null;
                                 requestCost: number | null;
                                 cachedInputCost?: number | null;
+                                cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
                                 imageInputTokens: string | null;
                                 imageOutputTokens: string | null;
@@ -1151,6 +1153,7 @@ export interface paths {
                                 completionTokens: string | null;
                                 totalTokens: string | null;
                                 reasoningTokens: string | null;
+                                cacheWriteTokens?: string | null;
                                 messages?: unknown;
                                 temperature: number | null;
                                 maxTokens: number | null;
@@ -1211,6 +1214,7 @@ export interface paths {
                                 outputCost: number | null;
                                 requestCost: number | null;
                                 cachedInputCost?: number | null;
+                                cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
                                 imageInputTokens: string | null;
                                 imageOutputTokens: string | null;
@@ -1340,6 +1344,7 @@ export interface paths {
                                 inputTokens: number;
                                 outputTokens: number;
                                 cachedTokens: number;
+                                cacheWriteTokens: number;
                                 totalTokens: number;
                                 cost: number;
                                 inputCost: number;
@@ -1350,6 +1355,7 @@ export interface paths {
                                 imageOutputCost: number;
                                 videoOutputCost: number;
                                 cachedInputCost: number;
+                                cacheWriteInputCost: number;
                                 errorCount: number;
                                 errorRate: number;
                                 cacheCount: number;
@@ -1605,6 +1611,8 @@ export interface paths {
                             outputCost: number;
                             cachedTokens: number;
                             cachedCost: number;
+                            cacheWriteTokens: number;
+                            cacheWriteCost: number;
                             mostUsedModel: string | null;
                             mostUsedProvider: string | null;
                             mostUsedModelCost: number;
@@ -1928,6 +1936,8 @@ export interface paths {
                             outputCost: number;
                             cachedTokens: number;
                             cachedCost: number;
+                            cacheWriteTokens: number;
+                            cacheWriteCost: number;
                             mostUsedModel: string | null;
                             mostUsedProvider: string | null;
                             mostUsedModelCost: number;
@@ -2002,12 +2012,14 @@ export interface paths {
                                 totalTokens: string | null;
                                 reasoningTokens: string | null;
                                 cachedTokens: string | null;
+                                cacheWriteTokens: string | null;
                                 imageInputTokens: string | null;
                                 imageOutputTokens: string | null;
                                 cost: number | null;
                                 inputCost: number | null;
                                 outputCost: number | null;
                                 cachedInputCost: number | null;
+                                cacheWriteInputCost: number | null;
                                 requestCost: number | null;
                                 webSearchCost: number | null;
                                 imageInputCost: number | null;
@@ -3405,6 +3417,8 @@ export interface paths {
                                 inputPrice: string | null;
                                 outputPrice: string | null;
                                 cachedInputPrice: string | null;
+                                cacheWriteInputPrice: string | null;
+                                cacheWriteInputPrice1h: string | null;
                                 imageInputPrice: string | null;
                                 requestPrice: string | null;
                                 contextSize: number | null;
@@ -8721,6 +8735,8 @@ export interface operations {
                                 inputPrice: string | null;
                                 outputPrice: string | null;
                                 cachedInputPrice: string | null;
+                                cacheWriteInputPrice: string | null;
+                                cacheWriteInputPrice1h: string | null;
                                 imageInputPrice: string | null;
                                 imageOutputPrice: string | null;
                                 imageInputTokensByResolution: {
