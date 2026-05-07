@@ -2328,14 +2328,23 @@ chat.openapi(completions, async (c) => {
 
 				// Exclude alternatives that are already at their RPM/RPD cap so the
 				// low-uptime fallback doesn't route into a rate-limited provider.
-				// Fail-open: if all alternatives are rate-limited, keep them all.
+				// Dedupe by providerId+modelName since region-expanded variants share
+				// the same rate-limit window. Fail-open if all alternatives are capped.
+				const uniqueRateLimitCandidates = Array.from(
+					new Map(
+						availableModelProviders.map((p) => [
+							`${p.providerId}:${p.modelName}`,
+							{
+								providerId: p.providerId,
+								model: baseModelId,
+								providerModelName: p.modelName,
+							},
+						]),
+					).values(),
+				);
 				const rateLimitedAlternatives = await filterRateLimitedProviders(
 					project.organizationId,
-					availableModelProviders.map((p) => ({
-						providerId: p.providerId,
-						model: baseModelId,
-						providerModelName: p.modelName,
-					})),
+					uniqueRateLimitCandidates,
 				);
 				const nonRateLimitedAlternatives = availableModelProviders.filter(
 					(p) => !rateLimitedAlternatives.has(p.providerId),
