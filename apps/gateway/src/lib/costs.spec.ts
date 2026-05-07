@@ -224,6 +224,8 @@ describe("calculateCosts", () => {
 			null,
 			null,
 			undefined,
+			null,
+			null,
 			{
 				cacheWriteTokens: 1000,
 				cacheWrite1hTokens: 700,
