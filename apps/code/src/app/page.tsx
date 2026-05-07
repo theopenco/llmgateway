@@ -47,6 +47,22 @@ const featuredTools = [
 	},
 ];
 
+function ProductHuntIcon({ className }: { className?: string }) {
+	return (
+		<svg
+			className={className}
+			viewBox="0 0 24 24"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<circle cx="12" cy="12" r="12" fill="#FF6154" />
+			<path
+				d="M13.604 8.4h-3.405V12h3.405a1.8 1.8 0 0 0 0-3.6zM13.604 14.4h-3.405V18H8.4V6h5.204a4.2 4.2 0 0 1 0 8.4z"
+				fill="#FFFFFF"
+			/>
+		</svg>
+	);
+}
+
 export default function LandingPage() {
 	const config = getConfig();
 	const credits = {
@@ -103,6 +119,22 @@ export default function LandingPage() {
 										<Link href="/pricing">See pricing</Link>
 									</Button>
 								</CodeCTATracker>
+							</div>
+
+							<div className="mt-6 flex justify-center">
+								<Link
+									href="https://www.producthunt.com/products/devpass-by-llm-gateway?launch=devpass-by-llm-gateway"
+									target="_blank"
+									rel="noreferrer"
+									className="inline-flex items-center gap-2.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-5 py-2.5 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-300"
+								>
+									<ProductHuntIcon className="h-6 w-6" />
+
+									<span>
+										We&apos;re live on Product Hunt. Help us by upvoting
+									</span>
+									<ArrowRight className="h-4 w-4" />
+								</Link>
 							</div>
 						</div>
 
