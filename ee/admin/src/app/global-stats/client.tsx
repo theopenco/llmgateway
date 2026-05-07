@@ -186,31 +186,33 @@ export function GlobalStatsClient() {
 	const timeseries = data?.timeseries ?? [];
 	const breakdown = data?.breakdown ?? [];
 
-	// Pie data: top 10 by cost, the rest collapsed into "Other".
+	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
 		if (breakdown.length === 0) {
 			return [] as { name: string; value: number; key: string }[];
 		}
-		const sortedByCost = [...breakdown].sort((a, b) => b.cost - a.cost);
-		const top = sortedByCost.slice(0, 10);
-		const rest = sortedByCost.slice(10);
+		const sorted = [...breakdown].sort(
+			(a, b) => b[chartMetric] - a[chartMetric],
+		);
+		const top = sorted.slice(0, 10);
+		const rest = sorted.slice(10);
 		const items = top.map((b) => ({
 			name: b.label,
-			value: b.cost,
+			value: b[chartMetric],
 			key: b.key,
 		}));
 		if (rest.length > 0) {
-			const otherCost = rest.reduce((sum, b) => sum + b.cost, 0);
-			if (otherCost > 0) {
+			const otherValue = rest.reduce((sum, b) => sum + b[chartMetric], 0);
+			if (otherValue > 0) {
 				items.push({
 					name: `Other (${rest.length})`,
-					value: otherCost,
+					value: otherValue,
 					key: "__other__",
 				});
 			}
 		}
-		return items;
-	}, [breakdown]);
+		return items.filter((item) => item.value > 0);
+	}, [breakdown, chartMetric]);
 
 	const pieChartConfig = useMemo<ChartConfig>(() => {
 		const config: ChartConfig = {};
@@ -223,7 +225,7 @@ export function GlobalStatsClient() {
 		return config;
 	}, [pieData]);
 
-	const totalPieCost = pieData.reduce((sum, p) => sum + p.value, 0);
+	const totalPieValue = pieData.reduce((sum, p) => sum + p.value, 0);
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -412,15 +414,33 @@ export function GlobalStatsClient() {
 			</Card>
 
 			<Card>
-				<CardHeader className="border-b p-4 sm:p-6">
-					<CardTitle>
-						Cost share — {groupBy === "model" ? "models" : "sources"}
-					</CardTitle>
-					<CardDescription>
-						{breakdown.length > 10
-							? `Top 10 + Other across the ${range} window.`
-							: `All ${breakdown.length} ${groupBy === "model" ? "models" : "sources"} in the ${range} window.`}
-					</CardDescription>
+				<CardHeader className="flex flex-col items-stretch space-y-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 sm:p-6">
+					<div>
+						<CardTitle>
+							{timeseriesChartConfig[chartMetric].label as string} share —{" "}
+							{groupBy === "model" ? "models" : "sources"}
+						</CardTitle>
+						<CardDescription>
+							{breakdown.length > 10
+								? `Top 10 + Other across the ${range} window.`
+								: `All ${breakdown.length} ${groupBy === "model" ? "models" : "sources"} in the ${range} window.`}
+						</CardDescription>
+					</div>
+					<div className="flex items-center gap-1">
+						{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
+							(m) => (
+								<Button
+									key={m}
+									variant={chartMetric === m ? "default" : "outline"}
+									size="sm"
+									className="h-7 px-3 text-xs"
+									onClick={() => setChartMetric(m)}
+								>
+									{timeseriesChartConfig[m].label as string}
+								</Button>
+							),
+						)}
+					</div>
 				</CardHeader>
 				<CardContent className="grid gap-6 p-4 sm:p-6 lg:grid-cols-2">
 					<div className="flex min-h-[320px] items-center justify-center">
@@ -442,9 +462,9 @@ export function GlobalStatsClient() {
 															{(item?.payload as { name?: string })?.name ?? ""}
 														</span>
 														<span>
-															{currencyFormatter.format(Number(value))}
-															{totalPieCost > 0
-																? ` · ${((Number(value) / totalPieCost) * 100).toFixed(1)}%`
+															{metricFormatter(chartMetric)(Number(value))}
+															{totalPieValue > 0
+																? ` · ${((Number(value) / totalPieValue) * 100).toFixed(1)}%`
 																: ""}
 														</span>
 													</div>
@@ -485,32 +505,35 @@ export function GlobalStatsClient() {
 									<th className="px-3 py-2 text-left">
 										{groupBy === "model" ? "Model" : "Source"}
 									</th>
-									<th className="px-3 py-2 text-right">Requests</th>
-									<th className="px-3 py-2 text-right">Cost</th>
+									<th className="px-3 py-2 text-right">
+										{timeseriesChartConfig[chartMetric].label as string}
+									</th>
 								</tr>
 							</thead>
 							<tbody>
 								{breakdown.length === 0 ? (
 									<tr>
 										<td
-											colSpan={3}
+											colSpan={2}
 											className="px-3 py-6 text-center text-muted-foreground"
 										>
 											{isLoading ? "Loading…" : "No data."}
 										</td>
 									</tr>
 								) : (
-									breakdown.slice(0, 25).map((b) => (
-										<tr key={b.key} className="border-t border-border/40">
-											<td className="px-3 py-2 font-mono text-xs">{b.label}</td>
-											<td className="px-3 py-2 text-right tabular-nums">
-												{numberFormatter.format(b.requestCount)}
-											</td>
-											<td className="px-3 py-2 text-right tabular-nums">
-												{currencyFormatter.format(b.cost)}
-											</td>
-										</tr>
-									))
+									[...breakdown]
+										.sort((a, b) => b[chartMetric] - a[chartMetric])
+										.slice(0, 25)
+										.map((b) => (
+											<tr key={b.key} className="border-t border-border/40">
+												<td className="px-3 py-2 font-mono text-xs">
+													{b.label}
+												</td>
+												<td className="px-3 py-2 text-right tabular-nums">
+													{metricFormatter(chartMetric)(b[chartMetric])}
+												</td>
+											</tr>
+										))
 								)}
 							</tbody>
 						</table>
