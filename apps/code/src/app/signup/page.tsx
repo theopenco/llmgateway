@@ -27,7 +27,7 @@ import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
 
 const formSchema = z.object({
-	name: z.string().min(2, { message: "Name is required" }),
+	name: z.string().optional(),
 	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
@@ -88,7 +88,7 @@ function SignupForm() {
 
 		const { error } = await signUp.email(
 			{
-				name: values.name,
+				name: values.name?.trim() ?? "",
 				email: values.email,
 				password: values.password,
 			},
@@ -264,9 +264,13 @@ function SignupForm() {
 									name="name"
 									render={({ field }) => (
 										<FormItem>
-											<FormLabel>Name</FormLabel>
+											<FormLabel>Name (optional)</FormLabel>
 											<FormControl>
-												<Input placeholder="John Doe" {...field} />
+												<Input
+													placeholder="John Doe"
+													autoComplete="name"
+													{...field}
+												/>
 											</FormControl>
 											<FormMessage />
 										</FormItem>
