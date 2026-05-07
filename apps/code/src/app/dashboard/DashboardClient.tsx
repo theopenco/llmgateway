@@ -20,6 +20,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
+import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
@@ -382,6 +383,8 @@ export default function DashboardClient() {
 					</div>
 				</div>
 			</header>
+
+			<EmailVerificationBanner />
 
 			<main className="container mx-auto px-4 py-8 max-w-6xl">
 				{hasActivePlan ? (
