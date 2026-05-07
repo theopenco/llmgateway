@@ -389,36 +389,6 @@ export default function DashboardClient() {
 			<main className="container mx-auto px-4 py-8 max-w-6xl">
 				{hasActivePlan ? (
 					<div className="space-y-10">
-						{/* Top row: subscription controls (cancel/resume) */}
-						<div className="flex justify-end">
-							{devPlanStatus?.devPlanCancelled ? (
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={handleResume}
-									disabled={isResuming}
-								>
-									{isResuming && (
-										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-									)}
-									Resume subscription
-								</Button>
-							) : (
-								<Button
-									variant="ghost"
-									size="sm"
-									onClick={handleCancel}
-									disabled={isCancelling}
-									className="text-muted-foreground"
-								>
-									{isCancelling && (
-										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-									)}
-									Cancel subscription
-								</Button>
-							)}
-						</div>
-
 						{/* Usage — full-width with metrics + chart */}
 						<UsageOverview
 							projectId={devPlanStatus?.projectId ?? null}
@@ -487,6 +457,36 @@ export default function DashboardClient() {
 							subscribingTier={subscribingTier}
 							onChangeTier={handleChangeTier}
 						/>
+
+						{/* Subscription controls (cancel/resume) */}
+						<div className="flex justify-end">
+							{devPlanStatus?.devPlanCancelled ? (
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={handleResume}
+									disabled={isResuming}
+								>
+									{isResuming && (
+										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+									)}
+									Resume subscription
+								</Button>
+							) : (
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={handleCancel}
+									disabled={isCancelling}
+									className="text-muted-foreground"
+								>
+									{isCancelling && (
+										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+									)}
+									Cancel subscription
+								</Button>
+							)}
+						</div>
 					</div>
 				) : (
 					<div className="space-y-10">
