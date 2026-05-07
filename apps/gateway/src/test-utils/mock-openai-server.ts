@@ -47,7 +47,10 @@ function extractTimeoutDelay(content: string): number | null {
 	if (match) {
 		return parseInt(match[1], 10);
 	}
-	if (content.includes("TRIGGER_TIMEOUT")) {
+	if (
+		content.includes("TRIGGER_TIMEOUT") &&
+		!content.includes("TRIGGER_TIMEOUT_FAIL_ONCE")
+	) {
 		// Default to 5 seconds if no specific delay is provided
 		return 5000;
 	}
@@ -127,6 +130,102 @@ function extractStatusCodeTrigger(
 			},
 		},
 	};
+}
+
+function getResponsesApiUserMessage(input: unknown): string {
+	if (!Array.isArray(input)) {
+		return "";
+	}
+
+	const userItem = input.find(
+		(item) =>
+			item &&
+			typeof item === "object" &&
+			"role" in item &&
+			item.role === "user",
+	);
+	if (!userItem || typeof userItem !== "object" || !("content" in userItem)) {
+		return "";
+	}
+
+	const { content } = userItem;
+	if (typeof content === "string") {
+		return content;
+	}
+	if (!Array.isArray(content)) {
+		return "";
+	}
+
+	return content
+		.map((part) => {
+			if (
+				part &&
+				typeof part === "object" &&
+				"type" in part &&
+				part.type === "input_text" &&
+				"text" in part &&
+				typeof part.text === "string"
+			) {
+				return part.text;
+			}
+			return "";
+		})
+		.filter(Boolean)
+		.join(" ");
+}
+
+function buildAwsEventStreamMessage(
+	eventType: string,
+	payload: Record<string, unknown>,
+): Uint8Array {
+	const encoder = new TextEncoder();
+	const headerName = encoder.encode(":event-type");
+	const headerValue = encoder.encode(eventType);
+	const payloadBytes = encoder.encode(JSON.stringify(payload));
+	const headersLength = 1 + headerName.length + 1 + 2 + headerValue.length;
+	const totalLength = 12 + headersLength + payloadBytes.length + 4;
+	const message = new Uint8Array(totalLength);
+	const view = new DataView(message.buffer);
+
+	view.setUint32(0, totalLength, false);
+	view.setUint32(4, headersLength, false);
+	view.setUint32(8, 0, false);
+
+	let offset = 12;
+	message[offset] = headerName.length;
+	offset += 1;
+	message.set(headerName, offset);
+	offset += headerName.length;
+	message[offset] = 7;
+	offset += 1;
+	view.setUint16(offset, headerValue.length, false);
+	offset += 2;
+	message.set(headerValue, offset);
+	offset += headerValue.length;
+	message.set(payloadBytes, offset);
+
+	return message;
+}
+
+function buildAwsEventStream(
+	events: Array<{ eventType: string; payload: Record<string, unknown> }>,
+): Uint8Array {
+	const messages = events.map(({ eventType, payload }) =>
+		buildAwsEventStreamMessage(eventType, payload),
+	);
+	const totalLength = messages.reduce(
+		(sum, message) => sum + message.length,
+		0,
+	);
+	const combined = new Uint8Array(totalLength);
+	let offset = 0;
+
+	for (const message of messages) {
+		combined.set(message, offset);
+		offset += message.length;
+	}
+
+	return combined;
 }
 
 function extractApplicationCodeTrigger(
@@ -481,8 +580,121 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	}
 
 	// Get the user's message to include in the response
-	const userMessage =
-		body.input?.find?.((msg: any) => msg.role === "user")?.content ?? "";
+	const userMessage = getResponsesApiUserMessage(body.input);
+	const shouldEndAfterDoneEvent = userMessage.includes(
+		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
+	);
+	const shouldEndAfterIntermediateDoneEvent = userMessage.includes(
+		"TRIGGER_RESPONSES_DONE_BEFORE_COMPLETED",
+	);
+	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
+
+	if (body.stream === true) {
+		return streamSSE(c, async (stream) => {
+			let eventId = 0;
+			const responseBase = {
+				id: "resp-123",
+				object: "response",
+				created_at: Math.floor(Date.now() / 1000),
+				model: body.model ?? "gpt-5-nano",
+			};
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.created",
+					response: {
+						...responseBase,
+						status: "in_progress",
+					},
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.content_part.added",
+					content_index: 0,
+					item_id: "msg_123",
+					output_index: 0,
+					part: {
+						type: "output_text",
+						text: assistantContent,
+					},
+					response: {
+						...responseBase,
+						status: "in_progress",
+					},
+					sequence_number: 0,
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.output_text.done",
+					content_index: 0,
+					item_id: "msg_123",
+					output_index: 0,
+					response: {
+						...responseBase,
+						status: shouldEndAfterDoneEvent ? "completed" : "in_progress",
+						usage: {
+							input_tokens: 10,
+							output_tokens: 20,
+							total_tokens: 30,
+						},
+					},
+					sequence_number: 1,
+					text: assistantContent,
+				}),
+				id: String(eventId++),
+			});
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.content_part.done",
+					content_index: 0,
+					item_id: "msg_123",
+					output_index: 0,
+					part: {
+						type: "output_text",
+						text: assistantContent,
+					},
+					response: {
+						...responseBase,
+						status: shouldEndAfterDoneEvent ? "completed" : "in_progress",
+						usage: {
+							input_tokens: 10,
+							output_tokens: 20,
+							total_tokens: 30,
+						},
+					},
+					sequence_number: 2,
+				}),
+				id: String(eventId++),
+			});
+
+			if (shouldEndAfterDoneEvent || shouldEndAfterIntermediateDoneEvent) {
+				return;
+			}
+
+			await stream.writeSSE({
+				data: JSON.stringify({
+					type: "response.completed",
+					response: {
+						...responseBase,
+						usage: {
+							input_tokens: 10,
+							output_tokens: 20,
+							total_tokens: 30,
+						},
+						status: "completed",
+					},
+				}),
+				id: String(eventId++),
+			});
+		});
+	}
 
 	// Create a Responses API format response
 	const response = {
@@ -497,7 +709,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				content: [
 					{
 						type: "output_text",
-						text: `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`,
+						text: assistantContent,
 					},
 				],
 			},
@@ -538,8 +750,37 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		return c.json(statusTrigger.errorResponse);
 	}
 
-	// Check if this request should fail on the first attempt but succeed on retry
-	if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
+	// Check if this request should fail on the first attempt but succeed on retry.
+	// These triggers are mutually exclusive — TRIGGER_FAIL_ONCE_404/_403 are
+	// substrings of the generic TRIGGER_FAIL_ONCE, so order specific → generic.
+	if (userMessage.includes("TRIGGER_FAIL_ONCE_404")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(404);
+			return c.json({
+				error: {
+					message: "The model 'nonexistent-model' does not exist.",
+					type: "invalid_request_error",
+					param: "model",
+					code: "model_not_found",
+				},
+			});
+		}
+		// Subsequent requests succeed - fall through to normal response
+	} else if (userMessage.includes("TRIGGER_FAIL_ONCE_403")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(403);
+			return c.json({
+				error: {
+					message:
+						"Authentication failed: Please make sure your API Key is valid.",
+					type: "authentication_error",
+				},
+			});
+		}
+		// Subsequent requests succeed - fall through to normal response
+	} else if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
 		failOnceCounter++;
 		if (failOnceCounter === 1) {
 			c.status(500);
@@ -553,6 +794,13 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		}
 		// Subsequent requests succeed - fall through to normal response
+	}
+
+	if (userMessage.includes("TRIGGER_TIMEOUT_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			await delay(100);
+		}
 	}
 
 	// Check if this request should trigger a timeout (delay response)
@@ -578,12 +826,61 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"TRIGGER_STREAM_PROVIDER_ERROR",
 	);
+	const shouldReturnStreamedAuthError = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_AUTH_ERROR",
+	);
+	const shouldFailOnceWithImmediateStream404 = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_FAIL_ONCE_404",
+	);
+	const shouldFailOnceWithImmediateStreamServerErrorWithoutStatus =
+		hasUserMessageTrigger(chatMessages, "TRIGGER_STREAM_FAIL_ONCE_NO_STATUS");
 
 	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
 
 	if (body.stream === true) {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
+
+			if (shouldFailOnceWithImmediateStream404) {
+				failOnceCounter++;
+				if (failOnceCounter === 1) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-err-404",
+							error: {
+								code: "model_not_found",
+								message: "The model 'nonexistent-model' does not exist.",
+								param: "model",
+								type: "invalid_request_error",
+								status_code: 404,
+							},
+						}),
+						id: String(eventId++),
+					});
+					return;
+				}
+			}
+
+			if (shouldFailOnceWithImmediateStreamServerErrorWithoutStatus) {
+				failOnceCounter++;
+				if (failOnceCounter === 1) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-err-500",
+							error: {
+								code: "internal_server_error",
+								message: "Temporary upstream failure.",
+								param: null,
+								type: "server_error",
+							},
+						}),
+						id: String(eventId++),
+					});
+					return;
+				}
+			}
 
 			await stream.writeSSE({
 				data: JSON.stringify({
@@ -614,6 +911,22 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 								"Input data may contain inappropriate content. Please ensure that your input complies with the usage policy of DashScope LLM.",
 							param: null,
 							type: "data_inspection_failed",
+						},
+					}),
+					id: String(eventId++),
+				});
+				return;
+			}
+
+			if (shouldReturnStreamedAuthError) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-auth-err-123",
+						error: {
+							code: "invalid_api_key",
+							message: "Incorrect API key provided.",
+							param: null,
+							type: "authentication_error",
 						},
 					}),
 					id: String(eventId++),
@@ -763,16 +1076,6 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 		c.status(statusTrigger.statusCode as any);
 		return c.json(statusTrigger.errorResponse);
 	}
-	if (prompt.includes("TRIGGER_OBSIDIAN_NO_CHANNEL")) {
-		c.status(503);
-		return c.json({
-			error: {
-				message:
-					"当前分组 default 下对于模型 sora-2-pro 计费模式 [按量计费,按次计费] 无可用渠道 (request id: 2026032422002539193536177450876)",
-				type: "shell_api_error",
-			},
-		});
-	}
 	videoCounter++;
 	const id = `video_${videoCounter}`;
 	const videoSize = getMockVideoSizeMetadata(body.size);
@@ -795,8 +1098,7 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 		object: "video",
 		model: body.model ?? "veo-3.1",
 		status:
-			(authorization.includes("avalanche") ||
-				authorization.includes("obsidian")) &&
+			authorization.includes("avalanche") &&
 			typeof body.model === "string" &&
 			body.model.startsWith("sora-2")
 				? "submitted"
@@ -1656,8 +1958,48 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 		return c.json({});
 	}
 
-	c.header("content-type", "application/vnd.amazon.eventstream");
-	return c.body("");
+	return new Response(
+		Buffer.from(
+			buildAwsEventStream([
+				{
+					eventType: "messageStart",
+					payload: {
+						role: "assistant",
+					},
+				},
+				{
+					eventType: "contentBlockDelta",
+					payload: {
+						contentBlockIndex: 0,
+						delta: {
+							text: `Bedrock mock response: ${userMessage}`,
+						},
+					},
+				},
+				{
+					eventType: "messageStop",
+					payload: {
+						stopReason: "end_turn",
+					},
+				},
+				{
+					eventType: "metadata",
+					payload: {
+						usage: {
+							inputTokens: 10,
+							outputTokens: 20,
+							totalTokens: 30,
+						},
+					},
+				},
+			]),
+		),
+		{
+			headers: {
+				"content-type": "application/vnd.amazon.eventstream",
+			},
+		},
+	);
 });
 
 let server: any = null;

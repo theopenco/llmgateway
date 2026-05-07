@@ -5,6 +5,7 @@ import {
 	BookOpen,
 	Bot,
 	ChevronDown,
+	Code,
 	Github,
 	Menu,
 	MessagesSquare,
@@ -150,6 +151,25 @@ export const Navbar = ({
 			icon: Puzzle,
 			gradient:
 				"hover:from-pink-500/20 hover:to-rose-600/30 hover:shadow-pink-500/10 group-hover/product:text-pink-500 dark:group-hover/product:text-pink-400",
+		},
+		{
+			title: "DevPass",
+			href: "https://devpass.llmgateway.io",
+			description:
+				"Fixed-price monthly plans for Claude Code, Cursor, and every coding tool.",
+			icon: Code,
+			gradient:
+				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
+			external: true,
+		},
+		{
+			title: "Reliability",
+			href: "/reliability",
+			description:
+				"Automatic failover and 99.9999% effective uptime across providers.",
+			icon: ShieldCheck,
+			gradient:
+				"hover:from-emerald-500/20 hover:to-green-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
 		},
 	];
 

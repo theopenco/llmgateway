@@ -52,25 +52,21 @@ describe("round-robin-env", () => {
 			expect(result2.index).toBe(0);
 		});
 
-		it("should rotate through multiple values", () => {
+		it("should always prefer the first value when healthy", () => {
 			const result1 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
 			expect(result1.value).toBe("value1");
 			expect(result1.index).toBe(0);
 
 			const result2 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
-			expect(result2.value).toBe("value2");
-			expect(result2.index).toBe(1);
+			expect(result2.value).toBe("value1");
+			expect(result2.index).toBe(0);
 
 			const result3 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
-			expect(result3.value).toBe("value3");
-			expect(result3.index).toBe(2);
-
-			const result4 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
-			expect(result4.value).toBe("value1");
-			expect(result4.index).toBe(0);
+			expect(result3.value).toBe("value1");
+			expect(result3.index).toBe(0);
 		});
 
-		it("should maintain separate counters for different env vars", () => {
+		it("should keep selections independent across env vars", () => {
 			const result1 = getRoundRobinValue("VAR_A", "a1,a2");
 			expect(result1.value).toBe("a1");
 
@@ -78,28 +74,28 @@ describe("round-robin-env", () => {
 			expect(result2.value).toBe("b1");
 
 			const result3 = getRoundRobinValue("VAR_A", "a1,a2");
-			expect(result3.value).toBe("a2");
+			expect(result3.value).toBe("a1");
 
 			const result4 = getRoundRobinValue("VAR_B", "b1,b2");
-			expect(result4.value).toBe("b2");
+			expect(result4.value).toBe("b1");
 		});
 
-		it("should support peeking without advancing the counter", () => {
+		it("should support peeking without changing the preferred key", () => {
 			const result1 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
 			expect(result1.value).toBe("value1");
 			expect(result1.index).toBe(0);
 
 			const peek1 = peekRoundRobinValue("TEST_VAR", "value1,value2,value3");
-			expect(peek1.value).toBe("value2");
-			expect(peek1.index).toBe(1);
+			expect(peek1.value).toBe("value1");
+			expect(peek1.index).toBe(0);
 
 			const peek2 = peekRoundRobinValue("TEST_VAR", "value1,value2,value3");
-			expect(peek2.value).toBe("value2");
-			expect(peek2.index).toBe(1);
+			expect(peek2.value).toBe("value1");
+			expect(peek2.index).toBe(0);
 
 			const result2 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
-			expect(result2.value).toBe("value2");
-			expect(result2.index).toBe(1);
+			expect(result2.value).toBe("value1");
+			expect(result2.index).toBe(0);
 		});
 
 		it("should throw error for empty value", () => {
@@ -119,18 +115,17 @@ describe("round-robin-env", () => {
 			expect(result1.value).toBe("value2");
 			expect(result1.index).toBe(1);
 
-			// Next call should return index 2
+			// Subsequent calls should keep using the first healthy fallback
 			const result2 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
-			expect(result2.value).toBe("value3");
-			expect(result2.index).toBe(2);
+			expect(result2.value).toBe("value2");
+			expect(result2.index).toBe(1);
 
-			// Next call should skip index 0 again and return index 1
 			const result3 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
 			expect(result3.value).toBe("value2");
 			expect(result3.index).toBe(1);
 		});
 
-		it("should fall back to unhealthy keys if all are unhealthy", () => {
+		it("should fall back to the primary key if all are unhealthy", () => {
 			// Mark all keys as unhealthy
 			reportKeyError("TEST_VAR", 0, 500);
 			reportKeyError("TEST_VAR", 0, 500);
@@ -145,7 +140,7 @@ describe("round-robin-env", () => {
 			expect(result1.value).toBe("value1");
 
 			const result2 = getRoundRobinValue("TEST_VAR", "value1,value2");
-			expect(result2.value).toBe("value2");
+			expect(result2.value).toBe("value1");
 		});
 
 		it("should skip permanently blacklisted keys (401)", () => {
@@ -158,8 +153,8 @@ describe("round-robin-env", () => {
 			expect(result1.index).toBe(1);
 
 			const result2 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
-			expect(result2.value).toBe("value3");
-			expect(result2.index).toBe(2);
+			expect(result2.value).toBe("value2");
+			expect(result2.index).toBe(1);
 
 			const result3 = getRoundRobinValue("TEST_VAR", "value1,value2,value3");
 			expect(result3.value).toBe("value2");
@@ -193,7 +188,7 @@ describe("round-robin-env", () => {
 			expect(result2.index).toBe(0);
 		});
 
-		it("should round-robin among keys with identical uptime", () => {
+		it("should keep using the primary key when uptimes are identical", () => {
 			// Key 0 and 1 both have 100% uptime
 			for (let i = 0; i < 5; i++) {
 				reportKeySuccess("IDENTICAL_UPTIME", 0);
@@ -205,7 +200,7 @@ describe("round-robin-env", () => {
 			expect(result1.index).toBe(0);
 
 			const result2 = getRoundRobinValue("IDENTICAL_UPTIME", "value1,value2");
-			expect(result2.index).toBe(1);
+			expect(result2.index).toBe(0);
 
 			const result3 = getRoundRobinValue("IDENTICAL_UPTIME", "value1,value2");
 			expect(result3.index).toBe(0);

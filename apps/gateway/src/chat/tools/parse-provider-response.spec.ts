@@ -16,6 +16,45 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("parseProviderResponse", () => {
+	describe("google reasoning output", () => {
+		it("treats missing thought text as null when only thought signatures are returned", () => {
+			const json = {
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [
+								{
+									text: "OK",
+									thoughtSignature: "sig-123",
+								},
+							],
+						},
+						finishReason: "STOP",
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 5,
+					candidatesTokenCount: 1,
+					totalTokenCount: 50,
+					thoughtsTokenCount: 44,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"google-vertex",
+				"gemini-3-flash-preview",
+				json,
+			);
+
+			expect(result.content).toBe("OK");
+			expect(result.reasoningContent).toBeNull();
+			expect(result.reasoningTokens).toBe(44);
+			expect(result.completionTokens).toBe(45);
+			expect(result.finishReason).toBe("STOP");
+		});
+	});
+
 	describe("aws-bedrock cachedTokens", () => {
 		it("returns cachedTokens as 0 when cacheReadInputTokens is 0", () => {
 			const json = {
@@ -97,6 +136,52 @@ describe("parseProviderResponse", () => {
 
 			expect(result.cachedTokens).toBe(0);
 		});
+
+		it("extracts reasoning content from Bedrock reasoning blocks", () => {
+			const json = {
+				output: {
+					message: {
+						content: [
+							{
+								reasoningContent: {
+									reasoningText: {
+										text: "First compare the sets. ",
+									},
+								},
+							},
+							{
+								reasoningContent: {
+									reasoningText: {
+										text: "Then derive the conclusion.",
+									},
+								},
+							},
+							{ text: "Some roses may be red, but it is not guaranteed." },
+						],
+						role: "assistant",
+					},
+				},
+				stopReason: "end_turn",
+				usage: {
+					inputTokens: 100,
+					outputTokens: 200,
+					totalTokens: 300,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				json,
+			);
+
+			expect(result.content).toBe(
+				"Some roses may be red, but it is not guaranteed.",
+			);
+			expect(result.reasoningContent).toBe(
+				"First compare the sets. Then derive the conclusion.",
+			);
+		});
 	});
 
 	describe("novita finish reason mapping", () => {
@@ -161,6 +246,7 @@ describe("parseProviderResponse", () => {
 			);
 
 			expect(result.cachedTokens).toBe(0);
+			expect(result.cacheCreationTokens).toBe(50);
 			expect(result.promptTokens).toBe(150); // 100 + 50 + 0
 		});
 
@@ -183,6 +269,7 @@ describe("parseProviderResponse", () => {
 			);
 
 			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(0);
 			expect(result.promptTokens).toBe(900); // 100 + 0 + 800
 		});
 
@@ -203,6 +290,153 @@ describe("parseProviderResponse", () => {
 			);
 
 			expect(result.cachedTokens).toBe(0);
+		});
+
+		it("extracts 1h cache creation tokens from cache_creation breakdown", () => {
+			const json = {
+				content: [{ type: "text", text: "Hello" }],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 1000,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 400,
+						ephemeral_1h_input_tokens: 600,
+					},
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-3-sonnet",
+				json,
+			);
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBe(600);
+		});
+
+		it("returns null cacheCreation1hTokens when cache_creation breakdown is absent", () => {
+			const json = {
+				content: [{ type: "text", text: "Hello" }],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 400,
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-3-sonnet",
+				json,
+			);
+
+			expect(result.cacheCreationTokens).toBe(400);
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+	});
+
+	describe("minimax reasoning extraction", () => {
+		it("extracts reasoning from reasoning_details", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "Final answer",
+							reasoning_details: [{ text: "step 1" }, { text: " step 2" }],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"minimax",
+				"MiniMax-M2",
+				json,
+				[],
+				true,
+				true,
+			);
+
+			expect(result.content).toBe("Final answer");
+			expect(result.reasoningContent).toBe("step 1 step 2");
+		});
+
+		it("falls back to splitting reasoning tags from content", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "<think>step 1\nstep 2</think>\nFinal answer",
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"minimax",
+				"MiniMax-M2",
+				json,
+				[],
+				true,
+				true,
+			);
+
+			expect(result.content).toBe("Final answer");
+			expect(result.reasoningContent).toBe("step 1\nstep 2");
+		});
+
+		it("strips reasoning tags from content even when reasoning_details are present", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "<think>tagged reasoning</think>\nFinal answer",
+							reasoning_details: [{ text: "structured reasoning" }],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"minimax",
+				"MiniMax-M2",
+				json,
+				[],
+				true,
+				true,
+			);
+
+			expect(result.content).toBe("Final answer");
+			expect(result.reasoningContent).toBe("structured reasoning");
 		});
 	});
 });

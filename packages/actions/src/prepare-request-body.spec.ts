@@ -4,6 +4,37 @@ import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
+async function prepareOpenAIImageRequest(imageConfig: {
+	aspect_ratio?: string;
+	image_size?: string;
+	image_quality?: string;
+	n?: number;
+}) {
+	return await prepareRequestBody(
+		"openai",
+		"gpt-image-2",
+		[{ role: "user", content: "Generate a cinematic landscape" }],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		false,
+		false,
+		20,
+		null,
+		undefined,
+		imageConfig,
+		undefined,
+		true,
+	);
+}
+
 describe("prepareRequestBody - Anthropic", () => {
 	test("should extract system messages to system field for caching", async () => {
 		const requestBody = (await prepareRequestBody(
@@ -159,6 +190,51 @@ describe("prepareRequestBody - Anthropic", () => {
 
 		// Should be exactly 4 (the limit)
 		expect(totalCacheControlBlocks).toBe(4);
+	});
+});
+
+describe("prepareRequestBody - OpenAI image generation", () => {
+	test.each([
+		"1024x1024",
+		"1536x1024",
+		"1024x1536",
+		"2048x2048",
+		"3072x2160",
+		"3840x2160",
+		"2160x3840",
+		"auto",
+	])("should pass image_size %s straight through", async (size) => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: size,
+			image_quality: "high",
+			n: 1,
+		})) as any;
+
+		expect(requestBody).toMatchObject({
+			model: "gpt-image-2",
+			prompt: "Generate a cinematic landscape",
+			size,
+			quality: "high",
+			n: 1,
+		});
+	});
+
+	test("should not derive size from aspect_ratio", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			aspect_ratio: "16:9",
+		})) as any;
+
+		expect(requestBody.size).toBeUndefined();
+	});
+
+	test("should drop unsupported quality values", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: "1024x1024",
+			image_quality: "standard",
+		})) as any;
+
+		expect(requestBody.size).toBe("1024x1024");
+		expect(requestBody.quality).toBeUndefined();
 	});
 });
 
@@ -662,6 +738,54 @@ describe("prepareRequestBody - Google AI Studio", () => {
 	});
 });
 
+describe("prepareRequestBody - MiniMax", () => {
+	test("should enable reasoning_split for reasoning-capable models", async () => {
+		const requestBody = (await prepareRequestBody(
+			"minimax",
+			"MiniMax-M2",
+			[{ role: "user", content: "What is 2+2?" }],
+			true,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"medium",
+			true,
+			false,
+		)) as { extra_body?: Record<string, unknown> };
+
+		expect(requestBody.extra_body).toEqual({
+			reasoning_split: true,
+		});
+	});
+
+	test("should not set reasoning_split when supportsReasoning is false", async () => {
+		const requestBody = (await prepareRequestBody(
+			"minimax",
+			"MiniMax-M2",
+			[{ role: "user", content: "What is 2+2?" }],
+			true,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"medium",
+			false,
+			false,
+		)) as { extra_body?: Record<string, unknown> };
+
+		expect(requestBody.extra_body?.reasoning_split).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(
@@ -808,7 +932,8 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			content: [{ text: "What is the weather and time in Berlin?" }],
 		});
 		expect(requestBody.messages[1].role).toBe("assistant");
-		expect(requestBody.messages[1].content).toHaveLength(2);
+		// 2 toolUse blocks + 1 turn-boundary cachePoint
+		expect(requestBody.messages[1].content).toHaveLength(3);
 		expect(requestBody.messages[1].content[0]).toEqual({
 			toolUse: {
 				toolUseId: "tool_1",
@@ -822,6 +947,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 				name: "get_time",
 				input: { city: "Berlin" },
 			},
+		});
+		expect(requestBody.messages[1].content[2]).toEqual({
+			cachePoint: { type: "default" },
 		});
 		expect(requestBody.messages[2]).toEqual({
 			role: "user",

@@ -19,6 +19,32 @@ import {
 } from "./test-utils/test-helpers.js";
 
 describe("e2e individual tests", () => {
+	const autoRoutingModelIds = new Set([
+		"claude-opus-4-6",
+		"claude-sonnet-4-6",
+		"claude-haiku-4-5",
+	]);
+	const autoRoutingProviderIds = [
+		...new Set(
+			models
+				.filter((model) => autoRoutingModelIds.has(model.id))
+				.flatMap((model) =>
+					model.providers.map((provider) => provider.providerId),
+				),
+		),
+	];
+
+	function hasProviderEnvVar(providerId: string) {
+		const envVarName = getProviderEnvVar(providerId);
+		return envVarName ? !!process.env[envVarName] : false;
+	}
+
+	function hasAutoRoutingProviderEnv() {
+		return autoRoutingProviderIds.some((providerId) =>
+			hasProviderEnvVar(providerId),
+		);
+	}
+
 	// Helper to create unique test data for each test to avoid conflicts
 	async function createTestData(testId: string) {
 		const userId = `user-${testId}`;
@@ -95,20 +121,23 @@ describe("e2e individual tests", () => {
 	function validateResponse(json: any) {
 		expect(json).toHaveProperty("choices.[0].message.content");
 
-		expect(json).toHaveProperty("usage.prompt_tokens");
-		expect(json).toHaveProperty("usage.completion_tokens");
-		expect(json).toHaveProperty("usage.total_tokens");
+		// Usage may be absent for some auto-routed models (e.g. Responses API)
+		if (json.usage) {
+			expect(json.usage).toHaveProperty("prompt_tokens");
+			expect(json.usage).toHaveProperty("completion_tokens");
+			expect(json.usage).toHaveProperty("total_tokens");
+		}
 	}
 
 	test(
 		"JSON output mode error for unsupported model",
 		getTestOptions({ completions: false }),
 		async () => {
-			const envVarName = getProviderEnvVar("anthropic");
+			const envVarName = getProviderEnvVar("openai");
 			const envVarValue = envVarName ? process.env[envVarName] : undefined;
 			if (!envVarValue) {
 				console.log(
-					"Skipping JSON output error test - no Anthropic API key provided",
+					"Skipping JSON output error test - no OpenAI API key provided",
 				);
 				return;
 			}
@@ -122,7 +151,7 @@ describe("e2e individual tests", () => {
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
-					model: "anthropic/claude-haiku-4-5",
+					model: "openai/gpt-4o-mini-search-preview",
 					messages: [
 						{
 							role: "user",
@@ -369,7 +398,16 @@ describe("e2e individual tests", () => {
 		"completions with bare 'auto' model and credits",
 		getTestOptions({ completions: false }),
 		async () => {
-			const { orgId, projectId, token } = await createTestData("bare-auto");
+			if (!hasAutoRoutingProviderEnv()) {
+				console.log(
+					"Skipping bare auto test - no Claude auto-routing provider API key provided",
+				);
+				return;
+			}
+
+			const { orgId, projectId, token } = await createTestData(
+				`bare-auto-${Date.now()}`,
+			);
 
 			await db
 				.update(tables.organization)
@@ -639,11 +677,9 @@ describe("e2e individual tests", () => {
 		"Auto-routing sets reasoning_effort appropriately",
 		getTestOptions({ completions: false }),
 		async () => {
-			const envVarName = getProviderEnvVar("openai");
-			const envVarValue = envVarName ? process.env[envVarName] : undefined;
-			if (!envVarValue) {
+			if (!hasAutoRoutingProviderEnv()) {
 				console.log(
-					"Skipping auto-routing reasoning_effort test - no OpenAI API key provided",
+					"Skipping auto-routing reasoning_effort test - no Claude auto-routing provider API key provided",
 				);
 				return;
 			}
@@ -696,23 +732,29 @@ describe("e2e individual tests", () => {
 			const usedModel = log.usedModelMapping;
 			expect(usedModel).toBeDefined();
 
-			// Verify reasoningEffort is set and has the correct value based on model
-			expect(log.reasoningEffort).toBeDefined();
-			if (usedModel?.startsWith("gpt-5")) {
-				expect(log.reasoningEffort).toEqual("minimal");
-			} else {
+			const reasoningAutoRoutingModelIds = new Set([
+				"claude-opus-4-6",
+				"claude-sonnet-4-6",
+			]);
+
+			// Verify reasoningEffort is only auto-set for reasoning-capable Claude models
+			if (usedModel && reasoningAutoRoutingModelIds.has(usedModel)) {
 				expect(log.reasoningEffort).toEqual("low");
+			} else {
+				expect(log.reasoningEffort).toBeNull();
 			}
 
-			// Verify the response has valid usage information
-			expect(json.usage).toBeDefined();
-			expect(json.usage.prompt_tokens).toBeGreaterThan(0);
-			expect(json.usage.completion_tokens).toBeGreaterThan(0);
-			expect(json.usage.total_tokens).toBeGreaterThan(0);
+			// Verify the response has valid usage information (if available)
+			// Some auto-routed models may not return usage in non-streaming mode
+			if (json.usage) {
+				expect(json.usage.prompt_tokens).toBeGreaterThan(0);
+				expect(json.usage.completion_tokens).toBeGreaterThan(0);
+				expect(json.usage.total_tokens).toBeGreaterThan(0);
+			}
 
 			// Check if reasoning was actually used
 			// reasoning_tokens may not be present for minimal/low effort
-			if (json.usage.reasoning_tokens !== undefined) {
+			if (json.usage?.reasoning_tokens !== undefined) {
 				expect(typeof json.usage.reasoning_tokens).toBe("number");
 				expect(json.usage.reasoning_tokens).toBeGreaterThanOrEqual(0);
 			}

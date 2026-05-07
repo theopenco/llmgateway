@@ -12,6 +12,7 @@ import {
 import {
 	getCheapestFromAvailableProviders,
 	getProviderSelectionPrice,
+	resolveMetricsModelId,
 } from "./get-cheapest-from-available-providers.js";
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
@@ -37,6 +38,17 @@ describe("Models", () => {
 		expect(o1MiniModel).toBeDefined();
 		expect(o1MiniModel?.supportsSystemRole).toBe(false);
 		expect(o1MiniModel?.family).toBe("openai");
+	});
+
+	it("should mark Claude Sonnet 4.6 provider mappings as vision-capable", () => {
+		const sonnet46 = models.find((model) => model.id === "claude-sonnet-4-6");
+
+		expect(sonnet46).toBeDefined();
+		expect(sonnet46?.providers.map((provider) => provider.vision)).toEqual([
+			true,
+			true,
+			true,
+		]);
 	});
 
 	it("should have free: true when provider mapping has zero pricing", () => {
@@ -697,7 +709,12 @@ describe("getCheapestFromAvailableProviders", () => {
 				{
 					metricsMap: new Map([
 						[
-							metricsKey("veo-3.1-generate-preview", "avalanche"),
+							metricsKey(
+								"veo-3.1-generate-preview",
+								"avalanche",
+								undefined,
+								"veo3",
+							),
 							{
 								modelId: "veo-3.1-generate-preview",
 								providerId: "avalanche",
@@ -708,7 +725,12 @@ describe("getCheapestFromAvailableProviders", () => {
 							},
 						],
 						[
-							metricsKey("veo-3.1-generate-preview", "google-vertex"),
+							metricsKey(
+								"veo-3.1-generate-preview",
+								"google-vertex",
+								undefined,
+								"veo-3.1-generate-001",
+							),
 							{
 								modelId: "veo-3.1-generate-preview",
 								providerId: "google-vertex",
@@ -745,10 +767,502 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
+	it("should include provider scores during random exploration", () => {
+		const videoModel = models.find(
+			(model) => model.id === "veo-3.1-generate-preview",
+		);
+
+		expect(videoModel).toBeDefined();
+
+		const avalancheProvider = videoModel?.providers.find(
+			(provider) => provider.providerId === "avalanche",
+		);
+		const vertexProvider = videoModel?.providers.find(
+			(provider) => provider.providerId === "google-vertex",
+		);
+
+		expect(avalancheProvider).toBeDefined();
+		expect(vertexProvider).toBeDefined();
+		if (!videoModel || !avalancheProvider || !vertexProvider) {
+			throw new Error("Missing Veo provider test fixtures");
+		}
+
+		const randomSpy = vi
+			.spyOn(Math, "random")
+			.mockReturnValueOnce(0)
+			.mockReturnValueOnce(0);
+		const originalArgv = process.argv;
+		const originalNodeEnv = process.env.NODE_ENV;
+		const originalVitest = process.env.VITEST;
+		delete process.env.NODE_ENV;
+		delete process.env.VITEST;
+		process.argv = ["node", "/tmp/not-a-test-run.mjs"];
+
+		try {
+			const result = getCheapestFromAvailableProviders(
+				[avalancheProvider, vertexProvider],
+				videoModel,
+				{
+					metricsMap: new Map([
+						[
+							metricsKey(
+								"veo-3.1-generate-preview",
+								"avalanche",
+								undefined,
+								"veo3",
+							),
+							{
+								modelId: "veo-3.1-generate-preview",
+								providerId: "avalanche",
+								uptime: 99,
+								averageLatency: 300,
+								throughput: 50,
+								totalRequests: 100,
+							},
+						],
+						[
+							metricsKey(
+								"veo-3.1-generate-preview",
+								"google-vertex",
+								undefined,
+								"veo-3.1-generate-001",
+							),
+							{
+								modelId: "veo-3.1-generate-preview",
+								providerId: "google-vertex",
+								uptime: 99.5,
+								averageLatency: 100,
+								throughput: 150,
+								totalRequests: 100,
+							},
+						],
+					]),
+					videoPricing: {
+						durationSeconds: 8,
+						includeAudio: true,
+						resolution: "default",
+					},
+				},
+			);
+
+			expect(result?.metadata.selectionReason).toBe("random-exploration");
+			expect(result?.metadata.providerScores).toHaveLength(2);
+			expect(result?.metadata.providerScores.map((p) => p.providerId)).toEqual(
+				expect.arrayContaining(["avalanche", "google-vertex"]),
+			);
+		} finally {
+			randomSpy.mockRestore();
+			process.argv = originalArgv;
+			if (originalNodeEnv !== undefined) {
+				process.env.NODE_ENV = originalNodeEnv;
+			} else {
+				delete process.env.NODE_ENV;
+			}
+			if (originalVitest !== undefined) {
+				process.env.VITEST = originalVitest;
+			} else {
+				delete process.env.VITEST;
+			}
+		}
+	});
+
 	it("should return null for empty provider list", () => {
 		const testModel = models[0];
 		const result = getCheapestFromAvailableProviders([], testModel);
 		expect(result).toBe(null);
+	});
+
+	describe("resolveMetricsModelId", () => {
+		it("returns the candidate's modelName when it matches a concrete catalog model", () => {
+			expect(
+				resolveMetricsModelId("grok-4-1-fast", "grok-4-1-fast-non-reasoning"),
+			).toBe("grok-4-1-fast-non-reasoning");
+			expect(
+				resolveMetricsModelId("grok-4-1-fast", "grok-4-1-fast-reasoning"),
+			).toBe("grok-4-1-fast-reasoning");
+		});
+
+		it("falls back to the parent model id when the modelName is provider-specific", () => {
+			expect(
+				resolveMetricsModelId("gpt-4o-mini", "gpt-4o-mini-2024-07-18"),
+			).toBe("gpt-4o-mini");
+		});
+
+		it("falls back to the parent model id when the modelName is unknown", () => {
+			expect(
+				resolveMetricsModelId("custom-parent", "totally-unknown-model"),
+			).toBe("custom-parent");
+		});
+	});
+
+	describe("virtual model variant routing", () => {
+		const virtualModel: Parameters<
+			typeof getCheapestFromAvailableProviders
+		>[1] = {
+			id: "virtual-test",
+			providers: [
+				{
+					providerId: "openai",
+					modelName: "virtual-test-non-reasoning",
+					inputPrice: 1 / 1e6,
+					outputPrice: 2 / 1e6,
+				},
+				{
+					providerId: "openai",
+					modelName: "virtual-test-reasoning",
+					inputPrice: 10 / 1e6,
+					outputPrice: 20 / 1e6,
+				},
+			],
+		};
+
+		it("scores the reasoning variant by its own pricing, not the first variant in the array", () => {
+			const result = getCheapestFromAvailableProviders(
+				[{ providerId: "openai", modelName: "virtual-test-reasoning" }],
+				virtualModel,
+			);
+
+			expect(result?.provider.modelName).toBe("virtual-test-reasoning");
+			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
+		});
+
+		it("scores the non-reasoning variant by its own pricing", () => {
+			const result = getCheapestFromAvailableProviders(
+				[{ providerId: "openai", modelName: "virtual-test-non-reasoning" }],
+				virtualModel,
+			);
+
+			expect(result?.provider.modelName).toBe("virtual-test-non-reasoning");
+			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(1.5 / 1e6);
+		});
+
+		it("filters out a reasoning variant whose stability is unstable while keeping the non-reasoning sibling", () => {
+			const modelWithUnstableReasoning: Parameters<
+				typeof getCheapestFromAvailableProviders
+			>[1] = {
+				id: "virtual-stability-test",
+				providers: [
+					{
+						providerId: "openai",
+						modelName: "virtual-stability-non-reasoning",
+						inputPrice: 1 / 1e6,
+						outputPrice: 2 / 1e6,
+					},
+					{
+						providerId: "openai",
+						modelName: "virtual-stability-reasoning",
+						inputPrice: 10 / 1e6,
+						outputPrice: 20 / 1e6,
+						stability: "unstable",
+					},
+				],
+			};
+
+			const reasoningResult = getCheapestFromAvailableProviders(
+				[
+					{
+						providerId: "openai",
+						modelName: "virtual-stability-reasoning",
+					},
+				],
+				modelWithUnstableReasoning,
+			);
+			expect(reasoningResult).toBe(null);
+
+			const nonReasoningResult = getCheapestFromAvailableProviders(
+				[
+					{
+						providerId: "openai",
+						modelName: "virtual-stability-non-reasoning",
+					},
+				],
+				modelWithUnstableReasoning,
+			);
+			expect(nonReasoningResult?.provider.modelName).toBe(
+				"virtual-stability-non-reasoning",
+			);
+		});
+
+		it("preserves the legacy providerId+region match when the candidate does not name a specific variant", () => {
+			const result = getCheapestFromAvailableProviders(
+				[{ providerId: "openai", modelName: "unrelated-name" }],
+				virtualModel,
+			);
+
+			expect(result?.provider.modelName).toBe("unrelated-name");
+			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(1.5 / 1e6);
+		});
+
+		it("scores the reasoning variant under the price-only-no-metrics path", () => {
+			const result = getCheapestFromAvailableProviders(
+				[{ providerId: "openai", modelName: "virtual-test-reasoning" }],
+				virtualModel,
+				{ metricsMap: new Map() },
+			);
+
+			expect(result?.metadata.selectionReason).toBe("price-only-no-metrics");
+			expect(result?.provider.modelName).toBe("virtual-test-reasoning");
+			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
+		});
+
+		it("routes the catalog grok-4-1-fast reasoning variant with reasoning-variant cache support", () => {
+			const grokModel = models.find((model) => model.id === "grok-4-1-fast");
+			expect(grokModel).toBeDefined();
+			if (!grokModel) {
+				throw new Error("Missing grok-4-1-fast fixture");
+			}
+
+			const reasoningProvider = grokModel.providers.find(
+				(p) => p.modelName === "grok-4-1-fast-reasoning",
+			);
+			expect(reasoningProvider).toBeDefined();
+			if (!reasoningProvider) {
+				throw new Error("Missing reasoning variant");
+			}
+
+			const result = getCheapestFromAvailableProviders(
+				[reasoningProvider],
+				grokModel,
+				{ metricsMap: new Map(), promptTokens: 200_000 },
+			);
+
+			expect(result?.provider.modelName).toBe("grok-4-1-fast-reasoning");
+		});
+
+		it("scores the weighted-score path using variant-specific metrics", () => {
+			const reasoningProvider = {
+				providerId: "openai" as const,
+				modelName: "virtual-test-reasoning",
+			};
+			const nonReasoningProvider = {
+				providerId: "openai" as const,
+				modelName: "virtual-test-non-reasoning",
+			};
+
+			// Variant-keyed metrics: non-reasoning is healthy, reasoning is degraded.
+			// Without modelName-aware lookup these would clobber each other under the
+			// same `modelId:providerId:region` legacy key.
+			const metricsMap = new Map([
+				[
+					metricsKey(
+						"virtual-test",
+						"openai",
+						undefined,
+						"virtual-test-non-reasoning",
+					),
+					{
+						modelId: "virtual-test",
+						providerId: "openai",
+						modelName: "virtual-test-non-reasoning",
+						uptime: 99.9,
+						averageLatency: 100,
+						throughput: 200,
+						totalRequests: 100,
+					},
+				],
+				[
+					metricsKey(
+						"virtual-test",
+						"openai",
+						undefined,
+						"virtual-test-reasoning",
+					),
+					{
+						modelId: "virtual-test",
+						providerId: "openai",
+						modelName: "virtual-test-reasoning",
+						uptime: 50,
+						averageLatency: 1000,
+						throughput: 10,
+						totalRequests: 100,
+					},
+				],
+			]);
+
+			const reasoningResult = getCheapestFromAvailableProviders(
+				[reasoningProvider],
+				virtualModel,
+				{ metricsMap },
+			);
+			expect(reasoningResult?.provider.modelName).toBe(
+				"virtual-test-reasoning",
+			);
+			expect(reasoningResult?.metadata.providerScores[0]?.uptime).toBe(50);
+			expect(reasoningResult?.metadata.providerScores[0]?.latency).toBe(1000);
+			expect(reasoningResult?.metadata.providerScores[0]?.throughput).toBe(10);
+
+			const nonReasoningResult = getCheapestFromAvailableProviders(
+				[nonReasoningProvider],
+				virtualModel,
+				{ metricsMap },
+			);
+			expect(nonReasoningResult?.provider.modelName).toBe(
+				"virtual-test-non-reasoning",
+			);
+			expect(nonReasoningResult?.metadata.providerScores[0]?.uptime).toBe(99.9);
+			expect(nonReasoningResult?.metadata.providerScores[0]?.latency).toBe(100);
+			expect(nonReasoningResult?.metadata.providerScores[0]?.throughput).toBe(
+				200,
+			);
+		});
+
+		it("scores the random-exploration metadata using variant-specific metrics", () => {
+			const reasoningProvider = {
+				providerId: "openai" as const,
+				modelName: "virtual-test-reasoning",
+			};
+
+			const metricsMap = new Map([
+				[
+					metricsKey(
+						"virtual-test",
+						"openai",
+						undefined,
+						"virtual-test-non-reasoning",
+					),
+					{
+						modelId: "virtual-test",
+						providerId: "openai",
+						modelName: "virtual-test-non-reasoning",
+						uptime: 99.9,
+						averageLatency: 100,
+						throughput: 200,
+						totalRequests: 100,
+					},
+				],
+				[
+					metricsKey(
+						"virtual-test",
+						"openai",
+						undefined,
+						"virtual-test-reasoning",
+					),
+					{
+						modelId: "virtual-test",
+						providerId: "openai",
+						modelName: "virtual-test-reasoning",
+						uptime: 75,
+						averageLatency: 800,
+						throughput: 25,
+						totalRequests: 100,
+					},
+				],
+			]);
+
+			const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+			const originalArgv = process.argv;
+			const originalNodeEnv = process.env.NODE_ENV;
+			const originalVitest = process.env.VITEST;
+			delete process.env.NODE_ENV;
+			delete process.env.VITEST;
+			process.argv = ["node", "/tmp/not-a-test-run.mjs"];
+
+			try {
+				const result = getCheapestFromAvailableProviders(
+					[reasoningProvider],
+					virtualModel,
+					{ metricsMap },
+				);
+				expect(result?.metadata.selectionReason).toBe("random-exploration");
+				expect(result?.provider.modelName).toBe("virtual-test-reasoning");
+				expect(result?.metadata.providerScores[0]?.uptime).toBe(75);
+				expect(result?.metadata.providerScores[0]?.latency).toBe(800);
+				expect(result?.metadata.providerScores[0]?.throughput).toBe(25);
+				expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
+			} finally {
+				randomSpy.mockRestore();
+				process.argv = originalArgv;
+				if (originalNodeEnv !== undefined) {
+					process.env.NODE_ENV = originalNodeEnv;
+				} else {
+					delete process.env.NODE_ENV;
+				}
+				if (originalVitest !== undefined) {
+					process.env.VITEST = originalVitest;
+				} else {
+					delete process.env.VITEST;
+				}
+			}
+		});
+	});
+
+	it("should use the default exploration rate when EXPLORATION_RATE is empty", () => {
+		const originalExplorationRate = process.env.EXPLORATION_RATE;
+		process.env.EXPLORATION_RATE = "";
+
+		try {
+			const testModel = models.find((model) => model.id === "gpt-4o-mini");
+			if (!testModel) {
+				throw new Error("Missing gpt-4o-mini test fixture");
+			}
+
+			expect(() =>
+				getCheapestFromAvailableProviders(
+					[
+						{
+							providerId: "openai",
+							modelName: "gpt-4o-mini",
+						},
+					],
+					testModel,
+				),
+			).not.toThrow();
+		} finally {
+			if (originalExplorationRate === undefined) {
+				delete process.env.EXPLORATION_RATE;
+			} else {
+				process.env.EXPLORATION_RATE = originalExplorationRate;
+			}
+		}
+	});
+
+	it("should throw when EXPLORATION_RATE is outside the valid range", () => {
+		const originalExplorationRate = process.env.EXPLORATION_RATE;
+		const originalArgv = process.argv;
+		const originalNodeEnv = process.env.NODE_ENV;
+		const originalVitest = process.env.VITEST;
+		process.env.EXPLORATION_RATE = "1.5";
+		delete process.env.NODE_ENV;
+		delete process.env.VITEST;
+		process.argv = ["node", "/tmp/not-a-test-run.mjs"];
+
+		try {
+			const testModel = models.find((model) => model.id === "gpt-4o-mini");
+			if (!testModel) {
+				throw new Error("Missing gpt-4o-mini test fixture");
+			}
+
+			expect(() =>
+				getCheapestFromAvailableProviders(
+					[
+						{
+							providerId: "openai",
+							modelName: "gpt-4o-mini",
+						},
+					],
+					testModel,
+				),
+			).toThrow(
+				'Invalid EXPLORATION_RATE: "1.5". Expected a number between 0 and 1.',
+			);
+		} finally {
+			process.argv = originalArgv;
+			if (originalNodeEnv !== undefined) {
+				process.env.NODE_ENV = originalNodeEnv;
+			} else {
+				delete process.env.NODE_ENV;
+			}
+			if (originalVitest !== undefined) {
+				process.env.VITEST = originalVitest;
+			} else {
+				delete process.env.VITEST;
+			}
+			if (originalExplorationRate === undefined) {
+				delete process.env.EXPLORATION_RATE;
+			} else {
+				process.env.EXPLORATION_RATE = originalExplorationRate;
+			}
+		}
 	});
 
 	it("should prefer request pricing over zero token placeholders", () => {
@@ -759,5 +1273,124 @@ describe("getCheapestFromAvailableProviders", () => {
 				requestPrice: 0.03,
 			}),
 		).toBe(0.03);
+	});
+
+	describe("cache support weighting", () => {
+		const cacheTestModel = {
+			id: "cache-test-model",
+			name: "Cache Test Model",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					modelName: "cache-test",
+					inputPrice: 1.0 / 1e6,
+					outputPrice: 2.0 / 1e6,
+					cachedInputPrice: 0.1 / 1e6,
+					streaming: true as const,
+				},
+				{
+					providerId: "deepseek" as const,
+					modelName: "cache-test",
+					inputPrice: 1.0 / 1e6,
+					outputPrice: 2.0 / 1e6,
+					streaming: true as const,
+				},
+			],
+		};
+
+		const equalMetrics = new Map([
+			[
+				metricsKey("cache-test-model", "openai", undefined, "cache-test"),
+				{
+					modelId: "cache-test-model",
+					providerId: "openai",
+					uptime: 99.5,
+					averageLatency: 200,
+					throughput: 100,
+					totalRequests: 100,
+				},
+			],
+			[
+				metricsKey("cache-test-model", "deepseek", undefined, "cache-test"),
+				{
+					modelId: "cache-test-model",
+					providerId: "deepseek",
+					uptime: 99.5,
+					averageLatency: 200,
+					throughput: 100,
+					totalRequests: 100,
+				},
+			],
+		]);
+
+		it("does not factor cache support when prompt is below the threshold", () => {
+			const result = getCheapestFromAvailableProviders(
+				cacheTestModel.providers,
+				cacheTestModel,
+				{ metricsMap: equalMetrics, promptTokens: 1000 },
+			);
+
+			const openai = result?.metadata.providerScores.find(
+				(p) => p.providerId === "openai",
+			);
+			const deepseek = result?.metadata.providerScores.find(
+				(p) => p.providerId === "deepseek",
+			);
+
+			expect(openai?.score).toBe(deepseek?.score);
+		});
+
+		it("prefers a cache-supporting provider when prompt is large", () => {
+			const result = getCheapestFromAvailableProviders(
+				cacheTestModel.providers,
+				cacheTestModel,
+				{ metricsMap: equalMetrics, promptTokens: 8000 },
+			);
+
+			expect(result?.provider.providerId).toBe("openai");
+
+			const openai = result?.metadata.providerScores.find(
+				(p) => p.providerId === "openai",
+			);
+			const deepseek = result?.metadata.providerScores.find(
+				(p) => p.providerId === "deepseek",
+			);
+
+			expect(openai?.cacheSupported).toBe(true);
+			expect(deepseek?.cacheSupported).toBe(false);
+			expect((openai?.score ?? 0) < (deepseek?.score ?? 0)).toBe(true);
+		});
+
+		it("does not override a much cheaper non-cache provider for large prompts", () => {
+			const cheapNoCacheModel = {
+				...cacheTestModel,
+				providers: [
+					{
+						providerId: "openai" as const,
+						modelName: "cache-test",
+						inputPrice: 10.0 / 1e6,
+						outputPrice: 20.0 / 1e6,
+						cachedInputPrice: 1.0 / 1e6,
+						streaming: true as const,
+					},
+					{
+						providerId: "deepseek" as const,
+						modelName: "cache-test",
+						inputPrice: 1.0 / 1e6,
+						outputPrice: 2.0 / 1e6,
+						streaming: true as const,
+					},
+				],
+			};
+
+			const result = getCheapestFromAvailableProviders(
+				cheapNoCacheModel.providers,
+				cheapNoCacheModel,
+				{ metricsMap: equalMetrics, promptTokens: 10_000 },
+			);
+
+			expect(result?.provider.providerId).toBe("deepseek");
+		});
 	});
 });

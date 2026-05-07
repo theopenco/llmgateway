@@ -70,7 +70,7 @@ interface ModelSelectorProps {
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
-	mode?: "chat" | "video";
+	mode?: "chat" | "video" | "image";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
 }
@@ -387,6 +387,100 @@ function formatPerSecondPrice(perSecondPrice: Record<string, string>): string {
 	return firstValue ? `$${firstValue}/sec` : "Unknown";
 }
 
+// Estimate cost for generating one typical 1K/1024x1024 image based on
+// request fee + image output tokens * price.
+function estimateImageCost(
+	mapping: ApiModelProviderMapping | undefined,
+): { base: number; discounted: number } | null {
+	if (!mapping) {
+		return null;
+	}
+	const request = mapping.requestPrice ? parseFloat(mapping.requestPrice) : 0;
+	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
+	const imageOut = mapping.imageOutputPrice
+		? parseFloat(mapping.imageOutputPrice)
+		: 0;
+	const tokensMap = mapping.imageOutputTokensByResolution;
+	const tokens =
+		tokensMap?.default ?? tokensMap?.["1024x1024"] ?? tokensMap?.["1K"];
+	if (tokens === undefined) {
+		return null;
+	}
+	const outputCost = imageOut * tokens;
+	const base = request + outputCost;
+	if (!Number.isFinite(base) || base <= 0) {
+		return null;
+	}
+	const discounted = discount > 0 ? base * (1 - discount) : base;
+	return { base, discounted };
+}
+
+function getMinImageCostEstimate(
+	mappings: ApiModelProviderMapping[],
+): { base: number; discounted: number } | null {
+	const now = new Date();
+	let best: { base: number; discounted: number } | null = null;
+	for (const m of mappings) {
+		const isDeactivated = m.deactivatedAt && new Date(m.deactivatedAt) <= now;
+		if (isDeactivated) {
+			continue;
+		}
+		const est = estimateImageCost(m);
+		if (!est) {
+			continue;
+		}
+		if (!best || est.discounted < best.discounted) {
+			best = est;
+		}
+	}
+	return best;
+}
+
+function formatImageCost(cost: number): string {
+	if (cost >= 0.01) {
+		return `$${cost.toFixed(3)}`;
+	}
+	if (cost >= 0.001) {
+		return `$${cost.toFixed(4)}`;
+	}
+	return `$${cost.toFixed(5)}`;
+}
+
+function ImageEstimateCard({
+	estimate,
+	labelClassName,
+	valueClassName,
+	captionClassName,
+}: {
+	estimate: { base: number; discounted: number };
+	labelClassName?: string;
+	valueClassName?: string;
+	captionClassName?: string;
+}) {
+	return (
+		<div className="rounded-md border border-primary/30 bg-primary/5 p-2.5">
+			<span
+				className={
+					labelClassName ??
+					"text-[11px] font-medium text-muted-foreground uppercase tracking-wide"
+				}
+			>
+				Est. per Image
+			</span>
+			<p
+				className={
+					valueClassName ?? "text-sm font-mono font-semibold text-primary"
+				}
+			>
+				~{formatImageCost(estimate.discounted)}
+			</p>
+			<p className={captionClassName ?? "text-[10px] text-muted-foreground"}>
+				Typical 1024×1024 output
+			</p>
+		</div>
+	);
+}
+
 function getMinPerSecondPrice(
 	mappings: ApiModelProviderMapping[],
 ): string | null {
@@ -455,6 +549,21 @@ export function ModelSelector({
 		hideUnstable: true,
 		showOnlyRoot: false,
 	});
+	const [previewExpandTokens, setPreviewExpandTokens] = React.useState(false);
+	const [selectedExpandTokens, setSelectedExpandTokens] = React.useState(false);
+
+	const isImageGenModel = (model?: ApiModel | null) =>
+		!!model?.output && model.output.includes("image");
+	const previewIsImageGen = isImageGenModel(previewEntry?.model);
+	const selectedIsImageGen = isImageGenModel(selectedDetails?.model);
+
+	React.useEffect(() => {
+		setPreviewExpandTokens(false);
+	}, [previewEntry?.model]);
+
+	React.useEffect(() => {
+		setSelectedExpandTokens(false);
+	}, [selectedDetails?.model]);
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
 	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
@@ -498,22 +607,19 @@ export function ModelSelector({
 		}[] = [];
 		const now = new Date();
 
-		// Sort models by createdAt (when added to LLM Gateway), newest first
-		// Falls back to releasedAt if createdAt is not available
-		// Note: createdAt comes from API response, releasedAt is in the models package
+		// Sort by public release date first so newly released models surface
+		// before older models that were added to LLM Gateway more recently.
 		const sortedModels = [...models].sort((a, b) => {
-			const dateA =
-				"createdAt" in a && a.createdAt
-					? new Date(a.createdAt as string | Date).getTime()
-					: a.releasedAt
-						? new Date(a.releasedAt).getTime()
-						: 0;
-			const dateB =
-				"createdAt" in b && b.createdAt
-					? new Date(b.createdAt as string | Date).getTime()
-					: b.releasedAt
-						? new Date(b.releasedAt).getTime()
-						: 0;
+			const dateA = a.releasedAt
+				? new Date(a.releasedAt).getTime()
+				: a.createdAt
+					? new Date(a.createdAt).getTime()
+					: 0;
+			const dateB = b.releasedAt
+				? new Date(b.releasedAt).getTime()
+				: b.createdAt
+					? new Date(b.createdAt).getTime()
+					: 0;
 			return dateB - dateA;
 		});
 
@@ -755,7 +861,14 @@ export function ModelSelector({
 					}
 				: null,
 		);
-	}, [open, selectedModel, selectedProviderId, allEntries, filteredEntries]);
+	}, [
+		open,
+		selectedModel,
+		selectedProviderId,
+		selectedMapping,
+		allEntries,
+		filteredEntries,
+	]);
 
 	return (
 		<>
@@ -1340,19 +1453,30 @@ export function ModelSelector({
 															aggregate.minImageInputPrice !== undefined ||
 															aggregate.minImageOutputPrice !== undefined);
 
+													const imageEstimate =
+														mode === "image"
+															? getMinImageCostEstimate(
+																	previewEntry.model.mappings,
+																)
+															: null;
+
 													const hasCapabilities =
 														aggregate.capabilities.length > 0;
 
 													if (
 														!hasPricingOrLimits &&
 														!hasImagePricing &&
-														!hasCapabilities
+														!hasCapabilities &&
+														!imageEstimate
 													) {
 														return null;
 													}
 
 													return (
 														<div className="space-y-3 pt-3 border-t border-dashed">
+															{imageEstimate && (
+																<ImageEstimateCard estimate={imageEstimate} />
+															)}
 															{hasPricingOrLimits &&
 																(isVideo ? (
 																	<div className="space-y-2">
@@ -1390,31 +1514,37 @@ export function ModelSelector({
 																			</span>
 																		</h5>
 																		<div className="grid grid-cols-2 gap-3">
-																			<div className="space-y-1">
-																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																					Input
-																				</span>
-																				<p className="text-xs font-mono">
-																					{aggregate.minInputPrice !== undefined
-																						? formatPrice(
-																								aggregate.minInputPrice,
-																							)
-																						: "Unknown"}
-																				</p>
-																			</div>
-																			<div className="space-y-1">
-																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																					Output
-																				</span>
-																				<p className="text-xs font-mono">
-																					{aggregate.minOutputPrice !==
-																					undefined
-																						? formatPrice(
-																								aggregate.minOutputPrice,
-																							)
-																						: "Unknown"}
-																				</p>
-																			</div>
+																			{(!previewIsImageGen ||
+																				previewExpandTokens) && (
+																				<>
+																					<div className="space-y-1">
+																						<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																							Input
+																						</span>
+																						<p className="text-xs font-mono">
+																							{aggregate.minInputPrice !==
+																							undefined
+																								? formatPrice(
+																										aggregate.minInputPrice,
+																									)
+																								: "Unknown"}
+																						</p>
+																					</div>
+																					<div className="space-y-1">
+																						<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																							Output
+																						</span>
+																						<p className="text-xs font-mono">
+																							{aggregate.minOutputPrice !==
+																							undefined
+																								? formatPrice(
+																										aggregate.minOutputPrice,
+																									)
+																								: "Unknown"}
+																						</p>
+																					</div>
+																				</>
+																			)}
 																			<div className="space-y-1">
 																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
 																					Context
@@ -1436,6 +1566,19 @@ export function ModelSelector({
 																				</p>
 																			</div>
 																		</div>
+																		{previewIsImageGen && (
+																			<button
+																				type="button"
+																				className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+																				onClick={() =>
+																					setPreviewExpandTokens((v) => !v)
+																				}
+																			>
+																				{previewExpandTokens
+																					? "Hide token pricing"
+																					: "Expand details"}
+																			</button>
+																		)}
 																	</div>
 																))}
 
@@ -1546,123 +1689,166 @@ export function ModelSelector({
 															</div>
 														</div>
 													) : (
-														<div className="grid grid-cols-2 gap-3">
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Input
-																</span>
-																<p className="text-xs font-mono">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			previewEntry.mapping,
-																			"input",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
-																			);
-																		}
-																		return price.label;
-																	})()}
-																</p>
+														<>
+															<div className="grid grid-cols-2 gap-3">
+																{(!previewIsImageGen ||
+																	previewExpandTokens) && (
+																	<>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Input
+																			</span>
+																			<p className="text-xs font-mono">
+																				{(() => {
+																					const price = getMappingPriceInfo(
+																						previewEntry.mapping,
+																						"input",
+																					);
+																					if (
+																						price.original &&
+																						price.discounted &&
+																						price.original !== price.discounted
+																					) {
+																						return (
+																							<>
+																								<span className="line-through text-muted-foreground">
+																									{price.original}
+																								</span>{" "}
+																								<span className="text-green-500">
+																									{price.discounted}
+																								</span>
+																							</>
+																						);
+																					}
+																					return price.label;
+																				})()}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Output
+																			</span>
+																			<p className="text-xs font-mono">
+																				{(() => {
+																					const price = getMappingPriceInfo(
+																						previewEntry.mapping,
+																						"output",
+																					);
+																					if (
+																						price.original &&
+																						price.discounted &&
+																						price.original !== price.discounted
+																					) {
+																						return (
+																							<>
+																								<span className="line-through text-muted-foreground">
+																									{price.original}
+																								</span>{" "}
+																								<span className="text-green-500">
+																									{price.discounted}
+																								</span>
+																							</>
+																						);
+																					}
+																					return price.label;
+																				})()}
+																			</p>
+																		</div>
+																	</>
+																)}
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Context
+																	</span>
+																	<p className="text-xs font-mono">
+																		{formatContextSize(
+																			previewEntry.mapping?.contextSize,
+																		)}
+																	</p>
+																</div>
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Max Output
+																	</span>
+																	<p className="text-xs font-mono">
+																		{formatContextSize(
+																			previewEntry.mapping?.maxOutput,
+																		)}
+																	</p>
+																</div>
 															</div>
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Output
-																</span>
-																<p className="text-xs font-mono">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			previewEntry.mapping,
-																			"output",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
-																			);
-																		}
-																		return price.label;
-																	})()}
-																</p>
-															</div>
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Context
-																</span>
-																<p className="text-xs font-mono">
-																	{formatContextSize(
-																		previewEntry.mapping?.contextSize,
-																	)}
-																</p>
-															</div>
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Max Output
-																</span>
-																<p className="text-xs font-mono">
-																	{formatContextSize(
-																		previewEntry.mapping?.maxOutput,
-																	)}
-																</p>
-															</div>
-														</div>
+															{previewIsImageGen && (
+																<button
+																	type="button"
+																	className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+																	onClick={() =>
+																		setPreviewExpandTokens((v) => !v)
+																	}
+																>
+																	{previewExpandTokens
+																		? "Hide token pricing"
+																		: "Expand details"}
+																</button>
+															)}
+														</>
 													)}
-													{previewEntry.mapping?.cachedInputPrice && (
-														<div className="pt-2 border-t border-dashed">
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Cached Input
-																</span>
-																<p className="text-xs font-mono text-green-600 dark:text-green-400">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			previewEntry.mapping,
-																			"cachedInput",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
+													{previewEntry.mapping?.cachedInputPrice &&
+														(!previewIsImageGen || previewExpandTokens) && (
+															<div className="pt-2 border-t border-dashed">
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Cached Input
+																	</span>
+																	<p className="text-xs font-mono text-green-600 dark:text-green-400">
+																		{(() => {
+																			const price = getMappingPriceInfo(
+																				previewEntry.mapping,
+																				"cachedInput",
 																			);
-																		}
-																		return price.label;
-																	})()}
-																</p>
+																			if (
+																				price.original &&
+																				price.discounted &&
+																				price.original !== price.discounted
+																			) {
+																				return (
+																					<>
+																						<span className="line-through text-muted-foreground">
+																							{price.original}
+																						</span>{" "}
+																						<span className="text-green-500">
+																							{price.discounted}
+																						</span>
+																					</>
+																				);
+																			}
+																			return price.label;
+																		})()}
+																	</p>
+																</div>
 															</div>
-														</div>
-													)}
+														)}
+													{mode === "image" &&
+														(() => {
+															const est = estimateImageCost(
+																previewEntry.mapping,
+															);
+															if (!est) {
+																return null;
+															}
+															return (
+																<div className="pt-2 mt-2 rounded-md border border-primary/30 bg-primary/5 p-2.5">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Est. per Image
+																	</span>
+																	<p className="text-sm font-mono font-semibold text-primary">
+																		~{formatImageCost(est.discounted)}
+																	</p>
+																	<p className="text-[10px] text-muted-foreground">
+																		Typical 1024×1024 output
+																	</p>
+																</div>
+															);
+														})()}
 													{/* Image Generation Pricing */}
 													{(previewEntry.mapping?.requestPrice ??
 														previewEntry.mapping?.imageInputPrice) && (
@@ -1859,6 +2045,10 @@ export function ModelSelector({
 												selectedDetails.model,
 											);
 
+											const imageEstimate = getMinImageCostEstimate(
+												selectedDetails.model.mappings,
+											);
+
 											const hasPricingOrLimits =
 												aggregate.minInputPrice !== undefined ||
 												aggregate.minOutputPrice !== undefined ||
@@ -1876,13 +2066,17 @@ export function ModelSelector({
 											if (
 												!hasPricingOrLimits &&
 												!hasImagePricing &&
-												!hasCapabilities
+												!hasCapabilities &&
+												!imageEstimate
 											) {
 												return null;
 											}
 
 											return (
 												<div className="space-y-4">
+													{imageEstimate && (
+														<ImageEstimateCard estimate={imageEstimate} />
+													)}
 													{hasPricingOrLimits && (
 														<div className="space-y-3">
 															<h5 className="font-medium text-sm">
@@ -1892,26 +2086,33 @@ export function ModelSelector({
 																</span>
 															</h5>
 															<div className="grid grid-cols-2 gap-3">
-																<div className="space-y-1">
-																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																		Input
-																	</span>
-																	<p className="text-sm font-mono">
-																		{aggregate.minInputPrice !== undefined
-																			? formatPrice(aggregate.minInputPrice)
-																			: "Unknown"}
-																	</p>
-																</div>
-																<div className="space-y-1">
-																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																		Output
-																	</span>
-																	<p className="text-sm font-mono">
-																		{aggregate.minOutputPrice !== undefined
-																			? formatPrice(aggregate.minOutputPrice)
-																			: "Unknown"}
-																	</p>
-																</div>
+																{(!selectedIsImageGen ||
+																	selectedExpandTokens) && (
+																	<>
+																		<div className="space-y-1">
+																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																				Input
+																			</span>
+																			<p className="text-sm font-mono">
+																				{aggregate.minInputPrice !== undefined
+																					? formatPrice(aggregate.minInputPrice)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																				Output
+																			</span>
+																			<p className="text-sm font-mono">
+																				{aggregate.minOutputPrice !== undefined
+																					? formatPrice(
+																							aggregate.minOutputPrice,
+																						)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																	</>
+																)}
 																<div className="space-y-1">
 																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 																		Context
@@ -1931,6 +2132,19 @@ export function ModelSelector({
 																	</p>
 																</div>
 															</div>
+															{selectedIsImageGen && (
+																<button
+																	type="button"
+																	className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+																	onClick={() =>
+																		setSelectedExpandTokens((v) => !v)
+																	}
+																>
+																	{selectedExpandTokens
+																		? "Hide token pricing"
+																		: "Expand details"}
+																</button>
+															)}
 														</div>
 													)}
 
@@ -2011,69 +2225,82 @@ export function ModelSelector({
 											</>
 										)}
 
+										{(() => {
+											const imageEstimate = selectedDetails.mapping
+												? estimateImageCost(selectedDetails.mapping)
+												: null;
+											return imageEstimate ? (
+												<ImageEstimateCard estimate={imageEstimate} />
+											) : null;
+										})()}
+
 										<div className="space-y-3">
 											<h5 className="font-medium text-sm">Pricing & Limits</h5>
 											<div className="grid grid-cols-2 gap-3">
-												<div className="space-y-1">
-													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-														Input
-													</span>
-													<p className="text-sm font-mono">
-														{(() => {
-															const price = getMappingPriceInfo(
-																selectedDetails.mapping,
-																"input",
-															);
-															if (
-																price.original &&
-																price.discounted &&
-																price.original !== price.discounted
-															) {
-																return (
-																	<>
-																		<span className="line-through text-muted-foreground">
-																			{price.original}
-																		</span>{" "}
-																		<span className="text-green-500">
-																			{price.discounted}
-																		</span>
-																	</>
-																);
-															}
-															return price.label;
-														})()}
-													</p>
-												</div>
-												<div className="space-y-1">
-													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-														Output
-													</span>
-													<p className="text-sm font-mono">
-														{(() => {
-															const price = getMappingPriceInfo(
-																selectedDetails.mapping,
-																"output",
-															);
-															if (
-																price.original &&
-																price.discounted &&
-																price.original !== price.discounted
-															) {
-																return (
-																	<>
-																		<span className="line-through text-muted-foreground">
-																			{price.original}
-																		</span>{" "}
-																		<span className="text-green-500">
-																			{price.discounted}
-																		</span>
-																	</>
-																);
-															}
-															return price.label;
-														})()}
-													</p>
-												</div>
+												{(!selectedIsImageGen || selectedExpandTokens) && (
+													<>
+														<div className="space-y-1">
+															<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																Input
+															</span>
+															<p className="text-sm font-mono">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		selectedDetails.mapping,
+																		"input",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+														<div className="space-y-1">
+															<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																Output
+															</span>
+															<p className="text-sm font-mono">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		selectedDetails.mapping,
+																		"output",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+													</>
+												)}
 												<div className="space-y-1">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 														Context
@@ -2095,40 +2322,52 @@ export function ModelSelector({
 													</p>
 												</div>
 											</div>
-											{selectedDetails.mapping?.cachedInputPrice && (
-												<div className="pt-2 border-t border-dashed">
-													<div className="space-y-1">
-														<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-															Cached Input
-														</span>
-														<p className="text-sm font-mono text-green-600 dark:text-green-400">
-															{(() => {
-																const price = getMappingPriceInfo(
-																	selectedDetails.mapping,
-																	"cachedInput",
-																);
-																if (
-																	price.original &&
-																	price.discounted &&
-																	price.original !== price.discounted
-																) {
-																	return (
-																		<>
-																			<span className="line-through text-muted-foreground">
-																				{price.original}
-																			</span>{" "}
-																			<span className="text-green-500">
-																				{price.discounted}
-																			</span>
-																		</>
-																	);
-																}
-																return price.label;
-															})()}
-														</p>
-													</div>
-												</div>
+											{selectedIsImageGen && (
+												<button
+													type="button"
+													className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+													onClick={() => setSelectedExpandTokens((v) => !v)}
+												>
+													{selectedExpandTokens
+														? "Hide token pricing"
+														: "Expand details"}
+												</button>
 											)}
+											{selectedDetails.mapping?.cachedInputPrice &&
+												(!selectedIsImageGen || selectedExpandTokens) && (
+													<div className="pt-2 border-t border-dashed">
+														<div className="space-y-1">
+															<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																Cached Input
+															</span>
+															<p className="text-sm font-mono text-green-600 dark:text-green-400">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		selectedDetails.mapping,
+																		"cachedInput",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+													</div>
+												)}
 											{/* Image Generation Pricing */}
 											{(selectedDetails.mapping?.requestPrice ??
 												selectedDetails.mapping?.imageInputPrice) && (

@@ -40,6 +40,7 @@ const dailyActivitySchema = z.object({
 	inputTokens: z.number(),
 	outputTokens: z.number(),
 	cachedTokens: z.number(),
+	cacheWriteTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
 	inputCost: z.number(),
@@ -50,6 +51,7 @@ const dailyActivitySchema = z.object({
 	imageOutputCost: z.number(),
 	videoOutputCost: z.number(),
 	cachedInputCost: z.number(),
+	cacheWriteInputCost: z.number(),
 	errorCount: z.number(),
 	errorRate: z.number(),
 	cacheCount: z.number(),
@@ -262,9 +264,17 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.cachedTokens} AS NUMERIC)), 0)`.as(
 						"cachedTokens",
 					),
+				cacheWriteTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+						"cacheWriteTokens",
+					),
 				cachedInputCost:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cachedInputCost}), 0)`.as(
 						"cachedInputCost",
+					),
+				cacheWriteInputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheWriteInputCost}), 0)`.as(
+						"cacheWriteInputCost",
 					),
 				creditsRequestCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsRequestCount}), 0)`.as(
@@ -388,6 +398,7 @@ activity.openapi(getActivity, async (c) => {
 			const inputTokens = Number(day.inputTokens);
 			const outputTokens = Number(day.outputTokens);
 			const cachedTokens = Number(day.cachedTokens);
+			const cacheWriteTokens = Number(day.cacheWriteTokens);
 			const totalTokens = Number(day.totalTokens);
 			const cost = Number(day.cost);
 			const inputCost = Number(day.inputCost);
@@ -401,6 +412,7 @@ activity.openapi(getActivity, async (c) => {
 			const imageOutputCost = Number(day.imageOutputCost);
 			const videoOutputCost = Number(day.videoOutputCost);
 			const cachedInputCost = Number(day.cachedInputCost);
+			const cacheWriteInputCost = Number(day.cacheWriteInputCost);
 
 			const creditsRequestCount = Number(day.creditsRequestCount);
 			const apiKeysRequestCount = Number(day.apiKeysRequestCount);
@@ -420,6 +432,7 @@ activity.openapi(getActivity, async (c) => {
 				inputTokens,
 				outputTokens,
 				cachedTokens,
+				cacheWriteTokens,
 				totalTokens,
 				cost,
 				inputCost,
@@ -430,6 +443,7 @@ activity.openapi(getActivity, async (c) => {
 				imageOutputCost,
 				videoOutputCost,
 				cachedInputCost,
+				cacheWriteInputCost,
 				errorCount,
 				errorRate,
 				cacheCount,
@@ -476,6 +490,10 @@ activity.openapi(getActivity, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cachedTokens} AS NUMERIC)), 0)`.as(
 					"cachedTokens",
 				),
+			cacheWriteTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+					"cacheWriteTokens",
+				),
 			totalTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"totalTokens",
@@ -514,6 +532,10 @@ activity.openapi(getActivity, async (c) => {
 			cachedInputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
 					"cachedInputCost",
+				),
+			cacheWriteInputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+					"cacheWriteInputCost",
 				),
 			errorCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.errorCount}), 0)`.as(
@@ -649,6 +671,7 @@ activity.openapi(getActivity, async (c) => {
 		const inputTokens = Number(day.inputTokens);
 		const outputTokens = Number(day.outputTokens);
 		const cachedTokens = Number(day.cachedTokens);
+		const cacheWriteTokens = Number(day.cacheWriteTokens);
 		const totalTokens = Number(day.totalTokens);
 		const cost = Number(day.cost);
 		const inputCost = Number(day.inputCost);
@@ -659,6 +682,7 @@ activity.openapi(getActivity, async (c) => {
 		const imageOutputCost = Number(day.imageOutputCost);
 		const videoOutputCost = Number(day.videoOutputCost);
 		const cachedInputCost = Number(day.cachedInputCost);
+		const cacheWriteInputCost = Number(day.cacheWriteInputCost);
 		const errorCount = Number(day.errorCount);
 		const cacheCount = Number(day.cacheCount);
 		const discountSavings = Number(day.discountSavings);
@@ -679,6 +703,7 @@ activity.openapi(getActivity, async (c) => {
 			inputTokens,
 			outputTokens,
 			cachedTokens,
+			cacheWriteTokens,
 			totalTokens,
 			cost,
 			inputCost,
@@ -689,6 +714,7 @@ activity.openapi(getActivity, async (c) => {
 			imageOutputCost,
 			videoOutputCost,
 			cachedInputCost,
+			cacheWriteInputCost,
 			errorCount,
 			errorRate,
 			cacheCount,

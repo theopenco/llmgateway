@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -13,8 +14,9 @@ import { ImageSidebar } from "@/components/playground/image-sidebar";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
-import { getModelImageConfig, streamImageParts } from "@/lib/image-gen";
+import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { AspectRatio, GalleryItem } from "@/lib/image-gen";
@@ -32,19 +34,39 @@ interface ImagePageClientProps {
 export default function ImagePageClient({
 	models,
 	providers,
-	organizations,
+	organizations: _organizations,
 	selectedOrganization,
-	projects,
+	projects: _projects,
 	selectedProject,
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const posthog = usePostHog();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	// Filter models to image-gen only (includes image-edit models)
+	// Filter models to image-gen only (includes image-edit models), sorted
+	// newest-first by releasedAt with createdAt as fallback. releasedAt comes
+	// from the static model definition so the order is stable regardless of
+	// when each row was inserted into the gateway DB.
 	const imageGenModels = useMemo(
-		() => models.filter((m) => m.output?.includes("image")),
+		() =>
+			models
+				.filter((m) => m.output?.includes("image"))
+				.slice()
+				.sort((a, b) => {
+					const dateA = a.releasedAt
+						? new Date(a.releasedAt).getTime()
+						: a.createdAt
+							? new Date(a.createdAt).getTime()
+							: 0;
+					const dateB = b.releasedAt
+						? new Date(b.releasedAt).getTime()
+						: b.createdAt
+							? new Date(b.createdAt).getTime()
+							: 0;
+					return dateB - dateA;
+				}),
 		[models],
 	);
 
@@ -77,7 +99,16 @@ export default function ImagePageClient({
 	// Image config state
 	const [imageAspectRatio, setImageAspectRatio] = useState<AspectRatio>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const primaryModel = selectedModels[0] ?? "";
+		const config = getModelImageConfig(primaryModel);
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
+	const [imageQuality, setImageQuality] = useState<string>(() => {
+		const primaryModel = selectedModels[0] ?? "";
+		const config = getModelImageConfig(primaryModel);
+		return config.defaultQuality ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 
 	// Input images for image-edit models
@@ -149,34 +180,58 @@ export default function ImagePageClient({
 
 	// Keep URL in sync with selected model(s)
 	useEffect(() => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		// Read current URL params directly to avoid stale searchParams closure
+		// and to prevent an infinite loop where router.replace produces a new
+		// searchParams reference that re-triggers this effect (each such cycle
+		// causes Next.js to refetch the RSC, re-hitting /orgs forever).
+		const currentParams = new URLSearchParams(window.location.search);
 		if (comparisonMode) {
-			params.set("model", selectedModels.join(","));
-			params.set("compare", "1");
+			currentParams.set("model", selectedModels.join(","));
+			currentParams.set("compare", "1");
 		} else {
 			const primary = selectedModels[0];
 			if (primary) {
-				params.set("model", primary);
+				currentParams.set("model", primary);
 			} else {
-				params.delete("model");
+				currentParams.delete("model");
 			}
-			params.delete("compare");
+			currentParams.delete("compare");
 		}
-		const qs = params.toString();
-		router.replace(qs ? `?${qs}` : "");
-	}, [selectedModels, comparisonMode]);
+		const qs = currentParams.toString();
+		const nextUrl = `${pathname}${qs ? `?${qs}` : ""}`;
+		const currentUrl = `${window.location.pathname}${window.location.search}`;
+		if (nextUrl !== currentUrl) {
+			router.replace(nextUrl, { scroll: false });
+		}
+	}, [comparisonMode, pathname, router, selectedModels]);
 
-	// Reset imageSize when model changes, clear input images when switching away from edit model
+	// Reset image size/quality when the selected model changes and the current
+	// value isn't valid for the new model. Including the value itself in deps
+	// would clobber the user's explicit selection on every re-render.
 	useEffect(() => {
 		const primaryModel = selectedModels[0] ?? "";
 		const config = getModelImageConfig(primaryModel);
-		if (!config.availableSizes.includes(imageSize as never)) {
+		if (config.usesPixelDimensions) {
+			if (
+				!(config.availableSizes as readonly string[]).includes(alibabaImageSize)
+			) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (
+			!(config.availableSizes as readonly string[]).includes(imageSize)
+		) {
 			setImageSize(config.defaultSize);
+		}
+		if (
+			config.supportsQuality &&
+			!(config.availableQualities as readonly string[]).includes(imageQuality)
+		) {
+			setImageQuality(config.defaultQuality ?? "auto");
 		}
 		if (!isEditModel) {
 			setInputImages([]);
 		}
-	}, [selectedModels, imageSize, imageGenModels, isEditModel]);
+	}, [selectedModels, isEditModel]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
@@ -207,6 +262,14 @@ export default function ImagePageClient({
 
 			const currentPrompt = effectivePrompt.trim();
 			setIsGenerating(true);
+			posthog.capture("playground_image_generated", {
+				models: selectedModels,
+				model_count: selectedModels.length,
+				comparison_mode: comparisonMode,
+				aspect_ratio: imageAspectRatio,
+				image_count: imageCount,
+				has_input_images: inputImages.length > 0,
+			});
 
 			const itemId = crypto.randomUUID();
 
@@ -237,11 +300,20 @@ export default function ImagePageClient({
 			// Build image config
 			const primaryModel = selectedModels[0] ?? "";
 			const config = getModelImageConfig(primaryModel);
+			// Always forward the user's quality choice (including "auto") so it
+			// shows up in the activity log; the gateway / model treat "auto" the
+			// same as omitting the field upstream.
+			const includeQuality = config.supportsQuality && !!imageQuality;
 			const imageConfigBody = config.usesPixelDimensions
 				? {
-						...(alibabaImageSize !== "1024x1024" && {
-							image_size: alibabaImageSize,
-						}),
+						...(config.isGptImage
+							? alibabaImageSize !== "auto" && {
+									image_size: alibabaImageSize,
+								}
+							: alibabaImageSize !== "1024x1024" && {
+									image_size: alibabaImageSize,
+								}),
+						...(includeQuality && { image_quality: imageQuality }),
 						n: imageCount,
 					}
 				: {
@@ -256,32 +328,27 @@ export default function ImagePageClient({
 			pendingRef.current = selectedModels.length;
 
 			for (const modelId of selectedModels) {
-				const isProviderSpecific = modelId.includes("/");
+				const noFallback = shouldDisableFallback(modelId);
 				void (async () => {
 					try {
-						const response = await fetch("/api/chat", {
+						const response = await fetch("/api/image", {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								...(isProviderSpecific ? { "x-no-fallback": "true" } : {}),
+								...(noFallback ? { "x-no-fallback": "true" } : {}),
 							},
 							body: JSON.stringify({
-								messages: [
-									{
-										role: "user",
-										parts: [
-											...inputImages.map((img) => ({
-												type: "file" as const,
+								prompt: currentPrompt,
+								model: modelId,
+								image_config: imageConfigBody,
+								...(inputImages.length > 0
+									? {
+											input_images: inputImages.map((img) => ({
 												url: img.dataUrl,
 												mediaType: img.mediaType,
 											})),
-											{ type: "text", text: currentPrompt },
-										],
-									},
-								],
-								model: modelId,
-								is_image_gen: true,
-								image_config: imageConfigBody,
+										}
+									: {}),
 							}),
 						});
 
@@ -293,27 +360,16 @@ export default function ImagePageClient({
 							);
 						}
 
-						await streamImageParts(response, (image) => {
-							setGalleryItems((prev) =>
-								prev.map((item) => {
-									if (item.id !== itemId) {
-										return item;
-									}
-									return {
-										...item,
-										models: item.models.map((m) => {
-											if (m.modelId !== modelId) {
-												return m;
-											}
-											return {
-												...m,
-												images: [...m.images, image],
-											};
-										}),
-									};
-								}),
+						const data = await response.json();
+						const generatedImages = data.images as
+							| { base64: string; mediaType: string }[]
+							| undefined;
+
+						if (!generatedImages || generatedImages.length === 0) {
+							throw new Error(
+								"The model did not generate any images. Try a different model.",
 							);
-						});
+						}
 
 						setGalleryItems((prev) =>
 							prev.map((item) => {
@@ -326,7 +382,11 @@ export default function ImagePageClient({
 										if (m.modelId !== modelId) {
 											return m;
 										}
-										return { ...m, isLoading: false };
+										return {
+											...m,
+											images: generatedImages,
+											isLoading: false,
+										};
 									}),
 								};
 							}),
@@ -365,6 +425,7 @@ export default function ImagePageClient({
 			}
 		},
 		[
+			comparisonMode,
 			prompt,
 			selectedModels,
 			isGenerating,
@@ -372,8 +433,10 @@ export default function ImagePageClient({
 			alibabaImageSize,
 			imageAspectRatio,
 			imageSize,
+			imageQuality,
 			imageCount,
 			inputImages,
+			posthog,
 			requiresImageInput,
 		],
 	);
@@ -485,6 +548,8 @@ export default function ImagePageClient({
 						setImageSize={setImageSize}
 						alibabaImageSize={alibabaImageSize}
 						setAlibabaImageSize={setAlibabaImageSize}
+						imageQuality={imageQuality}
+						setImageQuality={setImageQuality}
 						imageCount={imageCount}
 						setImageCount={setImageCount}
 						isGenerating={isGenerating}

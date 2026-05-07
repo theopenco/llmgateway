@@ -7,6 +7,8 @@ icon: ArrowRightLeft
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
+<section>
+
 ## Quick Migration
 
 Swap your provider imports—your AI SDK code stays the same:
@@ -29,6 +31,10 @@ const { text } = await generateText({
 ```
 
 The key difference: one provider, one API key, all models—with caching and analytics built in.
+
+</section>
+
+<section>
 
 ## Migration Steps
 
@@ -172,6 +178,10 @@ export LLM_GATEWAY_API_KEY=llmgtwy_your_key_here
 </Step>
 </Steps>
 
+</section>
+
+<section>
+
 ## Model Name Format
 
 LLM Gateway supports two model ID formats:
@@ -204,6 +214,10 @@ For more details on routing behavior, see the [routing documentation](/features/
 
 Check the [models page](https://llmgateway.io/models) for the full list of available models.
 
+</section>
+
+<section>
+
 ## Tool Calling
 
 LLM Gateway supports tool calling through the AI SDK:
@@ -234,6 +248,10 @@ const { text, toolResults } = await generateText({
 });
 ```
 
+</section>
+
+<section>
+
 ## Self-Hosting LLM Gateway
 
 If you prefer self-hosting, LLM Gateway is available under AGPLv3:
@@ -248,8 +266,14 @@ pnpm dev
 
 This gives you the same managed experience with full control over your infrastructure.
 
+</section>
+
+<footer>
+
 ## Need Help?
 
 - Browse available models at [llmgateway.io/models](https://llmgateway.io/models)
 - Read the [API documentation](https://docs.llmgateway.io)
 - Contact support at contact@llmgateway.io
+
+</footer>

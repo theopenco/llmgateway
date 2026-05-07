@@ -6,6 +6,13 @@ import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
+	reportKeyError,
+	reportKeySuccess,
+	reportTrackedKeyError,
+	reportTrackedKeySuccess,
+} from "@/lib/api-key-health.js";
+import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
+import {
 	findApiKeyByToken,
 	findOrganizationById,
 	findProjectById,
@@ -21,11 +28,117 @@ import { shortid } from "@llmgateway/db";
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
-const moderationRequestSchema = z.object({
-	input: z.any().openapi({
-		description: "Input text or multimodal content to classify.",
+const moderationInputTextSchema = z.string().openapi({
+	description: "Plain text input to classify.",
+	example: "I want to harm someone.",
+});
+
+const moderationInputContentSchema = z
+	.object({
+		type: z.enum(["text", "image_url"]).openapi({
+			description: "Input item type.",
+			example: "text",
+		}),
+		text: z.string().optional().openapi({
+			description: "Text content for `type: text` items.",
+			example: "Please review this sentence.",
+		}),
+		image_url: z
+			.object({
+				url: z.string().openapi({
+					description: "Image URL or data URL for `type: image_url` items.",
+					example: "https://example.com/image.png",
+				}),
+			})
+			.optional()
+			.openapi({
+				description: "Image payload for `type: image_url` items.",
+			}),
+	})
+	.openapi({
+		description: "Multimodal moderation input item.",
+	});
+
+const moderationInputSchema = z
+	.union([
+		moderationInputTextSchema,
+		z.array(moderationInputTextSchema),
+		z.array(moderationInputContentSchema),
+	])
+	.openapi({
+		description:
+			"Plain text, an array of text strings, or an array of multimodal input items.",
 		example: "I want to harm someone.",
+	});
+
+const moderationResultSchema = z
+	.object({
+		flagged: z.boolean().openapi({
+			description: "Whether the input was flagged.",
+			example: true,
+		}),
+		categories: z
+			.record(z.boolean())
+			.optional()
+			.openapi({
+				description: "Category flags returned by the moderation model.",
+				example: {
+					violence: true,
+					self_harm: false,
+				},
+			}),
+		category_scores: z
+			.record(z.number())
+			.optional()
+			.openapi({
+				description: "Model confidence scores for each category.",
+				example: {
+					violence: 0.98,
+					self_harm: 0.01,
+				},
+			}),
+		category_applied_input_types: z
+			.record(z.array(z.string()))
+			.optional()
+			.openapi({
+				description: "Input types that contributed to each category decision.",
+			}),
+	})
+	.passthrough()
+	.openapi({
+		description: "One moderation result entry.",
+	});
+
+const moderationResponseSchema = z
+	.object({
+		id: z.string().optional().openapi({
+			description: "Moderation response ID.",
+			example: "modr-123",
+		}),
+		model: z.string().optional().openapi({
+			description: "Moderation model used for the request.",
+			example: "omni-moderation-latest",
+		}),
+		results: z.array(moderationResultSchema).optional().openapi({
+			description: "Moderation results for the submitted input.",
+		}),
+	})
+	.passthrough()
+	.openapi({
+		description: "Moderation response payload.",
+	});
+
+const moderationErrorSchema = z.object({
+	error: z.object({
+		message: z.string(),
+		type: z.string(),
+		param: z.string().nullable(),
+		code: z.string(),
 	}),
+});
+
+const moderationRequestSchema = z.object({
+	input: moderationInputSchema,
 	model: z.string().optional().default("omni-moderation-latest").openapi({
 		description: "OpenAI moderation model. Defaults to omni-moderation-latest.",
 		example: "omni-moderation-latest",
@@ -86,16 +199,96 @@ const createModeration = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: moderationResponseSchema,
 				},
 			},
 			description: "Moderation response.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Invalid request body or parameters.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Unauthorized request.",
+		},
+		403: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Forbidden upstream response.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Not found upstream response.",
+		},
+		410: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Archived or unavailable project.",
+		},
+		429: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Rate limited upstream response.",
+		},
+		500: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Internal server error.",
+		},
+		502: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Failed to connect to the upstream provider.",
+		},
+		503: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Service unavailable upstream response.",
+		},
+		504: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Upstream provider timeout.",
 		},
 	},
 });
 
 moderations.openapi(createModeration, async (c): Promise<any> => {
-	const requestId = c.req.header("x-request-id") ?? shortid(40);
+	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	c.header("x-request-id", requestId);
 
 	let rawBody: unknown;
@@ -154,11 +347,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
-		throw new HTTPException(401, {
-			message: "Unauthorized: LLMGateway API key reached its usage limit.",
-		});
-	}
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	const project = await findProjectById(apiKey.projectId);
 	if (!project) {
@@ -180,10 +369,18 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
+	if (organization.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Organization has been disabled and is no longer accessible",
+		});
+	}
+
 	const retentionLevel = organization.retentionLevel ?? "none";
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
+	let configIndex = 0;
+	let envVarName: string | undefined;
 
 	if (project.mode === "api-keys") {
 		providerKey = await findProviderKey(
@@ -199,14 +396,24 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		}
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
-		usedToken = getProviderEnv("openai").token;
+		const envResult = getProviderEnv("openai");
+		usedToken = envResult.token;
+		configIndex = envResult.configIndex;
+		envVarName = envResult.envVarName;
 	} else if (project.mode === "hybrid") {
 		providerKey = await findProviderKey(
 			project.organizationId,
 			"openai",
 			requestId,
 		);
-		usedToken = providerKey?.token ?? getProviderEnv("openai").token;
+		if (providerKey) {
+			usedToken = providerKey.token;
+		} else {
+			const envResult = getProviderEnv("openai");
+			usedToken = envResult.token;
+			configIndex = envResult.configIndex;
+			envVarName = envResult.envVarName;
+		}
 	} else {
 		throw new HTTPException(400, {
 			message: `Invalid project mode: ${project.mode}`,
@@ -261,7 +468,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				...getProviderHeaders("openai", usedToken),
+				...getProviderHeaders("openai", usedToken, { requestId }),
 			},
 			body: JSON.stringify(requestBody),
 			signal: fetchSignal,
@@ -272,6 +479,13 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		responseSize = upstreamText.length;
 	} catch (error) {
 		duration = Date.now() - startedAt;
+		if (envVarName !== undefined) {
+			reportKeyError(envVarName, configIndex, 0);
+		}
+		if (providerKey?.id) {
+			reportTrackedKeyError(providerKey.id, 0);
+		}
+
 		const isCanceled = error instanceof Error && error.name === "AbortError";
 		const isTimeout = isTimeoutError(error);
 
@@ -369,6 +583,22 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	}
 
 	if (!upstreamResponse.ok) {
+		if (envVarName !== undefined) {
+			reportKeyError(
+				envVarName,
+				configIndex,
+				upstreamResponse.status,
+				upstreamText,
+			);
+		}
+		if (providerKey?.id) {
+			reportTrackedKeyError(
+				providerKey.id,
+				upstreamResponse.status,
+				upstreamText,
+			);
+		}
+
 		await insertLog({
 			...baseLogEntry,
 			duration,
@@ -419,8 +649,25 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			(typeof upstreamJson === "string"
 				? { error: { message: upstreamJson } }
 				: upstreamJson) ?? { error: true },
-			upstreamResponse.status as any,
+			upstreamResponse.status as
+				| 400
+				| 401
+				| 403
+				| 404
+				| 410
+				| 429
+				| 500
+				| 502
+				| 503
+				| 504,
 		);
+	}
+
+	if (envVarName !== undefined) {
+		reportKeySuccess(envVarName, configIndex);
+	}
+	if (providerKey?.id) {
+		reportTrackedKeySuccess(providerKey.id);
 	}
 
 	await insertLog({

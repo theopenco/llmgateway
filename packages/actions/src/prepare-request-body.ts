@@ -5,6 +5,7 @@ import {
 	type ProviderId,
 	type BaseMessage,
 	type FunctionParameter,
+	isTextContent,
 	type OpenAIFunctionToolInput,
 	type OpenAIRequestBody,
 	type OpenAIResponsesRequestBody,
@@ -16,6 +17,80 @@ import {
 
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
+
+type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+
+interface OpenAIImageRequest {
+	model: string;
+	prompt: string;
+	size?: string;
+	quality?: OpenAIImageQuality;
+	n?: number;
+	image?: string | string[];
+}
+
+/**
+ * Narrow a free-form quality string to the values gpt-image-2 accepts.
+ * Returns undefined for unknown values so they get dropped from the request.
+ */
+function normalizeImageQuality(
+	quality: string | undefined,
+): OpenAIImageQuality | undefined {
+	if (!quality) {
+		return undefined;
+	}
+	const normalized = quality.toLowerCase();
+	if (
+		normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high" ||
+		normalized === "auto"
+	) {
+		return normalized;
+	}
+	return undefined;
+}
+
+/**
+ * Decode an input image URL (https URL or data URL) into a Blob for multipart upload.
+ * Returns the Blob with the mime type and a filename with a matching extension.
+ */
+async function fetchImageAsBlob(
+	url: string,
+	index: number,
+): Promise<{ blob: Blob; filename: string }> {
+	const dataUrlMatch = url.match(/^data:([^;,]+)(?:;[^,]*)?,(.*)$/);
+	if (dataUrlMatch) {
+		const mimeType = dataUrlMatch[1] || "image/png";
+		const payload = dataUrlMatch[2] ?? "";
+		const isBase64 = /;base64,/i.test(url.slice(0, url.indexOf(",") + 1));
+		const raw = isBase64
+			? Buffer.from(payload, "base64")
+			: Buffer.from(decodeURIComponent(payload), "utf-8");
+		const buffer = new ArrayBuffer(raw.byteLength);
+		new Uint8Array(buffer).set(raw);
+		const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+		return {
+			blob: new Blob([buffer], { type: mimeType }),
+			filename: `image-${index}.${ext}`,
+		};
+	}
+
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new Error(
+			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
+		);
+	}
+	const mimeType =
+		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
+	const buffer = await response.arrayBuffer();
+	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
+	return {
+		blob: new Blob([buffer], { type: mimeType }),
+		filename: `image-${index}.${ext}`,
+	};
+}
 
 /**
  * Type guard to check if a tool is a function tool
@@ -569,6 +644,7 @@ export async function prepareRequestBody(
 	image_config?: {
 		aspect_ratio?: string;
 		image_size?: string;
+		image_quality?: string;
 		n?: number;
 		seed?: number;
 	},
@@ -577,7 +653,80 @@ export async function prepareRequestBody(
 	webSearchTool?: WebSearchTool,
 	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
-): Promise<ProviderRequestBody> {
+): Promise<ProviderRequestBody | FormData> {
+	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
+	if (
+		imageGenerations &&
+		(usedProvider === "openai" || usedProvider === "azure")
+	) {
+		// Extract prompt and image URLs from last user message
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		const imageUrls: string[] = [];
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
+			}
+		}
+
+		// Pass image_size straight through to OpenAI as `WxH` (or `auto`).
+		// OpenAI returns a 4xx for unsupported sizes, which we propagate.
+		const openaiSize = image_config?.image_size;
+		const openaiQuality = normalizeImageQuality(image_config?.image_quality);
+
+		const openaiImageRequest: OpenAIImageRequest = {
+			model: usedModel,
+			prompt,
+			...(openaiSize && { size: openaiSize }),
+			...(openaiQuality && { quality: openaiQuality }),
+			...(image_config?.n && { n: image_config.n }),
+		};
+
+		if (imageUrls.length > 0) {
+			// Edits flow: chat.ts swaps the URL to /v1/images/edits, which requires
+			// multipart/form-data with binary image files rather than JSON.
+			const formData = new FormData();
+			formData.append("model", openaiImageRequest.model);
+			formData.append("prompt", openaiImageRequest.prompt);
+			if (openaiImageRequest.size) {
+				formData.append("size", openaiImageRequest.size);
+			}
+			if (openaiImageRequest.quality) {
+				formData.append("quality", openaiImageRequest.quality);
+			}
+			if (openaiImageRequest.n !== undefined) {
+				formData.append("n", String(openaiImageRequest.n));
+			}
+
+			const decoded = await Promise.all(
+				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+			);
+			const fieldName = decoded.length === 1 ? "image" : "image[]";
+			for (const { blob, filename } of decoded) {
+				formData.append(fieldName, blob, filename);
+			}
+			return formData;
+		}
+
+		return openaiImageRequest as unknown as ProviderRequestBody;
+	}
+
 	// Handle xAI image generation models
 	if (imageGenerations && usedProvider === "xai") {
 		// Extract prompt and image URLs from last user message
@@ -772,6 +921,70 @@ export async function prepareRequestBody(
 		processedMessages = transformMessagesForNoSystemRole(messages);
 	}
 
+	// Strip Anthropic-style cache_control markers from text content parts when
+	// the resolved provider doesn't natively understand them. The Anthropic and
+	// AWS Bedrock branches below transform/forward cache_control on their own;
+	// every other provider receives the raw `processedMessages` and would
+	// otherwise pass an unknown field through to OpenAI/Google/etc., risking a
+	// 400 from strict providers and confusing logs from lenient ones.
+	const providerHandlesCacheControl =
+		usedProvider === "anthropic" || usedProvider === "aws-bedrock";
+	if (!providerHandlesCacheControl) {
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const newContent = m.content.map((part) => {
+				const asRecord = part as unknown as Record<string, unknown>;
+				if (
+					asRecord &&
+					typeof asRecord === "object" &&
+					asRecord.type === "text" &&
+					asRecord.cache_control !== undefined
+				) {
+					mutated = true;
+					const { cache_control: _ignored, ...rest } = asRecord;
+					return rest as unknown as typeof part;
+				}
+				return part;
+			});
+			return mutated ? { ...m, content: newContent } : m;
+		});
+	}
+
+	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
+	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
+	// clients usually drop reasoning between turns, so translate the OpenAI-style
+	// `reasoning` field back to provider-style `reasoning_content`. DeepSeek
+	// accepts an empty string, but Moonshot's newer reasoning models (kimi-k2.5,
+	// kimi-k2.6) treat an empty string as missing — use a single space as a
+	// non-empty placeholder there. Novita proxies DeepSeek V4 with the same
+	// upstream constraint, so apply the DeepSeek behavior there too.
+	const isNovitaDeepseekV4 =
+		usedProvider === "novita" && usedModel.startsWith("deepseek/deepseek-v4");
+	if (
+		usedProvider === "deepseek" ||
+		usedProvider === "moonshot" ||
+		isNovitaDeepseekV4
+	) {
+		const fallback =
+			usedProvider === "moonshot" || isNovitaDeepseekV4 ? " " : "";
+		processedMessages = processedMessages.map((m) => {
+			if (
+				m.role !== "assistant" ||
+				!m.tool_calls ||
+				!Array.isArray(m.tool_calls) ||
+				m.tool_calls.length === 0 ||
+				m.reasoning_content !== undefined
+			) {
+				return m;
+			}
+			const reasoning = m.reasoning ?? fallback;
+			return { ...m, reasoning_content: reasoning || fallback };
+		});
+	}
+
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedModel,
@@ -787,15 +1000,26 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// Resolve tool_choice: fall back to "auto" when the provider mapping
+	// explicitly lists supportedParameters but omits "tool_choice".
+	let resolvedToolChoice = tool_choice;
 	if (tool_choice) {
-		requestBody.tool_choice = tool_choice;
+		const mapping = modelDef?.providers.find(
+			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+		) as ProviderModelMapping | undefined;
+		const supported = mapping?.supportedParameters;
+		const supportsToolChoice =
+			!supported || supported.length === 0 || supported.includes("tool_choice");
+		resolvedToolChoice = supportsToolChoice ? tool_choice : "auto";
+		requestBody.tool_choice = resolvedToolChoice;
 	}
 
 	const forcesToolUse =
 		tools &&
 		tools.filter(isFunctionTool).length > 0 &&
-		(tool_choice === "required" ||
-			(typeof tool_choice === "object" && tool_choice.type === "function"));
+		(resolvedToolChoice === "required" ||
+			(typeof resolvedToolChoice === "object" &&
+				resolvedToolChoice.type === "function"));
 
 	if (forcesToolUse && usedProvider === "alibaba") {
 		const providerMapping = modelDef?.providers.find(
@@ -810,8 +1034,40 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// Alibaba's API defaults `enable_thinking` to ON for thinking models.
+	// Mirror the OpenAI/Anthropic/Google/ZAI contract: thinking is opt-in via
+	// `reasoning_effort`. Unset or `minimal` => off, anything else => on.
+	if (usedProvider === "alibaba" && supportsReasoning) {
+		const wantsThinking =
+			reasoning_effort !== undefined && reasoning_effort !== "minimal";
+		requestBody.enable_thinking = wantsThinking;
+	}
+
 	if (forcesToolUse && usedProvider === "moonshot") {
-		requestBody.thinking = { enabled: false };
+		const providerMapping = modelDef?.providers.find(
+			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+		);
+		const isReasoningModel =
+			providerMapping &&
+			"reasoning" in providerMapping &&
+			providerMapping.reasoning === true;
+		if (isReasoningModel) {
+			// Moonshot rejects tool_choice="required" (and forced function choice)
+			// when thinking is enabled, and thinking cannot be disabled on
+			// reasoning models. Downgrade to "auto" so the request still works.
+			resolvedToolChoice = "auto";
+			requestBody.tool_choice = "auto";
+		}
+	}
+
+	if (
+		forcesToolUse &&
+		usedProvider === "azure" &&
+		usedModel === "gpt-oss-120b"
+	) {
+		// Azure's gpt-oss-120b rejects tool_choice="required" with UnsupportedToolUse.
+		resolvedToolChoice = "auto";
+		requestBody.tool_choice = "auto";
 	}
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
@@ -899,8 +1155,8 @@ export async function prepareRequestBody(
 					}
 					responsesBody.tools.push(webSearch);
 				}
-				if (tool_choice) {
-					responsesBody.tool_choice = tool_choice;
+				if (resolvedToolChoice) {
+					responsesBody.tool_choice = resolvedToolChoice;
 				}
 
 				// Add optional parameters if they are provided
@@ -1050,10 +1306,14 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// ZAI/GLM models use 'thinking' parameter for reasoning instead of 'reasoning_effort'
+			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
+			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
+			// `reasoning_effort`. Unset or `minimal` => disabled, anything else => enabled.
 			if (supportsReasoning) {
+				const wantsThinking =
+					reasoning_effort !== undefined && reasoning_effort !== "minimal";
 				requestBody.thinking = {
-					type: "enabled",
+					type: wantsThinking ? "enabled" : "disabled",
 				};
 			}
 			// Add sensitive_word_check if provided (Z.ai specific)
@@ -1120,44 +1380,87 @@ export async function prepareRequestBody(
 				const systemContent: Array<{
 					type: "text";
 					text: string;
-					cache_control?: { type: "ephemeral" };
+					cache_control?: { type: "ephemeral"; ttl?: "5m" | "1h" };
 				}> = [];
 
-				for (const sysMsg of systemMessages) {
-					let text: string;
-					if (typeof sysMsg.content === "string") {
-						text = sysMsg.content;
-					} else if (Array.isArray(sysMsg.content)) {
-						// Concatenate text from array content
-						text = sysMsg.content
-							.filter((c) => c.type === "text" && "text" in c)
-							.map((c) => (c as { type: "text"; text: string }).text)
-							.join("");
-					} else {
-						continue;
+				// Detect whether any text block in the incoming system messages has
+				// a caller-supplied cache_control marker. If so, we preserve the
+				// per-block structure so we can forward markers verbatim. Otherwise
+				// we fall back to the legacy behavior of concatenating each system
+				// message's text into a single block (and applying the length-based
+				// heuristic per concatenated block).
+				const callerSetCacheControl = systemMessages.some((sysMsg) => {
+					if (!Array.isArray(sysMsg.content)) {
+						return false;
 					}
+					return sysMsg.content.some(
+						(c) => isTextContent(c) && !!c.cache_control,
+					);
+				});
 
-					if (!text || text.trim() === "") {
-						continue;
+				if (callerSetCacheControl) {
+					for (const sysMsg of systemMessages) {
+						if (typeof sysMsg.content === "string") {
+							if (!sysMsg.content.trim()) {
+								continue;
+							}
+							systemContent.push({ type: "text", text: sysMsg.content });
+						} else if (Array.isArray(sysMsg.content)) {
+							for (const part of sysMsg.content) {
+								if (!isTextContent(part) || !part.text || !part.text.trim()) {
+									continue;
+								}
+								const explicit = part.cache_control;
+								if (explicit) {
+									if (systemCacheControlCount < maxCacheControlBlocks) {
+										systemCacheControlCount++;
+										systemContent.push({
+											type: "text",
+											text: part.text,
+											cache_control: explicit,
+										});
+									} else {
+										systemContent.push({ type: "text", text: part.text });
+									}
+								} else {
+									systemContent.push({ type: "text", text: part.text });
+								}
+							}
+						}
 					}
+				} else {
+					for (const sysMsg of systemMessages) {
+						let text: string;
+						if (typeof sysMsg.content === "string") {
+							text = sysMsg.content;
+						} else if (Array.isArray(sysMsg.content)) {
+							// Concatenate text from array content (legacy behavior).
+							text = sysMsg.content
+								.filter((c) => c.type === "text" && "text" in c)
+								.map((c) => (c as { type: "text"; text: string }).text)
+								.join("");
+						} else {
+							continue;
+						}
 
-					// Add cache_control for text blocks exceeding the model's minimum cacheable threshold
-					const shouldCache =
-						text.length >= minCacheableChars &&
-						systemCacheControlCount < maxCacheControlBlocks;
+						if (!text || text.trim() === "") {
+							continue;
+						}
 
-					if (shouldCache) {
-						systemCacheControlCount++;
-						systemContent.push({
-							type: "text",
-							text,
-							cache_control: { type: "ephemeral" },
-						});
-					} else {
-						systemContent.push({
-							type: "text",
-							text,
-						});
+						const shouldCache =
+							text.length >= minCacheableChars &&
+							systemCacheControlCount < maxCacheControlBlocks;
+
+						if (shouldCache) {
+							systemCacheControlCount++;
+							systemContent.push({
+								type: "text",
+								text,
+								cache_control: { type: "ephemeral" },
+							});
+						} else {
+							systemContent.push({ type: "text", text });
+						}
 					}
 				}
 
@@ -1236,10 +1539,38 @@ export async function prepareRequestBody(
 
 			// Enable thinking for reasoning-capable Anthropic models when reasoning_effort or reasoning_max_tokens is specified
 			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				requestBody.thinking = {
-					type: "enabled",
-					budget_tokens: thinkingBudget,
-				};
+				if (providerMapping?.reasoningMode === "adaptive") {
+					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
+					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
+					// The model decides whether to engage thinking based on prompt complexity.
+					requestBody.thinking = { type: "adaptive" };
+					if (effort === undefined && reasoning_effort) {
+						const mapEffort = (
+							e: typeof reasoning_effort,
+						): "low" | "medium" | "high" | "xhigh" | "max" => {
+							switch (e) {
+								case "minimal":
+								case "low":
+									return "low";
+								case "medium":
+									return "medium";
+								case "high":
+									return "high";
+								case "xhigh":
+									return "xhigh";
+								default:
+									return "high";
+							}
+						};
+						requestBody.output_config ??= {};
+						requestBody.output_config.effort = mapEffort(reasoning_effort);
+					}
+				} else {
+					requestBody.thinking = {
+						type: "enabled",
+						budget_tokens: thinkingBudget,
+					};
+				}
 				// Anthropic requires temperature to be exactly 1 when thinking is enabled
 				temperature = 1;
 			}
@@ -1311,39 +1642,62 @@ export async function prepareRequestBody(
 				(m) => m.role !== "system",
 			);
 
-			// Build the system field with cachePoint for long prompts
-			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE content block after the text block
+			// Build the system field with cachePoint for long prompts.
+			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE
+			// content block after the text block. Honor caller-supplied
+			// cache_control markers (Anthropic format) by mapping them to
+			// cachePoint, and fall back to a length heuristic when nothing was
+			// explicitly opted in.
 			if (bedrockSystemMessages.length > 0) {
 				const systemContent: Array<
 					{ text: string } | { cachePoint: { type: "default" } }
 				> = [];
 
+				const collectedBedrockBlocks: Array<{
+					text: string;
+					hasExplicitCacheControl: boolean;
+				}> = [];
 				for (const sysMsg of bedrockSystemMessages) {
-					let text: string;
 					if (typeof sysMsg.content === "string") {
-						text = sysMsg.content;
+						if (sysMsg.content.trim()) {
+							collectedBedrockBlocks.push({
+								text: sysMsg.content,
+								hasExplicitCacheControl: false,
+							});
+						}
 					} else if (Array.isArray(sysMsg.content)) {
-						text = sysMsg.content
-							.filter((c: any) => c.type === "text" && "text" in c)
-							.map((c: any) => c.text)
-							.join("");
-					} else {
+						for (const part of sysMsg.content as any[]) {
+							if (part.type === "text" && part.text && part.text.trim()) {
+								collectedBedrockBlocks.push({
+									text: part.text,
+									hasExplicitCacheControl: !!part.cache_control,
+								});
+							}
+						}
+					}
+				}
+
+				const callerSetBedrockCacheControl = collectedBedrockBlocks.some(
+					(b) => b.hasExplicitCacheControl,
+				);
+
+				for (const block of collectedBedrockBlocks) {
+					systemContent.push({ text: block.text });
+
+					if (block.hasExplicitCacheControl) {
+						if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
+							bedrockCacheControlCount++;
+							systemContent.push({ cachePoint: { type: "default" } });
+						}
 						continue;
 					}
 
-					if (!text || text.trim() === "") {
-						continue;
-					}
-
-					// Add text block first
-					systemContent.push({ text });
-
-					// Add cachePoint as separate block for long text (model-specific threshold)
-					const shouldCache =
-						text.length >= bedrockMinCacheableChars &&
+					const shouldHeuristicCache =
+						!callerSetBedrockCacheControl &&
+						block.text.length >= bedrockMinCacheableChars &&
 						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
-					if (shouldCache) {
+					if (shouldHeuristicCache) {
 						bedrockCacheControlCount++;
 						systemContent.push({ cachePoint: { type: "default" } });
 					}
@@ -1461,16 +1815,26 @@ export async function prepareRequestBody(
 									text: part.text,
 								});
 
-								// Add cachePoint as separate block for long text parts (model-specific threshold)
-								const shouldCache =
-									part.text.length >= bedrockMinCacheableChars &&
-									bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
+								if (part.cache_control) {
+									if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
+										bedrockCacheControlCount++;
+										bedrockMessage.content.push({
+											cachePoint: { type: "default" },
+										});
+									}
+								} else {
+									// Add cachePoint as separate block for long text parts
+									// (model-specific threshold)
+									const shouldCache =
+										part.text.length >= bedrockMinCacheableChars &&
+										bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
-								if (shouldCache) {
-									bedrockCacheControlCount++;
-									bedrockMessage.content.push({
-										cachePoint: { type: "default" },
-									});
+									if (shouldCache) {
+										bedrockCacheControlCount++;
+										bedrockMessage.content.push({
+											cachePoint: { type: "default" },
+										});
+									}
 								}
 							}
 						} else if (part.type === "image_url") {
@@ -1485,6 +1849,44 @@ export async function prepareRequestBody(
 			}
 
 			flushPendingToolResults();
+
+			// Turn-boundary caching: place a cachePoint after the last content
+			// block of the message just before the final user turn. This caches
+			// the entire conversation prefix (all prior turns) so only the
+			// newest user message is uncached. This mirrors the Anthropic
+			// turn-boundary logic in transformAnthropicMessages.
+			if (bedrockMessages.length >= 3) {
+				let lastUserIdx = -1;
+				for (let i = bedrockMessages.length - 1; i >= 0; i--) {
+					if (bedrockMessages[i].role === "user") {
+						lastUserIdx = i;
+						break;
+					}
+				}
+
+				const boundaryIdx = lastUserIdx > 0 ? lastUserIdx - 1 : -1;
+				if (
+					boundaryIdx >= 0 &&
+					bedrockCacheControlCount < bedrockMaxCacheControlBlocks
+				) {
+					const boundaryMsg = bedrockMessages[boundaryIdx];
+					if (
+						Array.isArray(boundaryMsg.content) &&
+						boundaryMsg.content.length > 0
+					) {
+						const lastBlock =
+							boundaryMsg.content[boundaryMsg.content.length - 1];
+						// Only add if the last block isn't already a cachePoint.
+						if (!lastBlock.cachePoint) {
+							boundaryMsg.content.push({
+								cachePoint: { type: "default" },
+							});
+							bedrockCacheControlCount++;
+						}
+					}
+				}
+			}
+
 			requestBody.messages = bedrockMessages;
 
 			// Transform tools from OpenAI format to Bedrock format
@@ -1529,40 +1931,74 @@ export async function prepareRequestBody(
 
 			// Enable thinking for Bedrock Anthropic models when reasoning is supported
 			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				const getThinkingBudget = (effort?: string) => {
-					if (reasoning_max_tokens !== undefined) {
-						return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
+				if (bedrockProviderMapping?.reasoningMode === "adaptive") {
+					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
+					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
+					requestBody.additionalModelRequestFields ??= {};
+					requestBody.additionalModelRequestFields.thinking = {
+						type: "adaptive",
+					};
+					const mapEffort = (
+						e: typeof reasoning_effort,
+					): "low" | "medium" | "high" | "xhigh" | "max" => {
+						switch (e) {
+							case "minimal":
+							case "low":
+								return "low";
+							case "medium":
+								return "medium";
+							case "high":
+								return "high";
+							case "xhigh":
+								return "xhigh";
+							default:
+								return "high";
+						}
+					};
+					const adaptiveEffort =
+						effort ??
+						(reasoning_effort ? mapEffort(reasoning_effort) : undefined);
+					if (adaptiveEffort !== undefined) {
+						requestBody.additionalModelRequestFields.output_config = {
+							effort: adaptiveEffort,
+						};
 					}
-					if (!effort) {
-						return 2000;
-					}
-					switch (effort) {
-						case "low":
-							return 1024;
-						case "high":
-							return 4000;
-						case "xhigh":
-							return 16000;
-						default:
+				} else {
+					const getThinkingBudget = (effort?: string) => {
+						if (reasoning_max_tokens !== undefined) {
+							return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
+						}
+						if (!effort) {
 							return 2000;
+						}
+						switch (effort) {
+							case "low":
+								return 1024;
+							case "high":
+								return 4000;
+							case "xhigh":
+								return 16000;
+							default:
+								return 2000;
+						}
+					};
+					const thinkingBudget = getThinkingBudget(reasoning_effort);
+					requestBody.additionalModelRequestFields ??= {};
+					requestBody.additionalModelRequestFields.thinking = {
+						type: "enabled",
+						budget_tokens: thinkingBudget,
+					};
+					// Ensure max_tokens is sufficient for thinking + response
+					const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
+					if (
+						!inferenceConfig.maxTokens ||
+						inferenceConfig.maxTokens < minMaxTokens
+					) {
+						inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
 					}
-				};
-				const thinkingBudget = getThinkingBudget(reasoning_effort);
-				requestBody.additionalModelRequestFields ??= {};
-				requestBody.additionalModelRequestFields.thinking = {
-					type: "enabled",
-					budget_tokens: thinkingBudget,
-				};
+				}
 				// Anthropic requires temperature to be exactly 1 when thinking is enabled
 				inferenceConfig.temperature = 1;
-				// Ensure max_tokens is sufficient for thinking + response
-				const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
-				if (
-					!inferenceConfig.maxTokens ||
-					inferenceConfig.maxTokens < minMaxTokens
-				) {
-					inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
-				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
 				}
@@ -1578,12 +2014,13 @@ export async function prepareRequestBody(
 					...response_format.json_schema.schema,
 					additionalProperties: false,
 				} as Record<string, unknown>;
-				requestBody.additionalModelRequestFields = {
-					anthropic_beta: ["structured-outputs-2025-11-13"],
-					output_format: {
-						type: "json_schema",
-						schema,
-					},
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.anthropic_beta = [
+					"structured-outputs-2025-11-13",
+				];
+				requestBody.additionalModelRequestFields.output_format = {
+					type: "json_schema",
+					schema,
 				};
 				requestBody.additionalModelResponseFieldPaths = ["/output_format"];
 			}
@@ -1591,9 +2028,9 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
-		case "quartz":
-		case "obsidian": {
+		case "quartz": {
 			delete requestBody.model; // Not used in body
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
@@ -1750,7 +2187,7 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "inference.net":
-		case "together.ai": {
+		case "together-ai": {
 			if (usedModel.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedModel.substring(usedProvider.length + 1);
 			}
@@ -1927,6 +2364,12 @@ export async function prepareRequestBody(
 				) {
 					requestBody.reasoning_effort = reasoning_effort;
 				}
+			}
+			if (usedProvider === "minimax" && supportsReasoning) {
+				requestBody.extra_body = {
+					...(requestBody.extra_body ?? {}),
+					reasoning_split: true,
+				};
 			}
 			break;
 		}

@@ -10,12 +10,15 @@ import { EmailVerificationBanner } from "@/components/email-verification-banner"
 import { DashboardProvider } from "@/lib/dashboard-context";
 import { useDashboardState } from "@/lib/dashboard-state";
 
+import type { AnnouncementEntry } from "@/components/dashboard/changelog-notifications";
+
 interface DashboardLayoutClientProps {
 	children: ReactNode;
 	initialOrganizationsData?: unknown;
 	initialProjectsData?: unknown;
 	selectedOrgId?: string;
 	selectedProjectId?: string;
+	announcementEntries?: AnnouncementEntry[];
 }
 
 export function DashboardLayoutClient({
@@ -24,6 +27,7 @@ export function DashboardLayoutClient({
 	initialProjectsData,
 	selectedOrgId,
 	selectedProjectId,
+	announcementEntries = [],
 }: DashboardLayoutClientProps) {
 	const posthog = usePostHog();
 
@@ -76,6 +80,7 @@ export function DashboardLayoutClient({
 							onSelectProject={handleProjectSelect}
 							selectedOrganization={selectedOrganization}
 							onProjectCreated={handleProjectCreated}
+							announcementEntries={announcementEntries}
 						/>
 						<EmailVerificationBanner />
 						<main className="bg-background w-full flex-1 overflow-y-auto pt-10 pb-4 px-4 md:p-6 lg:p-8">

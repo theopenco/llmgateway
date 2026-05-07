@@ -32,6 +32,7 @@ describe("sync-models", () => {
 		expect(providerIds).toContain("openai");
 		expect(providerIds).toContain("anthropic");
 		expect(providerIds).toContain("google-ai-studio");
+		expect(providerIds).toContain("glacier");
 
 		// Verify provider properties
 		const openaiProvider = providers.find((p) => p.id === "openai");

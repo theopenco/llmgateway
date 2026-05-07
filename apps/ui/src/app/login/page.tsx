@@ -2,7 +2,15 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, KeySquare, Github, Eye, EyeOff } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+	Loader2,
+	KeySquare,
+	Github,
+	Eye,
+	EyeOff,
+	ArrowRight,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -43,7 +51,6 @@ export default function Login() {
 	const { signIn } = useAuth();
 	const { githubAuth, googleAuth } = useAppConfig();
 
-	// Redirect to dashboard if already authenticated
 	useUser({
 		redirectTo: "/dashboard",
 		redirectWhen: "authenticated",
@@ -70,7 +77,6 @@ export default function Login() {
 					posthog.capture("user_logged_in", { method: "passkey" });
 					router.push("/dashboard");
 				} else if (res?.error) {
-					// Don't show error for user cancellation - this is expected when user dismisses passkey prompt
 					if (res.error.message?.toLowerCase().includes("cancelled")) {
 						return;
 					}
@@ -81,7 +87,7 @@ export default function Login() {
 				}
 			});
 		}
-	}, []); // Only run once on mount for autofill
+	}, [signIn, queryClient, posthog, router]);
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);
@@ -148,16 +154,30 @@ export default function Login() {
 	}
 
 	return (
-		<div className="px-4 sm:px-0 max-w-[64rem] mx-auto flex h-screen w-screen flex-col items-center justify-center">
-			<div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
-				<div className="flex flex-col space-y-2 text-center">
-					<h1 className="text-2xl font-semibold tracking-tight">
-						Welcome back
-					</h1>
-					<p className="text-sm text-muted-foreground">
-						Enter your email and password to sign in to your account
-					</p>
-				</div>
+		<motion.div
+			initial={{ opacity: 0, y: 12 }}
+			animate={{ opacity: 1, y: 0 }}
+			transition={{ duration: 0.4, ease: "easeOut" }}
+			className="mx-auto w-full max-w-[400px]"
+		>
+			{/* Mobile brand header */}
+			<div className="mb-6 lg:hidden">
+				<p className="text-sm font-medium uppercase tracking-widest text-primary">
+					LLM Gateway
+				</p>
+			</div>
+
+			<div className="flex flex-col space-y-2">
+				<h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
+					Sign in
+				</h1>
+				<p className="text-sm text-muted-foreground">
+					Enter your credentials to access your dashboard
+				</p>
+			</div>
+
+			<div className="mt-8 space-y-4">
+				{/* Email/Password form */}
 				<Form {...form}>
 					<form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
 						<FormField
@@ -183,7 +203,15 @@ export default function Login() {
 							name="password"
 							render={({ field }) => (
 								<FormItem>
-									<FormLabel>Password</FormLabel>
+									<div className="flex items-center justify-between">
+										<FormLabel>Password</FormLabel>
+										<Link
+											href="/forgot-password"
+											className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+										>
+											Forgot password?
+										</Link>
+									</div>
 									<FormControl>
 										<div className="relative">
 											<Input
@@ -223,11 +251,16 @@ export default function Login() {
 									Signing in...
 								</>
 							) : (
-								"Sign in"
+								<>
+									Sign in
+									<ArrowRight className="ml-2 h-4 w-4" />
+								</>
 							)}
 						</Button>
 					</form>
 				</Form>
+
+				{/* Divider */}
 				<div className="relative">
 					<div className="absolute inset-0 flex items-center">
 						<span className="w-full border-t" />
@@ -236,7 +269,9 @@ export default function Login() {
 						<span className="bg-background px-2 text-muted-foreground">Or</span>
 					</div>
 				</div>
-				<div className="grid grid-cols-1 gap-3">
+
+				{/* Alternative sign-in methods */}
+				<div className="grid gap-3 sm:grid-cols-2">
 					{githubAuth && (
 						<Button
 							onClick={async () => {
@@ -267,7 +302,7 @@ export default function Login() {
 							) : (
 								<Github className="mr-2 h-4 w-4" />
 							)}
-							Sign in with GitHub
+							GitHub
 						</Button>
 					)}
 					{googleAuth && (
@@ -317,32 +352,34 @@ export default function Login() {
 									/>
 								</svg>
 							)}
-							Sign in with Google
+							Google
 						</Button>
 					)}
-					<Button
-						onClick={handlePasskeySignIn}
-						variant="outline"
-						className="w-full"
-						disabled={isLoading}
-					>
-						{isLoading ? (
-							<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-						) : (
-							<KeySquare className="mr-2 h-4 w-4" />
-						)}
-						Sign in with passkey
-					</Button>
 				</div>
-				<p className="px-8 text-center text-sm text-muted-foreground">
-					<Link
-						href="/signup"
-						className="hover:text-primary underline underline-offset-4"
-					>
-						Don&apos;t have an account? Sign up
-					</Link>
-				</p>
+
+				<Button
+					onClick={handlePasskeySignIn}
+					variant="outline"
+					className="w-full"
+					disabled={isLoading}
+				>
+					{isLoading ? (
+						<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+					) : (
+						<KeySquare className="mr-2 h-4 w-4" />
+					)}
+					Sign in with passkey
+				</Button>
 			</div>
-		</div>
+
+			<p className="mt-6 text-center text-sm text-muted-foreground">
+				<Link
+					href="/signup"
+					className="hover:text-foreground underline underline-offset-4 transition-colors"
+				>
+					Don&apos;t have an account? Sign up
+				</Link>
+			</p>
+		</motion.div>
 	);
 }

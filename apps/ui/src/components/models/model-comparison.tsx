@@ -829,7 +829,7 @@ export function ModelComparison() {
 								<>
 									<Button asChild size="sm" variant="outline">
 										<Link href={`/models/${encodeURIComponent(leftModel.id)}`}>
-											Learn more
+											View {leftModel.displayName} details
 										</Link>
 									</Button>
 									<Button asChild size="sm">
@@ -853,7 +853,7 @@ export function ModelComparison() {
 								<>
 									<Button asChild size="sm" variant="outline">
 										<Link href={`/models/${encodeURIComponent(rightModel.id)}`}>
-											Learn more
+											View {rightModel.displayName} details
 										</Link>
 									</Button>
 									<Button asChild size="sm">

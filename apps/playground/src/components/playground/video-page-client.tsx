@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
@@ -12,7 +13,9 @@ import { VideoSidebar } from "@/components/playground/video-sidebar";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
+import { useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 import {
 	getNormalizedVideoRequestSelection,
 	getSupportedVideoRequestOptions,
@@ -54,20 +57,30 @@ interface VideoPageClientProps {
 export default function VideoPageClient({
 	models,
 	providers,
-	organizations,
+	organizations: _organizations,
 	selectedOrganization,
-	projects,
+	projects: _projects,
 	selectedProject,
 }: VideoPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const posthog = usePostHog();
+	const fetchClient = useFetchClient();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	const videoGenModels = useMemo(
-		() => models.filter((m) => m.output?.includes("video")),
-		[models],
-	);
+	const videoGenModels = useMemo(() => {
+		const now = new Date();
+		return models.filter((m) => {
+			if (!m.output?.includes("video")) {
+				return false;
+			}
+			return m.mappings.some(
+				(mapping) =>
+					!mapping.deactivatedAt || new Date(mapping.deactivatedAt) > now,
+			);
+		});
+	}, [models]);
 
 	const mapped = useMemo(
 		() => mapModels(videoGenModels, providers),
@@ -239,8 +252,9 @@ export default function VideoPageClient({
 
 	// Cleanup abort controllers on unmount
 	useEffect(() => {
+		const abortControllers = abortControllersRef.current;
 		return () => {
-			Array.from(abortControllersRef.current.values()).forEach((controller) => {
+			Array.from(abortControllers.values()).forEach((controller) => {
 				controller.abort();
 			});
 		};
@@ -317,22 +331,30 @@ export default function VideoPageClient({
 
 	// Keep URL in sync with selected model(s)
 	useEffect(() => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		// Read current URL params directly to avoid stale searchParams closure
+		// and to prevent an infinite loop where router.replace produces a new
+		// searchParams reference that re-triggers this effect (each such cycle
+		// causes Next.js to refetch the RSC, re-hitting /orgs forever).
+		const currentParams = new URLSearchParams(window.location.search);
 		if (comparisonMode) {
-			params.set("model", selectedModels.join(","));
-			params.set("compare", "1");
+			currentParams.set("model", selectedModels.join(","));
+			currentParams.set("compare", "1");
 		} else {
 			const primary = selectedModels[0];
 			if (primary) {
-				params.set("model", primary);
+				currentParams.set("model", primary);
 			} else {
-				params.delete("model");
+				currentParams.delete("model");
 			}
-			params.delete("compare");
+			currentParams.delete("compare");
 		}
-		const qs = params.toString();
-		router.replace(qs ? `?${qs}` : "");
-	}, [selectedModels, comparisonMode]);
+		const qs = currentParams.toString();
+		const nextUrl = `${pathname}${qs ? `?${qs}` : ""}`;
+		const currentUrl = `${window.location.pathname}${window.location.search}`;
+		if (nextUrl !== currentUrl) {
+			router.replace(nextUrl, { scroll: false });
+		}
+	}, [comparisonMode, pathname, router, selectedModels]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
@@ -382,6 +404,16 @@ export default function VideoPageClient({
 
 			const currentPrompt = effectivePrompt.trim();
 			setIsGenerating(true);
+			posthog.capture("playground_video_generated", {
+				models: selectedModels,
+				model_count: selectedModels.length,
+				comparison_mode: comparisonMode,
+				video_size: videoSize,
+				video_duration: videoDuration,
+				audio_enabled: effectiveAudioEnabled,
+				has_frame_inputs: !!(frameInputs.start ?? frameInputs.end),
+				has_reference_images: referenceImages.length > 0,
+			});
 
 			const itemId = crypto.randomUUID();
 
@@ -413,7 +445,7 @@ export default function VideoPageClient({
 			pendingRef.current = selectedModels.length;
 
 			for (const modelId of selectedModels) {
-				const isProviderSpecific = modelId.includes("/");
+				const noFallback = shouldDisableFallback(modelId);
 				const controllerKey = `${itemId}-${modelId}`;
 				const controller = new AbortController();
 				abortControllersRef.current.set(controllerKey, controller);
@@ -424,7 +456,7 @@ export default function VideoPageClient({
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								...(isProviderSpecific ? { "x-no-fallback": "true" } : {}),
+								...(noFallback ? { "x-no-fallback": "true" } : {}),
 							},
 							body: JSON.stringify({
 								model: modelId,
@@ -474,12 +506,11 @@ export default function VideoPageClient({
 
 						for await (const updatedJob of pollVideoJob(
 							job.id,
+							fetchClient,
 							controller.signal,
 						)) {
 							if (updatedJob.status === "completed") {
-								const videoUrl =
-									updatedJob.content?.[0]?.url ??
-									`/api/video/${updatedJob.id}/content`;
+								const videoUrl = `/api/video/${updatedJob.id}/content`;
 								updateGalleryModel(itemId, modelId, {
 									job: updatedJob,
 									videoUrl,
@@ -523,14 +554,17 @@ export default function VideoPageClient({
 			}
 		},
 		[
+			comparisonMode,
 			prompt,
 			selectedModels,
 			isGenerating,
 			getModelName,
+			fetchClient,
 			videoSize,
 			videoDuration,
 			effectiveAudioEnabled,
 			frameInputs,
+			posthog,
 			referenceImages,
 			updateGalleryModel,
 		],

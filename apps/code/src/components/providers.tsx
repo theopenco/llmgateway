@@ -47,8 +47,16 @@ export function Providers({ children, config }: ProvidersProps) {
 		if (!config.posthogKey) {
 			return;
 		}
-
-		posthog.init(config.posthogKey, posthogOptions);
+		const key = config.posthogKey;
+		const init = () => {
+			posthog.init(key, posthogOptions);
+		};
+		if (typeof requestIdleCallback !== "undefined") {
+			const id = requestIdleCallback(init);
+			return () => cancelIdleCallback(id);
+		}
+		const timer = setTimeout(init, 1000);
+		return () => clearTimeout(timer);
 	}, [config.posthogKey, posthogOptions]);
 
 	return (

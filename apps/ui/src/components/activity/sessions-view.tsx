@@ -12,6 +12,10 @@ import {
 import { useState } from "react";
 
 import { LogCard } from "@/components/dashboard/log-card";
+import {
+	type DateRange,
+	DateRangeSelect,
+} from "@/components/date-range-select";
 import { Button } from "@/lib/components/button";
 import {
 	Select,
@@ -50,15 +54,16 @@ const KNOWN_SOURCES = [
 	"opencode",
 	"cursor",
 	"autohand",
+	"soulforge",
 ] as const;
 
 const SOURCE_OPTIONS = [
 	{ value: "all", label: "All integrations" },
 	{ value: "claude.com/claude-code", label: "Claude Code" },
-	{ value: "open-code", label: "Open Code" },
 	{ value: "opencode", label: "OpenCode" },
 	{ value: "cursor", label: "Cursor" },
 	{ value: "autohand", label: "Autohand Code" },
+	{ value: "soulforge", label: "SoulForge" },
 ] as const;
 
 function toUiLog(log: ApiLog): Partial<Log> {
@@ -154,13 +159,14 @@ function formatSourceLabel(source: string): string {
 		case "claude.com/claude-code":
 			return "Claude Code";
 		case "open-code":
-			return "Open Code";
 		case "opencode":
 			return "OpenCode";
 		case "cursor":
 			return "Cursor";
 		case "autohand":
 			return "Autohand Code";
+		case "soulforge":
+			return "SoulForge";
 		case "chatbox":
 			return "Chatbox";
 		case "llmgateway.io/playground":
@@ -249,6 +255,7 @@ export function SessionsView({
 	orgId: string;
 }) {
 	const [source, setSource] = useState<string>("all");
+	const [dateRange, setDateRange] = useState<DateRange | undefined>();
 	const api = useApi();
 
 	const queryParams: Record<string, string> = {
@@ -257,7 +264,19 @@ export function SessionsView({
 		limit: "100",
 	};
 
-	if (source !== "all") {
+	if (dateRange?.start) {
+		queryParams.startDate = dateRange.start.toISOString();
+	}
+	if (dateRange?.end) {
+		queryParams.endDate = dateRange.end.toISOString();
+	}
+
+	// Filter by source at API level so pagination reflects filtered results
+	if (source === "all") {
+		queryParams.source = KNOWN_SOURCES.join(",");
+	} else if (source === "opencode") {
+		queryParams.source = "opencode,open-code";
+	} else {
 		queryParams.source = source;
 	}
 
@@ -294,15 +313,33 @@ export function SessionsView({
 	).filter((log) => !log.retriedByLogId);
 
 	// Only include logs from known integration sources
-	const integrationLogs = allLogs.filter(
-		(log) =>
-			log.source && (KNOWN_SOURCES as readonly string[]).includes(log.source),
-	);
+	const integrationLogs = allLogs.filter((log) => {
+		if (
+			!log.source ||
+			!(KNOWN_SOURCES as readonly string[]).includes(log.source)
+		) {
+			return false;
+		}
+		// Apply client-side source filter
+		if (source === "all") {
+			return true;
+		}
+		// "opencode" filter matches both "opencode" and "open-code"
+		if (source === "opencode") {
+			return log.source === "opencode" || log.source === "open-code";
+		}
+		return log.source === source;
+	});
 	const sessions = groupLogsIntoSessions(integrationLogs);
 
 	return (
 		<div className="space-y-4">
 			<div className="flex flex-wrap gap-2 mb-4 sticky top-0 bg-background z-10 py-2">
+				<DateRangeSelect
+					onChange={(_value: string, range: DateRange) => {
+						setDateRange(range);
+					}}
+				/>
 				<Select value={source} onValueChange={setSource}>
 					<SelectTrigger className="w-[200px]">
 						<SelectValue placeholder="Filter by source" />
@@ -330,7 +367,7 @@ export function SessionsView({
 				</div>
 			) : (
 				<div className="space-y-3">
-					{sessions.length === 0 && !hasNextPage ? (
+					{sessions.length === 0 ? (
 						<div className="flex flex-col items-center justify-center py-16 px-4">
 							<div className="relative mb-6">
 								<div className="absolute -inset-3 rounded-full bg-muted/50 blur-md" />
@@ -343,9 +380,10 @@ export function SessionsView({
 							</h3>
 							<p className="text-sm text-muted-foreground max-w-sm text-center mb-6">
 								Sessions appear when coding tools like Claude Code, Autohand
-								Code, OpenCode, or Cursor make API requests through the gateway.
+								Code, OpenCode, SoulForge, or Cursor make API requests through
+								the gateway.
 							</p>
-							<div className="flex items-center gap-6 text-xs text-muted-foreground/60">
+							<div className="flex flex-wrap items-center justify-center gap-6 text-xs text-muted-foreground/60">
 								<div className="flex items-center gap-1.5">
 									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
 									Claude Code
@@ -357,6 +395,10 @@ export function SessionsView({
 								<div className="flex items-center gap-1.5">
 									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
 									OpenCode
+								</div>
+								<div className="flex items-center gap-1.5">
+									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+									SoulForge
 								</div>
 								<div className="flex items-center gap-1.5">
 									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />

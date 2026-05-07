@@ -1,0 +1,17 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llmgateway.fullname" . }}-postgresql
+  labels:
+    {{- include "llmgateway.componentLabels" (dict "context" . "component" "postgresql") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgresql
+      protocol: TCP
+      name: postgresql
+  selector:
+    {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "postgresql") | nindent 4 }}
+{{- end }}

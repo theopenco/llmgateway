@@ -5,6 +5,7 @@ export interface ProviderHeaderOptions {
 	 * Enable web search beta header for Anthropic
 	 */
 	webSearchEnabled?: boolean;
+	requestId?: string;
 }
 
 /**
@@ -15,6 +16,11 @@ export function getProviderHeaders(
 	token: string,
 	options?: ProviderHeaderOptions,
 ): Record<string, string> {
+	const requestIdHeader: Record<string, string> = {};
+	if (options?.requestId) {
+		requestIdHeader["x-request-id"] = options.requestId;
+	}
+
 	switch (provider) {
 		case "anthropic": {
 			const betaFeatures = ["tools-2024-04-04", "prompt-caching-2024-07-31"];
@@ -22,27 +28,32 @@ export function getProviderHeaders(
 				betaFeatures.push("web-search-2025-03-05");
 			}
 			return {
+				...requestIdHeader,
 				"x-api-key": token,
 				"anthropic-version": "2023-06-01",
 				"anthropic-beta": betaFeatures.join(","),
 			};
 		}
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
 		case "quartz":
-			return {};
-		case "obsidian":
+			return requestIdHeader;
 		case "avalanche":
 			return {
+				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
 			};
 		case "aws-bedrock":
 			return {
+				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
 				"Content-Type": "application/json",
 			};
 		case "azure":
+		case "azure-ai-foundry":
 			return {
+				...requestIdHeader,
 				"api-key": token,
 			};
 		case "openai":
@@ -56,11 +67,11 @@ export function getProviderHeaders(
 		case "alibaba":
 		case "nebius":
 		case "zai":
-		case "canopywave":
 		case "embercloud":
 		case "custom":
 		default:
 			return {
+				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
 			};
 	}

@@ -84,18 +84,22 @@ export default async function FeaturePage({ params }: PageProps) {
 		"@type": "WebPage",
 		name: feature.title,
 		description: feature.longDescription,
-		mainEntity: {
-			"@type": "SoftwareApplication",
+		url: `https://llmgateway.io/features/${slug}`,
+		image: "https://llmgateway.io/opengraph.png?v=1",
+		isPartOf: {
+			"@type": "WebSite",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+		about: {
+			"@type": "Thing",
 			name: `LLM Gateway - ${feature.title}`,
-			applicationCategory: "DeveloperApplication",
-			operatingSystem: "Web",
 			description: feature.longDescription,
-			offers: {
-				"@type": "Offer",
-				price: "0",
-				priceCurrency: "USD",
-			},
-			featureList: feature.benefits.map((b) => b.title),
+		},
+		author: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
 		},
 	};
 

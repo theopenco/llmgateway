@@ -11,6 +11,7 @@ export type Project = SerializedProject;
 export type User = SerializedUser | null;
 
 export type ApiKey = Omit<SerializedApiKey, "token"> & {
+	currentPeriodResetAt: string | null;
 	maskedToken: string;
 	iamRules?: Omit<SerializedApiKeyIamRule, "apiKeyId">[];
 };

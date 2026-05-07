@@ -47,6 +47,7 @@ export function ImageHeader({
 										value={model}
 										onValueChange={(v) => onModelChange(index, v)}
 										placeholder="Select model..."
+										mode="image"
 									/>
 								</div>
 								{selectedModels.length > 1 && (
@@ -81,6 +82,7 @@ export function ImageHeader({
 							value={selectedModels[0] ?? ""}
 							onValueChange={(v) => onModelChange(0, v)}
 							placeholder="Select an image model..."
+							mode="image"
 						/>
 					</div>
 				)}

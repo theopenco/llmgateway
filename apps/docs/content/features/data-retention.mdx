@@ -33,7 +33,7 @@ When full data retention is enabled, storage is billed at **$0.01 per 1 million 
 - Output tokens (completion)
 - Reasoning tokens
 
-Storage costs are calculated per request and displayed in the `cost_usd_data_storage` field of the response. See [Cost Breakdown](/features/cost-breakdown) for details on tracking costs programmatically.
+Storage costs are calculated per request and billed separately from inference. When "Retain All Data" is enabled, each response's `usage.cost_details` object includes a `data_storage_cost` field with the per-request storage cost in USD. See [Cost Breakdown](/features/cost-breakdown) for the full list of cost fields.
 
 ### Example Cost Calculation
 
@@ -116,7 +116,6 @@ In **credits mode**:
 
 Storage costs appear in:
 
-- The `cost_usd_data_storage` field in API responses
 - Usage dashboard under "Storage" category
 - Billing invoices as a separate line item
 

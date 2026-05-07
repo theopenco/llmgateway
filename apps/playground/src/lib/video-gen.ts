@@ -1,4 +1,6 @@
+import type { paths } from "@/lib/api/v1";
 import type { ApiModel, ApiModelProviderMapping } from "@/lib/fetch-models";
+import type { Client } from "openapi-fetch";
 
 export type VideoSize =
 	| "1280x720"
@@ -96,7 +98,6 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 
 	return (
 		providerId === undefined ||
-		providerId === "obsidian" ||
 		providerId === "google-vertex" ||
 		providerId === "avalanche"
 	);
@@ -113,13 +114,6 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 
 	if (providerId === "avalanche") {
 		return rootModelId === "veo-3.1-fast-generate-preview";
-	}
-
-	if (providerId === "obsidian") {
-		return (
-			rootModelId === "veo-3.1-generate-preview" ||
-			rootModelId === "veo-3.1-fast-generate-preview"
-		);
 	}
 
 	return (
@@ -177,23 +171,20 @@ function mappingSupportsVideoRequest(
 	if (
 		inputMode === "frames" &&
 		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "avalanche" &&
-		mapping.providerId !== "obsidian"
+		mapping.providerId !== "avalanche"
 	) {
 		return false;
 	}
 
 	if (inputMode === "reference") {
 		if (mapping.providerId === "google-vertex") {
-			if (mapping.modelName !== "veo-3.1-generate-preview") {
+			if (mapping.modelName !== "veo-3.1-generate-001") {
 				return false;
 			}
 		} else if (mapping.providerId === "avalanche") {
 			if (mapping.modelName !== "veo3_fast") {
 				return false;
 			}
-		} else if (mapping.providerId === "obsidian") {
-			// Obsidian remaps image inputs onto the provider's -fl variants.
 		} else {
 			return false;
 		}
@@ -382,6 +373,7 @@ function pollDelay(ms: number, signal?: AbortSignal): Promise<void> {
 
 export async function* pollVideoJob(
 	videoId: string,
+	fetchClient: Client<paths>,
 	signal?: AbortSignal,
 ): AsyncGenerator<VideoJob> {
 	const startTime = Date.now();
@@ -411,9 +403,10 @@ export async function* pollVideoJob(
 			return;
 		}
 
-		let response: Response;
+		let result: Awaited<ReturnType<Client<paths>["GET"]>>;
 		try {
-			response = await fetch(`/api/video/${videoId}?_t=${Date.now()}`, {
+			result = await fetchClient.GET("/video/{videoId}", {
+				params: { path: { videoId } },
 				signal,
 				cache: "no-store",
 			});
@@ -431,23 +424,23 @@ export async function* pollVideoJob(
 			continue;
 		}
 
-		if (!response.ok) {
-			if (TRANSIENT_STATUS_CODES.has(response.status)) {
+		if (!result.response.ok) {
+			if (TRANSIENT_STATUS_CODES.has(result.response.status)) {
 				consecutiveErrors++;
 				if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
 					throw new Error(
-						`Poll failed: ${response.status} (after ${consecutiveErrors} retries)`,
+						`Poll failed: ${result.response.status} (after ${consecutiveErrors} retries)`,
 					);
 				}
 				await pollDelay(Math.min(consecutiveErrors * 2_000, 10_000), signal);
 				continue;
 			}
-			throw new Error(`Poll failed: ${response.status}`);
+			throw new Error(`Poll failed: ${result.response.status}`);
 		}
 
 		consecutiveErrors = 0;
 
-		const job: VideoJob = await response.json();
+		const job = result.data as VideoJob;
 		yield job;
 
 		if (TERMINAL_STATUSES.has(job.status)) {

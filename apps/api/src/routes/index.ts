@@ -19,6 +19,7 @@ import projects from "./projects.js";
 import { subscriptions } from "./subscriptions.js";
 import team from "./team.js";
 import { user } from "./user.js";
+import { video } from "./video.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -60,3 +61,4 @@ routes.route("/subscriptions", subscriptions);
 routes.route("/dev-plans", devPlans);
 routes.route("/audit-logs", auditLogs);
 routes.route("/guardrails", guardrails);
+routes.route("/video", video);

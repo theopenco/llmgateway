@@ -12,32 +12,27 @@ One config file. No code changes. Full cost tracking in your dashboard.
 
 ## Quick Start
 
-Create or edit your Codex CLI config file at `~/.codex/config.toml`:
+**1. Log out of ChatGPT** if you're logged in (stored sessions override custom config):
 
 ```bash
-openai_base_url = "https://api.llmgateway.io/v1"
+codex logout
+```
+
+**2. Create or edit** your Codex CLI config file at `~/.codex/config.toml`:
+
+```bash
 model = "auto"
 model_reasoning_effort = "high"
-
-[tui]
-show_tooltips = false
-
-[model_providers.openai]
-name = "OpenAI"
-base_url = "https://api.llmgateway.io/v1"
+openai_base_url = "https://api.llmgateway.io/v1"
 ```
 
-Then set your API key:
-
-```bash
-export OPENAI_API_KEY=llmgtwy_your_api_key_here
-```
-
-Now run Codex CLI as usual:
+**3. Run Codex CLI:**
 
 ```bash
 codex
 ```
+
+On first launch, Codex will prompt you for authentication. Select **Provide your own API key**, then enter your LLM Gateway API key (starts with `llmgtwy_`).
 
 ## Why This Works
 
@@ -52,7 +47,7 @@ LLM Gateway's `/v1` endpoint is fully OpenAI-compatible. Codex CLI sends request
 
 ### Base URL
 
-The `openai_base_url` and `base_url` fields point Codex CLI to LLM Gateway instead of OpenAI:
+The `openai_base_url` field points Codex CLI to LLM Gateway instead of OpenAI:
 
 ```bash
 openai_base_url = "https://api.llmgateway.io/v1"
@@ -98,9 +93,28 @@ model = "gpt-5.3-codex"
 
 ## Troubleshooting
 
+### Data retention required
+
+If you see an error like:
+
+```
+The Responses API requires data retention to be enabled.
+```
+
+Codex CLI uses the OpenAI Responses API (`/v1/responses`), which requires data retention to be enabled. To fix this:
+
+1. Go to your [organization settings](https://llmgateway.io/dashboard) and navigate to **Settings > Policies**
+2. Select **Retain All Data** and click **Save Settings**
+
+If you prefer not to enable data retention, you can configure Codex CLI to use the Chat Completions API instead by setting the `OPENAI_CHAT_COMPLETIONS_PATH` environment variable, if supported by your Codex CLI version.
+
 ### Authentication errors
 
-Make sure your `OPENAI_API_KEY` environment variable is set to your LLM Gateway API key (starts with `llmgtwy_`).
+If you see `401 Unauthorized` or requests going to `api.openai.com` instead of LLM Gateway:
+
+1. Make sure you've run `codex logout` to clear any ChatGPT session
+2. Verify `openai_base_url` is set in `~/.codex/config.toml`
+3. When Codex prompts for authentication, select **Provide your own API key** and enter your LLM Gateway key (starts with `llmgtwy_`)
 
 ### Model not found
 
@@ -108,13 +122,14 @@ Verify the model ID matches exactly what's listed on the [models page](https://l
 
 ### Connection issues
 
-Check that `base_url` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end).
+Check that `openai_base_url` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end).
 
 ## Get Started
 
 1. [Sign up free](https://llmgateway.io/signup) — no credit card required
 2. Copy your API key from the dashboard
-3. Create the config file above
-4. Run `codex` and start coding
+3. Run `codex logout` to clear any existing ChatGPT session
+4. Create the config file above
+5. Run `codex`, select **Provide your own API key** when prompted, and paste your LLM Gateway key
 
 Questions? Check [our docs](https://docs.llmgateway.io) or [join Discord](https://llmgateway.io/discord).

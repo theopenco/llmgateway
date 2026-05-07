@@ -63,6 +63,11 @@ function buildPresets(): DatePreset[] {
 			getRange: () => ({ from: subDays(today, 6), to: today }),
 		},
 		{
+			label: "Today",
+			value: "today",
+			getRange: () => ({ from: today, to: today }),
+		},
+		{
 			label: "This week",
 			value: "this_week",
 			getRange: () => ({
@@ -165,7 +170,9 @@ function findMatchingPreset(
 	presets: DatePreset[],
 ): string {
 	for (const preset of presets) {
-		if (preset.value === "custom") {
+		// "all_time" is tracked via the absence of from/to in the URL, not
+		// by concrete range equality — skip it here.
+		if (preset.value === "custom" || preset.value === "all_time") {
 			continue;
 		}
 		const range = preset.getRange();
@@ -187,13 +194,19 @@ export function getDateRangeFromParams(searchParams: URLSearchParams) {
 		return {
 			from: new Date(fromParam + "T00:00:00"),
 			to: new Date(toParam + "T00:00:00"),
+			isAllTime: false,
 		};
 	}
 
+	// Default: no from/to in URL means "all time". Return concrete dates
+	// for calendar/display purposes only; callers that build API requests
+	// should rely on isAllTime (and omit from/to params) to let the backend
+	// use its native all-time aggregate path.
 	const today = new Date();
 	return {
-		from: subDays(today, 30),
+		from: new Date(2020, 0, 1),
 		to: today,
+		isAllTime: true,
 	};
 }
 
@@ -332,11 +345,11 @@ export function DateRangePicker() {
 	const [search, setSearch] = useState("");
 	const [showCalendar, setShowCalendar] = useState(false);
 
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const { from, to, isAllTime } = getDateRangeFromParams(searchParams);
 	const presets = useMemo(() => buildPresets(), []);
 	const activePreset = useMemo(
-		() => findMatchingPreset(from, to, presets),
-		[from, to, presets],
+		() => (isAllTime ? "all_time" : findMatchingPreset(from, to, presets)),
+		[from, to, presets, isAllTime],
 	);
 
 	const filteredPresets = useMemo(
@@ -357,9 +370,25 @@ export function DateRangePicker() {
 		router.push(`${pathname}?${params.toString()}`);
 	};
 
+	const clearDateRange = () => {
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("range");
+		params.delete("from");
+		params.delete("to");
+		const qs = params.toString();
+		router.push(qs ? `${pathname}?${qs}` : pathname);
+	};
+
 	const handlePresetSelect = (preset: DatePreset) => {
 		if (preset.value === "custom") {
 			setShowCalendar(true);
+			return;
+		}
+		// "All time" leaves the URL without from/to so the API uses its
+		// native all-time aggregate path instead of a concrete 2020→today range.
+		if (preset.value === "all_time") {
+			clearDateRange();
+			setOpen(false);
 			return;
 		}
 		const range = preset.getRange();

@@ -45,6 +45,17 @@ export interface PricingTier {
 	 * Price per cached input token in USD for this tier
 	 */
 	cachedInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD for this tier (5-minute TTL).
+	 * For Anthropic, this is the 1.25x base-input rate.
+	 */
+	cacheWriteInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD for this tier (1-hour TTL).
+	 * For Anthropic, this is the 2x base-input rate. When unset, 1-hour writes
+	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
+	 */
+	cacheWriteInputPrice1h?: number;
 }
 
 /**
@@ -72,6 +83,15 @@ export interface ProviderRegion {
 	 * Price per cached input token in USD for this region
 	 */
 	cachedInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD for this region (5-minute TTL)
+	 */
+	cacheWriteInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD for this region (1-hour TTL).
+	 * When unset, 1-hour writes fall back to `cacheWriteInputPrice`.
+	 */
+	cacheWriteInputPrice1h?: number;
 	/**
 	 * Context-length based pricing tiers for this region.
 	 * When absent, falls back to the mapping-level pricingTiers.
@@ -102,6 +122,16 @@ export interface ProviderRegion {
 	 * When absent, falls back to the mapping-level maxOutput.
 	 */
 	maxOutput?: number;
+	/**
+	 * Streaming support override for this region.
+	 * When absent, falls back to the mapping-level streaming.
+	 */
+	streaming?: boolean | "only";
+	/**
+	 * Test skip/only for this specific region.
+	 * When absent, falls back to the mapping-level test.
+	 */
+	test?: "skip" | "only";
 }
 
 export interface ProviderModelMapping {
@@ -123,6 +153,17 @@ export interface ProviderModelMapping {
 	 * Price per cached input token in USD
 	 */
 	cachedInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD (5-minute TTL).
+	 * For Anthropic, this is the 1.25x base-input rate.
+	 */
+	cacheWriteInputPrice?: number;
+	/**
+	 * Price per cache write input token in USD (1-hour TTL).
+	 * For Anthropic, this is the 2x base-input rate. When unset, 1-hour writes
+	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
+	 */
+	cacheWriteInputPrice1h?: number;
 	/**
 	 * Minimum number of tokens required for a segment to be cacheable.
 	 * Prompts smaller than this threshold won't be cached even with cache_control set.
@@ -176,9 +217,14 @@ export interface ProviderModelMapping {
 	 */
 	maxOutput?: number;
 	/**
-	 * Whether this specific model supports streaming for this provider
+	 * Whether this specific model supports streaming for this provider.
+	 * - true: supports both streaming and non-streaming
+	 * - false: does not support streaming
+	 * - "only": only supports streaming (non-streaming requests are auto-converted).
+	 *   Some providers enforce stream-only for certain models (e.g. Alibaba QwQ series).
+	 *   Ref: https://www.alibabacloud.com/help/en/model-studio/stream
 	 */
-	streaming: boolean;
+	streaming: boolean | "only";
 	/**
 	 * Whether this specific model supports vision (image inputs) for this provider
 	 */
@@ -188,13 +234,20 @@ export interface ProviderModelMapping {
 	 */
 	reasoning?: boolean;
 	/**
+	 * Whether the provider returns reasoning inside tagged content (e.g. &lt;think&gt;...&lt;/think&gt;)
+	 * that needs to be split into separate reasoning and content fields
+	 */
+	splitTaggedReasoning?: boolean;
+	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
 	supportsResponsesApi?: boolean;
 	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
-	 * - "omit": Don't expect reasoning output even if reasoning is true (for models like o1 that don't return reasoning content)
+	 * - "omit": Don't expect reasoning output even if reasoning is true (for models like o1 that
+	 *   don't return reasoning content, or adaptive-thinking models that may skip thinking for
+	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
 	/**
@@ -203,6 +256,12 @@ export interface ProviderModelMapping {
 	 * Supported by Anthropic and Google thinking models.
 	 */
 	reasoningMaxTokens?: boolean;
+	/**
+	 * Reasoning/thinking API variant for Anthropic models.
+	 * - undefined / "enabled": legacy `thinking: { type: "enabled", budget_tokens }` format (default)
+	 * - "adaptive": new `thinking: { type: "adaptive" }` + `output_config.effort` format (Opus 4.7+)
+	 */
+	reasoningMode?: "enabled" | "adaptive";
 	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */

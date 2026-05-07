@@ -53,6 +53,11 @@ export const user = pgTable("user", {
 	image: text(),
 	onboardingCompleted: boolean().notNull().default(false),
 	newsletterSubscribed: boolean().notNull().default(false),
+	status: text({
+		enum: ["active", "deactivated"],
+	})
+		.notNull()
+		.default("active"),
 });
 
 export const session = pgTable(
@@ -163,7 +168,12 @@ export const organization = pgTable("organization", {
 	devPlanStripeSubscriptionId: text().unique(),
 	devPlanCancelled: boolean().notNull().default(false),
 	devPlanExpiresAt: timestamp(),
+	devPlanCycle: text({ enum: ["monthly", "annual"] })
+		.notNull()
+		.default("monthly"),
 	devPlanAllowAllModels: boolean().notNull().default(false),
+	// Last top-up amount (used for low balance alert thresholds)
+	lastTopUpAmount: decimal(),
 });
 
 export const referral = pgTable(
@@ -249,13 +259,44 @@ export const followUpEmail = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
 		emailType: text({
-			enum: ["no_purchase", "low_usage", "no_repurchase"],
+			enum: [
+				"no_purchase",
+				"low_usage",
+				"no_repurchase",
+				"low_balance_20",
+				"low_balance_5",
+			],
 		}).notNull(),
 		sentTo: text().notNull(),
 	},
 	(table) => [
 		unique().on(table.organizationId, table.emailType),
 		index("follow_up_email_organization_id_idx").on(table.organizationId),
+	],
+);
+
+export const paymentFailure = pgTable(
+	"payment_failure",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userEmail: text(),
+		amount: decimal(),
+		currency: text().notNull().default("USD"),
+		declineCode: text(),
+		errorCode: text(),
+		failureMessage: text(),
+		stripePaymentIntentId: text(),
+		source: text(), // "auto_topup" | "manual" | "checkout"
+	},
+	(table) => [
+		index("payment_failure_organization_id_idx").on(table.organizationId),
+		index("payment_failure_created_at_idx").on(table.createdAt),
+		index("payment_failure_decline_code_idx").on(table.declineCode),
+		unique("payment_failure_stripe_pi_idx").on(table.stripePaymentIntentId),
 	],
 );
 
@@ -283,6 +324,7 @@ export const enterpriseContactSubmission = pgTable(
 			.notNull()
 			.default("pending"),
 		rejectionReason: text(),
+		archivedAt: timestamp(),
 	},
 	(table) => [
 		index("enterprise_contact_submission_created_at_idx").on(table.createdAt),
@@ -363,6 +405,13 @@ export const apiKey = pgTable(
 		}).default("active"),
 		usageLimit: decimal(),
 		usage: decimal().notNull().default("0"),
+		periodUsageLimit: decimal(),
+		periodUsageDurationValue: integer(),
+		periodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
+		currentPeriodUsage: decimal().notNull().default("0"),
+		currentPeriodStartedAt: timestamp(),
 		projectId: text()
 			.notNull()
 			.references(() => project.id, { onDelete: "cascade" }),
@@ -429,7 +478,11 @@ export interface ProviderKeyOptions {
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
+	azure_deployment_name?: string;
+	azure_ai_foundry_resource?: string;
+	azure_ai_foundry_api_version?: string;
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
+	google_vertex_project_id?: string;
 }
 
 export const providerKey = pgTable(
@@ -493,6 +546,7 @@ export const log = pgTable(
 		totalTokens: decimal(),
 		reasoningTokens: decimal(),
 		cachedTokens: decimal(),
+		cacheWriteTokens: decimal(),
 		messages: json(),
 		temperature: real(),
 		maxTokens: integer(),
@@ -509,6 +563,7 @@ export const log = pgTable(
 		inputCost: real(),
 		outputCost: real(),
 		cachedInputCost: real(),
+		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
 		imageInputTokens: decimal(),
@@ -536,6 +591,7 @@ export const log = pgTable(
 			availableProviders?: string[];
 			selectedProvider?: string;
 			selectionReason?: string;
+			usedApiKeyHash?: string;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -545,15 +601,22 @@ export const log = pgTable(
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				cacheSupported?: boolean;
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
 				rate_limited?: boolean;
+				contentFilterProvider?: boolean;
+				excludedByContentFilter?: boolean;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;
 			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
+			xNoFallbackHeaderSet?: boolean;
+			contentFilterMatched?: boolean;
+			contentFilterRerouted?: boolean;
+			contentFilterExcludedProviders?: string[];
 			routing?: Array<{
 				provider: string;
 				model: string;
@@ -561,6 +624,8 @@ export const log = pgTable(
 				status_code: number;
 				error_type: string;
 				succeeded: boolean;
+				apiKeyHash?: string;
+				logId?: string;
 			}>;
 		}>(),
 		processedAt: timestamp(),
@@ -590,9 +655,12 @@ export const log = pgTable(
 		internalContentFilter: boolean(),
 		gatewayContentFilterResponse:
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
+		responsesApiId: text(),
+		responsesApiData: jsonb(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
+		index("log_request_id_idx").on(table.requestId),
 		// Index for worker stats queries: WHERE createdAt >= ? AND createdAt < ? GROUP BY usedModel, usedProvider
 		index("log_created_at_used_model_used_provider_idx").on(
 			table.createdAt,
@@ -690,6 +758,7 @@ export const videoJob = pgTable(
 			availableProviders?: string[];
 			selectedProvider?: string;
 			selectionReason?: string;
+			usedApiKeyHash?: string;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -699,15 +768,22 @@ export const videoJob = pgTable(
 				throughput?: number;
 				price?: number;
 				priority?: number;
+				cacheSupported?: boolean;
 				failed?: boolean;
 				status_code?: number;
 				error_type?: string;
 				rate_limited?: boolean;
+				contentFilterProvider?: boolean;
+				excludedByContentFilter?: boolean;
 			}>;
 			originalProvider?: string;
 			originalProviderUptime?: number;
 			originalProviderRateLimited?: boolean;
 			noFallback?: boolean;
+			xNoFallbackHeaderSet?: boolean;
+			contentFilterMatched?: boolean;
+			contentFilterRerouted?: boolean;
+			contentFilterExcludedProviders?: string[];
 			routing?: Array<{
 				provider: string;
 				model: string;
@@ -715,6 +791,8 @@ export const videoJob = pgTable(
 				status_code: number;
 				error_type: string;
 				succeeded: boolean;
+				apiKeyHash?: string;
+				logId?: string;
 			}>;
 		}>(),
 		upstreamCreateResponse: jsonb(),
@@ -894,6 +972,68 @@ export const message = pgTable(
 	(table) => [index("message_chat_id_idx").on(table.chatId)],
 );
 
+export const chatSupportConversation = pgTable(
+	"chat_support_conversation",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text(),
+		email: text(),
+		ipAddress: text(),
+		userAgent: text(),
+		messageCount: integer().notNull().default(0),
+		escalatedAt: timestamp(),
+		archivedAt: timestamp(),
+	},
+	(table) => [
+		index("chat_support_conversation_created_at_idx").on(table.createdAt),
+	],
+);
+
+export const chatSupportMessage = pgTable(
+	"chat_support_message",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		conversationId: text()
+			.notNull()
+			.references(() => chatSupportConversation.id, { onDelete: "cascade" }),
+		role: text({
+			enum: ["user", "assistant", "admin"],
+		}).notNull(),
+		content: text().notNull(),
+		sequence: integer().notNull(),
+	},
+	(table) => [
+		index("chat_support_message_conversation_id_idx").on(table.conversationId),
+	],
+);
+
+export const chatSupportReadStatus = pgTable(
+	"chat_support_read_status",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		conversationId: text()
+			.notNull()
+			.references(() => chatSupportConversation.id, { onDelete: "cascade" }),
+		adminUserId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		lastReadMessageCount: integer().notNull().default(0),
+		readAt: timestamp().notNull().defaultNow(),
+	},
+	(table) => [
+		uniqueIndex("chat_support_read_status_conv_admin_idx").on(
+			table.conversationId,
+			table.adminUserId,
+		),
+	],
+);
+
 export const installation = pgTable("installation", {
 	id: text().primaryKey().$defaultFn(shortid),
 	createdAt: timestamp().notNull().defaultNow(),
@@ -999,6 +1139,8 @@ export const modelProviderMapping = pgTable(
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
+		cacheWriteInputPrice: decimal(),
+		cacheWriteInputPrice1h: decimal(),
 		imageInputPrice: decimal(),
 		requestPrice: decimal(),
 		contextSize: integer(),
@@ -1197,6 +1339,7 @@ export const auditLogActions = [
 	"dev_plan.resume",
 	"dev_plan.change_tier",
 	"dev_plan.update_settings",
+	"dev_plan.rotate_api_key",
 ] as const;
 
 export const auditLogResourceTypes = [
@@ -1525,6 +1668,7 @@ export const projectHourlyStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1536,6 +1680,7 @@ export const projectHourlyStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1589,6 +1734,7 @@ export const projectHourlyModelStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1600,6 +1746,7 @@ export const projectHourlyModelStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1675,6 +1822,7 @@ export const apiKeyHourlyStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1686,6 +1834,7 @@ export const apiKeyHourlyStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -1750,6 +1899,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		totalTokens: decimal().notNull().default("0"),
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -1761,6 +1911,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		imageOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),

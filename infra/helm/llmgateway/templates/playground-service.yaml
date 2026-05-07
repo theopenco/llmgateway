@@ -1,0 +1,17 @@
+{{- if .Values.playground.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llmgateway.fullname" . }}-playground
+  labels:
+    {{- include "llmgateway.componentLabels" (dict "context" . "component" "playground") | nindent 4 }}
+spec:
+  type: {{ .Values.playground.service.type | default "ClusterIP" }}
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "playground") | nindent 4 }}
+{{- end }}

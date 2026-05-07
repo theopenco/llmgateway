@@ -16,16 +16,12 @@ export async function getProviderHistory(
 	return data?.data ?? null;
 }
 
-export async function getModelHistory(
-	modelId: string,
-	window: HistoryWindow,
-	projectId?: string,
-) {
+export async function getModelHistory(modelId: string, window: HistoryWindow) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/models/{modelId}/history", {
 		params: {
 			path: { modelId: encodeURIComponent(modelId) },
-			query: { window, ...(projectId ? { projectId } : {}) } as any,
+			query: { window },
 		},
 	});
 	return data?.data ?? null;
@@ -42,32 +38,60 @@ export async function getMappingHistory(
 		"/admin/providers/{providerId}/models/{modelId}/history",
 		{
 			params: {
-				path: {
-					providerId,
-					modelId: encodeURIComponent(modelId),
-				},
-				query: { window, ...(projectId ? { projectId } : {}) } as any,
+				path: { providerId, modelId },
+				query: { window, ...(projectId ? { projectId } : {}) },
 			},
 		},
 	);
 	return data?.data ?? null;
 }
 
-export async function getModelDetail(
-	modelId: string,
-	window?: HistoryWindow,
-	projectId?: string,
-) {
+export async function getModelDetail(modelId: string, window?: HistoryWindow) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/models/{modelId}", {
 		params: {
 			path: { modelId: encodeURIComponent(modelId) },
 			query: {
 				...(window ? { window } : {}),
-				...(projectId ? { projectId } : {}),
 			} as any,
 		},
 	});
+	return data ?? null;
+}
+
+export async function getProviderDetail(
+	providerId: string,
+	window?: HistoryWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/providers/{providerId}", {
+		params: {
+			path: { providerId },
+			query: {
+				...(window ? { window } : {}),
+			} as any,
+		},
+	});
+	return data ?? null;
+}
+
+export async function getMappingDetail(
+	providerId: string,
+	modelId: string,
+	window?: HistoryWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/providers/{providerId}/models/{modelId}",
+		{
+			params: {
+				path: { providerId, modelId: encodeURIComponent(modelId) },
+				query: {
+					...(window ? { window } : {}),
+				} as any,
+			},
+		},
+	);
 	return data ?? null;
 }
 

@@ -34,6 +34,7 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	status,
+	archived,
 }: {
 	label: string;
 	sortKey: SortBy;
@@ -41,13 +42,15 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	status: string;
+	archived: boolean;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const statusParam = status ? `&status=${encodeURIComponent(status)}` : "";
-	const href = `/contact-submissions?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${statusParam}`;
+	const archivedParam = archived ? "&archived=true" : "";
+	const href = `/contact-submissions?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${statusParam}${archivedParam}`;
 
 	return (
 		<Link
@@ -122,6 +125,7 @@ export default async function ContactSubmissionsPage({
 		status?: string;
 		sortBy?: string;
 		sortOrder?: string;
+		archived?: string;
 	}>;
 }) {
 	await requireSession();
@@ -132,6 +136,7 @@ export default async function ContactSubmissionsPage({
 	const status = (params?.status as Status) || "";
 	const sortBy = (params?.sortBy as SortBy) || "createdAt";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
+	const archived = params?.archived === "true";
 	const limit = 25;
 	const offset = (page - 1) * limit;
 
@@ -143,6 +148,7 @@ export default async function ContactSubmissionsPage({
 				offset,
 				search: search || undefined,
 				status: (status as Status) || undefined,
+				archived: archived ? "true" : "false",
 				sortBy,
 				sortOrder,
 			},
@@ -175,6 +181,7 @@ export default async function ContactSubmissionsPage({
 		const statusValue = formData.get("status") as string;
 		const sortByValue = formData.get("sortBy") as string;
 		const sortOrderValue = formData.get("sortOrder") as string;
+		const archivedValue = formData.get("archived") as string;
 		const searchParam = searchValue
 			? `&search=${encodeURIComponent(searchValue)}`
 			: "";
@@ -182,8 +189,9 @@ export default async function ContactSubmissionsPage({
 			? `&status=${encodeURIComponent(statusValue)}`
 			: "";
 		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
+		const archivedParam = archivedValue === "true" ? "&archived=true" : "";
 		redirect(
-			`/contact-submissions?page=1${searchParam}${statusParam}${sortParam}`,
+			`/contact-submissions?page=1${searchParam}${statusParam}${sortParam}${archivedParam}`,
 		);
 	}
 
@@ -198,9 +206,17 @@ export default async function ContactSubmissionsPage({
 						{data.total} submissions found
 					</p>
 				</div>
-				<form action={handleSearch} className="flex items-center gap-2">
+				<form
+					action={handleSearch}
+					className="flex w-full flex-wrap items-center gap-2 sm:w-auto"
+				>
 					<input type="hidden" name="sortBy" value={sortBy} />
 					<input type="hidden" name="sortOrder" value={sortOrder} />
+					<input
+						type="hidden"
+						name="archived"
+						value={archived ? "true" : "false"}
+					/>
 					<select
 						name="status"
 						defaultValue={status}
@@ -212,18 +228,25 @@ export default async function ContactSubmissionsPage({
 							</option>
 						))}
 					</select>
-					<div className="relative">
+					<div className="relative flex-1 sm:flex-initial">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 						<input
 							type="text"
 							name="search"
 							placeholder="Search by name, email, or message..."
 							defaultValue={search}
-							className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
 						/>
 					</div>
 					<Button type="submit" size="sm">
 						Search
+					</Button>
+					<Button variant={archived ? "default" : "outline"} size="sm" asChild>
+						<Link
+							href={`/contact-submissions?page=1${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "" : "&archived=true"}`}
+						>
+							Archived
+						</Link>
 					</Button>
 				</form>
 			</header>
@@ -240,6 +263,7 @@ export default async function ContactSubmissionsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									status={status}
+									archived={archived}
 								/>
 							</TableHead>
 							<TableHead>
@@ -250,6 +274,7 @@ export default async function ContactSubmissionsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									status={status}
+									archived={archived}
 								/>
 							</TableHead>
 							<TableHead>
@@ -260,6 +285,7 @@ export default async function ContactSubmissionsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									status={status}
+									archived={archived}
 								/>
 							</TableHead>
 							<TableHead>Country</TableHead>
@@ -273,6 +299,7 @@ export default async function ContactSubmissionsPage({
 									currentSortOrder={sortOrder}
 									search={search}
 									status={status}
+									archived={archived}
 								/>
 							</TableHead>
 							<TableHead>Reason</TableHead>
@@ -344,7 +371,7 @@ export default async function ContactSubmissionsPage({
 			</div>
 
 			{totalPages > 1 && (
-				<div className="flex items-center justify-between">
+				<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<p className="text-sm text-muted-foreground">
 						Showing {offset + 1} to {Math.min(offset + limit, data.total)} of{" "}
 						{data.total}
@@ -352,7 +379,7 @@ export default async function ContactSubmissionsPage({
 					<div className="flex items-center gap-2">
 						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
 							<Link
-								href={`/contact-submissions?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}`}
+								href={`/contact-submissions?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
 								<ChevronLeft className="h-4 w-4" />
@@ -369,7 +396,7 @@ export default async function ContactSubmissionsPage({
 							disabled={page >= totalPages}
 						>
 							<Link
-								href={`/contact-submissions?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}`}
+								href={`/contact-submissions?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""
 								}

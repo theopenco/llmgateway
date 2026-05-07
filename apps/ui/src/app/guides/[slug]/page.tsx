@@ -179,7 +179,7 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: `${guide.title} - Guides - LLM Gateway`,
+		title: `${guide.title} - Guides`,
 		description: guide.description ?? "LLM Gateway integration guide",
 		openGraph: {
 			title: `${guide.title} - Guides - LLM Gateway`,

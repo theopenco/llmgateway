@@ -1,4 +1,10 @@
-import type { ModelDefinition } from "@llmgateway/models";
+import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+
+export function providerSupportsCachedInput(
+	p: Pick<ProviderModelMapping, "cachedInputPrice">,
+): boolean {
+	return p.cachedInputPrice !== null && p.cachedInputPrice !== undefined;
+}
 
 /**
  * Checks if a model qualifies as a "coding model".
@@ -35,12 +41,11 @@ export function isCodingModel(model: ModelDefinition): boolean {
 		// Must have tool calling
 		const hasTools = p.tools === true;
 
-		// Must have streaming
-		const hasStreaming = p.streaming === true;
+		// Must have streaming (true or "only")
+		const hasStreaming = p.streaming !== false;
 
 		// Must have cached input pricing
-		const hasCachedInputPrice =
-			p.cachedInputPrice !== null && p.cachedInputPrice !== undefined;
+		const hasCachedInputPrice = providerSupportsCachedInput(p);
 
 		return hasJsonOutput && hasTools && hasStreaming && hasCachedInputPrice;
 	});

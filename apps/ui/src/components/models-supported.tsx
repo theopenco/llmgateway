@@ -113,11 +113,19 @@ const convertToApiModel = (
 					inputPrice: map.inputPrice?.toString() ?? null,
 					outputPrice: map.outputPrice?.toString() ?? null,
 					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,
+					cacheWriteInputPrice: map.cacheWriteInputPrice?.toString() ?? null,
+					cacheWriteInputPrice1h:
+						map.cacheWriteInputPrice1h?.toString() ?? null,
 					imageInputPrice: map.imageInputPrice?.toString() ?? null,
+					imageOutputPrice: map.imageOutputPrice?.toString() ?? null,
+					imageInputTokensByResolution:
+						map.imageInputTokensByResolution ?? null,
+					imageOutputTokensByResolution:
+						map.imageOutputTokensByResolution ?? null,
 					requestPrice: map.requestPrice?.toString() ?? null,
 					contextSize: map.contextSize ?? null,
 					maxOutput: map.maxOutput ?? null,
-					streaming: map.streaming ?? true,
+					streaming: map.streaming === "only" ? true : (map.streaming ?? true),
 					vision: map.vision ?? null,
 					reasoning: map.reasoning ?? null,
 					reasoningOutput: map.reasoningOutput ?? null,

@@ -1,10 +1,28 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Check, ChevronsUpDown, Loader2, RefreshCw } from "lucide-react";
+import {
+	useCallback,
+	useDeferredValue,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 
 import { LogCard } from "@/components/log-card";
 import { Button } from "@/components/ui/button";
+import {
+	Command,
+	CommandEmpty,
+	CommandInput,
+	CommandItem,
+	CommandList,
+} from "@/components/ui/command";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
 import {
 	Select,
 	SelectContent,
@@ -13,6 +31,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { loadProjectLogsAction } from "@/lib/admin-organizations";
+import { cn } from "@/lib/utils";
 
 import type { ProjectLogEntry, ProjectLogsResponse } from "@/lib/types";
 
@@ -36,29 +55,47 @@ const SOURCE_OPTIONS = [
 	{ value: "llmgateway.io/playground", label: "Playground" },
 ] as const;
 
+interface ProviderOption {
+	id: string;
+	label: string;
+}
+
+interface ModelOption {
+	id: string;
+	label: string;
+	aliases: string[];
+	providerIds: string[];
+}
+
 export function ProjectLogsSection({
 	orgId,
 	projectId,
+	providerOptions,
+	modelOptions,
 }: {
 	orgId: string;
 	projectId: string;
+	providerOptions: ProviderOption[];
+	modelOptions: ModelOption[];
 }) {
 	const [logs, setLogs] = useState<ProjectLogEntry[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [loadingMore, setLoadingMore] = useState(false);
+	const [refreshing, setRefreshing] = useState(false);
 	const [pagination, setPagination] = useState<
 		ProjectLogsResponse["pagination"] | null
 	>(null);
-
-	// Stable set of unique values from initial unfiltered load
-	const [knownProviders, setKnownProviders] = useState<string[]>([]);
-	const [knownModels, setKnownModels] = useState<string[]>([]);
 
 	// Filter state
 	const [provider, setProvider] = useState<string>("all");
 	const [model, setModel] = useState<string>("all");
 	const [source, setSource] = useState<string>("all");
 	const [unifiedFinishReason, setUnifiedFinishReason] = useState<string>("all");
+
+	// Model picker state
+	const [modelPickerOpen, setModelPickerOpen] = useState(false);
+	const [modelSearch, setModelSearch] = useState("");
+	const deferredModelSearch = useDeferredValue(modelSearch);
 
 	const getFilters = useCallback(() => {
 		const filters: Record<string, string> = {};
@@ -77,33 +114,12 @@ export function ProjectLogsSection({
 		return Object.keys(filters).length > 0 ? filters : undefined;
 	}, [provider, model, source, unifiedFinishReason]);
 
-	// Extract unique providers/models from a batch of logs
-	const extractUniqueValues = useCallback((entries: ProjectLogEntry[]) => {
-		const providers = new Set<string>();
-		const models = new Set<string>();
-		for (const log of entries) {
-			if (log.usedProvider) {
-				providers.add(log.usedProvider);
-			}
-			if (log.usedModel) {
-				const slashIndex = log.usedModel.indexOf("/");
-				models.add(
-					slashIndex !== -1
-						? log.usedModel.substring(slashIndex + 1)
-						: log.usedModel,
-				);
-			}
-		}
-		return {
-			providers: Array.from(providers).sort(),
-			models: Array.from(models).sort(),
-		};
-	}, []);
-
 	const loadLogs = useCallback(
-		async (cursor?: string) => {
+		async (cursor?: string, options?: { background?: boolean }) => {
 			if (cursor) {
 				setLoadingMore(true);
+			} else if (options?.background) {
+				setRefreshing(true);
 			} else {
 				setLoading(true);
 			}
@@ -123,66 +139,158 @@ export function ProjectLogsSection({
 						setLogs(data.logs);
 					}
 					setPagination(data.pagination);
-
-					// Accumulate dropdown options from all loaded pages
-					if (data.logs.length > 0) {
-						const { providers, models } = extractUniqueValues(data.logs);
-						setKnownProviders((prev) => {
-							const merged = new Set([...prev, ...providers]);
-							return Array.from(merged).sort();
-						});
-						setKnownModels((prev) => {
-							const merged = new Set([...prev, ...models]);
-							return Array.from(merged).sort();
-						});
-					}
 				}
 			} catch (error) {
 				console.error("Failed to load project logs:", error);
 			} finally {
 				setLoading(false);
 				setLoadingMore(false);
+				setRefreshing(false);
 			}
 		},
-		[orgId, projectId, getFilters, extractUniqueValues],
+		[orgId, projectId, getFilters],
 	);
 
 	useEffect(() => {
 		void loadLogs();
 	}, [loadLogs]);
 
+	const selectedModelOption = useMemo(
+		() => modelOptions.find((option) => option.id === model),
+		[model, modelOptions],
+	);
+
+	const filteredModelOptions = useMemo(() => {
+		const normalizedSearch = deferredModelSearch
+			.trim()
+			.toLowerCase()
+			.replace(/[\s/_-]/g, "");
+
+		return modelOptions.filter((option) => {
+			if (provider !== "all" && !option.providerIds.includes(provider)) {
+				return false;
+			}
+
+			if (!normalizedSearch) {
+				return true;
+			}
+
+			const searchFields = [option.id, option.label, ...option.aliases];
+			return searchFields.some((field) =>
+				field
+					.toLowerCase()
+					.replace(/[\s/_-]/g, "")
+					.includes(normalizedSearch),
+			);
+		});
+	}, [deferredModelSearch, modelOptions, provider]);
+
+	const handleProviderChange = useCallback(
+		(value: string) => {
+			setProvider(value);
+			// Clear model if it's not available for the new provider
+			if (
+				value !== "all" &&
+				model !== "all" &&
+				!modelOptions.some(
+					(option) => option.id === model && option.providerIds.includes(value),
+				)
+			) {
+				setModel("all");
+			}
+		},
+		[model, modelOptions],
+	);
+
 	return (
 		<section className="space-y-4">
 			<h2 className="text-lg font-semibold">Recent Logs</h2>
 
 			<div className="flex flex-wrap gap-2">
-				<Select value={provider} onValueChange={setProvider}>
+				<Select value={provider} onValueChange={handleProviderChange}>
 					<SelectTrigger className="w-[160px]">
 						<SelectValue placeholder="Filter by provider" />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All providers</SelectItem>
-						{knownProviders.map((p) => (
-							<SelectItem key={p} value={p}>
-								{p}
+						{providerOptions.map((p) => (
+							<SelectItem key={p.id} value={p.id}>
+								{p.label}
 							</SelectItem>
 						))}
 					</SelectContent>
 				</Select>
 
-				<Select value={model} onValueChange={setModel}>
-					<SelectTrigger className="w-[200px]">
-						<SelectValue placeholder="Filter by model" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">All models</SelectItem>
-						{knownModels.map((m) => (
-							<SelectItem key={m} value={m}>
-								{m}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+				<Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
+					<PopoverTrigger asChild>
+						<Button
+							variant="outline"
+							role="combobox"
+							aria-expanded={modelPickerOpen}
+							className="w-[260px] justify-between"
+						>
+							<span className="truncate">
+								{selectedModelOption?.label ??
+									(model !== "all" ? model : "Filter by model")}
+							</span>
+							<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent className="w-[320px] p-0" align="start">
+						<Command shouldFilter={false}>
+							<CommandInput
+								placeholder="Search models..."
+								value={modelSearch}
+								onValueChange={setModelSearch}
+							/>
+							<CommandList>
+								<CommandEmpty>No models found.</CommandEmpty>
+								<CommandItem
+									value="all"
+									onSelect={() => {
+										setModel("all");
+										setModelPickerOpen(false);
+										setModelSearch("");
+									}}
+								>
+									<Check
+										className={cn(
+											"h-4 w-4",
+											model === "all" ? "opacity-100" : "opacity-0",
+										)}
+									/>
+									All models
+								</CommandItem>
+								{filteredModelOptions.map((option) => (
+									<CommandItem
+										key={option.id}
+										value={`${option.id} ${option.label} ${option.aliases.join(" ")}`}
+										onSelect={() => {
+											setModel(option.id);
+											setModelPickerOpen(false);
+											setModelSearch("");
+										}}
+									>
+										<Check
+											className={cn(
+												"h-4 w-4",
+												model === option.id ? "opacity-100" : "opacity-0",
+											)}
+										/>
+										<div className="flex min-w-0 flex-col">
+											<span className="truncate">{option.label}</span>
+											{option.label !== option.id ? (
+												<span className="truncate text-xs text-muted-foreground">
+													{option.id}
+												</span>
+											) : null}
+										</div>
+									</CommandItem>
+								))}
+							</CommandList>
+						</Command>
+					</PopoverContent>
+				</Popover>
 
 				<Select value={source} onValueChange={setSource}>
 					<SelectTrigger className="w-[180px]">
@@ -216,6 +324,18 @@ export function ProjectLogsSection({
 						))}
 					</SelectContent>
 				</Select>
+
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					disabled={loading || loadingMore || refreshing}
+					onClick={() => void loadLogs(undefined, { background: true })}
+					className="gap-2"
+				>
+					<RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+					{refreshing ? "Refreshing..." : "Refresh"}
+				</Button>
 			</div>
 
 			{loading ? (

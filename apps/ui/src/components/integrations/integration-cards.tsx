@@ -109,7 +109,7 @@ const integrations: Integration[] = [
 function DevPlansCta() {
 	return (
 		<a
-			href="https://code.llmgateway.io"
+			href="https://devpass.llmgateway.io"
 			target="_blank"
 			rel="noopener noreferrer"
 			className="group relative mb-10 block overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-background via-background to-muted/40 transition-all duration-500 hover:border-foreground/20 hover:shadow-[0_0_40px_-12px_rgba(0,0,0,0.15)] dark:hover:shadow-[0_0_40px_-12px_rgba(255,255,255,0.06)]"
@@ -122,7 +122,7 @@ function DevPlansCta() {
 							<Terminal className="h-5 w-5" strokeWidth={1.5} />
 						</div>
 						<h3 className="text-xl font-semibold tracking-tight sm:text-2xl">
-							Dev Plans
+							DevPass
 						</h3>
 						<Badge className="border-transparent bg-foreground/10 text-foreground text-[11px] font-medium tracking-wide uppercase">
 							New

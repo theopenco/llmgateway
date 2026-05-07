@@ -5,6 +5,7 @@ import { UnifiedFinishReason } from "@llmgateway/db";
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
+	isContentFilterFinishReason,
 	isExpectedUnknownFinishReason,
 } from "./logs.js";
 
@@ -30,6 +31,9 @@ describe("getUnifiedFinishReason", () => {
 		);
 		expect(getUnifiedFinishReason("end_turn", "anthropic")).toBe(
 			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("refusal", "anthropic")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
 		);
 	});
 
@@ -78,6 +82,54 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps Glacier finish reasons like Google AI Studio", () => {
+		expect(getUnifiedFinishReason("STOP", "glacier")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("MAX_TOKENS", "glacier")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("SAFETY", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("OTHER", "glacier")).toBe(
+			UnifiedFinishReason.UNKNOWN,
+		);
+	});
+
+	it("maps Glacier image content filter finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("IMAGE_PROHIBITED_CONTENT", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("IMAGE_SAFETY", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("NO_IMAGE", "glacier")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
+	it("maps Mistral finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("stop", "mistral")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "mistral")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("model_length", "mistral")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "mistral")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("content_filter", "mistral")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("error", "mistral")).toBe(
+			UnifiedFinishReason.UPSTREAM_ERROR,
+		);
+	});
+
 	it("handles special cases", () => {
 		expect(getUnifiedFinishReason("canceled", "any-provider")).toBe(
 			UnifiedFinishReason.CANCELED,
@@ -114,6 +166,7 @@ describe("isExpectedUnknownFinishReason", () => {
 		expect(isExpectedUnknownFinishReason("OTHER", "google-ai-studio")).toBe(
 			true,
 		);
+		expect(isExpectedUnknownFinishReason("OTHER", "glacier")).toBe(true);
 		expect(isExpectedUnknownFinishReason("OTHER", "google-vertex")).toBe(true);
 	});
 
@@ -136,6 +189,28 @@ describe("isExpectedUnknownFinishReason", () => {
 		expect(isExpectedUnknownFinishReason(undefined, "google-ai-studio")).toBe(
 			false,
 		);
+	});
+});
+
+describe("isContentFilterFinishReason", () => {
+	it("returns true for Google-compatible image filter finish reasons", () => {
+		expect(
+			isContentFilterFinishReason("IMAGE_PROHIBITED_CONTENT", "glacier"),
+		).toBe(true);
+		expect(
+			isContentFilterFinishReason(
+				"IMAGE_PROHIBITED_CONTENT",
+				"google-ai-studio",
+			),
+		).toBe(true);
+	});
+
+	it("returns false for Google OTHER finish reason", () => {
+		expect(isContentFilterFinishReason("OTHER", "glacier")).toBe(false);
+	});
+
+	it("returns true for OpenAI content filters", () => {
+		expect(isContentFilterFinishReason("content_filter", "openai")).toBe(true);
 	});
 });
 

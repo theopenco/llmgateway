@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	AlertTriangle,
 	Building2,
 	Cpu,
 	Gauge,
@@ -10,8 +11,10 @@ import {
 	LogOut,
 	Mail,
 	Menu,
+	MessageCircle,
 	Percent,
 	Server,
+	Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -81,12 +84,15 @@ export function AdminShell({ children }: AdminShellProps) {
 
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
+	const isDevpass = pathname.startsWith("/devpass");
 	const isDiscounts = pathname === "/discounts";
 	const isRateLimits = pathname === "/rate-limits";
 	const isProviders = pathname === "/providers";
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
+	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
+	const isPaymentFailures = pathname.startsWith("/payment-failures");
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -141,6 +147,14 @@ export function AdminShell({ children }: AdminShellProps) {
 								</Link>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
+								<Link href="/devpass" className="block">
+									<SidebarMenuButton isActive={isDevpass} size="lg">
+										<Sparkles className="h-4 w-4" />
+										<span>DevPass</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
 								<Link href="/discounts" className="block">
 									<SidebarMenuButton isActive={isDiscounts} size="lg">
 										<Percent className="h-4 w-4" />
@@ -188,6 +202,22 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isContactSubmissions} size="lg">
 										<Mail className="h-4 w-4" />
 										<span>Contact Submissions</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/chat-support-logs" className="block">
+									<SidebarMenuButton isActive={isChatSupportLogs} size="lg">
+										<MessageCircle className="h-4 w-4" />
+										<span>Chat Support Logs</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/payment-failures" className="block">
+									<SidebarMenuButton isActive={isPaymentFailures} size="lg">
+										<AlertTriangle className="h-4 w-4" />
+										<span>Payment Failures</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

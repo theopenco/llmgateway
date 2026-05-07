@@ -3,6 +3,10 @@ import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
 import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	extractReasoningDetailsText,
+	splitReasoningFromTaggedContent,
+} from "./reasoning-details.js";
 
 import type { Annotation, ImageObject } from "./types.js";
 import type { Provider } from "@llmgateway/models";
@@ -15,6 +19,8 @@ export function parseProviderResponse(
 	usedModel: string,
 	json: any,
 	messages: any[] = [],
+	supportsReasoning = true,
+	splitTaggedReasoning = false,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -24,6 +30,11 @@ export function parseProviderResponse(
 	let totalTokens = null;
 	let reasoningTokens = null;
 	let cachedTokens = null;
+	let cacheCreationTokens = null;
+	let cacheCreation5mTokens: number | null = null;
+	let cacheCreation1hTokens: number | null = null;
+	let imageInputTokens: number | null = null;
+	let imageOutputTokens: number | null = null;
 	let toolResults = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
@@ -49,6 +60,29 @@ export function parseProviderResponse(
 				contentBlocks
 					.filter((block: any) => block.text)
 					.map((block: any) => block.text)
+					.join("") ?? null;
+
+			// Bedrock reasoning-capable Anthropic models return reasoning in
+			// content blocks as reasoningContent.reasoningText.text.
+			reasoningContent =
+				contentBlocks
+					.map((block: any) => {
+						const reasoning = block.reasoningContent;
+						if (!reasoning) {
+							return null;
+						}
+						if (typeof reasoning === "string") {
+							return reasoning;
+						}
+						if (typeof reasoning.reasoningText?.text === "string") {
+							return reasoning.reasoningText.text;
+						}
+						if (typeof reasoning.text === "string") {
+							return reasoning.text;
+						}
+						return null;
+					})
+					.filter((value: string | null): value is string => value !== null)
 					.join("") ?? null;
 
 			// Map Bedrock stop reasons to OpenAI finish reasons
@@ -77,6 +111,7 @@ export function parseProviderResponse(
 				totalTokens = json.usage.totalTokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
+				cacheCreationTokens = cacheWriteTokens;
 			}
 
 			// Extract tool calls if present
@@ -156,15 +191,25 @@ export function parseProviderResponse(
 			// We need to add cache_creation_input_tokens to get total input tokens
 			if (json.usage) {
 				const inputTokens = json.usage.input_tokens ?? 0;
-				const cacheCreationTokens = json.usage.cache_creation_input_tokens ?? 0;
+				// Anthropic supports two cache TTLs (5m at 1.25x, 1h at 2x).
+				// `cache_creation_input_tokens` is the sum; the per-TTL breakdown is in
+				// `usage.cache_creation.{ephemeral_5m_input_tokens, ephemeral_1h_input_tokens}`.
+				const cacheCreation = json.usage.cache_creation_input_tokens ?? 0;
+				const cacheCreation5m =
+					json.usage.cache_creation?.ephemeral_5m_input_tokens ?? 0;
+				const cacheCreation1h =
+					json.usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
 				const cacheReadTokens = json.usage.cache_read_input_tokens ?? 0;
 
 				// Total prompt tokens = non-cached + cache creation + cache read
-				promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
+				promptTokens = inputTokens + cacheCreation + cacheReadTokens;
 				completionTokens = json.usage.output_tokens ?? null;
 				reasoningTokens = json.usage.reasoning_output_tokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
+				cacheCreationTokens = cacheCreation;
+				cacheCreation5mTokens = cacheCreation5m > 0 ? cacheCreation5m : null;
+				cacheCreation1hTokens = cacheCreation1h > 0 ? cacheCreation1h : null;
 				totalTokens =
 					promptTokens && completionTokens
 						? promptTokens + completionTokens
@@ -188,9 +233,9 @@ export function parseProviderResponse(
 			break;
 		}
 		case "google-ai-studio":
+		case "glacier":
 		case "google-vertex":
-		case "quartz":
-		case "obsidian": {
+		case "quartz": {
 			// Check if response is missing candidates - treat as content filter
 			if (!json.candidates || json.candidates.length === 0) {
 				// Only log warning if there's no blockReason explaining why
@@ -212,9 +257,13 @@ export function parseProviderResponse(
 			const contentParts = parts.filter((part: any) => !part.thought);
 			const reasoningParts = parts.filter((part: any) => part.thought);
 
-			content = contentParts.map((part: any) => part.text).join("") ?? null;
-			reasoningContent =
-				reasoningParts.map((part: any) => part.text).join("") ?? null;
+			const textContent = contentParts.map((part: any) => part.text).join("");
+			const thoughtContent = reasoningParts
+				.map((part: any) => part.text)
+				.join("");
+
+			content = textContent.length > 0 ? textContent : null;
+			reasoningContent = thoughtContent.length > 0 ? thoughtContent : null;
 
 			// Extract images from Google response parts
 			const imageParts = parts.filter((part: any) => part.inlineData);
@@ -226,6 +275,11 @@ export function parseProviderResponse(
 					},
 				}),
 			);
+
+			// Set content label for image generation when no text content is present
+			if (!content && images.length > 0) {
+				content = imageLabel;
+			}
 
 			// Debug logging to identify parsing issues
 			if (!content && !reasoningContent && parts.length > 0 && !images.length) {
@@ -350,7 +404,7 @@ export function parseProviderResponse(
 
 			// If candidatesTokenCount is missing, estimate it from the content or set to 0
 			if (rawCandidates === null) {
-				if (content) {
+				if (content && images.length === 0) {
 					const estimation = estimateTokens(
 						usedProvider,
 						[],
@@ -360,7 +414,7 @@ export function parseProviderResponse(
 					);
 					rawCandidates = estimation.calculatedCompletionTokens ?? 0;
 				} else {
-					// No content means 0 completion tokens (e.g., MAX_TOKENS with only reasoning)
+					// No real text content (image-only or empty) means 0 completion tokens
 					rawCandidates = 0;
 				}
 			}
@@ -381,6 +435,9 @@ export function parseProviderResponse(
 			reasoningContent =
 				json.choices?.[0]?.message?.reasoning ??
 				json.choices?.[0]?.message?.reasoning_content ??
+				extractReasoningDetailsText(
+					json.choices?.[0]?.message?.reasoning_details,
+				) ??
 				null;
 			finishReason = json.choices?.[0]?.finish_reason ?? null;
 			promptTokens = json.usage?.prompt_tokens ?? null;
@@ -461,6 +518,9 @@ export function parseProviderResponse(
 				reasoningContent =
 					json.choices?.[0]?.message?.reasoning ??
 					json.choices?.[0]?.message?.reasoning_content ??
+					extractReasoningDetailsText(
+						json.choices?.[0]?.message?.reasoning_details,
+					) ??
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 				promptTokens = json.usage?.prompt_tokens ?? null;
@@ -479,6 +539,43 @@ export function parseProviderResponse(
 			break;
 		}
 		default: // OpenAI format
+			// Check if this is an OpenAI / Azure image generation response (e.g. gpt-image-2)
+			// Format: { created: number, data: [{ b64_json?: string, url?: string, revised_prompt?: string }], usage?: {...} }
+			if (
+				(usedProvider === "openai" || usedProvider === "azure") &&
+				json.data &&
+				Array.isArray(json.data) &&
+				json.data.length > 0 &&
+				(json.data[0]?.b64_json || json.data[0]?.url)
+			) {
+				const imageData = json.data;
+				images = imageData.map((item: any): ImageObject => {
+					let url: string;
+					if (item.b64_json) {
+						url = `data:image/png;base64,${item.b64_json}`;
+					} else {
+						url = item.url;
+					}
+					return {
+						type: "image_url",
+						image_url: { url },
+					};
+				});
+				content = imageLabel;
+				finishReason = "stop";
+				// OpenAI gpt-image models return usage with input/output tokens
+				promptTokens = json.usage?.input_tokens ?? 0;
+				completionTokens = json.usage?.output_tokens ?? 0;
+				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
+				imageInputTokens =
+					json.usage?.input_tokens_details?.image_tokens ?? null;
+				imageOutputTokens =
+					json.usage?.output_tokens_details?.image_tokens ?? null;
+				totalTokens =
+					json.usage?.total_tokens ??
+					(promptTokens ?? 0) + (completionTokens ?? 0);
+				break;
+			}
 			// Check if this is an xAI Grok Imagine image generation response
 			// Format: { data: [{ url: "..." }] }
 			if (usedProvider === "xai" && json.data && Array.isArray(json.data)) {
@@ -647,6 +744,9 @@ export function parseProviderResponse(
 				reasoningContent =
 					json.choices?.[0]?.message?.reasoning ??
 					json.choices?.[0]?.message?.reasoning_content ??
+					extractReasoningDetailsText(
+						json.choices?.[0]?.message?.reasoning_details,
+					) ??
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 
@@ -744,29 +844,19 @@ export function parseProviderResponse(
 			break;
 	}
 
-	// Cache reasoning_content for Moonshot thinking models when tool_calls are present
-	// This is needed for multi-turn tool call conversations because Moonshot requires
-	// reasoning_content to be included in assistant messages with tool_calls
-	if (
-		usedProvider === "moonshot" &&
-		reasoningContent &&
-		toolResults &&
-		Array.isArray(toolResults) &&
-		toolResults.length > 0
-	) {
-		for (const toolCall of toolResults) {
-			if (toolCall.id) {
-				redisClient
-					.setex(
-						`reasoning_content:${toolCall.id}`,
-						86400, // 1 day expiration
-						reasoningContent,
-					)
-					.catch((err) => {
-						logger.error("Failed to cache reasoning_content", { err });
-					});
-			}
+	if (splitTaggedReasoning && typeof content === "string") {
+		const splitContent = splitReasoningFromTaggedContent(content);
+		if (splitContent.reasoningContent) {
+			content = splitContent.content;
+			reasoningContent ??= splitContent.reasoningContent;
 		}
+	}
+
+	// For non-reasoning models that return their answer in reasoning_content,
+	// move reasoning to content so the response is visible.
+	if (!supportsReasoning && !content && reasoningContent) {
+		content = reasoningContent;
+		reasoningContent = null;
 	}
 
 	return {
@@ -778,6 +868,11 @@ export function parseProviderResponse(
 		totalTokens,
 		reasoningTokens,
 		cachedTokens,
+		cacheCreationTokens,
+		cacheCreation5mTokens,
+		cacheCreation1hTokens,
+		imageInputTokens,
+		imageOutputTokens,
 		toolResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,

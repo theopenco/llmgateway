@@ -12,9 +12,14 @@ export function PostHogProvider({ children }: { children: ReactNode }) {
 	const config = useConfig();
 
 	useEffect(() => {
-		if (config.isLoaded && config.posthogKey && !config.hasError) {
-			posthog.init(config.posthogKey, {
-				api_host: config.posthogHost,
+		if (!config.isLoaded || !config.posthogKey || config.hasError) {
+			return;
+		}
+		const key = config.posthogKey;
+		const host = config.posthogHost;
+		const init = () => {
+			posthog.init(key, {
+				api_host: host,
 				defaults: "2025-05-24",
 				capture_pageview: "history_change",
 				autocapture: true,
@@ -24,13 +29,14 @@ export function PostHogProvider({ children }: { children: ReactNode }) {
 					});
 				},
 			});
+		};
+		if (typeof requestIdleCallback !== "undefined") {
+			const id = requestIdleCallback(init);
+			return () => cancelIdleCallback(id);
 		}
+		const timer = setTimeout(init, 1000);
+		return () => clearTimeout(timer);
 	}, [config.isLoaded, config.posthogKey, config.posthogHost, config.hasError]);
-
-	// Don't render the provider if config is not loaded yet or has an error
-	if (!config.isLoaded || config.hasError || !config.posthogKey) {
-		return children;
-	}
 
 	return <PHProvider client={posthog}>{children}</PHProvider>;
 }

@@ -10,6 +10,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
+	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
@@ -110,13 +111,22 @@ async function getOrCreatePersonalOrgApiKey(
 	return token;
 }
 
-function getDevPlanPriceId(tier: DevPlanTier): string | undefined {
-	const envKeys: Record<DevPlanTier, string> = {
+function getDevPlanPriceId(
+	tier: DevPlanTier,
+	cycle: DevPlanCycle = "monthly",
+): string | undefined {
+	const monthlyKeys: Record<DevPlanTier, string> = {
 		lite: "STRIPE_DEV_PLAN_LITE_PRICE_ID",
 		pro: "STRIPE_DEV_PLAN_PRO_PRICE_ID",
 		max: "STRIPE_DEV_PLAN_MAX_PRICE_ID",
 	};
-	return process.env[envKeys[tier]];
+	const annualKeys: Record<DevPlanTier, string> = {
+		lite: "STRIPE_DEV_PLAN_LITE_ANNUAL_PRICE_ID",
+		pro: "STRIPE_DEV_PLAN_PRO_ANNUAL_PRICE_ID",
+		max: "STRIPE_DEV_PLAN_MAX_ANNUAL_PRICE_ID",
+	};
+	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
+	return process.env[key];
 }
 
 // Get or create personal organization for user
@@ -183,6 +193,7 @@ const subscribe = createRoute({
 				"application/json": {
 					schema: z.object({
 						tier: z.enum(["lite", "pro", "max"]),
+						cycle: z.enum(["monthly", "annual"]).optional().default("monthly"),
 					}),
 				},
 			},
@@ -204,7 +215,7 @@ const subscribe = createRoute({
 
 devPlans.openapi(subscribe, async (c) => {
 	const user = c.get("user");
-	const { tier } = c.req.valid("json");
+	const { tier, cycle } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -233,10 +244,11 @@ devPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
-	const priceId = getDevPlanPriceId(tier);
+	const priceId = getDevPlanPriceId(tier, cycle);
 	if (!priceId) {
+		const envSuffix = cycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}_PRICE_ID environment variable is not set`,
+			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}${envSuffix} environment variable is not set`,
 		});
 	}
 
@@ -259,6 +271,7 @@ devPlans.openapi(subscribe, async (c) => {
 				organizationId: personalOrg.id,
 				subscriptionType: "dev_plan",
 				devPlan: tier,
+				devPlanCycle: cycle,
 				userEmail: user.email,
 			},
 			subscription_data: {
@@ -266,6 +279,7 @@ devPlans.openapi(subscribe, async (c) => {
 					organizationId: personalOrg.id,
 					subscriptionType: "dev_plan",
 					devPlan: tier,
+					devPlanCycle: cycle,
 					userEmail: user.email,
 				},
 			},
@@ -284,6 +298,7 @@ devPlans.openapi(subscribe, async (c) => {
 			resourceType: "dev_plan",
 			metadata: {
 				tier,
+				cycle,
 			},
 		});
 
@@ -564,20 +579,33 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
-	const newPriceId = getDevPlanPriceId(newTier);
+	// Preserve the subscriber's existing billing cadence so an annual
+	// subscriber doesn't silently get switched to monthly when changing tier.
+	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
+	const newPriceId = getDevPlanPriceId(newTier, existingCycle);
 	if (!newPriceId) {
+		const envSuffix =
+			existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}_PRICE_ID environment variable is not set`,
+			message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}${envSuffix} environment variable is not set`,
 		});
 	}
+
+	const isUpgrade =
+		DEV_PLAN_PRICES[newTier] >
+		DEV_PLAN_PRICES[personalOrg.devPlan as DevPlanTier];
 
 	try {
 		const subscription = await getStripe().subscriptions.retrieve(
 			personalOrg.devPlanStripeSubscriptionId,
 		);
 
-		// Update subscription with new tier
-		await getStripe().subscriptions.update(
+		// For upgrades, charge the prorated amount synchronously and reject the
+		// upgrade if the customer's payment method can't cover it. Without this,
+		// Stripe leaves the subscription on the new (higher) price even when the
+		// proration invoice fails — letting the user spend at the upgraded tier
+		// while we never collect.
+		const updated = await getStripe().subscriptions.update(
 			personalOrg.devPlanStripeSubscriptionId,
 			{
 				items: [
@@ -586,19 +614,31 @@ devPlans.openapi(changeTier, async (c) => {
 						price: newPriceId,
 					},
 				],
-				proration_behavior: "create_prorations",
+				proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
+				payment_behavior: isUpgrade
+					? "error_if_incomplete"
+					: "allow_incomplete",
 				metadata: {
 					...subscription.metadata,
 					devPlan: newTier,
+					devPlanCycle: existingCycle,
 				},
 			},
 		);
 
-		// Update local database immediately
+		if (
+			isUpgrade &&
+			updated.status !== "active" &&
+			updated.status !== "trialing"
+		) {
+			throw new HTTPException(402, {
+				message:
+					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
+
+		// Only update local DB after Stripe confirms the upgrade is paid/active.
 		const newCreditsLimit = getDevPlanCreditsLimit(newTier);
-		const isUpgrade =
-			DEV_PLAN_PRICES[newTier] >
-			DEV_PLAN_PRICES[personalOrg.devPlan as DevPlanTier];
 
 		await db
 			.update(tables.organization)
@@ -633,10 +673,27 @@ devPlans.openapi(changeTier, async (c) => {
 			success: true,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe dev plan tier change error",
 			error instanceof Error ? error : new Error(String(error)),
 		);
+		// Stripe returns StripeCardError / StripeInvalidRequestError when an
+		// upgrade can't be collected (declined card, no payment method on file,
+		// etc.). Surface this to the caller as a 402 instead of a generic 500
+		// so the UI can prompt the user to update billing.
+		const errCode =
+			typeof error === "object" && error !== null && "code" in error
+				? String((error as { code?: unknown }).code)
+				: undefined;
+		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
+			throw new HTTPException(402, {
+				message:
+					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
 		throw new HTTPException(500, {
 			message: "Failed to change dev plan tier",
 		});
@@ -655,6 +712,7 @@ const getStatus = createRoute({
 					schema: z.object({
 						hasPersonalOrg: z.boolean(),
 						devPlan: z.enum(["none", "lite", "pro", "max"]),
+						devPlanCycle: z.enum(["monthly", "annual"]),
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
 						devPlanCreditsRemaining: z.string(),
@@ -663,6 +721,7 @@ const getStatus = createRoute({
 						devPlanExpiresAt: z.string().nullable(),
 						regularCredits: z.string(),
 						organizationId: z.string().nullable(),
+						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanAllowAllModels: z.boolean(),
 					}),
@@ -699,6 +758,7 @@ devPlans.openapi(getStatus, async (c) => {
 		return c.json({
 			hasPersonalOrg: false,
 			devPlan: "none" as const,
+			devPlanCycle: "monthly" as const,
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
 			devPlanCreditsRemaining: "0",
@@ -707,6 +767,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanExpiresAt: null,
 			regularCredits: "0",
 			organizationId: null,
+			projectId: null,
 			apiKey: null,
 			devPlanAllowAllModels: false,
 		});
@@ -716,19 +777,26 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
 
-	// Get API key if user has an active dev plan
+	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
+	let projectId: string | null = null;
 	if (personalOrg.devPlan !== "none") {
-		// Find the default project for this org
+		// Find the default project for this org. Order by createdAt asc so we
+		// always return the original "Default Project" rather than whichever
+		// row Postgres happens to surface first.
 		const project = await db.query.project.findFirst({
 			where: {
 				organizationId: {
 					eq: personalOrg.id,
 				},
 			},
+			orderBy: {
+				createdAt: "asc",
+			},
 		});
 
 		if (project) {
+			projectId = project.id;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -740,6 +808,7 @@ devPlans.openapi(getStatus, async (c) => {
 	return c.json({
 		hasPersonalOrg: true,
 		devPlan: personalOrg.devPlan,
+		devPlanCycle: personalOrg.devPlanCycle,
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
@@ -749,6 +818,7 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
 		regularCredits: personalOrg.credits,
 		organizationId: personalOrg.id,
+		projectId,
 		apiKey,
 		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
 	});
@@ -858,5 +928,106 @@ devPlans.openapi(updateSettings, async (c) => {
 		success: true,
 		devPlanAllowAllModels:
 			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
+	});
+});
+
+// Rotate the dev-plan API key — invalidates the current key and issues a new one
+const rotateApiKey = createRoute({
+	method: "post",
+	path: "/rotate-api-key",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKey: z.string(),
+					}),
+				},
+			},
+			description: "API key rotated successfully",
+		},
+	},
+});
+
+devPlans.openapi(rotateApiKey, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: user.id,
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.isPersonal === true,
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const project = await db.query.project.findFirst({
+		where: {
+			organizationId: {
+				eq: personalOrg.id,
+			},
+		},
+		orderBy: {
+			createdAt: "asc",
+		},
+	});
+
+	if (!project) {
+		throw new HTTPException(404, {
+			message: "Default project not found",
+		});
+	}
+
+	const newToken =
+		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
+		shortid(40);
+
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.apiKey)
+			.set({ status: "deleted" })
+			.where(eq(tables.apiKey.projectId, project.id));
+
+		await tx.insert(tables.apiKey).values({
+			token: newToken,
+			projectId: project.id,
+			description: "Dev Plan API Key",
+			createdBy: user.id,
+		});
+	});
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "dev_plan.rotate_api_key",
+		resourceType: "api_key",
+		resourceId: project.id,
+	});
+
+	return c.json({
+		apiKey: newToken,
 	});
 });

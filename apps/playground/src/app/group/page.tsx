@@ -7,6 +7,13 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	title: "Group Chat - Compare AI Models Side by Side",
+	description:
+		"Send one prompt to multiple AI models simultaneously. Compare responses from GPT-4, Claude, Gemini, and more in real-time.",
+};
 
 export interface GatewayModel {
 	id: string;

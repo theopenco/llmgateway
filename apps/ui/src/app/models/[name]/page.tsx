@@ -1,7 +1,7 @@
 import {
+	Activity,
 	AlertTriangle,
 	ArrowLeft,
-	ArrowRight,
 	Zap,
 	Eye,
 	Wrench,
@@ -23,11 +23,10 @@ import {
 	type DiscountData,
 } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
+import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import { Button } from "@/lib/components/button";
-import { getConfig } from "@/lib/config-server";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -116,7 +115,6 @@ function getEffectiveProviderDiscount(
 }
 
 export default async function ModelPage({ params }: PageProps) {
-	const config = getConfig();
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
@@ -204,11 +202,11 @@ export default async function ModelPage({ params }: PageProps) {
 		],
 	};
 
-	const lowestInputPrice = Math.min(
-		...modelProviders
-			.filter((p) => p.inputPrice)
-			.map((p) => p.inputPrice! * 1e6 * (p.discount ? 1 - p.discount : 1)),
-	);
+	const providerPrices = modelProviders
+		.filter((p) => p.inputPrice)
+		.map((p) => p.inputPrice! * 1e6 * (p.discount ? 1 - p.discount : 1));
+	const lowestInputPrice = Math.min(...providerPrices);
+	const highestInputPrice = Math.max(...providerPrices);
 
 	const productSchema = {
 		"@context": "https://schema.org",
@@ -225,6 +223,7 @@ export default async function ModelPage({ params }: PageProps) {
 			"@type": "AggregateOffer",
 			priceCurrency: "USD",
 			lowPrice: isFinite(lowestInputPrice) ? lowestInputPrice : 0,
+			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
 			offerCount: modelProviders.length,
 			availability: "https://schema.org/InStock",
 		},
@@ -306,12 +305,20 @@ export default async function ModelPage({ params }: PageProps) {
 								}))}
 							/>
 
-							<Button variant="default" size="sm" className="gap-2" asChild>
-								<a href={`${config.appUrl}/signup`}>
-									Get Started
-									<ArrowRight className="h-3 w-3" />
-								</a>
-							</Button>
+							<ModelCtaButton
+								modelId={decodedName}
+								size="sm"
+								className="gap-2"
+								iconClassName="h-3 w-3"
+							/>
+
+							<Link
+								href={`/models/${encodeURIComponent(decodedName)}/uptime`}
+								className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+							>
+								<Activity className="h-3.5 w-3.5" />
+								View uptime
+							</Link>
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
