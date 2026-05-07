@@ -66,10 +66,6 @@ export function getProviderEnvValue(
 		return defaultValue;
 	}
 
-	if (configIndex === undefined) {
-		return envValue;
-	}
-
 	const values = envValue
 		.split(",")
 		.map((v) => v.trim())
@@ -77,6 +73,10 @@ export function getProviderEnvValue(
 
 	if (values.length === 0) {
 		return defaultValue;
+	}
+
+	if (configIndex === undefined) {
+		return values[0];
 	}
 
 	if (configIndex >= values.length) {

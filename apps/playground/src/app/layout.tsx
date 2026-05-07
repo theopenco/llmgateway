@@ -68,19 +68,17 @@ export const metadata: Metadata = {
 	},
 };
 
-const webAppSchema = {
+const webSiteSchema = {
 	"@context": "https://schema.org",
-	"@type": "WebApplication",
+	"@type": "WebSite",
 	name: "LLM Gateway Playground",
 	url: "https://chat.llmgateway.io",
-	applicationCategory: "DeveloperApplication",
-	operatingSystem: "All",
 	description:
 		"Test and compare 210+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
-	offers: {
-		"@type": "Offer",
-		price: "0",
-		priceCurrency: "USD",
+	publisher: {
+		"@type": "Organization",
+		name: "LLM Gateway",
+		url: "https://llmgateway.io",
 	},
 };
 
@@ -94,7 +92,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					type="application/ld+json"
 					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 					dangerouslySetInnerHTML={{
-						__html: JSON.stringify(webAppSchema),
+						__html: JSON.stringify(webSiteSchema),
 					}}
 				/>
 			</head>

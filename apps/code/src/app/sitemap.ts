@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-	const baseUrl = "https://code.llmgateway.io";
+	const baseUrl = "https://devpass.llmgateway.io";
 
 	return [
 		{
@@ -15,6 +15,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			lastModified: new Date(),
 			changeFrequency: "weekly",
 			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/pricing`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.9,
 		},
 	];
 }

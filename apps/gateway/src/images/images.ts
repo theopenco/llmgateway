@@ -29,7 +29,7 @@ const imageGenerationsRequestSchema = z.object({
 		example: "1024x1024",
 	}),
 	quality: z
-		.enum(["standard", "hd", "low", "medium", "high"])
+		.enum(["standard", "hd", "low", "medium", "high", "auto"])
 		.optional()
 		.openapi({
 			description:
@@ -100,6 +100,32 @@ const generations = createRoute({
 		},
 	},
 });
+
+/**
+ * Normalize OpenAI's legacy DALL-E quality values ("standard", "hd") into the
+ * gpt-image-2 vocabulary ("low" | "medium" | "high" | "auto") so downstream
+ * provider request preparation only ever sees supported strings.
+ */
+function normalizeQuality(
+	quality: string | undefined,
+): "low" | "medium" | "high" | "auto" | undefined {
+	if (!quality) {
+		return undefined;
+	}
+	switch (quality) {
+		case "standard":
+			return "medium";
+		case "hd":
+			return "high";
+		case "low":
+		case "medium":
+		case "high":
+		case "auto":
+			return quality;
+		default:
+			return undefined;
+	}
+}
 
 /**
  * Parse a size string like "1024x1024" into an aspect ratio string.
@@ -278,6 +304,10 @@ async function extractImagesFromChatResponse(
 }
 
 function forwardHeaders(c: Context): Record<string, string> {
+	const noFallbackHeader =
+		c.req.raw.headers.get("x-no-fallback") ??
+		c.req.raw.headers.get("X-No-Fallback");
+
 	return {
 		"Content-Type": "application/json",
 		Authorization: c.req.header("Authorization") ?? "",
@@ -286,6 +316,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		"x-request-id": c.req.header("x-request-id") ?? "",
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
+		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 	};
 }
@@ -377,11 +408,14 @@ images.openapi(generations, async (c) => {
 		stream: false,
 	};
 
-	// Pass image configuration if we have an aspect ratio, size, or n > 1
-	if (aspectRatio || request.size || request.n > 1) {
+	const normalizedQuality = normalizeQuality(request.quality);
+
+	// Pass image configuration if we have an aspect ratio, size, quality, or n > 1
+	if (aspectRatio || request.size || normalizedQuality || request.n > 1) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(request.size && { image_size: request.size }),
+			...(normalizedQuality && { image_quality: normalizedQuality }),
 			n: request.n,
 		};
 	}
@@ -390,6 +424,7 @@ images.openapi(generations, async (c) => {
 		model: request.model,
 		prompt: request.prompt.slice(0, 200),
 		size: request.size,
+		quality: normalizedQuality,
 		n: request.n,
 	});
 
@@ -745,15 +780,19 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 		stream: false,
 	};
 
+	const normalizedEditQuality = normalizeQuality(request.quality);
+
 	if (
 		aspectRatio ||
 		requestedSize ||
 		(request.n !== undefined && request.n > 1) ||
-		request.output_format
+		request.output_format ||
+		normalizedEditQuality
 	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(requestedSize && { image_size: requestedSize }),
+			...(normalizedEditQuality && { image_quality: normalizedEditQuality }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.output_compression !== undefined && {

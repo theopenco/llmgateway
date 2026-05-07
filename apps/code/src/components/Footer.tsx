@@ -168,16 +168,18 @@ export function Footer() {
 							</h3>
 							<ul className="space-y-2">
 								<li>
-									<Link
-										href="/coding-models"
+									<a
+										href={`${config.uiUrl}/models`}
+										target="_blank"
+										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Models
-									</Link>
+									</a>
 								</li>
 								<li>
 									<Link
-										href="/#pricing"
+										href="/pricing"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Pricing
@@ -212,7 +214,7 @@ export function Footer() {
 								</li>
 								<li>
 									<a
-										href={`${config.uiUrl}/guides`}
+										href={`${config.uiUrl}/integrations`}
 										target="_blank"
 										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
@@ -277,22 +279,18 @@ export function Footer() {
 						&copy; {new Date().getFullYear()} LLM Gateway. All rights reserved.
 					</p>
 					<div className="flex items-center gap-6">
-						<a
-							href={`${config.uiUrl}/legal/privacy`}
-							target="_blank"
-							rel="noopener noreferrer"
+						<Link
+							href="/legal/privacy"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
 						>
 							Privacy Policy
-						</a>
-						<a
-							href={`${config.uiUrl}/legal/terms`}
-							target="_blank"
-							rel="noopener noreferrer"
+						</Link>
+						<Link
+							href="/legal/terms"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
 						>
 							Terms of Use
-						</a>
+						</Link>
 					</div>
 				</div>
 			</div>

@@ -211,22 +211,12 @@ describe("Models API", () => {
 			expect(videoModel.per_request_limits).toEqual({
 				max_video_duration_seconds: "10",
 			});
-			const obsidianProvider = videoModel.providers.find(
-				(provider: any) => provider.providerId === "obsidian",
-			);
 			const avalancheProvider = videoModel.providers.find(
 				(provider: any) => provider.providerId === "avalanche",
 			);
 			const googleVertexProvider = videoModel.providers.find(
 				(provider: any) => provider.providerId === "google-vertex",
 			);
-			expect(obsidianProvider?.pricing.per_second).toBeDefined();
-			expect(obsidianProvider?.supportedVideoSizes).toEqual([
-				"1280x720",
-				"720x1280",
-			]);
-			expect(obsidianProvider?.supportsVideoAudio).toBe(true);
-			expect(obsidianProvider?.supportsVideoWithoutAudio).toBe(false);
 			expect(googleVertexProvider?.pricing.per_second).toBeDefined();
 			expect(googleVertexProvider?.supportedVideoSizes).toEqual([
 				"1280x720",
@@ -283,6 +273,28 @@ describe("Models API", () => {
 				),
 			).toBe(false);
 		}
+	});
+
+	test("GET /v1/models should only expose glacier for supported models", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+
+		const glacierModelIds = json.data
+			.filter((model: any) =>
+				model.providers.some(
+					(provider: any) => provider.providerId === "glacier",
+				),
+			)
+			.map((model: any) => model.id)
+			.sort();
+
+		expect(glacierModelIds).toEqual([
+			"gemini-2.5-flash-image",
+			"gemini-3-pro-image-preview",
+			"gemini-3.1-flash-image-preview",
+		]);
 	});
 
 	test("GET /v1/models should include stability information for models", async () => {

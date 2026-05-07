@@ -62,6 +62,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.followUpEmail.organizationId,
 		}),
+		paymentFailures: r.many.paymentFailure({
+			from: r.organization.id,
+			to: r.paymentFailure.organizationId,
+		}),
 	},
 	referral: {
 		referrerOrganization: r.one.organization({
@@ -244,6 +248,12 @@ export const relations = defineRelations(schema, (r) => ({
 	followUpEmail: {
 		organization: r.one.organization({
 			from: r.followUpEmail.organizationId,
+			to: r.organization.id,
+		}),
+	},
+	paymentFailure: {
+		organization: r.one.organization({
+			from: r.paymentFailure.organizationId,
 			to: r.organization.id,
 		}),
 	},

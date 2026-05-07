@@ -271,8 +271,14 @@ export function SessionsView({
 		queryParams.endDate = dateRange.end.toISOString();
 	}
 
-	// Don't filter by source at API level — we filter client-side
-	// to properly merge "open-code" and "opencode" as the same integration
+	// Filter by source at API level so pagination reflects filtered results
+	if (source === "all") {
+		queryParams.source = KNOWN_SOURCES.join(",");
+	} else if (source === "opencode") {
+		queryParams.source = "opencode,open-code";
+	} else {
+		queryParams.source = source;
+	}
 
 	const {
 		data,
@@ -361,7 +367,7 @@ export function SessionsView({
 				</div>
 			) : (
 				<div className="space-y-3">
-					{sessions.length === 0 && !hasNextPage ? (
+					{sessions.length === 0 ? (
 						<div className="flex flex-col items-center justify-center py-16 px-4">
 							<div className="relative mb-6">
 								<div className="absolute -inset-3 rounded-full bg-muted/50 blur-md" />

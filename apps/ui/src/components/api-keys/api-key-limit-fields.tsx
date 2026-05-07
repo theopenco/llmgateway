@@ -1,6 +1,5 @@
 "use client";
 
-import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import {
@@ -10,6 +9,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+import { Switch } from "@/lib/components/switch";
 
 import type { ApiKey } from "@/lib/types";
 
@@ -246,7 +246,7 @@ export function ApiKeyLimitFields({
 		<div className="space-y-4">
 			<div className="rounded-md border p-4 space-y-3">
 				<div className="flex items-center gap-2">
-					<Checkbox
+					<Switch
 						id={`${idPrefix}-usage-limit-enabled`}
 						checked={value.usageLimitEnabled}
 						onCheckedChange={(checked) =>
@@ -284,7 +284,7 @@ export function ApiKeyLimitFields({
 
 			<div className="rounded-md border p-4 space-y-3">
 				<div className="flex items-center gap-2">
-					<Checkbox
+					<Switch
 						id={`${idPrefix}-period-limit-enabled`}
 						checked={value.periodUsageLimitEnabled}
 						onCheckedChange={(checked) =>

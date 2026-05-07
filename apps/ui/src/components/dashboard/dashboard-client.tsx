@@ -19,6 +19,8 @@ import {
 	BookOpen,
 	FlaskConical,
 	MessageSquare,
+	Wallet,
+	Gift,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -440,53 +442,170 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 					</div>
 					{!isLoading && totalRequests < 5 ? (
 						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-							<Card className="col-span-4">
-								<CardHeader>
-									<CardTitle>Get Started</CardTitle>
-									<CardDescription>
-										{totalRequests > 0
-											? `You made ${totalRequests === 1 ? "your first call" : `${totalRequests} calls`} during setup! Now integrate LLM Gateway in your own code.`
-											: "Integrate LLM Gateway in 1 line — just change your base URL."}
-									</CardDescription>
-								</CardHeader>
-								<CardContent className="space-y-4">
-									<QuickStartSection />
-									<div className="flex flex-wrap gap-2">
-										<Button asChild variant="outline" size="sm">
-											<a
-												href="https://docs.llmgateway.io"
-												target="_blank"
-												rel="noopener noreferrer"
-											>
-												<BookOpen className="mr-2 h-4 w-4" />
-												Docs
-												<ExternalLink className="ml-1.5 h-3 w-3" />
-											</a>
-										</Button>
-										<Button asChild variant="outline" size="sm">
-											<a
-												href={
-													process.env.NODE_ENV === "development"
-														? "http://localhost:3003"
-														: "https://chat.llmgateway.io"
-												}
-												target="_blank"
-												rel="noopener noreferrer"
-											>
-												<FlaskConical className="mr-2 h-4 w-4" />
-												Playground
-												<ExternalLink className="ml-1.5 h-3 w-3" />
-											</a>
-										</Button>
-										<Button asChild variant="outline" size="sm">
-											<Link href="/models" prefetch={true}>
-												<MessageSquare className="mr-2 h-4 w-4" />
-												Models
-											</Link>
-										</Button>
-									</div>
-								</CardContent>
-							</Card>
+							{(() => {
+								const credits = selectedOrganization
+									? Number(selectedOrganization.credits)
+									: 0;
+								// Cohort-safe: only treat this as onboarding for orgs created
+								// recently. An org with 0 credits and 0 recent requests may be
+								// a returning user that has since run out — the date-windowed
+								// totalRequests alone cannot distinguish them from a brand-new
+								// org. Using createdAt avoids showing onboarding copy to
+								// returning users.
+								const createdAtMs = selectedOrganization?.createdAt
+									? new Date(selectedOrganization.createdAt).getTime()
+									: null;
+								const isNewOrganization =
+									createdAtMs !== null &&
+									Date.now() - createdAtMs < 7 * 24 * 60 * 60 * 1000;
+								const needsTopUp =
+									!Number.isNaN(credits) &&
+									credits <= 0 &&
+									totalRequests === 0 &&
+									isNewOrganization;
+
+								if (needsTopUp) {
+									return (
+										<Card className="col-span-4 border-primary/40 bg-gradient-to-br from-primary/5 via-transparent to-transparent">
+											<CardHeader>
+												<div className="flex items-center gap-2">
+													<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+														<Wallet className="h-4 w-4" />
+													</div>
+													<div>
+														<CardTitle>
+															Top up to start making requests
+														</CardTitle>
+														<CardDescription className="mt-1">
+															Add credits to your organization to unlock all
+															paid models. Free models are always available via
+															the playground.
+														</CardDescription>
+													</div>
+												</div>
+											</CardHeader>
+											<CardContent className="space-y-4">
+												<div className="grid gap-3 sm:grid-cols-3">
+													<div className="rounded-lg border border-border bg-background/60 p-3">
+														<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+															<Zap className="h-3.5 w-3.5" />
+															Pay as you go
+														</div>
+														<p className="mt-1 text-sm">
+															Credits never expire. Only pay for what you use.
+														</p>
+													</div>
+													<div className="rounded-lg border border-border bg-background/60 p-3">
+														<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+															<Gift className="h-3.5 w-3.5" />
+															Free models
+														</div>
+														<p className="mt-1 text-sm">
+															Try{" "}
+															<Link
+																href="/models"
+																className="underline hover:text-foreground"
+																prefetch={true}
+															>
+																free models
+															</Link>{" "}
+															without topping up.
+														</p>
+													</div>
+													<div className="rounded-lg border border-border bg-background/60 p-3">
+														<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+															<CreditCard className="h-3.5 w-3.5" />
+															Secure checkout
+														</div>
+														<p className="mt-1 text-sm">
+															Powered by Stripe. Cancel or refund anytime.
+														</p>
+													</div>
+												</div>
+												<div className="flex flex-wrap gap-2">
+													<TopUpCreditsButton />
+													<Button asChild variant="outline" size="sm">
+														<a
+															href={
+																process.env.NODE_ENV === "development"
+																	? "http://localhost:3003"
+																	: "https://chat.llmgateway.io"
+															}
+															target="_blank"
+															rel="noopener noreferrer"
+														>
+															<FlaskConical className="mr-2 h-4 w-4" />
+															Try free models
+															<ExternalLink className="ml-1.5 h-3 w-3" />
+														</a>
+													</Button>
+													<Button asChild variant="outline" size="sm">
+														<a
+															href="https://docs.llmgateway.io"
+															target="_blank"
+															rel="noopener noreferrer"
+														>
+															<BookOpen className="mr-2 h-4 w-4" />
+															Docs
+															<ExternalLink className="ml-1.5 h-3 w-3" />
+														</a>
+													</Button>
+												</div>
+											</CardContent>
+										</Card>
+									);
+								}
+
+								return (
+									<Card className="col-span-4">
+										<CardHeader>
+											<CardTitle>Get Started</CardTitle>
+											<CardDescription>
+												{totalRequests > 0
+													? `You made ${totalRequests === 1 ? "your first call" : `${totalRequests} calls`} during setup! Now integrate LLM Gateway in your own code.`
+													: "Integrate LLM Gateway in 1 line — just change your base URL."}
+											</CardDescription>
+										</CardHeader>
+										<CardContent className="space-y-4">
+											<QuickStartSection />
+											<div className="flex flex-wrap gap-2">
+												<Button asChild variant="outline" size="sm">
+													<a
+														href="https://docs.llmgateway.io"
+														target="_blank"
+														rel="noopener noreferrer"
+													>
+														<BookOpen className="mr-2 h-4 w-4" />
+														Docs
+														<ExternalLink className="ml-1.5 h-3 w-3" />
+													</a>
+												</Button>
+												<Button asChild variant="outline" size="sm">
+													<a
+														href={
+															process.env.NODE_ENV === "development"
+																? "http://localhost:3003"
+																: "https://chat.llmgateway.io"
+														}
+														target="_blank"
+														rel="noopener noreferrer"
+													>
+														<FlaskConical className="mr-2 h-4 w-4" />
+														Playground
+														<ExternalLink className="ml-1.5 h-3 w-3" />
+													</a>
+												</Button>
+												<Button asChild variant="outline" size="sm">
+													<Link href="/models" prefetch={true}>
+														<MessageSquare className="mr-2 h-4 w-4" />
+														Models
+													</Link>
+												</Button>
+											</div>
+										</CardContent>
+									</Card>
+								);
+							})()}
 							<Card className="col-span-3">
 								<CardHeader>
 									<CardTitle>Quick Actions</CardTitle>

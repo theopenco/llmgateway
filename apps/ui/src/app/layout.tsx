@@ -96,7 +96,12 @@ const organizationSchema = {
 	"@type": "Organization",
 	name: "LLM Gateway",
 	url: "https://llmgateway.io",
-	logo: "https://llmgateway.io/favicon/android-chrome-512x512.png",
+	logo: {
+		"@type": "ImageObject",
+		url: "https://llmgateway.io/favicon/android-chrome-512x512.png",
+		width: 512,
+		height: 512,
+	},
 	description:
 		"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface.",
 	sameAs: [

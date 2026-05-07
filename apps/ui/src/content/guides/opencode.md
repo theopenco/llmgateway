@@ -2,11 +2,11 @@
 id: opencode
 slug: opencode
 title: OpenCode Integration
-description: Connect OpenCode to 180+ models through LLM Gateway. One config file, any model, full cost tracking.
+description: Connect OpenCode to 210+ models through LLM Gateway's built-in provider. No config files needed — just select, authenticate, and code.
 date: 2026-01-09
 ---
 
-OpenCode is an open-source AI coding agent for your terminal, IDE, or desktop. This guide shows you how to connect it to LLM Gateway—giving you access to 180+ models from 60+ providers, all tracked in one dashboard.
+OpenCode is an open-source AI coding agent for your terminal, IDE, or desktop. LLM Gateway is a built-in provider in OpenCode, so setup takes under a minute — no config files or npm adapters required. You get access to 210+ models from 60+ providers, all tracked in one dashboard.
 
 ## Prerequisites
 
@@ -18,67 +18,9 @@ After installation, verify it works by running:
 opencode --version
 ```
 
-## Configuration Steps
+## Setup
 
-Setting up OpenCode with LLM Gateway requires creating a configuration file and connecting your API key.
-
-### Step 1: Create Configuration File
-
-Create a file named `config.json` in the OpenCode configuration directory:
-
-**Location:**
-
-Windows:
-
-```
-C:\Users\YourUsername\.config\opencode\config.json
-```
-
-macOS/Linux:
-
-```
-~/.config/opencode/config.json
-```
-
-**File contents:**
-
-```json
-{
-  "provider": {
-    "llmgateway": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "LLM Gateway",
-      "options": {
-        "baseURL": "https://api.llmgateway.io/v1"
-      },
-      "models": {
-        "gpt-5": {
-          "name": "GPT-5"
-        },
-        "gpt-5-mini": {
-          "name": "GPT-5 Mini"
-        },
-        "gemini-2.5-pro": {
-          "name": "Gemini 2.5 Pro"
-        },
-        "claude-3-5-sonnet-20241022": {
-          "name": "Claude 3.5 Sonnet"
-        }
-      }
-    }
-  },
-  "model": "llmgateway/gpt-5"
-}
-```
-
-**Configuration explained:**
-
-- **npm**: The adapter package OpenCode uses to communicate with OpenAI-compatible APIs
-- **baseURL**: LLM Gateway's API endpoint
-- **models**: The models you want to use (you can add more from our [models page](https://llmgateway.io/models))
-- **model**: Your default model selection
-
-### Step 2: Launch OpenCode and Connect Provider
+### Step 1: Launch OpenCode
 
 Start OpenCode from your terminal:
 
@@ -92,13 +34,15 @@ opencode
 2. Open Command Palette (Ctrl+Shift+P or Cmd+Shift+P)
 3. Type "OpenCode" and select "Open opencode"
 
-Once OpenCode launches, run the `/connect` command to connect to LLM Gateway:
+### Step 2: Open the Provider List
+
+Once OpenCode launches, run the `/providers` or `/connect` command to open the provider selection screen:
 
 ![OpenCode Connect Command](/images/guides/opencode/connect-command.png)
 
-### Step 3: Select LLM Gateway Provider
+### Step 3: Select LLM Gateway
 
-In the provider list, scroll down to find "LLM Gateway" under the "Other" section and select it:
+LLM Gateway is listed as a built-in provider. Select "LLM Gateway" from the provider list:
 
 ![Select LLM Gateway Provider](/images/guides/opencode/select-provider.png)
 
@@ -126,25 +70,36 @@ Try asking OpenCode about your project or request help with coding tasks:
 
 ## Why Use LLM Gateway with OpenCode?
 
-- **180+ models** — GPT-5, Claude, Gemini, Llama, and more from 60+ providers
+- **210+ models** — GPT-5, Claude, Gemini, Llama, and more from 60+ providers
 - **One API key** — Stop juggling credentials for every provider
 - **Cost tracking** — See what each coding session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically
 - **Volume discounts** — The more you use, the more you save
 
-## Adding More Models
+## Adding Custom Models
 
-You can add any model from the [models page](https://llmgateway.io/models) to your configuration. Simply add more entries to the `models` object in your `config.json`:
+The built-in provider gives you access to all standard LLM Gateway models. If you want to add custom model aliases or configure models not yet listed in the built-in provider, you can create a `config.json` in your OpenCode configuration directory:
+
+**macOS/Linux:** `~/.config/opencode/config.json`
+
+**Windows:** `C:\Users\YourUsername\.config\opencode\config.json`
 
 ```json
 {
   "provider": {
     "llmgateway": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LLM Gateway",
+      "options": {
+        "baseURL": "https://api.llmgateway.io/v1"
+      },
       "models": {
-        "gpt-5": { "name": "GPT-5" },
-        "gpt-5-mini": { "name": "GPT-5 Mini" },
-        "deepseek/deepseek-chat": { "name": "DeepSeek Chat" },
-        "meta/llama-3.3-70b": { "name": "Llama 3.3 70B" }
+        "deepseek/deepseek-chat": {
+          "name": "DeepSeek Chat"
+        },
+        "meta/llama-3.3-70b": {
+          "name": "Llama 3.3 70B"
+        }
       }
     }
   }
@@ -155,7 +110,7 @@ After updating `config.json`, restart OpenCode to see the new models.
 
 ## Switching Models
 
-To change your default model, update the `model` field in your configuration:
+Select a different model directly in the OpenCode interface, or update the `model` field in your configuration:
 
 ```json
 {
@@ -163,25 +118,19 @@ To change your default model, update the `model` field in your configuration:
 }
 ```
 
-Or select a different model directly in the OpenCode interface.
-
 ## Troubleshooting
-
-### OpenCode asks for API key every time
-
-Make sure the provider ID in your `config.json` matches exactly: `"llmgateway"` (all lowercase, no spaces).
-
-### 404 Not Found errors
-
-Verify your `baseURL` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end).
-
-### Models not showing up
-
-After editing `config.json`, restart OpenCode completely for changes to take effect.
 
 ### Connection timeout
 
 Check that you have an active internet connection and that your API key is valid from the [dashboard](/dashboard).
+
+### Custom models not showing up
+
+After editing `config.json`, restart OpenCode completely for changes to take effect.
+
+### 404 Not Found errors with custom config
+
+If you are using a custom `config.json`, verify your `baseURL` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end).
 
 ## Configuration Tips
 

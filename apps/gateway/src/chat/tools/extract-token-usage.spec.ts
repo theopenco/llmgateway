@@ -84,6 +84,7 @@ describe("extractTokenUsage", () => {
 			const result = extractTokenUsage(data, "anthropic");
 
 			expect(result.cachedTokens).toBe(0);
+			expect(result.cacheCreationTokens).toBe(50);
 			expect(result.promptTokens).toBe(150); // 100 + 50 + 0
 			expect(result.completionTokens).toBe(200);
 		});
@@ -101,6 +102,7 @@ describe("extractTokenUsage", () => {
 			const result = extractTokenUsage(data, "anthropic");
 
 			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(0);
 			expect(result.promptTokens).toBe(900); // 100 + 0 + 800
 		});
 
@@ -197,6 +199,109 @@ describe("extractTokenUsage", () => {
 			expect(result.reasoningTokens).toBe(0);
 			expect(result.totalTokens).toBe(150);
 		});
+
+		it("extracts 1h cache creation tokens from cache_creation breakdown", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 1000,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 400,
+						ephemeral_1h_input_tokens: 600,
+					},
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBe(600);
+		});
+
+		it("extracts cache creation tokens from Anthropic streaming message_start", () => {
+			const data = {
+				type: "message_start",
+				message: {
+					usage: {
+						input_tokens: 10,
+						cache_creation_input_tokens: 1000,
+						cache_creation: {
+							ephemeral_5m_input_tokens: 400,
+							ephemeral_1h_input_tokens: 600,
+						},
+						cache_read_input_tokens: 0,
+						output_tokens: 1,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.promptTokens).toBe(1010);
+			expect(result.completionTokens).toBe(1);
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBe(600);
+		});
+
+		it("does not clear prompt cache usage from output-only Anthropic deltas", () => {
+			const data = {
+				type: "message_delta",
+				usage: {
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.promptTokens).toBeNull();
+			expect(result.cachedTokens).toBeNull();
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
+			expect(result.completionTokens).toBe(50);
+			expect(result.totalTokens).toBeNull();
+		});
+
+		it("returns null cacheCreation1hTokens when only 5m writes are present", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 400,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 400,
+						ephemeral_1h_input_tokens: 0,
+					},
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.cacheCreationTokens).toBe(400);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("returns null cacheCreation1hTokens when cache_creation breakdown is missing", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 400,
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.cacheCreationTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
 	});
 
 	describe("openai (default)", () => {
@@ -229,6 +334,82 @@ describe("extractTokenUsage", () => {
 			const result = extractTokenUsage(data, "openai");
 
 			expect(result.cachedTokens).toBeNull();
+		});
+	});
+
+	describe("openai responses api format", () => {
+		it("extracts usage from response.completed event", () => {
+			const data = {
+				type: "response.completed",
+				response: {
+					usage: {
+						input_tokens: 150,
+						output_tokens: 80,
+						total_tokens: 230,
+						input_tokens_details: {
+							cached_tokens: 120,
+						},
+						output_tokens_details: {
+							reasoning_tokens: 30,
+						},
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(150);
+			expect(result.completionTokens).toBe(80);
+			expect(result.totalTokens).toBe(230);
+			expect(result.cachedTokens).toBe(120);
+			expect(result.reasoningTokens).toBe(30);
+		});
+
+		it("extracts usage without cached tokens", () => {
+			const data = {
+				type: "response.completed",
+				response: {
+					usage: {
+						input_tokens: 100,
+						output_tokens: 50,
+						total_tokens: 150,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(100);
+			expect(result.completionTokens).toBe(50);
+			expect(result.totalTokens).toBe(150);
+			expect(result.cachedTokens).toBeNull();
+			expect(result.reasoningTokens).toBeNull();
+		});
+
+		it("prefers response.usage over data.usage when both present", () => {
+			const data = {
+				response: {
+					usage: {
+						input_tokens: 200,
+						output_tokens: 100,
+						total_tokens: 300,
+						input_tokens_details: {
+							cached_tokens: 150,
+						},
+					},
+				},
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(200);
+			expect(result.completionTokens).toBe(100);
+			expect(result.cachedTokens).toBe(150);
 		});
 	});
 });

@@ -792,6 +792,69 @@
       "when": 1774798756336,
       "tag": "1774798756_icy_lifeguard",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "8",
+      "when": 1775215966085,
+      "tag": "1775215966_crazy_payback",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "8",
+      "when": 1775483149708,
+      "tag": "1775483149_gifted_mongu",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "8",
+      "when": 1775769351976,
+      "tag": "1775769351_graceful_living_lightning",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "8",
+      "when": 1776102879452,
+      "tag": "1776102879_blue_quicksilver",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "8",
+      "when": 1776181887059,
+      "tag": "1776181887_messy_franklin_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "8",
+      "when": 1776700673967,
+      "tag": "1776700673_sleepy_goliath",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "8",
+      "when": 1777241148978,
+      "tag": "1777241148_zippy_impossible_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "8",
+      "when": 1777809234902,
+      "tag": "1777809234_unique_madame_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "8",
+      "when": 1778083846277,
+      "tag": "1778083846_early_excalibur",
+      "breakpoints": true
     }
   ]
 }

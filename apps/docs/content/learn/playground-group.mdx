@@ -1,25 +1,30 @@
 ---
 title: Group Chat
-description: Compare responses from multiple LLM models side by side
-icon: Columns
+description: Watch multiple AI models discuss and collaborate on your prompt
+icon: UsersRound
 ---
 
 import { ThemedImage } from "@/components/themed-image";
 
-The Group Chat page lets you send a single prompt to multiple models simultaneously and compare their responses side by side. This is useful for evaluating model quality, speed, and cost.
+The Group Chat page lets you add multiple AI models to a conversation where they discuss and build on each other's responses, creating a dynamic multi-model dialogue.
 
-<ThemedImage alt="Group Chat" basePath="/learn/playground-group" />
+<ThemedImage
+	alt="Group Chat mode showing model selection and initial prompt"
+	basePath="/learn/playground-group"
+/>
 
 ## How It Works
 
-1. Select two or more models from the model picker
-2. Type your prompt in the input field
-3. All selected models receive the same prompt at once
-4. Responses stream in parallel, displayed in separate columns
+1. Add 2–5 different AI models to the conversation
+2. Enter an initial prompt or question to kick off the discussion
+3. Click **Start Conversation** to begin
+4. Models take turns responding to each other in sequence
+5. Each model builds on the previous responses, creating a dynamic conversation
+6. You can stop the conversation at any time and start a new one
 
 ## Use Cases
 
-- **Model evaluation** — Compare output quality across providers
-- **Cost optimization** — See which models give the best results for the price
-- **Speed comparison** — Observe latency differences between models
-- **Migration testing** — Verify that a new model produces equivalent results
+- **Model evaluation** — Compare how different models approach the same topic
+- **Brainstorming** — Get diverse perspectives from multiple AI models
+- **Debate** — Watch models discuss pros and cons of a topic
+- **Research** — Gather multi-model analysis of complex questions

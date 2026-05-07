@@ -1,9 +1,9 @@
+import { estimateTokensFromText } from "@llmgateway/shared";
+
 /**
- * Estimates tokens from content length using simple division
+ * Estimates tokens from content length using a chars/4 heuristic. Backed by
+ * the shared text-only estimator.
  */
 export function estimateTokensFromContent(content: string): number {
-	if (!content) {
-		return 0;
-	}
-	return Math.max(1, Math.round(content.length / 4));
+	return estimateTokensFromText(content);
 }

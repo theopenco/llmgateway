@@ -2,6 +2,7 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 import { GitHubStars } from "./github-stars";
 import { Hero } from "./hero";
+import { allMigrations } from "content-collections";
 
 export const HeroRSC = async ({
 	navbarOnly,
@@ -10,18 +11,24 @@ export const HeroRSC = async ({
 	navbarOnly?: boolean;
 	sticky?: boolean;
 }) => {
-	const [{ allMigrations }, models, providers] = await Promise.all([
-		import("content-collections"),
+	if (navbarOnly) {
+		// Skip fetching models/providers/migrations for navbar-only mode
+		return (
+			<Hero navbarOnly sticky={sticky}>
+				<GitHubStars />
+			</Hero>
+		);
+	}
+
+	const [models, providers] = await Promise.all([
 		fetchModels(),
 		fetchProviders(),
 	]);
-	const migrations = navbarOnly
-		? []
-		: allMigrations.map((m) => ({
-				slug: m.slug,
-				title: m.title,
-				fromProvider: m.fromProvider,
-			}));
+	const migrations = allMigrations.map((m) => ({
+		slug: m.slug,
+		title: m.title,
+		fromProvider: m.fromProvider,
+	}));
 
 	return (
 		<Hero

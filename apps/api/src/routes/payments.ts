@@ -7,6 +7,7 @@ import { ensureStripeCustomer } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import {
 	calculateFees,
 	CREDIT_TOP_UP_MAX_AMOUNT,
@@ -14,6 +15,10 @@ import {
 } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
+import type {
+	ClientErrorStatusCode,
+	ServerErrorStatusCode,
+} from "hono/utils/http-status";
 
 let _stripe: Stripe | null = null;
 
@@ -36,8 +41,21 @@ export const payments = new OpenAPIHono<ServerTypes>();
 const creditTopUpAmountSchema = z
 	.number()
 	.int()
-	.min(CREDIT_TOP_UP_MIN_AMOUNT, "Minimum top-up amount is $5.")
+	.min(
+		CREDIT_TOP_UP_MIN_AMOUNT,
+		`Minimum top-up amount is $${CREDIT_TOP_UP_MIN_AMOUNT}.`,
+	)
 	.max(CREDIT_TOP_UP_MAX_AMOUNT, "Maximum top-up amount is $5000.");
+
+export async function isInternationalPaymentMethod(
+	stripePaymentMethodId: string,
+): Promise<boolean> {
+	const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
+		stripePaymentMethodId,
+	);
+	const country = stripePaymentMethod.card?.country;
+	return Boolean(country) && country !== "US";
+}
 
 const createPaymentIntent = createRoute({
 	method: "post",
@@ -48,6 +66,7 @@ const createPaymentIntent = createRoute({
 				"application/json": {
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
+						stripePaymentMethodId: z.string().optional(),
 					}),
 				},
 			},
@@ -59,6 +78,8 @@ const createPaymentIntent = createRoute({
 				"application/json": {
 					schema: z.object({
 						clientSecret: z.string(),
+						totalAmount: z.number(),
+						isInternational: z.boolean(),
 					}),
 				},
 			},
@@ -84,7 +105,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 		});
 	}
 
-	const { amount } = c.req.valid("json");
+	const { amount, stripePaymentMethodId } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -105,8 +126,33 @@ payments.openapi(createPaymentIntent, async (c) => {
 
 	const stripeCustomerId = await ensureStripeCustomer(organizationId);
 
+	let isInternational = false;
+	if (stripePaymentMethodId) {
+		const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
+			stripePaymentMethodId,
+		);
+
+		const paymentMethodCustomer =
+			typeof stripePaymentMethod.customer === "string"
+				? stripePaymentMethod.customer
+				: (stripePaymentMethod.customer?.id ?? null);
+
+		// Freshly created PMs are unattached (customer === null) until the
+		// setup_intent.succeeded webhook attaches them. Reject only when the
+		// PM is attached to a *different* customer.
+		if (paymentMethodCustomer && paymentMethodCustomer !== stripeCustomerId) {
+			throw new HTTPException(403, {
+				message: "Payment method does not belong to this customer",
+			});
+		}
+
+		const country = stripePaymentMethod.card?.country;
+		isInternational = Boolean(country) && country !== "US";
+	}
+
 	const feeBreakdown = calculateFees({
 		amount,
+		isInternational,
 	});
 
 	const paymentIntent = await getStripe().paymentIntents.create({
@@ -114,10 +160,13 @@ payments.openapi(createPaymentIntent, async (c) => {
 		currency: "usd",
 		description: `Credit purchase for ${amount} USD (including fees)`,
 		customer: stripeCustomerId,
+		...(stripePaymentMethodId ? { payment_method: stripePaymentMethodId } : {}),
 		metadata: {
 			organizationId,
 			baseAmount: amount.toString(),
 			platformFee: feeBreakdown.platformFee.toString(),
+			internationalFee: feeBreakdown.internationalFee.toString(),
+			isInternational: isInternational.toString(),
 			userEmail: user.email,
 			userId: user.id,
 		},
@@ -125,6 +174,8 @@ payments.openapi(createPaymentIntent, async (c) => {
 
 	return c.json({
 		clientSecret: paymentIntent.client_secret ?? "",
+		totalAmount: feeBreakdown.totalAmount,
+		isInternational,
 	});
 });
 
@@ -571,8 +622,13 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
+	const isInternational = await isInternationalPaymentMethod(
+		paymentMethod.stripePaymentMethodId,
+	);
+
 	const feeBreakdown = calculateFees({
 		amount,
+		isInternational,
 	});
 
 	let paymentIntent: Stripe.PaymentIntent;
@@ -590,6 +646,8 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 				organizationId: userOrganization.organization.id,
 				baseAmount: amount.toString(),
 				platformFee: feeBreakdown.platformFee.toString(),
+				internationalFee: feeBreakdown.internationalFee.toString(),
+				isInternational: isInternational.toString(),
 				userEmail: user.email,
 				userId: user.id,
 			},
@@ -620,6 +678,28 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 			throw new HTTPException(402, {
 				message: userMessage,
 			});
+		}
+
+		if (err instanceof Stripe.errors.StripeError) {
+			logger.error("Stripe error on credit top-up", err, {
+				organizationId: userOrganization.organization.id,
+				userId: user.id,
+				paymentMethodId,
+				amount,
+				stripeType: err.type,
+				stripeCode: err.code,
+				stripeStatusCode: err.statusCode,
+				stripeRequestId: err.requestId,
+			});
+
+			throw new HTTPException(
+				(err.statusCode ?? 400) as
+					| ClientErrorStatusCode
+					| ServerErrorStatusCode,
+				{
+					message: err.message,
+				},
+			);
 		}
 
 		throw err;
@@ -722,9 +802,6 @@ payments.openapi(createCheckoutSession, async (c) => {
 
 	const defaultBillingUrl = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organizationId}/org/billing`;
 
-	let successUrl: string;
-	let cancelUrl: string;
-
 	const isAllowedReturn = (() => {
 		if (!returnUrl) {
 			return false;
@@ -739,12 +816,12 @@ payments.openapi(createCheckoutSession, async (c) => {
 		}
 	})();
 
+	const successUrl = `${defaultBillingUrl}?success=true`;
+	let cancelUrl: string;
 	if (isAllowedReturn && returnUrl) {
 		const separator = returnUrl.includes("?") ? "&" : "?";
-		successUrl = `${returnUrl}${separator}success=true`;
 		cancelUrl = `${returnUrl}${separator}canceled=true`;
 	} else {
-		successUrl = `${defaultBillingUrl}?success=true`;
 		cancelUrl = `${defaultBillingUrl}?canceled=true`;
 	}
 
@@ -814,12 +891,16 @@ const calculateFeesRoute = createRoute({
 					schema: z.object({
 						baseAmount: z.number(),
 						platformFee: z.number(),
+						internationalFee: z.number(),
 						totalAmount: z.number(),
+						isInternational: z.boolean(),
 						bonusAmount: z.number().optional(),
 						finalCreditAmount: z.number().optional(),
 						bonusEnabled: z.boolean(),
 						bonusEligible: z.boolean(),
 						bonusIneligibilityReason: z.string().optional(),
+						bonusType: z.enum(["first_purchase", "second_topup"]).optional(),
+						secondTopupBonusExpiresInDays: z.number().optional(),
 					}),
 				},
 			},
@@ -837,7 +918,10 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		});
 	}
 
-	const { amount }: { amount: number } = c.req.valid("json");
+	const {
+		amount,
+		paymentMethodId,
+	}: { amount: number; paymentMethodId?: string } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -855,57 +939,110 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		});
 	}
 
+	let isInternational = false;
+	if (paymentMethodId) {
+		const paymentMethod = await db.query.paymentMethod.findFirst({
+			where: {
+				id: paymentMethodId,
+				organizationId: userOrganization.organization.id,
+			},
+		});
+
+		if (paymentMethod) {
+			isInternational = await isInternationalPaymentMethod(
+				paymentMethod.stripePaymentMethodId,
+			);
+		}
+	}
+
 	const feeBreakdown = calculateFees({
 		amount,
+		isInternational,
 	});
 
-	// Calculate bonus for first-time credit purchases
+	// Calculate bonus for first-time and second top-up credit purchases
 	let bonusAmount = 0;
 	let finalCreditAmount = amount;
-	let bonusEnabled = false;
 	let bonusEligible = false;
 	let bonusIneligibilityReason: string | undefined;
+	let bonusType: "first_purchase" | "second_topup" | undefined;
+	let secondTopupBonusExpiresInDays: number | undefined;
 
-	const bonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
+	const firstBonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
 		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
 		: 0;
+	const secondBonusMultiplier = process.env.SECOND_TOPUP_BONUS_MULTIPLIER
+		? parseFloat(process.env.SECOND_TOPUP_BONUS_MULTIPLIER)
+		: 0;
 
-	bonusEnabled = bonusMultiplier > 1;
+	const firstBonusEnabled = firstBonusMultiplier > 1;
+	const secondBonusEnabled = secondBonusMultiplier > 1;
+	const bonusEnabled = firstBonusEnabled || secondBonusEnabled;
 
 	if (bonusEnabled) {
-		// Check email verification
 		if (!userOrganization.user || !userOrganization.user.emailVerified) {
 			bonusIneligibilityReason = "email_not_verified";
 		} else {
-			// Check if this is the first credit purchase
-			const previousPurchases = await db.query.transaction.findFirst({
+			const previousPurchases = await db.query.transaction.findMany({
 				where: {
 					organizationId: { eq: userOrganization.organization.id },
 					type: { eq: "credit_topup" },
 					status: { eq: "completed" },
 				},
+				orderBy: { createdAt: "asc" },
+				limit: 2,
 			});
 
-			if (previousPurchases) {
-				bonusIneligibilityReason = "already_purchased";
-			} else {
-				// This is the first credit purchase, apply bonus
+			if (previousPurchases.length === 0 && firstBonusEnabled) {
 				bonusEligible = true;
-				const potentialBonus = amount * (bonusMultiplier - 1);
-				const maxBonus = 50; // Max $50 bonus
-
+				bonusType = "first_purchase";
+				const potentialBonus = amount * (firstBonusMultiplier - 1);
+				const maxBonus = 50;
 				bonusAmount = Math.min(potentialBonus, maxBonus);
 				finalCreditAmount = amount + bonusAmount;
+			} else if (previousPurchases.length === 1 && secondBonusEnabled) {
+				const secondBonusWindowDays = Number(
+					process.env.SECOND_TOPUP_BONUS_WINDOW_DAYS ?? "30",
+				);
+				const secondBonusMax = Number(
+					process.env.SECOND_TOPUP_BONUS_MAX ?? "25",
+				);
+				const firstPurchaseDate = previousPurchases[0].createdAt;
+				const daysSinceFirst =
+					(Date.now() - firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24);
+
+				if (daysSinceFirst <= secondBonusWindowDays) {
+					bonusEligible = true;
+					bonusType = "second_topup";
+					const potentialBonus = amount * (secondBonusMultiplier - 1);
+					bonusAmount = Math.min(potentialBonus, secondBonusMax);
+					finalCreditAmount = amount + bonusAmount;
+					secondTopupBonusExpiresInDays = Math.ceil(
+						secondBonusWindowDays - daysSinceFirst,
+					);
+				} else {
+					bonusIneligibilityReason = "second_topup_window_expired";
+				}
+			} else if (previousPurchases.length >= 2) {
+				bonusIneligibilityReason = "already_purchased";
+			} else if (previousPurchases.length === 0 && !firstBonusEnabled) {
+				// No first-purchase bonus configured, but second might be
+				// (user hasn't purchased yet, so no second bonus either)
+			} else {
+				bonusIneligibilityReason = "already_purchased";
 			}
 		}
 	}
 
 	return c.json({
 		...feeBreakdown,
+		isInternational,
 		bonusAmount: bonusAmount > 0 ? bonusAmount : undefined,
 		finalCreditAmount: bonusAmount > 0 ? finalCreditAmount : undefined,
 		bonusEnabled,
 		bonusEligible,
 		bonusIneligibilityReason,
+		bonusType,
+		secondTopupBonusExpiresInDays,
 	});
 });

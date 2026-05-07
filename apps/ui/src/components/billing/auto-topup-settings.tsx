@@ -11,9 +11,9 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
@@ -40,11 +40,18 @@ function AutoTopUpSettings() {
 		amount >= 10 &&
 		amount <= CREDIT_TOP_UP_MAX_AMOUNT;
 
+	const defaultPaymentMethod = paymentMethods?.paymentMethods?.find(
+		(pm) => pm.isDefault,
+	);
+
 	const { data: feeData, isLoading: feeDataLoading } = api.useQuery(
 		"post",
 		"/payments/calculate-fees",
 		{
-			body: { amount },
+			body: {
+				amount,
+				paymentMethodId: defaultPaymentMethod?.id,
+			},
 		},
 		{
 			enabled: isAmountValid,
@@ -146,7 +153,7 @@ function AutoTopUpSettings() {
 							low
 						</p>
 					</div>
-					<Checkbox
+					<Switch
 						id="auto-topup-enabled"
 						checked={enabled}
 						onCheckedChange={(checked) => setEnabled(!!checked)}
@@ -235,6 +242,12 @@ function AutoTopUpSettings() {
 									<span>Platform fee (5%)</span>
 									<span>${feeData.platformFee.toFixed(2)}</span>
 								</div>
+								{feeData.internationalFee > 0 ? (
+									<div className="flex justify-between">
+										<span>International card fee (1.5%)</span>
+										<span>${feeData.internationalFee.toFixed(2)}</span>
+									</div>
+								) : null}
 								<div className="border-t pt-1 flex justify-between font-medium text-foreground">
 									<span>Estimated total</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>

@@ -47,7 +47,10 @@ function extractTimeoutDelay(content: string): number | null {
 	if (match) {
 		return parseInt(match[1], 10);
 	}
-	if (content.includes("TRIGGER_TIMEOUT")) {
+	if (
+		content.includes("TRIGGER_TIMEOUT") &&
+		!content.includes("TRIGGER_TIMEOUT_FAIL_ONCE")
+	) {
 		// Default to 5 seconds if no specific delay is provided
 		return 5000;
 	}
@@ -747,8 +750,37 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		return c.json(statusTrigger.errorResponse);
 	}
 
-	// Check if this request should fail on the first attempt but succeed on retry
-	if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
+	// Check if this request should fail on the first attempt but succeed on retry.
+	// These triggers are mutually exclusive — TRIGGER_FAIL_ONCE_404/_403 are
+	// substrings of the generic TRIGGER_FAIL_ONCE, so order specific → generic.
+	if (userMessage.includes("TRIGGER_FAIL_ONCE_404")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(404);
+			return c.json({
+				error: {
+					message: "The model 'nonexistent-model' does not exist.",
+					type: "invalid_request_error",
+					param: "model",
+					code: "model_not_found",
+				},
+			});
+		}
+		// Subsequent requests succeed - fall through to normal response
+	} else if (userMessage.includes("TRIGGER_FAIL_ONCE_403")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(403);
+			return c.json({
+				error: {
+					message:
+						"Authentication failed: Please make sure your API Key is valid.",
+					type: "authentication_error",
+				},
+			});
+		}
+		// Subsequent requests succeed - fall through to normal response
+	} else if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
 		failOnceCounter++;
 		if (failOnceCounter === 1) {
 			c.status(500);
@@ -762,6 +794,13 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		}
 		// Subsequent requests succeed - fall through to normal response
+	}
+
+	if (userMessage.includes("TRIGGER_TIMEOUT_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			await delay(100);
+		}
 	}
 
 	// Check if this request should trigger a timeout (delay response)
@@ -787,12 +826,61 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"TRIGGER_STREAM_PROVIDER_ERROR",
 	);
+	const shouldReturnStreamedAuthError = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_AUTH_ERROR",
+	);
+	const shouldFailOnceWithImmediateStream404 = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_FAIL_ONCE_404",
+	);
+	const shouldFailOnceWithImmediateStreamServerErrorWithoutStatus =
+		hasUserMessageTrigger(chatMessages, "TRIGGER_STREAM_FAIL_ONCE_NO_STATUS");
 
 	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
 
 	if (body.stream === true) {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
+
+			if (shouldFailOnceWithImmediateStream404) {
+				failOnceCounter++;
+				if (failOnceCounter === 1) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-err-404",
+							error: {
+								code: "model_not_found",
+								message: "The model 'nonexistent-model' does not exist.",
+								param: "model",
+								type: "invalid_request_error",
+								status_code: 404,
+							},
+						}),
+						id: String(eventId++),
+					});
+					return;
+				}
+			}
+
+			if (shouldFailOnceWithImmediateStreamServerErrorWithoutStatus) {
+				failOnceCounter++;
+				if (failOnceCounter === 1) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-err-500",
+							error: {
+								code: "internal_server_error",
+								message: "Temporary upstream failure.",
+								param: null,
+								type: "server_error",
+							},
+						}),
+						id: String(eventId++),
+					});
+					return;
+				}
+			}
 
 			await stream.writeSSE({
 				data: JSON.stringify({
@@ -823,6 +911,22 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 								"Input data may contain inappropriate content. Please ensure that your input complies with the usage policy of DashScope LLM.",
 							param: null,
 							type: "data_inspection_failed",
+						},
+					}),
+					id: String(eventId++),
+				});
+				return;
+			}
+
+			if (shouldReturnStreamedAuthError) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-auth-err-123",
+						error: {
+							code: "invalid_api_key",
+							message: "Incorrect API key provided.",
+							param: null,
+							type: "authentication_error",
 						},
 					}),
 					id: String(eventId++),
@@ -972,16 +1076,6 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 		c.status(statusTrigger.statusCode as any);
 		return c.json(statusTrigger.errorResponse);
 	}
-	if (prompt.includes("TRIGGER_OBSIDIAN_NO_CHANNEL")) {
-		c.status(503);
-		return c.json({
-			error: {
-				message:
-					"当前分组 default 下对于模型 sora-2-pro 计费模式 [按量计费,按次计费] 无可用渠道 (request id: 2026032422002539193536177450876)",
-				type: "shell_api_error",
-			},
-		});
-	}
 	videoCounter++;
 	const id = `video_${videoCounter}`;
 	const videoSize = getMockVideoSizeMetadata(body.size);
@@ -1004,8 +1098,7 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 		object: "video",
 		model: body.model ?? "veo-3.1",
 		status:
-			(authorization.includes("avalanche") ||
-				authorization.includes("obsidian")) &&
+			authorization.includes("avalanche") &&
 			typeof body.model === "string" &&
 			body.model.startsWith("sora-2")
 				? "submitted"

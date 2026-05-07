@@ -1,7 +1,7 @@
 /**
- * Round-robin environment variable utility
- * Supports comma-separated values in environment variables with round-robin load balancing
- * Now includes uptime-aware routing with weighted scoring based on historical error rates
+ * Environment variable key selection utility
+ * Supports comma-separated values in environment variables with primary-first
+ * selection and health-aware failover.
  */
 
 import {
@@ -10,11 +10,6 @@ import {
 	calculateUptimePenalty,
 	type KeyMetrics,
 } from "./api-key-health.js";
-
-/**
- * Stores the current index for each environment variable
- */
-const roundRobinCounters = new Map<string, number>();
 
 /**
  * Parse a comma-separated environment variable into an array of values
@@ -42,26 +37,38 @@ interface KeyScore {
 function selectRoundRobinValue(
 	envVarName: string,
 	value: string,
-	advanceCounter: boolean,
+	_advanceCounter: boolean,
+	excludedIndices: ReadonlySet<number> = new Set(),
 ): RoundRobinResult {
 	const values = parseCommaSeparatedEnv(value);
+	const availableValues = values.filter(
+		(_, index) => !excludedIndices.has(index),
+	);
 
 	if (values.length === 0) {
 		throw new Error(`Environment variable ${envVarName} is empty`);
 	}
 
-	if (values.length === 1) {
-		return { value: values[0], index: 0 };
+	if (availableValues.length === 0) {
+		throw new Error(`No eligible values remain for ${envVarName}`);
 	}
 
-	// Get current counter for this env var (default to 0)
-	const startIndex = roundRobinCounters.get(envVarName) ?? 0;
+	if (availableValues.length === 1) {
+		const selectedIndex = values.findIndex(
+			(candidate, index) =>
+				!excludedIndices.has(index) && candidate === availableValues[0],
+		);
+		return { value: availableValues[0], index: selectedIndex };
+	}
 
-	// Collect metrics and scores for all keys
+	// Collect metrics and scores for all healthy keys.
 	const keyScores: KeyScore[] = [];
-	let hasAnyMetrics = false;
 
 	for (let i = 0; i < values.length; i++) {
+		if (excludedIndices.has(i)) {
+			continue;
+		}
+
 		const metrics = getKeyMetrics(envVarName, i);
 
 		// Skip permanently blacklisted keys entirely
@@ -74,12 +81,6 @@ function selectRoundRobinValue(
 			continue;
 		}
 
-		// Track if we have any historical data
-		if (metrics.totalRequests > 0) {
-			hasAnyMetrics = true;
-		}
-
-		// Calculate score based on uptime penalty (lower is better)
 		const uptimePenalty = calculateUptimePenalty(metrics.uptime);
 
 		keyScores.push({
@@ -89,75 +90,37 @@ function selectRoundRobinValue(
 		});
 	}
 
-	// If all keys are unhealthy, fall back to round-robin
+	// If all remaining keys are unhealthy, fall back to the first non-excluded key.
 	if (keyScores.length === 0) {
-		const currentIndex = startIndex % values.length;
-		const selectedValue = values[currentIndex];
-		const nextIndex = (currentIndex + 1) % values.length;
-		if (advanceCounter) {
-			roundRobinCounters.set(envVarName, nextIndex);
-		}
-		return { value: selectedValue, index: currentIndex };
+		const fallbackIndex = values.findIndex(
+			(_, index) => !excludedIndices.has(index),
+		);
+		return { value: values[fallbackIndex], index: fallbackIndex };
 	}
 
-	// If no metrics available, use round-robin among healthy keys
-	if (!hasAnyMetrics) {
-		// Find the first healthy key starting from startIndex
-		for (let i = 0; i < keyScores.length; i++) {
-			const candidateIndex = (startIndex + i) % values.length;
-			const keyScore = keyScores.find((k) => k.index === candidateIndex);
-			if (keyScore) {
-				const nextIndex = (candidateIndex + 1) % values.length;
-				if (advanceCounter) {
-					roundRobinCounters.set(envVarName, nextIndex);
-				}
-				return { value: values[candidateIndex], index: candidateIndex };
-			}
-		}
-		// Fallback: use first healthy key
-		const firstHealthy = keyScores[0];
-		const nextIndex = (firstHealthy.index + 1) % values.length;
-		if (advanceCounter) {
-			roundRobinCounters.set(envVarName, nextIndex);
-		}
-		return { value: values[firstHealthy.index], index: firstHealthy.index };
-	}
-
-	// Find the best score (lowest penalty)
+	// Keep the first key as the default as long as its uptime isn't materially
+	// worse than the best healthy alternative.
+	const primaryKey = keyScores.find((key) => key.index === 0);
 	const bestScore = Math.min(...keyScores.map((k) => k.score));
-
-	// Get all keys with the best score (or very close to it)
-	// Using a small epsilon to group keys with similar scores
 	const SCORE_EPSILON = 0.01;
-	const bestKeys = keyScores.filter(
-		(k) => k.score <= bestScore + SCORE_EPSILON,
-	);
-
-	// Among the best keys, use round-robin to distribute load
-	// Sort by index and find the next one after startIndex
-	bestKeys.sort((a, b) => a.index - b.index);
-
-	let selectedKey: KeyScore | undefined;
-	for (const key of bestKeys) {
-		if (key.index >= startIndex) {
-			selectedKey = key;
-			break;
-		}
+	if (primaryKey && primaryKey.score <= bestScore + SCORE_EPSILON) {
+		return { value: values[primaryKey.index], index: primaryKey.index };
 	}
-	// Wrap around if needed
-	selectedKey ??= bestKeys[0];
 
-	const nextIndex = (selectedKey.index + 1) % values.length;
-	if (advanceCounter) {
-		roundRobinCounters.set(envVarName, nextIndex);
+	const selectedKey = [...keyScores]
+		.sort((a, b) => a.score - b.score || a.index - b.index)
+		.find((key) => key.score <= bestScore + SCORE_EPSILON);
+
+	if (!selectedKey) {
+		return { value: values[0], index: 0 };
 	}
 
 	return { value: values[selectedKey.index], index: selectedKey.index };
 }
 
 /**
- * Get the next value from a comma-separated environment variable using uptime-weighted selection
- * Keys with better uptime scores are preferred, but round-robin is still used among equally healthy keys
+ * Get the preferred value from a comma-separated environment variable using
+ * primary-first selection with health-aware failover.
  * @param envVarName The name of the environment variable
  * @param value The environment variable value (potentially comma-separated)
  * @returns Object containing the selected value and its index
@@ -165,20 +128,21 @@ function selectRoundRobinValue(
 export function getRoundRobinValue(
 	envVarName: string,
 	value: string,
+	excludedIndices?: ReadonlySet<number>,
 ): RoundRobinResult {
-	return selectRoundRobinValue(envVarName, value, true);
+	return selectRoundRobinValue(envVarName, value, true, excludedIndices);
 }
 
 /**
  * Get the current value from a comma-separated environment variable without
- * advancing its round-robin counter. Useful for auxiliary requests like
- * moderation that should not perturb primary request routing.
+ * mutating any selector state. Kept for call-site compatibility.
  */
 export function peekRoundRobinValue(
 	envVarName: string,
 	value: string,
+	excludedIndices?: ReadonlySet<number>,
 ): RoundRobinResult {
-	return selectRoundRobinValue(envVarName, value, false);
+	return selectRoundRobinValue(envVarName, value, false, excludedIndices);
 }
 
 /**
@@ -213,8 +177,6 @@ export function getNthValue(
 }
 
 /**
- * Reset all round-robin counters (useful for testing)
+ * Reset selector state (kept for test compatibility)
  */
-export function resetRoundRobinCounters(): void {
-	roundRobinCounters.clear();
-}
+export function resetRoundRobinCounters(): void {}

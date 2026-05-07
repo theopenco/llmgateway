@@ -191,7 +191,9 @@ export function Faq() {
 											<li>
 												<strong>Credits – 5% fee:</strong> Pay-as-you-go credits
 												to use any model with a flat 5% platform fee on
-												purchases.
+												purchases. Non-US issued cards incur an additional 1.5%
+												international card fee, shown clearly in the top-up
+												breakdown before checkout.
 											</li>
 											<li>
 												<strong>Bring Your Own Keys – free:</strong> Use your

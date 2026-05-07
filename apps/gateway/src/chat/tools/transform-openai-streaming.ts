@@ -1,3 +1,5 @@
+import { extractReasoningDetailsText } from "./reasoning-details.js";
+
 /**
  * Helper function to normalize usage object for OpenAI SDK compatibility
  * Extracts reasoning_tokens from completion_tokens_details to top level
@@ -57,22 +59,31 @@ export function transformOpenaiStreaming(
 			role: delta.role ?? "assistant",
 		};
 
-		// Normalize reasoning_content field to reasoning for OpenAI compatibility
-		if (newDelta.reasoning_content) {
-			const { reasoning_content, ...rest } = newDelta;
+		const normalizedReasoning =
+			newDelta.reasoning ??
+			newDelta.reasoning_content ??
+			extractReasoningDetailsText(newDelta.reasoning_details);
+
+		// Normalize provider-specific reasoning fields to reasoning for OpenAI compatibility
+		if (normalizedReasoning) {
+			const {
+				reasoning_content: _reasoningContent,
+				reasoning_details: _reasoningDetails,
+				...rest
+			} = newDelta;
 			// If the model doesn't support reasoning, treat reasoning_content as
-			// regular content (some providers like CanopyWave return the actual
-			// answer in reasoning_content for non-reasoning models).
+			// regular content (some providers return the actual answer in
+			// reasoning_content for non-reasoning models).
 			// Only override content if it's not already set to avoid losing data.
 			if (!supportsReasoning) {
 				return {
 					...rest,
-					...(!rest.content && { content: reasoning_content }),
+					...(!rest.content && { content: normalizedReasoning }),
 				};
 			}
 			return {
 				...rest,
-				reasoning: reasoning_content,
+				reasoning: normalizedReasoning,
 			};
 		}
 

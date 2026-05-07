@@ -3,14 +3,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
+import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/lib/config";
 
 import type { AppConfig } from "@/lib/config-server";
-import type { PostHogConfig } from "posthog-js";
 import type { ReactNode } from "react";
 
 interface ProvidersProps {
@@ -33,11 +33,26 @@ export function Providers({ children, config }: ProvidersProps) {
 		[],
 	);
 
-	const posthogOptions: Partial<PostHogConfig> | undefined = {
-		api_host: config.posthogHost,
-		capture_pageview: "history_change",
-		autocapture: true,
-	};
+	useEffect(() => {
+		if (!config.posthogKey) {
+			return;
+		}
+		const key = config.posthogKey;
+		const host = config.posthogHost;
+		const init = () => {
+			posthog.init(key, {
+				api_host: host,
+				capture_pageview: "history_change",
+				autocapture: true,
+			});
+		};
+		if (typeof requestIdleCallback !== "undefined") {
+			const id = requestIdleCallback(init);
+			return () => cancelIdleCallback(id);
+		}
+		const timer = setTimeout(init, 1000);
+		return () => clearTimeout(timer);
+	}, [config.posthogKey, config.posthogHost]);
 
 	return (
 		<AppConfigProvider config={config}>
@@ -48,16 +63,7 @@ export function Providers({ children, config }: ProvidersProps) {
 				storageKey="theme"
 			>
 				<QueryClientProvider client={queryClient}>
-					{config.posthogKey ? (
-						<PostHogProvider
-							apiKey={config.posthogKey}
-							options={posthogOptions}
-						>
-							{children}
-						</PostHogProvider>
-					) : (
-						children
-					)}
+					<PostHogProvider client={posthog}>{children}</PostHogProvider>
 					{process.env.NODE_ENV === "development" && (
 						<ReactQueryDevtools buttonPosition="top-right" />
 					)}

@@ -24,6 +24,13 @@ const screenshots = [
 			"Generate images with multiple providers and models. Compare outputs side-by-side with adjustable settings.",
 	},
 	{
+		slug: "video-studio",
+		alt: "LLM Gateway Video Studio",
+		title: "Video Studio",
+		description:
+			"Create AI-generated videos with Sora, Kling, and more. Set resolution, duration, and audio options from one interface.",
+	},
+	{
 		slug: "admin",
 		alt: "LLM Gateway Admin Dashboard",
 		title: "Admin Dashboard",

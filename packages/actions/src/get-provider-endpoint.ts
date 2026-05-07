@@ -17,6 +17,7 @@ function buildVertexCompatibleEndpoint(
 	token: string | undefined,
 	stream: boolean | undefined,
 	configIndex: number | undefined,
+	providerKeyOptions?: ProviderKeyOptions,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = modelName ?? "gemini-2.5-flash-lite";
@@ -35,7 +36,9 @@ function buildVertexCompatibleEndpoint(
 			: baseEndpoint;
 	}
 
-	const projectId = getProviderEnvValue(provider, "project", configIndex);
+	const projectId =
+		providerKeyOptions?.google_vertex_project_id ??
+		getProviderEnvValue(provider, "project", configIndex);
 	const region =
 		getProviderEnvValue(provider, "region", configIndex, "global") ?? "global";
 
@@ -74,6 +77,7 @@ export function getProviderEndpoint(
 	configIndex?: number,
 	imageGenerations?: boolean,
 	region?: string,
+	skipEnvVars?: boolean,
 ): string {
 	let modelName = model;
 	if (model && model !== "custom") {
@@ -88,6 +92,18 @@ export function getProviderEndpoint(
 		}
 	}
 	let url: string | undefined;
+
+	// Helper: read env value only when not in BYOK mode (skipEnvVars).
+	// In BYOK mode, only the hardcoded default is used.
+	const envValueOrDefault = (
+		p: Parameters<typeof getProviderEnvValue>[0],
+		key: string,
+		defaultValue?: string,
+	): string | undefined =>
+		skipEnvVars
+			? defaultValue
+			: (getProviderEnvValue(p, key, configIndex, defaultValue) ??
+				defaultValue);
 
 	// Generic region-based base URL resolution.
 	// Any provider with a regionConfig + endpointMap can use this.
@@ -121,31 +137,45 @@ export function getProviderEndpoint(
 				url = "https://api.anthropic.com";
 				break;
 			case "google-ai-studio":
-				url = "https://generativelanguage.googleapis.com";
+				url =
+					envValueOrDefault(
+						"google-ai-studio",
+						"baseUrl",
+						"https://generativelanguage.googleapis.com",
+					) ?? "https://generativelanguage.googleapis.com";
+				break;
+			case "glacier":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("glacier", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
+					);
+				}
 				break;
 			case "google-vertex":
-				url = "https://aiplatform.googleapis.com";
+				url =
+					envValueOrDefault(
+						"google-vertex",
+						"baseUrl",
+						"https://aiplatform.googleapis.com",
+					) ?? "https://aiplatform.googleapis.com";
 				break;
 			case "quartz":
-				url = getProviderEnvValue("quartz", "baseUrl", configIndex);
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("quartz", "baseUrl", configIndex);
 				if (!url) {
 					throw new Error(
 						"Quartz provider requires LLM_QUARTZ_BASE_URL environment variable",
 					);
 				}
 				break;
-			case "obsidian":
-				url = getProviderEnvValue("obsidian", "baseUrl", configIndex);
-				if (!url) {
-					throw new Error(
-						"Obsidian provider requires LLM_OBSIDIAN_BASE_URL environment variable",
-					);
-				}
-				break;
 			case "inference.net":
 				url = "https://api.inference.net";
 				break;
-			case "together.ai":
+			case "together-ai":
 				url = "https://api.together.ai";
 				break;
 			case "mistral":
@@ -184,7 +214,7 @@ export function getProviderEndpoint(
 				break;
 			}
 			case "nebius":
-				url = "https://api.studio.nebius.com";
+				url = "https://api.tokenfactory.nebius.com";
 				break;
 			case "zai":
 				url = "https://api.z.ai";
@@ -200,17 +230,18 @@ export function getProviderEndpoint(
 				break;
 			case "aws-bedrock":
 				url =
-					getProviderEnvValue(
+					envValueOrDefault(
 						"aws-bedrock",
 						"baseUrl",
-						configIndex,
 						"https://bedrock-runtime.us-east-1.amazonaws.com",
 					) ?? "https://bedrock-runtime.us-east-1.amazonaws.com";
 				break;
 			case "azure": {
 				const resource =
 					providerKeyOptions?.azure_resource ??
-					getProviderEnvValue("azure", "resource", configIndex);
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue("azure", "resource", configIndex));
 
 				if (!resource) {
 					const azureEnv = getProviderEnvConfig("azure");
@@ -221,9 +252,28 @@ export function getProviderEndpoint(
 				url = `https://${resource}.openai.azure.com`;
 				break;
 			}
-			case "canopywave":
-				url = "https://inference.canopywave.io";
+			case "azure-ai-foundry": {
+				const resource =
+					providerKeyOptions?.azure_ai_foundry_resource ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue("azure-ai-foundry", "resource", configIndex));
+
+				if (!resource) {
+					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
+					throw new Error(
+						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
+					);
+				}
+				if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
+					throw new Error(
+						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
+					);
+				}
+				url = `https://${resource}.services.ai.azure.com`;
 				break;
+			}
 			case "embercloud":
 				url = "https://api.embercloud.ai";
 				break;
@@ -261,12 +311,15 @@ export function getProviderEndpoint(
 				? `${baseEndpoint}?${queryParams.join("&")}`
 				: baseEndpoint;
 		}
-		case "obsidian": {
+		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = modelName
 				? `${url}/v1beta/models/${modelName}:${endpoint}`
-				: `${url}/v1beta/models/gemini-3-pro-image-preview:${endpoint}`;
+				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
 			const queryParams = [];
+			if (token) {
+				queryParams.push(`key=${token}`);
+			}
 			if (stream) {
 				queryParams.push("alt=sse");
 			}
@@ -283,6 +336,7 @@ export function getProviderEndpoint(
 				token,
 				stream,
 				configIndex,
+				providerKeyOptions,
 			);
 		case "perplexity":
 			return `${url}/chat/completions`;
@@ -325,9 +379,22 @@ export function getProviderEndpoint(
 					) ??
 					"2024-10-21";
 
+				if (imageGenerations) {
+					// gpt-image models require a preview api-version
+					const imageApiVersion =
+						providerKeyOptions?.azure_api_version ??
+						getProviderEnvValue("azure", "apiVersion", configIndex) ??
+						"2025-04-01-preview";
+					return `${url}/openai/deployments/${modelName}/images/generations?api-version=${imageApiVersion}`;
+				}
 				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
+				if (imageGenerations) {
+					// v1 unified API requires the literal "preview" api-version for image endpoints
+					return `${url}/openai/v1/images/generations?api-version=preview`;
+				}
+
 				const useResponsesApiEnv = getProviderEnvValue(
 					"azure",
 					"useResponsesApi",
@@ -357,7 +424,22 @@ export function getProviderEndpoint(
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}
+		case "azure-ai-foundry": {
+			const apiVersion =
+				providerKeyOptions?.azure_ai_foundry_api_version ??
+				getProviderEnvValue(
+					"azure-ai-foundry",
+					"apiVersion",
+					configIndex,
+					"2024-05-01-preview",
+				) ??
+				"2024-05-01-preview";
+			return `${url}/models/chat/completions?api-version=${apiVersion}`;
+		}
 		case "openai": {
+			if (imageGenerations) {
+				return `${url}/v1/images/generations`;
+			}
 			// Use responses endpoint for models that support responses API
 			if (model) {
 				// Look up by model ID first, then fall back to provider modelName
@@ -404,7 +486,6 @@ export function getProviderEndpoint(
 		case "moonshot":
 		case "nebius":
 		case "nanogpt":
-		case "canopywave":
 		case "minimax":
 		case "embercloud":
 		case "custom":

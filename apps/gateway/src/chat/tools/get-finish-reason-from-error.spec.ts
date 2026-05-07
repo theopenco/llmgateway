@@ -92,6 +92,18 @@ describe("getFinishReasonFromError", () => {
 		).toBe("client_error");
 	});
 
+	it("returns content_filter for OpenAI safety system rejection", () => {
+		const openaiError = JSON.stringify({
+			error: {
+				code: "moderation_blocked",
+				message: "Your request was rejected by the safety system.",
+				param: null,
+				type: "image_generation_user_error",
+			},
+		});
+		expect(getFinishReasonFromError(400, openaiError)).toBe("content_filter");
+	});
+
 	it("returns content_filter for xAI 403 safety rejection", () => {
 		expect(
 			getFinishReasonFromError(
@@ -99,6 +111,22 @@ describe("getFinishReasonFromError", () => {
 				"Content violates usage guidelines: SAFETY_CHECK_TYPE_CSAM",
 			),
 		).toBe("content_filter");
+	});
+
+	it("returns content_filter for Azure OpenAI prompt content filter", () => {
+		const azurePromptFilterError = JSON.stringify({
+			error: {
+				message:
+					"The response was filtered due to the prompt triggering Microsoft's content management policy. Please modify your prompt and retry.",
+				type: null,
+				param: "prompt",
+				code: "content_filter",
+				status: 400,
+			},
+		});
+		expect(getFinishReasonFromError(400, azurePromptFilterError)).toBe(
+			"content_filter",
+		);
 	});
 
 	it("returns client_error for other 400 errors", () => {

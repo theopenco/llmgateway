@@ -1,16 +1,18 @@
 "use client";
 
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, RefreshCw, Sparkles, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
 	useCallback,
 	useDeferredValue,
+	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
 
+import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { LogCard } from "@/components/dashboard/log-card";
 import {
 	type DateRange,
@@ -91,6 +93,77 @@ function toUiLog(log: ApiLog): Partial<Log> {
 		toolChoice: log.toolChoice as any,
 		customHeaders: log.customHeaders as any,
 	};
+}
+
+const TOPUP_PROMPT_DISMISSED_KEY = "first-log-topup-dismissed";
+
+function getCookie(name: string): string | undefined {
+	if (typeof document === "undefined") {
+		return undefined;
+	}
+	const match = document.cookie.match(
+		new RegExp(
+			`(?:^|; )${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`,
+		),
+	);
+	return match ? decodeURIComponent(match[1]!) : undefined;
+}
+
+function setCookie(name: string, value: string, days = 365) {
+	const ms = days * 86_400_000;
+	const expires = new Date(Date.now() + ms).toUTCString();
+	document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
+function FirstLogTopUpPrompt() {
+	const [dismissed, setDismissed] = useState(true);
+
+	useEffect(() => {
+		const stored = getCookie(TOPUP_PROMPT_DISMISSED_KEY);
+		if (stored !== "true") {
+			setDismissed(false);
+		}
+	}, []);
+
+	if (dismissed) {
+		return null;
+	}
+
+	return (
+		<div className="mt-4 relative overflow-hidden rounded-lg border border-primary/20 bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 p-4">
+			<button
+				type="button"
+				aria-label="Dismiss top-up prompt"
+				onClick={() => {
+					setDismissed(true);
+					setCookie(TOPUP_PROMPT_DISMISSED_KEY, "true");
+				}}
+				className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+			>
+				<X className="h-4 w-4" />
+			</button>
+			<div className="flex items-start gap-3 pr-6">
+				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+					<Sparkles className="h-4 w-4 text-primary" />
+				</div>
+				<div className="flex-1">
+					<p className="text-sm font-semibold">Your first API call worked!</p>
+					<p className="mt-1 text-sm text-muted-foreground">
+						Top up credits to unlock paid models with higher quality, faster
+						speeds, and larger context windows.
+					</p>
+					<div className="mt-3">
+						<TopUpCreditsDialog>
+							<Button size="sm">
+								<Sparkles className="mr-2 h-3.5 w-3.5" />
+								Top Up Credits
+							</Button>
+						</TopUpCreditsDialog>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
 }
 
 export function RecentLogs({
@@ -231,10 +304,12 @@ export function RecentLogs({
 	const {
 		data,
 		isLoading,
+		isRefetching,
 		error,
 		fetchNextPage,
 		hasNextPage,
 		isFetchingNextPage,
+		refetch,
 	} = api.useInfiniteQuery(
 		"get",
 		"/logs",
@@ -486,6 +561,19 @@ export function RecentLogs({
 					}}
 					className="w-[200px]"
 				/>
+
+				<Button
+					type="button"
+					variant="outline"
+					onClick={() => void refetch()}
+					disabled={isLoading || isRefetching || isFetchingNextPage}
+					className="gap-2"
+				>
+					<RefreshCw
+						className={cn("h-4 w-4", isRefetching && "animate-spin")}
+					/>
+					{isRefetching ? "Refreshing..." : "Refresh"}
+				</Button>
 			</div>
 
 			{isLoading ? (
@@ -494,13 +582,15 @@ export function RecentLogs({
 				<div>Error loading logs</div>
 			) : (
 				<div className="space-y-4 @container">
-					{allLogs.map((log) => (
-						<LogCard
-							key={log.id}
-							log={toUiLog(log)}
-							orgId={orgId ?? undefined}
-							projectId={projectId || undefined}
-						/>
+					{allLogs.map((log, index) => (
+						<div key={log.id}>
+							<LogCard
+								log={toUiLog(log)}
+								orgId={orgId ?? undefined}
+								projectId={projectId || undefined}
+							/>
+							{index === 0 && allLogs.length <= 5 && <FirstLogTopUpPrompt />}
+						</div>
 					))}
 
 					{hasNextPage && (

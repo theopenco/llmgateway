@@ -7,11 +7,14 @@ import {
 	type UIMessage,
 	convertToModelMessages,
 	JsonToSseTransformStream,
+	createUIMessageStream,
+	createUIMessageStreamResponse,
 } from "ai";
 import { cookies } from "next/headers";
 import { z } from "zod";
 
 import { getUser } from "@/lib/getUser";
+import { getModelImageConfig } from "@/lib/image-gen";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -257,6 +260,25 @@ interface McpServerConfig {
 	enabled: boolean;
 }
 
+interface ImageFilePart {
+	type: "file";
+	url: string;
+	mediaType: string;
+}
+
+function isImageFilePart(value: unknown): value is ImageFilePart {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const v = value as Record<string, unknown>;
+	return (
+		v.type === "file" &&
+		typeof v.url === "string" &&
+		typeof v.mediaType === "string" &&
+		v.mediaType.startsWith("image/")
+	);
+}
+
 interface ChatRequestBody {
 	messages: UIMessage[];
 	model?: string;
@@ -281,6 +303,7 @@ interface ChatRequestBody {
 			| "1:8"
 			| "8:1";
 		image_size?: "0.5K" | "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
+		image_quality?: "auto" | "low" | "medium" | "high" | string;
 		n?: number;
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
@@ -368,10 +391,11 @@ export async function POST(req: Request) {
 		}
 	}
 
-	// Use generateImage for dedicated image generation models
+	// Use generateImage for image generation models in chat mode
 	if (is_image_gen) {
 		try {
-			// Extract prompt and file parts from the last user message
+			const maxInputImages = getModelImageConfig(selectedModel).maxInputImages;
+
 			const lastUserMessage = [...messages]
 				.reverse()
 				.find((m) => m.role === "user");
@@ -386,13 +410,40 @@ export async function POST(req: Request) {
 						.map((p) => p.text)
 						.join("\n");
 					for (const p of lastUserMessage.parts) {
-						if (
-							p.type === "file" &&
-							"url" in p &&
-							typeof p.url === "string" &&
-							"mediaType" in p &&
-							typeof p.mediaType === "string"
-						) {
+						if (fileParts.length >= maxInputImages) {
+							break;
+						}
+						if (isImageFilePart(p)) {
+							fileParts.push({
+								url: p.url,
+								mediaType: p.mediaType,
+							});
+						}
+					}
+				}
+			}
+
+			// If the current user message did not upload any images, fall back to
+			// the most recent assistant-generated image(s) so that follow-up prompts
+			// can edit the previously generated output.
+			if (fileParts.length === 0) {
+				const lastAssistantWithImage = [...messages]
+					.reverse()
+					.find(
+						(m) =>
+							m.role === "assistant" &&
+							Array.isArray(m.parts) &&
+							m.parts.some(isImageFilePart),
+					);
+				if (
+					lastAssistantWithImage &&
+					Array.isArray(lastAssistantWithImage.parts)
+				) {
+					for (const p of lastAssistantWithImage.parts) {
+						if (fileParts.length >= maxInputImages) {
+							break;
+						}
+						if (isImageFilePart(p)) {
 							fileParts.push({
 								url: p.url,
 								mediaType: p.mediaType,
@@ -422,14 +473,36 @@ export async function POST(req: Request) {
 				...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
 					? { aspectRatio: image_config.aspect_ratio }
 					: {}),
+				...(image_config?.image_quality
+					? {
+							providerOptions: {
+								llmgateway: { quality: image_config.image_quality },
+							},
+						}
+					: {}),
 			});
 
-			return Response.json({
-				images: result.images.map((image) => ({
-					base64: image.base64,
-					mediaType: image.mediaType || "image/png",
-				})),
+			const stream = createUIMessageStream({
+				execute: async ({ writer }) => {
+					writer.write({
+						type: "start",
+						messageId: crypto.randomUUID(),
+					});
+					writer.write({ type: "start-step" });
+					for (const image of result.images) {
+						const mediaType = image.mediaType || "image/png";
+						writer.write({
+							type: "file",
+							url: `data:${mediaType};base64,${image.base64}`,
+							mediaType,
+						});
+					}
+					writer.write({ type: "finish-step" });
+					writer.write({ type: "finish", finishReason: "stop" });
+				},
 			});
+
+			return createUIMessageStreamResponse({ stream });
 		} catch (error: unknown) {
 			const status =
 				typeof error === "object" &&
@@ -442,8 +515,6 @@ export async function POST(req: Request) {
 			const message =
 				error instanceof Error ? error.message : "Image generation failed";
 
-			// Try to extract a more detailed message from the provider response.
-			// AI SDK errors may embed the original gateway response in responseBody.
 			let detailedMessage: string | undefined;
 			if (typeof error === "object" && error !== null) {
 				const err = error as Record<string, unknown>;

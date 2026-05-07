@@ -1,15 +1,22 @@
 export {
+	AUTO_TOP_UP_DEFAULT_AMOUNT,
+	AUTO_TOP_UP_DEFAULT_THRESHOLD,
 	calculateFees,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
+	INTERNATIONAL_CARD_FEE_PERCENTAGE,
 	isCreditTopUpAmountInRange,
 	type FeeBreakdown,
 	type FeeCalculationInput,
 } from "./fees.js";
 
 export {
+	DEV_PLAN_ANNUAL_DISCOUNT_MONTHS,
 	DEV_PLAN_PRICES,
+	type DevPlanCycle,
 	type DevPlanTier,
+	getDevPlanAnnualMonthlyPrice,
+	getDevPlanAnnualPrice,
 	getDevPlanCreditsLimit,
 } from "./dev-plans.js";
 
@@ -54,5 +61,10 @@ export {
 } from "./video-proxy.js";
 
 export { selectLoadBalancedItem } from "./load-balance.js";
+
+export {
+	estimateChatMessageTokens,
+	estimateTokensFromText,
+} from "./token-estimate.js";
 
 export * from "./components/ui/index.js";

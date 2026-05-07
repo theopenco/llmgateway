@@ -4,15 +4,29 @@ import { useState } from "react";
 
 import {
 	AnthropicIcon,
+	AutohandIcon,
 	ClineIcon,
 	OpenCodeIcon,
+	SoulForgeIcon,
 } from "@llmgateway/shared/components";
 
-type Tool = "claude-code" | "opencode" | "cline";
+type Tool = "claude-code" | "soulforge" | "autohand" | "opencode" | "cline";
 
-const tools: { id: Tool; name: string; icon: typeof AnthropicIcon }[] = [
+const tools: {
+	id: Tool;
+	name: string;
+	icon: typeof AnthropicIcon;
+	highlight?: string;
+}[] = [
 	{ id: "claude-code", name: "Claude Code", icon: AnthropicIcon },
 	{ id: "opencode", name: "OpenCode", icon: OpenCodeIcon },
+	{
+		id: "soulforge",
+		name: "SoulForge",
+		icon: SoulForgeIcon,
+		highlight: "−50%",
+	},
+	{ id: "autohand", name: "Autohand", icon: AutohandIcon },
 	{ id: "cline", name: "Cline", icon: ClineIcon },
 ];
 
@@ -22,7 +36,7 @@ const snippets: Record<
 		lines: { prefix?: string; key: string; value: string }[];
 		command: string;
 		comment: string;
-		modelLine: { key: string; value: string };
+		modelLine?: { key: string; value: string };
 	}
 > = {
 	"claude-code": {
@@ -40,7 +54,12 @@ const snippets: Record<
 		comment: "# works with any model — switch freely",
 		modelLine: { key: "ANTHROPIC_MODEL=", value: "gpt-5" },
 	},
-	opencode: {
+	soulforge: {
+		lines: [],
+		command: "soulforge",
+		comment: "# /keys, paste your LLM Gateway key — caches cut ~50% tokens",
+	},
+	autohand: {
 		lines: [
 			{
 				key: "OPENAI_BASE_URL=",
@@ -51,9 +70,14 @@ const snippets: Record<
 				value: "llmgtwy_your_key",
 			},
 		],
-		command: "opencode",
+		command: "autohand",
 		comment: "# works with any model — switch freely",
-		modelLine: { key: "OPENAI_MODEL=", value: "claude-sonnet-4-20250514" },
+		modelLine: { key: "OPENAI_MODEL=", value: "claude-opus-4-6" },
+	},
+	opencode: {
+		lines: [],
+		command: "opencode",
+		comment: "# LLM Gateway is built-in — type /connect to link your key",
 	},
 	cline: {
 		lines: [
@@ -107,11 +131,15 @@ export function TerminalPreview() {
 						<div className="mt-3 text-muted-foreground/60">
 							{snippet.comment}
 						</div>
-						<div className="mt-1 text-muted-foreground whitespace-nowrap">
-							<span className="text-foreground/70">$</span> export{" "}
-							{snippet.modelLine.key}
-							<span className="text-foreground">{snippet.modelLine.value}</span>
-						</div>
+						{snippet.modelLine && (
+							<div className="mt-1 text-muted-foreground whitespace-nowrap">
+								<span className="text-foreground/70">$</span> export{" "}
+								{snippet.modelLine.key}
+								<span className="text-foreground">
+									{snippet.modelLine.value}
+								</span>
+							</div>
+						)}
 					</div>
 				</div>
 			</div>
@@ -135,6 +163,11 @@ export function TerminalPreview() {
 								>
 									<tool.icon className="h-5 w-5" />
 									<span className="text-sm font-medium">{tool.name}</span>
+									{tool.highlight && (
+										<span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+											{tool.highlight}
+										</span>
+									)}
 								</button>
 							))}
 						</div>

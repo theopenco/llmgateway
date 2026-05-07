@@ -1,0 +1,20 @@
+apiVersion: v2
+name: llmgateway
+description: A Helm chart for LLM Gateway - a full-stack LLM API gateway with multi-provider support
+type: application
+icon: https://llmgateway.io/brand/logo-black.svg
+version: 0.1.0
+appVersion: "latest"
+home: https://llmgateway.io
+sources:
+  - https://github.com/theopenco/llmgateway
+keywords:
+  - llm
+  - gateway
+  - ai
+  - openai
+  - anthropic
+  - api-gateway
+maintainers:
+  - name: theopenco
+    url: https://github.com/theopenco

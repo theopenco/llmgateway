@@ -12,7 +12,6 @@ export interface AppConfig {
 	adminUrl: string;
 	posthogKey?: string;
 	posthogHost?: string;
-	crispId?: string;
 	githubAuth: boolean;
 	googleAuth: boolean;
 }
@@ -27,14 +26,13 @@ export function getConfig(): AppConfig {
 		gatewayUrl: process.env.GATEWAY_URL ?? "http://localhost:4001",
 		githubUrl:
 			process.env.GITHUB_URL ?? "https://github.com/theopenco/llmgateway",
-		discordUrl: process.env.DISCORD_URL ?? "https://discord.gg/gcqcZeYWEz",
+		discordUrl: process.env.DISCORD_URL ?? "https://llmgateway.io/discord",
 		twitterUrl: process.env.TWITTER_URL ?? "https://x.com/llmgateway",
 		docsUrl: process.env.DOCS_URL ?? "http://localhost:3005",
 		playgroundUrl: process.env.PLAYGROUND_URL ?? "http://localhost:3003",
 		adminUrl: process.env.ADMIN_URL ?? "http://localhost:3006",
 		posthogKey: process.env.POSTHOG_KEY,
 		posthogHost: process.env.POSTHOG_HOST,
-		crispId: process.env.CRISP_ID,
 		githubAuth: !!process.env.GITHUB_CLIENT_ID,
 		googleAuth: !!process.env.GOOGLE_CLIENT_ID,
 	};

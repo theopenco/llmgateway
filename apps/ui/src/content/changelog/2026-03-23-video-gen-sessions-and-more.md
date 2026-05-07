@@ -23,14 +23,14 @@ LLM Gateway now supports **video generation** via the API. Generate videos from 
 
 ---
 
-## Sessions
+## Agents (formerly Sessions)
 
-**Sessions** let you track and organize conversations across multiple requests:
+**Agents** let you track and organize conversations across multiple requests:
 
-- Group related requests into named sessions
-- Filter activity logs by session
-- View streaming cost breakdowns per session
-- Improved empty state UI when no sessions exist
+- Group related requests by coding agent
+- Filter activity logs by agent
+- View streaming cost breakdowns per agent
+- Improved empty state UI when no agents exist
 
 ---
 
@@ -67,7 +67,7 @@ New MiniMax M2.7 model mappings added across providers.
 
 ## UI & Platform Improvements
 
-- **[Redesigned Code app](https://code.llmgateway.io)** — Fresh look for the dev plans and coding tools dashboard
+- **[Redesigned Code app](https://devpass.llmgateway.io)** — Fresh look for the dev plans and coding tools dashboard
 - **Revamped admin dashboard** — Improved performance on models, mappings, and providers pages
 - **[Cost simulator](/cost-simulator) revamp** — Updated cost simulator with better navigation
 - **Activity log filters** — Improved filtering in activity logs

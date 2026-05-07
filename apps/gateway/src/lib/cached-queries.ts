@@ -10,10 +10,12 @@
  *
  * See: packages/db/src/cdb-resilience.spec.ts for documentation of this behavior.
  */
+import { swrWrap } from "@llmgateway/cache";
 import {
 	and,
 	asc,
 	eq,
+	getTableName,
 	inArray,
 	cdb as db,
 	db as uncachedDb,
@@ -25,6 +27,13 @@ import {
 	user as userTable,
 	userOrganization as userOrganizationTable,
 } from "@llmgateway/db";
+
+import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
+import {
+	calculateUptimePenalty,
+	getTrackedKeyMetrics,
+	isTrackedKeyHealthy,
+} from "./api-key-health.js";
 
 import type { InferSelectModel } from "@llmgateway/db";
 import type {
@@ -46,29 +55,63 @@ type ProviderKey = InferSelectModel<typeof providerKey>;
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
 
-function getDeterministicHash(seed: string): number {
-	let hash = 5381;
+const apiKeyTableName = getTableName(apiKeyTable);
+const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
+const organizationTableName = getTableName(organizationTable);
+const projectTableName = getTableName(projectTable);
+const providerKeyTableName = getTableName(providerKeyTable);
+const userTableName = getTableName(userTable);
+const userOrganizationTableName = getTableName(userOrganizationTable);
 
-	for (const char of seed) {
-		hash = (hash * 33) ^ char.charCodeAt(0);
-	}
-
-	return Math.abs(hash >>> 0);
-}
-
-function selectLoadBalancedItem<T>(
+function selectProviderKeyWithFailover<T extends { id: string }>(
 	items: T[],
-	selectionKey?: string,
+	excludedKeyIds: ReadonlySet<string> = new Set(),
 ): T | undefined {
-	if (items.length === 0) {
+	const availableItems = items.filter((item) => !excludedKeyIds.has(item.id));
+
+	if (availableItems.length === 0) {
 		return undefined;
 	}
 
-	if (items.length === 1 || !selectionKey) {
-		return items[0];
+	if (availableItems.length === 1) {
+		return availableItems[0];
 	}
 
-	return items[getDeterministicHash(selectionKey) % items.length];
+	const healthyItems = availableItems
+		.map((item, index) => ({
+			item,
+			index,
+			metrics: getTrackedKeyMetrics(item.id),
+		}))
+		.filter(({ item }) => isTrackedKeyHealthy(item.id));
+
+	if (healthyItems.length === 0) {
+		return availableItems[0];
+	}
+
+	const primaryItem = healthyItems.find(({ index }) => index === 0);
+	const bestScore = Math.min(
+		...healthyItems.map(({ metrics }) =>
+			calculateUptimePenalty(metrics.uptime),
+		),
+	);
+	const SCORE_EPSILON = 0.01;
+
+	if (
+		primaryItem &&
+		calculateUptimePenalty(primaryItem.metrics.uptime) <=
+			bestScore + SCORE_EPSILON
+	) {
+		return primaryItem.item;
+	}
+
+	const selectedItem = [...healthyItems].sort(
+		(a, b) =>
+			calculateUptimePenalty(a.metrics.uptime) -
+				calculateUptimePenalty(b.metrics.uptime) || a.index - b.index,
+	)[0];
+
+	return selectedItem?.item;
 }
 
 /**
@@ -77,12 +120,18 @@ function selectLoadBalancedItem<T>(
 export async function findApiKeyByToken(
 	token: string,
 ): Promise<ApiKey | undefined> {
-	const results = await db
-		.select()
-		.from(apiKeyTable)
-		.where(eq(apiKeyTable.token, token))
-		.limit(1);
-	return results[0];
+	return await swrWrap(
+		`apiKey:token:${getApiKeyFingerprint(token)}`,
+		[apiKeyTableName],
+		async () => {
+			const results = await db
+				.select()
+				.from(apiKeyTable)
+				.where(eq(apiKeyTable.token, token))
+				.limit(1);
+			return results[0];
+		},
+	);
 }
 
 /**
@@ -91,12 +140,14 @@ export async function findApiKeyByToken(
 export async function findProjectById(
 	id: string,
 ): Promise<Project | undefined> {
-	const results = await db
-		.select()
-		.from(projectTable)
-		.where(eq(projectTable.id, id))
-		.limit(1);
-	return results[0];
+	return await swrWrap(`project:${id}`, [projectTableName], async () => {
+		const results = await db
+			.select()
+			.from(projectTable)
+			.where(eq(projectTable.id, id))
+			.limit(1);
+		return results[0];
+	});
 }
 
 /**
@@ -105,12 +156,14 @@ export async function findProjectById(
 export async function findOrganizationByIdUncached(
 	id: string,
 ): Promise<Organization | undefined> {
-	const results = await uncachedDb
-		.select()
-		.from(organizationTable)
-		.where(eq(organizationTable.id, id))
-		.limit(1);
-	return results[0];
+	return await swrWrap(`org:${id}`, [organizationTableName], async () => {
+		const results = await uncachedDb
+			.select()
+			.from(organizationTable)
+			.where(eq(organizationTable.id, id))
+			.limit(1);
+		return results[0];
+	});
 }
 
 /**
@@ -121,12 +174,14 @@ export async function findOrganizationByIdUncached(
 export async function findOrganizationById(
 	id: string,
 ): Promise<Organization | undefined> {
-	const results = await db
-		.select()
-		.from(organizationTable)
-		.where(eq(organizationTable.id, id))
-		.limit(1);
-	const org = results[0];
+	const org = await swrWrap(`org:${id}`, [organizationTableName], async () => {
+		const results = await db
+			.select()
+			.from(organizationTable)
+			.where(eq(organizationTable.id, id))
+			.limit(1);
+		return results[0];
+	});
 
 	// If org has 0 or negative credits, refetch without cache
 	// to ensure topups are reflected immediately
@@ -152,21 +207,27 @@ export async function findOrganizationById(
 export async function findCustomProviderKey(
 	organizationId: string,
 	customProviderName: string,
-	selectionKey?: string,
+	_selectionKey?: string,
+	excludedKeyIds?: ReadonlySet<string>,
 ): Promise<ProviderKey | undefined> {
-	const results = await db
-		.select()
-		.from(providerKeyTable)
-		.where(
-			and(
-				eq(providerKeyTable.status, "active"),
-				eq(providerKeyTable.organizationId, organizationId),
-				eq(providerKeyTable.provider, "custom"),
-				eq(providerKeyTable.name, customProviderName),
-			),
-		)
-		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
-	return selectLoadBalancedItem(results, selectionKey);
+	const results = await swrWrap(
+		`providerKey:custom:${organizationId}:${customProviderName}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.organizationId, organizationId),
+						eq(providerKeyTable.provider, "custom"),
+						eq(providerKeyTable.name, customProviderName),
+					),
+				)
+				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+	);
+	return selectProviderKeyWithFailover(results, excludedKeyIds);
 }
 
 /**
@@ -175,20 +236,28 @@ export async function findCustomProviderKey(
 export async function findProviderKey(
 	organizationId: string,
 	provider: string,
-	selectionKey?: string,
+	_selectionKey?: string,
+	excludedKeyIds?: ReadonlySet<string>,
+	filter?: (key: ProviderKey) => boolean,
 ): Promise<ProviderKey | undefined> {
-	const results = await db
-		.select()
-		.from(providerKeyTable)
-		.where(
-			and(
-				eq(providerKeyTable.status, "active"),
-				eq(providerKeyTable.organizationId, organizationId),
-				eq(providerKeyTable.provider, provider),
-			),
-		)
-		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
-	return selectLoadBalancedItem(results, selectionKey);
+	const results = await swrWrap(
+		`providerKey:${organizationId}:${provider}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.organizationId, organizationId),
+						eq(providerKeyTable.provider, provider),
+					),
+				)
+				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+	);
+	const filtered = filter ? results.filter(filter) : results;
+	return selectProviderKeyWithFailover(filtered, excludedKeyIds);
 }
 
 /**
@@ -197,16 +266,21 @@ export async function findProviderKey(
 export async function findActiveProviderKeys(
 	organizationId: string,
 ): Promise<ProviderKey[]> {
-	return await db
-		.select()
-		.from(providerKeyTable)
-		.where(
-			and(
-				eq(providerKeyTable.status, "active"),
-				eq(providerKeyTable.organizationId, organizationId),
-			),
-		)
-		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
+	return await swrWrap(
+		`providerKey:active:${organizationId}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.organizationId, organizationId),
+					),
+				)
+				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+	);
 }
 
 /**
@@ -219,17 +293,23 @@ export async function findProviderKeysByProviders(
 	if (providers.length === 0) {
 		return [];
 	}
-	return await db
-		.select()
-		.from(providerKeyTable)
-		.where(
-			and(
-				eq(providerKeyTable.status, "active"),
-				eq(providerKeyTable.organizationId, organizationId),
-				inArray(providerKeyTable.provider, providers),
-			),
-		)
-		.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id));
+	const providersKey = providers.slice().sort().join(",");
+	return await swrWrap(
+		`providerKey:byProviders:${organizationId}:${providersKey}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.organizationId, organizationId),
+						inArray(providerKeyTable.provider, providers),
+					),
+				)
+				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+	);
 }
 
 /**
@@ -238,15 +318,20 @@ export async function findProviderKeysByProviders(
 export async function findActiveIamRules(
 	apiKeyId: string,
 ): Promise<ApiKeyIamRule[]> {
-	return await db
-		.select()
-		.from(apiKeyIamRuleTable)
-		.where(
-			and(
-				eq(apiKeyIamRuleTable.apiKeyId, apiKeyId),
-				eq(apiKeyIamRuleTable.status, "active"),
-			),
-		);
+	return await swrWrap(
+		`iamRules:${apiKeyId}`,
+		[apiKeyIamRuleTableName],
+		async () =>
+			await db
+				.select()
+				.from(apiKeyIamRuleTable)
+				.where(
+					and(
+						eq(apiKeyIamRuleTable.apiKeyId, apiKeyId),
+						eq(apiKeyIamRuleTable.status, "active"),
+					),
+				),
+	);
 }
 
 /**
@@ -256,15 +341,21 @@ export async function findActiveIamRules(
 export async function findUserFromOrganization(
 	organizationId: string,
 ): Promise<{ userOrganization: UserOrganization; user: User } | undefined> {
-	const results = await db
-		.select({
-			userOrganization: userOrganizationTable,
-			user: userTable,
-		})
-		.from(userOrganizationTable)
-		.innerJoin(userTable, eq(userOrganizationTable.userId, userTable.id))
-		.where(eq(userOrganizationTable.organizationId, organizationId))
-		.limit(1);
+	return await swrWrap(
+		`userFromOrg:${organizationId}`,
+		[userOrganizationTableName, userTableName],
+		async () => {
+			const results = await db
+				.select({
+					userOrganization: userOrganizationTable,
+					user: userTable,
+				})
+				.from(userOrganizationTable)
+				.innerJoin(userTable, eq(userOrganizationTable.userId, userTable.id))
+				.where(eq(userOrganizationTable.organizationId, organizationId))
+				.limit(1);
 
-	return results[0];
+			return results[0];
+		},
+	);
 }

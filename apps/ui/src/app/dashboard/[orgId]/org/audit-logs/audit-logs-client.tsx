@@ -152,7 +152,7 @@ export function AuditLogsClient() {
 		(currentUserRole === "owner" || currentUserRole === "admin");
 
 	// Fetch filter options
-	const fetchFilterOptions = async () => {
+	const fetchFilterOptions = useCallback(async () => {
 		try {
 			const response = await fetchClient.GET(
 				"/audit-logs/{organizationId}/filters",
@@ -167,7 +167,7 @@ export function AuditLogsClient() {
 		} catch {
 			// Silently fail for filter options
 		}
-	};
+	}, [fetchClient, organizationId]);
 
 	// Fetch audit logs with pagination
 	const fetchAuditLogs = useCallback(
@@ -229,7 +229,7 @@ export function AuditLogsClient() {
 		if (canViewAuditLogs) {
 			void fetchFilterOptions();
 		}
-	}, [canViewAuditLogs, organizationId]);
+	}, [canViewAuditLogs, fetchFilterOptions]);
 
 	// Fetch audit logs when filters change
 	useEffect(() => {

@@ -1,6 +1,13 @@
-import { IntegrationCards } from "@/components/integrations/integration-cards";
-import Footer from "@/components/landing/footer";
+import dynamic from "next/dynamic";
+
 import { HeroRSC } from "@/components/landing/hero-rsc";
+
+const IntegrationCards = dynamic(() =>
+	import("@/components/integrations/integration-cards").then(
+		(mod) => mod.IntegrationCards,
+	),
+);
+const Footer = dynamic(() => import("@/components/landing/footer"));
 
 export const metadata = {
 	title: "Integrations | LLM Gateway",

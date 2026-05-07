@@ -15,6 +15,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { mapModels } from "@/lib/mapmodels";
+import { shouldDisableFallback } from "@/lib/no-fallback";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -52,9 +53,18 @@ export default function GroupChatClient({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
+	// Filter out image/video generation models — group chat is text-only
+	const chatModels = useMemo(
+		() =>
+			models.filter(
+				(m) => !m.output?.includes("image") && !m.output?.includes("video"),
+			),
+		[models],
+	);
+
 	const mapped = useMemo(
-		() => mapModels(models, providers),
-		[models, providers],
+		() => mapModels(chatModels, providers),
+		[chatModels, providers],
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
@@ -290,11 +300,7 @@ export default function GroupChatClient({
 			],
 		};
 
-		const isProviderSpecific = currentModel.includes("/");
-		const localStorageOverride =
-			typeof window !== "undefined" &&
-			localStorage.getItem("llmgateway_no_fallback") === "true";
-		const noFallback = isProviderSpecific || localStorageOverride;
+		const noFallback = shouldDisableFallback(currentModel);
 
 		try {
 			await sendMessage(userUiMessage as any, {
@@ -438,7 +444,7 @@ export default function GroupChatClient({
 									</h2>
 									{selectedModels.length < 5 && (
 										<ModelSelector
-											models={models}
+											models={chatModels}
 											providers={providers}
 											value=""
 											onValueChange={(value) => {
