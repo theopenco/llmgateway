@@ -249,6 +249,42 @@ describe("getProviderEndpoint", () => {
 		});
 	});
 
+	describe("xiaomi", () => {
+		it("builds the default Xiaomi endpoint", () => {
+			const endpoint = getProviderEndpoint(
+				"xiaomi",
+				undefined,
+				"mimo-v2.5-pro",
+			);
+
+			expect(endpoint).toBe("https://api.xiaomimimo.com/v1/chat/completions");
+		});
+
+		it("uses custom base URL when provided", () => {
+			const endpoint = getProviderEndpoint(
+				"xiaomi",
+				"https://custom-xiaomi.example.com",
+				"mimo-v2-flash",
+			);
+
+			expect(endpoint).toBe(
+				"https://custom-xiaomi.example.com/v1/chat/completions",
+			);
+		});
+
+		it("builds streaming endpoint", () => {
+			const endpoint = getProviderEndpoint(
+				"xiaomi",
+				undefined,
+				"mimo-v2.5",
+				undefined,
+				true,
+			);
+
+			expect(endpoint).toBe("https://api.xiaomimimo.com/v1/chat/completions");
+		});
+	});
+
 	describe("skipEnvVars (BYOK mode)", () => {
 		it("uses hardcoded default for google-ai-studio instead of env var", () => {
 			process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL =

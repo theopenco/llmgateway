@@ -575,6 +575,9 @@ export const providers = [
 			required: {
 				apiKey: "LLM_XIAOMI_API_KEY",
 			},
+			optional: {
+				baseUrl: "LLM_XIAOMI_BASE_URL",
+			},
 		},
 		streaming: true,
 		cancellation: true,

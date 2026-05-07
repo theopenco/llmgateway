@@ -229,7 +229,12 @@ export function getProviderEndpoint(
 				url = "https://api.minimax.io";
 				break;
 			case "xiaomi":
-				url = "https://api.xiaomimimo.com";
+				url =
+					envValueOrDefault(
+						"xiaomi",
+						"baseUrl",
+						"https://api.xiaomimimo.com",
+					) ?? "https://api.xiaomimimo.com";
 				break;
 			case "aws-bedrock":
 				url =
