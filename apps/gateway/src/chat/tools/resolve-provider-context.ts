@@ -17,6 +17,7 @@ import {
 	getProviderEnvVar,
 	hasMaxTokens,
 	type ModelDefinition,
+	models,
 	type OpenAIRequestBody,
 	type OpenAIToolInput,
 	type Provider,
@@ -166,6 +167,23 @@ export function formatUsedModelForDisplay(
 }
 
 /**
+ * Resolve the catalog model id to display as the used model.
+ *
+ * When the parent `modelInfo` is a virtual catalog entry (e.g.
+ * `grok-4-1-fast`) the provider mapping's modelName points at a concrete
+ * sibling model (e.g. `grok-4-1-fast-non-reasoning`). Prefer that concrete
+ * catalog id so the displayed used_model reflects the variant actually
+ * invoked instead of the virtual id, which is never a real upstream model.
+ */
+export function resolveBaseModelName(
+	parentModelId: string | undefined,
+	strippedModelName: string,
+): string {
+	const concreteModelDef = models.find((m) => m.id === strippedModelName);
+	return concreteModelDef?.id ?? parentModelId ?? strippedModelName;
+}
+
+/**
  * Resolves all provider-dependent context needed to make a fetch request.
  * This includes token resolution, URL building, parameter stripping,
  * request body preparation, and header construction.
@@ -189,7 +207,7 @@ export async function resolveProviderContext(
 		usedModel,
 		providerMapping.region,
 	);
-	const baseModelName = modelInfo.id || strippedModelName;
+	const baseModelName = resolveBaseModelName(modelInfo.id, strippedModelName);
 	const usedModelMapping = usedModel;
 	const usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
