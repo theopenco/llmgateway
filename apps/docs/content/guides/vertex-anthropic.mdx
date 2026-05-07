@@ -68,6 +68,14 @@ gcloud iam service-accounts keys create service-account.json \
   --iam-account=vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com
 ```
 
+Then convert it to a single-line string for use as an environment variable:
+
+```bash
+cat service-account.json | tr -d '\n'
+```
+
+Copy the output — you'll paste it as the value of `LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON` in the next step.
+
 </Step>
 
 <Step>
@@ -146,8 +154,9 @@ If you prefer to manage tokens manually or use a different service account per o
 4. Set the project ID and region in the key options
 
 <Callout type="warn">
-	Manually provided tokens expire after 1 hour. For production use, the service
-	account file approach (above) is strongly recommended.
+	Manually provided tokens expire after 1 hour. For production use, the
+	`LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON` approach (above) is strongly
+	recommended — it refreshes tokens automatically.
 </Callout>
 
 ## Troubleshooting
