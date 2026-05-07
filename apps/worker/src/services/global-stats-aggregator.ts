@@ -288,6 +288,17 @@ async function runSafetyNetIfNeeded(now: Date): Promise<void> {
 		return;
 	}
 
+	// Defer the safety net while the incremental walker is still catching up.
+	// If we wiped + recomputed yesterday now and the walker reached yesterday
+	// later, its ADD-upserts would double the row. The walker has finished
+	// yesterday once its watermark crosses todayStart.
+	if (!state?.lastProcessedHour || state.lastProcessedHour < todayStart) {
+		logger.debug(
+			`[global-safety-net] Walker has not reached today yet (watermark=${state?.lastProcessedHour ? formatUTCTimestamp(state.lastProcessedHour) : "none"}), deferring`,
+		);
+		return;
+	}
+
 	logger.info(
 		`[global-safety-net] Recomputing ${formatUTCTimestamp(yesterdayStart)} from logs`,
 	);
