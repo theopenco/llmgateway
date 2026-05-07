@@ -65,7 +65,8 @@ export function transformStreamingToOpenai(
 	};
 
 	switch (usedProvider) {
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			if (data.type === "content_block_delta" && data.delta?.text) {
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,

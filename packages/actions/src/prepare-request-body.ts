@@ -928,7 +928,9 @@ export async function prepareRequestBody(
 	// otherwise pass an unknown field through to OpenAI/Google/etc., risking a
 	// 400 from strict providers and confusing logs from lenient ones.
 	const providerHandlesCacheControl =
-		usedProvider === "anthropic" || usedProvider === "aws-bedrock";
+		usedProvider === "anthropic" ||
+		usedProvider === "vertex-anthropic" ||
+		usedProvider === "aws-bedrock";
 	if (!providerHandlesCacheControl) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
@@ -1322,7 +1324,8 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
@@ -1609,6 +1612,14 @@ export async function prepareRequestBody(
 					// as Anthropic requires a specific schema. Instead, we skip output_format
 					// and rely on system prompt instructions for JSON output.
 					// Note: The model capability (jsonOutput) should ensure the prompt guides JSON output.
+				}
+			}
+
+			if (usedProvider === "vertex-anthropic") {
+				requestBody.anthropic_version = "vertex-2023-10-16";
+				delete requestBody.model;
+				if (stream) {
+					requestBody.stream = true;
 				}
 			}
 			break;

@@ -7,7 +7,8 @@ import type { Provider } from "@llmgateway/models";
  */
 export function extractReasoning(data: any, provider: Provider): string {
 	switch (provider) {
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			// Handle Anthropic thinking content blocks in streaming format
 			if (
 				data.type === "content_block_delta" &&

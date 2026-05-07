@@ -39,6 +39,11 @@ export function getProviderHeaders(
 		case "google-vertex":
 		case "quartz":
 			return requestIdHeader;
+		case "vertex-anthropic":
+			return {
+				...requestIdHeader,
+				Authorization: `Bearer ${token}`,
+			};
 		case "avalanche":
 			return {
 				...requestIdHeader,

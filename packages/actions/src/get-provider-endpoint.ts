@@ -162,6 +162,24 @@ export function getProviderEndpoint(
 						"https://aiplatform.googleapis.com",
 					) ?? "https://aiplatform.googleapis.com";
 				break;
+			case "vertex-anthropic": {
+				const vertexAnthropicRegion =
+					providerKeyOptions?.vertex_anthropic_region ??
+					getProviderEnvValue(
+						"vertex-anthropic",
+						"region",
+						configIndex,
+						"us-east5",
+					) ??
+					"us-east5";
+				url =
+					envValueOrDefault(
+						"vertex-anthropic",
+						"baseUrl",
+						`https://${vertexAnthropicRegion}-aiplatform.googleapis.com`,
+					) ?? `https://${vertexAnthropicRegion}-aiplatform.googleapis.com`;
+				break;
+			}
 			case "quartz":
 				url = skipEnvVars
 					? undefined
@@ -338,6 +356,37 @@ export function getProviderEndpoint(
 				configIndex,
 				providerKeyOptions,
 			);
+		case "vertex-anthropic": {
+			const vaProjectId =
+				providerKeyOptions?.vertex_anthropic_project_id ??
+				getProviderEnvValue("vertex-anthropic", "project", configIndex);
+			const vaRegion =
+				providerKeyOptions?.vertex_anthropic_region ??
+				getProviderEnvValue(
+					"vertex-anthropic",
+					"region",
+					configIndex,
+					"us-east5",
+				) ??
+				"us-east5";
+
+			if (!vaProjectId) {
+				throw new Error(
+					"LLM_VERTEX_ANTHROPIC_PROJECT environment variable is required for vertex-anthropic provider",
+				);
+			}
+
+			const vaModel = modelName ?? "claude-sonnet-4-6@20250514";
+			const vaEndpoint = stream ? "streamRawPredict" : "rawPredict";
+			const vaBaseEndpoint = `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
+			const vaQueryParams = [];
+			if (token) {
+				vaQueryParams.push(`key=${token}`);
+			}
+			return vaQueryParams.length > 0
+				? `${vaBaseEndpoint}?${vaQueryParams.join("&")}`
+				: vaBaseEndpoint;
+		}
 		case "perplexity":
 			return `${url}/chat/completions`;
 		case "novita":
