@@ -1495,6 +1495,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/global-daily-stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    range?: "7d" | "30d" | "90d" | "365d";
+                    groupBy?: "model" | "source";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Global daily aggregated stats grouped by model or x-source. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            range: "7d" | "30d" | "90d" | "365d";
+                            /** @enum {string} */
+                            groupBy: "model" | "source";
+                            totals: {
+                                requestCount: number;
+                                errorCount: number;
+                                cacheCount: number;
+                                inputTokens: number;
+                                cachedTokens: number;
+                                outputTokens: number;
+                                totalTokens: number;
+                                cost: number;
+                                inputCost: number;
+                                cachedInputCost: number;
+                                outputCost: number;
+                            };
+                            timeseries: {
+                                requestCount: number;
+                                errorCount: number;
+                                cacheCount: number;
+                                inputTokens: number;
+                                cachedTokens: number;
+                                outputTokens: number;
+                                totalTokens: number;
+                                cost: number;
+                                inputCost: number;
+                                cachedInputCost: number;
+                                outputCost: number;
+                                date: string;
+                            }[];
+                            breakdown: {
+                                requestCount: number;
+                                errorCount: number;
+                                cacheCount: number;
+                                inputTokens: number;
+                                cachedTokens: number;
+                                outputTokens: number;
+                                totalTokens: number;
+                                cost: number;
+                                inputCost: number;
+                                cachedInputCost: number;
+                                outputCost: number;
+                                key: string;
+                                label: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/organizations": {
         parameters: {
             query?: never;
