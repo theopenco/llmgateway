@@ -10,6 +10,7 @@ const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 const originalAzureFoundryResource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 const originalAzureFoundryApiVersion =
 	process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
+const originalXiaomiBaseUrl = process.env.LLM_XIAOMI_BASE_URL;
 
 afterEach(() => {
 	if (originalAiStudioBaseUrl === undefined) {
@@ -53,6 +54,12 @@ afterEach(() => {
 	} else {
 		process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION =
 			originalAzureFoundryApiVersion;
+	}
+
+	if (originalXiaomiBaseUrl === undefined) {
+		delete process.env.LLM_XIAOMI_BASE_URL;
+	} else {
+		process.env.LLM_XIAOMI_BASE_URL = originalXiaomiBaseUrl;
 	}
 });
 
@@ -251,6 +258,8 @@ describe("getProviderEndpoint", () => {
 
 	describe("xiaomi", () => {
 		it("builds the default Xiaomi endpoint", () => {
+			delete process.env.LLM_XIAOMI_BASE_URL;
+
 			const endpoint = getProviderEndpoint(
 				"xiaomi",
 				undefined,
@@ -273,6 +282,8 @@ describe("getProviderEndpoint", () => {
 		});
 
 		it("builds streaming endpoint", () => {
+			delete process.env.LLM_XIAOMI_BASE_URL;
+
 			const endpoint = getProviderEndpoint(
 				"xiaomi",
 				undefined,
