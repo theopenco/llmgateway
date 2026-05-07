@@ -567,13 +567,24 @@ function usesGoogleQueryToken(provider: string): boolean {
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
 		provider === "google-vertex" ||
-		provider === "quartz" ||
-		provider === "vertex-anthropic"
+		provider === "quartz"
 	);
 }
 
 function isGoogleCompatibleProvider(provider: string): boolean {
-	return usesGoogleQueryToken(provider);
+	return (
+		provider === "google-ai-studio" ||
+		provider === "glacier" ||
+		provider === "google-vertex" ||
+		provider === "quartz"
+	);
+}
+
+function isVertexClaudeModel(provider: string, modelName?: string): boolean {
+	return (
+		(provider === "google-vertex" || provider === "quartz") &&
+		(modelName?.startsWith("claude-") ?? false)
+	);
 }
 
 // Pre-compiled regex pattern to avoid recompilation per request
@@ -3917,7 +3928,10 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Anthropic does not allow temperature and top_p to be set simultaneously
-	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
+	if (
+		usedProvider === "anthropic" ||
+		isVertexClaudeModel(usedProvider, usedModelMapping)
+	) {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -3929,7 +3943,10 @@ chat.openapi(completions, async (c) => {
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (isGoogleCompatibleProvider(usedProvider)) {
+	if (
+		isGoogleCompatibleProvider(usedProvider) &&
+		!isVertexClaudeModel(usedProvider, usedModelMapping)
+	) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -5709,7 +5726,7 @@ chat.openapi(completions, async (c) => {
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
 						((usedProvider === "anthropic" ||
-							usedProvider === "vertex-anthropic") &&
+							isVertexClaudeModel(usedProvider, usedModelMapping)) &&
 							response_format?.type === "json_object") ||
 						(usedProvider === "aws-bedrock" &&
 							response_format?.type === "json_object") ||
@@ -6493,7 +6510,7 @@ chat.openapi(completions, async (c) => {
 								// For Anthropic, if we have partial usage data, complete it
 								if (
 									(usedProvider === "anthropic" ||
-										usedProvider === "vertex-anthropic") &&
+										isVertexClaudeModel(usedProvider, usedModelMapping)) &&
 									transformedData.usage
 								) {
 									const usage = transformedData.usage;
@@ -6520,7 +6537,10 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// For Google providers, add usage information when available
-								if (isGoogleCompatibleProvider(usedProvider)) {
+								if (
+									isGoogleCompatibleProvider(usedProvider) &&
+									!isVertexClaudeModel(usedProvider, usedModelMapping)
+								) {
 									const usage = extractTokenUsage(
 										data,
 										usedProvider,
@@ -6567,13 +6587,18 @@ chat.openapi(completions, async (c) => {
 								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
 								if (
 									usedProvider === "anthropic" ||
-									usedProvider === "vertex-anthropic"
+									isVertexClaudeModel(usedProvider, usedModelMapping)
 								) {
 									const toolCalls =
 										transformedData.choices?.[0]?.delta?.tool_calls;
 									if (toolCalls && toolCalls.length > 0) {
 										// First, extract tool calls to update our tracking
-										const rawToolCalls = extractToolCalls(data, usedProvider);
+										const rawToolCalls = extractToolCalls(
+											data,
+											usedProvider,
+											undefined,
+											usedModelMapping,
+										);
 										if (rawToolCalls && rawToolCalls.length > 0) {
 											streamingToolCalls ??= [];
 											for (const newCall of rawToolCalls) {
@@ -6696,10 +6721,11 @@ chat.openapi(completions, async (c) => {
 								const contentChunk = extractContent(
 									isGoogleCompatibleProvider(usedProvider) ||
 										usedProvider === "anthropic" ||
-										usedProvider === "vertex-anthropic"
+										isVertexClaudeModel(usedProvider, usedModelMapping)
 										? data
 										: transformedData,
 									usedProvider,
+									usedModelMapping,
 								);
 								if (contentChunk) {
 									fullContent += contentChunk;
@@ -6712,7 +6738,10 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// Track image data size for Google providers (for token estimation)
-								if (isGoogleCompatibleProvider(usedProvider)) {
+								if (
+									isGoogleCompatibleProvider(usedProvider) &&
+									!isVertexClaudeModel(usedProvider, usedModelMapping)
+								) {
 									const parts = data.candidates?.[0]?.content?.parts ?? [];
 									for (const part of parts) {
 										if (part.inlineData?.data) {
@@ -6729,7 +6758,7 @@ chat.openapi(completions, async (c) => {
 								// Check for web search results based on provider-specific data
 								if (
 									usedProvider === "anthropic" ||
-									usedProvider === "vertex-anthropic"
+									isVertexClaudeModel(usedProvider, usedModelMapping)
 								) {
 									// For Anthropic, count web_search_tool_result blocks
 									if (
@@ -6772,10 +6801,11 @@ chat.openapi(completions, async (c) => {
 								const reasoningContentChunk = extractReasoning(
 									isGoogleCompatibleProvider(usedProvider) ||
 										usedProvider === "anthropic" ||
-										usedProvider === "vertex-anthropic"
+										isVertexClaudeModel(usedProvider, usedModelMapping)
 										? data
 										: transformedData,
 									usedProvider,
+									usedModelMapping,
 								);
 								if (reasoningContentChunk) {
 									fullReasoningContent += reasoningContentChunk;
@@ -6791,6 +6821,7 @@ chat.openapi(completions, async (c) => {
 									data,
 									usedProvider,
 									transformedData,
+									usedModelMapping,
 								);
 								if (toolCallsChunk && toolCallsChunk.length > 0) {
 									streamingToolCalls ??= [];
@@ -6801,7 +6832,7 @@ chat.openapi(completions, async (c) => {
 										// For Anthropic content_block_delta events, match by content block index
 										if (
 											(usedProvider === "anthropic" ||
-												usedProvider === "vertex-anthropic") &&
+												isVertexClaudeModel(usedProvider, usedModelMapping)) &&
 											newCall._contentBlockIndex !== undefined
 										) {
 											existingCall =
@@ -6836,17 +6867,35 @@ chat.openapi(completions, async (c) => {
 									case "glacier":
 									case "google-vertex":
 									case "quartz":
-										// Preserve original Google finish reason for logging
-										if (data.promptFeedback?.blockReason) {
-											finishReason = data.promptFeedback.blockReason;
-											sawProviderTerminalEvent = true;
-										} else if (data.candidates?.[0]?.finishReason) {
-											finishReason = data.candidates[0].finishReason;
-											sawProviderTerminalEvent = true;
+										if (isVertexClaudeModel(usedProvider, usedModelMapping)) {
+											if (
+												data.type === "message_delta" &&
+												data.delta?.stop_reason
+											) {
+												finishReason = data.delta.stop_reason;
+												sawProviderTerminalEvent = true;
+											} else if (
+												data.type === "message_stop" ||
+												data.stop_reason
+											) {
+												finishReason = data.stop_reason ?? "end_turn";
+												sawProviderTerminalEvent = true;
+											} else if (data.delta?.stop_reason) {
+												finishReason = data.delta.stop_reason;
+												sawProviderTerminalEvent = true;
+											}
+										} else {
+											// Preserve original Google finish reason for logging
+											if (data.promptFeedback?.blockReason) {
+												finishReason = data.promptFeedback.blockReason;
+												sawProviderTerminalEvent = true;
+											} else if (data.candidates?.[0]?.finishReason) {
+												finishReason = data.candidates[0].finishReason;
+												sawProviderTerminalEvent = true;
+											}
 										}
 										break;
 									case "anthropic":
-									case "vertex-anthropic":
 										if (
 											data.type === "message_delta" &&
 											data.delta?.stop_reason
@@ -7395,7 +7444,8 @@ chat.openapi(completions, async (c) => {
 									// Only add image input tokens for providers that
 									// exclude them from upstream usage (Google)
 									const providerExcludesImageInput =
-										isGoogleCompatibleProvider(usedProvider);
+										isGoogleCompatibleProvider(usedProvider) &&
+										!isVertexClaudeModel(usedProvider, usedModelMapping);
 									const imageInputAdj = providerExcludesImageInput
 										? inputImageCount * 560
 										: 0;
@@ -9242,7 +9292,8 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
-			((usedProvider === "anthropic" || usedProvider === "vertex-anthropic") &&
+			((usedProvider === "anthropic" ||
+				isVertexClaudeModel(usedProvider, usedModelMapping)) &&
 				response_format?.type === "json_object") ||
 			(usedProvider === "aws-bedrock" &&
 				response_format?.type === "json_object") ||

@@ -927,9 +927,12 @@ export async function prepareRequestBody(
 	// every other provider receives the raw `processedMessages` and would
 	// otherwise pass an unknown field through to OpenAI/Google/etc., risking a
 	// 400 from strict providers and confusing logs from lenient ones.
+	const isVertexClaude =
+		(usedProvider === "google-vertex" || usedProvider === "quartz") &&
+		usedModel.startsWith("claude-");
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
-		usedProvider === "vertex-anthropic" ||
+		isVertexClaude ||
 		usedProvider === "aws-bedrock";
 	if (!providerHandlesCacheControl) {
 		processedMessages = processedMessages.map((m) => {
@@ -1086,7 +1089,11 @@ export async function prepareRequestBody(
 		max_tokens = 16;
 	}
 
-	switch (usedProvider) {
+	// For the switch-case routing, treat Vertex Claude models as "anthropic"
+	// since they use the Anthropic Messages API format via rawPredict.
+	const switchProvider = isVertexClaude ? "anthropic" : usedProvider;
+
+	switch (switchProvider) {
 		case "azure":
 		case "openai": {
 			// Determine whether to use Responses API format.
@@ -1324,8 +1331,7 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
-		case "anthropic":
-		case "vertex-anthropic": {
+		case "anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
@@ -1615,7 +1621,7 @@ export async function prepareRequestBody(
 				}
 			}
 
-			if (usedProvider === "vertex-anthropic") {
+			if (isVertexClaude) {
 				requestBody.anthropic_version = "vertex-2023-10-16";
 				delete requestBody.model;
 				if (stream) {

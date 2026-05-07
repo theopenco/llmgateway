@@ -5,21 +5,27 @@ import type { Provider } from "@llmgateway/models";
 /**
  * Extracts reasoning content from streaming data based on provider format
  */
-export function extractReasoning(data: any, provider: Provider): string {
-	switch (provider) {
-		case "anthropic":
-		case "vertex-anthropic": {
-			// Handle Anthropic thinking content blocks in streaming format
-			if (
-				data.type === "content_block_delta" &&
-				data.delta?.type === "thinking_delta" &&
-				data.delta?.thinking
-			) {
-				// This is a thinking delta - return the thinking content
-				return data.delta.thinking;
-			}
-			return "";
+export function extractReasoning(
+	data: any,
+	provider: Provider,
+	modelName?: string,
+): string {
+	const isVertexClaude =
+		(provider === "google-vertex" || provider === "quartz") &&
+		(modelName?.startsWith("claude-") ?? false);
+
+	if (isVertexClaude || provider === "anthropic") {
+		if (
+			data.type === "content_block_delta" &&
+			data.delta?.type === "thinking_delta" &&
+			data.delta?.thinking
+		) {
+			return data.delta.thinking;
 		}
+		return "";
+	}
+
+	switch (provider) {
 		case "google-ai-studio":
 		case "glacier":
 		case "google-vertex":

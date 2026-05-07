@@ -159,28 +159,6 @@ export const providers = [
 		announcement: null,
 	},
 	{
-		id: "vertex-anthropic",
-		name: "Vertex AI (Anthropic)",
-		description:
-			"Access Claude models via Google Cloud Vertex AI with the Anthropic Messages API.",
-		env: {
-			required: {
-				apiKey: "LLM_VERTEX_ANTHROPIC_API_KEY",
-				project: "LLM_VERTEX_ANTHROPIC_PROJECT",
-			},
-			optional: {
-				baseUrl: "LLM_VERTEX_ANTHROPIC_BASE_URL",
-				region: "LLM_VERTEX_ANTHROPIC_REGION",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#4285f4",
-		website: "https://cloud.google.com/vertex-ai",
-		announcement: null,
-		priority: 0.9,
-	},
-	{
 		id: "quartz",
 		name: "Quartz",
 		description:

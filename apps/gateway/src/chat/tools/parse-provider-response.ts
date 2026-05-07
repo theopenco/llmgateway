@@ -127,8 +127,7 @@ export function parseProviderResponse(
 
 			break;
 		}
-		case "anthropic":
-		case "vertex-anthropic": {
+		case "anthropic": {
 			// Extract content and reasoning content from Anthropic response
 			const contentBlocks = json.content ?? [];
 			const textBlocks = contentBlocks.filter(
@@ -226,6 +225,44 @@ export function parseProviderResponse(
 		case "glacier":
 		case "google-vertex":
 		case "quartz": {
+			// Vertex Claude models use Anthropic response format
+			if (
+				(usedProvider === "google-vertex" || usedProvider === "quartz") &&
+				usedModel.startsWith("claude-")
+			) {
+				const contentBlocks = json.content ?? [];
+				const textBlocks = contentBlocks.filter(
+					(block: any) => block.type === "text",
+				);
+				const thinkingBlocks = contentBlocks.filter(
+					(block: any) => block.type === "thinking",
+				);
+				content = textBlocks.map((block: any) => block.text).join("") ?? null;
+				reasoningContent =
+					thinkingBlocks.map((block: any) => block.thinking).join("") ?? null;
+				finishReason = json.stop_reason ?? null;
+
+				const toolUseBlocks = contentBlocks.filter(
+					(block: any) => block.type === "tool_use",
+				);
+				if (toolUseBlocks.length > 0) {
+					toolResults = toolUseBlocks.map((block: any) => ({
+						id: block.id,
+						type: "function",
+						function: {
+							name: block.name,
+							arguments: JSON.stringify(block.input),
+						},
+					}));
+				}
+
+				if (json.usage) {
+					promptTokens = json.usage.input_tokens ?? null;
+					completionTokens = json.usage.output_tokens ?? null;
+					totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0) || null;
+				}
+				break;
+			}
 			// Check if response is missing candidates - treat as content filter
 			if (!json.candidates || json.candidates.length === 0) {
 				// Only log warning if there's no blockReason explaining why

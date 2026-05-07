@@ -64,9 +64,13 @@ export function transformStreamingToOpenai(
 		return false;
 	};
 
-	switch (usedProvider) {
-		case "anthropic":
-		case "vertex-anthropic": {
+	const isVertexClaude =
+		(usedProvider === "google-vertex" || usedProvider === "quartz") &&
+		usedModel.startsWith("claude-");
+	const effectiveProvider = isVertexClaude ? "anthropic" : usedProvider;
+
+	switch (effectiveProvider) {
+		case "anthropic": {
 			if (data.type === "content_block_delta" && data.delta?.text) {
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,

@@ -8,42 +8,42 @@ export function extractToolCalls(
 	data: any,
 	provider: Provider,
 	transformedData?: any,
+	modelName?: string,
 ): any[] | null {
+	const isVertexClaude =
+		(provider === "google-vertex" || provider === "quartz") &&
+		(modelName?.startsWith("claude-") ?? false);
+
+	if (isVertexClaude || provider === "anthropic") {
+		if (
+			data.type === "content_block_start" &&
+			data.content_block?.type === "tool_use"
+		) {
+			return [
+				{
+					id: data.content_block.id,
+					type: "function",
+					function: {
+						name: data.content_block.name,
+						arguments: "",
+					},
+				},
+			];
+		}
+		if (data.type === "content_block_delta" && data.delta?.partial_json) {
+			return [
+				{
+					_contentBlockIndex: data.index,
+					function: {
+						arguments: data.delta.partial_json,
+					},
+				},
+			];
+		}
+		return null;
+	}
+
 	switch (provider) {
-		case "anthropic":
-		case "vertex-anthropic":
-			// Anthropic streaming tool calls come as content_block_start with tool_use type
-			if (
-				data.type === "content_block_start" &&
-				data.content_block?.type === "tool_use"
-			) {
-				return [
-					{
-						id: data.content_block.id,
-						type: "function",
-						function: {
-							name: data.content_block.name,
-							arguments: "",
-						},
-					},
-				];
-			}
-			// Tool arguments come as content_block_delta - these don't have a direct ID,
-			// so we return null and let the streaming logic handle the accumulation
-			// by finding the matching tool call by content block index
-			// Per OpenAI spec, subsequent chunks omit id/type/name - only index and arguments
-			if (data.type === "content_block_delta" && data.delta?.partial_json) {
-				// Return a partial tool call with the index to help with matching
-				return [
-					{
-						_contentBlockIndex: data.index, // Use this for matching
-						function: {
-							arguments: data.delta.partial_json,
-						},
-					},
-				];
-			}
-			return null;
 		case "google-ai-studio":
 		case "glacier":
 		case "google-vertex":
