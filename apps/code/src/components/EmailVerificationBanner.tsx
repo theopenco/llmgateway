@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
-import { Button } from "@/lib/components/button";
-import { toast } from "@/lib/components/use-toast";
 
 export function EmailVerificationBanner() {
 	const { user } = useUser();
@@ -25,14 +25,11 @@ export function EmailVerificationBanner() {
 		});
 
 		if (error) {
-			toast({
-				title: "Error",
+			toast.error("Error", {
 				description: error.message ?? "Failed to send verification email",
-				variant: "destructive",
 			});
 		} else {
-			toast({
-				title: "Verification email sent",
+			toast.success("Verification email sent", {
 				description: "Please check your inbox for the verification email.",
 			});
 		}

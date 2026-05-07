@@ -20,6 +20,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
+import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
@@ -383,6 +384,8 @@ export default function DashboardClient() {
 				</div>
 			</header>
 
+			<EmailVerificationBanner />
+
 			<main className="container mx-auto px-4 py-8 max-w-6xl">
 				{hasActivePlan ? (
 					<div className="space-y-10">
@@ -472,6 +475,9 @@ export default function DashboardClient() {
 							devPlanAllowAllModels={
 								devPlanStatus?.devPlanAllowAllModels ?? false
 							}
+							cachingEnabled={devPlanStatus?.cachingEnabled ?? false}
+							cacheDurationSeconds={devPlanStatus?.cacheDurationSeconds ?? 60}
+							retentionLevel={devPlanStatus?.retentionLevel ?? "none"}
 						/>
 
 						{/* Change plan */}
