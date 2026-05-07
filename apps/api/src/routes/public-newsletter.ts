@@ -5,6 +5,7 @@ import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
+import { getResendClient } from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -12,9 +13,7 @@ export const publicNewsletter = new OpenAPIHono<ServerTypes>();
 
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
-const RESEND_TIMEOUT_MS = 10_000;
 
-const resendApiKey = process.env.RESEND_API_KEY;
 const resendNewsletterTopicId = process.env.RESEND_NEWSLETTER_TOPIC_ID;
 
 async function checkRateLimit(identifier: string): Promise<boolean> {
@@ -92,7 +91,8 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		);
 	}
 
-	if (!resendApiKey) {
+	const resend = getResendClient();
+	if (!resend) {
 		logger.error("RESEND_API_KEY not configured for newsletter");
 		return c.json(
 			{
@@ -115,15 +115,36 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 	}
 
 	try {
-		const alreadyExisted = await ensureContact(email, resendApiKey);
-		await setTopicOptIn(email, resendApiKey, resendNewsletterTopicId);
+		// `contacts.create` upserts: it returns the existing contact on
+		// duplicate and resets `unsubscribed` to false, so this handles new
+		// signups and re-subscribes in one call. Topic subscriptions are NOT
+		// applied via this endpoint — Resend silently ignores any `topics`
+		// field here, so we set the subscription separately below.
+		const create = await resend.contacts.create({
+			email,
+			unsubscribed: false,
+		});
+		if (create.error) {
+			throw new Error(create.error.message);
+		}
+
+		const topic = await resend.contacts.topics.update({
+			email,
+			topics: [
+				{
+					id: resendNewsletterTopicId,
+					subscription: "opt_in",
+				},
+			],
+		});
+		if (topic.error) {
+			throw new Error(topic.error.message);
+		}
 
 		return c.json(
 			{
 				success: true,
-				message: alreadyExisted
-					? "You're already subscribed!"
-					: "Successfully subscribed to the newsletter!",
+				message: "Successfully subscribed to the newsletter!",
 			},
 			200,
 		);
@@ -138,77 +159,3 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		);
 	}
 });
-
-// Resend's `topics` field on POST/PATCH /contacts is silently ignored;
-// topic subscriptions must be set via the dedicated /topics endpoint.
-async function ensureContact(email: string, apiKey: string): Promise<boolean> {
-	const createResp = await fetch("https://api.resend.com/contacts", {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${apiKey}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({ email, unsubscribed: false }),
-		signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
-	});
-
-	if (createResp.ok) {
-		return false;
-	}
-
-	const isDuplicate = createResp.status === 409 || createResp.status === 422;
-	if (!isDuplicate) {
-		const body = (await createResp.json()) as { message?: string };
-		throw new Error(body.message ?? `Resend API error: ${createResp.status}`);
-	}
-
-	// Existing contact — clear any prior global unsubscribe.
-	const patchResp = await fetch(
-		`https://api.resend.com/contacts/${encodeURIComponent(email)}`,
-		{
-			method: "PATCH",
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({ unsubscribed: false }),
-			signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
-		},
-	);
-
-	if (!patchResp.ok) {
-		const body = (await patchResp.json()) as { message?: string };
-		throw new Error(body.message ?? `Resend API error: ${patchResp.status}`);
-	}
-
-	return true;
-}
-
-async function setTopicOptIn(
-	email: string,
-	apiKey: string,
-	topicId: string,
-): Promise<void> {
-	const resp = await fetch(
-		`https://api.resend.com/contacts/${encodeURIComponent(email)}/topics`,
-		{
-			method: "PATCH",
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify([
-				{
-					id: topicId,
-					subscription: "opt_in",
-				},
-			]),
-			signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
-		},
-	);
-
-	if (!resp.ok) {
-		const body = (await resp.json()) as { message?: string };
-		throw new Error(body.message ?? `Resend API error: ${resp.status}`);
-	}
-}

@@ -10,6 +10,8 @@
 //   APPLY=true ...   # actually patch contacts (default is dry-run)
 //   CONCURRENCY=5    # parallel PATCH workers (default 5)
 
+import { Resend } from "resend";
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_NEWSLETTER_TOPIC_ID = process.env.RESEND_NEWSLETTER_TOPIC_ID;
 const CUTOFF = new Date("2026-04-01T00:00:00Z");
@@ -25,19 +27,17 @@ if (!RESEND_NEWSLETTER_TOPIC_ID) {
 	process.exit(1);
 }
 
+const resend = new Resend(RESEND_API_KEY);
+
 interface Contact {
 	id: string;
 	email: string;
 	created_at: string;
 	unsubscribed: boolean;
-	first_name: string | null;
-	last_name: string | null;
 }
 
-interface ListResponse {
-	object: "list";
-	has_more: boolean;
-	data: Contact[];
+async function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function listAllContacts(): Promise<Contact[]> {
@@ -45,29 +45,25 @@ async function listAllContacts(): Promise<Contact[]> {
 	let after: string | undefined;
 	let page = 0;
 	while (true) {
-		const url = new URL("https://api.resend.com/contacts");
-		url.searchParams.set("limit", "100");
-		if (after) {
-			url.searchParams.set("after", after);
-		}
-		const resp = await fetch(url, {
-			headers: { Authorization: `Bearer ${RESEND_API_KEY}` },
+		const { data, error } = await resend.contacts.list({
+			limit: 100,
+			...(after ? { after } : {}),
 		});
-		if (!resp.ok) {
-			throw new Error(
-				`List contacts failed: ${resp.status} ${await resp.text()}`,
-			);
+		if (error) {
+			throw new Error(`List contacts failed: ${error.message}`);
 		}
-		const json = (await resp.json()) as ListResponse;
-		all.push(...json.data);
-		page += 1;
-		console.log(
-			`Fetched page ${page}: ${json.data.length} contacts (total so far: ${all.length})`,
-		);
-		if (!json.has_more || json.data.length === 0) {
+		if (!data) {
 			break;
 		}
-		const last = json.data[json.data.length - 1];
+		all.push(...(data.data as Contact[]));
+		page += 1;
+		console.log(
+			`Fetched page ${page}: ${data.data.length} contacts (total so far: ${all.length})`,
+		);
+		if (!data.has_more || data.data.length === 0) {
+			break;
+		}
+		const last = data.data[data.data.length - 1];
 		if (!last) {
 			break;
 		}
@@ -76,39 +72,30 @@ async function listAllContacts(): Promise<Contact[]> {
 	return all;
 }
 
-async function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function patchContact(email: string, maxRetries = 8): Promise<void> {
+async function setTopicOptIn(email: string, maxRetries = 8): Promise<void> {
 	for (let attempt = 0; attempt < maxRetries; attempt++) {
-		const resp = await fetch(
-			`https://api.resend.com/contacts/${encodeURIComponent(email)}/topics`,
-			{
-				method: "PATCH",
-				headers: {
-					Authorization: `Bearer ${RESEND_API_KEY}`,
-					"Content-Type": "application/json",
+		const { error } = await resend.contacts.topics.update({
+			email,
+			topics: [
+				{
+					id: RESEND_NEWSLETTER_TOPIC_ID!,
+					subscription: "opt_in",
 				},
-				body: JSON.stringify([
-					{
-						id: RESEND_NEWSLETTER_TOPIC_ID,
-						subscription: "opt_in",
-					},
-				]),
-			},
-		);
-		if (resp.ok) {
+			],
+		});
+		if (!error) {
 			return;
 		}
-		if (resp.status === 429) {
+		if (
+			typeof error === "object" &&
+			"statusCode" in error &&
+			error.statusCode === 429
+		) {
 			const backoff = Math.min(2 ** attempt * 500, 30000);
 			await sleep(backoff);
 			continue;
 		}
-		throw new Error(
-			`PATCH ${email} failed: ${resp.status} ${await resp.text()}`,
-		);
+		throw new Error(`PATCH ${email} failed: ${error.message}`);
 	}
 	throw new Error(`PATCH ${email} failed after ${maxRetries} retries (429)`);
 }
@@ -169,7 +156,7 @@ async function main() {
 				return;
 			}
 			try {
-				await patchContact(c.email);
+				await setTopicOptIn(c.email);
 				done += 1;
 				if (done % 25 === 0) {
 					console.log(`  progress: ${done}/${eligible.length}`);
