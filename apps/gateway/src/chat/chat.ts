@@ -3646,6 +3646,8 @@ chat.openapi(completions, async (c) => {
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
+					null,
+					null,
 					{
 						cacheWriteTokens,
 						cacheWrite1hTokens,
@@ -3806,6 +3808,8 @@ chat.openapi(completions, async (c) => {
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
+					null,
+					null,
 					{
 						cacheWriteTokens:
 							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
@@ -6227,6 +6231,8 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
+										null,
+										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
@@ -7515,6 +7521,8 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
+										null,
+										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
@@ -7829,6 +7837,8 @@ chat.openapi(completions, async (c) => {
 									webSearchCount,
 									project.organizationId,
 									image_config?.image_quality,
+									null,
+									null,
 									{
 										cacheWriteTokens: cacheCreationTokens,
 										cacheWrite1hTokens: cacheCreation1hTokens,
@@ -9545,6 +9555,8 @@ chat.openapi(completions, async (c) => {
 		webSearchCount,
 		project.organizationId,
 		image_config?.image_quality,
+		imageInputTokens,
+		imageOutputTokens,
 		{
 			cacheWriteTokens: cacheCreationTokens,
 			cacheWrite1hTokens: cacheCreation1hTokens,
