@@ -464,6 +464,9 @@ export default function DashboardClient() {
 							devPlanAllowAllModels={
 								devPlanStatus?.devPlanAllowAllModels ?? false
 							}
+							cachingEnabled={devPlanStatus?.cachingEnabled ?? false}
+							cacheDurationSeconds={devPlanStatus?.cacheDurationSeconds ?? 60}
+							retentionLevel={devPlanStatus?.retentionLevel ?? "none"}
 						/>
 
 						{/* Change plan */}

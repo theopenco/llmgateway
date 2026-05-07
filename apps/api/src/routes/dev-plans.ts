@@ -724,6 +724,9 @@ const getStatus = createRoute({
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanAllowAllModels: z.boolean(),
+						cachingEnabled: z.boolean(),
+						cacheDurationSeconds: z.number(),
+						retentionLevel: z.enum(["retain", "none"]),
 					}),
 				},
 			},
@@ -770,6 +773,9 @@ devPlans.openapi(getStatus, async (c) => {
 			projectId: null,
 			apiKey: null,
 			devPlanAllowAllModels: false,
+			cachingEnabled: false,
+			cacheDurationSeconds: 60,
+			retentionLevel: "none" as const,
 		});
 	}
 
@@ -780,6 +786,8 @@ devPlans.openapi(getStatus, async (c) => {
 	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
 	let projectId: string | null = null;
+	let cachingEnabled = false;
+	let cacheDurationSeconds = 60;
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -797,6 +805,8 @@ devPlans.openapi(getStatus, async (c) => {
 
 		if (project) {
 			projectId = project.id;
+			cachingEnabled = project.cachingEnabled;
+			cacheDurationSeconds = project.cacheDurationSeconds;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -821,6 +831,9 @@ devPlans.openapi(getStatus, async (c) => {
 		projectId,
 		apiKey,
 		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
+		cachingEnabled,
+		cacheDurationSeconds,
+		retentionLevel: personalOrg.retentionLevel,
 	});
 });
 
@@ -834,6 +847,9 @@ const updateSettings = createRoute({
 				"application/json": {
 					schema: z.object({
 						devPlanAllowAllModels: z.boolean().optional(),
+						cachingEnabled: z.boolean().optional(),
+						cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+						retentionLevel: z.enum(["retain", "none"]).optional(),
 					}),
 				},
 			},
@@ -846,6 +862,9 @@ const updateSettings = createRoute({
 					schema: z.object({
 						success: z.boolean(),
 						devPlanAllowAllModels: z.boolean(),
+						cachingEnabled: z.boolean(),
+						cacheDurationSeconds: z.number(),
+						retentionLevel: z.enum(["retain", "none"]),
 					}),
 				},
 			},
@@ -856,7 +875,12 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanAllowAllModels } = c.req.valid("json");
+	const {
+		devPlanAllowAllModels,
+		cachingEnabled,
+		cacheDurationSeconds,
+		retentionLevel,
+	} = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -890,11 +914,19 @@ devPlans.openapi(updateSettings, async (c) => {
 		});
 	}
 
-	const updateData: { devPlanAllowAllModels?: boolean } = {};
+	const updateData: {
+		devPlanAllowAllModels?: boolean;
+		retentionLevel?: "retain" | "none";
+	} = {};
 
 	if (devPlanAllowAllModels !== undefined) {
 		updateData.devPlanAllowAllModels = devPlanAllowAllModels;
 	}
+	if (retentionLevel !== undefined) {
+		updateData.retentionLevel = retentionLevel;
+	}
+
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
 
 	if (Object.keys(updateData).length > 0) {
 		await db
@@ -902,7 +934,6 @@ devPlans.openapi(updateSettings, async (c) => {
 			.set(updateData)
 			.where(eq(tables.organization.id, personalOrg.id));
 
-		const changes: Record<string, { old: unknown; new: unknown }> = {};
 		if (
 			devPlanAllowAllModels !== undefined &&
 			devPlanAllowAllModels !== personalOrg.devPlanAllowAllModels
@@ -912,22 +943,83 @@ devPlans.openapi(updateSettings, async (c) => {
 				new: devPlanAllowAllModels,
 			};
 		}
-
-		if (Object.keys(changes).length > 0) {
-			await logAuditEvent({
-				organizationId: personalOrg.id,
-				userId: user.id,
-				action: "dev_plan.update_settings",
-				resourceType: "dev_plan",
-				metadata: { changes },
-			});
+		if (
+			retentionLevel !== undefined &&
+			retentionLevel !== personalOrg.retentionLevel
+		) {
+			changes.retentionLevel = {
+				old: personalOrg.retentionLevel,
+				new: retentionLevel,
+			};
 		}
+	}
+
+	const project = await db.query.project.findFirst({
+		where: {
+			organizationId: {
+				eq: personalOrg.id,
+			},
+		},
+		orderBy: {
+			createdAt: "asc",
+		},
+	});
+
+	const projectUpdate: {
+		cachingEnabled?: boolean;
+		cacheDurationSeconds?: number;
+	} = {};
+	if (cachingEnabled !== undefined) {
+		projectUpdate.cachingEnabled = cachingEnabled;
+	}
+	if (cacheDurationSeconds !== undefined) {
+		projectUpdate.cacheDurationSeconds = cacheDurationSeconds;
+	}
+
+	if (project && Object.keys(projectUpdate).length > 0) {
+		await db
+			.update(tables.project)
+			.set(projectUpdate)
+			.where(eq(tables.project.id, project.id));
+
+		if (
+			cachingEnabled !== undefined &&
+			cachingEnabled !== project.cachingEnabled
+		) {
+			changes.cachingEnabled = {
+				old: project.cachingEnabled,
+				new: cachingEnabled,
+			};
+		}
+		if (
+			cacheDurationSeconds !== undefined &&
+			cacheDurationSeconds !== project.cacheDurationSeconds
+		) {
+			changes.cacheDurationSeconds = {
+				old: project.cacheDurationSeconds,
+				new: cacheDurationSeconds,
+			};
+		}
+	}
+
+	if (Object.keys(changes).length > 0) {
+		await logAuditEvent({
+			organizationId: personalOrg.id,
+			userId: user.id,
+			action: "dev_plan.update_settings",
+			resourceType: "dev_plan",
+			metadata: { changes },
+		});
 	}
 
 	return c.json({
 		success: true,
 		devPlanAllowAllModels:
 			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
+		cachingEnabled: cachingEnabled ?? project?.cachingEnabled ?? false,
+		cacheDurationSeconds:
+			cacheDurationSeconds ?? project?.cacheDurationSeconds ?? 60,
+		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 	});
 });
 
