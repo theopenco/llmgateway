@@ -175,6 +175,13 @@ export interface ProviderModelMapping {
 	 */
 	imageInputPrice?: number;
 	/**
+	 * Price per cached image input token in USD. Used by image-output models
+	 * (e.g. gpt-image-2) where OpenAI bills cached image tokens at a different
+	 * rate than cached text tokens. When unset, cached image tokens fall back
+	 * to `cachedInputPrice`.
+	 */
+	cachedImageInputPrice?: number;
+	/**
 	 * Resolution-based token counts for image output.
 	 * Maps resolution keys (e.g., "1K", "2K", "4K", "default") to tokens per image.
 	 * The per-token price comes from imageOutputPrice.
