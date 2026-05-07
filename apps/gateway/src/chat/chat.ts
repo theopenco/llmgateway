@@ -4512,14 +4512,16 @@ chat.openapi(completions, async (c) => {
 							break;
 						}
 
-						// Check if the fallback candidate is rate-limited
-						const retryRateLimitPeek = await peekProviderRateLimit(
+						// Check and consume a rate-limit slot for the fallback candidate.
+						// Using checkProviderRateLimit (not peek) so RPM/RPD counters include
+						// requests routed to a provider via fallback, not just the initial pick.
+						const retryRateLimitResult = await checkProviderRateLimit(
 							project.organizationId,
 							nextProvider.providerId,
 							modelInfo.id,
 							nextProvider.modelName,
 						);
-						if (retryRateLimitPeek.rateLimited) {
+						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
 								providerRetryKey(nextProvider.providerId, nextProvider.region),
 							);
@@ -8051,14 +8053,16 @@ chat.openapi(completions, async (c) => {
 				break;
 			}
 
-			// Check if the fallback candidate is rate-limited
-			const retryRateLimitPeek = await peekProviderRateLimit(
+			// Check and consume a rate-limit slot for the fallback candidate.
+			// Using checkProviderRateLimit (not peek) so RPM/RPD counters include
+			// requests routed to a provider via fallback, not just the initial pick.
+			const retryRateLimitResult = await checkProviderRateLimit(
 				project.organizationId,
 				nextProvider.providerId,
 				modelInfo.id,
 				nextProvider.modelName,
 			);
-			if (retryRateLimitPeek.rateLimited) {
+			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(
 					providerRetryKey(nextProvider.providerId, nextProvider.region),
 				);
