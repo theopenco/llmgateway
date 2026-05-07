@@ -1618,9 +1618,6 @@ export async function prepareRequestBody(
 			if (usedProvider === "vertex-anthropic") {
 				requestBody.anthropic_version = "vertex-2023-10-16";
 				delete requestBody.model;
-				if (stream) {
-					requestBody.stream = true;
-				}
 			}
 			break;
 		}

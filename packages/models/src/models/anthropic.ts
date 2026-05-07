@@ -279,7 +279,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "vertex-anthropic",
-				modelName: "claude-sonnet-4-5@20250929",
+				modelName: "claude-sonnet-4-5",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				cachedInputPrice: 0.3 / 1e6,
@@ -411,7 +411,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "vertex-anthropic",
-				modelName: "claude-sonnet-4-6@20250514",
+				modelName: "claude-sonnet-4-6",
 				inputPrice: 3.0 / 1e6,
 				outputPrice: 15.0 / 1e6,
 				cachedInputPrice: 0.3 / 1e6,
@@ -473,7 +473,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "vertex-anthropic",
-				modelName: "claude-haiku-4-5@20251001",
+				modelName: "claude-haiku-4-5",
 				inputPrice: 1.0 / 1e6,
 				outputPrice: 5.0 / 1e6,
 				cachedInputPrice: 0.1 / 1e6,
@@ -859,7 +859,7 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "google-vertex",
 				stability: "unstable" as const,
-				modelName: "claude-opus-4-5@20251101",
+				modelName: "claude-opus-4-5",
 				inputPrice: 5.0 / 1e6,
 				outputPrice: 25.0 / 1e6,
 				cachedInputPrice: 0.5 / 1e6,
@@ -877,7 +877,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "vertex-anthropic",
-				modelName: "claude-opus-4-5@20251101",
+				modelName: "claude-opus-4-5",
 				inputPrice: 5.0 / 1e6,
 				outputPrice: 25.0 / 1e6,
 				cachedInputPrice: 0.5 / 1e6,
@@ -962,7 +962,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "vertex-anthropic",
-				modelName: "claude-opus-4-6@20260205",
+				modelName: "claude-opus-4-6",
 				inputPrice: 5.0 / 1e6,
 				outputPrice: 25.0 / 1e6,
 				cachedInputPrice: 0.5 / 1e6,
@@ -1047,7 +1047,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "vertex-anthropic",
-				modelName: "claude-opus-4-7@20260416",
+				modelName: "claude-opus-4-7",
 				inputPrice: 5.0 / 1e6,
 				outputPrice: 25.0 / 1e6,
 				cachedInputPrice: 0.5 / 1e6,

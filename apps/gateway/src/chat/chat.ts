@@ -567,13 +567,17 @@ function usesGoogleQueryToken(provider: string): boolean {
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
 		provider === "google-vertex" ||
-		provider === "quartz" ||
-		provider === "vertex-anthropic"
+		provider === "quartz"
 	);
 }
 
 function isGoogleCompatibleProvider(provider: string): boolean {
-	return usesGoogleQueryToken(provider);
+	return (
+		provider === "google-ai-studio" ||
+		provider === "glacier" ||
+		provider === "google-vertex" ||
+		provider === "quartz"
+	);
 }
 
 // Pre-compiled regex pattern to avoid recompilation per request

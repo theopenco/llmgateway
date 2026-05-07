@@ -163,7 +163,7 @@ export function getProviderEndpoint(
 					) ?? "https://aiplatform.googleapis.com";
 				break;
 			case "vertex-anthropic": {
-				const vertexAnthropicRegion =
+				const vaDefaultRegion =
 					providerKeyOptions?.vertex_anthropic_region ??
 					getProviderEnvValue(
 						"vertex-anthropic",
@@ -176,8 +176,8 @@ export function getProviderEndpoint(
 					envValueOrDefault(
 						"vertex-anthropic",
 						"baseUrl",
-						`https://${vertexAnthropicRegion}-aiplatform.googleapis.com`,
-					) ?? `https://${vertexAnthropicRegion}-aiplatform.googleapis.com`;
+						`https://${vaDefaultRegion}-aiplatform.googleapis.com`,
+					) ?? `https://${vaDefaultRegion}-aiplatform.googleapis.com`;
 				break;
 			}
 			case "quartz":
@@ -376,16 +376,9 @@ export function getProviderEndpoint(
 				);
 			}
 
-			const vaModel = modelName ?? "claude-sonnet-4-6@20250514";
+			const vaModel = modelName ?? "claude-sonnet-4-6";
 			const vaEndpoint = stream ? "streamRawPredict" : "rawPredict";
-			const vaBaseEndpoint = `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
-			const vaQueryParams = [];
-			if (token) {
-				vaQueryParams.push(`key=${token}`);
-			}
-			return vaQueryParams.length > 0
-				? `${vaBaseEndpoint}?${vaQueryParams.join("&")}`
-				: vaBaseEndpoint;
+			return `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
 		}
 		case "perplexity":
 			return `${url}/chat/completions`;
