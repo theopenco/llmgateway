@@ -1072,3 +1072,137 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		});
 	});
 });
+
+describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
+	const budget = 1024;
+
+	test("anthropic forwards budget into thinking.budget_tokens", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens (must exceed thinking budget)
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			budget, // reasoning_max_tokens
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: budget,
+		});
+	});
+
+	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			budget,
+		)) as any;
+
+		expect(requestBody.additionalModelRequestFields?.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: budget,
+		});
+	});
+
+	test("google-ai-studio forwards budget into generationConfig.thinkingConfig.thinkingBudget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			budget,
+		)) as any;
+
+		expect(requestBody.generationConfig?.thinkingConfig?.thinkingBudget).toBe(
+			budget,
+		);
+	});
+
+	test("google-vertex forwards budget into generationConfig.thinkingConfig.thinkingBudget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-vertex",
+			"gemini-2.5-pro",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			budget,
+		)) as any;
+
+		expect(requestBody.generationConfig?.thinkingConfig?.thinkingBudget).toBe(
+			budget,
+		);
+	});
+});
