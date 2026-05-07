@@ -520,8 +520,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			},
 			session: {
 				cookieCache: {
-					enabled: true,
-					maxAge: 5 * 60,
+					enabled: false,
 				},
 				expiresIn: 60 * 60 * 24 * 30, // 30 days
 				updateAge: 60 * 60 * 24, // 1 day (every 1 day the session expiration is updated)
