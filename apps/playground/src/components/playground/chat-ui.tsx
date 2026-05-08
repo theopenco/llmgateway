@@ -496,7 +496,9 @@ export const ChatUI = ({
 		: ["Create", "Explore", "Code"];
 	const activeSuggestionGroup: HeroSuggestionGroup = supportsImageGen
 		? "Image gen"
-		: activeGroup;
+		: visibleHeroSuggestionGroups.includes(activeGroup)
+			? activeGroup
+			: "Create";
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const inputRef = useRef<HTMLDivElement | null>(null);
 	const [inputHeight, setInputHeight] = useState(0);
