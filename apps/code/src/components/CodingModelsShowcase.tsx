@@ -67,8 +67,8 @@ export function CodingModelsShowcase({
 	return (
 		<div className={`rounded-lg border p-6 ${className ?? ""}`}>
 			<div className="flex items-center gap-2 mb-4">
-				<Code className="h-5 w-5" />
-				<h3 className="font-semibold">Recommended Coding Models</h3>
+				<Code className="h-5 w-5" aria-hidden="true" />
+				<p className="font-semibold">Recommended for coding agents</p>
 			</div>
 			<p className="text-sm text-muted-foreground mb-4">
 				High-performance models optimized for coding tasks with tool support and
@@ -164,7 +164,7 @@ export function CodingModelsShowcase({
 				<a
 					href={`${uiUrl}/models?category=code`}
 					target="_blank"
-					rel="noopener noreferrer"
+					rel="noopener"
 					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
 				>
 					View all coding models

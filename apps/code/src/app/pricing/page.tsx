@@ -55,6 +55,84 @@ const liteCredits = getDevPlanCreditsLimit("lite");
 const proCredits = getDevPlanCreditsLimit("pro");
 const maxCredits = getDevPlanCreditsLimit("max");
 
+const productSchema = {
+	"@context": "https://schema.org",
+	"@type": "Product",
+	name: "DevPass by LLM Gateway",
+	description:
+		"Flat-rate AI coding plans with access to 200+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, SoulForge, and any OpenAI-compatible tool.",
+	brand: {
+		"@type": "Brand",
+		name: "LLM Gateway",
+	},
+	offers: {
+		"@type": "AggregateOffer",
+		priceCurrency: "USD",
+		lowPrice: DEV_PLAN_PRICES.lite,
+		highPrice: DEV_PLAN_PRICES.max,
+		offerCount: 3,
+		offers: [
+			{
+				"@type": "Offer",
+				name: "DevPass Lite",
+				price: DEV_PLAN_PRICES.lite,
+				priceCurrency: "USD",
+				url: "https://devpass.llmgateway.io/pricing",
+				availability: "https://schema.org/InStock",
+				priceSpecification: {
+					"@type": "UnitPriceSpecification",
+					price: DEV_PLAN_PRICES.lite,
+					priceCurrency: "USD",
+					unitCode: "MON",
+					referenceQuantity: {
+						"@type": "QuantitativeValue",
+						value: 1,
+						unitCode: "MON",
+					},
+				},
+			},
+			{
+				"@type": "Offer",
+				name: "DevPass Pro",
+				price: DEV_PLAN_PRICES.pro,
+				priceCurrency: "USD",
+				url: "https://devpass.llmgateway.io/pricing",
+				availability: "https://schema.org/InStock",
+				priceSpecification: {
+					"@type": "UnitPriceSpecification",
+					price: DEV_PLAN_PRICES.pro,
+					priceCurrency: "USD",
+					unitCode: "MON",
+					referenceQuantity: {
+						"@type": "QuantitativeValue",
+						value: 1,
+						unitCode: "MON",
+					},
+				},
+			},
+			{
+				"@type": "Offer",
+				name: "DevPass Max",
+				price: DEV_PLAN_PRICES.max,
+				priceCurrency: "USD",
+				url: "https://devpass.llmgateway.io/pricing",
+				availability: "https://schema.org/InStock",
+				priceSpecification: {
+					"@type": "UnitPriceSpecification",
+					price: DEV_PLAN_PRICES.max,
+					priceCurrency: "USD",
+					unitCode: "MON",
+					referenceQuantity: {
+						"@type": "QuantitativeValue",
+						value: 1,
+						unitCode: "MON",
+					},
+				},
+			},
+		],
+	},
+};
+
 const usageRows: UsageRow[] = [
 	{
 		label: "You pay",
@@ -189,8 +267,20 @@ export default function PricingPage() {
 	const config = getConfig();
 	const calculatorUrl = `${config.uiUrl}/token-cost-calculator`;
 
+	const productSchemaJson = JSON.stringify(productSchema).replace(
+		/</g,
+		"\\u003c",
+	);
+
 	return (
 		<div className="min-h-screen bg-background">
+			<script
+				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+				dangerouslySetInnerHTML={{
+					__html: productSchemaJson,
+				}}
+			/>
 			<Header />
 
 			<main>

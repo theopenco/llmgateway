@@ -10,7 +10,6 @@ import {
 	LandingPageTracker,
 } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
-import { ProductHuntIcon } from "@/components/ProductHuntIcon";
 import { SoulForgeBoost } from "@/components/SoulForgeBoost";
 import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
@@ -42,7 +41,7 @@ const featuredTools = [
 		name: "SoulForge",
 		icon: SoulForgeIcon,
 		description:
-			"Aggressive prompt caching cuts roughly 50% of tokens on multi-turn agent runs. Pair with DevPass to effectively double your monthly usage.",
+			"Saves ~50% of tokens on multi-turn coding sessions. Instead of grepping and dumping whole files into the chat, SoulForge builds a live map of your codebase and lets the agent jump straight to the function it needs — one symbol at a time. Less waste, faster turns, cleaner edits. Pair with DevPass to effectively double your monthly usage.",
 		setup: "/keys → paste your key",
 		highlight: "Saves ~50% tokens",
 	},
@@ -104,22 +103,6 @@ export default function LandingPage() {
 										<Link href="/pricing">See pricing</Link>
 									</Button>
 								</CodeCTATracker>
-							</div>
-
-							<div className="mt-6 flex justify-center">
-								<a
-									href="https://www.producthunt.com/products/devpass-by-llm-gateway?launch=devpass-by-llm-gateway"
-									target="_blank"
-									rel="noreferrer"
-									className="inline-flex items-center gap-2.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-5 py-2.5 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-300"
-								>
-									<ProductHuntIcon className="h-6 w-6" />
-
-									<span>
-										We&apos;re live on Product Hunt. Help us by upvoting
-									</span>
-									<ArrowRight className="h-4 w-4" />
-								</a>
 							</div>
 						</div>
 

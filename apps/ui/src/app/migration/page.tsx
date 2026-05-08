@@ -9,11 +9,11 @@ import { allMigrations } from "content-collections";
 const Footer = dynamic(() => import("@/components/landing/footer"));
 
 export const metadata = {
-	title: "Migration Guides | LLM Gateway",
+	title: "Migration Guides — From OpenRouter, LiteLLM, Vercel AI",
 	description:
 		"Step-by-step guides to migrate from OpenRouter, Vercel AI Gateway, LiteLLM, and other LLM providers to LLM Gateway.",
 	openGraph: {
-		title: "Migration Guides | LLM Gateway",
+		title: "Migration Guides — From OpenRouter, LiteLLM, Vercel AI",
 		description:
 			"Step-by-step guides to migrate from OpenRouter, Vercel AI Gateway, LiteLLM, and other LLM providers to LLM Gateway.",
 	},
