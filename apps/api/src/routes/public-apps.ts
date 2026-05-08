@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { db, isNotNull, sql, tables } from "@llmgateway/db";
+import { db, globalSourceStats, ne, sql } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -49,27 +49,25 @@ publicApps.openapi(listAppsRoute, async (c) => {
 
 	const rows = await db
 		.select({
-			source: tables.log.source,
-			totalTokens: sql<string>`COALESCE(SUM(CAST(${tables.log.totalTokens} AS NUMERIC)), 0)`,
-			totalRequests: sql<string>`COUNT(*)`,
-			lastUsedAt: sql<Date | null>`MAX(${tables.log.createdAt})`,
+			source: globalSourceStats.source,
+			totalTokens: sql<string>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`,
+			totalRequests: sql<string>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`,
+			lastUsedAt: sql<Date | null>`MAX(${globalSourceStats.dayTimestamp})`,
 		})
-		.from(tables.log)
-		.where(isNotNull(tables.log.source))
-		.groupBy(tables.log.source)
+		.from(globalSourceStats)
+		.where(ne(globalSourceStats.source, "unknown"))
+		.groupBy(globalSourceStats.source)
 		.orderBy(
-			sql`COALESCE(SUM(CAST(${tables.log.totalTokens} AS NUMERIC)), 0) DESC`,
+			sql`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0) DESC`,
 		)
 		.limit(limit);
 
-	const apps = rows
-		.filter((r): r is typeof r & { source: string } => r.source !== null)
-		.map((r) => ({
-			source: r.source,
-			totalTokens: Number(r.totalTokens) || 0,
-			totalRequests: Number(r.totalRequests) || 0,
-			lastUsedAt: r.lastUsedAt ? new Date(r.lastUsedAt).toISOString() : null,
-		}));
+	const apps = rows.map((r) => ({
+		source: r.source,
+		totalTokens: Number(r.totalTokens) || 0,
+		totalRequests: Number(r.totalRequests) || 0,
+		lastUsedAt: r.lastUsedAt ? new Date(r.lastUsedAt).toISOString() : null,
+	}));
 
 	const totalTokens = apps.reduce((sum, a) => sum + a.totalTokens, 0);
 	const totalRequests = apps.reduce((sum, a) => sum + a.totalRequests, 0);
