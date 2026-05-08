@@ -137,3 +137,91 @@ describe("Anthropic model pricing", () => {
 		},
 	);
 });
+
+describe("AWS Bedrock Anthropic model pricing", () => {
+	const bedrockProviderEntries = models.flatMap((model) =>
+		model.family === "anthropic"
+			? model.providers
+					.filter((provider) => provider.providerId === "aws-bedrock")
+					.map((provider) => ({
+						modelId: model.id,
+						provider: provider as ProviderModelMapping,
+					}))
+			: [],
+	);
+
+	it("has at least one AWS Bedrock Anthropic provider mapping to validate", () => {
+		expect(bedrockProviderEntries.length).toBeGreaterThan(0);
+	});
+
+	it.each(bedrockProviderEntries)(
+		"$modelId defines cacheWriteInputPrice whenever cachedInputPrice is set",
+		({ provider }) => {
+			if (provider.cachedInputPrice === undefined) {
+				return;
+			}
+			expect(
+				provider.cacheWriteInputPrice,
+				`${provider.modelName}: cachedInputPrice is set but cacheWriteInputPrice is missing`,
+			).toBeDefined();
+		},
+	);
+
+	const ONE_HOUR_BEDROCK_PREFIXES = [
+		"anthropic.claude-opus-4-5",
+		"anthropic.claude-opus-4-6",
+		"anthropic.claude-opus-4-7",
+		"anthropic.claude-haiku-4-5",
+		"anthropic.claude-sonnet-4-5",
+		"anthropic.claude-sonnet-4-6",
+	];
+	const supportsBedrock1h = (modelName: string) =>
+		ONE_HOUR_BEDROCK_PREFIXES.some((prefix) => modelName.startsWith(prefix));
+
+	it.each(bedrockProviderEntries)(
+		"$modelId only sets cacheWriteInputPrice1h on bedrock models that support 1h TTL",
+		({ provider }) => {
+			if (provider.cacheWriteInputPrice1h === undefined) {
+				return;
+			}
+			expect(
+				supportsBedrock1h(provider.modelName),
+				`${provider.modelName}: cacheWriteInputPrice1h is set but bedrock does not document 1h TTL support for this model`,
+			).toBe(true);
+		},
+	);
+
+	it.each(bedrockProviderEntries)(
+		"$modelId cache prices follow the standard 1.25x/2x/0.1x ratios",
+		({ provider }) => {
+			if (provider.inputPrice === undefined) {
+				return;
+			}
+			const base = provider.inputPrice;
+			if (provider.cacheWriteInputPrice !== undefined) {
+				assertRatio(
+					provider.modelName,
+					"cacheWriteInputPrice (5m)",
+					provider.cacheWriteInputPrice,
+					base * FIVE_MIN_WRITE_MULTIPLIER,
+				);
+			}
+			if (provider.cacheWriteInputPrice1h !== undefined) {
+				assertRatio(
+					provider.modelName,
+					"cacheWriteInputPrice1h",
+					provider.cacheWriteInputPrice1h,
+					base * ONE_HOUR_WRITE_MULTIPLIER,
+				);
+			}
+			if (provider.cachedInputPrice !== undefined) {
+				assertRatio(
+					provider.modelName,
+					"cachedInputPrice",
+					provider.cachedInputPrice,
+					base * CACHE_READ_MULTIPLIER,
+				);
+			}
+		},
+	);
+});

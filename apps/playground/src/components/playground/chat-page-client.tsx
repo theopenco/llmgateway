@@ -137,6 +137,7 @@ export default function ChatPageClient({
 	const [error, setError] = useState<string | null>(null);
 	const [finishReason, setFinishReason] = useState<string | null>(null);
 	const [showTopUp, setShowTopUp] = useState(false);
+	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
 
 	// MCP servers management
 	const {
@@ -202,6 +203,9 @@ export default function ChatPageClient({
 				// If an error already occurred during streaming, skip saving the response
 				if (errorOccurredRef.current) {
 					errorOccurredRef.current = false;
+					return;
+				}
+				if (isTemporaryChat) {
 					return;
 				}
 
@@ -465,6 +469,7 @@ export default function ChatPageClient({
 					...(enabledMcpServers.length > 0
 						? { mcp_servers: enabledMcpServers }
 						: {}),
+					...(isTemporaryChat ? { temporary_chat: true } : {}),
 				},
 			};
 		},
@@ -481,6 +486,7 @@ export default function ChatPageClient({
 			webSearchEnabled,
 			supportsWebSearch,
 			getEnabledMcpServers,
+			isTemporaryChat,
 		],
 	);
 
@@ -532,7 +538,7 @@ export default function ChatPageClient({
 	useChats();
 
 	useEffect(() => {
-		if (!currentChatData?.messages || isSendingRef.current) {
+		if (!currentChatData?.messages || isSendingRef.current || isTemporaryChat) {
 			return;
 		}
 
@@ -613,7 +619,7 @@ export default function ChatPageClient({
 			}
 			return prev;
 		});
-	}, [currentChatData, setMessages, setSelectedModel]);
+	}, [currentChatData, setMessages, setSelectedModel, isTemporaryChat]);
 
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
@@ -712,6 +718,25 @@ export default function ChatPageClient({
 		});
 		errorOccurredRef.current = false;
 		isSendingRef.current = true;
+		if (isTemporaryChat) {
+			isSendingRef.current = false;
+			isNewChatRef.current = false;
+			setIsLoading(false);
+			if (syncInput) {
+				const submitFns = Object.values(extraSubmitRefs.current);
+				const results = await Promise.allSettled(
+					submitFns.map((submit) => submit(content)),
+				);
+				for (const result of results) {
+					if (result.status === "rejected") {
+						posthog.capture("playground_mirror_prompt_failure", {
+							reason: String(result.reason),
+						});
+					}
+				}
+			}
+			return;
+		}
 
 		const isNewChat = !chatIdRef.current;
 		if (isNewChat) {
@@ -816,6 +841,8 @@ export default function ChatPageClient({
 		setError(null);
 		setFinishReason(null);
 		shouldClearMessagesRef.current = true;
+		setCurrentChatId(null);
+		chatIdRef.current = null;
 		setMessages([]);
 		// Remove chat param from URL
 		const params = new URLSearchParams(searchParams.toString());
@@ -824,6 +851,22 @@ export default function ChatPageClient({
 			? `${pathname}?${params.toString()}`
 			: pathname;
 		router.push(newUrl);
+	};
+
+	const hasTemporaryMessages = isTemporaryChat && messages.length > 0;
+
+	const handleToggleTemporaryChat = () => {
+		if (isTemporaryChat) {
+			clearMessages();
+			setIsTemporaryChat(false);
+			return;
+		}
+		setComparisonEnabled(false);
+		setExtraPanelIds([]);
+		setComparisonResetToken((token) => token + 1);
+		extraSubmitRefs.current = {};
+		clearMessages();
+		setIsTemporaryChat(true);
 	};
 
 	const handleNewChat = async () => {
@@ -965,21 +1008,23 @@ export default function ChatPageClient({
 				LLM Gateway Playground - Chat with 210+ AI Models
 			</h1>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
-				<ChatSidebar
-					onNewChat={handleNewChat}
-					onChatSelect={handleChatSelect}
-					currentChatId={currentChatId ?? undefined}
-					clearMessages={clearMessages}
-					isLoading={isLoading}
-					organizations={organizations}
-					selectedOrganization={selectedOrganization}
-					onSelectOrganization={handleSelectOrganization}
-					onOrganizationCreated={handleOrganizationCreated}
-					projects={projects}
-					selectedProject={selectedProject}
-					onSelectProject={handleSelectProject}
-					onProjectCreated={handleProjectCreated}
-				/>
+				{isTemporaryChat ? null : (
+					<ChatSidebar
+						onNewChat={handleNewChat}
+						onChatSelect={handleChatSelect}
+						currentChatId={currentChatId ?? undefined}
+						clearMessages={clearMessages}
+						isLoading={isLoading}
+						organizations={organizations}
+						selectedOrganization={selectedOrganization}
+						onSelectOrganization={handleSelectOrganization}
+						onOrganizationCreated={handleOrganizationCreated}
+						projects={projects}
+						selectedProject={selectedProject}
+						onSelectProject={handleSelectProject}
+						onProjectCreated={handleProjectCreated}
+					/>
+				)}
 				<main className="flex flex-1 flex-col w-full min-h-0 overflow-hidden">
 					<header className="shrink-0">
 						<ChatHeader
@@ -1004,9 +1049,15 @@ export default function ChatPageClient({
 							onUpdateMcpServer={updateMcpServer}
 							onRemoveMcpServer={removeMcpServer}
 							onToggleMcpServer={toggleMcpServer}
+							isTemporaryChat={isTemporaryChat}
+							onToggleTemporaryChat={handleToggleTemporaryChat}
+							isTemporaryChatToggleDisabled={
+								isLoading || status === "submitted" || status === "streaming"
+							}
+							hasTemporaryMessages={hasTemporaryMessages}
 						/>
 					</header>
-					{comparisonEnabled ? (
+					{comparisonEnabled && !isTemporaryChat ? (
 						<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
 							<div className="flex items-center gap-2 text-xs text-muted-foreground">
 								<span className="font-medium">Chat windows</span>
@@ -1121,6 +1172,7 @@ export default function ChatPageClient({
 											isLoading={isLoading || isChatLoading}
 											error={error}
 											finishReason={finishReason}
+											isTemporaryChat={isTemporaryChat}
 											setWebSearchEnabled={setWebSearchEnabled}
 											supportsWebSearch={supportsWebSearch}
 											webSearchEnabled={webSearchEnabled}
@@ -1161,6 +1213,7 @@ export default function ChatPageClient({
 										error={error}
 										finishReason={finishReason}
 										floatingInput
+										isTemporaryChat={isTemporaryChat}
 									/>
 								</div>
 							)}

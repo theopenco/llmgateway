@@ -10,11 +10,11 @@ const IntegrationCards = dynamic(() =>
 const Footer = dynamic(() => import("@/components/landing/footer"));
 
 export const metadata = {
-	title: "Integrations | LLM Gateway",
+	title: "Integrations — Claude Code, Cursor, Cline, n8n",
 	description:
 		"Connect LLM Gateway with your favorite tools. Integrate with Claude Code, Cursor, Cline, n8n, and more.",
 	openGraph: {
-		title: "Integrations | LLM Gateway",
+		title: "Integrations — Claude Code, Cursor, Cline, n8n",
 		description:
 			"Connect LLM Gateway with your favorite tools. Integrate with Claude Code, Cursor, Cline, n8n, and more.",
 	},

@@ -106,6 +106,16 @@ export const responsesRequestSchema = z.object({
 	instructions: z.string().optional(),
 	previous_response_id: z.string().optional(),
 	stream: z.boolean().optional().default(false),
+	prompt_cache_key: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	prompt_cache_retention: z
+		.enum(["in_memory", "24h"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	temperature: z
 		.number()
 		.nullable()

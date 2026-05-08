@@ -10,6 +10,7 @@ const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 const originalAzureFoundryResource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 const originalAzureFoundryApiVersion =
 	process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
+const originalXiaomiBaseUrl = process.env.LLM_XIAOMI_BASE_URL;
 
 afterEach(() => {
 	if (originalAiStudioBaseUrl === undefined) {
@@ -53,6 +54,12 @@ afterEach(() => {
 	} else {
 		process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION =
 			originalAzureFoundryApiVersion;
+	}
+
+	if (originalXiaomiBaseUrl === undefined) {
+		delete process.env.LLM_XIAOMI_BASE_URL;
+	} else {
+		process.env.LLM_XIAOMI_BASE_URL = originalXiaomiBaseUrl;
 	}
 });
 
@@ -246,6 +253,46 @@ describe("getProviderEndpoint", () => {
 					"grok-4-1-fast-non-reasoning",
 				),
 			).toThrow(/Azure AI Foundry resource (is invalid|is required)/);
+		});
+	});
+
+	describe("xiaomi", () => {
+		it("builds the default Xiaomi endpoint", () => {
+			delete process.env.LLM_XIAOMI_BASE_URL;
+
+			const endpoint = getProviderEndpoint(
+				"xiaomi",
+				undefined,
+				"mimo-v2.5-pro",
+			);
+
+			expect(endpoint).toBe("https://api.xiaomimimo.com/v1/chat/completions");
+		});
+
+		it("uses custom base URL when provided", () => {
+			const endpoint = getProviderEndpoint(
+				"xiaomi",
+				"https://custom-xiaomi.example.com",
+				"mimo-v2-flash",
+			);
+
+			expect(endpoint).toBe(
+				"https://custom-xiaomi.example.com/v1/chat/completions",
+			);
+		});
+
+		it("builds streaming endpoint", () => {
+			delete process.env.LLM_XIAOMI_BASE_URL;
+
+			const endpoint = getProviderEndpoint(
+				"xiaomi",
+				undefined,
+				"mimo-v2.5",
+				undefined,
+				true,
+			);
+
+			expect(endpoint).toBe("https://api.xiaomimimo.com/v1/chat/completions");
 		});
 	});
 

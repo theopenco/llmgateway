@@ -26,6 +26,28 @@ describe("extractTokenUsage", () => {
 			expect(result.totalTokens).toBe(350);
 		});
 
+		it("extracts cache creation tokens from cacheDetails by TTL", () => {
+			const data = {
+				usage: {
+					inputTokens: 100,
+					cacheReadInputTokens: 0,
+					cacheWriteInputTokens: 1000,
+					cacheDetails: [
+						{ ttl: "1h", inputTokens: 700 },
+						{ ttl: "5m", inputTokens: 300 },
+					],
+					outputTokens: 200,
+					totalTokens: 1300,
+				},
+			};
+
+			const result = extractTokenUsage(data, "aws-bedrock");
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(300);
+			expect(result.cacheCreation1hTokens).toBe(700);
+		});
+
 		it("returns cachedTokens with correct value when cacheReadInputTokens > 0", () => {
 			const data = {
 				usage: {

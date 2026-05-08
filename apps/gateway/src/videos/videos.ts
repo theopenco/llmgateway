@@ -1055,7 +1055,8 @@ async function resolveProviderContext(
 	providerId: Provider,
 	project: InferSelectModel<typeof tables.project>,
 	organizationId: string,
-	selectionKey: string,
+	requestId: string,
+	selectionScope: string,
 ): Promise<ProviderContext> {
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 	const sharedVertexProjectId = isGoogleVertexVideoProvider(providerId)
@@ -1070,7 +1071,7 @@ async function resolveProviderContext(
 		const providerKey = await findProviderKey(
 			organizationId,
 			providerId,
-			selectionKey,
+			selectionScope,
 			undefined,
 			getVideoProviderKeyFilter(providerId),
 		);
@@ -1100,7 +1101,7 @@ async function resolveProviderContext(
 			providerId,
 			baseUrl,
 			token: providerKey.token,
-			requestId: selectionKey,
+			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
@@ -1117,6 +1118,7 @@ async function resolveProviderContext(
 	if (project.mode === "credits") {
 		const env = getProviderEnv(providerId, {
 			excludedIndices: getVideoExcludedConfigIndices(providerId),
+			selectionScope,
 		});
 		const baseUrl =
 			getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
@@ -1149,7 +1151,7 @@ async function resolveProviderContext(
 			providerId,
 			baseUrl,
 			token: env.token,
-			requestId: selectionKey,
+			requestId,
 			usedMode: "credits",
 			configIndex: env.configIndex,
 			vertexProjectId,
@@ -1170,7 +1172,7 @@ async function resolveProviderContext(
 	const providerKey = await findProviderKey(
 		organizationId,
 		providerId,
-		selectionKey,
+		selectionScope,
 		undefined,
 		getVideoProviderKeyFilter(providerId),
 	);
@@ -1195,7 +1197,7 @@ async function resolveProviderContext(
 			providerId,
 			baseUrl,
 			token: providerKey.token,
-			requestId: selectionKey,
+			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
@@ -1249,7 +1251,7 @@ async function resolveProviderContext(
 		providerId,
 		baseUrl,
 		token: env.token,
-		requestId: selectionKey,
+		requestId,
 		usedMode: "credits",
 		configIndex: env.configIndex,
 		vertexProjectId,
@@ -1609,6 +1611,7 @@ async function resolveVideoExecution(
 		project,
 		organizationId,
 		requestId,
+		modelInfo.id,
 	);
 	return {
 		providerMapping,
@@ -2131,7 +2134,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		const providerKey = await findProviderKey(
 			job.organizationId,
 			providerId,
-			job.requestId,
+			job.usedModel,
 			undefined,
 			getVideoProviderKeyFilter(providerId),
 		);
@@ -2161,6 +2164,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 
 	const env = getProviderEnv(providerId, {
 		excludedIndices: getVideoExcludedConfigIndices(providerId),
+		selectionScope: job.usedModel,
 	});
 	const baseUrl =
 		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
@@ -3164,6 +3168,7 @@ videos.openapi(createVideo, async (c) => {
 				project,
 				organization.id,
 				requestId,
+				modelInfo.id,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
@@ -3219,6 +3224,7 @@ videos.openapi(createVideo, async (c) => {
 				project,
 				organization.id,
 				requestId,
+				modelInfo.id,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
@@ -3315,6 +3321,7 @@ videos.openapi(createVideo, async (c) => {
 				project,
 				organization.id,
 				requestId,
+				modelInfo.id,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,

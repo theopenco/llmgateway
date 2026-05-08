@@ -127,6 +127,25 @@ export function getRegionSpecificEnvValue(
 }
 
 /**
+ * Get the region-specific env var name only when that var is actually set.
+ * Returns `{BASE_ENV_VAR}__{REGION}` when the regional override exists, else
+ * undefined. Use this when you need to attribute health to the regional
+ * credential rather than the base env var.
+ */
+export function getRegionSpecificEnvVarName(
+	provider: Provider,
+	region: string,
+): string | undefined {
+	const baseEnvVar = getProviderEnvVar(provider);
+	if (!baseEnvVar) {
+		return undefined;
+	}
+	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionalName = `${baseEnvVar}__${regionSuffix}`;
+	return process.env[regionalName] ? regionalName : undefined;
+}
+
+/**
  * Check whether an env var exists for a specific region.
  * Returns true if a region-specific env var (`{BASE_ENV_VAR}__{REGION}`) exists,
  * OR if the base env var exists and the queried region is the provider's default region.

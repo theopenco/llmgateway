@@ -38,18 +38,19 @@ Caching can dramatically reduce costs for applications with repetitive requests:
 
 ## Requirements
 
-<Callout type="warning">
-	Caching requires [Data Retention](/features/data-retention) to be enabled with
-	"Retain All Data" level. This allows LLM Gateway to store and retrieve
-	response payloads.
+<Callout type="info">
+	Caching is **free** and **independent** of [Data
+	Retention](/features/data-retention). Cached responses live in a short-lived
+	cache (TTL-bound, typically seconds to minutes) and are not stored as
+	long-term request data — you do not need to enable data retention to use
+	caching.
 </Callout>
 
 To use caching:
 
-1. Enable **Data Retention** in your organization settings with "Retain All Data" level
-2. Enable **Caching** in your project settings under Preferences
-3. Configure the cache duration (TTL) as needed
-4. Make requests as normal—caching is automatic
+1. Enable **Caching** in your project settings under Preferences
+2. Configure the cache duration (TTL) as needed
+3. Make requests as normal—caching is automatic
 
 ## Cache Key Generation
 
@@ -192,16 +193,13 @@ Caching may not be suitable for:
 - Time-sensitive information
 - Creative tasks requiring variety
 
-## Storage Costs
+## Pricing
 
-Since caching requires data retention, storage costs apply:
-
-- **Rate**: $0.01 per 1 million tokens
-- **Applies to**: All tokens in cached requests and responses
-
-See [Data Retention](/features/data-retention) for complete pricing details.
+Caching is **completely free**. Cached responses are held in a short-lived
+in-memory cache (bounded by your configured TTL) and do not incur storage
+charges. Storage costs only apply if you separately enable [Data
+Retention](/features/data-retention) for full request/response payloads.
 
 <Callout type="success">
-	The cost savings from caching typically far outweigh the storage costs,
-	especially for applications with high request duplication.
+	Caching reduces both inference cost and latency at no additional charge.
 </Callout>

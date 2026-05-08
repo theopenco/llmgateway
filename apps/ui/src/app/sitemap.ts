@@ -94,6 +94,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.7,
 		},
 		{
+			url: `${baseUrl}/reliability`,
+			lastModified: new Date(),
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/ship`,
+			lastModified: new Date(),
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/token-cost-calculator`,
+			lastModified: new Date(),
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/blog/category`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.5,
+		},
+		{
 			url: `${baseUrl}/models/compare`,
 			lastModified: new Date(),
 			changeFrequency: "weekly",
@@ -194,8 +218,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		modelPages.push({
 			url: `${baseUrl}/models/${encodeURIComponent(model.id)}/uptime`,
 			lastModified: new Date(),
-			changeFrequency: "hourly",
-			priority: 0.7,
+			changeFrequency: "daily",
+			priority: 0.5,
 		});
 
 		// Model + provider pages
