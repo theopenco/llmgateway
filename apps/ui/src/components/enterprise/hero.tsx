@@ -35,7 +35,31 @@ function StatCard({
 	);
 }
 
-export function HeroEnterprise() {
+function toTickerStat(n: number): { value: number; suffix: string } {
+	if (n >= 1_000_000_000) {
+		return { value: Math.floor(n / 1_000_000_000), suffix: "B+" };
+	}
+	if (n >= 1_000_000) {
+		return { value: Math.floor(n / 1_000_000), suffix: "M+" };
+	}
+	if (n >= 1_000) {
+		return { value: Math.floor(n / 1_000), suffix: "K+" };
+	}
+	return { value: n, suffix: "" };
+}
+
+interface HeroEnterpriseProps {
+	totalTokens?: number;
+	totalRequests?: number;
+}
+
+export function HeroEnterprise({
+	totalTokens = 100_000_000_000,
+	totalRequests = 20_000_000,
+}: HeroEnterpriseProps = {}) {
+	const tokensStat = toTickerStat(totalTokens);
+	const requestsStat = toTickerStat(totalRequests);
+
 	return (
 		<section className="relative pt-32 pb-20 sm:pt-40 sm:pb-28">
 			<div className="container mx-auto px-4 sm:px-6 lg:px-8">
@@ -72,10 +96,14 @@ export function HeroEnterprise() {
 					</div>
 
 					<div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:gap-6">
-						<StatCard value={100} suffix="B+" label="Total Tokens Processed" />
 						<StatCard
-							value={20}
-							suffix="M"
+							value={tokensStat.value}
+							suffix={tokensStat.suffix}
+							label="Total Tokens Processed"
+						/>
+						<StatCard
+							value={requestsStat.value}
+							suffix={requestsStat.suffix}
 							label="Total Requests"
 							delay={0.1}
 						/>

@@ -47,20 +47,29 @@ const listAppsRoute = createRoute({
 publicApps.openapi(listAppsRoute, async (c) => {
 	const { limit } = c.req.valid("query");
 
-	const rows = await db
-		.select({
-			source: globalSourceStats.source,
-			totalTokens: sql<string>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`,
-			totalRequests: sql<string>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`,
-			lastUsedAt: sql<Date | null>`MAX(${globalSourceStats.dayTimestamp})`,
-		})
-		.from(globalSourceStats)
-		.where(ne(globalSourceStats.source, "unknown"))
-		.groupBy(globalSourceStats.source)
-		.orderBy(
-			sql`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0) DESC`,
-		)
-		.limit(limit);
+	const [rows, [totals]] = await Promise.all([
+		db
+			.select({
+				source: globalSourceStats.source,
+				totalTokens: sql<string>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`,
+				totalRequests: sql<string>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`,
+				lastUsedAt: sql<Date | null>`MAX(${globalSourceStats.dayTimestamp})`,
+			})
+			.from(globalSourceStats)
+			.where(ne(globalSourceStats.source, "unknown"))
+			.groupBy(globalSourceStats.source)
+			.orderBy(
+				sql`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0) DESC`,
+			)
+			.limit(limit),
+		db
+			.select({
+				totalTokens: sql<string>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`,
+				totalRequests: sql<string>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`,
+				totalApps: sql<string>`COUNT(DISTINCT ${globalSourceStats.source}) FILTER (WHERE ${globalSourceStats.source} <> 'unknown')`,
+			})
+			.from(globalSourceStats),
+	]);
 
 	const apps = rows.map((r) => ({
 		source: r.source,
@@ -69,13 +78,10 @@ publicApps.openapi(listAppsRoute, async (c) => {
 		lastUsedAt: r.lastUsedAt ? new Date(r.lastUsedAt).toISOString() : null,
 	}));
 
-	const totalTokens = apps.reduce((sum, a) => sum + a.totalTokens, 0);
-	const totalRequests = apps.reduce((sum, a) => sum + a.totalRequests, 0);
-
 	return c.json({
 		apps,
-		totalApps: apps.length,
-		totalTokens,
-		totalRequests,
+		totalApps: Number(totals?.totalApps) || 0,
+		totalTokens: Number(totals?.totalTokens) || 0,
+		totalRequests: Number(totals?.totalRequests) || 0,
 	});
 });
