@@ -1052,7 +1052,7 @@ export default function ChatPageClient({
 							isTemporaryChat={isTemporaryChat}
 							onToggleTemporaryChat={handleToggleTemporaryChat}
 							isTemporaryChatToggleDisabled={
-								status === "submitted" || status === "streaming"
+								isLoading || status === "submitted" || status === "streaming"
 							}
 							hasTemporaryMessages={hasTemporaryMessages}
 						/>
