@@ -250,6 +250,47 @@ export const transaction = pgTable(
 	],
 );
 
+export const devPlanCancellationFeedback = pgTable(
+	"dev_plan_cancellation_feedback",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		devPlanStripeSubscriptionId: text().notNull(),
+		previousDevPlan: text({
+			enum: ["lite", "pro", "max"],
+		}),
+		reason: text({
+			enum: [
+				"too_expensive",
+				"missing_features",
+				"not_using_enough",
+				"switched_alternative",
+				"other",
+			],
+		}).notNull(),
+		comments: text(),
+	},
+	(table) => [
+		uniqueIndex("dev_plan_cancellation_feedback_org_sub_unique").on(
+			table.organizationId,
+			table.devPlanStripeSubscriptionId,
+		),
+		index("dev_plan_cancellation_feedback_organization_id_idx").on(
+			table.organizationId,
+		),
+	],
+);
+
 export const followUpEmail = pgTable(
 	"follow_up_email",
 	{

@@ -263,6 +263,85 @@ export function generatePaymentFailureEmailHtml(
 	`.trim();
 }
 
+export function generateDevPlanCancellationFeedbackEmailHtml(
+	organizationName: string,
+): string {
+	const escapedOrgName = escapeHtml(organizationName);
+	const codeUrl = process.env.CODE_URL ?? "https://code.llmgateway.io";
+	const feedbackUrl = `${codeUrl}/dashboard/feedback/dev-plan-cancellation`;
+
+	return `
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>We'd love your feedback - LLMGateway Dev Plan</title>
+	</head>
+	<body
+		style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #ffffff;"
+	>
+		<table role="presentation" style="width: 100%; border-collapse: collapse;">
+			<tr>
+				<td align="center" style="padding: 40px 20px;">
+					<table role="presentation" style="max-width: 600px; width: 100%; border-collapse: collapse;">
+						<tr>
+							<td style="padding: 0;">
+								<div style="background-color: #f8f9fa; border-radius: 8px 8px 0 0; padding: 30px;">
+									<h1 style="color: #111111; margin-top: 0; font-size: 24px; font-weight: 600;">Sorry to see you go &mdash; can we ask why?</h1>
+
+									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
+										Hi there,
+									</p>
+
+									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
+										We noticed <strong>${escapedOrgName}</strong> just cancelled the LLMGateway Dev Plan. You'll keep access until the end of your current billing period &mdash; nothing changes today.
+									</p>
+
+									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
+										Before you go, we'd really appreciate a few seconds of feedback. It directly shapes what we build next &mdash; and the form takes under a minute.
+									</p>
+
+									<div style="text-align: center; margin: 30px 0;">
+										<a
+											href="${feedbackUrl}"
+											style="display: inline-block; background-color: #000000; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 16px;"
+										>Share feedback</a>
+									</div>
+
+									<p style="font-size: 14px; color: #646464; margin-bottom: 20px; line-height: 1.5;">
+										Changed your mind? You can resume the Dev Plan with one click from your dashboard before your access ends.
+									</p>
+
+									<p style="font-size: 14px; color: #646464; margin-top: 30px; margin-bottom: 0; line-height: 1.5;">
+										Thanks for giving us a try &mdash; whatever you decide.
+									</p>
+								</div>
+							</td>
+						</tr>
+						<tr>
+							<td
+								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
+							>
+								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
+									Need help? Check out our <a
+									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
+								>documentation</a> or reply to this email for any questions.
+								</p>
+								<p style="margin: 0; color: #999999; font-size: 12px;">
+									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
+								</p>
+							</td>
+						</tr>
+					</table>
+				</td>
+			</tr>
+		</table>
+	</body>
+</html>
+	`.trim();
+}
+
 export function generateSubscriptionCancelledEmailHtml(
 	organizationName: string,
 ): string {
