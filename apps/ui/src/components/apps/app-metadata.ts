@@ -136,7 +136,7 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 		displayName: "SoulForge",
 		url: "https://soulforge.proxysoul.com/",
 		description:
-			"Aggressive prompt caching cuts roughly 50% of tokens on multi-turn agent runs.",
+			"Graph-powered coding agent. Treats code as structure, not strings. Roughly half the tokens on multi-turn coding sessions.",
 		category: "coding",
 		Icon: SoulForgeIcon,
 	},

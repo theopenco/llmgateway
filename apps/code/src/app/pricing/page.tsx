@@ -148,7 +148,7 @@ const usageRows: UsageRow[] = [
 		emphasis: true,
 	},
 	{
-		label: "Effective with SoulForge (~50% token cut)",
+		label: "Effective with SoulForge (~50% fewer tokens)",
 		lite: `~${formatUsd(liteCredits * 2)}`,
 		pro: `~${formatUsd(proCredits * 2)}`,
 		max: `~${formatUsd(maxCredits * 2)}`,
@@ -302,7 +302,8 @@ export default function PricingPage() {
 								<span className="font-semibold text-foreground">$3</span> of
 								model usage at provider rates — and roughly{" "}
 								<span className="font-semibold text-foreground">$6</span> when
-								you pair DevPass with SoulForge.
+								you pair DevPass with SoulForge, the graph-powered agent that
+								treats your code as structure, not strings.
 							</p>
 						</div>
 					</div>
@@ -415,8 +416,8 @@ export default function PricingPage() {
 							Usage is metered at each provider&apos;s published per-token rate
 							(input, output, and cached tokens). Every request shows its dollar
 							value in your dashboard in real time. SoulForge savings vary by
-							workload — 50% is typical for multi-turn agent sessions where the
-							system prompt and codebase context stay stable.
+							workload — ~50% is typical when the agent works through a real
+							project over multiple turns.
 						</p>
 					</div>
 				</section>
