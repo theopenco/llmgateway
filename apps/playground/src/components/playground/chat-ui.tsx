@@ -663,23 +663,25 @@ export const ChatUI = ({
 								}}
 								className="overflow-hidden"
 							>
-								<div className="mb-6 flex justify-center gap-2">
-									{visibleHeroSuggestionGroups.map((key) => (
-										<Button
-											key={key}
-											size="sm"
-											variant={
-												activeSuggestionGroup === key ? "default" : "secondary"
-											}
-											onClick={() =>
-												setActiveGroup(key as keyof typeof heroSuggestionGroups)
-											}
-											className="rounded-full"
-										>
-											{key}
-										</Button>
-									))}
-								</div>
+								{visibleHeroSuggestionGroups.length > 1 ? (
+									<div className="mb-6 flex justify-center gap-2">
+										{visibleHeroSuggestionGroups.map((key) => (
+											<Button
+												key={key}
+												size="sm"
+												variant={
+													activeSuggestionGroup === key
+														? "default"
+														: "secondary"
+												}
+												onClick={() => setActiveGroup(key)}
+												className="rounded-full"
+											>
+												{key}
+											</Button>
+										))}
+									</div>
+								) : null}
 								<div className="space-y-2">
 									{heroSuggestionGroups[activeSuggestionGroup]
 										.slice(0, 5)
