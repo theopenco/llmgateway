@@ -191,6 +191,8 @@ const heroSuggestionGroups = {
 	],
 };
 
+type HeroSuggestionGroup = keyof typeof heroSuggestionGroups;
+
 // js-combine-iterations: Extract message parts in a single pass instead of multiple filter() calls
 interface ExtractedParts {
 	textParts: string[];
@@ -488,8 +490,13 @@ export const ChatUI = ({
 
 	const qualityOptions = ["auto", "low", "medium", "high"] as const;
 
-	const [activeGroup, setActiveGroup] =
-		useState<keyof typeof heroSuggestionGroups>("Create");
+	const [activeGroup, setActiveGroup] = useState<HeroSuggestionGroup>("Create");
+	const visibleHeroSuggestionGroups: HeroSuggestionGroup[] = supportsImageGen
+		? ["Image gen"]
+		: ["Create", "Explore", "Code"];
+	const activeSuggestionGroup: HeroSuggestionGroup = supportsImageGen
+		? "Image gen"
+		: activeGroup;
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const inputRef = useRef<HTMLDivElement | null>(null);
 	const [inputHeight, setInputHeight] = useState(0);
@@ -655,11 +662,13 @@ export const ChatUI = ({
 								className="overflow-hidden"
 							>
 								<div className="mb-6 flex justify-center gap-2">
-									{Object.keys(heroSuggestionGroups).map((key) => (
+									{visibleHeroSuggestionGroups.map((key) => (
 										<Button
 											key={key}
 											size="sm"
-											variant={activeGroup === key ? "default" : "secondary"}
+											variant={
+												activeSuggestionGroup === key ? "default" : "secondary"
+											}
 											onClick={() =>
 												setActiveGroup(key as keyof typeof heroSuggestionGroups)
 											}
@@ -669,14 +678,10 @@ export const ChatUI = ({
 										</Button>
 									))}
 								</div>
-								{activeGroup === "Image gen" && !supportsImageGen ? (
-									<div className="text-center text-sm text-muted-foreground py-8">
-										Please select a model that supports image generation to use
-										this feature.
-									</div>
-								) : (
-									<div className="space-y-2">
-										{heroSuggestionGroups[activeGroup].slice(0, 5).map((s) => (
+								<div className="space-y-2">
+									{heroSuggestionGroups[activeSuggestionGroup]
+										.slice(0, 5)
+										.map((s) => (
 											<button
 												key={s}
 												type="button"
@@ -688,8 +693,7 @@ export const ChatUI = ({
 												{s}
 											</button>
 										))}
-									</div>
-								)}
+								</div>
 							</motion.div>
 						)}
 					</AnimatePresence>
