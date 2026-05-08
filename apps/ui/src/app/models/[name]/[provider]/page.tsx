@@ -475,16 +475,21 @@ export async function generateMetadata({
 	);
 	const providerName = providerInfo?.name ?? decodedProvider;
 
-	const title = `${model.name ?? model.id} on ${providerName} – LLM Gateway`;
-	const description = `Pricing and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
+	const title = `${model.name ?? model.id} on ${providerName}`;
+	const description = `Pricing, latency, and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
+	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {
 		title,
 		description,
+		alternates: {
+			canonical,
+		},
 		openGraph: {
 			title,
 			description,
 			type: "website",
+			url: canonical,
 		},
 		twitter: {
 			card: "summary_large_image",

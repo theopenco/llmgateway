@@ -594,21 +594,26 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${model.name ?? model.id} – AI Model on LLM Gateway`;
+	const title = `${model.name ?? model.id} — AI Model Pricing & Capabilities`;
 	const description =
 		model.description ??
 		`Details, pricing, and capabilities for ${model.name ?? model.id} on LLM Gateway.`;
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
+	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {
 		title,
 		description,
+		alternates: {
+			canonical,
+		},
 		openGraph: {
 			title,
 			description,
 			type: "website",
+			url: canonical,
 			images: [
 				{
 					url: ogImageUrl,

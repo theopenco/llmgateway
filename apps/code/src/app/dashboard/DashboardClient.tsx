@@ -20,6 +20,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
+import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
@@ -240,8 +241,16 @@ export default function DashboardClient() {
 				posthog.capture("dev_plan_subscribe_started", { tier, cycle });
 			}
 			window.location.href = result.checkoutUrl;
-		} catch {
-			toast.error("Failed to start subscription");
+		} catch (error: unknown) {
+			const apiMessage =
+				error && typeof error === "object" && "message" in error
+					? (error as { message?: unknown }).message
+					: undefined;
+			toast.error(
+				typeof apiMessage === "string" && apiMessage.length > 0
+					? apiMessage
+					: "Failed to start subscription",
+			);
 		} finally {
 			setSubscribingTier(null);
 		}
@@ -375,39 +384,11 @@ export default function DashboardClient() {
 				</div>
 			</header>
 
+			<EmailVerificationBanner />
+
 			<main className="container mx-auto px-4 py-8 max-w-6xl">
 				{hasActivePlan ? (
 					<div className="space-y-10">
-						{/* Top row: subscription controls (cancel/resume) */}
-						<div className="flex justify-end">
-							{devPlanStatus?.devPlanCancelled ? (
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={handleResume}
-									disabled={isResuming}
-								>
-									{isResuming && (
-										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-									)}
-									Resume subscription
-								</Button>
-							) : (
-								<Button
-									variant="ghost"
-									size="sm"
-									onClick={handleCancel}
-									disabled={isCancelling}
-									className="text-muted-foreground"
-								>
-									{isCancelling && (
-										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-									)}
-									Cancel subscription
-								</Button>
-							)}
-						</div>
-
 						{/* Usage — full-width with metrics + chart */}
 						<UsageOverview
 							projectId={devPlanStatus?.projectId ?? null}
@@ -464,6 +445,9 @@ export default function DashboardClient() {
 							devPlanAllowAllModels={
 								devPlanStatus?.devPlanAllowAllModels ?? false
 							}
+							cachingEnabled={devPlanStatus?.cachingEnabled ?? false}
+							cacheDurationSeconds={devPlanStatus?.cacheDurationSeconds ?? 60}
+							retentionLevel={devPlanStatus?.retentionLevel ?? "none"}
 						/>
 
 						{/* Change plan */}
@@ -473,6 +457,36 @@ export default function DashboardClient() {
 							subscribingTier={subscribingTier}
 							onChangeTier={handleChangeTier}
 						/>
+
+						{/* Subscription controls (cancel/resume) */}
+						<div className="flex justify-end">
+							{devPlanStatus?.devPlanCancelled ? (
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={handleResume}
+									disabled={isResuming}
+								>
+									{isResuming && (
+										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+									)}
+									Resume subscription
+								</Button>
+							) : (
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={handleCancel}
+									disabled={isCancelling}
+									className="text-muted-foreground"
+								>
+									{isCancelling && (
+										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+									)}
+									Cancel subscription
+								</Button>
+							)}
+						</div>
 					</div>
 				) : (
 					<div className="space-y-10">

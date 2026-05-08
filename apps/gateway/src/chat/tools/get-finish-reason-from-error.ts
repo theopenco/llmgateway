@@ -1,3 +1,5 @@
+import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
+
 /**
  * Determines the appropriate finish reason based on HTTP status code and error message
  * 5xx status codes indicate upstream provider errors
@@ -66,8 +68,12 @@ export function getFinishReasonFromError(
 		return "content_filter";
 	}
 
-	// 401/403 usually indicate invalid or unauthorized provider credentials
-	if (statusCode === 401 || statusCode === 403) {
+	// 401/403 and known provider credential payloads indicate bad provider keys.
+	if (
+		statusCode === 401 ||
+		statusCode === 403 ||
+		hasInvalidProviderCredentialError(errorText)
+	) {
 		return "gateway_error";
 	}
 

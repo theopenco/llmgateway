@@ -566,6 +566,25 @@ export const providers = [
 		website: "https://www.embercloud.ai",
 		announcement: null,
 	},
+	{
+		id: "xiaomi",
+		name: "Xiaomi",
+		description:
+			"Xiaomi MiMo API Open Platform provides access to the MiMo series of large language models.",
+		env: {
+			required: {
+				apiKey: "LLM_XIAOMI_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_XIAOMI_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#FF6900",
+		website: "https://platform.xiaomimimo.com",
+		announcement: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

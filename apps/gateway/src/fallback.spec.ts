@@ -15,6 +15,11 @@ import { getProviderDefinition } from "@llmgateway/models";
 import { app } from "./app.js";
 import { getApiKeyFingerprint } from "./lib/api-key-fingerprint.js";
 import {
+	isTrackedKeyHealthy,
+	reportTrackedKeyError,
+	resetKeyHealth,
+} from "./lib/api-key-health.js";
+import {
 	startMockServer,
 	stopMockServer,
 	resetFailOnceCounter,
@@ -89,6 +94,7 @@ describe("fallback and error status code handling", () => {
 
 	async function resetTestState() {
 		resetFailOnceCounter();
+		resetKeyHealth();
 		await clearCache();
 		await db.update(tables.modelProviderMapping).set({
 			routingUptime: null,
@@ -234,6 +240,41 @@ describe("fallback and error status code handling", () => {
 				provider,
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+			},
+		]);
+	}
+
+	async function setupSingleProviderWithRegionalKeys(provider = "alibaba") {
+		await ensureBaseFixtures();
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values([
+			{
+				id: `${provider}-key-singapore`,
+				token: `${provider}-singapore-token`,
+				provider,
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+				options: {
+					alibaba_region: "singapore",
+				},
+			},
+			{
+				id: `${provider}-key-beijing`,
+				token: `${provider}-beijing-token`,
+				provider,
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+				options: {
+					alibaba_region: "cn-beijing",
+				},
 			},
 		]);
 	}
@@ -1432,6 +1473,57 @@ describe("fallback and error status code handling", () => {
 			]);
 		});
 
+		test("direct provider selection follows the scoped key region after failover", async () => {
+			await setupSingleProviderWithRegionalKeys("alibaba");
+			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "singapore");
+			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "cn-beijing");
+
+			reportTrackedKeyError(
+				"alibaba-key-singapore",
+				500,
+				undefined,
+				"deepseek-v3.2",
+			);
+			reportTrackedKeyError(
+				"alibaba-key-singapore",
+				500,
+				undefined,
+				"deepseek-v3.2",
+			);
+			reportTrackedKeyError(
+				"alibaba-key-singapore",
+				500,
+				undefined,
+				"deepseek-v3.2",
+			);
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/deepseek-v3.2",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedModel).toBe("alibaba/deepseek-v3.2:cn-beijing");
+			expect(logs[0].routingMetadata?.routing).toEqual([
+				expect.objectContaining({
+					provider: "alibaba",
+					model: "deepseek-v3.2",
+					region: "cn-beijing",
+					status_code: 200,
+					succeeded: true,
+				}),
+			]);
+		});
+
 		test("provider-agnostic routing keeps regional mappings aggregated", async () => {
 			await setupKeys("alibaba");
 
@@ -2234,6 +2326,87 @@ describe("fallback and error status code handling", () => {
 			});
 		});
 
+		test("non-streaming: retries another key for auth failures on the same explicit provider", async () => {
+			await setupSingleProviderWithMultipleKeys("together-ai");
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "together-ai/glm-4.7",
+					messages: [{ role: "user", content: "TRIGGER_STATUS_401" }],
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			const json = await res.json();
+			expect(json.error.type).toBe("gateway_error");
+
+			const logs = await waitForLogs(2);
+			const authLogs = logs.filter(
+				(log: Log) => log.errorDetails?.statusCode === 401,
+			);
+			expect(authLogs).toHaveLength(2);
+			expect(authLogs.some((log: Log) => log.retried)).toBe(true);
+			expect(isTrackedKeyHealthy("together-ai-key-primary", "glm-4.7")).toBe(
+				false,
+			);
+			expect(isTrackedKeyHealthy("together-ai-key-secondary", "glm-4.7")).toBe(
+				false,
+			);
+		});
+
+		test("non-streaming: retries another key for invalid API key payloads", async () => {
+			await setupSingleProviderWithMultipleKeys("together-ai");
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "together-ai/glm-4.7",
+					messages: [
+						{ role: "user", content: "TRIGGER_FAIL_ONCE_INVALID_KEY" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.metadata.routing).toHaveLength(2);
+			expect(json.metadata.routing[0]).toMatchObject({
+				provider: "together-ai",
+				status_code: 400,
+				succeeded: false,
+			});
+			expect(json.metadata.routing[1]).toMatchObject({
+				provider: "together-ai",
+				succeeded: true,
+			});
+
+			const logs = await waitForLogs(2);
+			const failedLog = logs.find(
+				(log: Log) => log.errorDetails?.statusCode === 400,
+			);
+			const successLog = logs.find(
+				(log: Log) => log.finishReason === "stop" || !log.hasError,
+			);
+			expect(failedLog?.finishReason).toBe("gateway_error");
+			expect(failedLog?.retried).toBe(true);
+			expect(successLog?.routingMetadata?.routing).toHaveLength(2);
+			expect(isTrackedKeyHealthy("together-ai-key-primary", "glm-4.7")).toBe(
+				false,
+			);
+			expect(isTrackedKeyHealthy("together-ai-key-secondary", "glm-4.7")).toBe(
+				true,
+			);
+		});
+
 		test("streaming: retries on 500 and delivers response on fallback provider", async () => {
 			await setupMultiProviderKeys();
 
@@ -2352,7 +2525,7 @@ describe("fallback and error status code handling", () => {
 				"together-ai-secondary-token",
 			);
 			const originalStreamingTimeout = process.env.AI_STREAMING_TIMEOUT_MS;
-			process.env.AI_STREAMING_TIMEOUT_MS = "10";
+			process.env.AI_STREAMING_TIMEOUT_MS = "75";
 
 			try {
 				const res = await app.request("/v1/chat/completions", {

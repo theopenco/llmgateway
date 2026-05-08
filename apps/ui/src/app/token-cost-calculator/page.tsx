@@ -5,11 +5,11 @@ import { TokenCostCalculatorClient } from "@/components/token-cost-calculator/to
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Token Cost Calculator | LLM Gateway",
+	title: "Token Cost Calculator — Compare LLM Pricing",
 	description:
 		"Calculate your LLM token costs across models and providers. Compare official pricing vs LLM Gateway's cheapest provider rates with volume discounts.",
 	openGraph: {
-		title: "Token Cost Calculator | LLM Gateway",
+		title: "Token Cost Calculator — Compare LLM Pricing",
 		description:
 			"Calculate your LLM token costs across models and providers. Compare official pricing vs LLM Gateway's cheapest provider rates with volume discounts.",
 	},

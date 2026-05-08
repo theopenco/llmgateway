@@ -310,6 +310,7 @@ interface ChatRequestBody {
 	web_search?: boolean;
 	mcp_servers?: McpServerConfig[];
 	is_image_gen?: boolean;
+	temporary_chat?: boolean;
 }
 
 interface McpClientWrapper {
@@ -341,6 +342,15 @@ export async function POST(req: Request) {
 
 	if (!messages || !Array.isArray(messages)) {
 		return new Response(JSON.stringify({ error: "Missing messages" }), {
+			status: 400,
+		});
+	}
+
+	if (
+		body.temporary_chat !== undefined &&
+		typeof body.temporary_chat !== "boolean"
+	) {
+		return new Response(JSON.stringify({ error: "Invalid temporary_chat" }), {
 			status: 400,
 		});
 	}

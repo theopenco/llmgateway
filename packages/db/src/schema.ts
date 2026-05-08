@@ -1944,3 +1944,159 @@ export const apiKeyHourlyModelStats = pgTable(
 		),
 	],
 );
+
+// Global model statistics — cross-org, cross-project aggregation by model.
+// Rows are day-bucketed (`dayTimestamp`); the worker can update them at any
+// cadence via the configurable bucket size.
+export const globalModelStats = pgTable(
+	"global_model_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		unique().on(table.dayTimestamp, table.usedModel, table.usedProvider),
+		index("global_model_stats_day_timestamp_idx").on(table.dayTimestamp),
+		index("global_model_stats_used_model_day_timestamp_idx").on(
+			table.usedModel,
+			table.dayTimestamp,
+		),
+		index("global_model_stats_p_m_time_idx").on(
+			table.usedProvider,
+			table.usedModel,
+			table.dayTimestamp,
+		),
+	],
+);
+
+// Global source statistics — cross-org, cross-project aggregation by x-source header.
+export const globalSourceStats = pgTable(
+	"global_source_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
+		// NULL log.source rows are stored under the literal 'unknown' so the
+		// unique constraint and onConflictDoUpdate target stay valid.
+		source: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		unique().on(table.dayTimestamp, table.source),
+		index("global_source_stats_day_timestamp_idx").on(table.dayTimestamp),
+		index("global_source_stats_source_day_timestamp_idx").on(
+			table.source,
+			table.dayTimestamp,
+		),
+	],
+);
+
+// Singleton state row for the incremental global-stats aggregator.
+// `lastProcessedHour` is the last UTC bucket that has been folded into the
+// daily stats. `lastSafetyNetDay` is the most recent UTC day that has been
+// fully recomputed by the safety-net pass.
+export const globalAggregationState = pgTable("global_aggregation_state", {
+	id: text().primaryKey().notNull().default("singleton"),
+	lastProcessedHour: timestamp(),
+	lastSafetyNetDay: timestamp(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+});

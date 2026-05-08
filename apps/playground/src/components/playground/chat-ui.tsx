@@ -6,6 +6,7 @@ import {
 	GlobeIcon,
 	AlertTriangle,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
 import { toast } from "sonner";
 
@@ -153,6 +154,7 @@ interface ChatUIProps {
 	error?: string | null;
 	finishReason?: string | null;
 	floatingInput?: boolean;
+	isTemporaryChat?: boolean;
 }
 
 const suggestions = [
@@ -453,6 +455,7 @@ export const ChatUI = ({
 	error = null,
 	finishReason = null,
 	floatingInput = false,
+	isTemporaryChat = false,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -595,49 +598,103 @@ export const ChatUI = ({
 				<Loader />
 			</div>
 		) : messages.length === 0 ? (
-			<div className="max-w-3xl mx-auto py-10">
-				<div className="mb-6 text-center">
-					<h2 className="text-3xl font-semibold tracking-tight">
-						How can I help you?
-					</h2>
-				</div>
-				<div className="mb-6 flex justify-center gap-2">
-					{Object.keys(heroSuggestionGroups).map((key) => (
-						<Button
-							key={key}
-							size="sm"
-							variant={activeGroup === key ? "default" : "secondary"}
-							onClick={() =>
-								setActiveGroup(key as keyof typeof heroSuggestionGroups)
-							}
-							className="rounded-full"
-						>
-							{key}
-						</Button>
-					))}
-				</div>
-				{activeGroup === "Image gen" && !supportsImageGen ? (
-					<div className="text-center text-sm text-muted-foreground py-8">
-						Please select a model that supports image generation to use this
-						feature.
-					</div>
-				) : (
-					<div className="space-y-2">
-						{heroSuggestionGroups[activeGroup].slice(0, 5).map((s) => (
-							<button
-								key={s}
-								type="button"
-								onClick={() => {
-									void handlePromptSubmit(s);
+			<AnimatePresence mode="wait" initial={false}>
+				<motion.div
+					key={isTemporaryChat ? "temporary-chat-empty" : "regular-chat-empty"}
+					initial={{ opacity: 0, scale: 0.96 }}
+					animate={{ opacity: 1, scale: 1 }}
+					exit={{ opacity: 0, scale: 0.96 }}
+					transition={{
+						opacity: { duration: 0.06, ease: "easeOut" },
+						scale: { duration: 0.14, ease: "easeOut" },
+					}}
+					className={`mx-auto w-full max-w-3xl ${
+						isTemporaryChat
+							? "flex flex-1 items-center justify-center py-10"
+							: "py-10"
+					}`}
+				>
+					<motion.div
+						className={`${isTemporaryChat ? "mb-0" : "mb-6"} text-center`}
+						layout
+						transition={{ duration: 0.14, ease: "easeOut" }}
+					>
+						<h2 className="text-3xl font-semibold tracking-tight">
+							{isTemporaryChat ? "Temporary Chat" : "How can I help you?"}
+						</h2>
+						<AnimatePresence initial={false}>
+							{isTemporaryChat ? (
+								<motion.p
+									key="temporary-subtitle"
+									initial={{ opacity: 0, scale: 0.97 }}
+									animate={{ opacity: 1, scale: 1 }}
+									exit={{ opacity: 0, scale: 0.97 }}
+									transition={{
+										opacity: { duration: 0.06, ease: "easeOut" },
+										scale: { duration: 0.12, ease: "easeOut" },
+									}}
+									className="mt-2 text-sm text-muted-foreground"
+								>
+									Temporary chats will not appear in your chat history.
+								</motion.p>
+							) : null}
+						</AnimatePresence>
+					</motion.div>
+					<AnimatePresence initial={false}>
+						{isTemporaryChat ? null : (
+							<motion.div
+								key="regular-chat-suggestions"
+								initial={{ opacity: 0, height: 0, scale: 0.97 }}
+								animate={{ opacity: 1, height: "auto", scale: 1 }}
+								exit={{ opacity: 0, height: 0, scale: 0.97 }}
+								transition={{
+									opacity: { duration: 0.06, ease: "easeOut" },
+									height: { duration: 0.16, ease: "easeOut" },
+									scale: { duration: 0.14, ease: "easeOut" },
 								}}
-								className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+								className="overflow-hidden"
 							>
-								{s}
-							</button>
-						))}
-					</div>
-				)}
-			</div>
+								<div className="mb-6 flex justify-center gap-2">
+									{Object.keys(heroSuggestionGroups).map((key) => (
+										<Button
+											key={key}
+											size="sm"
+											variant={activeGroup === key ? "default" : "secondary"}
+											onClick={() =>
+												setActiveGroup(key as keyof typeof heroSuggestionGroups)
+											}
+											className="rounded-full"
+										>
+											{key}
+										</Button>
+									))}
+								</div>
+								{activeGroup === "Image gen" && !supportsImageGen ? (
+									<div className="text-center text-sm text-muted-foreground py-8">
+										Please select a model that supports image generation to use
+										this feature.
+									</div>
+								) : (
+									<div className="space-y-2">
+										{heroSuggestionGroups[activeGroup].slice(0, 5).map((s) => (
+											<button
+												key={s}
+												type="button"
+												onClick={() => {
+													void handlePromptSubmit(s);
+												}}
+												className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+											>
+												{s}
+											</button>
+										))}
+									</div>
+								)}
+							</motion.div>
+						)}
+					</AnimatePresence>
+				</motion.div>
+			</AnimatePresence>
 		) : (
 			<>
 				{messages.map((m, messageIndex) => {
@@ -685,12 +742,14 @@ export const ChatUI = ({
 					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
 			}
 		>
-			<div
+			<motion.div
+				layout
 				className={
 					floatingInput
 						? "max-w-4xl mx-auto px-4 pb-0 pt-2 bg-background"
 						: undefined
 				}
+				transition={{ duration: 0.18, ease: "easeOut" }}
 			>
 				<PromptInput
 					key={supportsImages ? "prompt-input-images" : "prompt-input-text"}
@@ -919,7 +978,31 @@ export const ChatUI = ({
 						</div>
 					</PromptInputToolbar>
 				</PromptInput>
-			</div>
+				<AnimatePresence initial={false}>
+					{isTemporaryChat ? (
+						<motion.p
+							key="temporary-chat-disclosure"
+							initial={{ opacity: 0, y: 8 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={{ opacity: 0, y: 8 }}
+							transition={{ duration: 0.16, ease: "easeOut" }}
+							className="px-1 pt-2 pb-3 text-center text-xs text-muted-foreground"
+						>
+							Some responses are saved for up to 72 hours before they are
+							deleted, read our{" "}
+							<a
+								href="https://llmgateway.io/legal/terms"
+								target="_blank"
+								rel="noopener noreferrer"
+								className="underline underline-offset-2 transition-colors hover:text-foreground"
+							>
+								terms of use
+							</a>{" "}
+							for more details
+						</motion.p>
+					) : null}
+				</AnimatePresence>
+			</motion.div>
 		</div>
 	);
 
@@ -928,7 +1011,11 @@ export const ChatUI = ({
 			<div className="relative flex flex-col h-full min-h-0">
 				<Conversation>
 					<ConversationContent
-						className="max-w-4xl mx-auto px-4"
+						className={`mx-auto max-w-4xl px-4 ${
+							isTemporaryChat && messages.length === 0
+								? "flex min-h-full w-full items-center justify-center"
+								: ""
+						}`}
 						style={{ paddingBottom: `${inputHeight + 16}px` }}
 					>
 						{messagesContent}
@@ -943,7 +1030,13 @@ export const ChatUI = ({
 		<div className="flex flex-col h-full min-h-0">
 			<div className="flex flex-col flex-1 min-h-0">
 				<Conversation>
-					<ConversationContent className="px-4 pb-4">
+					<ConversationContent
+						className={`px-4 pb-4 ${
+							isTemporaryChat && messages.length === 0
+								? "flex min-h-full items-center justify-center"
+								: ""
+						}`}
+					>
 						{messagesContent}
 					</ConversationContent>
 				</Conversation>

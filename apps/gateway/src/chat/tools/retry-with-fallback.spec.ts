@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import {
 	isRetryableErrorType,
+	shouldRetryAlternateKey,
 	shouldRetryRequest,
 	selectNextProvider,
 	getErrorType,
@@ -122,6 +123,33 @@ describe("shouldRetryRequest", () => {
 		expect(
 			shouldRetryRequest({ ...defaultOpts, errorType: "upstream_timeout" }),
 		).toBe(true);
+	});
+});
+
+describe("shouldRetryAlternateKey", () => {
+	it("retries alternate keys for retryable upstream failures", () => {
+		expect(shouldRetryAlternateKey("upstream_error", 500)).toBe(true);
+		expect(shouldRetryAlternateKey("network_error", 0)).toBe(true);
+	});
+
+	it("retries alternate keys for auth failures on the current provider", () => {
+		expect(shouldRetryAlternateKey("gateway_error", 401)).toBe(true);
+		expect(shouldRetryAlternateKey("gateway_error", 403)).toBe(true);
+	});
+
+	it("retries alternate keys for invalid API key payloads without 401/403", () => {
+		expect(
+			shouldRetryAlternateKey(
+				"gateway_error",
+				400,
+				"API key not valid. Please pass a valid API key.",
+			),
+		).toBe(true);
+	});
+
+	it("does not retry alternate keys for non-retryable failure types", () => {
+		expect(shouldRetryAlternateKey("client_error", 400)).toBe(false);
+		expect(shouldRetryAlternateKey("content_filter", 403)).toBe(false);
 	});
 });
 

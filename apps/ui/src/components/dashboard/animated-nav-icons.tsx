@@ -304,6 +304,29 @@ export function AnimatedPercent({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// Terminal — chevron prompt slides forward, cursor blinks
+export function AnimatedTerminal({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<motion.polyline
+				points="4 17 10 11 4 5"
+				initial={false}
+				animate={isHovered ? { translateX: [0, 2, 0] } : { translateX: 0 }}
+				transition={{ duration: 0.35, ease: "easeInOut" }}
+			/>
+			<motion.line
+				x1="12"
+				y1="19"
+				x2="20"
+				y2="19"
+				initial={false}
+				animate={isHovered ? { opacity: [1, 0.2, 1] } : { opacity: 1 }}
+				transition={{ duration: 0.5, delay: 0.1, ease: "easeInOut" }}
+			/>
+		</svg>
+	);
+}
+
 // ExternalLink — arrow shoots out diagonally
 export function AnimatedExternalLink({ isHovered }: AnimatedIconProps) {
 	return (

@@ -19,6 +19,7 @@ import {
 	type ModelDefinition,
 	type OpenAIRequestBody,
 	type OpenAIToolInput,
+	type PromptCacheRetention,
 	type Provider,
 	type ProviderRequestBody,
 	providers,
@@ -40,6 +41,13 @@ export interface ProviderContext {
 	usedToken: string;
 	usedApiKeyHash: string;
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	/**
+	 * Provider-key id to attribute health failures to via reportTrackedKey*.
+	 * Equal to `providerKey.id` when the BYOK key is the credential actually
+	 * sent, undefined when a regional env-var override replaces the token
+	 * (in which case `envVarName` carries the health attribution).
+	 */
+	trackedKeyHealthId: string | undefined;
 	configIndex: number;
 	envVarName: string | undefined;
 	url: string;
@@ -76,6 +84,8 @@ export interface ProviderContextOptions {
 	tool_choice: ToolChoiceType | undefined;
 	reasoning_effort: "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
 	reasoning_max_tokens: number | undefined;
+	prompt_cache_key: string | undefined;
+	prompt_cache_retention: PromptCacheRetention | undefined;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
 	image_config:
@@ -201,14 +211,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
-				options.requestId,
+				baseModelName,
 				options.excludedProviderKeyIds,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				options.requestId,
+				baseModelName,
 				options.excludedProviderKeyIds,
 			);
 		}
@@ -224,6 +234,7 @@ export async function resolveProviderContext(
 		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 		const envResult = getProviderEnv(usedProvider as Provider, {
 			excludedIndices: options.excludedEnvKeyIndices,
+			selectionScope: baseModelName,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -233,14 +244,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
-				options.requestId,
+				baseModelName,
 				options.excludedProviderKeyIds,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				options.requestId,
+				baseModelName,
 				options.excludedProviderKeyIds,
 			);
 		}
@@ -251,6 +262,7 @@ export async function resolveProviderContext(
 			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 			const envResult = getProviderEnv(usedProvider as Provider, {
 				excludedIndices: options.excludedEnvKeyIndices,
+				selectionScope: baseModelName,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -438,6 +450,8 @@ export async function resolveProviderContext(
 		options.webSearchTool,
 		options.reasoning_max_tokens,
 		useResponsesApi,
+		options.prompt_cache_key,
+		options.prompt_cache_retention,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -492,6 +506,7 @@ export async function resolveProviderContext(
 		usedToken,
 		usedApiKeyHash,
 		providerKey,
+		trackedKeyHealthId: providerKey?.id,
 		configIndex,
 		envVarName,
 		url,

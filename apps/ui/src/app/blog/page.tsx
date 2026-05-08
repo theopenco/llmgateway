@@ -34,16 +34,16 @@ export default async function BlogPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "Blog - LLM Gateway",
+		title: "Blog — News, Tutorials, and Deep-Dives",
 		description: "News, tutorials, and deep-dives from the LLM Gateway team.",
 		openGraph: {
-			title: "Blog - LLM Gateway",
+			title: "Blog — News, Tutorials, and Deep-Dives",
 			description: "News, tutorials, and deep-dives from the LLM Gateway team.",
 			type: "website",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "Blog - LLM Gateway",
+			title: "Blog — News, Tutorials, and Deep-Dives",
 			description: "News, tutorials, and deep-dives from the LLM Gateway team.",
 		},
 	};
