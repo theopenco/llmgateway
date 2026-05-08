@@ -1,3 +1,5 @@
+"use client";
+
 import { Check, MessageSquareDashed } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 
