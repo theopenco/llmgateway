@@ -53,8 +53,6 @@ export interface ComboboxModel {
 	outputPrice?: number;
 	vision?: boolean;
 	tools?: boolean;
-	reasoning?: boolean;
-	webSearch?: boolean;
 	imageGen?: boolean;
 	supportsVideoAudio?: boolean;
 	supportsVideoWithoutAudio?: boolean;
