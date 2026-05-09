@@ -1,65 +1,29 @@
 import { HTTPException } from "hono/http-exception";
 import { describe, expect, it } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import { validateModelCapabilities } from "./validate-model-capabilities.js";
 
 import type { ModelDefinition } from "@llmgateway/models";
 
-const noVisionModel: ModelDefinition = {
-	id: "deepseek-v4-flash",
-	name: "DeepSeek V4 Flash",
-	family: "deepseek",
-	providers: [
-		{
-			providerId: "deepseek",
-			modelName: "deepseek-v4-flash",
-			inputPrice: 0,
-			outputPrice: 0,
-			contextSize: 1000,
-			streaming: true,
-			vision: false,
-			tools: true,
-		},
-		{
-			providerId: "novita",
-			modelName: "deepseek/deepseek-v4-flash",
-			inputPrice: 0,
-			outputPrice: 0,
-			contextSize: 1000,
-			streaming: true,
-			vision: false,
-			tools: true,
-		},
-	],
-} as ModelDefinition;
+function getModel(id: string): ModelDefinition {
+	const m = models.find((model) => model.id === id);
+	if (!m) {
+		throw new Error(
+			`Test fixture missing: model "${id}" not found in registry`,
+		);
+	}
+	return m as ModelDefinition;
+}
 
-const mixedVisionModel: ModelDefinition = {
-	id: "mixed-model",
-	name: "Mixed",
-	family: "test",
-	providers: [
-		{
-			providerId: "deepseek",
-			modelName: "x",
-			inputPrice: 0,
-			outputPrice: 0,
-			contextSize: 1000,
-			streaming: true,
-			vision: false,
-			tools: true,
-		},
-		{
-			providerId: "openai",
-			modelName: "x",
-			inputPrice: 0,
-			outputPrice: 0,
-			contextSize: 1000,
-			streaming: true,
-			vision: true,
-			tools: true,
-		},
-	],
-} as ModelDefinition;
+// deepseek-v4-flash will not gain vision support upstream, so it's a stable
+// fixture for "no provider supports vision".
+const noVisionModel = getModel("deepseek-v4-flash");
+
+// qwen3-max has alibaba (vision: true) alongside novita/embercloud
+// (vision: false), giving us a mixed-capability fixture.
+const mixedVisionModel = getModel("qwen3-max");
 
 describe("validateModelCapabilities - vision", () => {
 	it("rejects when explicit provider does not support vision", () => {
@@ -83,7 +47,7 @@ describe("validateModelCapabilities - vision", () => {
 
 	it("allows when at least one provider supports vision and no explicit provider", () => {
 		expect(() =>
-			validateModelCapabilities(mixedVisionModel, "mixed-model", undefined, {
+			validateModelCapabilities(mixedVisionModel, "qwen3-max", undefined, {
 				hasImages: true,
 			}),
 		).not.toThrow();
@@ -91,7 +55,7 @@ describe("validateModelCapabilities - vision", () => {
 
 	it("allows when explicit provider supports vision", () => {
 		expect(() =>
-			validateModelCapabilities(mixedVisionModel, "mixed-model", "openai", {
+			validateModelCapabilities(mixedVisionModel, "qwen3-max", "alibaba", {
 				hasImages: true,
 			}),
 		).not.toThrow();
@@ -99,7 +63,7 @@ describe("validateModelCapabilities - vision", () => {
 
 	it("rejects when explicit non-vision provider is picked even if a sibling has vision", () => {
 		expect(() =>
-			validateModelCapabilities(mixedVisionModel, "mixed-model", "deepseek", {
+			validateModelCapabilities(mixedVisionModel, "qwen3-max", "novita", {
 				hasImages: true,
 			}),
 		).toThrow(HTTPException);
