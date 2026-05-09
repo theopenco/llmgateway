@@ -70,6 +70,37 @@ interface ChatPageClientProps {
 	enableWebSearch?: boolean;
 }
 
+function parseModelSelectorValue(value: string): {
+	providerId: string;
+	modelId: string;
+	providerModelName: string;
+} {
+	const [providerId, rawModelId] = value.includes("/")
+		? (value.split("/") as [string, string])
+		: ["", value];
+	const colonIndex = rawModelId.lastIndexOf(":");
+
+	return {
+		providerId,
+		modelId: colonIndex === -1 ? rawModelId : rawModelId.slice(0, colonIndex),
+		providerModelName: rawModelId,
+	};
+}
+
+function getSelectedMapping(
+	model: ApiModel,
+	providerId: string,
+	providerModelName: string,
+): ApiModelProviderMapping | undefined {
+	return (
+		model.mappings.find(
+			(mapping) =>
+				mapping.providerId === providerId &&
+				mapping.modelName === providerModelName,
+		) ?? model.mappings.find((mapping) => mapping.providerId === providerId)
+	);
+}
+
 export default function ChatPageClient({
 	models,
 	providers,
@@ -346,28 +377,37 @@ export default function ChatPageClient({
 	}, [currentChatId]);
 
 	const supportsImages = useMemo(() => {
-		let model = availableModels.find((m) => m.id === selectedModel);
-		if (!model && !selectedModel.includes("/")) {
-			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		if (!selectedModel) {
+			return false;
 		}
-		return !!model?.vision;
-	}, [availableModels, selectedModel]);
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
+		}
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		return !!mapping?.vision;
+	}, [models, selectedModel]);
 
 	const supportsImageGen = useMemo(() => {
-		let model = availableModels.find((m) => m.id === selectedModel);
-		if (!model && !selectedModel.includes("/")) {
-			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		if (!selectedModel) {
+			return false;
 		}
-		return !!model?.imageGen;
-	}, [availableModels, selectedModel]);
+		const { modelId } = parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		return !!def?.output?.includes("image");
+	}, [models, selectedModel]);
 
 	const supportsReasoning = useMemo(() => {
 		if (!selectedModel) {
 			return false;
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
 			return false;
@@ -375,9 +415,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -385,9 +423,8 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
 			return false;
@@ -395,9 +432,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
@@ -1319,28 +1354,37 @@ function ExtraChatPanel({
 	});
 
 	const supportsImages = useMemo(() => {
-		let model = availableModels.find((m) => m.id === selectedModel);
-		if (!model && !selectedModel.includes("/")) {
-			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		if (!selectedModel) {
+			return false;
 		}
-		return !!model?.vision;
-	}, [availableModels, selectedModel]);
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
+		}
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		return !!mapping?.vision;
+	}, [models, selectedModel]);
 
 	const supportsImageGen = useMemo(() => {
-		let model = availableModels.find((m) => m.id === selectedModel);
-		if (!model && !selectedModel.includes("/")) {
-			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		if (!selectedModel) {
+			return false;
 		}
-		return !!model?.imageGen;
-	}, [availableModels, selectedModel]);
+		const { modelId } = parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		return !!def?.output?.includes("image");
+	}, [models, selectedModel]);
 
 	const supportsReasoning = useMemo(() => {
 		if (!selectedModel) {
 			return false;
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
 			return false;
@@ -1348,9 +1392,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -1358,9 +1400,8 @@ function ExtraChatPanel({
 		if (!selectedModel) {
 			return false;
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
 			return false;
@@ -1368,9 +1409,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
