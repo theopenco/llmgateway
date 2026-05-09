@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -14,13 +14,28 @@ export function CopyableId({
 	className?: string;
 }) {
 	const [copied, setCopied] = useState(false);
+	const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => {
+		return () => {
+			if (resetTimerRef.current !== null) {
+				clearTimeout(resetTimerRef.current);
+			}
+		};
+	}, []);
 
 	const handleCopy = async () => {
 		try {
 			await navigator.clipboard.writeText(id);
 			setCopied(true);
 			toast.success("ID copied");
-			setTimeout(() => setCopied(false), 1500);
+			if (resetTimerRef.current !== null) {
+				clearTimeout(resetTimerRef.current);
+			}
+			resetTimerRef.current = setTimeout(() => {
+				resetTimerRef.current = null;
+				setCopied(false);
+			}, 1500);
 		} catch {
 			toast.error("Failed to copy ID");
 		}
