@@ -20,7 +20,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { toast } from "sonner";
 
@@ -89,19 +89,24 @@ type ChatHistoryRow =
 	| { type: "chat"; key: string; chat: Chat }
 	| { type: "spacer"; key: string };
 
+const ROW_HEIGHT_HEADER = 32;
+const ROW_HEIGHT_SPACER = 16;
+const ROW_HEIGHT_CHAT = 60;
+
 interface ChatHistoryRowProps {
 	rows: ChatHistoryRow[];
 	currentChatId?: string;
 	editingId: string | null;
 	editTitle: string;
+	pendingFocusChatId: string | null;
 	isPageLoading: boolean;
-	formatDate: (dateString: string) => string;
 	onChatSelect?: (chatId: string) => void;
 	onEditTitleChange: (value: string) => void;
 	onSaveTitle: (chatId: string) => void;
 	onCancelEdit: () => void;
 	onDeleteChat: (chatId: string) => void;
 	onStartEdit: (chat: Chat) => void;
+	onEditFocused: () => void;
 }
 
 function getChatHistoryRowHeight(
@@ -111,14 +116,69 @@ function getChatHistoryRowHeight(
 	const row = rows[index];
 
 	if (row?.type === "header") {
-		return 32;
+		return ROW_HEIGHT_HEADER;
 	}
 
 	if (row?.type === "spacer") {
-		return 16;
+		return ROW_HEIGHT_SPACER;
 	}
 
-	return 52;
+	return ROW_HEIGHT_CHAT;
+}
+
+function EditChatTitleInput({
+	chatId,
+	value,
+	shouldFocus,
+	onChange,
+	onSave,
+	onCancel,
+	onFocused,
+}: {
+	chatId: string;
+	value: string;
+	shouldFocus: boolean;
+	onChange: (value: string) => void;
+	onSave: (chatId: string) => void;
+	onCancel: () => void;
+	onFocused: () => void;
+}) {
+	const inputRef = useRef<HTMLInputElement | null>(null);
+
+	useEffect(() => {
+		if (
+			!shouldFocus ||
+			!inputRef.current ||
+			document.activeElement === inputRef.current
+		) {
+			return;
+		}
+		const el = inputRef.current;
+		el.focus();
+		const len = el.value.length;
+		el.setSelectionRange(len, len);
+		onFocused();
+	}, [shouldFocus, onFocused]);
+
+	return (
+		<Input
+			ref={inputRef}
+			value={value}
+			onChange={(e) => onChange(e.target.value)}
+			onBlur={() => onSave(chatId)}
+			onKeyDown={(e) => {
+				if (e.key === "Enter") {
+					e.preventDefault();
+					e.currentTarget.blur();
+				}
+				if (e.key === "Escape") {
+					e.preventDefault();
+					onCancel();
+				}
+			}}
+			className="h-7 text-sm border-none px-1 focus-visible:ring-0 bg-transparent"
+		/>
+	);
 }
 
 function ChatHistoryRowComponent({
@@ -129,14 +189,15 @@ function ChatHistoryRowComponent({
 	currentChatId,
 	editingId,
 	editTitle,
+	pendingFocusChatId,
 	isPageLoading,
-	formatDate,
 	onChatSelect,
 	onEditTitleChange,
 	onSaveTitle,
 	onCancelEdit,
 	onDeleteChat,
 	onStartEdit,
+	onEditFocused,
 }: RowComponentProps<ChatHistoryRowProps>) {
 	const row = rows[index];
 
@@ -159,37 +220,30 @@ function ChatHistoryRowComponent({
 	}
 
 	const { chat } = row;
+	const isEditing = editingId === chat.id;
 
 	return (
 		<div {...ariaAttributes} style={style}>
-			<div className="relative px-2">
-				<div className="relative">
-					{editingId === chat.id ? (
-						<div className="flex w-full items-center gap-3 rounded-md px-2 py-3 pr-10 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
+			<div className="relative h-full px-2">
+				<div className="relative h-full">
+					{isEditing ? (
+						<div className="flex h-full w-full items-center gap-3 rounded-md px-2 pr-10 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
 							<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-							<Input
+							<EditChatTitleInput
+								chatId={chat.id}
 								value={editTitle}
-								onChange={(e) => onEditTitleChange(e.target.value)}
-								onBlur={() => onSaveTitle(chat.id)}
-								onKeyDown={(e) => {
-									if (e.key === "Enter") {
-										e.preventDefault();
-										e.currentTarget.blur();
-									}
-									if (e.key === "Escape") {
-										e.preventDefault();
-										onCancelEdit();
-									}
-								}}
-								className="h-7 text-sm border-none px-1 focus-visible:ring-0 bg-transparent"
-								autoFocus
+								shouldFocus={pendingFocusChatId === chat.id}
+								onChange={onEditTitleChange}
+								onSave={onSaveTitle}
+								onCancel={onCancelEdit}
+								onFocused={onEditFocused}
 							/>
 						</div>
 					) : (
 						<SidebarMenuButton
 							isActive={currentChatId === chat.id}
 							onClick={() => onChatSelect?.(chat.id)}
-							className="w-full justify-start gap-3 group relative pr-10 py-6"
+							className="h-full! w-full justify-start gap-3 group relative pr-10"
 							type="button"
 							disabled={isPageLoading}
 						>
@@ -204,8 +258,8 @@ function ChatHistoryRowComponent({
 							</div>
 						</SidebarMenuButton>
 					)}
-					{currentChatId === chat.id && editingId !== chat.id && (
-						<div className="absolute right-0 top-2 bottom-0">
+					{currentChatId === chat.id && !isEditing && (
+						<div className="absolute right-0 top-1/2 -translate-y-1/2">
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
 									<SidebarMenuAction
@@ -326,6 +380,11 @@ export function ChatSidebar({
 
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editTitle, setEditTitle] = useState("");
+	// chatId that needs initial focus. Cleared once the row delivers focus,
+	// so re-mounting the row on scroll never re-steals focus mid-edit.
+	const [pendingFocusChatId, setPendingFocusChatId] = useState<string | null>(
+		null,
+	);
 
 	const chats = chatsData?.chats ?? [];
 
@@ -353,40 +412,53 @@ export function ChatSidebar({
 		});
 	};
 
-	const handleEditTitle = (chat: Chat) => {
+	const handleEditTitle = useCallback((chat: Chat) => {
 		setEditingId(chat.id);
 		setEditTitle(chat.title);
-	};
+		setPendingFocusChatId(chat.id);
+	}, []);
 
-	const saveTitle = (chatId: string) => {
-		if (editTitle.trim()) {
-			updateChat.mutate({
+	const saveTitle = useCallback(
+		(chatId: string) => {
+			if (editTitle.trim()) {
+				updateChat.mutate({
+					params: {
+						path: { id: chatId },
+					},
+					body: { title: editTitle.trim() },
+				});
+			}
+			setEditingId(null);
+			setEditTitle("");
+			setPendingFocusChatId(null);
+		},
+		[editTitle, updateChat],
+	);
+
+	const cancelEditTitle = useCallback(() => {
+		setEditingId(null);
+		setEditTitle("");
+		setPendingFocusChatId(null);
+	}, []);
+
+	const handleDeleteChat = useCallback(
+		(chatId: string) => {
+			deleteChat.mutate({
 				params: {
 					path: { id: chatId },
 				},
-				body: { title: editTitle.trim() },
 			});
-		}
-		setEditingId(null);
-		setEditTitle("");
-	};
+			if (currentChatId === chatId) {
+				clearMessages();
+				onChatSelect?.("");
+			}
+		},
+		[deleteChat, currentChatId, clearMessages, onChatSelect],
+	);
 
-	const cancelEditTitle = () => {
-		setEditingId(null);
-		setEditTitle("");
-	};
-
-	const handleDeleteChat = (chatId: string) => {
-		deleteChat.mutate({
-			params: {
-				path: { id: chatId },
-			},
-		});
-		if (currentChatId === chatId) {
-			clearMessages();
-			onChatSelect?.("");
-		}
-	};
+	const onEditFocused = useCallback(() => {
+		setPendingFocusChatId(null);
+	}, []);
 
 	const chatGroups = useMemo(
 		() =>
@@ -430,6 +502,38 @@ export function ChatSidebar({
 
 		return rows;
 	}, [chatGroups]);
+
+	const rowProps = useMemo<ChatHistoryRowProps>(
+		() => ({
+			rows: historyRows,
+			currentChatId,
+			editingId,
+			editTitle,
+			pendingFocusChatId,
+			isPageLoading,
+			onChatSelect,
+			onEditTitleChange: setEditTitle,
+			onSaveTitle: saveTitle,
+			onCancelEdit: cancelEditTitle,
+			onDeleteChat: handleDeleteChat,
+			onStartEdit: handleEditTitle,
+			onEditFocused,
+		}),
+		[
+			historyRows,
+			currentChatId,
+			editingId,
+			editTitle,
+			pendingFocusChatId,
+			isPageLoading,
+			onChatSelect,
+			saveTitle,
+			cancelEditTitle,
+			handleDeleteChat,
+			handleEditTitle,
+			onEditFocused,
+		],
+	);
 
 	const isAuthenticated = !!user;
 
@@ -588,7 +692,7 @@ export function ChatSidebar({
 						)}
 					</SidebarMenuItem>
 				</SidebarMenu> */}
-				{chats.length === 0 && !isChatsLoading ? (
+				{chats.length === 0 ? (
 					<div className="flex flex-col items-center justify-center py-8 text-center group-data-[collapsible=icon]:hidden">
 						<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
 						<p className="text-sm text-muted-foreground mb-2">
@@ -605,20 +709,7 @@ export function ChatSidebar({
 						rowComponent={ChatHistoryRowComponent}
 						rowCount={historyRows.length}
 						rowHeight={getChatHistoryRowHeight}
-						rowProps={{
-							rows: historyRows,
-							currentChatId,
-							editingId,
-							editTitle,
-							isPageLoading,
-							formatDate,
-							onChatSelect,
-							onEditTitleChange: setEditTitle,
-							onSaveTitle: saveTitle,
-							onCancelEdit: cancelEditTitle,
-							onDeleteChat: handleDeleteChat,
-							onStartEdit: handleEditTitle,
-						}}
+						rowProps={rowProps}
 						overscanCount={8}
 					/>
 				)}
