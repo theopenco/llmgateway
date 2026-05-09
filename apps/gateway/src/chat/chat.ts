@@ -5961,6 +5961,7 @@ chat.openapi(completions, async (c) => {
 									model: usedModel,
 								},
 							};
+							finishReason = "gateway_error";
 
 							break;
 						}
@@ -6414,6 +6415,7 @@ chat.openapi(completions, async (c) => {
 											timestamp: new Date().toISOString(),
 										},
 									};
+									finishReason = "upstream_error";
 									logger.warn("Failed to parse streaming JSON", {
 										error: e instanceof Error ? e.message : String(e),
 										eventData:
@@ -7158,6 +7160,7 @@ chat.openapi(completions, async (c) => {
 								model: usedModel,
 							},
 						};
+						finishReason = "upstream_error";
 					} else {
 						const normalizedStreamingError = normalizeStreamingError({
 							error,
@@ -7228,6 +7231,10 @@ chat.openapi(completions, async (c) => {
 						}
 
 						streamingError = normalizedStreamingError.log;
+						finishReason =
+							normalizedStreamingError.client.type === "gateway_error"
+								? "gateway_error"
+								: "upstream_error";
 					}
 				} finally {
 					// Clean up the reader to prevent file descriptor leaks
