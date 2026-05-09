@@ -82,6 +82,24 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps OpenAI-format finish reasons returned by Google providers", () => {
+		expect(getUnifiedFinishReason("stop", "google-ai-studio")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "google-ai-studio")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "google-ai-studio")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("length", "google-vertex")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(
+			getUnifiedFinishReason("MALFORMED_FUNCTION_CALL", "google-ai-studio"),
+		).toBe(UnifiedFinishReason.TOOL_CALLS);
+	});
+
 	it("maps Glacier finish reasons like Google AI Studio", () => {
 		expect(getUnifiedFinishReason("STOP", "glacier")).toBe(
 			UnifiedFinishReason.COMPLETED,

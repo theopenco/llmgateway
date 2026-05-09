@@ -20,7 +20,8 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { List, type RowComponentProps } from "react-window";
 import { toast } from "sonner";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
@@ -81,6 +82,217 @@ interface ChatSidebarProps {
 	selectedProject: Project | null;
 	onSelectProject: (project: Project | null) => void;
 	onProjectCreated: (project: Project) => void;
+}
+
+type ChatHistoryRow =
+	| { type: "header"; key: string; title: string }
+	| { type: "chat"; key: string; chat: Chat }
+	| { type: "spacer"; key: string };
+
+interface ChatHistoryRowProps {
+	rows: ChatHistoryRow[];
+	currentChatId?: string;
+	editingId: string | null;
+	editTitle: string;
+	isPageLoading: boolean;
+	formatDate: (dateString: string) => string;
+	onChatSelect?: (chatId: string) => void;
+	onEditTitleChange: (value: string) => void;
+	onSaveTitle: (chatId: string) => void;
+	onCancelEdit: () => void;
+	onDeleteChat: (chatId: string) => void;
+	onStartEdit: (chat: Chat) => void;
+}
+
+function getChatHistoryRowHeight(
+	index: number,
+	{ rows }: ChatHistoryRowProps,
+): number {
+	const row = rows[index];
+
+	if (row?.type === "header") {
+		return 32;
+	}
+
+	if (row?.type === "spacer") {
+		return 16;
+	}
+
+	return 52;
+}
+
+function ChatHistoryRowComponent({
+	ariaAttributes,
+	index,
+	style,
+	rows,
+	currentChatId,
+	editingId,
+	editTitle,
+	isPageLoading,
+	formatDate,
+	onChatSelect,
+	onEditTitleChange,
+	onSaveTitle,
+	onCancelEdit,
+	onDeleteChat,
+	onStartEdit,
+}: RowComponentProps<ChatHistoryRowProps>) {
+	const row = rows[index];
+
+	if (!row) {
+		return null;
+	}
+
+	if (row.type === "spacer") {
+		return <div style={style} aria-hidden="true" />;
+	}
+
+	if (row.type === "header") {
+		return (
+			<div {...ariaAttributes} style={style}>
+				<div className="px-5 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider group-data-[collapsible=icon]:hidden">
+					{row.title}
+				</div>
+			</div>
+		);
+	}
+
+	const { chat } = row;
+
+	return (
+		<div {...ariaAttributes} style={style}>
+			<div className="relative px-2">
+				<div className="relative">
+					{editingId === chat.id ? (
+						<div className="flex w-full items-center gap-3 rounded-md px-2 py-3 pr-10 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
+							<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+							<Input
+								value={editTitle}
+								onChange={(e) => onEditTitleChange(e.target.value)}
+								onBlur={() => onSaveTitle(chat.id)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										e.preventDefault();
+										e.currentTarget.blur();
+									}
+									if (e.key === "Escape") {
+										e.preventDefault();
+										onCancelEdit();
+									}
+								}}
+								className="h-7 text-sm border-none px-1 focus-visible:ring-0 bg-transparent"
+								autoFocus
+							/>
+						</div>
+					) : (
+						<SidebarMenuButton
+							isActive={currentChatId === chat.id}
+							onClick={() => onChatSelect?.(chat.id)}
+							className="w-full justify-start gap-3 group relative pr-10 py-6"
+							type="button"
+							disabled={isPageLoading}
+						>
+							<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+							<div className="flex-1 min-w-0">
+								<div className="truncate text-sm font-medium mb-0.5">
+									{chat.title}
+								</div>
+								<div className="text-xs text-muted-foreground">
+									{chat.messageCount} messages • {formatDate(chat.updatedAt)}
+								</div>
+							</div>
+						</SidebarMenuButton>
+					)}
+					{currentChatId === chat.id && editingId !== chat.id && (
+						<div className="absolute right-0 top-2 bottom-0">
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<SidebarMenuAction
+										type="button"
+										onClick={(e) => {
+											e.stopPropagation();
+										}}
+										className="h-7 w-7 cursor-pointer"
+									>
+										<MoreVerticalIcon className="h-3.5 w-3.5" />
+									</SidebarMenuAction>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end" className="w-48">
+									<DropdownMenuItem
+										onClick={(e) => {
+											e.stopPropagation();
+											onStartEdit(chat);
+										}}
+										className="flex items-center gap-2"
+									>
+										<Edit2 className="h-4 w-4" />
+										Rename
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										onClick={(e) => {
+											e.stopPropagation();
+											onDeleteChat(chat.id);
+										}}
+										className="flex items-center gap-2 text-destructive focus:text-destructive"
+									>
+										<Trash2 className="h-4 w-4" />
+										Delete
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
+					)}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function formatDate(dateString: string): string {
+	const date = new Date(dateString);
+	const now = new Date();
+	const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+
+	if (diffInHours < 1) {
+		return "Just now";
+	} else if (diffInHours < 24) {
+		return `${Math.floor(diffInHours)}h ago`;
+	} else if (diffInHours < 48) {
+		return "Yesterday";
+	} else {
+		return format(date, "MMM d");
+	}
+}
+
+function groupChatsByDate(chats: Chat[]) {
+	const today = new Date();
+	const yesterday = new Date(today);
+	yesterday.setDate(yesterday.getDate() - 1);
+	const lastWeek = new Date(today);
+	lastWeek.setDate(lastWeek.getDate() - 7);
+
+	const groups = {
+		today: [] as Chat[],
+		yesterday: [] as Chat[],
+		lastWeek: [] as Chat[],
+		older: [] as Chat[],
+	};
+
+	chats.forEach((chat) => {
+		const chatDate = new Date(chat.updatedAt);
+		if (chatDate.toDateString() === today.toDateString()) {
+			groups.today.push(chat);
+		} else if (chatDate.toDateString() === yesterday.toDateString()) {
+			groups.yesterday.push(chat);
+		} else if (chatDate >= lastWeek) {
+			groups.lastWeek.push(chat);
+		} else {
+			groups.older.push(chat);
+		}
+	});
+
+	return groups;
 }
 
 export function ChatSidebar({
@@ -159,6 +371,11 @@ export function ChatSidebar({
 		setEditTitle("");
 	};
 
+	const cancelEditTitle = () => {
+		setEditingId(null);
+		setEditTitle("");
+	};
+
 	const handleDeleteChat = (chatId: string) => {
 		deleteChat.mutate({
 			params: {
@@ -171,156 +388,48 @@ export function ChatSidebar({
 		}
 	};
 
-	const formatDate = (dateString: string) => {
-		const date = new Date(dateString);
-		const now = new Date();
-		const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+	const chatGroups = useMemo(
+		() =>
+			groupChatsByDate(
+				[...chats].sort(
+					(a, b) =>
+						new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+				),
+			),
+		[chats],
+	);
 
-		if (diffInHours < 1) {
-			return "Just now";
-		} else if (diffInHours < 24) {
-			return `${Math.floor(diffInHours)}h ago`;
-		} else if (diffInHours < 48) {
-			return "Yesterday";
-		} else {
-			return format(date, "MMM d");
-		}
-	};
+	const historyRows = useMemo<ChatHistoryRow[]>(() => {
+		const groups: Array<{ title: string; chats: Chat[] }> = [
+			{ title: "Today", chats: chatGroups.today },
+			{ title: "Yesterday", chats: chatGroups.yesterday },
+			{ title: "Last 7 days", chats: chatGroups.lastWeek },
+			{ title: "Older", chats: chatGroups.older },
+		];
+		const rows: ChatHistoryRow[] = [];
 
-	const groupChatsByDate = (chats: Chat[]) => {
-		const today = new Date();
-		const yesterday = new Date(today);
-		yesterday.setDate(yesterday.getDate() - 1);
-		const lastWeek = new Date(today);
-		lastWeek.setDate(lastWeek.getDate() - 7);
+		groups.forEach(({ title, chats: groupedChats }, groupIndex) => {
+			if (groupedChats.length === 0) {
+				return;
+			}
 
-		const groups = {
-			today: [] as Chat[],
-			yesterday: [] as Chat[],
-			lastWeek: [] as Chat[],
-			older: [] as Chat[],
-		};
+			rows.push({ type: "header", key: `header-${title}`, title });
 
-		chats.forEach((chat) => {
-			const chatDate = new Date(chat.updatedAt);
-			if (chatDate.toDateString() === today.toDateString()) {
-				groups.today.push(chat);
-			} else if (chatDate.toDateString() === yesterday.toDateString()) {
-				groups.yesterday.push(chat);
-			} else if (chatDate >= lastWeek) {
-				groups.lastWeek.push(chat);
-			} else {
-				groups.older.push(chat);
+			groupedChats.forEach((chat) => {
+				rows.push({ type: "chat", key: `chat-${chat.id}`, chat });
+			});
+
+			const hasNextGroupWithChats = groups
+				.slice(groupIndex + 1)
+				.some((group) => group.chats.length > 0);
+
+			if (hasNextGroupWithChats) {
+				rows.push({ type: "spacer", key: `spacer-${title}` });
 			}
 		});
 
-		return groups;
-	};
-
-	const chatGroups = groupChatsByDate(
-		[...chats].sort(
-			(a, b) =>
-				new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-		),
-	);
-
-	const renderChatGroup = (title: string, chats: Chat[]) => {
-		if (chats.length === 0) {
-			return null;
-		}
-
-		return (
-			<div key={title} className="mb-4">
-				<div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider group-data-[collapsible=icon]:hidden">
-					{title}
-				</div>
-
-				<div className="space-y-1">
-					{chats.map((chat) => (
-						<SidebarMenuItem key={chat.id} className="relative">
-							<SidebarMenuButton
-								isActive={currentChatId === chat.id}
-								onClick={() => onChatSelect?.(chat.id)}
-								className="w-full justify-start gap-3 group relative pr-10 py-6"
-								type="button"
-								disabled={isPageLoading}
-							>
-								<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-								{editingId === chat.id ? (
-									<Input
-										value={editTitle}
-										onChange={(e) => setEditTitle(e.target.value)}
-										onBlur={() => saveTitle(chat.id)}
-										onKeyDown={(e) => {
-											if (e.key === "Enter") {
-												saveTitle(chat.id);
-											}
-											if (e.key === "Escape") {
-												setEditingId(null);
-												setEditTitle("");
-											}
-										}}
-										className="h-7 text-sm border-none px-1 focus-visible:ring-0 bg-transparent"
-										autoFocus
-									/>
-								) : (
-									<div className="flex-1 min-w-0">
-										<div className="truncate text-sm font-medium mb-0.5">
-											{chat.title}
-										</div>
-										<div className="text-xs text-muted-foreground">
-											{chat.messageCount} messages •{" "}
-											{formatDate(chat.updatedAt)}
-										</div>
-									</div>
-								)}
-							</SidebarMenuButton>
-							{/* Action buttons */}
-							{currentChatId === chat.id && editingId !== chat.id && (
-								<div className="absolute right-0 top-2 bottom-0">
-									<DropdownMenu>
-										<DropdownMenuTrigger asChild>
-											<SidebarMenuAction
-												type="button"
-												onClick={(e) => {
-													e.stopPropagation();
-												}}
-												className="h-7 w-7 cursor-pointer"
-											>
-												<MoreVerticalIcon className="h-3.5 w-3.5" />
-											</SidebarMenuAction>
-										</DropdownMenuTrigger>
-										<DropdownMenuContent align="end" className="w-48">
-											<DropdownMenuItem
-												onClick={(e) => {
-													e.stopPropagation();
-													handleEditTitle(chat);
-												}}
-												className="flex items-center gap-2"
-											>
-												<Edit2 className="h-4 w-4" />
-												Rename
-											</DropdownMenuItem>
-											<DropdownMenuItem
-												onClick={(e) => {
-													e.stopPropagation();
-													handleDeleteChat(chat.id);
-												}}
-												className="flex items-center gap-2 text-destructive focus:text-destructive"
-											>
-												<Trash2 className="h-4 w-4" />
-												Delete
-											</DropdownMenuItem>
-										</DropdownMenuContent>
-									</DropdownMenu>
-								</div>
-							)}
-						</SidebarMenuItem>
-					))}
-				</div>
-			</div>
-		);
-	};
+		return rows;
+	}, [chatGroups]);
 
 	const isAuthenticated = !!user;
 
@@ -455,7 +564,7 @@ export function ChatSidebar({
 				</SidebarMenu>
 			</SidebarHeader>
 
-			<SidebarContent className="px-2 py-4">
+			<SidebarContent className="overflow-hidden py-4">
 				{/* <SidebarMenu>
 					<SidebarMenuItem>
 						<OrganizationSwitcher
@@ -479,24 +588,40 @@ export function ChatSidebar({
 						)}
 					</SidebarMenuItem>
 				</SidebarMenu> */}
-				<SidebarMenu>
-					{renderChatGroup("Today", chatGroups.today)}
-					{renderChatGroup("Yesterday", chatGroups.yesterday)}
-					{renderChatGroup("Last 7 days", chatGroups.lastWeek)}
-					{renderChatGroup("Older", chatGroups.older)}
-
-					{chats.length === 0 && !isChatsLoading && (
-						<div className="flex flex-col items-center justify-center py-8 text-center group-data-[collapsible=icon]:hidden">
-							<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
-							<p className="text-sm text-muted-foreground mb-2">
-								No chat history
-							</p>
-							<p className="text-xs text-muted-foreground">
-								Start a new conversation to see it here
-							</p>
-						</div>
-					)}
-				</SidebarMenu>
+				{chats.length === 0 && !isChatsLoading ? (
+					<div className="flex flex-col items-center justify-center py-8 text-center group-data-[collapsible=icon]:hidden">
+						<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
+						<p className="text-sm text-muted-foreground mb-2">
+							No chat history
+						</p>
+						<p className="text-xs text-muted-foreground">
+							Start a new conversation to see it here
+						</p>
+					</div>
+				) : (
+					<List
+						className="min-h-0 w-full flex-1"
+						style={{ width: "100%" }}
+						rowComponent={ChatHistoryRowComponent}
+						rowCount={historyRows.length}
+						rowHeight={getChatHistoryRowHeight}
+						rowProps={{
+							rows: historyRows,
+							currentChatId,
+							editingId,
+							editTitle,
+							isPageLoading,
+							formatDate,
+							onChatSelect,
+							onEditTitleChange: setEditTitle,
+							onSaveTitle: saveTitle,
+							onCancelEdit: cancelEditTitle,
+							onDeleteChat: handleDeleteChat,
+							onStartEdit: handleEditTitle,
+						}}
+						overscanCount={8}
+					/>
+				)}
 			</SidebarContent>
 
 			<SidebarFooter>
