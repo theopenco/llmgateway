@@ -47,6 +47,8 @@ import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
 	createCombinedSignal,
 	createStreamingCombinedSignal,
+	getUpstreamPostTtftStallMs,
+	getUpstreamPreTtftStallMs,
 	isTimeoutError,
 } from "@/lib/timeout-config.js";
 
@@ -4353,6 +4355,11 @@ chat.openapi(completions, async (c) => {
 			async (stream) => {
 				let eventId = 0;
 				let canceled = false;
+				// Set when we (the gateway) abort the upstream connection due to an
+				// idle/stall watchdog firing. Lets us distinguish "client gave up"
+				// (canceled) from "upstream went silent" (upstream_error) when the
+				// reader subsequently throws AbortError.
+				let upstreamStallReason: "pre_ttft" | "post_ttft" | null = null;
 				let streamingError: unknown = null;
 				let doneSent = false; // Track if [DONE] has been sent downstream
 
@@ -5868,12 +5875,49 @@ chat.openapi(completions, async (c) => {
 					};
 				} = {};
 
+				// Idle watchdog: if the upstream goes silent for too long we want to
+				// surface that as an upstream error rather than wait for the full
+				// streaming timeout (or, worse, mis-attribute the failure to a
+				// client cancel when the caller's own timeout fires first).
+				const preTtftStallMs = getUpstreamPreTtftStallMs();
+				const postTtftStallMs = getUpstreamPostTtftStallMs();
+				let stallTimer: NodeJS.Timeout | null = null;
+				const clearStallWatchdog = () => {
+					if (stallTimer) {
+						clearTimeout(stallTimer);
+						stallTimer = null;
+					}
+				};
+				const armStallWatchdog = () => {
+					clearStallWatchdog();
+					if (canceled || upstreamStallReason || streamingError) {
+						return;
+					}
+					const hadFirstToken =
+						firstTokenReceived || firstReasoningTokenReceived;
+					const threshold = hadFirstToken ? postTtftStallMs : preTtftStallMs;
+					if (threshold <= 0) {
+						return;
+					}
+					stallTimer = setTimeout(() => {
+						stallTimer = null;
+						if (canceled || upstreamStallReason || streamingError) {
+							return;
+						}
+						upstreamStallReason = hadFirstToken ? "post_ttft" : "pre_ttft";
+						controller.abort();
+					}, threshold);
+				};
+
 				try {
+					armStallWatchdog();
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) {
+							clearStallWatchdog();
 							break;
 						}
+						armStallWatchdog();
 
 						// For AWS Bedrock, convert binary event stream to SSE format
 						let chunk: string;
@@ -7102,7 +7146,78 @@ chat.openapi(completions, async (c) => {
 					}
 				} catch (error) {
 					if (error instanceof Error && error.name === "AbortError") {
-						canceled = true;
+						// AbortError reaches us via two paths:
+						//   1. Client disconnected → onAbort already set canceled=true.
+						//   2. Stall watchdog fired → upstreamStallReason is set, and we
+						//      treat the request as an upstream error (the upstream went
+						//      silent) instead of a client cancellation.
+						// We deliberately do NOT set canceled=true here: it would mask
+						// stall-initiated aborts as client cancellations.
+						if (upstreamStallReason && !canceled) {
+							const errorMessage =
+								upstreamStallReason === "post_ttft"
+									? `Upstream stopped sending data for over ${Math.round(
+											getUpstreamPostTtftStallMs() / 1000,
+										)}s after first token`
+									: `Upstream did not send any data for over ${Math.round(
+											getUpstreamPreTtftStallMs() / 1000,
+										)}s`;
+							logger.warn("Upstream stream stalled", {
+								phase: upstreamStallReason,
+								usedProvider,
+								requestedProvider,
+								usedModel,
+								initialRequestedModel,
+								unifiedFinishReason: getUnifiedFinishReason(
+									"upstream_error",
+									usedProvider,
+								),
+							});
+
+							try {
+								await stream.writeSSE({
+									event: "error",
+									data: JSON.stringify({
+										error: {
+											message: errorMessage,
+											type: "upstream_error",
+											code: "upstream_stalled",
+											param: null,
+										},
+									}),
+									id: String(eventId++),
+								});
+								await stream.writeSSE({
+									event: "done",
+									data: "[DONE]",
+									id: String(eventId++),
+								});
+								doneSent = true;
+							} catch (sseError) {
+								logger.error(
+									"Failed to send upstream stall error SSE",
+									sseError instanceof Error
+										? sseError
+										: new Error(String(sseError)),
+								);
+							}
+
+							streamingError = {
+								message: errorMessage,
+								type: "upstream_error",
+								code: "upstream_stalled",
+								details: {
+									statusCode: 504,
+									statusText: "Upstream Stalled",
+									responseText: errorMessage,
+									phase: upstreamStallReason,
+									timestamp: new Date().toISOString(),
+									provider: usedProvider,
+									model: usedModel,
+								},
+							};
+							finishReason = "upstream_error";
+						}
 					} else if (isTimeoutError(error)) {
 						const errorMessage =
 							error instanceof Error ? error.message : "Stream reading timeout";
@@ -7229,6 +7344,7 @@ chat.openapi(completions, async (c) => {
 						streamingError = normalizedStreamingError.log;
 					}
 				} finally {
+					clearStallWatchdog();
 					// Clean up the reader to prevent file descriptor leaks
 					try {
 						await reader.cancel();
