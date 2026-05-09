@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { parseApiToken } from "@/lib/extract-api-token.js";
 
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import {
 	models as modelsList,
 	type ModelDefinition,
@@ -210,10 +210,7 @@ function createMcpServer(apiKey: string): McpServer {
 					],
 				};
 			} catch (error) {
-				logger.error(
-					"MCP chat tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP chat tool error", toError(error));
 				return {
 					content: [
 						{
@@ -394,10 +391,7 @@ function createMcpServer(apiKey: string): McpServer {
 					],
 				};
 			} catch (error) {
-				logger.error(
-					"MCP list-models tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP list-models tool error", toError(error));
 				return {
 					content: [
 						{
@@ -538,10 +532,7 @@ function createMcpServer(apiKey: string): McpServer {
 					content: contentBlocks,
 				};
 			} catch (error) {
-				logger.error(
-					"MCP generate-image tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP generate-image tool error", toError(error));
 				return {
 					content: [
 						{
@@ -768,10 +759,7 @@ function createMcpServer(apiKey: string): McpServer {
 					content: contentBlocks,
 				};
 			} catch (error) {
-				logger.error(
-					"MCP generate-nano-banana tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP generate-nano-banana tool error", toError(error));
 				return {
 					content: [
 						{
@@ -869,10 +857,7 @@ function createMcpServer(apiKey: string): McpServer {
 					],
 				};
 			} catch (error) {
-				logger.error(
-					"MCP list-image-models tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP list-image-models tool error", toError(error));
 				return {
 					content: [
 						{
@@ -1324,10 +1309,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				);
 			}
 
-			logger.error(
-				"MCP request error",
-				error instanceof Error ? error : new Error(String(error)),
-			);
+			logger.error("MCP request error", toError(error));
 			return c.json(
 				{
 					jsonrpc: "2.0",
@@ -1864,10 +1846,7 @@ async function oauthRegisterHandler(c: Context): Promise<Response> {
 			201,
 		);
 	} catch (error) {
-		logger.error(
-			"OAuth registration error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("OAuth registration error", toError(error));
 		return c.json(
 			{
 				error: "invalid_request",

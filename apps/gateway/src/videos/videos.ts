@@ -40,7 +40,7 @@ import {
 	tables,
 	type InferSelectModel,
 } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import {
 	getProviderEnvValue,
 	getProviderEnvVar,
@@ -1842,7 +1842,7 @@ async function getExternalVideoContentUrl(
 		} catch (error) {
 			logger.error(
 				"Failed to create signed URL for video job",
-				error instanceof Error ? error : new Error(String(error)),
+				toError(error),
 				{
 					videoJobId: job.id,
 					storageUri: job.storageUri,

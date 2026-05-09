@@ -15,7 +15,7 @@ import {
 	getMetrics,
 	getMetricsContentType,
 } from "@llmgateway/instrumentation";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
@@ -169,10 +169,7 @@ app.onError((error, c) => {
 	}
 
 	// For any other errors (non-HTTPException), return 500 Internal Server Error
-	logger.error(
-		"Unhandled error",
-		error instanceof Error ? error : new Error(String(error)),
-	);
+	logger.error("Unhandled error", toError(error));
 	return c.json(
 		{
 			error: true,

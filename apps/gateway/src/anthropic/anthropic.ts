@@ -4,7 +4,7 @@ import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -850,7 +850,7 @@ anthropic.openapi(messages, async (c) => {
 		openaiResponse = JSON.parse(openaiText);
 	} catch (error) {
 		logger.error("Failed to parse OpenAI response", {
-			err: error instanceof Error ? error : new Error(String(error)),
+			err: toError(error),
 			responseText: openaiText || "(empty)",
 		});
 		throw new HTTPException(500, {

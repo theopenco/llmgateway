@@ -4,7 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { app } from "@/app.js";
 
 import { processImageUrl } from "@llmgateway/actions";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
@@ -228,7 +228,7 @@ async function extractImagesFromChatResponse(
 						logger.warn("Images API - failed to fetch image from URL", {
 							model,
 							url: imageUrl.substring(0, 100),
-							err: error instanceof Error ? error : new Error(String(error)),
+							err: toError(error),
 						});
 					}
 				}
@@ -355,7 +355,7 @@ async function forwardToChatCompletions(
 		return JSON.parse(responseText);
 	} catch (error) {
 		logger.error("Images API - failed to parse chat completions response", {
-			err: error instanceof Error ? error : new Error(String(error)),
+			err: toError(error),
 		});
 		throw new HTTPException(500, {
 			message: "Failed to parse image generation response",
