@@ -4600,6 +4600,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/devpass/timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description DevPass revenue/cost/margin per day. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: {
+                                date: string;
+                                revenue: number;
+                                cost: number;
+                                margin: number;
+                            }[];
+                            totals: {
+                                revenue: number;
+                                cost: number;
+                                margin: number;
+                            };
+                            range: {
+                                from: string;
+                                to: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/devpass/{orgId}": {
         parameters: {
             query?: never;
@@ -4682,60 +4736,6 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/devpass/timeseries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: {
-                    from?: string;
-                    to?: string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description DevPass revenue/cost/margin per day. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            data: {
-                                date: string;
-                                revenue: number;
-                                cost: number;
-                                margin: number;
-                            }[];
-                            totals: {
-                                revenue: number;
-                                cost: number;
-                                margin: number;
-                            };
-                            range: {
-                                from: string;
-                                to: string;
-                            };
-                        };
-                    };
                 };
             };
         };

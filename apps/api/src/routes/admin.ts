@@ -7633,7 +7633,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.groupBy(tables.project.organizationId)
 		.as("real_cost_sub");
 
-	// Subquery: first dev_plan_start (subscribedSince) and tier change count
+	// Subquery: first dev plan start (subscribedSince) and tier change count.
+	// Legacy rows used the generic "subscription_start" type before the
+	// dev_plan_* rename, so include both to anchor the correct first date.
 	const subscribedSinceSub = db
 		.select({
 			organizationId: tables.transaction.organizationId,
@@ -7642,7 +7644,12 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			),
 		})
 		.from(tables.transaction)
-		.where(eq(tables.transaction.type, "dev_plan_start"))
+		.where(
+			inArray(tables.transaction.type, [
+				"dev_plan_start",
+				"subscription_start",
+			]),
+		)
 		.groupBy(tables.transaction.organizationId)
 		.as("subscribed_since_sub");
 
@@ -8077,6 +8084,202 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	});
 });
 
+const DEV_PLAN_TX_TYPES = [
+	"dev_plan_start",
+	"dev_plan_upgrade",
+	"dev_plan_downgrade",
+	"dev_plan_renewal",
+] as const;
+
+// Pre-rename rows for what is now a dev plan. The same `subscription_*` types
+// are STILL written today for non-personal org Pro subs, so always pair them
+// with `organization.isPersonal = true` to avoid counting org Pro revenue.
+const LEGACY_DEV_PLAN_TX_TYPES = [
+	"subscription_start",
+	"subscription_cancel",
+	"subscription_end",
+] as const;
+
+// Registered before the `/devpass/{orgId}` handler below: Hono matches routes
+// in registration order, so the literal `/devpass/timeseries` path must be
+// declared first or it would be captured as `orgId="timeseries"` and 404.
+admin.openapi(getDevpassTimeseries, async (c) => {
+	const query = c.req.valid("query");
+	const now = new Date();
+
+	// Resolve range. When no from/to is provided, default to all-time
+	// (anchored to the earliest dev plan start, falling back to today).
+	// Includes legacy `subscription_start` rows for personal orgs so subscribers
+	// from before the dev_plan_* rename also extend the chart range.
+	let startDate: Date;
+	let endDate: Date;
+	if (query.from && query.to) {
+		startDate = new Date(query.from + "T00:00:00.000Z");
+		endDate = new Date(query.to + "T23:59:59.999Z");
+	} else {
+		const [oldest] = await db
+			.select({
+				minDate: sql<string>`MIN(${tables.transaction.createdAt})`.as(
+					"min_date",
+				),
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				or(
+					eq(tables.transaction.type, "dev_plan_start"),
+					and(
+						eq(tables.transaction.type, "subscription_start"),
+						eq(tables.organization.isPersonal, true),
+					),
+				),
+			);
+		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(now);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	if (endDate.getTime() < startDate.getTime()) {
+		endDate = new Date(startDate);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	// Revenue per day from completed DevPass transactions. Joins organization
+	// so legacy `subscription_*` rows can be counted only when the org is
+	// personal (where they are pre-rename dev plan rows, not org Pro).
+	const revenuePerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+				or(
+					inArray(tables.transaction.type, [...DEV_PLAN_TX_TYPES]),
+					and(
+						inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+						eq(tables.organization.isPersonal, true),
+					),
+				),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Provider cost per day for projects belonging to orgs that are or were
+	// ever on a DevPass plan (i.e. currently devPlan != 'none' OR have a
+	// historical dev_plan_start, OR a legacy subscription_start while personal).
+	// This approximates "DevPass usage" without reconstructing daily plan
+	// membership.
+	const costPerDay = await db
+		.select({
+			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				gte(projectHourlyStats.hourTimestamp, startDate),
+				lte(projectHourlyStats.hourTimestamp, endDate),
+				or(
+					ne(tables.organization.devPlan, "none"),
+					sql`EXISTS (
+						SELECT 1 FROM ${tables.transaction} t
+						WHERE t.organization_id = ${tables.organization.id}
+						AND (
+							t.type = 'dev_plan_start'
+							OR (t.type = 'subscription_start' AND ${tables.organization.isPersonal} = true)
+						)
+					)`,
+				)!,
+			),
+		)
+		.groupBy(sql`DATE(${projectHourlyStats.hourTimestamp})`)
+		.orderBy(asc(sql`DATE(${projectHourlyStats.hourTimestamp})`));
+
+	const revenueMap = new Map<string, number>();
+	for (const row of revenuePerDay) {
+		revenueMap.set(row.date, Number(row.total));
+	}
+	const costMap = new Map<string, number>();
+	for (const row of costPerDay) {
+		costMap.set(row.date, Number(row.total));
+	}
+
+	const data: Array<{
+		date: string;
+		revenue: number;
+		cost: number;
+		margin: number;
+	}> = [];
+
+	const cursor = new Date(
+		Date.UTC(
+			startDate.getUTCFullYear(),
+			startDate.getUTCMonth(),
+			startDate.getUTCDate(),
+		),
+	);
+	const lastDay = Date.UTC(
+		endDate.getUTCFullYear(),
+		endDate.getUTCMonth(),
+		endDate.getUTCDate(),
+	);
+
+	let totalRevenue = 0;
+	let totalCost = 0;
+
+	while (cursor.getTime() <= lastDay) {
+		const iso = cursor.toISOString().slice(0, 10);
+		const revenue = revenueMap.get(iso) ?? 0;
+		const cost = costMap.get(iso) ?? 0;
+		const margin = revenue - cost;
+		data.push({ date: iso, revenue, cost, margin });
+		totalRevenue += revenue;
+		totalCost += cost;
+		cursor.setUTCDate(cursor.getUTCDate() + 1);
+	}
+
+	return c.json({
+		data,
+		totals: {
+			revenue: totalRevenue,
+			cost: totalCost,
+			margin: totalRevenue - totalCost,
+		},
+		range: {
+			from: startDate.toISOString().slice(0, 10),
+			to: endDate.toISOString().slice(0, 10),
+		},
+	});
+});
+
 admin.openapi(getDevpassSubscriber, async (c) => {
 	const { orgId } = c.req.valid("param");
 	const now = new Date();
@@ -8113,7 +8316,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.organizationId, orgId),
-				eq(tables.transaction.type, "dev_plan_start"),
+				inArray(tables.transaction.type, [
+					"dev_plan_start",
+					"subscription_start",
+				]),
 			),
 		);
 
@@ -8245,6 +8451,11 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_cancel",
 					"dev_plan_end",
 					"dev_plan_renewal",
+					// Legacy types — pre dev_plan_* rename, still in DB for older
+					// dev plan subscribers; without these their history reads as empty.
+					"subscription_start",
+					"subscription_cancel",
+					"subscription_end",
 				]),
 			),
 		)
@@ -8287,160 +8498,6 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			failureMessage: p.failureMessage ?? null,
 			source: p.source ?? null,
 		})),
-	});
-});
-
-const DEV_PLAN_TX_TYPES = [
-	"dev_plan_start",
-	"dev_plan_upgrade",
-	"dev_plan_downgrade",
-	"dev_plan_renewal",
-] as const;
-
-admin.openapi(getDevpassTimeseries, async (c) => {
-	const query = c.req.valid("query");
-	const now = new Date();
-
-	// Resolve range. When no from/to is provided, default to all-time
-	// (anchored to the earliest dev_plan_start, falling back to today).
-	let startDate: Date;
-	let endDate: Date;
-	if (query.from && query.to) {
-		startDate = new Date(query.from + "T00:00:00.000Z");
-		endDate = new Date(query.to + "T23:59:59.999Z");
-	} else {
-		const [oldest] = await db
-			.select({
-				minDate: sql<string>`MIN(${tables.transaction.createdAt})`.as(
-					"min_date",
-				),
-			})
-			.from(tables.transaction)
-			.where(eq(tables.transaction.type, "dev_plan_start"));
-		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
-		startDate.setUTCHours(0, 0, 0, 0);
-		endDate = new Date(now);
-		endDate.setUTCHours(23, 59, 59, 999);
-	}
-
-	if (endDate.getTime() < startDate.getTime()) {
-		endDate = new Date(startDate);
-		endDate.setUTCHours(23, 59, 59, 999);
-	}
-
-	// Revenue per day from completed DevPass transactions.
-	const revenuePerDay = await db
-		.select({
-			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
-			total:
-				sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.status, "completed"),
-				inArray(tables.transaction.type, [...DEV_PLAN_TX_TYPES]),
-				gte(tables.transaction.createdAt, startDate),
-				lte(tables.transaction.createdAt, endDate),
-			),
-		)
-		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
-		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
-
-	// Provider cost per day for projects belonging to orgs that are or were
-	// ever on a DevPass plan (i.e. currently devPlan != 'none' OR have a
-	// historical dev_plan_start). This approximates "DevPass usage" without
-	// reconstructing daily plan membership.
-	const costPerDay = await db
-		.select({
-			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
-			total:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
-					"total",
-				),
-		})
-		.from(projectHourlyStats)
-		.innerJoin(
-			tables.project,
-			eq(projectHourlyStats.projectId, tables.project.id),
-		)
-		.innerJoin(
-			tables.organization,
-			eq(tables.project.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				gte(projectHourlyStats.hourTimestamp, startDate),
-				lte(projectHourlyStats.hourTimestamp, endDate),
-				or(
-					ne(tables.organization.devPlan, "none"),
-					sql`EXISTS (
-						SELECT 1 FROM ${tables.transaction} t
-						WHERE t.organization_id = ${tables.organization.id}
-						AND t.type = 'dev_plan_start'
-					)`,
-				)!,
-			),
-		)
-		.groupBy(sql`DATE(${projectHourlyStats.hourTimestamp})`)
-		.orderBy(asc(sql`DATE(${projectHourlyStats.hourTimestamp})`));
-
-	const revenueMap = new Map<string, number>();
-	for (const row of revenuePerDay) {
-		revenueMap.set(row.date, Number(row.total));
-	}
-	const costMap = new Map<string, number>();
-	for (const row of costPerDay) {
-		costMap.set(row.date, Number(row.total));
-	}
-
-	const data: Array<{
-		date: string;
-		revenue: number;
-		cost: number;
-		margin: number;
-	}> = [];
-
-	const cursor = new Date(
-		Date.UTC(
-			startDate.getUTCFullYear(),
-			startDate.getUTCMonth(),
-			startDate.getUTCDate(),
-		),
-	);
-	const lastDay = Date.UTC(
-		endDate.getUTCFullYear(),
-		endDate.getUTCMonth(),
-		endDate.getUTCDate(),
-	);
-
-	let totalRevenue = 0;
-	let totalCost = 0;
-
-	while (cursor.getTime() <= lastDay) {
-		const iso = cursor.toISOString().slice(0, 10);
-		const revenue = revenueMap.get(iso) ?? 0;
-		const cost = costMap.get(iso) ?? 0;
-		const margin = revenue - cost;
-		data.push({ date: iso, revenue, cost, margin });
-		totalRevenue += revenue;
-		totalCost += cost;
-		cursor.setUTCDate(cursor.getUTCDate() + 1);
-	}
-
-	return c.json({
-		data,
-		totals: {
-			revenue: totalRevenue,
-			cost: totalCost,
-			margin: totalRevenue - totalCost,
-		},
-		range: {
-			from: startDate.toISOString().slice(0, 10),
-			to: endDate.toISOString().slice(0, 10),
-		},
 	});
 });
 
