@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ReadOnlyChatMessages } from "@/components/playground/chat-ui";
+import { ForkChatButton } from "@/components/playground/fork-chat-button";
 import { Logo } from "@/components/ui/logo";
 import { getConfig } from "@/lib/config-server";
 
@@ -86,9 +87,10 @@ export default async function SharedChatPage({
 						</span>
 					</div>
 				</header>
-				<div className="min-h-0 flex-1">
+				<div className="min-h-0 flex-1 pb-20">
 					<ReadOnlyChatMessages messages={messages} />
 				</div>
+				<ForkChatButton shareId={data.share.id} />
 			</div>
 		</main>
 	);

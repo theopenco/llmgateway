@@ -40,6 +40,19 @@ const shareSchema = z.object({
 	createdAt: z.string().datetime(),
 });
 
+const sharedMessageSnapshotSchema = z.array(
+	z.object({
+		id: z.string(),
+		role: z.enum(["user", "assistant", "system"]),
+		content: z.string().nullable(),
+		images: z.string().nullable(),
+		reasoning: z.string().nullable(),
+		tools: z.string().nullable(),
+		sequence: z.number(),
+		createdAt: z.string().datetime(),
+	}),
+);
+
 const createChatSchema = z.object({
 	title: z.string().min(1).max(200),
 	model: z.string().min(1),
@@ -599,6 +612,130 @@ chats.openapi(deleteChatShare, async (c) => {
 	}
 
 	return c.json({ message: "Share deleted successfully" });
+});
+
+const forkSharedChat = createRoute({
+	method: "post",
+	path: "/share/{shareId}/fork",
+	request: {
+		params: z.object({
+			shareId: z.string(),
+		}),
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						chat: z.object({
+							id: z.string(),
+						}),
+					}),
+				},
+			},
+			description: "Shared chat forked successfully.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Chat limit reached or validation error.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Shared chat not found.",
+		},
+	},
+});
+
+chats.openapi(forkSharedChat, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { shareId } = c.req.valid("param");
+	const [share] = await db
+		.select({
+			id: tables.chatShare.id,
+			title: tables.chatShare.title,
+			model: tables.chatShare.model,
+			messages: tables.chatShare.messages,
+		})
+		.from(tables.chatShare)
+		.innerJoin(tables.chat, eq(tables.chatShare.chatId, tables.chat.id))
+		.where(
+			and(
+				eq(tables.chatShare.id, shareId),
+				isNull(tables.chatShare.deletedAt),
+				eq(tables.chat.status, "active"),
+			),
+		)
+		.limit(1);
+
+	if (!share) {
+		return c.json({ message: "Shared chat not found" }, 404);
+	}
+
+	const isUnlimited = await hasActiveApiKey(user.id);
+	if (!isUnlimited) {
+		const chatCount = await db
+			.select({ count: count() })
+			.from(tables.chat)
+			.where(
+				and(eq(tables.chat.userId, user.id), eq(tables.chat.status, "active")),
+			);
+
+		if (chatCount[0].count >= 3) {
+			throw new HTTPException(400, {
+				message: "FREE_LIMIT_REACHED",
+			});
+		}
+	}
+
+	const messages = sharedMessageSnapshotSchema.parse(share.messages);
+	const [newChat] = await db
+		.insert(tables.chat)
+		.values({
+			title: share.title,
+			model: share.model,
+			userId: user.id,
+			webSearch: false,
+		})
+		.returning();
+
+	if (messages.length > 0) {
+		await db.insert(tables.message).values(
+			messages.map((message) => ({
+				chatId: newChat.id,
+				role: message.role,
+				content: message.content,
+				images: message.images,
+				reasoning: message.reasoning,
+				tools: message.tools,
+				sequence: message.sequence,
+			})),
+		);
+	}
+
+	return c.json(
+		{
+			chat: {
+				id: newChat.id,
+			},
+		},
+		201,
+	);
 });
 
 // Delete chat

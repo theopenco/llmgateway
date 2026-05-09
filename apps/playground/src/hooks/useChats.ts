@@ -146,6 +146,21 @@ export function useDeleteChatShare() {
 	});
 }
 
+export function useForkSharedChat() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("post", "/chats/share/{shareId}/fork", {
+		onSuccess: () => {
+			const queryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey });
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
 export function useAddMessage() {
 	const queryClient = useQueryClient();
 	const api = useApi();
