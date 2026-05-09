@@ -44,54 +44,6 @@ export function getTimeoutMs(): number {
 	return 180000;
 }
 
-/**
- * Gets the upstream stall threshold for streaming requests BEFORE the first
- * token (or reasoning token) has been received. If the upstream provider goes
- * silent for longer than this, we treat it as an upstream error rather than
- * waiting for the full streaming timeout (or, worse, attributing it to a
- * client-initiated cancellation when the client gives up first).
- *
- * Slow-start reasoning models can legitimately stay quiet for a while before
- * emitting their first token, so the pre-TTFT window is more generous than
- * the post-TTFT window.
- *
- * Set to 0 (or a negative value) to disable pre-TTFT stall detection.
- * Default: 60 seconds (60000ms)
- */
-export function getUpstreamPreTtftStallMs(): number {
-	const raw = process.env.UPSTREAM_PRE_TTFT_STALL_MS;
-	if (raw === undefined || raw === "") {
-		return 60000;
-	}
-	const parsed = Number(raw);
-	if (!Number.isFinite(parsed)) {
-		return 60000;
-	}
-	return parsed;
-}
-
-/**
- * Gets the upstream stall threshold for streaming requests AFTER the first
- * token has been received. Once the upstream is actively streaming, a long
- * silence is almost always an upstream issue (provider crash, dropped
- * connection, infrastructure outage), so this threshold is shorter than the
- * pre-TTFT one.
- *
- * Set to 0 (or a negative value) to disable post-TTFT stall detection.
- * Default: 30 seconds (30000ms)
- */
-export function getUpstreamPostTtftStallMs(): number {
-	const raw = process.env.UPSTREAM_POST_TTFT_STALL_MS;
-	if (raw === undefined || raw === "") {
-		return 30000;
-	}
-	const parsed = Number(raw);
-	if (!Number.isFinite(parsed)) {
-		return 30000;
-	}
-	return parsed;
-}
-
 // Legacy exports for backwards compatibility (read at module load time)
 // These should be avoided in new code - use the getter functions instead
 export const GATEWAY_TIMEOUT_MS = getGatewayTimeoutMs();
