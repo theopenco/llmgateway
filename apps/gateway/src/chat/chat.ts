@@ -7415,11 +7415,22 @@ chat.openapi(completions, async (c) => {
 						finishReason !== null &&
 						finishReason !== "upstream_error" &&
 						finishReason !== "gateway_error";
+					// Did upstream actually deliver any user-visible output? Reasoning
+					// alone doesn't count: a request where only reasoning arrived and
+					// then everything went silent is functionally an upstream failure.
+					const upstreamProducedOutput =
+						firstTokenReceived ||
+						!!(streamingToolCalls && streamingToolCalls.length > 0);
+					// If the client closed the socket but upstream had been delivering
+					// completion content, that's a real client cancel — leave it alone.
+					// Otherwise (no terminal event AND no real output) the upstream
+					// never finished and we record an upstream_error regardless of who
+					// closed the socket first.
 					const streamEndedWithoutTerminalEvent =
 						!streamingError &&
-						!canceled &&
 						!streamHasVerifiedTerminalEvent &&
-						!hasTerminalFinishReason;
+						!hasTerminalFinishReason &&
+						(!canceled || !upstreamProducedOutput);
 					if (streamEndedWithoutTerminalEvent) {
 						const hasBufferedNonWhitespace = /\S/u.test(buffer);
 						const responseText = hasBufferedNonWhitespace
@@ -8069,7 +8080,12 @@ chat.openapi(completions, async (c) => {
 						responseSize: fullContent.length,
 						content: fullContent,
 						reasoningContent: fullReasoningContent || null,
-						finishReason: canceled ? "canceled" : finishReason,
+						// Prefer the actual outcome (upstream's finish_reason or an
+						// upstream/gateway error) over the canceled flag. The flag is
+						// only the proximate cause (the client-side socket closed) — it
+						// is not the same as "the request was a cancel". Fall back to
+						// "canceled" only when we have no better information.
+						finishReason: finishReason ?? (canceled ? "canceled" : null),
 						promptTokens: shouldIncludeTokensForBilling
 							? (calculatedPromptTokens?.toString() ?? null)
 							: null,
