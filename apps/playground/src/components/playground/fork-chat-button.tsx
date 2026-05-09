@@ -65,6 +65,13 @@ export function ForkChatButton({ shareId }: ForkChatButtonProps) {
 	}, [isLoading, pathname, router, searchParams, user]);
 
 	const isBusy = isLoading || forkChat.isPending || isNavigating;
+	const buttonLabel = isLoading
+		? "Loading..."
+		: isNavigating && !user
+			? "Redirecting..."
+			: forkChat.isPending || isNavigating
+				? "Forking..."
+				: "Fork chat";
 
 	return (
 		<div className="pointer-events-none fixed inset-x-0 bottom-6 z-20 flex justify-center px-4">
@@ -80,7 +87,7 @@ export function ForkChatButton({ shareId }: ForkChatButtonProps) {
 				) : (
 					<GitFork className="size-4" />
 				)}
-				{isBusy ? "Forking..." : "Fork chat"}
+				{buttonLabel}
 			</Button>
 		</div>
 	);
