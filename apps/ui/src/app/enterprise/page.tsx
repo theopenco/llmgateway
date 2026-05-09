@@ -12,6 +12,7 @@ import { UptimeVisualization } from "@/components/enterprise/uptime";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { Testimonials } from "@/components/landing/testimonials";
+import { fetchServerData } from "@/lib/server-api";
 
 import type { Metadata } from "next";
 
@@ -26,11 +27,27 @@ export const metadata: Metadata = {
 	},
 };
 
-export default function EnterprisePage() {
+export const revalidate = 300;
+
+interface PublicAppsResponse {
+	totalTokens: number;
+	totalRequests: number;
+}
+
+export default async function EnterprisePage() {
+	const stats = await fetchServerData<PublicAppsResponse>(
+		"GET",
+		"/public/apps",
+		{ params: { query: { limit: "1" } } },
+	);
+
 	return (
 		<div>
 			<HeroRSC navbarOnly />
-			<HeroEnterprise />
+			<HeroEnterprise
+				totalTokens={stats?.totalTokens}
+				totalRequests={stats?.totalRequests}
+			/>
 			<TrustBarEnterprise />
 			<UptimeVisualization />
 			<FeaturesEnterprise />

@@ -57,7 +57,8 @@ const snippets: Record<
 	soulforge: {
 		lines: [],
 		command: "soulforge",
-		comment: "# /keys, paste your LLM Gateway key — caches cut ~50% tokens",
+		comment:
+			"# inside: /keys → paste your DevPass key (or: soulforge --set-key llmgateway <key>)",
 	},
 	autohand: {
 		lines: [

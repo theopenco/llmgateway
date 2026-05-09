@@ -150,6 +150,15 @@ export default function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<Link
+										href="/apps"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch
+									>
+										Apps
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/templates"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch

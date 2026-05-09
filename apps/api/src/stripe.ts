@@ -14,6 +14,7 @@ import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
 import { notifyCreditsPurchased } from "./utils/discord.js";
 import {
+	generateDevPlanCancellationFeedbackEmailHtml,
 	generatePaymentFailureEmailHtml,
 	generateSubscriptionCancelledEmailHtml,
 	sendTransactionalEmail,
@@ -1789,7 +1790,7 @@ async function handleInvoicePaymentFailed(
 	);
 }
 
-async function handleSubscriptionUpdated(
+export async function handleSubscriptionUpdated(
 	event: Stripe.CustomerSubscriptionUpdatedEvent,
 ) {
 	const subscription = event.data.object;
@@ -1841,6 +1842,18 @@ async function handleSubscriptionUpdated(
 				stripeInvoiceId: subscription.latest_invoice as string,
 				description: `Dev Plan ${organization.devPlan?.toUpperCase()} cancelled`,
 			});
+
+			if (organization.billingEmail) {
+				await sendTransactionalEmail({
+					to: organization.billingEmail,
+					subject: "Before you go — could we get your feedback?",
+					html: generateDevPlanCancellationFeedbackEmailHtml(organization.name),
+				});
+
+				logger.info(
+					`Sent dev plan cancellation feedback email to ${organization.billingEmail} for organization ${organizationId}`,
+				);
+			}
 		}
 
 		await db

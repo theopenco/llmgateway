@@ -21,6 +21,17 @@ import { toast } from "sonner";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
@@ -473,18 +484,37 @@ export default function DashboardClient() {
 									Resume subscription
 								</Button>
 							) : (
-								<Button
-									variant="ghost"
-									size="sm"
-									onClick={handleCancel}
-									disabled={isCancelling}
-									className="text-muted-foreground"
-								>
-									{isCancelling && (
-										<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-									)}
-									Cancel subscription
-								</Button>
+								<AlertDialog>
+									<AlertDialogTrigger asChild>
+										<Button
+											variant="ghost"
+											size="sm"
+											disabled={isCancelling}
+											className="text-muted-foreground"
+										>
+											{isCancelling && (
+												<Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+											)}
+											Cancel subscription
+										</Button>
+									</AlertDialogTrigger>
+									<AlertDialogContent>
+										<AlertDialogHeader>
+											<AlertDialogTitle>Cancel your Dev Plan?</AlertDialogTitle>
+											<AlertDialogDescription>
+												Your plan stays active until the end of the current
+												billing period. You won't be charged again, and you can
+												resume any time before then.
+											</AlertDialogDescription>
+										</AlertDialogHeader>
+										<AlertDialogFooter>
+											<AlertDialogCancel>Keep subscription</AlertDialogCancel>
+											<AlertDialogAction onClick={handleCancel}>
+												Cancel subscription
+											</AlertDialogAction>
+										</AlertDialogFooter>
+									</AlertDialogContent>
+								</AlertDialog>
 							)}
 						</div>
 					</div>

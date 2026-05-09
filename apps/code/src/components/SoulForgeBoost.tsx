@@ -21,10 +21,9 @@ export function SoulForgeBoost() {
 							</span>
 						</h2>
 						<p className="mb-6 text-base leading-relaxed text-muted-foreground">
-							SoulForge is a coding agent built around aggressive prompt caching
-							and context reuse. Point it at LLM Gateway and it sends roughly
-							half the tokens of an equivalent Claude Code session — same model,
-							same task, smaller bill.
+							Most AI tools treat your code as text. They grep, they paste, they
+							match strings. SoulForge treats code as structure. Same model,
+							same task, half the bill.
 						</p>
 						<ul className="mb-8 space-y-3">
 							<li className="flex items-start gap-3 text-sm">
@@ -33,10 +32,10 @@ export function SoulForgeBoost() {
 								</div>
 								<span className="text-muted-foreground">
 									<span className="font-medium text-foreground">
-										Prompt caching by default
+										Sees the whole codebase at once
 									</span>{" "}
-									— system prompt, tools, and project context are cached on
-									every provider that supports it.
+									— a live map of every file and how they connect, across
+									TypeScript, Python, Rust, Go, Java, and 30+ more.
 								</span>
 							</li>
 							<li className="flex items-start gap-3 text-sm">
@@ -45,10 +44,10 @@ export function SoulForgeBoost() {
 								</div>
 								<span className="text-muted-foreground">
 									<span className="font-medium text-foreground">
-										Context-aware compaction
+										The first AST editor for AI
 									</span>{" "}
-									— SoulForge prunes stale turns instead of replaying the whole
-									conversation.
+									— edits TypeScript and JavaScript by symbol name, not by
+									find-and-replace. Cleaner changes, fewer retries.
 								</span>
 							</li>
 							<li className="flex items-start gap-3 text-sm">
@@ -98,7 +97,7 @@ export function SoulForgeBoost() {
 									<div className="absolute inset-0 bg-[repeating-linear-gradient(135deg,transparent_0,transparent_6px,rgba(0,0,0,0.04)_6px,rgba(0,0,0,0.04)_12px)] dark:bg-[repeating-linear-gradient(135deg,transparent_0,transparent_6px,rgba(255,255,255,0.04)_6px,rgba(255,255,255,0.04)_12px)]" />
 								</div>
 								<p className="mt-1.5 text-xs text-muted-foreground">
-									Standard agent loop, no aggressive caching
+									Greps, pastes, retries
 								</p>
 							</div>
 
@@ -122,7 +121,7 @@ export function SoulForgeBoost() {
 									<div className="absolute inset-y-0 left-0 w-1/2 bg-emerald-500/70" />
 								</div>
 								<p className="mt-1.5 text-xs text-muted-foreground">
-									Prompt-cache hits on every reusable prefix
+									Jumps straight to what matters
 								</p>
 							</div>
 
@@ -158,9 +157,8 @@ export function SoulForgeBoost() {
 					</div>
 				</div>
 				<p className="mt-8 text-center text-xs text-muted-foreground">
-					Actual savings vary by workload. The 50% figure is typical for
-					multi-turn agent sessions where the system prompt and codebase context
-					stay stable.
+					Savings vary by workload. ~50% is typical when the agent works through
+					a real project over multiple turns.
 				</p>
 			</div>
 		</section>

@@ -490,6 +490,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregated token usage per app/source across all LLM Gateway traffic. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            apps: {
+                                source: string;
+                                totalTokens: number;
+                                totalRequests: number;
+                                lastUsedAt: string | null;
+                            }[];
+                            totalApps: number;
+                            totalTokens: number;
+                            totalRequests: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -7856,6 +7903,97 @@ export interface paths {
                     content: {
                         "application/json": {
                             apiKey: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plan-cancellation-feedback/eligibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Whether the user can submit cancellation feedback */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            eligible: boolean;
+                            subscriptionId: string | null;
+                            /** @enum {string|null} */
+                            previousDevPlan: "lite" | "pro" | "max" | null;
+                            existingFeedback: {
+                                /** @enum {string} */
+                                reason: "too_expensive" | "missing_features" | "not_using_enough" | "switched_alternative" | "other";
+                                comments: string | null;
+                                submittedAt: string;
+                            } | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plan-cancellation-feedback/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        reason: "too_expensive" | "missing_features" | "not_using_enough" | "switched_alternative" | "other";
+                        comments?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Feedback recorded */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
                         };
                     };
                 };

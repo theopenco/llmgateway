@@ -1274,53 +1274,118 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
-	// Realistic per-agent activity for the DevPass dashboard
+	// Realistic per-agent activity for the DevPass dashboard and the public
+	// /apps page. Weights are renormalized internally so it's safe to add or
+	// reorder entries here without recomputing the totals.
 	const DEVPASS_AGENTS = [
 		{
 			source: "claude.com/claude-code",
 			model: "claude-3.5-sonnet",
 			provider: "anthropic",
-			weight: 0.32,
+			weight: 0.22,
 		},
-		{ source: "cursor", model: "gpt-4o", provider: "openai", weight: 0.18 },
+		{ source: "cursor", model: "gpt-4o", provider: "openai", weight: 0.14 },
 		{
 			source: "cline",
 			model: "claude-3.5-sonnet",
 			provider: "anthropic",
-			weight: 0.16,
+			weight: 0.1,
 		},
-		{ source: "codex", model: "o1", provider: "openai", weight: 0.12 },
+		{ source: "codex", model: "o1", provider: "openai", weight: 0.08 },
 		{
 			source: "opencode",
 			model: "claude-3-haiku",
 			provider: "anthropic",
-			weight: 0.1,
+			weight: 0.07,
+		},
+		{
+			source: "aider",
+			model: "claude-3.5-sonnet",
+			provider: "anthropic",
+			weight: 0.06,
+		},
+		{
+			source: "continue.dev",
+			model: "claude-3.5-sonnet",
+			provider: "anthropic",
+			weight: 0.05,
+		},
+		{
+			source: "windsurf",
+			model: "gpt-4o",
+			provider: "openai",
+			weight: 0.05,
+		},
+		{
+			source: "roo-cline",
+			model: "claude-3.5-sonnet",
+			provider: "anthropic",
+			weight: 0.04,
+		},
+		{
+			source: "kilo-code",
+			model: "deepseek-chat",
+			provider: "deepseek",
+			weight: 0.03,
+		},
+		{
+			source: "zed",
+			model: "claude-3.5-sonnet",
+			provider: "anthropic",
+			weight: 0.03,
+		},
+		{
+			source: "bolt.new",
+			model: "claude-3.5-sonnet",
+			provider: "anthropic",
+			weight: 0.03,
+		},
+		{
+			source: "v0.dev",
+			model: "gpt-4o",
+			provider: "openai",
+			weight: 0.025,
+		},
+		{
+			source: "lovable.dev",
+			model: "claude-3.5-sonnet",
+			provider: "anthropic",
+			weight: 0.025,
 		},
 		{
 			source: "autohand",
 			model: "deepseek-chat",
 			provider: "deepseek",
-			weight: 0.06,
+			weight: 0.02,
 		},
 		{
 			source: "soulforge",
 			model: "gemini-2.0-flash",
 			provider: "google-ai-studio",
-			weight: 0.04,
+			weight: 0.02,
 		},
 		{
 			source: "openclaw",
 			model: "claude-3-haiku",
 			provider: "anthropic",
-			weight: 0.02,
+			weight: 0.015,
 		},
-		{ source: "n8n", model: "gpt-4o-mini", provider: "openai", weight: 0.02 },
+		{
+			source: "n8n",
+			model: "gpt-4o-mini",
+			provider: "openai",
+			weight: 0.015,
+		},
 	];
-	const DEVPASS_LOG_COUNT = 240;
+	const DEVPASS_LOG_COUNT = 1800;
+	const DEVPASS_WEIGHT_TOTAL = DEVPASS_AGENTS.reduce(
+		(sum, a) => sum + a.weight,
+		0,
+	);
 	const devpassLogs: Array<Record<string, any>> = [];
 	let devpassRunningCost = 0;
 	for (let i = 0; i < DEVPASS_LOG_COUNT; i++) {
-		const r = Math.random();
+		const r = Math.random() * DEVPASS_WEIGHT_TOTAL;
 		let acc = 0;
 		const agent =
 			DEVPASS_AGENTS.find((a) => {
