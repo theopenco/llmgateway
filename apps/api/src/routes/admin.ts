@@ -7393,6 +7393,7 @@ const devpassSubscriberSchema = z.object({
 	mrr: z.number(),
 	realCost: z.number(),
 	margin: z.number(),
+	marginPct: z.number().nullable(),
 	subscribedSince: z.string().nullable(),
 	tierChanges: z.number(),
 	lastPaymentFailureAt: z.string().nullable(),
@@ -7416,6 +7417,7 @@ const devpassKpisSchema = z.object({
 	totalRealCostCycle: z.number(),
 	totalMrrCycle: z.number(),
 	totalMargin: z.number(),
+	marginPct: z.number().nullable(),
 });
 
 const devpassListSchema = z.object({
@@ -7518,6 +7520,47 @@ const getDevpassSubscriber = createRoute({
 		},
 		404: {
 			description: "Subscriber not found.",
+		},
+	},
+});
+
+const devpassTimeseriesPointSchema = z.object({
+	date: z.string(),
+	revenue: z.number(),
+	cost: z.number(),
+	margin: z.number(),
+});
+
+const devpassTimeseriesSchema = z.object({
+	data: z.array(devpassTimeseriesPointSchema),
+	totals: z.object({
+		revenue: z.number(),
+		cost: z.number(),
+		margin: z.number(),
+	}),
+	range: z.object({
+		from: z.string(),
+		to: z.string(),
+	}),
+});
+
+const getDevpassTimeseries = createRoute({
+	method: "get",
+	path: "/devpass/timeseries",
+	request: {
+		query: z.object({
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: devpassTimeseriesSchema.openapi({}),
+				},
+			},
+			description: "DevPass revenue/cost/margin per day.",
 		},
 	},
 });
@@ -7973,6 +8016,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			: null;
 		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
 
+		const mrrNum = Number(row.mrr ?? 0);
+		const marginNum = Number(row.margin ?? 0);
+		const marginPct = mrrNum > 0 ? (marginNum / mrrNum) * 100 : null;
+
 		return {
 			id: row.id,
 			name: row.name,
@@ -7991,9 +8038,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			expiresAt: expiresAt ? expiresAt.toISOString() : null,
 			cancelled,
 			allowAllModels: row.allowAllModels,
-			mrr: Number(row.mrr ?? 0),
+			mrr: mrrNum,
 			realCost: Number(row.realCost ?? 0),
-			margin: Number(row.margin ?? 0),
+			margin: marginNum,
+			marginPct,
 			subscribedSince: row.subscribedSince
 				? new Date(row.subscribedSince).toISOString()
 				: null,
@@ -8002,6 +8050,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			createdAt: row.createdAt.toISOString(),
 		};
 	});
+
+	const kpiMarginPct =
+		totalMrrCycle > 0 ? (totalMargin / totalMrrCycle) * 100 : null;
 
 	return c.json({
 		subscribers,
@@ -8019,6 +8070,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			totalRealCostCycle,
 			totalMrrCycle,
 			totalMargin,
+			marginPct: kpiMarginPct,
 		},
 		limit,
 		offset,
@@ -8135,6 +8187,8 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 
 	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
 
+	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
+
 	const subscriber = {
 		id: org.id,
 		name: org.name,
@@ -8158,6 +8212,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		mrr,
 		realCost,
 		margin,
+		marginPct,
 		subscribedSince: firstStartRow?.firstStart
 			? new Date(firstStartRow.firstStart).toISOString()
 			: null,
@@ -8232,6 +8287,160 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			failureMessage: p.failureMessage ?? null,
 			source: p.source ?? null,
 		})),
+	});
+});
+
+const DEV_PLAN_TX_TYPES = [
+	"dev_plan_start",
+	"dev_plan_upgrade",
+	"dev_plan_downgrade",
+	"dev_plan_renewal",
+] as const;
+
+admin.openapi(getDevpassTimeseries, async (c) => {
+	const query = c.req.valid("query");
+	const now = new Date();
+
+	// Resolve range. When no from/to is provided, default to all-time
+	// (anchored to the earliest dev_plan_start, falling back to today).
+	let startDate: Date;
+	let endDate: Date;
+	if (query.from && query.to) {
+		startDate = new Date(query.from + "T00:00:00.000Z");
+		endDate = new Date(query.to + "T23:59:59.999Z");
+	} else {
+		const [oldest] = await db
+			.select({
+				minDate: sql<string>`MIN(${tables.transaction.createdAt})`.as(
+					"min_date",
+				),
+			})
+			.from(tables.transaction)
+			.where(eq(tables.transaction.type, "dev_plan_start"));
+		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(now);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	if (endDate.getTime() < startDate.getTime()) {
+		endDate = new Date(startDate);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	// Revenue per day from completed DevPass transactions.
+	const revenuePerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, [...DEV_PLAN_TX_TYPES]),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Provider cost per day for projects belonging to orgs that are or were
+	// ever on a DevPass plan (i.e. currently devPlan != 'none' OR have a
+	// historical dev_plan_start). This approximates "DevPass usage" without
+	// reconstructing daily plan membership.
+	const costPerDay = await db
+		.select({
+			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				gte(projectHourlyStats.hourTimestamp, startDate),
+				lte(projectHourlyStats.hourTimestamp, endDate),
+				or(
+					ne(tables.organization.devPlan, "none"),
+					sql`EXISTS (
+						SELECT 1 FROM ${tables.transaction} t
+						WHERE t.organization_id = ${tables.organization.id}
+						AND t.type = 'dev_plan_start'
+					)`,
+				)!,
+			),
+		)
+		.groupBy(sql`DATE(${projectHourlyStats.hourTimestamp})`)
+		.orderBy(asc(sql`DATE(${projectHourlyStats.hourTimestamp})`));
+
+	const revenueMap = new Map<string, number>();
+	for (const row of revenuePerDay) {
+		revenueMap.set(row.date, Number(row.total));
+	}
+	const costMap = new Map<string, number>();
+	for (const row of costPerDay) {
+		costMap.set(row.date, Number(row.total));
+	}
+
+	const data: Array<{
+		date: string;
+		revenue: number;
+		cost: number;
+		margin: number;
+	}> = [];
+
+	const cursor = new Date(
+		Date.UTC(
+			startDate.getUTCFullYear(),
+			startDate.getUTCMonth(),
+			startDate.getUTCDate(),
+		),
+	);
+	const lastDay = Date.UTC(
+		endDate.getUTCFullYear(),
+		endDate.getUTCMonth(),
+		endDate.getUTCDate(),
+	);
+
+	let totalRevenue = 0;
+	let totalCost = 0;
+
+	while (cursor.getTime() <= lastDay) {
+		const iso = cursor.toISOString().slice(0, 10);
+		const revenue = revenueMap.get(iso) ?? 0;
+		const cost = costMap.get(iso) ?? 0;
+		const margin = revenue - cost;
+		data.push({ date: iso, revenue, cost, margin });
+		totalRevenue += revenue;
+		totalCost += cost;
+		cursor.setUTCDate(cursor.getUTCDate() + 1);
+	}
+
+	return c.json({
+		data,
+		totals: {
+			revenue: totalRevenue,
+			cost: totalCost,
+			margin: totalRevenue - totalCost,
+		},
+		range: {
+			from: startDate.toISOString().slice(0, 10),
+			to: endDate.toISOString().slice(0, 10),
+		},
 	});
 });
 

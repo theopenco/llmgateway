@@ -8,6 +8,7 @@ import {
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { CopyableId } from "@/components/copyable-id";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -310,6 +311,7 @@ export default async function DevpassDetailPage({
 						<Table>
 							<TableHeader>
 								<TableRow>
+									<TableHead>ID</TableHead>
 									<TableHead>Date</TableHead>
 									<TableHead>Event</TableHead>
 									<TableHead>Amount</TableHead>
@@ -322,7 +324,7 @@ export default async function DevpassDetailPage({
 								{data.transactions.length === 0 ? (
 									<TableRow>
 										<TableCell
-											colSpan={6}
+											colSpan={7}
 											className="h-24 text-center text-muted-foreground"
 										>
 											No subscription events recorded
@@ -331,6 +333,9 @@ export default async function DevpassDetailPage({
 								) : (
 									data.transactions.map((t) => (
 										<TableRow key={t.id}>
+											<TableCell>
+												<CopyableId id={t.id} />
+											</TableCell>
 											<TableCell className="text-muted-foreground">
 												{formatDateTime(t.createdAt)}
 											</TableCell>
@@ -378,6 +383,7 @@ export default async function DevpassDetailPage({
 						<Table>
 							<TableHeader>
 								<TableRow>
+									<TableHead>ID</TableHead>
 									<TableHead>Date</TableHead>
 									<TableHead>Amount</TableHead>
 									<TableHead>Decline code</TableHead>
@@ -389,7 +395,7 @@ export default async function DevpassDetailPage({
 								{data.paymentFailures.length === 0 ? (
 									<TableRow>
 										<TableCell
-											colSpan={5}
+											colSpan={6}
 											className="h-24 text-center text-muted-foreground"
 										>
 											No payment failures
@@ -398,6 +404,9 @@ export default async function DevpassDetailPage({
 								) : (
 									data.paymentFailures.map((p) => (
 										<TableRow key={p.id}>
+											<TableCell>
+												<CopyableId id={p.id} />
+											</TableCell>
 											<TableCell className="text-muted-foreground">
 												{formatDateTime(p.createdAt)}
 											</TableCell>
