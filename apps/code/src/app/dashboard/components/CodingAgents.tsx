@@ -1,6 +1,15 @@
 "use client";
 
-import { ArrowLeft, ChevronRight, Coins, Cpu, Terminal } from "lucide-react";
+import {
+	ArrowDown,
+	ArrowLeft,
+	ArrowUp,
+	ArrowUpDown,
+	ChevronRight,
+	Coins,
+	Cpu,
+	Terminal,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useApi } from "@/lib/fetch-client";
@@ -101,6 +110,16 @@ const AGENTS: AgentDefinition[] = [
 
 const ALL_SOURCES = AGENTS.flatMap((a) => a.sources);
 
+interface ModelUsage {
+	id: string;
+	provider: string;
+	requestCount: number;
+	promptTokens: number;
+	completionTokens: number;
+	totalTokens: number;
+	cost: number;
+}
+
 interface AgentStats {
 	agent: AgentDefinition;
 	requestCount: number;
@@ -110,6 +129,7 @@ interface AgentStats {
 	totalCompletionTokens: number;
 	lastActive: Date;
 	logs: ApiLog[];
+	modelBreakdown: ModelUsage[];
 }
 
 function formatTokens(count: number): string {
@@ -142,6 +162,34 @@ function formatLastActive(date: Date): string {
 		return `${days}d ago`;
 	}
 	return date.toLocaleDateString();
+}
+
+function computeModelBreakdown(logs: ApiLog[]): ModelUsage[] {
+	const map = new Map<string, ModelUsage>();
+	for (const log of logs) {
+		const id = log.usedModel || log.requestedModel || "unknown";
+		const provider = log.usedProvider || log.requestedProvider || "—";
+		const key = `${provider}|${id}`;
+		let entry = map.get(key);
+		if (!entry) {
+			entry = {
+				id,
+				provider,
+				requestCount: 0,
+				promptTokens: 0,
+				completionTokens: 0,
+				totalTokens: 0,
+				cost: 0,
+			};
+			map.set(key, entry);
+		}
+		entry.requestCount += 1;
+		entry.promptTokens += Number(log.promptTokens ?? 0);
+		entry.completionTokens += Number(log.completionTokens ?? 0);
+		entry.totalTokens += Number(log.totalTokens ?? 0);
+		entry.cost += log.cost ?? 0;
+	}
+	return Array.from(map.values()).sort((a, b) => b.cost - a.cost);
 }
 
 function computeAgentStats(logs: ApiLog[]): AgentStats[] {
@@ -177,6 +225,7 @@ function computeAgentStats(logs: ApiLog[]): AgentStats[] {
 			),
 			lastActive: new Date(sorted[0].createdAt),
 			logs: agentLogs,
+			modelBreakdown: computeModelBreakdown(agentLogs),
 		});
 	}
 	return stats.sort((a, b) => b.totalCost - a.totalCost);
@@ -242,6 +291,175 @@ function AgentCard({
 	);
 }
 
+type ModelSortColumn =
+	| "id"
+	| "provider"
+	| "requestCount"
+	| "totalTokens"
+	| "cost";
+type SortDirection = "asc" | "desc";
+
+function ModelUsageBreakdown({ models }: { models: ModelUsage[] }) {
+	const [sortColumn, setSortColumn] = useState<ModelSortColumn>("cost");
+	const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+
+	const handleSort = (column: ModelSortColumn) => {
+		if (sortColumn === column) {
+			setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+		} else {
+			setSortColumn(column);
+			setSortDirection(
+				column === "id" || column === "provider" ? "asc" : "desc",
+			);
+		}
+	};
+
+	const sortIcon = (column: ModelSortColumn) => {
+		if (sortColumn !== column) {
+			return <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />;
+		}
+		return sortDirection === "asc" ? (
+			<ArrowUp className="ml-1 h-3 w-3" />
+		) : (
+			<ArrowDown className="ml-1 h-3 w-3" />
+		);
+	};
+
+	const sortedModels = useMemo(() => {
+		const copy = [...models];
+		copy.sort((a, b) => {
+			const aValue = a[sortColumn];
+			const bValue = b[sortColumn];
+			if (typeof aValue === "string" && typeof bValue === "string") {
+				return sortDirection === "asc"
+					? aValue.localeCompare(bValue)
+					: bValue.localeCompare(aValue);
+			}
+			return sortDirection === "asc"
+				? (aValue as number) - (bValue as number)
+				: (bValue as number) - (aValue as number);
+		});
+		return copy;
+	}, [models, sortColumn, sortDirection]);
+
+	const totalTokens = models.reduce((sum, m) => sum + m.totalTokens, 0);
+
+	return (
+		<div className="overflow-hidden rounded-xl border">
+			<div className="border-b bg-muted/30 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+				Model usage
+			</div>
+			{models.length === 0 ? (
+				<div className="px-4 py-6 text-center text-sm text-muted-foreground">
+					No model usage data.
+				</div>
+			) : (
+				<div className="overflow-x-auto">
+					<table className="w-full text-sm">
+						<thead>
+							<tr className="border-b bg-muted/10 text-xs text-muted-foreground">
+								<th className="px-4 py-2 text-left font-medium">
+									<button
+										type="button"
+										onClick={() => handleSort("id")}
+										className="inline-flex items-center hover:text-foreground"
+									>
+										Model
+										{sortIcon("id")}
+									</button>
+								</th>
+								<th className="px-4 py-2 text-left font-medium">
+									<button
+										type="button"
+										onClick={() => handleSort("provider")}
+										className="inline-flex items-center hover:text-foreground"
+									>
+										Provider
+										{sortIcon("provider")}
+									</button>
+								</th>
+								<th className="px-4 py-2 text-right font-medium">
+									<button
+										type="button"
+										onClick={() => handleSort("requestCount")}
+										className="inline-flex items-center hover:text-foreground"
+									>
+										Requests
+										{sortIcon("requestCount")}
+									</button>
+								</th>
+								<th className="px-4 py-2 text-right font-medium">
+									<button
+										type="button"
+										onClick={() => handleSort("totalTokens")}
+										className="inline-flex items-center hover:text-foreground"
+									>
+										Tokens
+										{sortIcon("totalTokens")}
+									</button>
+								</th>
+								<th className="px-4 py-2 text-right font-medium">
+									<button
+										type="button"
+										onClick={() => handleSort("cost")}
+										className="inline-flex items-center hover:text-foreground"
+									>
+										Cost
+										{sortIcon("cost")}
+									</button>
+								</th>
+								<th className="hidden w-[180px] px-4 py-2 text-left font-medium sm:table-cell">
+									Usage
+								</th>
+							</tr>
+						</thead>
+						<tbody className="divide-y">
+							{sortedModels.map((model) => {
+								const percentage =
+									totalTokens === 0
+										? 0
+										: Math.round((model.totalTokens / totalTokens) * 100);
+								return (
+									<tr key={`${model.provider}-${model.id}`}>
+										<td className="px-4 py-2.5 font-mono text-xs">
+											{model.id}
+										</td>
+										<td className="px-4 py-2.5 text-xs text-muted-foreground">
+											{model.provider}
+										</td>
+										<td className="px-4 py-2.5 text-right tabular-nums">
+											{model.requestCount.toLocaleString()}
+										</td>
+										<td className="px-4 py-2.5 text-right tabular-nums">
+											{formatTokens(model.totalTokens)}
+										</td>
+										<td className="px-4 py-2.5 text-right font-medium tabular-nums">
+											${model.cost.toFixed(4)}
+										</td>
+										<td className="hidden px-4 py-2.5 sm:table-cell">
+											<div className="flex items-center gap-2">
+												<div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+													<div
+														className="h-full bg-foreground/60"
+														style={{ width: `${percentage}%` }}
+													/>
+												</div>
+												<span className="w-9 text-right text-xs text-muted-foreground tabular-nums">
+													{percentage}%
+												</span>
+											</div>
+										</td>
+									</tr>
+								);
+							})}
+						</tbody>
+					</table>
+				</div>
+			)}
+		</div>
+	);
+}
+
 function AgentDetail({
 	stats,
 	onBack,
@@ -285,6 +503,7 @@ function AgentDetail({
 					</div>
 				</div>
 			</div>
+			<ModelUsageBreakdown models={stats.modelBreakdown} />
 			<div className="overflow-hidden rounded-xl border">
 				<div className="border-b bg-muted/30 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
 					Recent requests
