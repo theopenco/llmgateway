@@ -104,6 +104,48 @@ function isFunctionTool(
 }
 
 /**
+ * Ensures function-tool parameters form a valid JSON Schema object. Some
+ * upstreams (e.g. DeepSeek) reject tools whose parameters omit `type` or set
+ * it to null, which happens when SDKs serialize parameter-less tools.
+ */
+function normalizeToolParameters(tools?: OpenAIToolInput[]): typeof tools {
+	if (!tools) {
+		return tools;
+	}
+	return tools.map((tool) => {
+		if (!isFunctionTool(tool)) {
+			return tool;
+		}
+		const params = tool.function.parameters as
+			| Record<string, unknown>
+			| null
+			| undefined;
+		if (
+			params &&
+			typeof params === "object" &&
+			"type" in params &&
+			params.type !== null &&
+			params.type !== undefined
+		) {
+			return tool;
+		}
+		const baseParams =
+			params && typeof params === "object" ? { ...params } : {};
+		return {
+			...tool,
+			function: {
+				...tool.function,
+				parameters: {
+					...baseParams,
+					type: "object",
+					properties: (baseParams as { properties?: unknown }).properties ?? {},
+				} as FunctionParameter,
+			},
+		};
+	});
+}
+
+/**
  * Converts OpenAI JSON schema format to Google's schema format
  * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
  */
@@ -658,6 +700,8 @@ export async function prepareRequestBody(
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
 ): Promise<ProviderRequestBody | FormData> {
+	tools = normalizeToolParameters(tools);
+
 	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
 	if (
 		imageGenerations &&
