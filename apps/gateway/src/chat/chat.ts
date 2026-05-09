@@ -126,6 +126,10 @@ import { extractErrorCause } from "./tools/extract-error-cause.js";
 import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
+import {
+	CLIENT_DISCONNECT_REASON,
+	isSelfInitiatedClientDisconnect,
+} from "./tools/gateway-abort-reason.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
@@ -175,32 +179,6 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
-
-/**
- * Typed reasons we attach when the gateway aborts an upstream request via
- * `controller.abort(reason)`. AbortError on its own is ambiguous — undici can
- * surface upstream socket failures (HTTP/2 RST, ECONNRESET, etc.) as
- * AbortError, and a third-party fetch shim could in principle abort the
- * combined signal. By tagging our own aborts with a reason, the catches
- * below can distinguish "we aborted because the downstream client
- * disconnected" from "the runtime raised AbortError for some other cause."
- */
-interface GatewayAbortReason {
-	type: "client_disconnect";
-}
-
-const CLIENT_DISCONNECT_REASON: GatewayAbortReason = Object.freeze({
-	type: "client_disconnect",
-}) as GatewayAbortReason;
-
-function isGatewayAbortReason(reason: unknown): reason is GatewayAbortReason {
-	return (
-		typeof reason === "object" &&
-		reason !== null &&
-		"type" in reason &&
-		(reason as { type?: unknown }).type === "client_disconnect"
-	);
-}
 
 /**
  * Build an `errorDetails` payload from an AbortError so canceled requests
@@ -722,6 +700,7 @@ function inferStreamingErrorStatusCode(
 export async function inspectImmediateStreamingProviderError(
 	response: Response,
 	provider: Provider,
+	abortSignal?: AbortSignal,
 ): Promise<
 	| {
 			response: Response;
@@ -833,6 +812,13 @@ export async function inspectImmediateStreamingProviderError(
 			await reader.cancel();
 		} catch {
 			// Ignore cancellation errors - the response body is no longer needed.
+		}
+
+		// Self-initiated client disconnects must propagate to the caller —
+		// otherwise we mis-log canceled requests as upstream_error /
+		// stream_read_error.
+		if (abortSignal && isSelfInitiatedClientDisconnect(error, abortSignal)) {
+			throw error;
 		}
 
 		return {
@@ -4689,6 +4675,9 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
+					let inspectedStreamingResponse: Awaited<
+						ReturnType<typeof inspectImmediateStreamingProviderError>
+					> | null = null;
 					try {
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
@@ -4726,6 +4715,21 @@ chat.openapi(completions, async (c) => {
 							body: JSON.stringify(requestBody),
 							signal: fetchSignal,
 						});
+
+						// Peek the upstream stream inside the same try so
+						// abort-during-peek surfaces through the fetch catch
+						// below instead of getting reported as a stream_read
+						// upstream_error. The actual error/replay handling
+						// runs after the catch (see below).
+						if (res.ok) {
+							inspectedStreamingResponse =
+								await inspectImmediateStreamingProviderError(
+									res,
+									usedProvider,
+									controller.signal,
+								);
+							res = inspectedStreamingResponse.response;
+						}
 					} catch (error) {
 						// Clean up the event listeners
 						c.req.raw.signal.removeEventListener("abort", onAbort);
@@ -4909,14 +4913,13 @@ chat.openapi(completions, async (c) => {
 							});
 							return;
 						} else if (
-							error instanceof Error &&
-							error.name === "AbortError" &&
-							isGatewayAbortReason(controller.signal.reason)
+							isSelfInitiatedClientDisconnect(error, controller.signal)
 						) {
 							// Self-initiated client disconnect; record as canceled.
 							// (Unlabeled AbortError falls through to the network-error
 							// branch below — undici surfaces upstream failures this way.)
-							const fetchAbortErrorDetails = buildAbortErrorDetails(error);
+							const fetchAbortErrorDetails =
+								error instanceof Error ? buildAbortErrorDetails(error) : null;
 							const canceledPluginIds = plugins?.map((p) => p.id) ?? [];
 
 							// Calculate costs for cancelled request if billing is enabled
@@ -5557,10 +5560,7 @@ chat.openapi(completions, async (c) => {
 						return;
 					}
 
-					const inspectedStreamingResponse =
-						await inspectImmediateStreamingProviderError(res, usedProvider);
-					res = inspectedStreamingResponse.response;
-					if (inspectedStreamingResponse.immediateError) {
+					if (inspectedStreamingResponse?.immediateError) {
 						const {
 							errorCode,
 							errorMessage,
@@ -7179,36 +7179,40 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 				} catch (error) {
-					if (error instanceof Error && error.name === "AbortError") {
-						abortErrorDetails = buildAbortErrorDetails(error);
-						if (isGatewayAbortReason(controller.signal.reason)) {
-							// Self-initiated client disconnect (onAbort tagged the
-							// abort with our reason). canceled is already true; the
-							// log writer and recovery path will classify the row.
-						} else {
-							// Ambiguous AbortError — undici can surface upstream
-							// socket failures this way, and the runtime might raise
-							// AbortError without going through our controller. Log
-							// the cause for diagnostics; the streamEndedWithoutTerminalEvent
-							// recovery below will still classify the request as
-							// upstream_error.
-							const cause =
-								error.cause instanceof Error ? error.cause : undefined;
-							const causeCode = (error.cause as { code?: unknown } | undefined)
-								?.code;
-							logger.warn("Unexpected AbortError reading upstream stream", {
-								requestId,
-								usedProvider,
-								requestedProvider,
-								usedModel,
-								initialRequestedModel,
-								causeName: cause?.name,
-								causeMessage: cause?.message,
-								causeCode:
-									typeof causeCode === "string" ? causeCode : undefined,
-								signalAborted: controller.signal.aborted,
-							});
+					if (isSelfInitiatedClientDisconnect(error, controller.signal)) {
+						// Self-initiated client disconnect (onAbort tagged the
+						// abort with our reason). When the abort reason is a
+						// non-Error object, both fetch() and ReadableStream
+						// reject with the reason itself rather than wrapping it
+						// in an AbortError; recognize both shapes so the row
+						// isn't mislabeled as `gateway_error`. canceled is
+						// already true; the recovery path classifies the row.
+						if (error instanceof Error) {
+							abortErrorDetails = buildAbortErrorDetails(error);
 						}
+					} else if (error instanceof Error && error.name === "AbortError") {
+						abortErrorDetails = buildAbortErrorDetails(error);
+						// Ambiguous AbortError — undici can surface upstream
+						// socket failures this way, and the runtime might raise
+						// AbortError without going through our controller. Log
+						// the cause for diagnostics; the streamEndedWithoutTerminalEvent
+						// recovery below will still classify the request as
+						// upstream_error.
+						const cause =
+							error.cause instanceof Error ? error.cause : undefined;
+						const causeCode = (error.cause as { code?: unknown } | undefined)
+							?.code;
+						logger.warn("Unexpected AbortError reading upstream stream", {
+							requestId,
+							usedProvider,
+							requestedProvider,
+							usedModel,
+							initialRequestedModel,
+							causeName: cause?.name,
+							causeMessage: cause?.message,
+							causeCode: typeof causeCode === "string" ? causeCode : undefined,
+							signalAborted: controller.signal.aborted,
+						});
 					} else if (isTimeoutError(error)) {
 						const errorMessage =
 							error instanceof Error ? error.message : "Stream reading timeout";
@@ -8392,14 +8396,11 @@ chat.openapi(completions, async (c) => {
 				fetchError =
 					error instanceof Error ? error : new Error("Request timeout");
 				isTimeoutFetchError = true;
-			} else if (
-				error instanceof Error &&
-				error.name === "AbortError" &&
-				isGatewayAbortReason(controller.signal.reason)
-			) {
+			} else if (isSelfInitiatedClientDisconnect(error, controller.signal)) {
 				// Self-initiated client disconnect (onAbort tagged the abort).
 				canceled = true;
-				canceledErrorDetails = buildAbortErrorDetails(error);
+				canceledErrorDetails =
+					error instanceof Error ? buildAbortErrorDetails(error) : null;
 			} else if (error instanceof Error) {
 				// Captures fetch errors (connection failures, ECONNRESET, undici
 				// transport errors, and unlabeled AbortErrors that came from
