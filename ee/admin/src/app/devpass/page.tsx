@@ -13,7 +13,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
+import { DateRangePicker } from "@/components/date-range-picker";
+import { DevpassTimeseriesChart } from "@/components/devpass-timeseries-chart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -307,11 +310,15 @@ export default async function DevpassPage({
 		utilization?: string;
 		marginNegative?: string;
 		showChurned?: string;
+		from?: string;
+		to?: string;
 	}>;
 }) {
 	await requireSession();
 
 	const params = await searchParams;
+	const from = typeof params?.from === "string" ? params?.from : undefined;
+	const to = typeof params?.to === "string" ? params?.to : undefined;
 	const rawPage = parseInt(params?.page ?? "1", 10);
 	const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
 	const search = params?.search ?? "";
@@ -376,6 +383,12 @@ export default async function DevpassPage({
 	if (showChurned) {
 		queryParams.set("showChurned", "true");
 	}
+	if (from) {
+		queryParams.set("from", from);
+	}
+	if (to) {
+		queryParams.set("to", to);
+	}
 	queryParams.set("sortBy", sortBy);
 	queryParams.set("sortOrder", sortOrder);
 	const queryString = queryParams.toString();
@@ -390,6 +403,8 @@ export default async function DevpassPage({
 		const utilValue = formData.get("utilization") as string;
 		const marginValue = formData.get("marginNegative") as string;
 		const churnValue = formData.get("showChurned") as string;
+		const fromValue = formData.get("from") as string;
+		const toValue = formData.get("to") as string;
 		const sp = new URLSearchParams();
 		if (searchValue) {
 			sp.set("search", searchValue);
@@ -409,6 +424,12 @@ export default async function DevpassPage({
 		if (churnValue) {
 			sp.set("showChurned", "true");
 		}
+		if (fromValue) {
+			sp.set("from", fromValue);
+		}
+		if (toValue) {
+			sp.set("to", toValue);
+		}
 		sp.set("sortBy", sortByValue);
 		sp.set("sortOrder", sortOrderValue);
 		sp.set("page", "1");
@@ -419,12 +440,17 @@ export default async function DevpassPage({
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
-			<header className="space-y-2">
-				<h1 className="text-3xl font-semibold tracking-tight">DevPass</h1>
-				<p className="text-sm text-muted-foreground">
-					Subscribers across Lite, Pro and Max — current cycle utilization, real
-					provider cost, and margin.
-				</p>
+			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+				<div className="space-y-2">
+					<h1 className="text-3xl font-semibold tracking-tight">DevPass</h1>
+					<p className="text-sm text-muted-foreground">
+						Subscribers across Lite, Pro and Max — current cycle utilization,
+						real provider cost, and margin.
+					</p>
+				</div>
+				<Suspense>
+					<DateRangePicker />
+				</Suspense>
 			</header>
 
 			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -497,11 +523,28 @@ export default async function DevpassPage({
 						{currencyFormatter.format(kpis.totalMargin)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
+						{kpis.marginPct !== null && kpis.marginPct !== undefined ? (
+							<>
+								<span
+									className={cn(
+										"font-medium tabular-nums",
+										kpis.marginPct < 0
+											? "text-rose-600 dark:text-rose-400"
+											: "text-emerald-600 dark:text-emerald-400",
+									)}
+								>
+									{kpis.marginPct.toFixed(1)}% margin
+								</span>{" "}
+								·{" "}
+							</>
+						) : null}
 						{currencyFormatter.format(kpis.totalRealCostCycle)} provider cost
 						this cycle
 					</div>
 				</div>
 			</section>
+
+			<DevpassTimeseriesChart from={from} to={to} />
 
 			<form
 				action={handleSearch}
@@ -522,6 +565,8 @@ export default async function DevpassPage({
 					name="showChurned"
 					value={showChurned ? "true" : ""}
 				/>
+				<input type="hidden" name="from" value={from ?? ""} />
+				<input type="hidden" name="to" value={to ?? ""} />
 				<div className="flex flex-col gap-2 sm:flex-row sm:items-center">
 					<div className="relative flex-1">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
