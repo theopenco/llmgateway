@@ -8091,6 +8091,15 @@ const DEV_PLAN_TX_TYPES = [
 	"dev_plan_renewal",
 ] as const;
 
+// Pre-rename rows for what is now a dev plan. The same `subscription_*` types
+// are STILL written today for non-personal org Pro subs, so always pair them
+// with `organization.isPersonal = true` to avoid counting org Pro revenue.
+const LEGACY_DEV_PLAN_TX_TYPES = [
+	"subscription_start",
+	"subscription_cancel",
+	"subscription_end",
+] as const;
+
 // Registered before the `/devpass/{orgId}` handler below: Hono matches routes
 // in registration order, so the literal `/devpass/timeseries` path must be
 // declared first or it would be captured as `orgId="timeseries"` and 404.
@@ -8099,7 +8108,9 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	const now = new Date();
 
 	// Resolve range. When no from/to is provided, default to all-time
-	// (anchored to the earliest dev_plan_start, falling back to today).
+	// (anchored to the earliest dev plan start, falling back to today).
+	// Includes legacy `subscription_start` rows for personal orgs so subscribers
+	// from before the dev_plan_* rename also extend the chart range.
 	let startDate: Date;
 	let endDate: Date;
 	if (query.from && query.to) {
@@ -8113,7 +8124,19 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 				),
 			})
 			.from(tables.transaction)
-			.where(eq(tables.transaction.type, "dev_plan_start"));
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				or(
+					eq(tables.transaction.type, "dev_plan_start"),
+					and(
+						eq(tables.transaction.type, "subscription_start"),
+						eq(tables.organization.isPersonal, true),
+					),
+				),
+			);
 		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
 		startDate.setUTCHours(0, 0, 0, 0);
 		endDate = new Date(now);
@@ -8125,7 +8148,9 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		endDate.setUTCHours(23, 59, 59, 999);
 	}
 
-	// Revenue per day from completed DevPass transactions.
+	// Revenue per day from completed DevPass transactions. Joins organization
+	// so legacy `subscription_*` rows can be counted only when the org is
+	// personal (where they are pre-rename dev plan rows, not org Pro).
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
@@ -8135,12 +8160,22 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 				),
 		})
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				inArray(tables.transaction.type, [...DEV_PLAN_TX_TYPES]),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
+				or(
+					inArray(tables.transaction.type, [...DEV_PLAN_TX_TYPES]),
+					and(
+						inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+						eq(tables.organization.isPersonal, true),
+					),
+				),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -8148,8 +8183,9 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 
 	// Provider cost per day for projects belonging to orgs that are or were
 	// ever on a DevPass plan (i.e. currently devPlan != 'none' OR have a
-	// historical dev_plan_start). This approximates "DevPass usage" without
-	// reconstructing daily plan membership.
+	// historical dev_plan_start, OR a legacy subscription_start while personal).
+	// This approximates "DevPass usage" without reconstructing daily plan
+	// membership.
 	const costPerDay = await db
 		.select({
 			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
@@ -8176,7 +8212,10 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 					sql`EXISTS (
 						SELECT 1 FROM ${tables.transaction} t
 						WHERE t.organization_id = ${tables.organization.id}
-						AND t.type = 'dev_plan_start'
+						AND (
+							t.type = 'dev_plan_start'
+							OR (t.type = 'subscription_start' AND ${tables.organization.isPersonal} = true)
+						)
 					)`,
 				)!,
 			),
