@@ -177,6 +177,32 @@ import type { OriginalRequestParams } from "./tools/resolve-provider-context.js"
 import type { ServerTypes } from "@/vars.js";
 
 /**
+ * Typed reasons we attach when the gateway aborts an upstream request via
+ * `controller.abort(reason)`. AbortError on its own is ambiguous — undici can
+ * surface upstream socket failures (HTTP/2 RST, ECONNRESET, etc.) as
+ * AbortError, and a third-party fetch shim could in principle abort the
+ * combined signal. By tagging our own aborts with a reason, the catches
+ * below can distinguish "we aborted because the downstream client
+ * disconnected" from "the runtime raised AbortError for some other cause."
+ */
+interface GatewayAbortReason {
+	type: "client_disconnect";
+}
+
+const CLIENT_DISCONNECT_REASON: GatewayAbortReason = Object.freeze({
+	type: "client_disconnect",
+}) as GatewayAbortReason;
+
+function isGatewayAbortReason(reason: unknown): reason is GatewayAbortReason {
+	return (
+		typeof reason === "object" &&
+		reason !== null &&
+		"type" in reason &&
+		(reason as { type?: unknown }).type === "client_disconnect"
+	);
+}
+
+/**
  * Filter expanded region entries to only those with available API keys.
  * - Non-regional mappings (no region) pass through unchanged.
  * - The default region for a provider always passes (uses the base env key).
@@ -4535,7 +4561,7 @@ chat.openapi(completions, async (c) => {
 					clearKeepalive();
 					if (requestCanBeCanceled) {
 						canceled = true;
-						controller.abort();
+						controller.abort(CLIENT_DISCONNECT_REASON);
 					}
 				};
 
@@ -4838,9 +4864,14 @@ chat.openapi(completions, async (c) => {
 								id: String(eventId++),
 							});
 							return;
-						} else if (error instanceof Error && error.name === "AbortError") {
-							// Log the canceled request
-							// Extract plugin IDs for logging (canceled request)
+						} else if (
+							error instanceof Error &&
+							error.name === "AbortError" &&
+							isGatewayAbortReason(controller.signal.reason)
+						) {
+							// Self-initiated client disconnect; record as canceled.
+							// (Unlabeled AbortError falls through to the network-error
+							// branch below — undici surfaces upstream failures this way.)
 							const canceledPluginIds = plugins?.map((p) => p.id) ?? [];
 
 							// Calculate costs for cancelled request if billing is enabled
@@ -7104,8 +7135,34 @@ chat.openapi(completions, async (c) => {
 					}
 				} catch (error) {
 					if (error instanceof Error && error.name === "AbortError") {
-						// canceled is already set by onAbort when c.req.raw.signal
-						// fires; nothing more to do here.
+						if (isGatewayAbortReason(controller.signal.reason)) {
+							// Self-initiated client disconnect (onAbort tagged the
+							// abort with our reason). canceled is already true; the
+							// log writer and recovery path will classify the row.
+						} else {
+							// Ambiguous AbortError — undici can surface upstream
+							// socket failures this way, and the runtime might raise
+							// AbortError without going through our controller. Log
+							// the cause for diagnostics; the streamEndedWithoutTerminalEvent
+							// recovery below will still classify the request as
+							// upstream_error.
+							const cause =
+								error.cause instanceof Error ? error.cause : undefined;
+							const causeCode = (error.cause as { code?: unknown } | undefined)
+								?.code;
+							logger.warn("Unexpected AbortError reading upstream stream", {
+								requestId,
+								usedProvider,
+								requestedProvider,
+								usedModel,
+								initialRequestedModel,
+								causeName: cause?.name,
+								causeMessage: cause?.message,
+								causeCode:
+									typeof causeCode === "string" ? causeCode : undefined,
+								signalAborted: controller.signal.aborted,
+							});
+						}
 					} else if (isTimeoutError(error)) {
 						const errorMessage =
 							error instanceof Error ? error.message : "Stream reading timeout";
@@ -8144,7 +8201,7 @@ chat.openapi(completions, async (c) => {
 	// Set up a listener for the request being aborted
 	const onAbort = () => {
 		if (requestCanBeCanceled) {
-			controller.abort();
+			controller.abort(CLIENT_DISCONNECT_REASON);
 		}
 	};
 
@@ -8283,10 +8340,17 @@ chat.openapi(completions, async (c) => {
 				fetchError =
 					error instanceof Error ? error : new Error("Request timeout");
 				isTimeoutFetchError = true;
-			} else if (error instanceof Error && error.name === "AbortError") {
+			} else if (
+				error instanceof Error &&
+				error.name === "AbortError" &&
+				isGatewayAbortReason(controller.signal.reason)
+			) {
+				// Self-initiated client disconnect (onAbort tagged the abort).
 				canceled = true;
 			} else if (error instanceof Error) {
-				// Capture fetch errors (connection failures, etc.)
+				// Captures fetch errors (connection failures, ECONNRESET, undici
+				// transport errors, and unlabeled AbortErrors that came from
+				// somewhere other than our own controller).
 				fetchError = error;
 			} else {
 				throw error;
