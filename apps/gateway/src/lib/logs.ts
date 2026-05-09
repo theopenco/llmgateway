@@ -234,29 +234,29 @@ export async function insertLog(
 	options?: { syncInsert?: boolean },
 ): Promise<unknown> {
 	if (logData.unifiedFinishReason === undefined) {
-		// Always derive the unified outcome from finishReason, even when the
-		// canceled flag is set. The flag means "the client-side socket closed
-		// before we finished" — that's orthogonal to whether the request itself
-		// was an upstream error, a successful completion, or a real cancel.
-		// CANCELED is only correct when finishReason itself is "canceled" (the
-		// caller writes that string when there is no other information about
-		// the outcome).
-		logData.unifiedFinishReason = getUnifiedFinishReason(
-			logData.finishReason,
-			logData.usedProvider,
-		);
+		if (logData.canceled) {
+			logData.unifiedFinishReason = UnifiedFinishReason.CANCELED;
+		} else {
+			logData.unifiedFinishReason = getUnifiedFinishReason(
+				logData.finishReason,
+				logData.usedProvider,
+			);
 
-		if (
-			logData.unifiedFinishReason === UnifiedFinishReason.UNKNOWN &&
-			logData.finishReason &&
-			!isExpectedUnknownFinishReason(logData.finishReason, logData.usedProvider)
-		) {
-			logger.error("Unknown finish reason encountered", {
-				requestId: logData.requestId,
-				finishReason: logData.finishReason,
-				provider: logData.usedProvider,
-				model: logData.usedModel,
-			});
+			if (
+				logData.unifiedFinishReason === UnifiedFinishReason.UNKNOWN &&
+				logData.finishReason &&
+				!isExpectedUnknownFinishReason(
+					logData.finishReason,
+					logData.usedProvider,
+				)
+			) {
+				logger.error("Unknown finish reason encountered", {
+					requestId: logData.requestId,
+					finishReason: logData.finishReason,
+					provider: logData.usedProvider,
+					model: logData.usedModel,
+				});
+			}
 		}
 	}
 
