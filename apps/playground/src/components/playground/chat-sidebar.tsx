@@ -164,31 +164,36 @@ function ChatHistoryRowComponent({
 		<div {...ariaAttributes} style={style}>
 			<div className="relative px-2">
 				<div className="relative">
-					<SidebarMenuButton
-						isActive={currentChatId === chat.id}
-						onClick={() => onChatSelect?.(chat.id)}
-						className="w-full justify-start gap-3 group relative pr-10 py-6"
-						type="button"
-						disabled={isPageLoading}
-					>
-						<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-						{editingId === chat.id ? (
+					{editingId === chat.id ? (
+						<div className="flex w-full items-center gap-3 rounded-md px-2 py-3 pr-10 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
+							<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
 							<Input
 								value={editTitle}
 								onChange={(e) => onEditTitleChange(e.target.value)}
 								onBlur={() => onSaveTitle(chat.id)}
 								onKeyDown={(e) => {
 									if (e.key === "Enter") {
-										onSaveTitle(chat.id);
+										e.preventDefault();
+										e.currentTarget.blur();
 									}
 									if (e.key === "Escape") {
+										e.preventDefault();
 										onCancelEdit();
 									}
 								}}
 								className="h-7 text-sm border-none px-1 focus-visible:ring-0 bg-transparent"
 								autoFocus
 							/>
-						) : (
+						</div>
+					) : (
+						<SidebarMenuButton
+							isActive={currentChatId === chat.id}
+							onClick={() => onChatSelect?.(chat.id)}
+							className="w-full justify-start gap-3 group relative pr-10 py-6"
+							type="button"
+							disabled={isPageLoading}
+						>
+							<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
 							<div className="flex-1 min-w-0">
 								<div className="truncate text-sm font-medium mb-0.5">
 									{chat.title}
@@ -197,8 +202,8 @@ function ChatHistoryRowComponent({
 									{chat.messageCount} messages • {formatDate(chat.updatedAt)}
 								</div>
 							</div>
-						)}
-					</SidebarMenuButton>
+						</SidebarMenuButton>
+					)}
 					{currentChatId === chat.id && editingId !== chat.id && (
 						<div className="absolute right-0 top-2 bottom-0">
 							<DropdownMenu>
