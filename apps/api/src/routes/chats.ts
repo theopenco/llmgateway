@@ -3,7 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 
-import { db, tables, desc, eq, count, and } from "@llmgateway/db";
+import { db, tables, desc, eq, count, and, isNull } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -16,6 +16,8 @@ const chatSchema = z.object({
 	model: z.string(),
 	status: z.enum(["active", "archived", "deleted"]),
 	webSearch: z.boolean(),
+	shareId: z.string().nullable(),
+	sharedAt: z.string().datetime().nullable(),
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
 	messageCount: z.number(),
@@ -29,6 +31,12 @@ const messageSchema = z.object({
 	reasoning: z.string().nullable(), // Reasoning content
 	tools: z.string().nullable(), // JSON string of tool parts
 	sequence: z.number(),
+	createdAt: z.string().datetime(),
+});
+
+const shareSchema = z.object({
+	id: z.string(),
+	url: z.string(),
 	createdAt: z.string().datetime(),
 });
 
@@ -90,12 +98,21 @@ chats.openapi(listChats, async (c) => {
 			model: tables.chat.model,
 			status: tables.chat.status,
 			webSearch: tables.chat.webSearch,
+			shareId: tables.chatShare.id,
+			sharedAt: tables.chatShare.createdAt,
 			createdAt: tables.chat.createdAt,
 			updatedAt: tables.chat.updatedAt,
 			messageCount: count(tables.message.id),
 		})
 		.from(tables.chat)
 		.leftJoin(tables.message, eq(tables.chat.id, tables.message.chatId))
+		.leftJoin(
+			tables.chatShare,
+			and(
+				eq(tables.chat.id, tables.chatShare.chatId),
+				isNull(tables.chatShare.deletedAt),
+			),
+		)
 		.where(
 			and(eq(tables.chat.userId, user.id), eq(tables.chat.status, "active")),
 		)
@@ -105,6 +122,8 @@ chats.openapi(listChats, async (c) => {
 			tables.chat.model,
 			tables.chat.status,
 			tables.chat.webSearch,
+			tables.chatShare.id,
+			tables.chatShare.createdAt,
 			tables.chat.createdAt,
 			tables.chat.updatedAt,
 		)
@@ -116,6 +135,8 @@ chats.openapi(listChats, async (c) => {
 		model: chat.model,
 		status: chat.status as "active" | "archived" | "deleted",
 		webSearch: chat.webSearch ?? false,
+		shareId: chat.shareId,
+		sharedAt: chat.sharedAt?.toISOString() ?? null,
 		createdAt: chat.createdAt.toISOString(),
 		updatedAt: chat.updatedAt.toISOString(),
 		messageCount: chat.messageCount,
@@ -206,6 +227,8 @@ chats.openapi(createChat, async (c) => {
 				model: newChat.model,
 				status: newChat.status as "active" | "archived" | "deleted",
 				webSearch: newChat.webSearch ?? false,
+				shareId: null,
+				sharedAt: null,
 				createdAt: newChat.createdAt.toISOString(),
 				updatedAt: newChat.updatedAt.toISOString(),
 				messageCount: 0,
@@ -259,8 +282,25 @@ chats.openapi(getChat, async (c) => {
 
 	// Get chat
 	const [chat] = await db
-		.select()
+		.select({
+			id: tables.chat.id,
+			title: tables.chat.title,
+			model: tables.chat.model,
+			status: tables.chat.status,
+			webSearch: tables.chat.webSearch,
+			createdAt: tables.chat.createdAt,
+			updatedAt: tables.chat.updatedAt,
+			shareId: tables.chatShare.id,
+			sharedAt: tables.chatShare.createdAt,
+		})
 		.from(tables.chat)
+		.leftJoin(
+			tables.chatShare,
+			and(
+				eq(tables.chat.id, tables.chatShare.chatId),
+				isNull(tables.chatShare.deletedAt),
+			),
+		)
 		.where(
 			and(
 				eq(tables.chat.id, id),
@@ -288,6 +328,8 @@ chats.openapi(getChat, async (c) => {
 				model: chat.model,
 				status: chat.status as "active" | "archived" | "deleted",
 				webSearch: chat.webSearch ?? false,
+				shareId: chat.shareId,
+				sharedAt: chat.sharedAt?.toISOString() ?? null,
 				createdAt: chat.createdAt.toISOString(),
 				updatedAt: chat.updatedAt.toISOString(),
 				messageCount: messages.length,
@@ -370,6 +412,16 @@ chats.openapi(updateChat, async (c) => {
 		.select({ count: count() })
 		.from(tables.message)
 		.where(eq(tables.message.chatId, id));
+	const [activeShare] = await db
+		.select({
+			id: tables.chatShare.id,
+			createdAt: tables.chatShare.createdAt,
+		})
+		.from(tables.chatShare)
+		.where(
+			and(eq(tables.chatShare.chatId, id), isNull(tables.chatShare.deletedAt)),
+		)
+		.limit(1);
 
 	return c.json({
 		chat: {
@@ -378,11 +430,175 @@ chats.openapi(updateChat, async (c) => {
 			model: updatedChat.model,
 			status: updatedChat.status as "active" | "archived" | "deleted",
 			webSearch: updatedChat.webSearch ?? false,
+			shareId: activeShare?.id ?? null,
+			sharedAt: activeShare?.createdAt.toISOString() ?? null,
 			createdAt: updatedChat.createdAt.toISOString(),
 			updatedAt: updatedChat.updatedAt.toISOString(),
 			messageCount: messageCount[0].count,
 		},
 	});
+});
+
+const shareChat = createRoute({
+	method: "post",
+	path: "/{id}/share",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						share: shareSchema,
+					}),
+				},
+			},
+			description: "Chat share snapshot.",
+		},
+	},
+});
+
+chats.openapi(shareChat, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const [existingShare] = await db
+		.select()
+		.from(tables.chatShare)
+		.where(
+			and(
+				eq(tables.chatShare.chatId, id),
+				eq(tables.chatShare.userId, user.id),
+				isNull(tables.chatShare.deletedAt),
+			),
+		)
+		.limit(1);
+
+	if (existingShare) {
+		return c.json({
+			share: {
+				id: existingShare.id,
+				url: `/share/${existingShare.id}`,
+				createdAt: existingShare.createdAt.toISOString(),
+			},
+		});
+	}
+
+	const [chat] = await db
+		.select()
+		.from(tables.chat)
+		.where(
+			and(
+				eq(tables.chat.id, id),
+				eq(tables.chat.userId, user.id),
+				eq(tables.chat.status, "active"),
+			),
+		)
+		.limit(1);
+
+	if (!chat) {
+		throw new HTTPException(404, { message: "Chat not found" });
+	}
+
+	const messages = await db
+		.select({
+			id: tables.message.id,
+			role: tables.message.role,
+			content: tables.message.content,
+			images: tables.message.images,
+			reasoning: tables.message.reasoning,
+			tools: tables.message.tools,
+			sequence: tables.message.sequence,
+			createdAt: tables.message.createdAt,
+		})
+		.from(tables.message)
+		.where(eq(tables.message.chatId, id))
+		.orderBy(tables.message.sequence);
+
+	const [share] = await db
+		.insert(tables.chatShare)
+		.values({
+			chatId: chat.id,
+			userId: user.id,
+			title: chat.title,
+			model: chat.model,
+			messages: messages.map((message) => ({
+				id: message.id,
+				role: message.role,
+				content: message.content,
+				images: message.images,
+				reasoning: message.reasoning,
+				tools: message.tools,
+				sequence: message.sequence,
+				createdAt: message.createdAt.toISOString(),
+			})),
+		})
+		.returning();
+
+	return c.json({
+		share: {
+			id: share.id,
+			url: `/share/${share.id}`,
+			createdAt: share.createdAt.toISOString(),
+		},
+	});
+});
+
+const deleteChatShare = createRoute({
+	method: "delete",
+	path: "/{id}/share",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Chat share deleted successfully.",
+		},
+	},
+});
+
+chats.openapi(deleteChatShare, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const deletedRows = await db
+		.update(tables.chatShare)
+		.set({
+			deletedAt: new Date(),
+			updatedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(tables.chatShare.chatId, id),
+				eq(tables.chatShare.userId, user.id),
+				isNull(tables.chatShare.deletedAt),
+			),
+		)
+		.returning();
+
+	if (deletedRows.length === 0) {
+		throw new HTTPException(404, { message: "Share not found" });
+	}
+
+	return c.json({ message: "Share deleted successfully" });
 });
 
 // Delete chat

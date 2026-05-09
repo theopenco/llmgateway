@@ -10,6 +10,8 @@ export interface Chat {
 	model: string;
 	status: "active" | "archived" | "deleted";
 	webSearch: boolean;
+	shareId: string | null;
+	sharedAt: string | null;
 	createdAt: string;
 	updatedAt: string;
 	messageCount: number;
@@ -21,6 +23,7 @@ export interface ChatMessage {
 	content: string | null;
 	images: string | null; // JSON string from API
 	reasoning: string | null; // Reasoning content from AI
+	tools: string | null; // Tool parts JSON
 	sequence: number;
 	createdAt: string;
 }
@@ -89,6 +92,53 @@ export function useDeleteChat() {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
 			void queryClient.invalidateQueries({ queryKey });
 			toast("Chat deleted successfully");
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export function useShareChat() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("post", "/chats/{id}/share", {
+		onSuccess: (_data, variables) => {
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
+			const chatId = variables.params?.path?.id;
+			if (chatId) {
+				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
+					params: { path: { id: chatId } },
+				}).queryKey;
+				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export function useDeleteChatShare() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("delete", "/chats/{id}/share", {
+		onSuccess: (_data, variables) => {
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
+			const chatId = variables.params?.path?.id;
+			if (chatId) {
+				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
+					params: { path: { id: chatId } },
+				}).queryKey;
+				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
+			toast("Shared link deleted");
 		},
 		onError: (error) => {
 			toast.error(getErrorMessage(error));

@@ -425,6 +425,38 @@ const UserMessage = memo(
 	},
 );
 
+export function ReadOnlyChatMessages({ messages }: { messages: UIMessage[] }) {
+	return (
+		<Conversation>
+			<ConversationContent className="mx-auto max-w-4xl px-4 py-8">
+				{messages.map((message) => {
+					if (message.role === "assistant") {
+						return (
+							<AssistantMessage
+								key={message.id}
+								message={message}
+								isLastMessage={false}
+								status="ready"
+								regenerate={() => {}}
+								finishReason={null}
+							/>
+						);
+					}
+
+					return (
+						<UserMessage
+							key={message.id}
+							message={message}
+							isLastMessage={false}
+							status="ready"
+						/>
+					);
+				})}
+			</ConversationContent>
+		</Conversation>
+	);
+}
+
 export const ChatUI = ({
 	messages,
 	supportsImages,
