@@ -1010,6 +1010,9 @@ export const chatShare = pgTable(
 		messages: jsonb().notNull(),
 	},
 	(table) => [
+		uniqueIndex("chat_share_active_chat_id_unique")
+			.on(table.chatId)
+			.where(sql`${table.deletedAt} IS NULL`),
 		index("chat_share_chat_id_idx").on(table.chatId),
 		index("chat_share_deleted_at_idx").on(table.deletedAt),
 	],

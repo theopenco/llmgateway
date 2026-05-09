@@ -3,7 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 
-import { db, tables, desc, eq, count, and, isNull } from "@llmgateway/db";
+import { db, tables, desc, eq, count, and, isNull, sql } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -552,7 +552,39 @@ chats.openapi(shareChat, async (c) => {
 				createdAt: message.createdAt.toISOString(),
 			})),
 		})
+		.onConflictDoNothing({
+			target: tables.chatShare.chatId,
+			where: sql`${tables.chatShare.deletedAt} IS NULL`,
+		})
 		.returning();
+
+	if (!share) {
+		const [activeShare] = await db
+			.select()
+			.from(tables.chatShare)
+			.where(
+				and(
+					eq(tables.chatShare.chatId, id),
+					eq(tables.chatShare.userId, user.id),
+					isNull(tables.chatShare.deletedAt),
+				),
+			)
+			.limit(1);
+
+		if (!activeShare) {
+			throw new HTTPException(500, {
+				message: "Failed to create share link",
+			});
+		}
+
+		return c.json({
+			share: {
+				id: activeShare.id,
+				url: `/share/${activeShare.id}`,
+				createdAt: activeShare.createdAt.toISOString(),
+			},
+		});
+	}
 
 	return c.json({
 		share: {
@@ -704,29 +736,33 @@ chats.openapi(forkSharedChat, async (c) => {
 	}
 
 	const messages = sharedMessageSnapshotSchema.parse(share.messages);
-	const [newChat] = await db
-		.insert(tables.chat)
-		.values({
-			title: share.title,
-			model: share.model,
-			userId: user.id,
-			webSearch: false,
-		})
-		.returning();
+	const newChat = await db.transaction(async (tx) => {
+		const [createdChat] = await tx
+			.insert(tables.chat)
+			.values({
+				title: share.title,
+				model: share.model,
+				userId: user.id,
+				webSearch: false,
+			})
+			.returning();
 
-	if (messages.length > 0) {
-		await db.insert(tables.message).values(
-			messages.map((message) => ({
-				chatId: newChat.id,
-				role: message.role,
-				content: message.content,
-				images: message.images,
-				reasoning: message.reasoning,
-				tools: message.tools,
-				sequence: message.sequence,
-			})),
-		);
-	}
+		if (messages.length > 0) {
+			await tx.insert(tables.message).values(
+				messages.map((message) => ({
+					chatId: createdChat.id,
+					role: message.role,
+					content: message.content,
+					images: message.images,
+					reasoning: message.reasoning,
+					tools: message.tools,
+					sequence: message.sequence,
+				})),
+			);
+		}
+
+		return createdChat;
+	});
 
 	return c.json(
 		{

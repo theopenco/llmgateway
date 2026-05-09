@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2, GitFork } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +16,7 @@ interface ForkChatButtonProps {
 
 export function ForkChatButton({ shareId }: ForkChatButtonProps) {
 	const router = useRouter();
+	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const { user, isLoading } = useUser();
 	const forkChat = useForkSharedChat();
@@ -54,8 +55,14 @@ export function ForkChatButton({ shareId }: ForkChatButtonProps) {
 		}
 
 		didAutoForkRef.current = true;
+		const nextParams = new URLSearchParams(searchParams.toString());
+		nextParams.delete("fork");
+		const nextQuery = nextParams.toString();
+		router.replace(`${pathname}${nextQuery ? `?${nextQuery}` : ""}`, {
+			scroll: false,
+		});
 		void fork();
-	}, [isLoading, searchParams, user]);
+	}, [isLoading, pathname, router, searchParams, user]);
 
 	const isBusy = isLoading || forkChat.isPending || isNavigating;
 

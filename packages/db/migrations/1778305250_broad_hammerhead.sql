@@ -10,6 +10,7 @@ CREATE TABLE "chat_share" (
 	"messages" jsonb NOT NULL
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX "chat_share_active_chat_id_unique" ON "chat_share" ("chat_id") WHERE "deleted_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "chat_share_chat_id_idx" ON "chat_share" ("chat_id");--> statement-breakpoint
 CREATE INDEX "chat_share_deleted_at_idx" ON "chat_share" ("deleted_at");--> statement-breakpoint
 ALTER TABLE "chat_share" ADD CONSTRAINT "chat_share_chat_id_chat_id_fkey" FOREIGN KEY ("chat_id") REFERENCES "chat"("id") ON DELETE CASCADE;--> statement-breakpoint

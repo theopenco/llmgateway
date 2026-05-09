@@ -30,6 +30,12 @@ interface SharedChatResponse {
 	};
 }
 
+interface StoredImagePart {
+	image_url?: {
+		url?: string;
+	};
+}
+
 export async function generateMetadata({
 	params,
 }: {
@@ -97,7 +103,7 @@ export default async function SharedChatPage({
 }
 
 function toUiMessage(message: SharedMessage): UIMessage {
-	const parts: any[] = [];
+	const parts: UIMessage["parts"] = [];
 
 	if (message.content) {
 		parts.push({ type: "text", text: message.content });
@@ -109,25 +115,25 @@ function toUiMessage(message: SharedMessage): UIMessage {
 
 	if (message.images) {
 		try {
-			const parsedImages = JSON.parse(message.images) as Array<{
-				image_url?: { url?: string };
-			}>;
-			for (const image of parsedImages) {
-				const dataUrl = image.image_url?.url ?? "";
-				if (dataUrl.startsWith("data:")) {
-					const [header, base64] = dataUrl.split(",");
-					const mediaType = header.match(/data:([^;]+)/)?.[1] ?? "image/png";
-					parts.push({
-						type: "file",
-						mediaType,
-						url: base64,
-					});
-				} else {
-					parts.push({
-						type: "file",
-						mediaType: "image/png",
-						url: dataUrl,
-					});
+			const parsedImages = JSON.parse(message.images) as unknown;
+			if (Array.isArray(parsedImages)) {
+				for (const image of parsedImages.filter(isStoredImagePart)) {
+					const dataUrl = image.image_url?.url ?? "";
+					if (dataUrl.startsWith("data:")) {
+						const [header, base64] = dataUrl.split(",");
+						const mediaType = header.match(/data:([^;]+)/)?.[1] ?? "image/png";
+						parts.push({
+							type: "file",
+							mediaType,
+							url: base64,
+						});
+					} else {
+						parts.push({
+							type: "file",
+							mediaType: "image/png",
+							url: dataUrl,
+						});
+					}
 				}
 			}
 		} catch {
@@ -137,9 +143,9 @@ function toUiMessage(message: SharedMessage): UIMessage {
 
 	if (message.tools) {
 		try {
-			const parsedTools = JSON.parse(message.tools) as any[];
+			const parsedTools = JSON.parse(message.tools) as unknown;
 			if (Array.isArray(parsedTools)) {
-				parts.push(...parsedTools);
+				parts.push(...parsedTools.filter(isToolUiPart));
 			}
 		} catch {
 			// Ignore malformed legacy tool payloads in public snapshots.
@@ -149,7 +155,30 @@ function toUiMessage(message: SharedMessage): UIMessage {
 	return {
 		id: message.id,
 		role: message.role,
-		content: message.content ?? "",
 		parts,
-	} as UIMessage;
+	} satisfies UIMessage;
+}
+
+function isStoredImagePart(value: unknown): value is StoredImagePart {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		(!("image_url" in value) ||
+			value.image_url === undefined ||
+			(typeof value.image_url === "object" &&
+				value.image_url !== null &&
+				(!("url" in value.image_url) ||
+					value.image_url.url === undefined ||
+					typeof value.image_url.url === "string")))
+	);
+}
+
+function isToolUiPart(value: unknown): value is UIMessage["parts"][number] {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"type" in value &&
+		typeof value.type === "string" &&
+		value.type.startsWith("tool-")
+	);
 }

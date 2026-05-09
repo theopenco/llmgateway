@@ -12769,6 +12769,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "chat_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"deleted_at\" IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "chat_share_active_chat_id_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "chat_share"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "user_id",
           "isExpression": false,
           "asc": true,
