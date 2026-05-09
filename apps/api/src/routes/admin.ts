@@ -7,6 +7,7 @@ import { adminMiddleware } from "@/middleware/admin.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
+	aliasedTable,
 	and,
 	asc,
 	db,
@@ -8151,11 +8152,15 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	// Revenue per day from completed DevPass transactions. Joins organization
 	// so legacy `subscription_*` rows can be counted only when the org is
 	// personal (where they are pre-rename dev plan rows, not org Pro).
+	// Sums `amount` (actual dollars paid) — `creditAmount` is the credits
+	// granted (price × DEV_PLAN_CREDITS_MULTIPLIER) and would over-report
+	// revenue, and is null on legacy `subscription_*` rows so they would
+	// otherwise contribute nothing.
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
 			total:
-				sql<string>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -8173,6 +8178,46 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 					inArray(tables.transaction.type, [...DEV_PLAN_TX_TYPES]),
 					and(
 						inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+						eq(tables.organization.isPersonal, true),
+					),
+				),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Refunds per day for DevPass transactions. `credit_refund` rows store the
+	// refunded amount as a positive `amount` and link back via
+	// `relatedTransactionId`. Net them out of revenue when the refunded
+	// transaction was a dev plan or (legacy + personal org) subscription row.
+	const originalTx = aliasedTable(tables.transaction, "original_tx");
+	const refundsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			originalTx,
+			eq(tables.transaction.relatedTransactionId, originalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+				or(
+					inArray(originalTx.type, [...DEV_PLAN_TX_TYPES]),
+					and(
+						inArray(originalTx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
 						eq(tables.organization.isPersonal, true),
 					),
 				),
@@ -8227,6 +8272,10 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	for (const row of revenuePerDay) {
 		revenueMap.set(row.date, Number(row.total));
 	}
+	const refundMap = new Map<string, number>();
+	for (const row of refundsPerDay) {
+		refundMap.set(row.date, Number(row.total));
+	}
 	const costMap = new Map<string, number>();
 	for (const row of costPerDay) {
 		costMap.set(row.date, Number(row.total));
@@ -8257,7 +8306,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 
 	while (cursor.getTime() <= lastDay) {
 		const iso = cursor.toISOString().slice(0, 10);
-		const revenue = revenueMap.get(iso) ?? 0;
+		const revenue = (revenueMap.get(iso) ?? 0) - (refundMap.get(iso) ?? 0);
 		const cost = costMap.get(iso) ?? 0;
 		const margin = revenue - cost;
 		data.push({ date: iso, revenue, cost, margin });

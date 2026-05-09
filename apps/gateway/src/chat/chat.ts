@@ -1522,6 +1522,7 @@ chat.openapi(completions, async (c) => {
 		tools,
 		tool_choice,
 		webSearchTool,
+		hasImages,
 	});
 
 	let usedProvider = requestedProvider;
