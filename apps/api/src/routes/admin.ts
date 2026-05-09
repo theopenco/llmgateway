@@ -7633,7 +7633,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.groupBy(tables.project.organizationId)
 		.as("real_cost_sub");
 
-	// Subquery: first dev_plan_start (subscribedSince) and tier change count
+	// Subquery: first dev plan start (subscribedSince) and tier change count.
+	// Legacy rows used the generic "subscription_start" type before the
+	// dev_plan_* rename, so include both to anchor the correct first date.
 	const subscribedSinceSub = db
 		.select({
 			organizationId: tables.transaction.organizationId,
@@ -7642,7 +7644,12 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			),
 		})
 		.from(tables.transaction)
-		.where(eq(tables.transaction.type, "dev_plan_start"))
+		.where(
+			inArray(tables.transaction.type, [
+				"dev_plan_start",
+				"subscription_start",
+			]),
+		)
 		.groupBy(tables.transaction.organizationId)
 		.as("subscribed_since_sub");
 
@@ -8077,219 +8084,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	});
 });
 
-admin.openapi(getDevpassSubscriber, async (c) => {
-	const { orgId } = c.req.valid("param");
-	const now = new Date();
-
-	const org = await db.query.organization.findFirst({
-		where: { id: { eq: orgId } },
-	});
-
-	if (!org) {
-		throw new HTTPException(404, { message: "Subscriber not found" });
-	}
-
-	const owner = await db
-		.select({
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(
-			and(
-				eq(tables.userOrganization.organizationId, orgId),
-				eq(tables.userOrganization.role, "owner"),
-			),
-		)
-		.limit(1);
-
-	const [firstStartRow] = await db
-		.select({
-			firstStart: sql<string>`MIN(${tables.transaction.createdAt})`,
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.organizationId, orgId),
-				eq(tables.transaction.type, "dev_plan_start"),
-			),
-		);
-
-	if (org.devPlan === "none" && !firstStartRow?.firstStart) {
-		throw new HTTPException(404, { message: "Subscriber not found" });
-	}
-
-	const [tierChangesRow] = await db
-		.select({
-			count: sql<number>`COUNT(*)`,
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.organizationId, orgId),
-				inArray(tables.transaction.type, [
-					"dev_plan_upgrade",
-					"dev_plan_downgrade",
-				]),
-			),
-		);
-
-	const [realCostRow] = org.devPlanBillingCycleStart
-		? await db
-				.select({
-					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
-				})
-				.from(projectHourlyStats)
-				.innerJoin(
-					tables.project,
-					eq(projectHourlyStats.projectId, tables.project.id),
-				)
-				.where(
-					and(
-						eq(tables.project.organizationId, orgId),
-						gte(projectHourlyStats.hourTimestamp, org.devPlanBillingCycleStart),
-					),
-				)
-		: [{ total: "0" }];
-
-	const realCost = Number(realCostRow?.total ?? 0);
-	const mrr = tierPriceOf(org.devPlan);
-	const margin = mrr - realCost;
-
-	const status = deriveStatus(
-		org.devPlan,
-		org.devPlanCancelled,
-		org.devPlanExpiresAt,
-		now,
-	);
-	const utilizationPct =
-		Number(org.devPlanCreditsLimit) > 0
-			? (Number(org.devPlanCreditsUsed) / Number(org.devPlanCreditsLimit)) * 100
-			: null;
-	const cycleDaysIn = org.devPlanBillingCycleStart
-		? Math.max(
-				0,
-				Math.floor(
-					(now.getTime() - org.devPlanBillingCycleStart.getTime()) /
-						(1000 * 60 * 60 * 24),
-				),
-			)
-		: null;
-
-	const [lastFailureRow] = await db
-		.select({
-			lastFailureAt: sql<string>`MAX(${tables.paymentFailure.createdAt})`,
-		})
-		.from(tables.paymentFailure)
-		.where(eq(tables.paymentFailure.organizationId, orgId));
-
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
-
-	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
-
-	const subscriber = {
-		id: org.id,
-		name: org.name,
-		billingEmail: org.billingEmail,
-		ownerUserId: owner[0]?.userId ?? null,
-		ownerName: owner[0]?.userName ?? null,
-		ownerEmail: owner[0]?.userEmail ?? null,
-		tier: org.devPlan,
-		status,
-		hasPaymentIssue,
-		creditsUsed: String(org.devPlanCreditsUsed),
-		creditsLimit: String(org.devPlanCreditsLimit),
-		utilizationPct,
-		cycleStart: org.devPlanBillingCycleStart
-			? org.devPlanBillingCycleStart.toISOString()
-			: null,
-		cycleDaysIn,
-		expiresAt: org.devPlanExpiresAt ? org.devPlanExpiresAt.toISOString() : null,
-		cancelled: org.devPlanCancelled,
-		allowAllModels: org.devPlanAllowAllModels,
-		mrr,
-		realCost,
-		margin,
-		marginPct,
-		subscribedSince: firstStartRow?.firstStart
-			? new Date(firstStartRow.firstStart).toISOString()
-			: null,
-		tierChanges: Number(tierChangesRow?.count ?? 0),
-		lastPaymentFailureAt: lastFailureRow?.lastFailureAt
-			? new Date(lastFailureRow.lastFailureAt).toISOString()
-			: null,
-		createdAt: org.createdAt.toISOString(),
-	};
-
-	const transactions = await db
-		.select({
-			id: tables.transaction.id,
-			createdAt: tables.transaction.createdAt,
-			type: tables.transaction.type,
-			amount: tables.transaction.amount,
-			creditAmount: tables.transaction.creditAmount,
-			currency: tables.transaction.currency,
-			status: tables.transaction.status,
-			description: tables.transaction.description,
-		})
-		.from(tables.transaction)
-		.where(
-			and(
-				eq(tables.transaction.organizationId, orgId),
-				inArray(tables.transaction.type, [
-					"dev_plan_start",
-					"dev_plan_upgrade",
-					"dev_plan_downgrade",
-					"dev_plan_cancel",
-					"dev_plan_end",
-					"dev_plan_renewal",
-				]),
-			),
-		)
-		.orderBy(desc(tables.transaction.createdAt))
-		.limit(100);
-
-	const paymentFailures = await db
-		.select({
-			id: tables.paymentFailure.id,
-			createdAt: tables.paymentFailure.createdAt,
-			amount: tables.paymentFailure.amount,
-			currency: tables.paymentFailure.currency,
-			declineCode: tables.paymentFailure.declineCode,
-			failureMessage: tables.paymentFailure.failureMessage,
-			source: tables.paymentFailure.source,
-		})
-		.from(tables.paymentFailure)
-		.where(eq(tables.paymentFailure.organizationId, orgId))
-		.orderBy(desc(tables.paymentFailure.createdAt))
-		.limit(50);
-
-	return c.json({
-		subscriber,
-		transactions: transactions.map((t) => ({
-			id: t.id,
-			createdAt: t.createdAt.toISOString(),
-			type: t.type,
-			amount: t.amount ?? null,
-			creditAmount: t.creditAmount ?? null,
-			currency: t.currency,
-			status: t.status,
-			description: t.description ?? null,
-		})),
-		paymentFailures: paymentFailures.map((p) => ({
-			id: p.id,
-			createdAt: p.createdAt.toISOString(),
-			amount: p.amount ?? null,
-			currency: p.currency,
-			declineCode: p.declineCode ?? null,
-			failureMessage: p.failureMessage ?? null,
-			source: p.source ?? null,
-		})),
-	});
-});
-
 const DEV_PLAN_TX_TYPES = [
 	"dev_plan_start",
 	"dev_plan_upgrade",
@@ -8297,6 +8091,9 @@ const DEV_PLAN_TX_TYPES = [
 	"dev_plan_renewal",
 ] as const;
 
+// Registered before the `/devpass/{orgId}` handler below: Hono matches routes
+// in registration order, so the literal `/devpass/timeseries` path must be
+// declared first or it would be captured as `orgId="timeseries"` and 404.
 admin.openapi(getDevpassTimeseries, async (c) => {
 	const query = c.req.valid("query");
 	const now = new Date();
@@ -8441,6 +8238,227 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 			from: startDate.toISOString().slice(0, 10),
 			to: endDate.toISOString().slice(0, 10),
 		},
+	});
+});
+
+admin.openapi(getDevpassSubscriber, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const now = new Date();
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const owner = await db
+		.select({
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(
+			and(
+				eq(tables.userOrganization.organizationId, orgId),
+				eq(tables.userOrganization.role, "owner"),
+			),
+		)
+		.limit(1);
+
+	const [firstStartRow] = await db
+		.select({
+			firstStart: sql<string>`MIN(${tables.transaction.createdAt})`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				inArray(tables.transaction.type, [
+					"dev_plan_start",
+					"subscription_start",
+				]),
+			),
+		);
+
+	if (org.devPlan === "none" && !firstStartRow?.firstStart) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const [tierChangesRow] = await db
+		.select({
+			count: sql<number>`COUNT(*)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				inArray(tables.transaction.type, [
+					"dev_plan_upgrade",
+					"dev_plan_downgrade",
+				]),
+			),
+		);
+
+	const [realCostRow] = org.devPlanBillingCycleStart
+		? await db
+				.select({
+					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+				})
+				.from(projectHourlyStats)
+				.innerJoin(
+					tables.project,
+					eq(projectHourlyStats.projectId, tables.project.id),
+				)
+				.where(
+					and(
+						eq(tables.project.organizationId, orgId),
+						gte(projectHourlyStats.hourTimestamp, org.devPlanBillingCycleStart),
+					),
+				)
+		: [{ total: "0" }];
+
+	const realCost = Number(realCostRow?.total ?? 0);
+	const mrr = tierPriceOf(org.devPlan);
+	const margin = mrr - realCost;
+
+	const status = deriveStatus(
+		org.devPlan,
+		org.devPlanCancelled,
+		org.devPlanExpiresAt,
+		now,
+	);
+	const utilizationPct =
+		Number(org.devPlanCreditsLimit) > 0
+			? (Number(org.devPlanCreditsUsed) / Number(org.devPlanCreditsLimit)) * 100
+			: null;
+	const cycleDaysIn = org.devPlanBillingCycleStart
+		? Math.max(
+				0,
+				Math.floor(
+					(now.getTime() - org.devPlanBillingCycleStart.getTime()) /
+						(1000 * 60 * 60 * 24),
+				),
+			)
+		: null;
+
+	const [lastFailureRow] = await db
+		.select({
+			lastFailureAt: sql<string>`MAX(${tables.paymentFailure.createdAt})`,
+		})
+		.from(tables.paymentFailure)
+		.where(eq(tables.paymentFailure.organizationId, orgId));
+
+	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+
+	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
+
+	const subscriber = {
+		id: org.id,
+		name: org.name,
+		billingEmail: org.billingEmail,
+		ownerUserId: owner[0]?.userId ?? null,
+		ownerName: owner[0]?.userName ?? null,
+		ownerEmail: owner[0]?.userEmail ?? null,
+		tier: org.devPlan,
+		status,
+		hasPaymentIssue,
+		creditsUsed: String(org.devPlanCreditsUsed),
+		creditsLimit: String(org.devPlanCreditsLimit),
+		utilizationPct,
+		cycleStart: org.devPlanBillingCycleStart
+			? org.devPlanBillingCycleStart.toISOString()
+			: null,
+		cycleDaysIn,
+		expiresAt: org.devPlanExpiresAt ? org.devPlanExpiresAt.toISOString() : null,
+		cancelled: org.devPlanCancelled,
+		allowAllModels: org.devPlanAllowAllModels,
+		mrr,
+		realCost,
+		margin,
+		marginPct,
+		subscribedSince: firstStartRow?.firstStart
+			? new Date(firstStartRow.firstStart).toISOString()
+			: null,
+		tierChanges: Number(tierChangesRow?.count ?? 0),
+		lastPaymentFailureAt: lastFailureRow?.lastFailureAt
+			? new Date(lastFailureRow.lastFailureAt).toISOString()
+			: null,
+		createdAt: org.createdAt.toISOString(),
+	};
+
+	const transactions = await db
+		.select({
+			id: tables.transaction.id,
+			createdAt: tables.transaction.createdAt,
+			type: tables.transaction.type,
+			amount: tables.transaction.amount,
+			creditAmount: tables.transaction.creditAmount,
+			currency: tables.transaction.currency,
+			status: tables.transaction.status,
+			description: tables.transaction.description,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				inArray(tables.transaction.type, [
+					"dev_plan_start",
+					"dev_plan_upgrade",
+					"dev_plan_downgrade",
+					"dev_plan_cancel",
+					"dev_plan_end",
+					"dev_plan_renewal",
+					// Legacy types — pre dev_plan_* rename, still in DB for older
+					// dev plan subscribers; without these their history reads as empty.
+					"subscription_start",
+					"subscription_cancel",
+					"subscription_end",
+				]),
+			),
+		)
+		.orderBy(desc(tables.transaction.createdAt))
+		.limit(100);
+
+	const paymentFailures = await db
+		.select({
+			id: tables.paymentFailure.id,
+			createdAt: tables.paymentFailure.createdAt,
+			amount: tables.paymentFailure.amount,
+			currency: tables.paymentFailure.currency,
+			declineCode: tables.paymentFailure.declineCode,
+			failureMessage: tables.paymentFailure.failureMessage,
+			source: tables.paymentFailure.source,
+		})
+		.from(tables.paymentFailure)
+		.where(eq(tables.paymentFailure.organizationId, orgId))
+		.orderBy(desc(tables.paymentFailure.createdAt))
+		.limit(50);
+
+	return c.json({
+		subscriber,
+		transactions: transactions.map((t) => ({
+			id: t.id,
+			createdAt: t.createdAt.toISOString(),
+			type: t.type,
+			amount: t.amount ?? null,
+			creditAmount: t.creditAmount ?? null,
+			currency: t.currency,
+			status: t.status,
+			description: t.description ?? null,
+		})),
+		paymentFailures: paymentFailures.map((p) => ({
+			id: p.id,
+			createdAt: p.createdAt.toISOString(),
+			amount: p.amount ?? null,
+			currency: p.currency,
+			declineCode: p.declineCode ?? null,
+			failureMessage: p.failureMessage ?? null,
+			source: p.source ?? null,
+		})),
 	});
 });
 
