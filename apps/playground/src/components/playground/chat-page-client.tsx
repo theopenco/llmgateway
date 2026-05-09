@@ -31,11 +31,7 @@ import { mapModels } from "@/lib/mapmodels";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
-import type {
-	ApiModel,
-	ApiModelProviderMapping,
-	ApiProvider,
-} from "@/lib/fetch-models";
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 
 /**
@@ -362,44 +358,20 @@ export default function ChatPageClient({
 	}, [availableModels, selectedModel]);
 
 	const supportsReasoning = useMemo(() => {
-		if (!selectedModel) {
-			return false;
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
-		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
-		return !!mapping?.reasoning;
-	}, [models, selectedModel]);
+		return !!model?.reasoning;
+	}, [availableModels, selectedModel]);
 
 	const supportsWebSearch = useMemo(() => {
-		if (!selectedModel) {
-			return false;
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
-		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
-		return !!mapping?.webSearch;
-	}, [models, selectedModel]);
+		return !!model?.webSearch;
+	}, [availableModels, selectedModel]);
 
 	const buildRequestOptions = useCallback(
 		(hasImageAttachments: boolean, options?: any) => {
@@ -1335,44 +1307,20 @@ function ExtraChatPanel({
 	}, [availableModels, selectedModel]);
 
 	const supportsReasoning = useMemo(() => {
-		if (!selectedModel) {
-			return false;
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
-		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
-		return !!mapping?.reasoning;
-	}, [models, selectedModel]);
+		return !!model?.reasoning;
+	}, [availableModels, selectedModel]);
 
 	const supportsWebSearch = useMemo(() => {
-		if (!selectedModel) {
-			return false;
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
-		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
-		return !!mapping?.webSearch;
-	}, [models, selectedModel]);
+		return !!model?.webSearch;
+	}, [availableModels, selectedModel]);
 
 	useEffect(() => {
 		const config = getModelImageConfig(selectedModel);
