@@ -53,4 +53,55 @@ describe("normalizeStreamingError", () => {
 		expect(normalized.log.details.name).toBe("SyntaxError");
 		expect(normalized.log.details.bufferSnapshot).toBe("data: {");
 	});
+
+	it("serializes non-Error object payloads instead of [object Object]", () => {
+		const error = {
+			status: 503,
+			body: { error: { type: "overloaded_error", message: "Try again" } },
+		};
+
+		const normalized = normalizeStreamingError({
+			error,
+			provider: "anthropic",
+			model: "claude-3-5-sonnet",
+			phase: "upstream_read",
+		});
+
+		expect(normalized.log.details.responseText).not.toContain(
+			"[object Object]",
+		);
+		expect(normalized.log.details.responseText).toContain("overloaded_error");
+		expect(normalized.client.message).not.toContain("[object Object]");
+		expect(normalized.client.message).toContain("overloaded_error");
+	});
+
+	it("uses message field when non-Error object provides one", () => {
+		const error = { message: "Connection reset by peer", code: "ECONNRESET" };
+
+		const normalized = normalizeStreamingError({
+			error,
+			provider: "openai",
+			model: "gpt-4.1-mini",
+			phase: "upstream_read",
+		});
+
+		expect(normalized.client.message).toBe(
+			"Streaming error: Connection reset by peer",
+		);
+		expect(normalized.log.details.responseText).toBe(
+			"Connection reset by peer",
+		);
+	});
+
+	it("falls back to a meaningful string for empty objects", () => {
+		const normalized = normalizeStreamingError({
+			error: {},
+			provider: "openai",
+			model: "gpt-4.1-mini",
+			phase: "upstream_read",
+		});
+
+		expect(normalized.log.details.responseText).not.toBe("[object Object]");
+		expect(normalized.client.message).not.toContain("[object Object]");
+	});
 });
