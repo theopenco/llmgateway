@@ -62,9 +62,13 @@ import type { ActivitT } from "@/types/activity";
 
 interface DashboardClientProps {
 	initialActivityData?: ActivitT;
+	initialDevPassCollapsed?: boolean;
 }
 
-export function DashboardClient({ initialActivityData }: DashboardClientProps) {
+export function DashboardClient({
+	initialActivityData,
+	initialDevPassCollapsed,
+}: DashboardClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
@@ -323,7 +327,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 				<ReferralBanner />
 
-				<DevPassCard />
+				<DevPassCard defaultCollapsed={initialDevPassCollapsed} />
 
 				<DateRangePicker buildUrl={buildUrl} />
 

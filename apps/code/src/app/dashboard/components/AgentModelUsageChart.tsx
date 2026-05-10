@@ -8,7 +8,7 @@ import {
 	startOfDay,
 	startOfHour,
 } from "date-fns";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
 	Bar,
@@ -20,6 +20,13 @@ import {
 	YAxis,
 } from "recharts";
 
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { useApi } from "@/lib/fetch-client";
 
 import type { paths } from "@/lib/api/v1";
@@ -288,9 +295,12 @@ export function AgentModelUsageChart({ sources }: AgentModelUsageChartProps) {
 	const [range, setRange] = useState<AgentChartTimeRange>("24h");
 	const [metric, setMetric] = useState<Metric>("cost");
 	const api = useApi();
-	const startDate = useMemo(() => getRangeStart(range).toISOString(), [range]);
-	const endDate = new Date().toISOString();
-	const sourceParam = sources.join(",");
+	const { startDate, endDate } = useMemo(() => {
+		const end = new Date();
+		const start = new Date(end.getTime() - RANGE_OFFSET_MS[range]);
+		return { startDate: start.toISOString(), endDate: end.toISOString() };
+	}, [range]);
+	const sourceParam = useMemo(() => sources.join(","), [sources]);
 
 	const { data, isLoading, isFetching } = api.useQuery(
 		"get",
@@ -405,21 +415,25 @@ export function AgentModelUsageChart({ sources }: AgentModelUsageChartProps) {
 							</button>
 						))}
 					</div>
-					<div className="relative">
-						<select
-							value={metric}
-							onChange={(e) => setMetric(e.target.value as Metric)}
-							className="appearance-none rounded-md border bg-background px-3 py-1.5 pr-8 text-xs font-medium text-foreground transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
+					<Select
+						value={metric}
+						onValueChange={(value) => setMetric(value as Metric)}
+					>
+						<SelectTrigger
+							size="sm"
+							className="w-[110px] text-xs"
 							aria-label="Metric"
 						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
 							{METRIC_OPTIONS.map((m) => (
-								<option key={m.value} value={m.value}>
+								<SelectItem key={m.value} value={m.value} className="text-xs">
 									{m.label}
-								</option>
+								</SelectItem>
 							))}
-						</select>
-						<ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-					</div>
+						</SelectContent>
+					</Select>
 				</div>
 			</div>
 			<div className="p-4">
