@@ -44,13 +44,13 @@ function truncateShareUrl(url: string): string {
 		const parsed = new URL(url);
 		const segments = parsed.pathname.split("/").filter(Boolean);
 		const last = segments[segments.length - 1] ?? "";
-		const prefix = `${parsed.origin}/${segments.slice(0, -1).join("/")}/`;
-		const visiblePrefix =
-			prefix.length > URL_DISPLAY_PREFIX.length
-				? URL_DISPLAY_PREFIX
-				: prefix.replace(/\/+$/, "/");
 		const shortId = last.length > 8 ? `${last.slice(0, 6)}…` : last;
-		return `${visiblePrefix}${shortId}`;
+		const builtPrefix = `${parsed.origin}/${segments.slice(0, -1).join("/")}/`;
+		const displayPrefix =
+			builtPrefix.length > URL_DISPLAY_PREFIX.length
+				? URL_DISPLAY_PREFIX
+				: builtPrefix;
+		return `${displayPrefix}${shortId}`;
 	} catch {
 		return url.length > 40 ? `${url.slice(0, 37)}…` : url;
 	}

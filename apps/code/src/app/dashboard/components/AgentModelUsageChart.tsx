@@ -159,7 +159,7 @@ function buildChartData(
 	}
 
 	const rangeStart = getRangeStart(range).getTime();
-	const modelTotals = new Map<string, number>();
+	const modelCostTotals = new Map<string, number>();
 
 	for (const log of logs) {
 		const ts = new Date(log.createdAt).getTime();
@@ -186,13 +186,10 @@ function buildChartData(
 		entry.cost += cost;
 		entry.tokens += tokens;
 		slot.models[modelId] = entry;
-		modelTotals.set(
-			modelId,
-			(modelTotals.get(modelId) ?? 0) + cost + tokens + 1,
-		);
+		modelCostTotals.set(modelId, (modelCostTotals.get(modelId) ?? 0) + cost);
 	}
 
-	const models = Array.from(modelTotals.entries())
+	const models = Array.from(modelCostTotals.entries())
 		.sort((a, b) => b[1] - a[1])
 		.map(([id]) => id);
 	const rows = Array.from(slotMap.values());
@@ -292,8 +289,7 @@ export function AgentModelUsageChart({ sources }: AgentModelUsageChartProps) {
 	const [metric, setMetric] = useState<Metric>("cost");
 	const api = useApi();
 	const startDate = useMemo(() => getRangeStart(range).toISOString(), [range]);
-	// eslint-disable-next-line react-hooks/exhaustive-deps
-	const endDate = useMemo(() => new Date().toISOString(), [range]);
+	const endDate = new Date().toISOString();
 	const sourceParam = sources.join(",");
 
 	const { data, isLoading, isFetching } = api.useQuery(
