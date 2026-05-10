@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 import { type ProviderMetrics, metricsKey } from "@llmgateway/db";
 import {
 	getProviderDefinition,
@@ -27,8 +29,8 @@ export function resolveMetricsModelId(
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
-	score: number;
-	price: number;
+	score: Decimal;
+	price: Decimal;
 	uptime?: number;
 	latency?: number;
 	throughput?: number;
@@ -280,9 +282,9 @@ export function getProviderSelectionPrice(
 		  >
 		| undefined,
 	videoPricing?: VideoPricingContext,
-): number {
+): Decimal {
 	const discount = providerInfo?.discount ?? 0;
-	const discountMultiplier = 1 - discount;
+	const discountMultiplier = new Decimal(1).minus(discount);
 	const inputPrice = providerInfo?.inputPrice;
 	const outputPrice = providerInfo?.outputPrice;
 	const requestPrice = providerInfo?.requestPrice;
@@ -294,26 +296,32 @@ export function getProviderSelectionPrice(
 		for (const billingKey of getPerSecondBillingKeys(videoPricing)) {
 			const perSecondPrice = providerInfo.perSecondPrice[billingKey];
 			if (perSecondPrice !== undefined) {
-				return (
-					perSecondPrice * videoPricing.durationSeconds * discountMultiplier
-				);
+				return new Decimal(perSecondPrice)
+					.times(videoPricing.durationSeconds)
+					.times(discountMultiplier);
 			}
 		}
 	}
 
 	if (hasPositiveTokenPrice) {
-		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
+		return new Decimal(inputPrice ?? 0)
+			.plus(outputPrice ?? 0)
+			.div(2)
+			.times(discountMultiplier);
 	}
 
 	if (requestPrice !== undefined && !hasPositiveTokenPrice) {
-		return requestPrice * discountMultiplier;
+		return new Decimal(requestPrice).times(discountMultiplier);
 	}
 
 	if (hasAnyTokenPrice) {
-		return (((inputPrice ?? 0) + (outputPrice ?? 0)) / 2) * discountMultiplier;
+		return new Decimal(inputPrice ?? 0)
+			.plus(outputPrice ?? 0)
+			.div(2)
+			.times(discountMultiplier);
 	}
 
-	return 0;
+	return new Decimal(0);
 }
 
 /**
@@ -403,7 +411,10 @@ export function getCheapestFromAvailableProviders<
 						uptime: metrics?.uptime,
 						latency: metrics?.averageLatency,
 						throughput: metrics?.throughput,
-						price: getProviderSelectionPrice(providerInfo, videoPricing),
+						price: getProviderSelectionPrice(
+							providerInfo,
+							videoPricing,
+						).toNumber(),
 						priority,
 						cacheSupported: providerSupportsCaching(
 							providerInfo as ProviderModelMapping | undefined,
@@ -439,7 +450,7 @@ export function getCheapestFromAvailableProviders<
 
 		providerScores.push({
 			provider,
-			score: 0, // Will be calculated below
+			score: new Decimal(0), // Will be calculated below
 			price,
 			uptime: metrics?.uptime,
 			latency: metrics?.averageLatency,
@@ -454,8 +465,10 @@ export function getCheapestFromAvailableProviders<
 	// Instead of min-max normalization (which loses magnitude of differences),
 	// we use ratios against the best value so actual proportional differences
 	// are preserved. e.g., a provider 50% cheaper scores much better than one 5% cheaper.
-	const prices = providerScores.map((p) => p.price);
-	const minPrice = Math.min(...prices);
+	const minPrice = providerScores.reduce(
+		(min, p) => (p.price.lt(min) ? p.price : min),
+		providerScores[0].price,
+	);
 
 	const uptimes = providerScores.map((p) => p.uptime ?? DEFAULT_UPTIME);
 	const maxUptime = Math.max(...uptimes);
@@ -472,39 +485,42 @@ export function getCheapestFromAvailableProviders<
 	for (const providerScore of providerScores) {
 		// Price ratio: 0 = cheapest, 0.5 = 50% more expensive, 1.0 = 2x more expensive
 		// This preserves the actual magnitude of price differences
-		/* eslint-disable no-mixed-operators */
-		const priceScore = minPrice > 0 ? providerScore.price / minPrice - 1 : 0;
-		/* eslint-enable no-mixed-operators */
+		const priceScore = minPrice.gt(0)
+			? providerScore.price.div(minPrice).minus(1)
+			: new Decimal(0);
 
 		// Uptime ratio: 0 = best uptime, proportional penalty for worse uptime
 		const uptime = providerScore.uptime ?? DEFAULT_UPTIME;
-		/* eslint-disable no-mixed-operators */
-		const uptimeScore = uptime > 0 ? maxUptime / uptime - 1 : 1;
-		/* eslint-enable no-mixed-operators */
+		const uptimeScore =
+			uptime > 0 ? new Decimal(maxUptime).div(uptime).minus(1) : new Decimal(1);
 
 		// Calculate exponential penalty for truly unstable providers
-		const uptimePenalty = calculateUptimePenalty(uptime);
+		const uptimePenalty = new Decimal(calculateUptimePenalty(uptime));
 
 		// Throughput ratio: 0 = fastest, 0.5 = 50% slower, 1.0 = 2x slower
 		// This preserves the actual magnitude of throughput differences
 		const throughput = providerScore.throughput ?? DEFAULT_THROUGHPUT;
-		/* eslint-disable no-mixed-operators */
-		const throughputScore = throughput > 0 ? maxThroughput / throughput - 1 : 1;
-		/* eslint-enable no-mixed-operators */
+		const throughputScore =
+			throughput > 0
+				? new Decimal(maxThroughput).div(throughput).minus(1)
+				: new Decimal(1);
 
 		// Latency ratio: 0 = fastest, proportional penalty for slower
 		// Only consider latency for streaming requests since it's only measured there
-		let latencyScore = 0;
+		let latencyScore = new Decimal(0);
 		if (isStreaming) {
 			const latency = providerScore.latency ?? DEFAULT_LATENCY;
-			/* eslint-disable no-mixed-operators */
-			latencyScore = minLatency > 0 ? latency / minLatency - 1 : 0;
-			/* eslint-enable no-mixed-operators */
+			latencyScore =
+				minLatency > 0
+					? new Decimal(latency).div(minLatency).minus(1)
+					: new Decimal(0);
 		}
 
 		// Cache score: 0 when this provider supports prompt caching, 1 otherwise.
 		// Only weighted in when the prompt is large enough for caching to matter.
-		const cacheScore = providerScore.cacheSupported ? 0 : 1;
+		const cacheScore = providerScore.cacheSupported
+			? new Decimal(0)
+			: new Decimal(1);
 
 		// Calculate base weighted score (lower is better)
 		// When not streaming, latency weight is redistributed to other factors
@@ -512,20 +528,22 @@ export function getCheapestFromAvailableProviders<
 		// dropped for short prompts where caching has no measurable effect.
 		const effectiveLatencyWeight = isStreaming ? LATENCY_WEIGHT : 0;
 		const effectiveCacheWeight = cacheSupportRelevant ? CACHE_WEIGHT : 0;
-		const weightSum =
-			effectivePriceWeight +
-			UPTIME_WEIGHT +
-			THROUGHPUT_WEIGHT +
-			effectiveLatencyWeight +
-			effectiveCacheWeight;
-		/* eslint-disable no-mixed-operators */
-		const baseScore =
-			(effectivePriceWeight / weightSum) * priceScore +
-			(UPTIME_WEIGHT / weightSum) * uptimeScore +
-			(THROUGHPUT_WEIGHT / weightSum) * throughputScore +
-			(effectiveLatencyWeight / weightSum) * latencyScore +
-			(effectiveCacheWeight / weightSum) * cacheScore;
-		/* eslint-enable no-mixed-operators */
+		const weightSum = new Decimal(effectivePriceWeight)
+			.plus(UPTIME_WEIGHT)
+			.plus(THROUGHPUT_WEIGHT)
+			.plus(effectiveLatencyWeight)
+			.plus(effectiveCacheWeight);
+		const baseScore = new Decimal(effectivePriceWeight)
+			.div(weightSum)
+			.times(priceScore)
+			.plus(new Decimal(UPTIME_WEIGHT).div(weightSum).times(uptimeScore))
+			.plus(
+				new Decimal(THROUGHPUT_WEIGHT).div(weightSum).times(throughputScore),
+			)
+			.plus(
+				new Decimal(effectiveLatencyWeight).div(weightSum).times(latencyScore),
+			)
+			.plus(new Decimal(effectiveCacheWeight).div(weightSum).times(cacheScore));
 
 		// Apply provider priority: lower priority = higher score (less preferred)
 		// Priority defaults to 1. We add (1 - priority) as a penalty.
@@ -534,17 +552,17 @@ export function getCheapestFromAvailableProviders<
 			providerScore.provider.providerId,
 		);
 		const priority = providerDef?.priority ?? 1;
-		const priorityPenalty = 1 - priority;
+		const priorityPenalty = new Decimal(1).minus(priority);
 
 		// Final score = base weighted score + priority penalty + exponential uptime penalty
 		// The uptime penalty heavily penalizes providers with <95% uptime
-		providerScore.score = baseScore + priorityPenalty + uptimePenalty;
+		providerScore.score = baseScore.plus(priorityPenalty).plus(uptimePenalty);
 	}
 
 	// Select provider with lowest score
 	let bestProvider = providerScores[0];
 	for (const providerScore of providerScores) {
-		if (providerScore.score < bestProvider.score) {
+		if (providerScore.score.lt(bestProvider.score)) {
 			bestProvider = providerScore;
 		}
 	}
@@ -560,11 +578,11 @@ export function getCheapestFromAvailableProviders<
 			return {
 				providerId: p.provider.providerId,
 				region: p.provider.region,
-				score: Number(p.score.toFixed(3)),
+				score: p.score.toDecimalPlaces(3).toNumber(),
 				uptime: p.uptime,
 				latency: p.latency,
 				throughput: p.throughput,
-				price: p.price, // Keep full precision for very small prices
+				price: p.price.toNumber(), // Keep full precision for very small prices
 				priority,
 				cacheSupported: p.cacheSupported,
 			};
@@ -586,13 +604,13 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	videoPricing?: VideoPricingContext,
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
-	let lowestEffectivePrice = Number.MAX_VALUE;
+	let lowestEffectivePrice: Decimal | null = null;
 
 	const providerPrices: Array<{
 		providerId: string;
 		region?: string;
-		price: number;
-		effectivePrice: number;
+		price: Decimal;
+		effectivePrice: Decimal;
 		priority: number;
 	}> = [];
 
@@ -606,7 +624,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		// Apply provider priority: lower priority = effectively higher price
 		const providerDef = getProviderDefinition(provider.providerId);
 		const priority = providerDef?.priority ?? 1;
-		const effectivePrice = priority > 0 ? totalPrice / priority : totalPrice;
+		const effectivePrice = priority > 0 ? totalPrice.div(priority) : totalPrice;
 
 		providerPrices.push({
 			providerId: provider.providerId,
@@ -616,7 +634,10 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			priority,
 		});
 
-		if (effectivePrice < lowestEffectivePrice) {
+		if (
+			lowestEffectivePrice === null ||
+			effectivePrice.lt(lowestEffectivePrice)
+		) {
 			lowestEffectivePrice = effectivePrice;
 			cheapestProvider = provider;
 		}
@@ -630,7 +651,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			providerId: p.providerId,
 			region: p.region,
 			score: 0,
-			price: p.price,
+			price: p.price.toNumber(),
 			priority: p.priority,
 		})),
 	};
