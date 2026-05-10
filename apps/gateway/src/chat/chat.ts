@@ -1556,6 +1556,15 @@ chat.openapi(completions, async (c) => {
 		source = normalizeSourceToAgentId(source);
 	}
 
+	// If source is still unrecognized (e.g., a non-agent x-source was sent),
+	// fall back to UA detection so legitimate agents aren't blocked by devpass gate.
+	if (source && !isRecognizedCodingAgent(source)) {
+		const detectedFromUa = detectCodingAgentFromUserAgent(userAgent);
+		if (detectedFromUa) {
+			source = detectedFromUa;
+		}
+	}
+
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
 		c.req.header("x-debug") === "true" ||

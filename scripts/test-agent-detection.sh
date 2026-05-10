@@ -28,20 +28,27 @@ test_agent() {
 	local description="$1"
 	local user_agent="$2"
 	local expect_blocked="$3"
+	local x_source="${4:-}"
 
-	response=$(curl -s -w "\n%{http_code}" \
+	local extra_headers=()
+	if [ -n "$x_source" ]; then
+		extra_headers=(-H "x-source: $x_source")
+	fi
+
+	response=$(curl -s --connect-timeout 5 --max-time 15 -w "\n%{http_code}" \
 		-X POST "$GATEWAY_URL/v1/chat/completions" \
 		-H "Content-Type: application/json" \
 		-H "Authorization: Bearer $API_KEY" \
 		-H "User-Agent: $user_agent" \
+		"${extra_headers[@]}" \
 		-d "$BODY" 2>&1)
 
 	http_code=$(echo "$response" | tail -1)
 	body=$(echo "$response" | sed '$d')
 
 	if [ "$expect_blocked" = "true" ]; then
-		if echo "$body" | grep -q "restricted to recognized coding agents"; then
-			echo "  PASS: $description (blocked as expected)"
+		if [ "$http_code" = "403" ] && echo "$body" | grep -q "restricted to recognized coding agents"; then
+			echo "  PASS: $description (403 source-blocked as expected)"
 			pass=$((pass + 1))
 		else
 			echo "  FAIL: $description - expected 403 source block, got HTTP $http_code"
@@ -49,7 +56,7 @@ test_agent() {
 			fail=$((fail + 1))
 		fi
 	else
-		if echo "$body" | grep -q "restricted to recognized coding agents"; then
+		if [ "$http_code" = "403" ] && echo "$body" | grep -q "restricted to recognized coding agents"; then
 			echo "  FAIL: $description - got 403 source block but should be allowed"
 			echo "        Body: $(echo "$body" | head -1)"
 			fail=$((fail + 1))
@@ -87,21 +94,7 @@ test_agent "anyclaw-tool" "anyclaw-tool/0.1" "false"
 
 echo ""
 echo "=== Testing x-source Header Override ==="
-response=$(curl -s -w "\n%{http_code}" \
-	-X POST "$GATEWAY_URL/v1/chat/completions" \
-	-H "Content-Type: application/json" \
-	-H "Authorization: Bearer $API_KEY" \
-	-H "User-Agent: curl/8.0" \
-	-H "x-source: opencode" \
-	-d "$BODY" 2>&1)
-body=$(echo "$response" | sed '$d')
-if echo "$body" | grep -q "restricted to recognized coding agents"; then
-	echo "  FAIL: x-source override - still blocked despite x-source: opencode"
-	fail=$((fail + 1))
-else
-	echo "  PASS: x-source override (x-source: opencode bypasses UA check)"
-	pass=$((pass + 1))
-fi
+test_agent "x-source: opencode overrides unknown UA" "curl/8.0" "false" "opencode"
 
 echo ""
 echo "=== Testing Unknown Agents (SHOULD be source-blocked) ==="
