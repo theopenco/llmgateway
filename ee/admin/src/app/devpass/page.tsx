@@ -465,6 +465,15 @@ export default async function DevpassPage({
 					<div className="mt-1 text-xs text-muted-foreground">
 						Lite {kpis.activeByTier.lite} · Pro {kpis.activeByTier.pro} · Max{" "}
 						{kpis.activeByTier.max}
+						{kpis.cancelledPending > 0 ? (
+							<>
+								{" "}
+								·{" "}
+								<span className="text-amber-600 dark:text-amber-400">
+									{kpis.cancelledPending} cancelling
+								</span>
+							</>
+						) : null}
 					</div>
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">

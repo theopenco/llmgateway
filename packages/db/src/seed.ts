@@ -1473,7 +1473,10 @@ async function seed() {
 			}) ?? DEVPASS_AGENTS[0];
 		const agentModel = weightedRandomChoice(agent.models);
 		const modelDef =
-			MODELS.find((m) => m.model === agentModel.model) ?? MODELS[0];
+			MODELS.find(
+				(m) =>
+					m.model === agentModel.model && m.provider === agentModel.provider,
+			) ?? MODELS[0];
 		const finishDef = weightedRandomChoice(FINISH_REASONS);
 		const isError =
 			finishDef.unified === "upstream_error" ||
