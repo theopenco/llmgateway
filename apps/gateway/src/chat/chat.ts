@@ -33,6 +33,7 @@ import {
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
 	insertLog as _insertLog,
+	warnUnknownFinishReasonFallback,
 } from "@/lib/logs.js";
 import {
 	checkProviderRateLimit,
@@ -7935,6 +7936,23 @@ chat.openapi(completions, async (c) => {
 							? streamingError.details.statusCode
 							: 500;
 
+					// Diagnose unmapped upstream finish reasons that fall back to
+					// UNKNOWN. We send the trailing slice of rawUpstreamData since
+					// the terminal event is near the end of the stream.
+					if (!canceled) {
+						warnUnknownFinishReasonFallback({
+							finishReason,
+							provider: usedProvider,
+							usedModel,
+							requestId,
+							streamed: true,
+							rawChunk:
+								rawUpstreamData.length > 0
+									? rawUpstreamData.slice(-4096)
+									: null,
+						});
+					}
+
 					await insertLogEntry({
 						...baseLogEntry,
 						id: routingAttempts.length > 0 ? finalLogId : undefined,
@@ -9721,6 +9739,27 @@ chat.openapi(completions, async (c) => {
 		base64Images.length > 0
 			? base64Images.map((img) => img.image_url.url).join("\n")
 			: content;
+
+	// Diagnose unmapped upstream finish reasons that fall back to UNKNOWN.
+	// Pass the parsed response JSON as the raw chunk so we can see the upstream
+	// shape that produced an unmapped reason.
+	{
+		let rawChunk: string | null = null;
+		try {
+			rawChunk = JSON.stringify(json);
+		} catch {
+			rawChunk = null;
+		}
+		warnUnknownFinishReasonFallback({
+			finishReason,
+			provider: usedProvider,
+			usedModel,
+			requestId,
+			streamed: false,
+			rawChunk,
+			choiceIndex: 0,
+		});
+	}
 
 	await insertLogEntry({
 		...baseLogEntry,

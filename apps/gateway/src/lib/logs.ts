@@ -160,6 +160,61 @@ export function getUnifiedFinishReason(
 	return UnifiedFinishReason.UNKNOWN;
 }
 
+const UNKNOWN_FINISH_REASON_RAW_CHUNK_MAX_BYTES = 2048;
+
+function truncateForLog(value: string, max: number): string {
+	if (value.length <= max) {
+		return value;
+	}
+	return `${value.slice(0, max)}…[truncated ${value.length - max} chars]`;
+}
+
+/**
+ * Warn-log when the upstream finish reason cannot be mapped to a known
+ * UnifiedFinishReason and falls back to UNKNOWN. Captures the raw chunk
+ * so we can map the upstream shape correctly later.
+ *
+ * Intended to be called once per request at the final log-assembly site
+ * (streaming completion or non-streaming response parse). No-op when the
+ * fallback to UNKNOWN is expected (e.g. Google's "OTHER") or when the
+ * reason maps to a known value.
+ */
+export function warnUnknownFinishReasonFallback(opts: {
+	finishReason: string | null | undefined;
+	provider: string | null | undefined;
+	usedModel: string | null | undefined;
+	requestId?: string | null;
+	streamed: boolean;
+	rawChunk?: string | null;
+	choiceIndex?: number | null;
+	role?: string | null;
+}): void {
+	const { finishReason, provider } = opts;
+	const unified = getUnifiedFinishReason(finishReason, provider);
+	if (unified !== UnifiedFinishReason.UNKNOWN) {
+		return;
+	}
+	if (isExpectedUnknownFinishReason(finishReason, provider)) {
+		return;
+	}
+
+	const rawChunkValue =
+		typeof opts.rawChunk === "string" && opts.rawChunk.length > 0
+			? truncateForLog(opts.rawChunk, UNKNOWN_FINISH_REASON_RAW_CHUNK_MAX_BYTES)
+			: null;
+
+	logger.warn("Unknown finish reason fallback to UNKNOWN", {
+		finishReason: finishReason ?? null,
+		provider: provider ?? null,
+		usedModel: opts.usedModel ?? null,
+		requestId: opts.requestId ?? null,
+		streamed: opts.streamed,
+		choiceIndex: opts.choiceIndex ?? null,
+		role: opts.role ?? null,
+		rawChunk: rawChunkValue,
+	});
+}
+
 export function isContentFilterFinishReason(
 	finishReason: string | null | undefined,
 	provider: string | null | undefined,
@@ -242,21 +297,11 @@ export async function insertLog(
 				logData.usedProvider,
 			);
 
-			if (
-				logData.unifiedFinishReason === UnifiedFinishReason.UNKNOWN &&
-				logData.finishReason &&
-				!isExpectedUnknownFinishReason(
-					logData.finishReason,
-					logData.usedProvider,
-				)
-			) {
-				logger.error("Unknown finish reason encountered", {
-					requestId: logData.requestId,
-					finishReason: logData.finishReason,
-					provider: logData.usedProvider,
-					model: logData.usedModel,
-				});
-			}
+			// Note: warn-logging for unmapped upstream finish reasons happens
+			// at the parse sites in chat.ts (streaming + non-streaming) via
+			// warnUnknownFinishReasonFallback so the warn line can include the
+			// raw upstream chunk for debugging. We deliberately do not warn
+			// again here to keep it once-per-request.
 		}
 	}
 

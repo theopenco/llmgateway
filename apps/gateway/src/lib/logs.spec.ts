@@ -1,12 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UnifiedFinishReason } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
 	isExpectedUnknownFinishReason,
+	warnUnknownFinishReasonFallback,
 } from "./logs.js";
 
 describe("getUnifiedFinishReason", () => {
@@ -275,5 +277,86 @@ describe("calculateDataStorageCost", () => {
 	it("handles string token values", () => {
 		const cost = calculateDataStorageCost("500000", "0", "500000", "0");
 		expect(cost).toBe("0.01");
+	});
+});
+
+describe("warnUnknownFinishReasonFallback", () => {
+	let warnSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		warnSpy.mockRestore();
+	});
+
+	it("warns when an unmapped reason falls back to UNKNOWN", () => {
+		warnUnknownFinishReasonFallback({
+			finishReason: "empty",
+			provider: "azure-ai-foundry",
+			usedModel: "azure-ai-foundry/grok-4-1-fast-non-reasoning",
+			requestId: "req_abc",
+			streamed: false,
+			rawChunk: '{"choices":[{"finish_reason":"empty"}]}',
+		});
+
+		expect(warnSpy).toHaveBeenCalledTimes(1);
+		const [msg, ctx] = warnSpy.mock.calls[0] as [string, Record<string, any>];
+		expect(msg).toBe("Unknown finish reason fallback to UNKNOWN");
+		expect(ctx).toMatchObject({
+			finishReason: "empty",
+			provider: "azure-ai-foundry",
+			usedModel: "azure-ai-foundry/grok-4-1-fast-non-reasoning",
+			requestId: "req_abc",
+			streamed: false,
+		});
+		expect(ctx.rawChunk).toContain('"empty"');
+	});
+
+	it("does not warn when the reason maps cleanly", () => {
+		warnUnknownFinishReasonFallback({
+			finishReason: "stop",
+			provider: "openai",
+			usedModel: "gpt-4o-mini",
+			streamed: true,
+		});
+		expect(warnSpy).not.toHaveBeenCalled();
+	});
+
+	it("does not warn for expected UNKNOWN mappings (Google's OTHER)", () => {
+		warnUnknownFinishReasonFallback({
+			finishReason: "OTHER",
+			provider: "google-ai-studio",
+			usedModel: "gemini-2.5-pro",
+			streamed: false,
+		});
+		expect(warnSpy).not.toHaveBeenCalled();
+	});
+
+	it("truncates raw chunks larger than the cap and notes the truncation", () => {
+		const big = "x".repeat(8192);
+		warnUnknownFinishReasonFallback({
+			finishReason: "weird_reason",
+			provider: "openai",
+			usedModel: "gpt-4o-mini",
+			streamed: true,
+			rawChunk: big,
+		});
+		expect(warnSpy).toHaveBeenCalledTimes(1);
+		const ctx = warnSpy.mock.calls[0][1] as Record<string, any>;
+		expect(ctx.rawChunk).toMatch(/\[truncated \d+ chars\]$/);
+		expect(typeof ctx.rawChunk).toBe("string");
+		expect((ctx.rawChunk as string).length).toBeLessThan(big.length);
+	});
+
+	it("warns when finishReason is null/empty (also UNKNOWN, not expected)", () => {
+		warnUnknownFinishReasonFallback({
+			finishReason: null,
+			provider: "openai",
+			usedModel: "gpt-4o-mini",
+			streamed: false,
+		});
+		expect(warnSpy).toHaveBeenCalledTimes(1);
 	});
 });
