@@ -109,13 +109,13 @@ export function ShareChatDialog({
 			</Tooltip>
 			<DialogContent className="gap-5 overflow-hidden p-0 sm:max-w-[560px]">
 				<DialogHeader>
-					<DialogTitle className="px-6 pt-6 text-2xl">
+					<DialogTitle className="px-6 pt-6 pr-12 text-xl sm:text-2xl">
 						{isShared ? "Shareable public link" : "Share chat"}
 					</DialogTitle>
 				</DialogHeader>
 				<div className="space-y-5 px-6">
 					{isShared && activeShareUrl ? (
-						<div className="bg-muted flex items-center gap-2 rounded-full px-4 py-2">
+						<div className="bg-muted flex items-center gap-2 rounded-full px-3 py-2 sm:px-4">
 							<a
 								href={activeShareUrl}
 								target="_blank"
@@ -127,15 +127,18 @@ export function ShareChatDialog({
 							<Button
 								type="button"
 								size="sm"
-								className="rounded-full"
+								className="shrink-0 rounded-full"
 								onClick={() => copyLink(activeShareUrl)}
+								aria-label={copied ? "Link copied" : "Copy link"}
 							>
 								{copied ? (
 									<Check className="size-4" />
 								) : (
 									<Copy className="size-4" />
 								)}
-								{copied ? "Link copied" : "Copy link"}
+								<span className="hidden sm:inline">
+									{copied ? "Link copied" : "Copy link"}
+								</span>
 							</Button>
 						</div>
 					) : (
