@@ -502,7 +502,7 @@ function addContentFilterRoutingMetadata(
 							uptime: metrics?.uptime ?? 0,
 							latency: metrics?.averageLatency ?? 0,
 							throughput: metrics?.throughput ?? 0,
-							price: getProviderSelectionPrice(provider),
+							price: getProviderSelectionPrice(provider).toNumber(),
 							contentFilterProvider: true,
 							excludedByContentFilter: true,
 						};
@@ -2773,7 +2773,7 @@ chat.openapi(completions, async (c) => {
 						directProviderRegionWasExplicit
 							? 1
 							: 0,
-					price: getProviderSelectionPrice(p),
+					price: getProviderSelectionPrice(p).toNumber(),
 					uptime: metrics?.uptime ?? 0,
 					latency: metrics?.averageLatency ?? 0,
 					throughput: metrics?.throughput ?? 0,

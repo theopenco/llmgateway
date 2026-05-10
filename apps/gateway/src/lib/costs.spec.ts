@@ -872,4 +872,23 @@ describe("calculateCosts", () => {
 		expect(result.imageInputCost).toBeGreaterThan(0);
 		expect(result.imageOutputCost).toBeGreaterThan(0);
 	});
+
+	it("should compute exact cost values without IEEE-754 noise", async () => {
+		// gpt-4o-mini has inputPrice 0.15/1e6 and outputPrice 0.6/1e6. Raw JS
+		// arithmetic on these prices produces values like 2.5000000000000004e-7
+		// (when 5 * 0.6/1e6 is computed naively). The Decimal-backed pipeline
+		// must return the exact decimal value at the serialisation boundary.
+		const result = await calculateCosts("gpt-4o-mini", "openai", 7, 3, null);
+
+		// 7 * 0.15/1e6 = 0.00000105
+		expect(result.inputCost).toBe(1.05e-6);
+		// 3 * 0.6/1e6 = 0.0000018
+		expect(result.outputCost).toBe(1.8e-6);
+		expect(result.cachedInputCost).toBe(0);
+		expect(result.cacheWriteInputCost).toBe(0);
+		expect(result.requestCost).toBe(0);
+		expect(result.webSearchCost).toBe(0);
+		// 1.05e-6 + 1.8e-6 = 2.85e-6
+		expect(result.totalCost).toBe(2.85e-6);
+	});
 });

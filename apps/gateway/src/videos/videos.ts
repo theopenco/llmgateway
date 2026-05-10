@@ -1508,7 +1508,10 @@ async function resolveVideoExecution(
 							(provider) => provider.providerId === requestedProvider,
 						);
 						const originalPrice = originalMapping
-							? getProviderSelectionPrice(originalMapping, videoPricing)
+							? getProviderSelectionPrice(
+									originalMapping,
+									videoPricing,
+								).toNumber()
 							: 0;
 						routingMetadata = {
 							...betterResult.metadata,
@@ -1600,7 +1603,7 @@ async function resolveVideoExecution(
 		providerScores: configuredEligibleMappings.map((provider) => ({
 			providerId: provider.providerId,
 			score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
-			price: getProviderSelectionPrice(provider, videoPricing),
+			price: getProviderSelectionPrice(provider, videoPricing).toNumber(),
 		})),
 		...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 	};

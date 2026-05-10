@@ -1235,8 +1235,38 @@ describe("getCheapestFromAvailableProviders", () => {
 				inputPrice: 0,
 				outputPrice: 0,
 				requestPrice: 0.03,
-			}),
+			}).toNumber(),
 		).toBe(0.03);
+	});
+
+	it("should compute exact prices without IEEE-754 noise", () => {
+		// Raw JS arithmetic on these inputs produces 0.020000000000000004; the
+		// Decimal-backed implementation must return exactly 0.02.
+		expect(
+			getProviderSelectionPrice({
+				inputPrice: 0.01,
+				outputPrice: 0.03,
+			}).toNumber(),
+		).toBe(0.02);
+
+		// Per-token rates expressed as USD/1M tokens. Ensure (input + output) / 2
+		// lands on a clean decimal even when the inputs already round-tripped
+		// through Number division.
+		expect(
+			getProviderSelectionPrice({
+				inputPrice: 0.15 / 1e6,
+				outputPrice: 0.6 / 1e6,
+			}).toNumber(),
+		).toBe(0.375 / 1e6);
+
+		// Discount path: 0.02 * (1 - 0.1) under raw JS gives 0.018000000000000002.
+		expect(
+			getProviderSelectionPrice({
+				inputPrice: 0.01,
+				outputPrice: 0.03,
+				discount: 0.1,
+			}).toNumber(),
+		).toBe(0.018);
 	});
 
 	describe("cache support weighting", () => {
