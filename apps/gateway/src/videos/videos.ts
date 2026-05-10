@@ -1016,11 +1016,19 @@ function getVideoExcludedConfigIndices(
 		return undefined;
 	}
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+	const storageProjectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
 	const excluded = new Set<number>();
 	for (let index = 0; index < valueCount; index += 1) {
 		const baseUrl = getProviderEnvValue(providerId, "baseUrl", index);
 		if (baseUrl && baseUrl !== defaultBaseUrl) {
 			excluded.add(index);
+			continue;
+		}
+		if (storageProjectId) {
+			const indexProjectId = getProviderEnvValue(providerId, "project", index);
+			if (indexProjectId && indexProjectId !== storageProjectId) {
+				excluded.add(index);
+			}
 		}
 	}
 	return excluded.size > 0 ? excluded : undefined;
