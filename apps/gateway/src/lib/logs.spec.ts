@@ -169,6 +169,24 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps zai finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("stop", "zai")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "zai")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "zai")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("sensitive", "zai")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("content_filter", "zai")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
 	it("maps llmgateway_content_filter to CONTENT_FILTER", () => {
 		expect(
 			getUnifiedFinishReason("llmgateway_content_filter", "any-provider"),

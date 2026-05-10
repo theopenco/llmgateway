@@ -141,6 +141,20 @@ export function getUnifiedFinishReason(
 				return UnifiedFinishReason.UPSTREAM_ERROR;
 			}
 			break;
+		case "zai":
+			if (finishReason === "stop") {
+				return UnifiedFinishReason.COMPLETED;
+			}
+			if (finishReason === "length" || finishReason === "incomplete") {
+				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (finishReason === "tool_calls") {
+				return UnifiedFinishReason.TOOL_CALLS;
+			}
+			if (finishReason === "sensitive" || finishReason === "content_filter") {
+				return UnifiedFinishReason.CONTENT_FILTER;
+			}
+			break;
 		default: // OpenAI format (also used by inference.net and other providers)
 			if (finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
