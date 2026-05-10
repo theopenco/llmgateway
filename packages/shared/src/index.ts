@@ -1,4 +1,13 @@
 export {
+	CLAW_FORK_PATTERN,
+	CODING_AGENTS,
+	getSupportedAgentsList,
+	isRecognizedCodingAgent,
+	normalizeSourceToAgentId,
+	type CodingAgentDefinition,
+} from "./coding-agents.js";
+
+export {
 	AUTO_TOP_UP_DEFAULT_AMOUNT,
 	AUTO_TOP_UP_DEFAULT_THRESHOLD,
 	calculateFees,

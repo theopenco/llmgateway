@@ -136,7 +136,12 @@ import {
 	getRegionSpecificEnvVarName,
 	getProviderEnvValue,
 } from "@llmgateway/models";
-import { isChatPlanModelAllowed } from "@llmgateway/shared";
+import {
+	getSupportedAgentsList,
+	isChatPlanModelAllowed,
+	isRecognizedCodingAgent,
+	normalizeSourceToAgentId,
+} from "@llmgateway/shared";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -1547,6 +1552,10 @@ chat.openapi(completions, async (c) => {
 		source = detectCodingAgentFromUserAgent(userAgent);
 	}
 
+	if (source) {
+		source = normalizeSourceToAgentId(source);
+	}
+
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
 		c.req.header("x-debug") === "true" ||
@@ -2194,6 +2203,12 @@ chat.openapi(completions, async (c) => {
 			!organization.devPlanAllowAllModels,
 	);
 	if (isDevPlanRestricted) {
+		if (!isRecognizedCodingAgent(source)) {
+			throw new HTTPException(403, {
+				message: `DevPass coding plans are restricted to recognized coding agents. Your request was not identified as coming from a supported tool. Please ensure your coding tool sends an identifiable User-Agent header or x-source header. Supported agents: ${getSupportedAgentsList()}.`,
+			});
+		}
+
 		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
 				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at devpass.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
