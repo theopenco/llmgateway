@@ -1333,6 +1333,11 @@ export function transformStreamingToOpenai(
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {
 				transformedData.choices[0].finish_reason = "stop";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "abort") {
+				logger.warn("[streaming] Upstream sent abort finish_reason", {
+					provider: usedProvider,
+					model: usedModel,
+					chunk: data,
+				});
 				transformedData.choices[0].finish_reason = "canceled";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "tool_use") {
 				transformedData.choices[0].finish_reason = "tool_calls";
