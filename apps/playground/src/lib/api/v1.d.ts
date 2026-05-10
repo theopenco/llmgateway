@@ -3189,6 +3189,12 @@ export interface paths {
                                 clientErrorsCount: number;
                                 gatewayErrorsCount: number;
                                 upstreamErrorsCount: number;
+                                completedCount: number;
+                                lengthLimitCount: number;
+                                contentFilterCount: number;
+                                toolCallsCount: number;
+                                canceledCount: number;
+                                unknownFinishCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 providerCount: number;
@@ -3629,6 +3635,12 @@ export interface paths {
                                 clientErrorsCount: number;
                                 gatewayErrorsCount: number;
                                 upstreamErrorsCount: number;
+                                completedCount: number;
+                                lengthLimitCount: number;
+                                contentFilterCount: number;
+                                toolCallsCount: number;
+                                canceledCount: number;
+                                unknownFinishCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 updatedAt: string;

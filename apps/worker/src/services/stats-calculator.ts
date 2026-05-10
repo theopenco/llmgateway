@@ -53,6 +53,12 @@ interface MappingMinuteStats {
 	clientErrorsCount: number;
 	gatewayErrorsCount: number;
 	upstreamErrorsCount: number;
+	completedCount: number;
+	lengthLimitCount: number;
+	contentFilterCount: number;
+	toolCallsCount: number;
+	canceledCount: number;
+	unknownFinishCount: number;
 	cachedCount: number;
 	totalInputTokens: number;
 	totalOutputTokens: number;
@@ -78,6 +84,12 @@ function createEmptyMappingMinuteStats(
 		clientErrorsCount: 0,
 		gatewayErrorsCount: 0,
 		upstreamErrorsCount: 0,
+		completedCount: 0,
+		lengthLimitCount: 0,
+		contentFilterCount: 0,
+		toolCallsCount: 0,
+		canceledCount: 0,
+		unknownFinishCount: 0,
 		cachedCount: 0,
 		totalInputTokens: 0,
 		totalOutputTokens: 0,
@@ -100,6 +112,12 @@ function mergeMappingMinuteStats(
 	target.clientErrorsCount += source.clientErrorsCount;
 	target.gatewayErrorsCount += source.gatewayErrorsCount;
 	target.upstreamErrorsCount += source.upstreamErrorsCount;
+	target.completedCount += source.completedCount;
+	target.lengthLimitCount += source.lengthLimitCount;
+	target.contentFilterCount += source.contentFilterCount;
+	target.toolCallsCount += source.toolCallsCount;
+	target.canceledCount += source.canceledCount;
+	target.unknownFinishCount += source.unknownFinishCount;
 	target.cachedCount += source.cachedCount;
 	target.totalInputTokens += source.totalInputTokens;
 	target.totalOutputTokens += source.totalOutputTokens;
@@ -176,6 +194,30 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			upstreamErrorsCount:
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 					"upstreamErrorsCount",
+				),
+			completedCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'completed' then 1 else 0 end)::int`.as(
+					"completedCount",
+				),
+			lengthLimitCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'length_limit' then 1 else 0 end)::int`.as(
+					"lengthLimitCount",
+				),
+			contentFilterCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'content_filter' then 1 else 0 end)::int`.as(
+					"contentFilterCount",
+				),
+			toolCallsCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'tool_calls' then 1 else 0 end)::int`.as(
+					"toolCallsCount",
+				),
+			canceledCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'canceled' then 1 else 0 end)::int`.as(
+					"canceledCount",
+				),
+			unknownFinishCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'unknown' or ${log.unifiedFinishReason} is null then 1 else 0 end)::int`.as(
+					"unknownFinishCount",
 				),
 			cachedCount:
 				sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
@@ -258,6 +300,12 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
 		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
 		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+		const completedCount = stat?.completedCount ?? 0;
+		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
+		const contentFilterCount = stat?.contentFilterCount ?? 0;
+		const toolCallsCount = stat?.toolCallsCount ?? 0;
+		const canceledCount = stat?.canceledCount ?? 0;
+		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
 		const cachedCount = stat?.cachedCount ?? 0;
 		const totalInputTokens = stat?.totalInputTokens ?? 0;
 		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
@@ -281,6 +329,12 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				clientErrorsCount,
 				gatewayErrorsCount,
 				upstreamErrorsCount,
+				completedCount,
+				lengthLimitCount,
+				contentFilterCount,
+				toolCallsCount,
+				canceledCount,
+				unknownFinishCount,
 				cachedCount,
 				totalInputTokens,
 				totalOutputTokens,
@@ -300,6 +354,12 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 					clientErrorsCount,
 					gatewayErrorsCount,
 					upstreamErrorsCount,
+					completedCount,
+					lengthLimitCount,
+					contentFilterCount,
+					toolCallsCount,
+					canceledCount,
+					unknownFinishCount,
 					cachedCount,
 					totalInputTokens,
 					totalOutputTokens,
@@ -355,6 +415,30 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			upstreamErrorsCount:
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 					"upstreamErrorsCount",
+				),
+			completedCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'completed' then 1 else 0 end)::int`.as(
+					"completedCount",
+				),
+			lengthLimitCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'length_limit' then 1 else 0 end)::int`.as(
+					"lengthLimitCount",
+				),
+			contentFilterCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'content_filter' then 1 else 0 end)::int`.as(
+					"contentFilterCount",
+				),
+			toolCallsCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'tool_calls' then 1 else 0 end)::int`.as(
+					"toolCallsCount",
+				),
+			canceledCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'canceled' then 1 else 0 end)::int`.as(
+					"canceledCount",
+				),
+			unknownFinishCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'unknown' or ${log.unifiedFinishReason} is null then 1 else 0 end)::int`.as(
+					"unknownFinishCount",
 				),
 			cachedCount:
 				sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
@@ -497,6 +581,12 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
 		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
 		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+		const completedCount = stat?.completedCount ?? 0;
+		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
+		const contentFilterCount = stat?.contentFilterCount ?? 0;
+		const toolCallsCount = stat?.toolCallsCount ?? 0;
+		const canceledCount = stat?.canceledCount ?? 0;
+		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
 		const cachedCount = stat?.cachedCount ?? 0;
 		const totalInputTokens = stat?.totalInputTokens ?? 0;
 		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
@@ -526,6 +616,12 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				clientErrorsCount,
 				gatewayErrorsCount,
 				upstreamErrorsCount,
+				completedCount,
+				lengthLimitCount,
+				contentFilterCount,
+				toolCallsCount,
+				canceledCount,
+				unknownFinishCount,
 				cachedCount,
 				totalInputTokens,
 				totalOutputTokens,
@@ -548,6 +644,12 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 					clientErrorsCount,
 					gatewayErrorsCount,
 					upstreamErrorsCount,
+					completedCount,
+					lengthLimitCount,
+					contentFilterCount,
+					toolCallsCount,
+					canceledCount,
+					unknownFinishCount,
 					cachedCount,
 					totalInputTokens,
 					totalOutputTokens,
