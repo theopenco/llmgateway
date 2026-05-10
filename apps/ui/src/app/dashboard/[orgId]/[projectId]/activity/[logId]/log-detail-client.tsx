@@ -198,6 +198,37 @@ function formatDuration(ms: number) {
 	return `${(ms / 1000).toFixed(2)}s`;
 }
 
+function formatCost(value: number | string | null | undefined): string {
+	if (value === null || value === undefined || value === "") {
+		return "$0";
+	}
+	const n = typeof value === "string" ? Number(value) : value;
+	if (!Number.isFinite(n) || n === 0) {
+		return "$0";
+	}
+	const abs = Math.abs(n);
+	let decimals: number;
+	if (abs >= 1) {
+		const intDigits = Math.floor(Math.log10(abs)) + 1;
+		decimals = Math.max(2, 6 - intDigits);
+	} else {
+		const leadingZeros = -Math.floor(Math.log10(abs)) - 1;
+		decimals = leadingZeros + 6;
+	}
+	let s = n.toFixed(Math.min(decimals, 20));
+	if (s.includes(".")) {
+		s = s.replace(/0+$/, "").replace(/\.$/, "");
+	}
+	return `$${s}`;
+}
+
+function formatScore(value: number | null | undefined): string {
+	if (value === null || value === undefined || !Number.isFinite(value)) {
+		return "-";
+	}
+	return value.toFixed(2);
+}
+
 function isBase64ImageChar(char: string) {
 	return (
 		(char >= "A" && char <= "Z") ||
@@ -531,7 +562,7 @@ export function LogDetailClient({
 											<Info className="h-3 w-3 text-muted-foreground/40" />
 										</div>
 										<p className="text-lg font-semibold tabular-nums text-muted-foreground">
-											${log.cost?.toFixed(6) ?? "0"}
+											{formatCost(log.cost)}
 										</p>
 									</div>
 								</TooltipTrigger>
@@ -695,7 +726,7 @@ export function LogDetailClient({
 																)}
 															</span>
 															<span className="text-muted-foreground font-mono">
-																{score.score.toFixed(2)}
+																{formatScore(score.score)}
 																{score.uptime !== undefined && (
 																	<span className="ml-2">
 																		{score.uptime?.toFixed(0)}% up
@@ -712,7 +743,9 @@ export function LogDetailClient({
 																	</span>
 																)}
 																{score.price !== undefined && (
-																	<span className="ml-2">${score.price}</span>
+																	<span className="ml-2">
+																		{formatCost(score.price)}
+																	</span>
 																)}
 																{score.cacheSupported && (
 																	<span className="ml-2">cache</span>
@@ -785,46 +818,38 @@ export function LogDetailClient({
 									<div className="text-muted-foreground">
 										<Field
 											label="Input Cost"
-											value={
-												log.inputCost ? `$${log.inputCost.toFixed(8)}` : "$0"
-											}
+											value={formatCost(log.inputCost)}
 											muted
 										/>
 										<Field
 											label="Output Cost"
-											value={
-												log.outputCost ? `$${log.outputCost.toFixed(8)}` : "$0"
-											}
+											value={formatCost(log.outputCost)}
 											muted
 										/>
 										{!!log.cachedInputCost &&
 											Number(log.cachedInputCost) > 0 && (
 												<Field
 													label="Cached Input Cost"
-													value={`$${Number(log.cachedInputCost).toFixed(8)}`}
+													value={formatCost(log.cachedInputCost)}
 													muted
 												/>
 											)}
 										<Field
 											label="Request Cost"
-											value={
-												log.requestCost
-													? `$${log.requestCost.toFixed(8)}`
-													: "$0"
-											}
+											value={formatCost(log.requestCost)}
 											muted
 										/>
 										{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
 											<Field
 												label="Web Search Cost"
-												value={`$${Number(log.webSearchCost).toFixed(8)}`}
+												value={formatCost(log.webSearchCost)}
 												muted
 											/>
 										)}
 										{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
 											<Field
 												label="Image Input Cost"
-												value={`$${Number(log.imageInputCost).toFixed(8)}`}
+												value={formatCost(log.imageInputCost)}
 												muted
 											/>
 										)}
@@ -832,7 +857,7 @@ export function LogDetailClient({
 											Number(log.imageOutputCost) > 0 && (
 												<Field
 													label="Image Output Cost"
-													value={`$${Number(log.imageOutputCost).toFixed(8)}`}
+													value={formatCost(log.imageOutputCost)}
 													muted
 												/>
 											)}
@@ -840,13 +865,13 @@ export function LogDetailClient({
 											Number(log.videoOutputCost) > 0 && (
 												<Field
 													label="Video Output Cost"
-													value={`$${Number(log.videoOutputCost).toFixed(8)}`}
+													value={formatCost(log.videoOutputCost)}
 													muted
 												/>
 											)}
 										<Field
 											label="Inference Total"
-											value={log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
+											value={formatCost(log.cost)}
 											muted
 										/>
 										{log.discount && log.discount !== 1 && (
@@ -870,11 +895,7 @@ export function LogDetailClient({
 									</p>
 									<Field
 										label="Data Storage"
-										value={
-											log.dataStorageCost
-												? `$${Number(log.dataStorageCost).toFixed(8)}`
-												: "$0"
-										}
+										value={formatCost(log.dataStorageCost)}
 									/>
 								</div>
 							</div>
@@ -1193,7 +1214,7 @@ export function LogDetailClient({
 								<Globe className="h-4 w-4 text-sky-500" />
 								<span>Web search was used in this request</span>
 								<span className="ml-auto text-muted-foreground">
-									Cost: ${Number(log.webSearchCost).toFixed(4)}
+									Cost: {formatCost(log.webSearchCost)}
 								</span>
 							</div>
 						</div>
