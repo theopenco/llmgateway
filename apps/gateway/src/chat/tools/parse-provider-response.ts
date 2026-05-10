@@ -474,6 +474,15 @@ export function parseProviderResponse(
 			if (finishReason === "end_turn") {
 				finishReason = "stop";
 			} else if (finishReason === "abort") {
+				logger.warn("Upstream sent abort finish_reason", {
+					provider: usedProvider,
+					model: usedModel,
+					responseModel: json.model,
+					responseId: json.id,
+					finishReason: json.choices?.[0]?.finish_reason,
+					nativeFinishReason: json.choices?.[0]?.native_finish_reason,
+					usage: json.usage,
+				});
 				finishReason = "canceled";
 			} else if (finishReason === "tool_use") {
 				finishReason = "tool_calls";
@@ -755,6 +764,18 @@ export function parseProviderResponse(
 					) ??
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
+
+				if (finishReason === "abort") {
+					logger.warn("Upstream sent abort finish_reason", {
+						provider: usedProvider,
+						model: usedModel,
+						responseModel: json.model,
+						responseId: json.id,
+						finishReason: json.choices?.[0]?.finish_reason,
+						nativeFinishReason: json.choices?.[0]?.native_finish_reason,
+						usage: json.usage,
+					});
+				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
 				// Only for models that were failing tests: glm-4.5-airx and glm-4.5-flash
