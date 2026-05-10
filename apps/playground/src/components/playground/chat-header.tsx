@@ -36,6 +36,8 @@ interface ChatHeaderProps {
 	hasTemporaryMessages: boolean;
 	currentChatId: string | null;
 	shareId: string | null;
+	chatTitle?: string | null;
+	previewPrompt?: string | null;
 }
 
 export const ChatHeader = ({
@@ -57,6 +59,8 @@ export const ChatHeader = ({
 	hasTemporaryMessages,
 	currentChatId,
 	shareId,
+	chatTitle,
+	previewPrompt,
 }: ChatHeaderProps) => {
 	return (
 		<header className="bg-background flex items-center border-b p-4">
@@ -82,7 +86,12 @@ export const ChatHeader = ({
 					hasTemporaryMessages={hasTemporaryMessages}
 				/>
 				{isTemporaryChat || !currentChatId ? null : (
-					<ShareChatDialog currentChatId={currentChatId} shareId={shareId} />
+					<ShareChatDialog
+						currentChatId={currentChatId}
+						shareId={shareId}
+						chatTitle={chatTitle}
+						previewPrompt={previewPrompt}
+					/>
 				)}
 				<TooltipProvider>
 					<McpServersDialog

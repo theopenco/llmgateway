@@ -26,6 +26,8 @@ import {
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
 
+import { AgentModelUsageChart } from "./AgentModelUsageChart";
+
 import type { paths } from "@/lib/api/v1";
 import type { ComponentType, SVGProps } from "react";
 
@@ -503,6 +505,7 @@ function AgentDetail({
 					</div>
 				</div>
 			</div>
+			<AgentModelUsageChart sources={stats.agent.sources} />
 			<ModelUsageBreakdown models={stats.modelBreakdown} />
 			<div className="overflow-hidden rounded-xl border">
 				<div className="border-b bg-muted/30 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">

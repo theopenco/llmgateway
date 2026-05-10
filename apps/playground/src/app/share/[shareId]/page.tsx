@@ -42,11 +42,54 @@ export async function generateMetadata({
 	params: Promise<{ shareId: string }>;
 }): Promise<Metadata> {
 	const { shareId } = await params;
+	const config = getConfig();
+
+	let title = "Shared Chat";
+	let description =
+		"A shared snapshot of an LLM Gateway chat — open it to see the full conversation.";
+
+	try {
+		const response = await fetch(
+			`${config.apiBackendUrl}/public/chats/share/${shareId}`,
+			{ cache: "no-store" },
+		);
+		if (response.ok) {
+			const data = (await response.json()) as SharedChatResponse;
+			const flatTitle = data.share.title?.replace(/\s+/g, " ").trim();
+			if (flatTitle) {
+				title =
+					flatTitle.length > 80 ? `${flatTitle.slice(0, 80)}…` : flatTitle;
+			}
+			const userMessage = data.share.messages.find((m) => m.role === "user");
+			const userText = userMessage?.content?.replace(/\s+/g, " ").trim();
+			if (userText) {
+				description =
+					userText.length > 160 ? `${userText.slice(0, 160)}…` : userText;
+			}
+		}
+	} catch {
+		// Fall back to defaults if the API call fails.
+	}
+
+	const url = `/share/${shareId}`;
 
 	return {
-		title: "Shared Chat - LLM Gateway",
+		title: `${title} · LLM Gateway`,
+		description,
 		alternates: {
-			canonical: `/share/${shareId}`,
+			canonical: url,
+		},
+		openGraph: {
+			title,
+			description,
+			url,
+			type: "article",
+			siteName: "LLM Gateway",
+		},
+		twitter: {
+			card: "summary_large_image",
+			title,
+			description,
 		},
 	};
 }

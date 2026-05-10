@@ -59,6 +59,25 @@ function isToolPart(obj: unknown): obj is ToolPart {
 	);
 }
 
+function getFirstUserMessageText(
+	messages: { role: string; parts?: { type: string; text?: string }[] }[],
+): string | null {
+	for (const message of messages) {
+		if (message.role !== "user") {
+			continue;
+		}
+		const text = (message.parts ?? [])
+			.filter((p) => p.type === "text" && typeof p.text === "string")
+			.map((p) => p.text as string)
+			.join(" ")
+			.trim();
+		if (text) {
+			return text;
+		}
+	}
+	return null;
+}
+
 interface ChatPageClientProps {
 	models: ApiModel[];
 	providers: ApiProvider[];
@@ -1092,6 +1111,8 @@ export default function ChatPageClient({
 							hasTemporaryMessages={hasTemporaryMessages}
 							currentChatId={currentChatId}
 							shareId={currentChatData?.chat?.shareId ?? null}
+							chatTitle={currentChatData?.chat?.title ?? null}
+							previewPrompt={getFirstUserMessageText(messages)}
 						/>
 					</header>
 					{comparisonEnabled && !isTemporaryChat ? (
