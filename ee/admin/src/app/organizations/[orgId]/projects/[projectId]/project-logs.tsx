@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, ChevronsUpDown, Loader2, RefreshCw } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
 	useCallback,
 	useDeferredValue,
@@ -78,6 +79,10 @@ export function ProjectLogsSection({
 	providerOptions: ProviderOption[];
 	modelOptions: ModelOption[];
 }) {
+	const searchParams = useSearchParams();
+	const router = useRouter();
+	const pathname = usePathname();
+
 	const [logs, setLogs] = useState<ProjectLogEntry[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [loadingMore, setLoadingMore] = useState(false);
@@ -86,11 +91,28 @@ export function ProjectLogsSection({
 		ProjectLogsResponse["pagination"] | null
 	>(null);
 
-	// Filter state
-	const [provider, setProvider] = useState<string>("all");
-	const [model, setModel] = useState<string>("all");
-	const [source, setSource] = useState<string>("all");
-	const [unifiedFinishReason, setUnifiedFinishReason] = useState<string>("all");
+	const provider = searchParams.get("provider") ?? "all";
+	const model = searchParams.get("model") ?? "all";
+	const source = searchParams.get("source") ?? "all";
+	const unifiedFinishReason = searchParams.get("unifiedFinishReason") ?? "all";
+
+	const updateFilters = useCallback(
+		(updates: Record<string, string>) => {
+			const params = new URLSearchParams(searchParams.toString());
+			for (const [key, value] of Object.entries(updates)) {
+				if (value === "all") {
+					params.delete(key);
+				} else {
+					params.set(key, value);
+				}
+			}
+			const query = params.toString();
+			router.replace(query ? `${pathname}?${query}` : pathname, {
+				scroll: false,
+			});
+		},
+		[searchParams, router, pathname],
+	);
 
 	// Model picker state
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -187,7 +209,7 @@ export function ProjectLogsSection({
 
 	const handleProviderChange = useCallback(
 		(value: string) => {
-			setProvider(value);
+			const updates: Record<string, string> = { provider: value };
 			// Clear model if it's not available for the new provider
 			if (
 				value !== "all" &&
@@ -196,10 +218,11 @@ export function ProjectLogsSection({
 					(option) => option.id === model && option.providerIds.includes(value),
 				)
 			) {
-				setModel("all");
+				updates.model = "all";
 			}
+			updateFilters(updates);
 		},
-		[model, modelOptions],
+		[model, modelOptions, updateFilters],
 	);
 
 	return (
@@ -248,7 +271,7 @@ export function ProjectLogsSection({
 								<CommandItem
 									value="all"
 									onSelect={() => {
-										setModel("all");
+										updateFilters({ model: "all" });
 										setModelPickerOpen(false);
 										setModelSearch("");
 									}}
@@ -266,7 +289,7 @@ export function ProjectLogsSection({
 										key={option.id}
 										value={`${option.id} ${option.label} ${option.aliases.join(" ")}`}
 										onSelect={() => {
-											setModel(option.id);
+											updateFilters({ model: option.id });
 											setModelPickerOpen(false);
 											setModelSearch("");
 										}}
@@ -292,7 +315,10 @@ export function ProjectLogsSection({
 					</PopoverContent>
 				</Popover>
 
-				<Select value={source} onValueChange={setSource}>
+				<Select
+					value={source}
+					onValueChange={(value) => updateFilters({ source: value })}
+				>
 					<SelectTrigger className="w-[180px]">
 						<SelectValue placeholder="Filter by source" />
 					</SelectTrigger>
@@ -307,7 +333,9 @@ export function ProjectLogsSection({
 
 				<Select
 					value={unifiedFinishReason}
-					onValueChange={setUnifiedFinishReason}
+					onValueChange={(value) =>
+						updateFilters({ unifiedFinishReason: value })
+					}
 				>
 					<SelectTrigger className="w-[200px]">
 						<SelectValue placeholder="Filter by status" />
