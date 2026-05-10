@@ -1,0 +1,183 @@
+---
+title: Hermes Agent Integration
+description: Use any model with Hermes Agent through LLM Gateway. One config change, full cost tracking, 210+ models.
+icon: Terminal
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+[Hermes Agent](https://github.com/hermes-agent) is an open-source AI coding agent for your terminal with tool use, browser automation, and multi-provider support. By pointing it at LLM Gateway you get access to 210+ models from 60+ providers, all tracked in one dashboard.
+
+One config change. No code changes. Full cost tracking.
+
+## Prerequisites
+
+- Hermes Agent installed — `pip install hermes-agent` or visit the [Hermes Agent repo](https://github.com/hermes-agent)
+- An LLM Gateway API key — [sign up free](https://llmgateway.io/signup) (no credit card required)
+
+## Setup
+
+<Steps>
+<Step>
+### Get Your API Key
+
+[Sign up](https://llmgateway.io/signup) or log in to your LLM Gateway dashboard. Navigate to **API Keys** and create a new key. Copy it — it starts with `llmgtwy_`.
+
+</Step>
+
+<Step>
+### Edit Your Hermes Config
+
+Open your Hermes configuration file at `~/.hermes/config.yaml`. Set the provider to `custom` and point it at LLM Gateway:
+
+```yaml
+model:
+  default: "claude-sonnet-4-5"
+  provider: "custom"
+  api_key: "llmgtwy_your-api-key-here"
+  base_url: "https://api.llmgateway.io/v1"
+```
+
+<Callout type="info">
+	Replace `llmgtwy_your-api-key-here` with your actual API key from the
+	dashboard.
+</Callout>
+
+</Step>
+
+<Step>
+### Choose a Model
+
+Set the `default` field to any model from the [models page](https://llmgateway.io/models). Popular choices:
+
+```yaml
+# Anthropic Claude
+default: "claude-sonnet-4-5"
+
+# OpenAI GPT
+default: "gpt-4o"
+
+# Google Gemini
+default: "gemini-2.5-pro"
+```
+
+You can also switch models at runtime with the `--model` flag:
+
+```bash
+hermes chat --model gpt-4o
+```
+
+</Step>
+
+<Step>
+### Start Using Hermes
+
+Launch Hermes from your terminal:
+
+```bash
+hermes chat
+```
+
+All requests now route through LLM Gateway. You'll see usage, costs, and logs in your dashboard.
+
+</Step>
+</Steps>
+
+## Why Use LLM Gateway with Hermes Agent
+
+- **210+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
+- **One API key** — Stop managing separate keys for each provider
+- **Cost tracking** — See exactly what each session costs in your dashboard
+- **Response caching** — Repeated requests hit cache automatically
+- **Automatic fallback** — If a provider is down, requests route to an alternative
+- **Volume discounts** — Check [discounted models](https://llmgateway.io/models?discounted=true) for savings up to 90%
+
+## Configuration Details
+
+### Minimal Config
+
+The minimum required fields in `~/.hermes/config.yaml`:
+
+```yaml
+model:
+  default: "claude-sonnet-4-5"
+  provider: "custom"
+  api_key: "llmgtwy_your-api-key-here"
+  base_url: "https://api.llmgateway.io/v1"
+```
+
+### Using Environment Variables
+
+Instead of putting your key in the config file, you can set it via environment variable:
+
+```bash
+export OPENAI_API_KEY="llmgtwy_your-api-key-here"
+```
+
+Then your config only needs:
+
+```yaml
+model:
+  default: "claude-sonnet-4-5"
+  provider: "custom"
+  base_url: "https://api.llmgateway.io/v1"
+```
+
+### Non-Interactive Mode
+
+For scripting or CI pipelines, use the `-q` flag:
+
+```bash
+hermes chat -q "Explain what this function does" -Q
+```
+
+The `-Q` flag suppresses the banner and spinner for clean output.
+
+## Switching Models at Runtime
+
+You can override the model for any session:
+
+```bash
+# Use a specific model for this session
+hermes chat --model gpt-4o-mini
+
+# Use a powerful model for complex tasks
+hermes chat --model claude-opus-4-7
+```
+
+## Locking to a Specific Provider
+
+By default, LLM Gateway automatically fails over to alternative providers if your chosen provider is experiencing downtime. To disable fallback and always route to one provider, you can add the header via Hermes's request configuration.
+
+<Callout type="warn">
+	Disabling fallback means requests will fail if the chosen provider is down.
+	See the [routing docs](/docs/features/routing) for details.
+</Callout>
+
+## Troubleshooting
+
+### Model not found
+
+If you get a "model not supported" error, check that your model ID matches exactly what's listed on the [models page](https://llmgateway.io/models). Model IDs are case-sensitive.
+
+### Connection timeout
+
+Verify your `base_url` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end).
+
+### Authentication errors
+
+Make sure your `api_key` starts with `llmgtwy_` and is valid. Check your [dashboard](https://llmgateway.io/dashboard) to confirm the key is active.
+
+### Old config overrides
+
+If you previously used a different provider (e.g., OpenRouter), make sure to update both `provider` and `base_url` fields. The `provider` must be set to `"custom"` for LLM Gateway.
+
+<Callout type="info">
+	View all available models on the [models page](https://llmgateway.io/models).
+</Callout>
+
+<Callout type="info">
+	Need help? Join our [Discord community](https://llmgateway.io/discord) for
+	support and troubleshooting assistance.
+</Callout>
