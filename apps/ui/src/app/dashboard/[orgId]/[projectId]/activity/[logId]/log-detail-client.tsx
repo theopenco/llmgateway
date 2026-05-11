@@ -1009,6 +1009,19 @@ export function LogDetailClient({
 									}
 								/>
 								<Field
+									label="Trace ID"
+									value={
+										log.traceId ? (
+											<span className="inline-flex items-center gap-2">
+												<span className="font-mono text-xs">{log.traceId}</span>
+												<CopyButton value={log.traceId} label="Copy trace ID" />
+											</span>
+										) : (
+											"—"
+										)
+									}
+								/>
+								<Field
 									label="Log ID"
 									value={
 										<span className="inline-flex items-center gap-2">
