@@ -9,9 +9,11 @@ import {
 	AnthropicIcon,
 	AutohandIcon,
 	CodexIcon,
+	ContinueIcon,
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
+	HermesIcon,
 	N8nIcon,
 	OpenCodeIcon,
 	VSCodeIcon,
@@ -50,7 +52,7 @@ const integrations: Integration[] = [
 	{
 		name: "Cursor",
 		description:
-			"Use LLM Gateway with Cursor IDE for AI-powered code editing and chat.",
+			"Use LLM Gateway with Cursor IDE in plan mode only. Cursor's coding agent does not work with external API endpoints.",
 		href: "https://docs.llmgateway.io/guides/cursor",
 		icon: CursorIcon,
 		comingSoon: false,
@@ -70,6 +72,22 @@ const integrations: Integration[] = [
 			"Use LLM Gateway with Cline for AI-powered coding assistance in VS Code.",
 		href: "https://docs.llmgateway.io/guides/cline",
 		icon: ClineIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Continue CLI",
+		description:
+			"Use LLM Gateway with Continue's open-source AI code assistant CLI.",
+		href: "/guides/continue",
+		icon: ContinueIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Hermes Agent",
+		description:
+			"Use LLM Gateway with Nous Research's Hermes Agent for terminal-based AI coding.",
+		href: "/guides/hermes-agent",
+		icon: HermesIcon,
 		comingSoon: false,
 	},
 	{
