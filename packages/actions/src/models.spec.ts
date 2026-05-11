@@ -1269,6 +1269,49 @@ describe("getCheapestFromAvailableProviders", () => {
 		).toBe(0.018);
 	});
 
+	it("emits clean prices in providerScores even when source rates carry IEEE-754 noise", () => {
+		// `0.269 / 1e6` is not exactly representable as an IEEE-754 double, so
+		// `new Decimal(0.269 / 1e6)` carries that noise into the average. Without
+		// quantising at the metadata boundary, the price field surfaces as
+		// `3.3450000000000004e-7` in the UI / activity log.
+		const result = getCheapestFromAvailableProviders(
+			[
+				{
+					providerId: "novita",
+					modelName: "deepseek/deepseek-v3.2",
+				} as never,
+				{
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2",
+				} as never,
+			],
+			{
+				id: "deepseek-v3.2",
+				providers: [
+					{
+						providerId: "novita",
+						modelName: "deepseek/deepseek-v3.2",
+						inputPrice: 0.269 / 1e6,
+						outputPrice: 0.4 / 1e6,
+					},
+					{
+						providerId: "alibaba",
+						modelName: "deepseek-v3.2",
+						discount: 0.2,
+						inputPrice: 0.57 / 1e6,
+						outputPrice: 1.71 / 1e6,
+					},
+				],
+			} as never,
+		);
+
+		expect(result).not.toBeNull();
+		const noisy = result!.metadata.providerScores.filter(
+			(p) => Math.round(p.price * 1e10) / 1e10 !== p.price,
+		);
+		expect(noisy).toEqual([]);
+	});
+
 	describe("cache support weighting", () => {
 		const cacheTestModel = {
 			id: "cache-test-model",

@@ -891,4 +891,29 @@ describe("calculateCosts", () => {
 		// 1.05e-6 + 1.8e-6 = 2.85e-6
 		expect(result.totalCost).toBe(2.85e-6);
 	});
+
+	it("should quantise costs from prices whose JS-number form is inexact", async () => {
+		// novita/deepseek-v3.2 has inputPrice 0.269/1e6 — `0.269 / 1e6` is not a
+		// clean IEEE-754 double, so `new Decimal(0.269 / 1e6)` preserves the
+		// noise and `.toNumber()` would emit values like `2.6900000000000003e-7`.
+		// The quantise step at the boundary must clean these up.
+		const result = await calculateCosts("deepseek-v3.2", "novita", 1, 0, null);
+
+		const fields: Array<number | null> = [
+			result.inputCost,
+			result.outputCost,
+			result.cachedInputCost,
+			result.cacheWriteInputCost,
+			result.requestCost,
+			result.webSearchCost,
+			result.totalCost,
+		];
+		for (const value of fields) {
+			expect(value).not.toBeNull();
+			const n = value as number;
+			expect(Math.round(n * 1e10) / 1e10).toBe(n);
+		}
+		// Confirm the input cost is the clean float (not the noisy `0.269 / 1e6`)
+		expect(result.inputCost).toBe(2.69e-7);
+	});
 });

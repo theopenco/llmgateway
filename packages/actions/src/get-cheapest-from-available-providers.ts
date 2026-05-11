@@ -37,6 +37,17 @@ interface ProviderScore<T extends AvailableModelProvider> {
 	cacheSupported?: boolean;
 }
 
+/**
+ * Round a Decimal price to 10 decimal places before converting to a JS number.
+ * Source pricing is stored as JS numbers like `0.269 / 1e6`, which already
+ * carry IEEE-754 noise that the Decimal constructor preserves verbatim, so the
+ * final `.toNumber()` would emit values like `3.3450000000000004e-7` to the UI.
+ * 10dp is far finer than any realistic per-token rate.
+ */
+function quantisePrice(value: Decimal): number {
+	return value.toDecimalPlaces(10).toNumber();
+}
+
 // Scoring weights
 // With ratio-based scoring, throughput/latency differences are naturally amplified
 // (e.g., 6x faster = score of 5.0), so these weights are kept low to avoid
@@ -411,10 +422,9 @@ export function getCheapestFromAvailableProviders<
 						uptime: metrics?.uptime,
 						latency: metrics?.averageLatency,
 						throughput: metrics?.throughput,
-						price: getProviderSelectionPrice(
-							providerInfo,
-							videoPricing,
-						).toNumber(),
+						price: quantisePrice(
+							getProviderSelectionPrice(providerInfo, videoPricing),
+						),
 						priority,
 						cacheSupported: providerSupportsCaching(
 							providerInfo as ProviderModelMapping | undefined,
@@ -582,7 +592,7 @@ export function getCheapestFromAvailableProviders<
 				uptime: p.uptime,
 				latency: p.latency,
 				throughput: p.throughput,
-				price: p.price.toNumber(), // Keep full precision for very small prices
+				price: quantisePrice(p.price),
 				priority,
 				cacheSupported: p.cacheSupported,
 			};
@@ -651,7 +661,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			providerId: p.providerId,
 			region: p.region,
 			score: 0,
-			price: p.price.toNumber(),
+			price: quantisePrice(p.price),
 			priority: p.priority,
 		})),
 	};

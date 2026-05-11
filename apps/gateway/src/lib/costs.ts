@@ -20,6 +20,17 @@ interface ChatMessage {
 }
 
 /**
+ * Round a Decimal cost to 10 decimal places (~picoUSD) before converting to a
+ * JS number. Without this, values like `0.269 / 1e6` carry IEEE-754 noise that
+ * the Decimal constructor preserves, so the final `.toNumber()` produces things
+ * like `2.6900000000000003e-7`. 10dp is finer than any realistic per-token rate
+ * and below PG `real`'s ~7 significant-digit precision.
+ */
+function quantiseCost(value: Decimal): number {
+	return value.toDecimalPlaces(10).toNumber();
+}
+
+/**
  * Check if billing for cancelled requests is enabled via environment variable.
  * Defaults to false if not set.
  */
@@ -520,17 +531,19 @@ export async function calculateCosts(
 		.plus(webSearchCost);
 
 	return {
-		inputCost: inputCost.toNumber(),
-		outputCost: outputCost.toNumber(),
-		cachedInputCost: cachedInputCost.toNumber(),
-		cacheWriteInputCost: cacheWriteInputCost.toNumber(),
-		requestCost: requestCost.toNumber(),
-		webSearchCost: webSearchCost.toNumber(),
+		inputCost: quantiseCost(inputCost),
+		outputCost: quantiseCost(outputCost),
+		cachedInputCost: quantiseCost(cachedInputCost),
+		cacheWriteInputCost: quantiseCost(cacheWriteInputCost),
+		requestCost: quantiseCost(requestCost),
+		webSearchCost: quantiseCost(webSearchCost),
 		imageInputTokens,
 		imageOutputTokens,
-		imageInputCost: imageInputCost?.toNumber() ?? null,
-		imageOutputCost: imageOutputCost?.toNumber() ?? null,
-		totalCost: totalCost.toNumber(),
+		imageInputCost:
+			imageInputCost === null ? null : quantiseCost(imageInputCost),
+		imageOutputCost:
+			imageOutputCost === null ? null : quantiseCost(imageOutputCost),
+		totalCost: quantiseCost(totalCost),
 		dataStorageCost: null as number | null,
 		// Only add image input tokens to promptTokens for providers whose upstream
 		// usage excludes them (Google). Other providers (OpenAI, xAI) already
