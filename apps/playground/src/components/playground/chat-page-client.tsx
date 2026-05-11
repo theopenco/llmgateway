@@ -596,7 +596,10 @@ export default function ChatPageClient({
 	);
 
 	useEffect(() => {
-		if (isSendingRef.current || isTemporaryChat) {
+		// Use `status` from useChat (reactive) instead of the isSendingRef ref so
+		// the effect re-runs when a stream finishes and can pick up a chat the
+		// user navigated to mid-stream.
+		if (status === "submitted" || status === "streaming" || isTemporaryChat) {
 			return;
 		}
 
@@ -697,6 +700,7 @@ export default function ChatPageClient({
 	}, [
 		currentChatId,
 		currentChatData,
+		status,
 		setMessages,
 		setSelectedModel,
 		setWebSearchEnabled,
