@@ -7284,6 +7284,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chats/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    q?: string;
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Search user's chats */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            chats: {
+                                id: string;
+                                title: string;
+                                model: string;
+                                /** @enum {string} */
+                                status: "active" | "archived" | "deleted";
+                                webSearch: boolean;
+                                shareId: string | null;
+                                /** Format: date-time */
+                                sharedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                messageCount: number;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/chats/{id}": {
         parameters: {
             query?: never;

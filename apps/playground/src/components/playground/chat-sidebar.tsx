@@ -15,6 +15,7 @@ import {
 	ChevronUp,
 	LogOut,
 	ExternalLink,
+	Search,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -57,6 +58,7 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import { ChatSearchDialog } from "./chat-search-dialog";
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 // import { ProjectSwitcher } from "./project-switcher";
 
@@ -385,6 +387,7 @@ export function ChatSidebar({
 	const [pendingFocusChatId, setPendingFocusChatId] = useState<string | null>(
 		null,
 	);
+	const [isSearchOpen, setIsSearchOpen] = useState(false);
 
 	const chats = chatsData?.chats ?? [];
 
@@ -670,6 +673,16 @@ export function ChatSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							type="button"
+							tooltip="Search Chats"
+							onClick={() => setIsSearchOpen(true)}
+						>
+							<Search className="h-4 w-4" />
+							<span>Search Chats</span>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarHeader>
 
@@ -785,6 +798,12 @@ export function ChatSidebar({
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
+			<ChatSearchDialog
+				open={isSearchOpen}
+				onOpenChange={setIsSearchOpen}
+				onNewChat={onNewChat}
+				onChatSelect={onChatSelect}
+			/>
 		</Sidebar>
 	);
 }
