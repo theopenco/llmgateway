@@ -224,10 +224,10 @@ function ChatHistoryRowComponent({
 
 	return (
 		<div {...ariaAttributes} style={style}>
-			<div className="relative h-full px-2">
+			<div className="relative h-full px-2 pb-1">
 				<div className="relative h-full">
 					{isEditing ? (
-						<div className="flex h-full w-full items-center gap-3 rounded-md px-2 pr-10 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
+						<div className="flex h-full w-full items-center gap-3 rounded-md px-2 pr-8 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
 							<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
 							<EditChatTitleInput
 								chatId={chat.id}
@@ -243,7 +243,7 @@ function ChatHistoryRowComponent({
 						<SidebarMenuButton
 							isActive={currentChatId === chat.id}
 							onClick={() => onChatSelect?.(chat.id)}
-							className="h-full! w-full justify-start gap-3 group relative pr-10"
+							className="h-full! w-full justify-start gap-3 group relative pr-8"
 							type="button"
 							disabled={isPageLoading}
 						>
@@ -267,7 +267,7 @@ function ChatHistoryRowComponent({
 										onClick={(e) => {
 											e.stopPropagation();
 										}}
-										className="h-7 w-7 cursor-pointer"
+										className="static h-7 w-7 cursor-pointer"
 									>
 										<MoreVerticalIcon className="h-3.5 w-3.5" />
 									</SidebarMenuAction>
@@ -420,19 +420,24 @@ export function ChatSidebar({
 
 	const saveTitle = useCallback(
 		(chatId: string) => {
-			if (editTitle.trim()) {
+			const nextTitle = editTitle.trim();
+			const currentTitle = chats
+				.find((chat) => chat.id === chatId)
+				?.title.trim();
+
+			if (nextTitle && nextTitle !== currentTitle) {
 				updateChat.mutate({
 					params: {
 						path: { id: chatId },
 					},
-					body: { title: editTitle.trim() },
+					body: { title: nextTitle },
 				});
 			}
 			setEditingId(null);
 			setEditTitle("");
 			setPendingFocusChatId(null);
 		},
-		[editTitle, updateChat],
+		[chats, editTitle, updateChat],
 	);
 
 	const cancelEditTitle = useCallback(() => {
