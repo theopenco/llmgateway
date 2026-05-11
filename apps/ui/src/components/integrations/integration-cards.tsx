@@ -95,7 +95,7 @@ const integrations: Integration[] = [
 		name: "Kilo Code",
 		description:
 			"Use LLM Gateway with Kilo Code in VS Code for autonomous AI coding with built-in provider support.",
-		href: "https://docs.llmgateway.io/guides/kilo-code",
+		href: "/guides/kilo-code",
 		icon: KiloCodeIcon,
 		comingSoon: false,
 	},
