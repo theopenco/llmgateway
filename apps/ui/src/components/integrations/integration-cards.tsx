@@ -101,8 +101,16 @@ const integrations: Integration[] = [
 	{
 		name: "OpenCode",
 		description:
-			"Use LLM Gateway with OpenCode for AI-powered development workflows.",
+			"Use LLM Gateway with OpenCode CLI for AI-powered development workflows.",
 		href: "/guides/opencode",
+		icon: OpenCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "OpenCode Desktop",
+		description:
+			"Use LLM Gateway with OpenCode Desktop app — connect via GUI, no config files needed.",
+		href: "https://docs.llmgateway.io/guides/opencode-desktop",
 		icon: OpenCodeIcon,
 		comingSoon: false,
 	},
