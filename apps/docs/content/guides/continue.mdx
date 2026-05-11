@@ -1,24 +1,36 @@
 ---
-title: Continue Integration
-description: Use any model with Continue CLI and Continue for VS Code through LLM Gateway. One config file, 210+ models, full cost tracking.
+title: Continue CLI Integration
+description: Use any model with Continue CLI through LLM Gateway. One config file, 210+ models, full cost tracking.
 icon: Terminal
 ---
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
-[Continue](https://docs.continue.dev) is an open-source AI code assistant available as a CLI tool and VS Code/JetBrains extension. By configuring it to use LLM Gateway, you get access to 210+ models from 60+ providers with unified cost tracking.
+[Continue](https://docs.continue.dev) is an open-source AI code assistant available as a CLI tool. By configuring it to use LLM Gateway, you get access to 210+ models from 60+ providers with unified cost tracking.
 
 One config file. Any model. Full cost visibility.
 
 ## Prerequisites
 
-- Continue CLI installed — `npm install -g @continuedev/cli` or visit the [Continue CLI quickstart](https://docs.continue.dev/cli/quickstart)
 - An LLM Gateway API key — [sign up free](https://llmgateway.io/signup) (no credit card required)
 
-## Setup (CLI)
+## Setup
 
 <Steps>
+<Step>
+### Install Continue CLI
+
+Install Continue CLI globally:
+
+```bash
+npm install -g @continuedev/cli
+```
+
+![Installing Continue CLI](../../public/guides/continue/0-install.png)
+
+</Step>
+
 <Step>
 ### Get Your API Key
 
@@ -29,7 +41,13 @@ One config file. Any model. Full cost visibility.
 <Step>
 ### Create a Config File
 
-Create a config file at `~/.continue/config.yaml`:
+Create the Continue config directory and config file:
+
+```bash
+mkdir -p ~/.continue
+```
+
+Then create `~/.continue/config.yaml` with your LLM Gateway configuration:
 
 ```yaml
 name: llmgateway
@@ -42,16 +60,11 @@ models:
     apiKey: llmgtwy_your-api-key-here
 ```
 
-Then mark onboarding as complete so the CLI uses your config directly without prompting:
-
-```bash
-touch ~/.continue/.onboarding_complete
-```
+![Editing config.yaml](../../public/guides/continue/1-config.png)
 
 <Callout type="info">
-	Without the `.onboarding_complete` file, Continue CLI shows an onboarding
-	wizard on first run even if `config.yaml` already exists. Creating this file
-	tells the CLI to skip the wizard and use your config.
+	Replace `llmgtwy_your-api-key-here` with your actual API key from the
+	dashboard.
 </Callout>
 
 </Step>
@@ -89,66 +102,15 @@ All models use `provider: openai` since LLM Gateway exposes an OpenAI-compatible
 <Step>
 ### Start Using Continue
 
-Launch Continue CLI:
-
-```bash
-cn
-```
-
-Alternatively, you can pass the config explicitly (this also skips the onboarding wizard):
+Launch Continue CLI with the `--config` flag pointing to your config file:
 
 ```bash
 cn --config ~/.continue/config.yaml
 ```
 
-Or use non-interactive mode:
-
-```bash
-cn -p "Explain this function"
-```
+![Continue CLI running with LLM Gateway](../../public/guides/continue/2-running.png)
 
 All requests now route through LLM Gateway. You'll see usage, costs, and logs in your dashboard.
-
-</Step>
-</Steps>
-
-## Setup (VS Code / JetBrains)
-
-The same configuration works for the Continue IDE extension.
-
-<Steps>
-<Step>
-### Install the Extension
-
-- **VS Code**: Search "Continue" in the Extensions Marketplace and install it
-- **JetBrains**: Search "Continue" in the Plugin Marketplace and install it
-
-</Step>
-
-<Step>
-### Open Continue Settings
-
-Click the Continue icon in the sidebar, then click the gear icon to open settings. Select "Edit config file" to open `config.yaml`.
-
-</Step>
-
-<Step>
-### Add LLM Gateway Models
-
-Add your LLM Gateway models to the config:
-
-```yaml
-name: llmgateway
-version: 0.0.1
-models:
-  - name: claude-sonnet-4-6
-    provider: openai
-    model: claude-sonnet-4-6
-    apiBase: https://api.llmgateway.io/v1
-    apiKey: llmgtwy_your-api-key-here
-```
-
-Save the file. Continue will automatically pick up the new configuration.
 
 </Step>
 </Steps>
@@ -160,7 +122,7 @@ Save the file. Continue will automatically pick up the new configuration.
 - **Cost tracking** — See exactly what each session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically
 - **Automatic fallback** — If a provider is down, requests route to an alternative
-- **Same key everywhere** — Use the same config in CLI, VS Code, and JetBrains
+- **Volume discounts** — Check [discounted models](https://llmgateway.io/models?discounted=true) for savings up to 90%
 
 ## Configuration Details
 
@@ -189,14 +151,6 @@ Point to any config file:
 
 ```bash
 cn --config path/to/config.yaml
-```
-
-### Non-Interactive Mode
-
-For scripting or CI, use the `-p` flag:
-
-```bash
-cn -p "What does this function do?"
 ```
 
 ## Switching Models
@@ -236,6 +190,16 @@ version: 0.0.1
 models:
   - ...
 ```
+
+### Onboarding wizard still appears
+
+If running `cn` without `--config` shows an onboarding prompt, create the sentinel file to skip it:
+
+```bash
+touch ~/.continue/.onboarding_complete
+```
+
+Or always launch with the `--config` flag to bypass onboarding entirely.
 
 ### Model not found
 
