@@ -110,7 +110,7 @@ const AGENTS: AgentDefinition[] = [
 	},
 ];
 
-const ALL_SOURCES = AGENTS.flatMap((a) => a.sources);
+export const ALL_CODING_AGENT_SOURCES = AGENTS.flatMap((a) => a.sources);
 
 interface ModelUsage {
 	id: string;
@@ -603,7 +603,7 @@ export default function CodingAgents({ orgId }: { orgId: string }) {
 					orgId,
 					orderBy: "createdAt_desc",
 					limit: "100",
-					source: ALL_SOURCES.join(","),
+					source: ALL_CODING_AGENT_SOURCES.join(","),
 					startDate: since,
 					endDate: until,
 				},
