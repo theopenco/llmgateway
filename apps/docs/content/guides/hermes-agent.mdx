@@ -41,16 +41,127 @@ hermes --version
 
 <Steps>
 <Step>
-### Get Your API Key
+### Run the Setup Wizard
 
-[Sign up](https://llmgateway.io/signup) or log in to your LLM Gateway dashboard. Navigate to **API Keys** and create a new key. Copy it — it starts with `llmgtwy_`.
+Run `hermes setup` to launch the interactive setup wizard. Select **Quick setup** (option 1) for the fastest configuration:
+
+```bash
+hermes setup
+```
+
+![Hermes Agent Setup Wizard](/guides/hermes-agent/0-setup-wizard.png)
 
 </Step>
 
 <Step>
-### Edit Your Hermes Config
+### Configure Inference Provider
 
-Open your Hermes configuration file at `~/.hermes/config.yaml`. Set the provider to `custom` and point it at LLM Gateway:
+The wizard will ask you to configure your inference provider. Select **Custom OpenAI-compatible endpoint** and enter the LLM Gateway base URL:
+
+```
+API base URL: https://api.llmgateway.io/v1
+```
+
+Then paste your LLM Gateway API key (starts with `llmgtwy_`):
+
+![Inference Provider Configuration](/guides/hermes-agent/1-inference-provider.png)
+
+</Step>
+
+<Step>
+### Choose a Model
+
+The wizard presents a list of 200+ available models. Type a model name or select from the list. Popular choices include `claude-sonnet-4-5`, `gpt-4o`, or `gemini-2.5-pro`:
+
+![Model Selection List](/guides/hermes-agent/2-model-list.png)
+
+</Step>
+
+<Step>
+### Set Context Length
+
+Leave the context length blank to auto-detect (recommended), or specify a custom value:
+
+![Context Length Configuration](/guides/hermes-agent/3-context-length.png)
+
+</Step>
+
+<Step>
+### Set Display Name
+
+Give your provider configuration a display name. This appears in the Hermes status bar when chatting:
+
+![Display Name Configuration](/guides/hermes-agent/4-display-name.png)
+
+</Step>
+
+<Step>
+### Select Terminal Backend
+
+Choose your terminal backend. **Keep current (local)** is the default and recommended for most users:
+
+![Terminal Backend Selection](/guides/hermes-agent/5-terminal-backend.png)
+
+</Step>
+
+<Step>
+### Setup Complete
+
+Once done, Hermes shows you where your config files are stored and how to edit them. Press `Y` to launch a chat session:
+
+![Setup Complete](/guides/hermes-agent/6-setup-complete.png)
+
+Your configuration files:
+
+- **Settings:** `~/.hermes/config.yaml`
+- **API Keys:** `~/.hermes/.env`
+- **Data:** `~/.hermes/cron/`, `sessions/`, `logs/`
+
+</Step>
+</Steps>
+
+## Using Hermes with LLM Gateway
+
+Once configured, all requests route through LLM Gateway. You'll see the provider name (e.g., "LLMGATEWAY") in the Hermes status bar.
+
+### Switching Models at Runtime
+
+Use the `/mo` or `/mod` slash command inside a chat session to switch models on the fly:
+
+![Switching to Claude Haiku via LLM Gateway](/guides/hermes-agent/7-chat-claude.png)
+
+You can switch to any model available through LLM Gateway — from Claude to GPT to open-source models:
+
+![Switching to GPT-5.4-nano via LLM Gateway](/guides/hermes-agent/8-chat-gpt.png)
+
+Add `--global` to persist the model change across sessions.
+
+### CLI Model Override
+
+You can also override the model from the command line:
+
+```bash
+# Use a specific model for this session
+hermes chat --model gpt-4o-mini
+
+# Use a powerful model for complex tasks
+hermes chat --model claude-opus-4-7
+```
+
+## Why Use LLM Gateway with Hermes Agent
+
+- **210+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
+- **One API key** — Stop managing separate keys for each provider
+- **Cost tracking** — See exactly what each session costs in your dashboard
+- **Response caching** — Repeated requests hit cache automatically
+- **Automatic fallback** — If a provider is down, requests route to an alternative
+- **Volume discounts** — Check [discounted models](https://llmgateway.io/models?discounted=true) for savings up to 90%
+
+## Configuration Reference
+
+### Config File
+
+The setup wizard writes to `~/.hermes/config.yaml`. The relevant section for LLM Gateway:
 
 ```yaml
 model:
@@ -64,69 +175,6 @@ model:
 	The `base_url` overrides provider routing — Hermes will call the LLM Gateway
 	endpoint directly using the provided `api_key`.
 </Callout>
-
-</Step>
-
-<Step>
-### Choose a Model
-
-Set the `default` field to any model from the [models page](https://llmgateway.io/models). Popular choices:
-
-```yaml
-# Anthropic Claude
-default: "claude-sonnet-4-5"
-
-# OpenAI GPT
-default: "gpt-4o"
-
-# Google Gemini
-default: "gemini-2.5-pro"
-```
-
-You can also switch models at runtime with the `--model` flag:
-
-```bash
-hermes chat --model gpt-4o
-```
-
-</Step>
-
-<Step>
-### Start Using Hermes
-
-Launch Hermes from your terminal:
-
-```bash
-hermes
-```
-
-All requests now route through LLM Gateway. You'll see usage, costs, and logs in your dashboard.
-
-</Step>
-</Steps>
-
-## Why Use LLM Gateway with Hermes Agent
-
-- **210+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
-- **One API key** — Stop managing separate keys for each provider
-- **Cost tracking** — See exactly what each session costs in your dashboard
-- **Response caching** — Repeated requests hit cache automatically
-- **Automatic fallback** — If a provider is down, requests route to an alternative
-- **Volume discounts** — Check [discounted models](https://llmgateway.io/models?discounted=true) for savings up to 90%
-
-## Configuration Details
-
-### Minimal Config
-
-The minimum required fields in `~/.hermes/config.yaml`:
-
-```yaml
-model:
-  default: "claude-sonnet-4-5"
-  provider: "custom"
-  api_key: "llmgtwy_your-api-key-here"
-  base_url: "https://api.llmgateway.io/v1"
-```
 
 ### Using Environment Variables
 
@@ -164,29 +212,16 @@ The `-Q` flag enables quiet mode, suppressing the banner and spinner for clean o
 hermes chat -z "Generate a README for this project"
 ```
 
-## Switching Models at Runtime
-
-Override the model for any session using `-m` or `--model`:
-
-```bash
-# Use a specific model for this session
-hermes chat --model gpt-4o-mini
-
-# Use a powerful model for complex tasks
-hermes chat --model claude-opus-4-7
-
-# Combine with provider flag
-hermes chat --provider custom --model deepseek-r1
-```
-
 ## Useful Hermes Commands
 
 | Command                | Purpose                                 |
 | ---------------------- | --------------------------------------- |
 | `hermes`               | Start interactive chat (default)        |
+| `hermes setup`         | Run the setup wizard                    |
+| `hermes setup model`   | Change model/provider                   |
 | `hermes chat -q "..."` | One-shot prompt                         |
 | `hermes model`         | Choose provider and model interactively |
-| `hermes config set`    | Update config values                    |
+| `hermes config edit`   | Open config in your editor              |
 | `hermes doctor`        | Diagnose connection/config issues       |
 | `hermes sessions`      | Browse and manage past sessions         |
 | `hermes --continue`    | Resume most recent session              |
