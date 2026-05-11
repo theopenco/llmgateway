@@ -43,13 +43,15 @@ hermes --version
 <Step>
 ### Run the Setup Wizard
 
-Run `hermes setup` to launch the interactive setup wizard. Select **Quick setup** (option 1) for the fastest configuration:
+Run `hermes setup` to launch the interactive setup wizard. You can choose either **Quick setup** (option 1) for provider, model, and messaging configuration, or **Full setup** (option 2) to configure everything including tools, skills, and advanced options:
 
 ```bash
 hermes setup
 ```
 
 ![Hermes Agent Setup Wizard](../../public/guides/hermes-agent/0-setup-wizard.png)
+
+In this guide we use Quick setup, but Full setup works the same way — it just includes additional configuration steps.
 
 </Step>
 
@@ -71,7 +73,7 @@ Then paste your LLM Gateway API key (starts with `llmgtwy_`):
 <Step>
 ### Choose a Model
 
-The wizard presents a list of 200+ available models. Type a model name or select from the list. Popular choices include `claude-sonnet-4-5`, `gpt-4o`, or `gemini-2.5-pro`:
+The wizard presents a list of 200+ available models. Type a model name or select from the list. Popular choices include `claude-sonnet-4-6`, `gpt-5.5`, or `gemini-3.1-pro`:
 
 ![Model Selection List](../../public/guides/hermes-agent/2-model-list.png)
 
@@ -98,7 +100,7 @@ Give your provider configuration a display name. This appears in the Hermes stat
 <Step>
 ### Select Terminal Backend
 
-Choose your terminal backend. **Keep current (local)** is the default and recommended for most users:
+Choose your terminal backend. In this guide we use **Local** (run directly on this machine), but you can pick any option based on your requirements — Docker for isolated containers, SSH for remote machines, Modal for serverless sandboxes, Daytona for cloud dev environments, and more:
 
 ![Terminal Backend Selection](../../public/guides/hermes-agent/5-terminal-backend.png)
 
@@ -107,7 +109,7 @@ Choose your terminal backend. **Keep current (local)** is the default and recomm
 <Step>
 ### Setup Complete
 
-Once done, Hermes shows you where your config files are stored and how to edit them. Press `Y` to launch a chat session:
+Once done, Hermes shows you where your config files are stored and how to edit them. It will prompt **"Launch hermes chat now? [Y/n]"** — press `Y` to start an interactive agent session immediately:
 
 ![Setup Complete](../../public/guides/hermes-agent/6-setup-complete.png)
 
@@ -116,6 +118,8 @@ Your configuration files:
 - **Settings:** `~/.hermes/config.yaml`
 - **API Keys:** `~/.hermes/.env`
 - **Data:** `~/.hermes/cron/`, `sessions/`, `logs/`
+
+Once you press `Y`, Hermes launches a full agent session connected to LLM Gateway. You can start chatting right away.
 
 </Step>
 </Steps>
@@ -126,11 +130,11 @@ Once configured, all requests route through LLM Gateway. You'll see the provider
 
 ### Switching Models at Runtime
 
-Use the `/mo` or `/mod` slash command inside a chat session to switch models on the fly:
+You can switch models mid-session using the `/model` slash command (similar to how Claude Code uses slash commands). Just type `/model` followed by the model name:
 
 ![Switching to Claude Haiku via LLM Gateway](../../public/guides/hermes-agent/7-chat-claude.png)
 
-You can switch to any model available through LLM Gateway — from Claude to GPT to open-source models:
+Switch to any model available through LLM Gateway — from Claude to GPT to open-source models — without leaving your session:
 
 ![Switching to GPT-5.4-nano via LLM Gateway](../../public/guides/hermes-agent/8-chat-gpt.png)
 
@@ -142,10 +146,10 @@ You can also override the model from the command line:
 
 ```bash
 # Use a specific model for this session
-hermes chat --model gpt-4o-mini
+hermes chat --model gpt-5.5
 
 # Use a powerful model for complex tasks
-hermes chat --model claude-opus-4-7
+hermes chat --model claude-opus-4-6
 ```
 
 ## Why Use LLM Gateway with Hermes Agent
@@ -157,48 +161,7 @@ hermes chat --model claude-opus-4-7
 - **Automatic fallback** — If a provider is down, requests route to an alternative
 - **Volume discounts** — Check [discounted models](https://llmgateway.io/models?discounted=true) for savings up to 90%
 
-## Configuration Reference
-
-### Config File
-
-The setup wizard writes to `~/.hermes/config.yaml`. The relevant section for LLM Gateway:
-
-```yaml
-model:
-  default: "claude-sonnet-4-5"
-  provider: "custom"
-  api_key: "llmgtwy_your-api-key-here"
-  base_url: "https://api.llmgateway.io/v1"
-```
-
-<Callout type="info">
-	The `base_url` overrides provider routing — Hermes will call the LLM Gateway
-	endpoint directly using the provided `api_key`.
-</Callout>
-
-### Using Environment Variables
-
-Instead of putting your key in the config file, add it to `~/.hermes/.env`:
-
-```bash
-OPENAI_API_KEY=llmgtwy_your-api-key-here
-OPENAI_BASE_URL=https://api.llmgateway.io/v1
-```
-
-Then your `~/.hermes/config.yaml` only needs:
-
-```yaml
-model:
-  default: "claude-sonnet-4-5"
-  provider: "custom"
-```
-
-<Callout type="info">
-	Configuration precedence (highest to lowest): CLI flags &gt;
-	`~/.hermes/config.yaml` &gt; `~/.hermes/.env` &gt; built-in defaults.
-</Callout>
-
-### One-Shot Mode
+## One-Shot Mode
 
 For scripting or CI pipelines, use the `-q` flag for a one-shot prompt:
 
