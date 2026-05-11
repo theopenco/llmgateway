@@ -15,6 +15,11 @@ import { z } from "zod";
 
 import { getUser } from "@/lib/getUser";
 import { getModelImageConfig } from "@/lib/image-gen";
+import {
+	isRecord,
+	readNumber,
+	type PlaygroundMessageMetadata,
+} from "@/lib/message-metadata";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -51,6 +56,25 @@ interface McpCallToolResult {
 	isError?: boolean;
 }
 
+interface PlaygroundMetadataFinishStepPart {
+	type: "finish-step";
+	response: {
+		modelId: string;
+	};
+	usage: {
+		inputTokens?: number;
+		inputTokenDetails?: {
+			cacheReadTokens?: number;
+		};
+		outputTokens?: number;
+	};
+	providerMetadata?: unknown;
+}
+
+type PlaygroundMetadataStreamPart =
+	| PlaygroundMetadataFinishStepPart
+	| { type: string };
+
 /**
  * Type guard to check if a value is an MCP CallToolResult
  */
@@ -75,6 +99,55 @@ function isMcpTextContent(value: unknown): value is McpTextContent {
 		"text" in value &&
 		typeof (value as McpTextContent).text === "string"
 	);
+}
+
+function isPlaygroundMetadataFinishStepPart(
+	part: PlaygroundMetadataStreamPart,
+): part is PlaygroundMetadataFinishStepPart {
+	return part.type === "finish-step" && "response" in part && "usage" in part;
+}
+
+function readLLMGatewayUsage(
+	providerMetadata: unknown,
+): Record<string, unknown> | undefined {
+	if (!isRecord(providerMetadata)) {
+		return undefined;
+	}
+	const llmgateway = providerMetadata.llmgateway;
+	if (!isRecord(llmgateway)) {
+		return undefined;
+	}
+	const usage = llmgateway.usage;
+	return isRecord(usage) ? usage : undefined;
+}
+
+function extractPlaygroundMessageMetadata(
+	part: PlaygroundMetadataStreamPart,
+): PlaygroundMessageMetadata | undefined {
+	if (!isPlaygroundMetadataFinishStepPart(part)) {
+		return undefined;
+	}
+
+	const llmgatewayUsage = readLLMGatewayUsage(part.providerMetadata);
+	const promptTokensDetails = llmgatewayUsage?.promptTokensDetails;
+	const metadata: PlaygroundMessageMetadata = {
+		usedModel: part.response.modelId,
+		usage: {
+			inputTokens:
+				readNumber(llmgatewayUsage?.promptTokens) ?? part.usage.inputTokens,
+			// Prefer the gateway's cachedTokens (enriched metadata) over the AI SDK's
+			// cacheReadTokens — the gateway has access to the actual billed token counts.
+			cachedInputTokens: isRecord(promptTokensDetails)
+				? readNumber(promptTokensDetails.cachedTokens)
+				: part.usage.inputTokenDetails?.cacheReadTokens,
+			outputTokens:
+				readNumber(llmgatewayUsage?.completionTokens) ??
+				part.usage.outputTokens,
+			totalCost: readNumber(llmgatewayUsage?.cost),
+		},
+	};
+
+	return metadata;
 }
 
 /**
@@ -812,7 +885,7 @@ export async function POST(req: Request) {
 
 		// Streaming chat with optional MCP tools
 		const result = streamText({
-			model: llmgateway.chat(selectedModel),
+			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
 			messages: await convertToModelMessages(messages),
 			...(hasTools ? { tools: allTools, maxSteps: 10 } : {}),
 			onFinish: async () => {
@@ -828,9 +901,20 @@ export async function POST(req: Request) {
 		});
 
 		// Build the UI message stream and pipe through SSE formatting
+		let latestMessageMetadata: PlaygroundMessageMetadata | undefined;
 		const uiStream = result.toUIMessageStream({
 			sendReasoning: true,
 			sendSources: true,
+			messageMetadata: ({ part }) => {
+				if (part.type === "finish") {
+					return latestMessageMetadata;
+				}
+				const metadata = extractPlaygroundMessageMetadata(part);
+				if (metadata) {
+					latestMessageMetadata = metadata;
+				}
+				return undefined;
+			},
 		});
 		const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
 

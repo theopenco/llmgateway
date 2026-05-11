@@ -5,6 +5,7 @@ import { ReadOnlyChatMessages } from "@/components/playground/chat-ui";
 import { ForkChatButton } from "@/components/playground/fork-chat-button";
 import { Logo } from "@/components/ui/logo";
 import { getConfig } from "@/lib/config-server";
+import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
 
 import type { UIMessage } from "ai";
 import type { Metadata } from "next";
@@ -16,6 +17,7 @@ interface SharedMessage {
 	images: string | null;
 	reasoning: string | null;
 	tools: string | null;
+	metadata?: unknown;
 	sequence: number;
 	createdAt: string;
 }
@@ -198,6 +200,7 @@ function toUiMessage(message: SharedMessage): UIMessage {
 	return {
 		id: message.id,
 		role: message.role,
+		metadata: parsePlaygroundMessageMetadata(message.metadata),
 		parts,
 	} satisfies UIMessage;
 }

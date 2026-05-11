@@ -18,7 +18,6 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 // No local api key. We'll call backend to ensure key cookie exists after login.
 import {
 	useAddMessage,
-	useChats,
 	useCreateChat,
 	useDataChat,
 	useDeleteChat,
@@ -28,6 +27,7 @@ import { useUser } from "@/hooks/useUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
+import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -345,6 +345,7 @@ export default function ChatPageClient({
 
 				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
 				const toolParts = message.parts.filter(isToolPart);
+				const metadata = parsePlaygroundMessageMetadata(message.metadata);
 
 				const bodyToSave = {
 					role: "assistant" as const,
@@ -352,6 +353,7 @@ export default function ChatPageClient({
 					images: images.length > 0 ? JSON.stringify(images) : undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					...(metadata ? { metadata } : {}),
 				};
 
 				try {
@@ -589,7 +591,6 @@ export default function ChatPageClient({
 	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
 		currentChatId ?? "",
 	);
-	useChats();
 
 	useEffect(() => {
 		if (!currentChatData?.messages || isSendingRef.current || isTemporaryChat) {
@@ -667,6 +668,7 @@ export default function ChatPageClient({
 						id: msg.id,
 						role: msg.role,
 						content: msg.content ?? "",
+						metadata: parsePlaygroundMessageMetadata(msg.metadata),
 						parts,
 					};
 				});
