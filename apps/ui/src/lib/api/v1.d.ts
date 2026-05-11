@@ -529,6 +529,9 @@ export interface paths {
                                     images: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
+                                    metadata?: {
+                                        [key: string]: unknown;
+                                    } | null;
                                     sequence: number;
                                     /** Format: date-time */
                                     createdAt: string;
@@ -7405,6 +7408,9 @@ export interface paths {
                                 images: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
+                                metadata: {
+                                    [key: string]: unknown;
+                                } | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;
@@ -7659,6 +7665,9 @@ export interface paths {
                         images?: string;
                         reasoning?: string;
                         tools?: string;
+                        metadata?: {
+                            [key: string]: unknown;
+                        };
                     };
                 };
             };
@@ -7678,6 +7687,9 @@ export interface paths {
                                 images: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
+                                metadata: {
+                                    [key: string]: unknown;
+                                } | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;

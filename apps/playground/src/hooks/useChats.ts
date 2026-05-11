@@ -24,6 +24,7 @@ export interface ChatMessage {
 	images: string | null; // JSON string from API
 	reasoning: string | null; // Reasoning content from AI
 	tools: string | null; // Tool parts JSON
+	metadata: unknown | null; // Assistant response metadata
 	sequence: number;
 	createdAt: string;
 }

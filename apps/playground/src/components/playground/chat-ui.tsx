@@ -5,6 +5,7 @@ import {
 	Brain,
 	GlobeIcon,
 	AlertTriangle,
+	Info,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
@@ -66,6 +67,11 @@ import { AspectRatioIcon } from "@/components/playground/aspect-ratio-icon";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -74,6 +80,10 @@ import {
 } from "@/components/ui/select";
 import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
+import {
+	parsePlaygroundMessageMetadata,
+	type PlaygroundMessageMetadata,
+} from "@/lib/message-metadata";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 
@@ -248,6 +258,76 @@ function getFinishReasonLabel(reason: string): string {
 	}
 }
 
+function formatTokenCount(value?: number): string {
+	return value === undefined
+		? "-"
+		: new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatCost(value?: number): string {
+	if (value === undefined) {
+		return "-";
+	}
+	if (value > 0 && value < 0.000001) {
+		return "<$0.000001";
+	}
+	return new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: value < 0.01 ? 6 : 2,
+		maximumFractionDigits: value < 0.01 ? 6 : 4,
+	}).format(value);
+}
+
+function MessageMetadataPopover({
+	metadata,
+}: {
+	metadata: PlaygroundMessageMetadata;
+}) {
+	const usage = metadata.usage;
+	const rows = [
+		["Total cost", formatCost(usage?.totalCost)],
+		["Input tokens", formatTokenCount(usage?.inputTokens)],
+		["Cached input tokens", formatTokenCount(usage?.cachedInputTokens)],
+		["Output tokens", formatTokenCount(usage?.outputTokens)],
+		["Used model", metadata.usedModel ?? "-"],
+	] as const;
+
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<Button
+					aria-label="Show response metadata"
+					className="relative size-9 p-1.5 text-muted-foreground hover:text-foreground"
+					size="sm"
+					type="button"
+					variant="ghost"
+				>
+					<Info className="size-3" />
+				</Button>
+			</PopoverTrigger>
+			<PopoverContent align="start" className="w-80 p-3">
+				<div className="space-y-2 text-xs">
+					<p className="font-medium">Response metadata</p>
+					<div className="space-y-1.5">
+						{rows.map(([label, value]) => (
+							<div
+								className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3"
+								key={label}
+							>
+								<span className="text-muted-foreground">{label}</span>
+								<span className="break-words text-right font-mono">
+									{value}
+								</span>
+							</div>
+						))}
+					</div>
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+}
+
 // rerender-memo: Memoize message component to prevent re-renders when only streaming status changes
 const AssistantMessage = memo(
 	({
@@ -268,6 +348,10 @@ const AssistantMessage = memo(
 			useMemo(() => {
 				return extractMessageParts(message.parts);
 			}, [message.parts]);
+		const metadata = useMemo(
+			() => parsePlaygroundMessageMetadata(message.metadata),
+			[message.metadata],
+		);
 		const textContent = textParts.join("");
 
 		return (
@@ -345,29 +429,34 @@ const AssistantMessage = memo(
 					</div>
 				)}
 
-				{isLastMessage && (
+				{(metadata || isLastMessage) && (
 					<Actions className="mt-2">
-						<Action
-							onClick={() => regenerate()}
-							label="Retry"
-							tooltip="Regenerate response"
-						>
-							<RefreshCcw className="size-3" />
-						</Action>
-						<Action
-							onClick={async () => {
-								try {
-									await navigator.clipboard.writeText(textContent);
-									toast.success("Copied to clipboard");
-								} catch {
-									toast.error("Failed to copy to clipboard");
-								}
-							}}
-							label="Copy"
-							tooltip="Copy to clipboard"
-						>
-							<Copy className="size-3" />
-						</Action>
+						{metadata ? <MessageMetadataPopover metadata={metadata} /> : null}
+						{isLastMessage ? (
+							<>
+								<Action
+									onClick={() => regenerate()}
+									label="Retry"
+									tooltip="Regenerate response"
+								>
+									<RefreshCcw className="size-3" />
+								</Action>
+								<Action
+									onClick={async () => {
+										try {
+											await navigator.clipboard.writeText(textContent);
+											toast.success("Copied to clipboard");
+										} catch {
+											toast.error("Failed to copy to clipboard");
+										}
+									}}
+									label="Copy"
+									tooltip="Copy to clipboard"
+								>
+									<Copy className="size-3" />
+								</Action>
+							</>
+						) : null}
 					</Actions>
 				)}
 			</div>
