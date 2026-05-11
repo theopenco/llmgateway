@@ -1,17 +1,12 @@
 "use client";
 
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { Activity, Coins, Cpu, Loader2, TrendingUp } from "lucide-react";
-import { useMemo } from "react";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Activity, Coins, Cpu, TrendingUp } from "lucide-react";
 
-import {
-	ChartContainer,
-	ChartTooltip,
-	ChartTooltipContent,
-	type ChartConfig,
-} from "@/components/ui/chart";
 import { useApi } from "@/lib/fetch-client";
+
+import { AgentModelUsageChart } from "./AgentModelUsageChart";
+import { ALL_CODING_AGENT_SOURCES } from "./CodingAgents";
 
 import type { paths } from "@/lib/api/v1";
 import type { DevPlanCycle } from "@llmgateway/shared";
@@ -55,66 +50,6 @@ function MetricCard({
 				{hint && <div className="text-xs text-muted-foreground">{hint}</div>}
 			</div>
 		</div>
-	);
-}
-
-const chartConfig = {
-	cost: {
-		label: "Spend",
-		color: "var(--foreground)",
-	},
-} satisfies ChartConfig;
-
-function DailySpendChart({ data }: { data: ActivityItem[] }) {
-	const chartData = useMemo(
-		() =>
-			data.map((d) => ({
-				date: d.date,
-				cost: Number(((d.cost ?? 0) as number).toFixed(4)),
-			})),
-		[data],
-	);
-
-	return (
-		<ChartContainer config={chartConfig} className="aspect-auto h-48 w-full">
-			<BarChart
-				accessibilityLayer
-				data={chartData}
-				margin={{ left: 0, right: 0, top: 8, bottom: 0 }}
-			>
-				<CartesianGrid vertical={false} strokeDasharray="3 3" />
-				<XAxis
-					dataKey="date"
-					tickLine={false}
-					axisLine={false}
-					tickMargin={8}
-					minTickGap={32}
-					tickFormatter={(value: string) => format(new Date(value), "MMM d")}
-				/>
-				<YAxis
-					tickLine={false}
-					axisLine={false}
-					width={40}
-					tickFormatter={(value: number) => `$${value.toFixed(0)}`}
-				/>
-				<ChartTooltip
-					cursor={{ fill: "var(--muted)", opacity: 0.4 }}
-					content={
-						<ChartTooltipContent
-							labelFormatter={(value) =>
-								format(new Date(value as string), "EEE, MMM d")
-							}
-							formatter={(value) => (
-								<span className="tabular-nums">
-									${Number(value).toFixed(2)}
-								</span>
-							)}
-						/>
-					}
-				/>
-				<Bar dataKey="cost" fill="var(--color-cost)" radius={[3, 3, 0, 0]} />
-			</BarChart>
-		</ChartContainer>
 	);
 }
 
@@ -184,7 +119,7 @@ export default function UsageOverview({
 }: UsageOverviewProps) {
 	const api = useApi();
 
-	const { data: activity, isLoading } = api.useQuery(
+	const { data: activity } = api.useQuery(
 		"get",
 		"/activity",
 		{
@@ -321,27 +256,8 @@ export default function UsageOverview({
 				/>
 			</div>
 
-			{/* Daily spend chart */}
-			<div className="rounded-xl border bg-card p-5">
-				<div className="mb-4 flex items-center justify-between">
-					<div>
-						<h3 className="text-sm font-medium">Daily spend</h3>
-						<p className="mt-0.5 text-xs text-muted-foreground">
-							Last 30 days, model cost only.
-						</p>
-					</div>
-					{isLoading && (
-						<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-					)}
-				</div>
-				{items.length > 0 ? (
-					<DailySpendChart data={items} />
-				) : (
-					<div className="flex h-48 items-center justify-center text-xs text-muted-foreground">
-						{isLoading ? "Loading…" : "No activity yet."}
-					</div>
-				)}
-			</div>
+			{/* Stacked model usage chart — aggregated across all coding agents */}
+			<AgentModelUsageChart sources={ALL_CODING_AGENT_SOURCES} />
 		</div>
 	);
 }

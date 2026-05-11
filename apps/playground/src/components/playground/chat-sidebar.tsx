@@ -15,6 +15,7 @@ import {
 	ChevronUp,
 	LogOut,
 	ExternalLink,
+	Search,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -45,6 +46,7 @@ import {
 	SidebarMenuAction,
 	SidebarMenuButton,
 	SidebarMenuItem,
+	useSidebar,
 } from "@/components/ui/sidebar";
 import {
 	useChats,
@@ -57,6 +59,7 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import { ChatSearchDialog } from "./chat-search-dialog";
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 // import { ProjectSwitcher } from "./project-switcher";
 
@@ -224,10 +227,10 @@ function ChatHistoryRowComponent({
 
 	return (
 		<div {...ariaAttributes} style={style}>
-			<div className="relative h-full px-2">
+			<div className="relative h-full px-2 pb-1">
 				<div className="relative h-full">
 					{isEditing ? (
-						<div className="flex h-full w-full items-center gap-3 rounded-md px-2 pr-10 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
+						<div className="flex h-full w-full items-center gap-3 rounded-md px-2 pr-8 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
 							<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
 							<EditChatTitleInput
 								chatId={chat.id}
@@ -243,7 +246,7 @@ function ChatHistoryRowComponent({
 						<SidebarMenuButton
 							isActive={currentChatId === chat.id}
 							onClick={() => onChatSelect?.(chat.id)}
-							className="h-full! w-full justify-start gap-3 group relative pr-10"
+							className="h-full! w-full justify-start gap-3 group relative pr-8"
 							type="button"
 							disabled={isPageLoading}
 						>
@@ -267,7 +270,7 @@ function ChatHistoryRowComponent({
 										onClick={(e) => {
 											e.stopPropagation();
 										}}
-										className="h-7 w-7 cursor-pointer"
+										className="static h-7 w-7 cursor-pointer"
 									>
 										<MoreVerticalIcon className="h-3.5 w-3.5" />
 									</SidebarMenuAction>
@@ -369,6 +372,7 @@ export function ChatSidebar({
 	const router = useRouter();
 	const pathname = usePathname();
 	const posthog = usePostHog();
+	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
@@ -385,8 +389,34 @@ export function ChatSidebar({
 	const [pendingFocusChatId, setPendingFocusChatId] = useState<string | null>(
 		null,
 	);
+	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	const [isMac, setIsMac] = useState(false);
 
 	const chats = chatsData?.chats ?? [];
+
+	useEffect(() => {
+		setIsMac(/(Mac|iPhone|iPad|iPod)/i.test(window.navigator.platform));
+	}, []);
+
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			const key = event.key.toLowerCase();
+			const isSearchShortcut = isMac
+				? event.metaKey && key === "k" && !event.altKey && !event.ctrlKey
+				: event.altKey && key === "k" && !event.metaKey && !event.ctrlKey;
+
+			if (!isSearchShortcut || event.shiftKey || event.defaultPrevented) {
+				return;
+			}
+
+			event.preventDefault();
+			setIsSearchOpen(true);
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [isMac]);
 
 	const logout = async () => {
 		posthog.reset();
@@ -420,19 +450,24 @@ export function ChatSidebar({
 
 	const saveTitle = useCallback(
 		(chatId: string) => {
-			if (editTitle.trim()) {
+			const nextTitle = editTitle.trim();
+			const currentTitle = chats
+				.find((chat) => chat.id === chatId)
+				?.title.trim();
+
+			if (nextTitle && nextTitle !== currentTitle) {
 				updateChat.mutate({
 					params: {
 						path: { id: chatId },
 					},
-					body: { title: editTitle.trim() },
+					body: { title: nextTitle },
 				});
 			}
 			setEditingId(null);
 			setEditTitle("");
 			setPendingFocusChatId(null);
 		},
-		[editTitle, updateChat],
+		[chats, editTitle, updateChat],
 	);
 
 	const cancelEditTitle = useCallback(() => {
@@ -536,6 +571,7 @@ export function ChatSidebar({
 	);
 
 	const isAuthenticated = !!user;
+	const isHistoryHidden = sidebarState === "collapsed" && !isMobile;
 
 	// Loading auth state → show lightweight skeleton to avoid hydration issues
 	if (isUserLoading) {
@@ -668,7 +704,7 @@ export function ChatSidebar({
 				</SidebarMenu>
 			</SidebarHeader>
 
-			<SidebarContent className="overflow-hidden py-4">
+			<SidebarContent className="overflow-hidden py-2">
 				{/* <SidebarMenu>
 					<SidebarMenuItem>
 						<OrganizationSwitcher
@@ -692,27 +728,50 @@ export function ChatSidebar({
 						)}
 					</SidebarMenuItem>
 				</SidebarMenu> */}
-				{chats.length === 0 ? (
-					<div className="flex flex-col items-center justify-center py-8 text-center group-data-[collapsible=icon]:hidden">
-						<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
-						<p className="text-sm text-muted-foreground mb-2">
-							No chat history
-						</p>
-						<p className="text-xs text-muted-foreground">
-							Start a new conversation to see it here
-						</p>
-					</div>
-				) : (
-					<List
-						className="min-h-0 w-full flex-1"
-						style={{ width: "100%" }}
-						rowComponent={ChatHistoryRowComponent}
-						rowCount={historyRows.length}
-						rowHeight={getChatHistoryRowHeight}
-						rowProps={rowProps}
-						overscanCount={8}
-					/>
-				)}
+				<div>
+					<div className="mx-2 mb-3 border-t border-sidebar-border" />
+					<SidebarMenu className=" px-2">
+						<SidebarMenuItem>
+							<SidebarMenuButton
+								type="button"
+								tooltip="Search Chats"
+								onClick={() => setIsSearchOpen(true)}
+							>
+								<Search className="h-4 w-4" />
+								<span>Search Chats</span>
+								<kbd className="ml-auto text-xs font-medium text-muted-foreground opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100 group-data-[collapsible=icon]:hidden">
+									{isMac ? "⌘K" : "Alt+K"}
+								</kbd>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+					</SidebarMenu>
+				</div>
+				<div
+					aria-hidden={isHistoryHidden}
+					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
+				>
+					{chats.length === 0 ? (
+						<div className="flex flex-col items-center justify-center py-8 text-center">
+							<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
+							<p className="text-sm text-muted-foreground mb-2">
+								No chat history
+							</p>
+							<p className="text-xs text-muted-foreground">
+								Start a new conversation to see it here
+							</p>
+						</div>
+					) : (
+						<List
+							className="min-h-0 w-full flex-1"
+							style={{ width: "100%" }}
+							rowComponent={ChatHistoryRowComponent}
+							rowCount={historyRows.length}
+							rowHeight={getChatHistoryRowHeight}
+							rowProps={rowProps}
+							overscanCount={8}
+						/>
+					)}
+				</div>
 			</SidebarContent>
 
 			<SidebarFooter>
@@ -780,6 +839,12 @@ export function ChatSidebar({
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
+			<ChatSearchDialog
+				open={isSearchOpen}
+				onOpenChange={setIsSearchOpen}
+				onNewChat={onNewChat}
+				onChatSelect={onChatSelect}
+			/>
 		</Sidebar>
 	);
 }
