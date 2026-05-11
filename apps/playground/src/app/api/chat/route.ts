@@ -913,6 +913,7 @@ export async function POST(req: Request) {
 				if (metadata) {
 					latestMessageMetadata = metadata;
 				}
+				return undefined;
 			},
 		});
 		const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
