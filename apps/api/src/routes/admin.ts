@@ -8158,6 +8158,15 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	// granted (price × DEV_PLAN_CREDITS_MULTIPLIER) and would over-report
 	// revenue, and is null on legacy `subscription_*` rows so they would
 	// otherwise contribute nothing.
+	//
+	// Deduplicated by (stripe_invoice_id, organization_id): the FIRST invoice
+	// of every subscription triggers BOTH `checkout.session.completed` (which
+	// inserts `dev_plan_start`) AND `invoice.payment_succeeded` (which then
+	// inserts `dev_plan_renewal`) for the same invoice. Without this NOT
+	// EXISTS guard the initial payment is counted twice. Race orderings can
+	// also produce a `subscription_start` paired with a `dev_plan_start` for
+	// the same invoice on personal orgs. We keep the earliest row per invoice
+	// (tie-broken by id) so each Stripe invoice contributes exactly once.
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
@@ -8183,6 +8192,23 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 						eq(tables.organization.isPersonal, true),
 					),
 				),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} dup
+					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
+						AND dup.stripe_invoice_id IS NOT NULL
+						AND dup.organization_id = ${tables.transaction.organizationId}
+						AND dup.id <> ${tables.transaction.id}
+						AND dup.status = 'completed'
+						AND dup.amount IS NOT NULL
+						AND dup.type IN (
+							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
+							'subscription_start', 'subscription_cancel', 'subscription_end'
+						)
+						AND (
+							dup.created_at < ${tables.transaction.createdAt}
+							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
+						)
+				)`,
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
