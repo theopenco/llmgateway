@@ -14,6 +14,7 @@ import {
 	ClineIcon,
 	CursorIcon,
 	HermesIcon,
+	KiloCodeIcon,
 	N8nIcon,
 	OpenCodeIcon,
 	VSCodeIcon,
@@ -88,6 +89,14 @@ const integrations: Integration[] = [
 			"Use LLM Gateway with Nous Research's Hermes Agent for terminal-based AI coding.",
 		href: "/guides/hermes-agent",
 		icon: HermesIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Kilo Code",
+		description:
+			"Use LLM Gateway with Kilo Code in VS Code for autonomous AI coding with built-in provider support.",
+		href: "/guides/kilo-code",
+		icon: KiloCodeIcon,
 		comingSoon: false,
 	},
 	{
