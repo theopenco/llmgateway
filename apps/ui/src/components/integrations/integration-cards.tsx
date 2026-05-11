@@ -110,7 +110,7 @@ const integrations: Integration[] = [
 		name: "OpenCode Desktop",
 		description:
 			"Use LLM Gateway with OpenCode Desktop app — connect via GUI, no config files needed.",
-		href: "https://docs.llmgateway.io/guides/opencode-desktop",
+		href: "/guides/opencode-desktop",
 		icon: OpenCodeIcon,
 		comingSoon: false,
 	},
