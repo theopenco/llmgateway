@@ -11,8 +11,8 @@ import { getProviderIcon } from "@llmgateway/shared/components";
 
 const RECOMMENDED_MODEL_IDS: string[] = [
 	"claude-opus-4-7",
+	"gpt-5.5",
 	"gemini-3.1-pro-preview",
-	"gpt-5.5-pro",
 	"gpt-5.3-codex",
 	"glm-4.7",
 	"kimi-k2.6",

@@ -3,7 +3,18 @@ import { HTTPException } from "hono/http-exception";
 
 import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 
-import { db, tables, desc, eq, count, and, isNull, sql } from "@llmgateway/db";
+import {
+	db,
+	tables,
+	desc,
+	eq,
+	count,
+	and,
+	isNull,
+	sql,
+	or,
+	ilike,
+} from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -156,6 +167,127 @@ chats.openapi(listChats, async (c) => {
 	}));
 
 	return c.json({ chats: formattedChats });
+});
+
+// Search user's chats by title or message content
+const searchChats = createRoute({
+	method: "get",
+	path: "/search",
+	request: {
+		query: z.object({
+			q: z.string().optional(),
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						chats: z.array(chatSchema),
+						total: z.number(),
+					}),
+				},
+			},
+			description: "Search user's chats",
+		},
+	},
+});
+
+chats.openapi(searchChats, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { q = "", limit = 50, offset = 0 } = c.req.valid("query");
+	const search = q.trim();
+
+	const searchCondition = search
+		? or(
+				ilike(tables.chat.title, `%${search}%`),
+				sql`EXISTS (
+					SELECT 1
+					FROM ${tables.message}
+					WHERE ${tables.message.chatId} = ${tables.chat.id}
+						AND ${tables.message.content} ILIKE ${`%${search}%`}
+				)`,
+			)
+		: undefined;
+
+	const conditions = [
+		eq(tables.chat.userId, user.id),
+		eq(tables.chat.status, "active"),
+	];
+
+	if (searchCondition) {
+		conditions.push(searchCondition);
+	}
+
+	const where = and(...conditions);
+
+	const [chatsWithCount, totalResult] = await Promise.all([
+		db
+			.select({
+				id: tables.chat.id,
+				title: tables.chat.title,
+				model: tables.chat.model,
+				status: tables.chat.status,
+				webSearch: tables.chat.webSearch,
+				shareId: tables.chatShare.id,
+				sharedAt: tables.chatShare.createdAt,
+				createdAt: tables.chat.createdAt,
+				updatedAt: tables.chat.updatedAt,
+				messageCount: count(tables.message.id),
+			})
+			.from(tables.chat)
+			.leftJoin(tables.message, eq(tables.chat.id, tables.message.chatId))
+			.leftJoin(
+				tables.chatShare,
+				and(
+					eq(tables.chat.id, tables.chatShare.chatId),
+					isNull(tables.chatShare.deletedAt),
+				),
+			)
+			.where(where)
+			.groupBy(
+				tables.chat.id,
+				tables.chat.title,
+				tables.chat.model,
+				tables.chat.status,
+				tables.chat.webSearch,
+				tables.chatShare.id,
+				tables.chatShare.createdAt,
+				tables.chat.createdAt,
+				tables.chat.updatedAt,
+			)
+			.orderBy(desc(tables.chat.updatedAt))
+			.limit(limit)
+			.offset(offset),
+		db
+			.select({ count: sql<number>`COUNT(*)`.as("count") })
+			.from(tables.chat)
+			.where(where),
+	]);
+
+	const formattedChats = chatsWithCount.map((chat) => ({
+		id: chat.id,
+		title: chat.title,
+		model: chat.model,
+		status: chat.status as "active" | "archived" | "deleted",
+		webSearch: chat.webSearch ?? false,
+		shareId: chat.shareId,
+		sharedAt: chat.sharedAt?.toISOString() ?? null,
+		createdAt: chat.createdAt.toISOString(),
+		updatedAt: chat.updatedAt.toISOString(),
+		messageCount: chat.messageCount,
+	}));
+
+	return c.json({
+		chats: formattedChats,
+		total: Number(totalResult[0]?.count ?? 0),
+	});
 });
 
 // Create new chat

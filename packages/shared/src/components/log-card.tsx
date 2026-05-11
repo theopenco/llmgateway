@@ -147,6 +147,7 @@ export interface LogCardData {
 	dataStorageCost?: number | string | null;
 	createdAt: string | Date;
 	requestId?: string | null;
+	traceId?: string | null;
 	projectId?: string | null;
 	projectName?: string | null;
 	organizationId?: string | null;
@@ -1029,6 +1030,16 @@ export function LogCard({
 										<CopyMetadataButton
 											value={log.requestId}
 											label="Copy request ID"
+										/>
+									)}
+								</div>
+								<div className="text-muted-foreground">Trace ID</div>
+								<div className="flex items-center gap-1 font-mono text-xs break-all">
+									<span>{log.traceId ?? "—"}</span>
+									{showCopyButtons && log.traceId && (
+										<CopyMetadataButton
+											value={log.traceId}
+											label="Copy trace ID"
 										/>
 									)}
 								</div>

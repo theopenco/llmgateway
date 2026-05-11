@@ -90,6 +90,7 @@ function scrubMessagesBase64(messages: unknown): unknown {
 const logSchema = z.object({
 	id: z.string(),
 	requestId: z.string(),
+	traceId: z.string().nullable().optional(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	organizationId: z.string(),

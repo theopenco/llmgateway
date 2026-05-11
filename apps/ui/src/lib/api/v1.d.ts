@@ -996,6 +996,7 @@ export interface paths {
                             logs: {
                                 id: string;
                                 requestId: string;
+                                traceId?: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                                 organizationId: string;
@@ -1246,6 +1247,7 @@ export interface paths {
                             log: {
                                 id: string;
                                 requestId: string;
+                                traceId?: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                                 organizationId: string;
@@ -2204,6 +2206,7 @@ export interface paths {
                                 usedProvider: string;
                                 usedModelMapping: string | null;
                                 requestId: string | null;
+                                traceId: string | null;
                                 projectId: string;
                                 organizationId: string;
                                 apiKeyId: string;
@@ -3189,6 +3192,12 @@ export interface paths {
                                 clientErrorsCount: number;
                                 gatewayErrorsCount: number;
                                 upstreamErrorsCount: number;
+                                completedCount: number;
+                                lengthLimitCount: number;
+                                contentFilterCount: number;
+                                toolCallsCount: number;
+                                canceledCount: number;
+                                unknownFinishCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 providerCount: number;
@@ -3629,6 +3638,12 @@ export interface paths {
                                 clientErrorsCount: number;
                                 gatewayErrorsCount: number;
                                 upstreamErrorsCount: number;
+                                completedCount: number;
+                                lengthLimitCount: number;
+                                contentFilterCount: number;
+                                toolCallsCount: number;
+                                canceledCount: number;
+                                unknownFinishCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 updatedAt: string;
@@ -7278,6 +7293,63 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chats/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    q?: string;
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Search user's chats */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            chats: {
+                                id: string;
+                                title: string;
+                                model: string;
+                                /** @enum {string} */
+                                status: "active" | "archived" | "deleted";
+                                webSearch: boolean;
+                                shareId: string | null;
+                                /** Format: date-time */
+                                sharedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                messageCount: number;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;

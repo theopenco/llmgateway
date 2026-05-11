@@ -1497,6 +1497,26 @@ async function handleInvoicePaymentSucceeded(
 
 	const { organizationId, organization } = result;
 
+	// Stripe fires both `checkout.session.completed` and
+	// `invoice.payment_succeeded` for the FIRST invoice of every new
+	// subscription. The checkout handler already inserts the
+	// `dev_plan_start` (or `subscription_start`) row and does the
+	// idempotent state setup, so re-running this handler for the same
+	// invoice would double-insert (and inflate admin revenue reporting)
+	// and also reset the just-set billing cycle. Bail out if a row for
+	// this invoice already exists, regardless of type.
+	if (invoice.id) {
+		const existingForInvoice = await db.query.transaction.findFirst({
+			where: { stripeInvoiceId: { eq: invoice.id } },
+		});
+		if (existingForInvoice) {
+			logger.info(
+				`Skipping invoice.payment_succeeded for ${invoice.id}: transaction ${existingForInvoice.id} (type=${existingForInvoice.type}) already recorded`,
+			);
+			return;
+		}
+	}
+
 	// Check if this is a dev plan subscription renewal
 	const isDevPlanRenewal =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
