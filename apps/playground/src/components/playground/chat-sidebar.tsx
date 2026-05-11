@@ -390,8 +390,33 @@ export function ChatSidebar({
 		null,
 	);
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	const [isMac, setIsMac] = useState(false);
 
 	const chats = chatsData?.chats ?? [];
+
+	useEffect(() => {
+		setIsMac(/(Mac|iPhone|iPad|iPod)/i.test(window.navigator.platform));
+	}, []);
+
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			const key = event.key.toLowerCase();
+			const isSearchShortcut = isMac
+				? event.metaKey && key === "k" && !event.altKey && !event.ctrlKey
+				: event.altKey && key === "k" && !event.metaKey && !event.ctrlKey;
+
+			if (!isSearchShortcut || event.shiftKey || event.defaultPrevented) {
+				return;
+			}
+
+			event.preventDefault();
+			setIsSearchOpen(true);
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [isMac]);
 
 	const logout = async () => {
 		posthog.reset();
@@ -676,20 +701,10 @@ export function ChatSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							type="button"
-							tooltip="Search Chats"
-							onClick={() => setIsSearchOpen(true)}
-						>
-							<Search className="h-4 w-4" />
-							<span>Search Chats</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarHeader>
 
-			<SidebarContent className="overflow-hidden py-4">
+			<SidebarContent className="overflow-hidden py-2">
 				{/* <SidebarMenu>
 					<SidebarMenuItem>
 						<OrganizationSwitcher
@@ -713,6 +728,24 @@ export function ChatSidebar({
 						)}
 					</SidebarMenuItem>
 				</SidebarMenu> */}
+				<div>
+					<div className="mx-2 mb-3 border-t border-sidebar-border" />
+					<SidebarMenu className=" px-2">
+						<SidebarMenuItem>
+							<SidebarMenuButton
+								type="button"
+								tooltip="Search Chats"
+								onClick={() => setIsSearchOpen(true)}
+							>
+								<Search className="h-4 w-4" />
+								<span>Search Chats</span>
+								<kbd className="ml-auto text-xs font-medium text-muted-foreground opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100 group-data-[collapsible=icon]:hidden">
+									{isMac ? "⌘K" : "Alt+K"}
+								</kbd>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+					</SidebarMenu>
+				</div>
 				<div
 					aria-hidden={isHistoryHidden}
 					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
