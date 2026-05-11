@@ -9,6 +9,8 @@ import {
 	AnthropicIcon,
 	AutohandIcon,
 	CodexIcon,
+	ContinueIcon,
+	HermesAgentIcon,
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
@@ -70,6 +72,22 @@ const integrations: Integration[] = [
 			"Use LLM Gateway with Cline for AI-powered coding assistance in VS Code.",
 		href: "https://docs.llmgateway.io/guides/cline",
 		icon: ClineIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Continue",
+		description:
+			"Use LLM Gateway with Continue CLI for AI-powered coding assistance with 210+ models.",
+		href: "https://docs.llmgateway.io/guides/continue",
+		icon: ContinueIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Hermes Agent",
+		description:
+			"Use LLM Gateway with Hermes Agent for AI-powered terminal coding with tool use and browser automation.",
+		href: "https://docs.llmgateway.io/guides/hermes-agent",
+		icon: HermesAgentIcon,
 		comingSoon: false,
 	},
 	{

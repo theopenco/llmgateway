@@ -3,13 +3,13 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
 export const metadata = {
-	title: "Guides — Integrate with Claude Code, Cursor, Cline",
+	title: "Guides — Integrate with Claude Code, Cursor, Cline, Hermes Agent",
 	description:
-		"Step-by-step guides for integrating LLM Gateway with Claude Code, Cursor, Cline, n8n, and more.",
+		"Step-by-step guides for integrating LLM Gateway with Claude Code, Cursor, Cline, Continue, Hermes Agent, n8n, and more.",
 	openGraph: {
-		title: "Guides — Integrate with Claude Code, Cursor, Cline",
+		title: "Guides — Integrate with Claude Code, Cursor, Cline, Hermes Agent",
 		description:
-			"Step-by-step guides for integrating LLM Gateway with Claude Code, Cursor, Cline, n8n, and more.",
+			"Step-by-step guides for integrating LLM Gateway with Claude Code, Cursor, Cline, Continue, Hermes Agent, n8n, and more.",
 	},
 };
 
