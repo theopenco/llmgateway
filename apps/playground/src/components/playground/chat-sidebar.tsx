@@ -46,6 +46,7 @@ import {
 	SidebarMenuAction,
 	SidebarMenuButton,
 	SidebarMenuItem,
+	useSidebar,
 } from "@/components/ui/sidebar";
 import {
 	useChats,
@@ -371,6 +372,7 @@ export function ChatSidebar({
 	const router = useRouter();
 	const pathname = usePathname();
 	const posthog = usePostHog();
+	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
@@ -544,6 +546,7 @@ export function ChatSidebar({
 	);
 
 	const isAuthenticated = !!user;
+	const isHistoryHidden = sidebarState === "collapsed" && !isMobile;
 
 	// Loading auth state → show lightweight skeleton to avoid hydration issues
 	if (isUserLoading) {
@@ -710,27 +713,32 @@ export function ChatSidebar({
 						)}
 					</SidebarMenuItem>
 				</SidebarMenu> */}
-				{chats.length === 0 ? (
-					<div className="flex flex-col items-center justify-center py-8 text-center group-data-[collapsible=icon]:hidden">
-						<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
-						<p className="text-sm text-muted-foreground mb-2">
-							No chat history
-						</p>
-						<p className="text-xs text-muted-foreground">
-							Start a new conversation to see it here
-						</p>
-					</div>
-				) : (
-					<List
-						className="min-h-0 w-full flex-1"
-						style={{ width: "100%" }}
-						rowComponent={ChatHistoryRowComponent}
-						rowCount={historyRows.length}
-						rowHeight={getChatHistoryRowHeight}
-						rowProps={rowProps}
-						overscanCount={8}
-					/>
-				)}
+				<div
+					aria-hidden={isHistoryHidden}
+					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
+				>
+					{chats.length === 0 ? (
+						<div className="flex flex-col items-center justify-center py-8 text-center">
+							<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
+							<p className="text-sm text-muted-foreground mb-2">
+								No chat history
+							</p>
+							<p className="text-xs text-muted-foreground">
+								Start a new conversation to see it here
+							</p>
+						</div>
+					) : (
+						<List
+							className="min-h-0 w-full flex-1"
+							style={{ width: "100%" }}
+							rowComponent={ChatHistoryRowComponent}
+							rowCount={historyRows.length}
+							rowHeight={getChatHistoryRowHeight}
+							rowProps={rowProps}
+							overscanCount={8}
+						/>
+					)}
+				</div>
 			</SidebarContent>
 
 			<SidebarFooter>

@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { Edit2, Loader2, MessageSquare, Search, X } from "lucide-react";
+import { Plus, Loader2, MessageSquare, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 
@@ -158,7 +158,7 @@ function SearchRowComponent({
 						onClick={onNewChat}
 						className="flex h-11 w-full items-center gap-3 rounded-md px-4 text-left text-sm font-semibold text-foreground transition-colors hover:bg-muted/60"
 					>
-						<Edit2 className="size-4 shrink-0" />
+						<Plus className="size-4 shrink-0" />
 						<span>New chat</span>
 					</button>
 				</div>
