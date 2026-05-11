@@ -42,6 +42,7 @@ import {
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
+	getProviderEnvConfig,
 	getProviderEnvValue,
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
@@ -1008,27 +1009,38 @@ function getVideoExcludedConfigIndices(
 	if (!apiKeyValue) {
 		return undefined;
 	}
-	const valueCount = apiKeyValue
+	const apiKeys = apiKeyValue
 		.split(",")
 		.map((value) => value.trim())
-		.filter((value) => value.length > 0).length;
-	if (valueCount === 0) {
+		.filter((value) => value.length > 0);
+	if (apiKeys.length === 0) {
 		return undefined;
 	}
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 	const storageProjectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
+	// Parse the project env directly (no last-value fallback) so that an index
+	// without an explicit project entry is treated as a mismatch — otherwise an
+	// extra API key would silently inherit the previous index's project and be
+	// kept by the filter even though it isn't actually for that project.
+	const projectEnvVar = getProviderEnvConfig(providerId)?.required?.project;
+	const projectEnvValue = projectEnvVar
+		? process.env[projectEnvVar]
+		: undefined;
+	const projects = projectEnvValue
+		? projectEnvValue
+				.split(",")
+				.map((value) => value.trim())
+				.filter((value) => value.length > 0)
+		: [];
 	const excluded = new Set<number>();
-	for (let index = 0; index < valueCount; index += 1) {
+	for (let index = 0; index < apiKeys.length; index += 1) {
 		const baseUrl = getProviderEnvValue(providerId, "baseUrl", index);
 		if (baseUrl && baseUrl !== defaultBaseUrl) {
 			excluded.add(index);
 			continue;
 		}
-		if (storageProjectId) {
-			const indexProjectId = getProviderEnvValue(providerId, "project", index);
-			if (indexProjectId && indexProjectId !== storageProjectId) {
-				excluded.add(index);
-			}
+		if (storageProjectId && projects[index] !== storageProjectId) {
+			excluded.add(index);
 		}
 	}
 	return excluded.size > 0 ? excluded : undefined;
