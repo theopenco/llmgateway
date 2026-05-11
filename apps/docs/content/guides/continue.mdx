@@ -35,16 +35,23 @@ Create a config file at `~/.continue/config.yaml`:
 name: llmgateway
 version: 0.0.1
 models:
-  - name: claude-sonnet-4-5
+  - name: claude-sonnet-4-6
     provider: openai
-    model: claude-sonnet-4-5
+    model: claude-sonnet-4-6
     apiBase: https://api.llmgateway.io/v1
     apiKey: llmgtwy_your-api-key-here
 ```
 
+Then mark onboarding as complete so the CLI uses your config directly without prompting:
+
+```bash
+touch ~/.continue/.onboarding_complete
+```
+
 <Callout type="info">
-	Replace `llmgtwy_your-api-key-here` with your actual API key from the
-	dashboard.
+	Without the `.onboarding_complete` file, Continue CLI shows an onboarding
+	wizard on first run even if `config.yaml` already exists. Creating this file
+	tells the CLI to skip the wizard and use your config.
 </Callout>
 
 </Step>
@@ -58,19 +65,19 @@ Add as many models as you want from the [models page](https://llmgateway.io/mode
 name: llmgateway
 version: 0.0.1
 models:
-  - name: claude-sonnet-4-5
+  - name: claude-sonnet-4-6
     provider: openai
-    model: claude-sonnet-4-5
+    model: claude-sonnet-4-6
     apiBase: https://api.llmgateway.io/v1
     apiKey: llmgtwy_your-api-key-here
-  - name: gpt-4o
+  - name: gpt-5.5
     provider: openai
-    model: gpt-4o
+    model: gpt-5.5
     apiBase: https://api.llmgateway.io/v1
     apiKey: llmgtwy_your-api-key-here
-  - name: gemini-2.5-pro
+  - name: gemini-3.1-pro
     provider: openai
-    model: gemini-2.5-pro
+    model: gemini-3.1-pro
     apiBase: https://api.llmgateway.io/v1
     apiKey: llmgtwy_your-api-key-here
 ```
@@ -86,6 +93,12 @@ Launch Continue CLI:
 
 ```bash
 cn
+```
+
+Alternatively, you can pass the config explicitly (this also skips the onboarding wizard):
+
+```bash
+cn --config ~/.continue/config.yaml
 ```
 
 Or use non-interactive mode:
@@ -128,9 +141,9 @@ Add your LLM Gateway models to the config:
 name: llmgateway
 version: 0.0.1
 models:
-  - name: claude-sonnet-4-5
+  - name: claude-sonnet-4-6
     provider: openai
-    model: claude-sonnet-4-5
+    model: claude-sonnet-4-6
     apiBase: https://api.llmgateway.io/v1
     apiKey: llmgtwy_your-api-key-here
 ```
@@ -163,9 +176,9 @@ Place a `.continue/config.yaml` in your project root to override the global conf
 name: project-config
 version: 0.0.1
 models:
-  - name: gpt-4o-mini
+  - name: gpt-5.5
     provider: openai
-    model: gpt-4o-mini
+    model: gpt-5.5
     apiBase: https://api.llmgateway.io/v1
     apiKey: llmgtwy_your-api-key-here
 ```
@@ -196,9 +209,9 @@ By default, LLM Gateway automatically fails over to alternative providers if you
 
 ```yaml
 models:
-  - name: claude-sonnet-4-5
+  - name: claude-sonnet-4-6
     provider: openai
-    model: claude-sonnet-4-5
+    model: claude-sonnet-4-6
     apiBase: https://api.llmgateway.io/v1
     apiKey: llmgtwy_your-api-key-here
     requestOptions:
