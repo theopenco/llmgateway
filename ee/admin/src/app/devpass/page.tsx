@@ -523,30 +523,30 @@ export default async function DevpassPage({
 						)}
 						Cycle margin
 					</div>
-					<div
-						className={cn(
-							"mt-2 text-2xl font-semibold tabular-nums",
-							kpis.totalMargin < 0 ? "text-rose-600 dark:text-rose-400" : "",
-						)}
-					>
-						{currencyFormatter.format(kpis.totalMargin)}
+					<div className="mt-2 flex items-baseline gap-2">
+						<span
+							className={cn(
+								"text-2xl font-semibold tabular-nums",
+								kpis.totalMargin < 0 ? "text-rose-600 dark:text-rose-400" : "",
+							)}
+						>
+							{currencyFormatter.format(kpis.totalMargin)}
+						</span>
+						{kpis.marginPct !== null && kpis.marginPct !== undefined ? (
+							<span
+								className={cn(
+									"rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+									kpis.marginPct < 0
+										? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
+										: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+								)}
+								title="Profit margin: cycle margin / gross MRR"
+							>
+								{kpis.marginPct.toFixed(1)}% profit
+							</span>
+						) : null}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						{kpis.marginPct !== null && kpis.marginPct !== undefined ? (
-							<>
-								<span
-									className={cn(
-										"font-medium tabular-nums",
-										kpis.marginPct < 0
-											? "text-rose-600 dark:text-rose-400"
-											: "text-emerald-600 dark:text-emerald-400",
-									)}
-								>
-									{kpis.marginPct.toFixed(1)}% margin
-								</span>{" "}
-								·{" "}
-							</>
-						) : null}
 						{currencyFormatter.format(kpis.totalRealCostCycle)} provider cost
 						this cycle
 					</div>

@@ -30,6 +30,7 @@ export const metadata: Metadata = {
 	title: "Pricing — DevPass",
 	description:
 		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 200+ models. Pair with SoulForge to cut another ~50% of tokens.",
+	alternates: { canonical: "/pricing" },
 	openGraph: {
 		title: "Pricing — DevPass",
 		description:

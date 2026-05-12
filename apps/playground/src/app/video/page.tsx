@@ -13,6 +13,7 @@ export const metadata: Metadata = {
 	title: "AI Video Generation",
 	description:
 		"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in one playground.",
+	alternates: { canonical: "/video" },
 };
 
 export default async function VideoPage({

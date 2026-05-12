@@ -79,7 +79,9 @@ export function DevpassTimeseriesChart({
 					<CardTitle>DevPass revenue & usage</CardTitle>
 					<CardDescription>
 						Daily revenue from DevPass transactions, real provider cost across
-						current and former subscribers, and the resulting margin.
+						current and former subscribers, and the resulting margin. Totals
+						aggregate the selected date range — note these will not match the
+						KPI cards above, which always reflect the current billing cycle.
 					</CardDescription>
 				</div>
 				<div className="flex">
