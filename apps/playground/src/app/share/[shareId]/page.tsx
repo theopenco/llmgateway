@@ -15,11 +15,19 @@ interface SharedMessage {
 	role: "user" | "assistant" | "system";
 	content: string | null;
 	images: string | null;
+	audios: string | null;
 	reasoning: string | null;
 	tools: string | null;
 	metadata?: unknown;
 	sequence: number;
 	createdAt: string;
+}
+
+interface StoredAudioPart {
+	type?: string;
+	url?: string;
+	mediaType?: string;
+	name?: string;
 }
 
 interface SharedChatResponse {
@@ -186,6 +194,27 @@ function toUiMessage(message: SharedMessage): UIMessage {
 		}
 	}
 
+	if (message.audios) {
+		try {
+			const parsedAudios = JSON.parse(message.audios) as unknown;
+			if (Array.isArray(parsedAudios)) {
+				for (const audio of parsedAudios.filter(isStoredAudioPart)) {
+					if (!audio.url) {
+						continue;
+					}
+					parts.push({
+						type: "file",
+						mediaType: audio.mediaType ?? "audio/mpeg",
+						url: audio.url,
+						...(audio.name ? { name: audio.name } : {}),
+					});
+				}
+			}
+		} catch {
+			// Ignore malformed legacy audio payloads in public snapshots.
+		}
+	}
+
 	if (message.tools) {
 		try {
 			const parsedTools = JSON.parse(message.tools) as unknown;
@@ -216,6 +245,15 @@ function isStoredImagePart(value: unknown): value is StoredImagePart {
 				(!("url" in value.image_url) ||
 					value.image_url.url === undefined ||
 					typeof value.image_url.url === "string")))
+	);
+}
+
+function isStoredAudioPart(value: unknown): value is StoredAudioPart {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"url" in value &&
+		typeof (value as { url?: unknown }).url === "string"
 	);
 }
 

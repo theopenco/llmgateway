@@ -1,10 +1,112 @@
 import {
 	type BaseMessage,
 	isImageUrlContent,
+	isInputAudioContent,
 	isTextContent,
+	type ProviderId,
 } from "@llmgateway/models";
 
 import { processImageUrl } from "./process-image-url.js";
+
+type GoogleAudioFormat =
+	| "wav"
+	| "mp3"
+	| "aiff"
+	| "aac"
+	| "ogg"
+	| "flac"
+	| "m4a"
+	| "mpeg"
+	| "mpga"
+	| "mp4"
+	| "pcm"
+	| "webm";
+
+const VERTEX_FAMILY: ReadonlySet<string> = new Set(["google-vertex", "quartz"]);
+const AI_STUDIO_FAMILY: ReadonlySet<string> = new Set([
+	"google-ai-studio",
+	"glacier",
+]);
+
+const AI_STUDIO_AUDIO_MIME: Partial<Record<GoogleAudioFormat, string>> = {
+	wav: "audio/wav",
+	mp3: "audio/mp3",
+	aiff: "audio/aiff",
+	aac: "audio/aac",
+	ogg: "audio/ogg",
+	flac: "audio/flac",
+};
+
+const VERTEX_AUDIO_MIME: Partial<Record<GoogleAudioFormat, string>> = {
+	wav: "audio/wav",
+	mp3: "audio/mp3",
+	aac: "audio/x-aac",
+	ogg: "audio/ogg",
+	flac: "audio/flac",
+	m4a: "audio/m4a",
+	mpeg: "audio/mpeg",
+	mpga: "audio/mpga",
+	mp4: "audio/mp4",
+	pcm: "audio/pcm",
+	webm: "audio/webm",
+};
+
+/**
+ * Returns true if the given provider can accept the given audio format.
+ * For Google providers, checks the family-specific MIME map (AI Studio vs
+ * Vertex have different format support). For non-Google providers, returns
+ * true (this helper has no opinion about them — non-Google providers must be
+ * filtered upstream by the `provider.audio` capability flag).
+ */
+export function googleProviderSupportsAudioFormat(
+	providerId: ProviderId | string | undefined,
+	format: string,
+): boolean {
+	const id = providerId ?? "";
+	if (VERTEX_FAMILY.has(id)) {
+		return format in VERTEX_AUDIO_MIME;
+	}
+	if (AI_STUDIO_FAMILY.has(id)) {
+		return format in AI_STUDIO_AUDIO_MIME;
+	}
+	return true;
+}
+
+/**
+ * Thrown when an audio format passes schema validation but is not supported
+ * by the resolved Google provider (AI Studio vs Vertex have different MIME
+ * support). The gateway maps this to HTTP 400 so the client sees the actual
+ * format/provider mismatch instead of a generic 500.
+ */
+export class UnsupportedAudioFormatError extends Error {
+	readonly format: string;
+	readonly providerTarget: string;
+	constructor(format: string, providerTarget: string) {
+		super(`Audio format "${format}" is not supported by ${providerTarget}.`);
+		this.name = "UnsupportedAudioFormatError";
+		this.format = format;
+		this.providerTarget = providerTarget;
+	}
+}
+
+function resolveGoogleAudioMime(
+	format: GoogleAudioFormat,
+	providerId: ProviderId | string | undefined,
+): string {
+	const map = VERTEX_FAMILY.has(providerId ?? "")
+		? VERTEX_AUDIO_MIME
+		: AI_STUDIO_FAMILY.has(providerId ?? "")
+			? AI_STUDIO_AUDIO_MIME
+			: { ...AI_STUDIO_AUDIO_MIME, ...VERTEX_AUDIO_MIME };
+	const mime = map[format];
+	if (!mime) {
+		const target = VERTEX_FAMILY.has(providerId ?? "")
+			? "Vertex AI"
+			: "Google AI Studio";
+		throw new UnsupportedAudioFormatError(format, target);
+	}
+	return mime;
+}
 
 // Google-specific message format with all part types
 interface GooglePart {
@@ -46,6 +148,7 @@ export async function transformGoogleMessages(
 	userPlan: "free" | "pro" | "enterprise" | null = null,
 	// Map of tool_call IDs to their thought signatures (retrieved from cache at gateway level)
 	thoughtSignatureCache?: Map<string, string>,
+	providerId?: ProviderId | string,
 ): Promise<GoogleMessageExtended[]> {
 	const result: GoogleMessageExtended[] = [];
 
@@ -173,6 +276,17 @@ export async function transformGoogleMessages(
 							error instanceof Error ? error.message : "Unknown error";
 						throw new Error(`Failed to process image: ${errorMsg}`);
 					}
+				} else if (isInputAudioContent(content)) {
+					const mimeType = resolveGoogleAudioMime(
+						content.input_audio.format as GoogleAudioFormat,
+						providerId,
+					);
+					parts.push({
+						inline_data: {
+							mime_type: mimeType,
+							data: content.input_audio.data,
+						},
+					});
 				} else {
 					throw new Error(
 						`Not supported content type yet: ${(content as any).type}`,

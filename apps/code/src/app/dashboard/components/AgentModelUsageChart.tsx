@@ -1,13 +1,6 @@
 "use client";
 
-import {
-	addDays,
-	addHours,
-	format,
-	parseISO,
-	startOfDay,
-	startOfHour,
-} from "date-fns";
+import { format, parseISO } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -32,8 +25,10 @@ import { useApi } from "@/lib/fetch-client";
 import type { paths } from "@/lib/api/v1";
 import type { TooltipProps } from "recharts";
 
-type ApiLog =
-	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
+type ActivityResponse =
+	paths["/activity"]["get"]["responses"][200]["content"]["application/json"];
+type ActivityRow = ActivityResponse["activity"][number];
+type ModelUsage = ActivityRow["modelBreakdown"][number];
 
 export type AgentChartTimeRange = "1h" | "4h" | "24h" | "7d" | "30d";
 
@@ -66,63 +61,8 @@ const MODEL_COLORS = [
 	"#f97316",
 ];
 
-const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
-
-const RANGE_OFFSET_MS: Record<AgentChartTimeRange, number> = {
-	"1h": HOUR_MS,
-	"4h": 4 * HOUR_MS,
-	"24h": 24 * HOUR_MS,
-	"7d": 7 * DAY_MS,
-	"30d": 30 * DAY_MS,
-};
-
-function getRangeStart(range: AgentChartTimeRange): Date {
-	return new Date(Date.now() - RANGE_OFFSET_MS[range]);
-}
-
-function getGranularity(range: AgentChartTimeRange): "hourly" | "daily" {
-	if (range === "1h" || range === "4h" || range === "24h") {
-		return "hourly";
-	}
-	return "daily";
-}
-
-function getSlots(range: AgentChartTimeRange): Date[] {
-	const granularity = getGranularity(range);
-	const now = new Date();
-	const slots: Date[] = [];
-	if (granularity === "hourly") {
-		const totalHours = range === "1h" ? 1 : range === "4h" ? 4 : 24;
-		const end = startOfHour(now);
-		const start = addHours(end, -(totalHours - 1));
-		for (let i = 0; i < totalHours; i++) {
-			slots.push(addHours(start, i));
-		}
-	} else {
-		const totalDays = range === "7d" ? 7 : 30;
-		const end = startOfDay(now);
-		const start = addDays(end, -(totalDays - 1));
-		for (let i = 0; i < totalDays; i++) {
-			slots.push(addDays(start, i));
-		}
-	}
-	return slots;
-}
-
-function formatSlotKey(date: Date, granularity: "hourly" | "daily"): string {
-	if (granularity === "hourly") {
-		return format(date, "yyyy-MM-dd'T'HH:00:00");
-	}
-	return format(date, "yyyy-MM-dd");
-}
-
-function bucketLogToSlot(log: ApiLog, granularity: "hourly" | "daily"): string {
-	const date = new Date(log.createdAt);
-	if (granularity === "hourly") {
-		return formatSlotKey(startOfHour(date), granularity);
-	}
-	return formatSlotKey(startOfDay(date), granularity);
+function isHourlyRange(range: AgentChartTimeRange): boolean {
+	return range === "1h" || range === "4h" || range === "24h";
 }
 
 function formatTokens(n: number): string {
@@ -136,71 +76,7 @@ function formatTokens(n: number): string {
 }
 
 interface AgentModelUsageChartProps {
-	sources: string[];
-}
-
-interface SlotData {
-	slot: string;
-	totalRequests: number;
-	totalCost: number;
-	totalTokens: number;
-	models: Record<string, { requests: number; cost: number; tokens: number }>;
-}
-
-function buildChartData(
-	logs: ApiLog[],
-	range: AgentChartTimeRange,
-): { rows: SlotData[]; models: string[] } {
-	const granularity = getGranularity(range);
-	const slots = getSlots(range);
-	const slotMap = new Map<string, SlotData>();
-	for (const date of slots) {
-		const key = formatSlotKey(date, granularity);
-		slotMap.set(key, {
-			slot: key,
-			totalRequests: 0,
-			totalCost: 0,
-			totalTokens: 0,
-			models: {},
-		});
-	}
-
-	const rangeStart = getRangeStart(range).getTime();
-	const modelCostTotals = new Map<string, number>();
-
-	for (const log of logs) {
-		const ts = new Date(log.createdAt).getTime();
-		if (ts < rangeStart) {
-			continue;
-		}
-		const key = bucketLogToSlot(log, granularity);
-		const slot = slotMap.get(key);
-		if (!slot) {
-			continue;
-		}
-		const modelId = log.usedModel || log.requestedModel || "unknown";
-		const cost = log.cost ?? 0;
-		const tokens = Number(log.totalTokens ?? 0);
-		slot.totalRequests += 1;
-		slot.totalCost += cost;
-		slot.totalTokens += tokens;
-		const entry = slot.models[modelId] ?? {
-			requests: 0,
-			cost: 0,
-			tokens: 0,
-		};
-		entry.requests += 1;
-		entry.cost += cost;
-		entry.tokens += tokens;
-		slot.models[modelId] = entry;
-		modelCostTotals.set(modelId, (modelCostTotals.get(modelId) ?? 0) + cost);
-	}
-
-	const models = Array.from(modelCostTotals.entries())
-		.sort((a, b) => b[1] - a[1])
-		.map(([id]) => id);
-	const rows = Array.from(slotMap.values());
-	return { rows, models };
+	projectId: string;
 }
 
 interface ChartRow {
@@ -291,46 +167,65 @@ function ChartTooltipContent({
 	);
 }
 
-export function AgentModelUsageChart({ sources }: AgentModelUsageChartProps) {
+export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 	const [range, setRange] = useState<AgentChartTimeRange>("24h");
 	const [metric, setMetric] = useState<Metric>("cost");
 	const api = useApi();
-	const { startDate, endDate } = useMemo(() => {
-		const end = new Date();
-		const start = new Date(end.getTime() - RANGE_OFFSET_MS[range]);
-		return { startDate: start.toISOString(), endDate: end.toISOString() };
-	}, [range]);
-	const sourceParam = useMemo(() => sources.join(","), [sources]);
 
 	const { data, isLoading, isFetching } = api.useQuery(
 		"get",
-		"/logs",
+		"/activity",
 		{
 			params: {
 				query: {
-					orderBy: "createdAt_desc",
-					limit: "100",
-					source: sourceParam,
-					startDate,
-					endDate,
+					timeRange: range,
+					projectId,
 				},
 			},
 		},
 		{
-			enabled: sources.length > 0,
+			enabled: !!projectId,
 			refetchOnWindowFocus: false,
 			staleTime: 30_000,
 		},
 	);
 
-	const logs = useMemo(() => data?.logs ?? [], [data]);
-	const { rows, models } = useMemo(
-		() => buildChartData(logs, range),
-		[logs, range],
-	);
+	const hourly = isHourlyRange(range);
 
-	const granularity = getGranularity(range);
-	const hourly = granularity === "hourly";
+	const { rows, models } = useMemo(() => {
+		const activity: ActivityRow[] = data?.activity ?? [];
+		const modelCostTotals = new Map<string, number>();
+		const built = activity.map((row) => {
+			const slot = hourly ? row.date : `${row.date}T00:00:00`;
+			const perModel: Record<
+				string,
+				{ requests: number; cost: number; tokens: number }
+			> = {};
+			for (const m of row.modelBreakdown as ModelUsage[]) {
+				const id = m.id || "unknown";
+				perModel[id] = {
+					requests: Number(m.requestCount),
+					cost: Number(m.cost),
+					tokens: Number(m.totalTokens),
+				};
+				modelCostTotals.set(
+					id,
+					(modelCostTotals.get(id) ?? 0) + Number(m.cost),
+				);
+			}
+			return {
+				slot,
+				totalRequests: row.requestCount,
+				totalCost: row.cost,
+				totalTokens: row.totalTokens,
+				models: perModel,
+			};
+		});
+		const sortedModels = Array.from(modelCostTotals.entries())
+			.sort((a, b) => b[1] - a[1])
+			.map(([id]) => id);
+		return { rows: built, models: sortedModels };
+	}, [data, hourly]);
 
 	const chartData: ChartRow[] = useMemo(
 		() =>
@@ -395,7 +290,7 @@ export function AgentModelUsageChart({ sources }: AgentModelUsageChartProps) {
 							: metric === "tokens"
 								? "tokens"
 								: "requests"}{" "}
-						over {subtitleLabel}
+						across your DevPass project over {subtitleLabel}
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">

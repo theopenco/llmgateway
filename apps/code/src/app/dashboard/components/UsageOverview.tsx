@@ -6,7 +6,6 @@ import { Activity, Coins, Cpu, TrendingUp } from "lucide-react";
 import { useApi } from "@/lib/fetch-client";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
-import { ALL_CODING_AGENT_SOURCES } from "./CodingAgents";
 
 import type { paths } from "@/lib/api/v1";
 import type { DevPlanCycle } from "@llmgateway/shared";
@@ -256,8 +255,8 @@ export default function UsageOverview({
 				/>
 			</div>
 
-			{/* Stacked model usage chart — aggregated across all coding agents */}
-			<AgentModelUsageChart sources={ALL_CODING_AGENT_SOURCES} />
+			{/* Stacked model usage chart — scoped to the DevPass project. */}
+			{projectId ? <AgentModelUsageChart projectId={projectId} /> : null}
 		</div>
 	);
 }

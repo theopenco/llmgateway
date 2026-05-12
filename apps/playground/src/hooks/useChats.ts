@@ -22,6 +22,7 @@ export interface ChatMessage {
 	role: "user" | "assistant" | "system";
 	content: string | null;
 	images: string | null; // JSON string from API
+	audios: string | null; // JSON string of audio attachments
 	reasoning: string | null; // Reasoning content from AI
 	tools: string | null; // Tool parts JSON
 	metadata: unknown | null; // Assistant response metadata
