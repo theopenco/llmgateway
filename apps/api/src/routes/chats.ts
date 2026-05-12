@@ -9,6 +9,7 @@ import {
 	asc,
 	desc,
 	eq,
+	gt,
 	count,
 	and,
 	isNull,
@@ -107,6 +108,16 @@ const createMessageSchema = z
 			message: "Either content, images, or audios must be provided",
 		},
 	);
+
+const updateMessageSchema = z
+	.object({
+		content: z.string().optional(),
+		images: z.string().optional(),
+		audios: z.string().optional(),
+	})
+	.refine((data) => data.content || data.images || data.audios, {
+		message: "Either content, images, or audios must be provided",
+	});
 
 async function enforceActiveChatLimit(userId: string) {
 	const isUnlimited = await hasActiveApiKey(userId);
@@ -1248,6 +1259,121 @@ chats.openapi(addMessage, async (c) => {
 		},
 		201,
 	);
+});
+
+const updateMessage = createRoute({
+	method: "patch",
+	path: "/{id}/messages/{messageId}",
+	request: {
+		params: z.object({
+			id: z.string(),
+			messageId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateMessageSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: messageSchema,
+					}),
+				},
+			},
+			description: "Message updated successfully",
+		},
+	},
+});
+
+chats.openapi(updateMessage, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id, messageId } = c.req.valid("param");
+	const body = c.req.valid("json");
+
+	const updatedMessage = await db.transaction(async (tx) => {
+		const [message] = await tx
+			.select({
+				id: tables.message.id,
+				role: tables.message.role,
+				sequence: tables.message.sequence,
+			})
+			.from(tables.message)
+			.innerJoin(tables.chat, eq(tables.message.chatId, tables.chat.id))
+			.where(
+				and(
+					eq(tables.chat.id, id),
+					eq(tables.chat.userId, user.id),
+					eq(tables.chat.status, "active"),
+					eq(tables.message.id, messageId),
+				),
+			)
+			.limit(1);
+
+		if (!message) {
+			throw new HTTPException(404, { message: "Message not found" });
+		}
+
+		if (message.role !== "user") {
+			throw new HTTPException(400, {
+				message: "Only user messages can be edited",
+			});
+		}
+
+		await tx
+			.delete(tables.message)
+			.where(
+				and(
+					eq(tables.message.chatId, id),
+					gt(tables.message.sequence, message.sequence),
+				),
+			);
+
+		const [updated] = await tx
+			.update(tables.message)
+			.set({
+				content: body.content ?? null,
+				images: body.images ?? null,
+				audios: body.audios ?? null,
+				reasoning: null,
+				tools: null,
+				metadata: null,
+				updatedAt: new Date(),
+			})
+			.where(eq(tables.message.id, messageId))
+			.returning();
+
+		await tx
+			.update(tables.chat)
+			.set({ updatedAt: new Date() })
+			.where(eq(tables.chat.id, id));
+
+		return updated;
+	});
+
+	return c.json({
+		message: {
+			id: updatedMessage.id,
+			role: updatedMessage.role as "user" | "assistant" | "system",
+			content: updatedMessage.content,
+			images: updatedMessage.images,
+			audios: updatedMessage.audios,
+			reasoning: updatedMessage.reasoning,
+			tools: updatedMessage.tools ?? null,
+			metadata: updatedMessage.metadata ?? null,
+			sequence: updatedMessage.sequence,
+			createdAt: updatedMessage.createdAt.toISOString(),
+		},
+	});
 });
 
 export { chats };

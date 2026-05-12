@@ -490,6 +490,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/chats/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active public shared chats (id + updatedAt) for sitemaps. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            shares: {
+                                id: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/chats/share/{shareId}": {
         parameters: {
             query?: never;
@@ -7775,6 +7818,69 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/chats/{id}/messages/{messageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    messageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        content?: string;
+                        images?: string;
+                        audios?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Message updated successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: {
+                                id: string;
+                                /** @enum {string} */
+                                role: "user" | "assistant" | "system";
+                                content: string | null;
+                                images: string | null;
+                                audios: string | null;
+                                reasoning: string | null;
+                                tools: string | null;
+                                metadata: {
+                                    [key: string]: unknown;
+                                } | null;
+                                sequence: number;
+                                /** Format: date-time */
+                                createdAt: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/subscriptions/create-pro-subscription": {

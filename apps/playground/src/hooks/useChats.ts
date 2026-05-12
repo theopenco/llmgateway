@@ -202,3 +202,23 @@ export function useAddMessage() {
 		},
 	});
 }
+
+export function useUpdateMessage() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("patch", "/chats/{id}/messages/{messageId}", {
+		onSuccess: (_data, variables) => {
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
+			const chatId = variables.params?.path?.id;
+			if (chatId) {
+				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
+					params: { path: { id: chatId } },
+				}).queryKey;
+				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
+		},
+	});
+}

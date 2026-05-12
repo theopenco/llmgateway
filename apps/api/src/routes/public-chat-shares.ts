@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
-import { db, tables, eq, isNull, and } from "@llmgateway/db";
+import { db, tables, eq, isNull, and, desc } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -57,6 +57,59 @@ const getSharedChat = createRoute({
 			description: "Shared chat not found.",
 		},
 	},
+});
+
+const listSharedChats = createRoute({
+	method: "get",
+	path: "/",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().int().min(1).max(50000).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						shares: z.array(
+							z.object({
+								id: z.string(),
+								updatedAt: z.string().datetime(),
+							}),
+						),
+					}),
+				},
+			},
+			description: "Active public shared chats (id + updatedAt) for sitemaps.",
+		},
+	},
+});
+
+publicChatShares.openapi(listSharedChats, async (c) => {
+	const { limit } = c.req.valid("query");
+	const rows = await db
+		.select({
+			id: tables.chatShare.id,
+			updatedAt: tables.chatShare.updatedAt,
+		})
+		.from(tables.chatShare)
+		.innerJoin(tables.chat, eq(tables.chatShare.chatId, tables.chat.id))
+		.where(
+			and(isNull(tables.chatShare.deletedAt), eq(tables.chat.status, "active")),
+		)
+		.orderBy(desc(tables.chatShare.updatedAt))
+		.limit(limit ?? 5000);
+
+	return c.json(
+		{
+			shares: rows.map((r) => ({
+				id: r.id,
+				updatedAt: r.updatedAt.toISOString(),
+			})),
+		},
+		200,
+	);
 });
 
 publicChatShares.openapi(getSharedChat, async (c) => {

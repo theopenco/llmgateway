@@ -22,6 +22,12 @@ import {
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
 
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	alternates: { canonical: "/" },
+};
+
 const featuredTools = [
 	{
 		name: "Claude Code",
