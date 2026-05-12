@@ -11,7 +11,6 @@ import type {
 
 interface ProviderWithInfo extends ProviderModelMapping {
 	providerInfo?: ProviderDefinition;
-	discount?: number;
 }
 
 interface AdaptedModel extends ApiModel {
@@ -21,15 +20,11 @@ interface AdaptedModel extends ApiModel {
 	}>;
 }
 
-const toStr = (v: number | undefined): string | null =>
-	v !== undefined ? String(v) : null;
+const toStr = (v: string | undefined): string | null => v ?? null;
 
 const toStrRecord = (
-	v: Record<string, number> | undefined,
-): Record<string, string> | null =>
-	v
-		? Object.fromEntries(Object.entries(v).map(([k, n]) => [k, String(n)]))
-		: null;
+	v: Record<string, string> | undefined,
+): Record<string, string> | null => v ?? null;
 
 export function adaptProviderMapping(
 	p: ProviderWithInfo,
@@ -70,7 +65,7 @@ export function adaptProviderMapping(
 			supportsVideoAudio: p.supportsVideoAudio ?? null,
 			supportsVideoWithoutAudio: p.supportsVideoWithoutAudio ?? null,
 			perSecondPrice: toStrRecord(p.perSecondPrice),
-			discount: p.discount !== undefined ? String(p.discount) : null,
+			discount: p.discount ?? null,
 			stability: p.stability ?? null,
 			supportedParameters: p.supportedParameters ?? null,
 			deprecatedAt: p.deprecatedAt?.toISOString() ?? null,

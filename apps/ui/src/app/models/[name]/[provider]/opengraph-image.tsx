@@ -36,17 +36,18 @@ function getEffectivePricePerMillion(
 		return null;
 	}
 
-	const applyDiscount = (price?: number | null) => {
+	const applyDiscount = (price?: string | number | null) => {
 		if (price === undefined || price === null) {
 			return undefined;
 		}
-		const base = price * 1e6;
-		if (!mapping?.discount) {
+		const base = Number(price) * 1e6;
+		const discount = Number(mapping?.discount ?? "0");
+		if (!discount) {
 			return { original: base, discounted: base };
 		}
 		return {
 			original: base,
-			discounted: base * (1 - mapping.discount),
+			discounted: base * (1 - discount),
 		};
 	};
 
@@ -106,8 +107,22 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const pricing = getEffectivePricePerMillion(selectedMapping);
-		const requestPrice = selectedMapping?.requestPrice;
-		const perSecondPrice = selectedMapping?.perSecondPrice;
+		const requestPrice =
+			selectedMapping?.requestPrice !== undefined
+				? Number(selectedMapping.requestPrice)
+				: undefined;
+		const perSecondPrice = selectedMapping?.perSecondPrice
+			? Object.fromEntries(
+					Object.entries(selectedMapping.perSecondPrice).map(([k, v]) => [
+						k,
+						Number(v),
+					]),
+				)
+			: undefined;
+		const discountNum =
+			selectedMapping?.discount !== undefined
+				? Number(selectedMapping.discount)
+				: undefined;
 		const isVideoGen = selectedMapping?.videoGenerations === true;
 		const isImageGen = selectedMapping?.imageGenerations === true;
 		const hasTokenPricing =
@@ -479,10 +494,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 									>
 										Input
 									</span>
-									{formatDollars(
-										pricing?.input ?? undefined,
-										selectedMapping?.discount,
-									)}
+									{formatDollars(pricing?.input ?? undefined, discountNum)}
 								</div>
 							)}
 
@@ -510,10 +522,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 									>
 										Output
 									</span>
-									{formatDollars(
-										pricing?.output ?? undefined,
-										selectedMapping?.discount,
-									)}
+									{formatDollars(pricing?.output ?? undefined, discountNum)}
 								</div>
 							)}
 						</div>

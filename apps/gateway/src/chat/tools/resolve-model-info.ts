@@ -39,8 +39,8 @@ export function resolveModelInfo(
 				{
 					providerId: "custom" as const,
 					modelName: requestedModel,
-					inputPrice: 0,
-					outputPrice: 0,
+					inputPrice: "0",
+					outputPrice: "0",
 					contextSize: 8192,
 					maxOutput: 4096,
 					streaming: true,

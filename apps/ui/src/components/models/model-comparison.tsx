@@ -242,29 +242,28 @@ function getPricingSummary(
 	field: PriceField,
 ): PricingSummary | undefined {
 	const entries = providers
-		.filter(
-			(provider) =>
-				provider[field] !== undefined &&
-				provider[field] !== null &&
-				provider[field] !== 0,
-		)
+		.filter((provider) => {
+			const raw = provider[field];
+			return raw !== undefined && raw !== null && Number(raw) !== 0;
+		})
 		.map((provider) => {
-			const rawValue = provider[field] as number;
+			const rawValue = Number(provider[field] as string);
 			const multiplier =
 				field === "requestPrice"
 					? 1000
 					: field === "imageInputPrice"
 						? 1
 						: 1_000_000;
+			const discountNum = Number(provider.discount ?? "0");
 			const discounted =
-				rawValue * multiplier * (provider.discount ? 1 - provider.discount : 1);
+				rawValue * multiplier * (discountNum ? 1 - discountNum : 1);
 			const original = rawValue * multiplier;
 
 			return {
 				provider,
 				discounted,
 				original,
-				hasDiscount: Boolean(provider.discount),
+				hasDiscount: Boolean(discountNum),
 			};
 		});
 
@@ -483,24 +482,25 @@ function getProviderPricingSummary(
 	if (!provider) {
 		return undefined;
 	}
-	const raw = provider[field] as number | undefined;
-	if (raw === undefined || raw === null) {
+	const rawRaw = provider[field];
+	if (rawRaw === undefined || rawRaw === null) {
 		return undefined;
 	}
+	const raw = Number(rawRaw);
 	const multiplier =
 		field === "requestPrice"
 			? 1000
 			: field === "imageInputPrice"
 				? 1
 				: 1_000_000;
-	const discounted =
-		raw * multiplier * (provider.discount ? 1 - provider.discount : 1);
+	const discountNum = Number(provider.discount ?? "0");
+	const discounted = raw * multiplier * (discountNum ? 1 - discountNum : 1);
 	const original = raw * multiplier;
 	return {
 		value: formatPriceValue(discounted, field),
 		providerLabel: provider.providerInfo?.name ?? provider.providerId,
 		originalValue:
-			provider.discount && original !== discounted
+			discountNum && original !== discounted
 				? formatPriceValue(original, field)
 				: undefined,
 	};

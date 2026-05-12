@@ -55,7 +55,8 @@ export function getCheapestModelForProvider(
 	// Filter out free models (where both input and output prices are 0)
 	const paidModels = availableModels.filter(
 		({ provider: providerInfo }) =>
-			providerInfo.inputPrice !== 0 || providerInfo.outputPrice !== 0,
+			Number(providerInfo.inputPrice ?? "0") !== 0 ||
+			Number(providerInfo.outputPrice ?? "0") !== 0,
 	);
 
 	// Use paid models if available, otherwise fall back to free models
@@ -66,10 +67,13 @@ export function getCheapestModelForProvider(
 	let lowestPrice = Number.MAX_VALUE;
 
 	for (const { provider: providerInfo } of modelsToConsider) {
-		const discount = (providerInfo as ProviderModelMapping).discount ?? 0;
+		const discount = Number(
+			(providerInfo as ProviderModelMapping).discount ?? "0",
+		);
 		const discountMultiplier = 1 - discount;
 		const totalPrice =
-			((providerInfo.inputPrice! + providerInfo.outputPrice!) / 2) *
+			((Number(providerInfo.inputPrice!) + Number(providerInfo.outputPrice!)) /
+				2) *
 			discountMultiplier;
 		if (totalPrice < lowestPrice) {
 			lowestPrice = totalPrice;

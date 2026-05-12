@@ -81,34 +81,34 @@ function getEffectiveProviderDiscount(
 	discounts: DiscountData[],
 	providerId: string,
 	modelId: string,
-): number | undefined {
+): string | undefined {
 	// Precedence: provider+model > provider > model > fully global
 	const providerModel = discounts.find(
 		(d) => d.provider === providerId && d.model === modelId,
 	);
 	if (providerModel) {
-		return parseFloat(providerModel.discountPercent);
+		return providerModel.discountPercent;
 	}
 
 	const providerOnly = discounts.find(
 		(d) => d.provider === providerId && d.model === null,
 	);
 	if (providerOnly) {
-		return parseFloat(providerOnly.discountPercent);
+		return providerOnly.discountPercent;
 	}
 
 	const modelOnly = discounts.find(
 		(d) => d.provider === null && d.model === modelId,
 	);
 	if (modelOnly) {
-		return parseFloat(modelOnly.discountPercent);
+		return modelOnly.discountPercent;
 	}
 
 	const fullyGlobal = discounts.find(
 		(d) => d.provider === null && d.model === null,
 	);
 	if (fullyGlobal) {
-		return parseFloat(fullyGlobal.discountPercent);
+		return fullyGlobal.discountPercent;
 	}
 
 	return undefined;
@@ -204,7 +204,10 @@ export default async function ModelPage({ params }: PageProps) {
 
 	const providerPrices = modelProviders
 		.filter((p) => p.inputPrice)
-		.map((p) => p.inputPrice! * 1e6 * (p.discount ? 1 - p.discount : 1));
+		.map(
+			(p) =>
+				Number(p.inputPrice!) * 1e6 * (p.discount ? 1 - Number(p.discount) : 1),
+		);
 	const lowestInputPrice = Math.min(...providerPrices);
 	const highestInputPrice = Math.max(...providerPrices);
 
@@ -335,8 +338,10 @@ export default async function ModelPage({ params }: PageProps) {
 										.filter((p) => p.inputPrice)
 										.map((p) => ({
 											price:
-												p.inputPrice! * 1e6 * (p.discount ? 1 - p.discount : 1),
-											originalPrice: p.inputPrice! * 1e6,
+												Number(p.inputPrice!) *
+												1e6 *
+												(p.discount ? 1 - Number(p.discount) : 1),
+											originalPrice: Number(p.inputPrice!) * 1e6,
 											discount: p.discount,
 										}));
 									if (inputPrices.length === 0) {
@@ -347,7 +352,7 @@ export default async function ModelPage({ params }: PageProps) {
 										(p) => p.price === minPrice,
 									);
 									return minPriceItem?.discount
-										? `$${minPrice.toFixed(2)}/M (${(minPriceItem.discount * 100).toFixed(0)}% off)`
+										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem.discount) * 100).toFixed(0)}% off)`
 										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								input tokens
@@ -359,10 +364,10 @@ export default async function ModelPage({ params }: PageProps) {
 										.filter((p) => p.outputPrice)
 										.map((p) => ({
 											price:
-												p.outputPrice! *
+												Number(p.outputPrice!) *
 												1e6 *
-												(p.discount ? 1 - p.discount : 1),
-											originalPrice: p.outputPrice! * 1e6,
+												(p.discount ? 1 - Number(p.discount) : 1),
+											originalPrice: Number(p.outputPrice!) * 1e6,
 											discount: p.discount,
 										}));
 									if (outputPrices.length === 0) {
@@ -375,7 +380,7 @@ export default async function ModelPage({ params }: PageProps) {
 										(p) => p.price === minPrice,
 									);
 									return minPriceItem?.discount
-										? `$${minPrice.toFixed(2)}/M (${(minPriceItem.discount * 100).toFixed(0)}% off)`
+										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem.discount) * 100).toFixed(0)}% off)`
 										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								output tokens
@@ -388,10 +393,13 @@ export default async function ModelPage({ params }: PageProps) {
 											.filter((p) => p.imageOutputPrice !== undefined)
 											.map((p) => ({
 												price:
-													p.imageOutputPrice! *
+													Number(p.imageOutputPrice!) *
 													1e6 *
-													(p.discount ? 1 - p.discount : 1),
-												discount: p.discount !== 0 ? p.discount : undefined,
+													(p.discount ? 1 - Number(p.discount) : 1),
+												discount:
+													p.discount && Number(p.discount) !== 0
+														? p.discount
+														: undefined,
 											}));
 										if (imageOutputPrices.length === 0) {
 											return "Free";
@@ -403,7 +411,7 @@ export default async function ModelPage({ params }: PageProps) {
 											(p) => p.price === minPrice,
 										);
 										return minPriceItem?.discount
-											? `$${minPrice.toFixed(2)}/M (${(minPriceItem.discount * 100).toFixed(0)}% off)`
+											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem.discount) * 100).toFixed(0)}% off)`
 											: `$${minPrice.toFixed(2)}/M`;
 									})()}{" "}
 									image output tokens
