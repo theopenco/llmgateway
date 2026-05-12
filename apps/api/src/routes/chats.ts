@@ -106,9 +106,10 @@ const updateMessageSchema = z
 	.object({
 		content: z.string().optional(),
 		images: z.string().optional(),
+		audios: z.string().optional(),
 	})
-	.refine((data) => data.content || data.images, {
-		message: "Either content or images must be provided",
+	.refine((data) => data.content || data.images || data.audios, {
+		message: "Either content, images, or audios must be provided",
 	});
 
 // List user's chats
@@ -1196,7 +1197,7 @@ chats.openapi(updateMessage, async (c) => {
 			.set({
 				content: body.content ?? null,
 				images: body.images ?? null,
-				audios: null,
+				audios: body.audios ?? null,
 				reasoning: null,
 				tools: null,
 				metadata: null,

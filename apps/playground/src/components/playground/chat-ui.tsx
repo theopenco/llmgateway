@@ -866,6 +866,13 @@ export const ChatUI = ({
 					undefined;
 			}
 
+			// If a persistent chat was expected (onUserMessage provided) but persistence
+			// returned nothing, a stop condition was hit (credits, limit, etc.).
+			// Temporary chats intentionally return undefined — streaming must still proceed.
+			if (onUserMessage && !savedMessage && !isTemporaryChat) {
+				return;
+			}
+
 			// Call sendMessage which will handle adding the user message and API request
 			await sendMessage(
 				{

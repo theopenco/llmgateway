@@ -104,6 +104,45 @@ function getImagePartsForMessage(message: UIMessage): unknown[] {
 	});
 }
 
+function getAudioPartsForMessage(message: UIMessage): unknown[] {
+	return (message.parts as unknown[]).filter((part) => {
+		if (!isRecord(part)) {
+			return false;
+		}
+		if (part.type !== "file") {
+			return false;
+		}
+		const mediaType = readString(part.mediaType);
+		return !!mediaType?.startsWith("audio/");
+	});
+}
+
+function getAudiosForStorage(
+	message: UIMessage,
+): Array<{ type: "audio"; url: string; mediaType: string; name?: string }> {
+	const audios: Array<{
+		type: "audio";
+		url: string;
+		mediaType: string;
+		name?: string;
+	}> = [];
+
+	for (const part of message.parts as unknown[]) {
+		if (!isRecord(part) || part.type !== "file") {
+			continue;
+		}
+		const mediaType = readString(part.mediaType);
+		const url = readString(part.url);
+		if (!mediaType?.startsWith("audio/") || !url) {
+			continue;
+		}
+		const name = readString(part.name);
+		audios.push({ type: "audio", url, mediaType, ...(name ? { name } : {}) });
+	}
+
+	return audios;
+}
+
 function getImagesForStorage(
 	message: UIMessage,
 ): Array<{ type: "image_url"; image_url: { url: string } }> {
@@ -156,6 +195,7 @@ function buildEditedUserMessage(
 		parts.push({ type: "text", text: content });
 	}
 	parts.push(...getImagePartsForMessage(message));
+	parts.push(...getAudioPartsForMessage(message));
 
 	return {
 		...message,
@@ -1100,6 +1140,7 @@ export default function ChatPageClient({
 		}
 
 		const images = getImagesForStorage(message);
+		const audios = getAudiosForStorage(message);
 		setError(null);
 		setFinishReason(null);
 		errorOccurredRef.current = false;
@@ -1112,6 +1153,7 @@ export default function ChatPageClient({
 				body: {
 					...(content.trim() ? { content } : {}),
 					...(images.length ? { images: JSON.stringify(images) } : {}),
+					...(audios.length ? { audios: JSON.stringify(audios) } : {}),
 				},
 			});
 

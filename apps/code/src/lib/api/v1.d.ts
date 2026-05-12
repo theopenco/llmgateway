@@ -7742,6 +7742,7 @@ export interface paths {
                     "application/json": {
                         content?: string;
                         images?: string;
+                        audios?: string;
                     };
                 };
             };
