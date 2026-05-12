@@ -30,10 +30,9 @@ type ActivityResponse =
 type ActivityRow = ActivityResponse["activity"][number];
 type ModelUsage = ActivityRow["modelBreakdown"][number];
 
-export type AgentChartTimeRange = "1h" | "4h" | "24h" | "7d" | "30d";
+export type AgentChartTimeRange = "4h" | "24h" | "7d" | "30d";
 
 const TIME_RANGES: { value: AgentChartTimeRange; label: string }[] = [
-	{ value: "1h", label: "1h" },
 	{ value: "4h", label: "4h" },
 	{ value: "24h", label: "1d" },
 	{ value: "7d", label: "7d" },
@@ -62,7 +61,7 @@ const MODEL_COLORS = [
 ];
 
 function isHourlyRange(range: AgentChartTimeRange): boolean {
-	return range === "1h" || range === "4h" || range === "24h";
+	return range === "4h" || range === "24h";
 }
 
 function formatTokens(n: number): string {
@@ -261,15 +260,13 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 	const visibleModels = models.slice(0, 10);
 
 	const subtitleLabel =
-		range === "1h"
-			? "last hour"
-			: range === "4h"
-				? "last 4 hours"
-				: range === "24h"
-					? "last 24 hours"
-					: range === "7d"
-						? "last 7 days"
-						: "last 30 days";
+		range === "4h"
+			? "last 4 hours"
+			: range === "24h"
+				? "last 24 hours"
+				: range === "7d"
+					? "last 7 days"
+					: "last 30 days";
 
 	return (
 		<div className="overflow-hidden rounded-xl border bg-card">
