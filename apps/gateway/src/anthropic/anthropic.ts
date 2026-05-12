@@ -6,6 +6,8 @@ import { app } from "@/app.js";
 
 import { logger, toError } from "@llmgateway/logger";
 
+import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
+
 import type { ServerTypes } from "@/vars.js";
 
 export const anthropic = new OpenAPIHono<ServerTypes>();
@@ -521,6 +523,34 @@ anthropic.openapi(messages, async (c) => {
 			statusText: response.statusText,
 		});
 		const errorData = await response.text();
+
+		if (anthropicRequest.stream) {
+			let parsedError: unknown = null;
+			try {
+				parsedError = JSON.parse(errorData);
+			} catch {
+				parsedError = null;
+			}
+			const errorEvent = buildAnthropicErrorEvent(
+				parsedError ?? {
+					error: {
+						message: errorData || response.statusText,
+						type: "api_error",
+					},
+				},
+			);
+			return streamSSE(c, async (stream) => {
+				await stream.writeSSE({
+					data: JSON.stringify(errorEvent),
+					event: "error",
+				});
+				await stream.writeSSE({
+					data: JSON.stringify({ type: "message_stop" }),
+					event: "message_stop",
+				});
+			});
+		}
+
 		return c.json(
 			{
 				error: true,
@@ -570,6 +600,7 @@ anthropic.openapi(messages, async (c) => {
 				};
 				let currentTextBlockIndex: number | null = null;
 				const toolCallBlockIndex = new Map<number, number>();
+				let currentEventType: string | null = null;
 
 				try {
 					while (true) {
@@ -582,7 +613,21 @@ anthropic.openapi(messages, async (c) => {
 						const lines = buffer.split("\n");
 						buffer = lines.pop() ?? "";
 
-						for (const line of lines) {
+						for (const rawLine of lines) {
+							const line = rawLine.endsWith("\r")
+								? rawLine.slice(0, -1)
+								: rawLine;
+
+							if (line === "") {
+								currentEventType = null;
+								continue;
+							}
+
+							if (line.startsWith("event: ")) {
+								currentEventType = line.slice(7).trim();
+								continue;
+							}
+
 							if (line.startsWith("data: ")) {
 								const data = line.slice(6).trim();
 								if (data === "[DONE]") {
@@ -607,6 +652,28 @@ anthropic.openapi(messages, async (c) => {
 								} catch {
 									// Ignore parsing errors for individual chunks
 									continue;
+								}
+
+								const looksLikeError =
+									currentEventType === "error" ||
+									(chunk &&
+										typeof chunk === "object" &&
+										(chunk.type === "error" ||
+											(chunk.error &&
+												typeof chunk.error === "object" &&
+												!chunk.choices &&
+												!chunk.id)));
+
+								if (looksLikeError) {
+									await stream.writeSSE({
+										data: JSON.stringify(buildAnthropicErrorEvent(chunk)),
+										event: "error",
+									});
+									await stream.writeSSE({
+										data: JSON.stringify({ type: "message_stop" }),
+										event: "message_stop",
+									});
+									return;
 								}
 
 								if (!messageId && chunk.id) {
