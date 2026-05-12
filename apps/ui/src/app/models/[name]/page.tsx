@@ -351,8 +351,8 @@ export default async function ModelPage({ params }: PageProps) {
 									const minPriceItem = inputPrices.find(
 										(p) => p.price === minPrice,
 									);
-									return minPriceItem?.discount
-										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem.discount) * 100).toFixed(0)}% off)`
+									return Number(minPriceItem?.discount ?? "0") > 0
+										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
 										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								input tokens
@@ -379,8 +379,8 @@ export default async function ModelPage({ params }: PageProps) {
 									const minPriceItem = outputPrices.find(
 										(p) => p.price === minPrice,
 									);
-									return minPriceItem?.discount
-										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem.discount) * 100).toFixed(0)}% off)`
+									return Number(minPriceItem?.discount ?? "0") > 0
+										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
 										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								output tokens
@@ -410,8 +410,8 @@ export default async function ModelPage({ params }: PageProps) {
 										const minPriceItem = imageOutputPrices.find(
 											(p) => p.price === minPrice,
 										);
-										return minPriceItem?.discount
-											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem.discount) * 100).toFixed(0)}% off)`
+										return Number(minPriceItem?.discount ?? "0") > 0
+											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
 											: `$${minPrice.toFixed(2)}/M`;
 									})()}{" "}
 									image output tokens

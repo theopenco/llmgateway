@@ -7,6 +7,9 @@ export function formatPrice(price: number | string | undefined): string {
 	}
 
 	const n = typeof price === "string" ? Number(price) : price;
+	if (!Number.isFinite(n)) {
+		return "Unknown";
+	}
 
 	// Explicitly free
 	if (n === 0) {

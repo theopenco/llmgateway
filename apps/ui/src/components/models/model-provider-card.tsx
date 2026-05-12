@@ -287,7 +287,7 @@ export function ModelProviderCard({
 								{provider.inputPrice ? (
 									<div className="space-y-1">
 										<div className="flex items-center gap-2">
-											{provider.discount ? (
+											{Number(provider.discount ?? "0") > 0 ? (
 												<>
 													<span className="line-through text-muted-foreground text-xs">
 														{formatPrice(provider.inputPrice)}
@@ -316,7 +316,7 @@ export function ModelProviderCard({
 								{provider.cachedInputPrice ? (
 									<div className="space-y-1">
 										<div className="flex items-center gap-2">
-											{provider.discount ? (
+											{Number(provider.discount ?? "0") > 0 ? (
 												<>
 													<span className="line-through text-muted-foreground text-xs">
 														{formatPrice(provider.cachedInputPrice)}
@@ -345,7 +345,7 @@ export function ModelProviderCard({
 								{provider.outputPrice ? (
 									<div className="space-y-1">
 										<div className="flex items-center gap-2">
-											{provider.discount ? (
+											{Number(provider.discount ?? "0") > 0 ? (
 												<>
 													<span className="line-through text-muted-foreground text-xs">
 														{formatPrice(provider.outputPrice)}
@@ -485,7 +485,7 @@ export function ModelProviderCard({
 									<div className="font-mono">
 										<div className="space-y-1">
 											<div className="flex items-center gap-2">
-												{provider.discount ? (
+												{Number(provider.discount ?? "0") > 0 ? (
 													<>
 														<span className="line-through text-muted-foreground text-xs">
 															${Number(provider.requestPrice).toFixed(3)}
@@ -531,7 +531,7 @@ export function ModelProviderCard({
 													? `>${(tiers[index - 1]?.upToTokens || 0) / 1000}K tokens`
 													: `≤${tier.upToTokens / 1000}K tokens`}
 											</span>
-											{provider.discount ? (
+											{Number(provider.discount ?? "0") > 0 ? (
 												<span className="font-mono">
 													<span className="line-through text-muted-foreground">
 														{formatPrice(tier.inputPrice)} in /{" "}

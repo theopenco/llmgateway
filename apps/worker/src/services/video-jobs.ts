@@ -1551,9 +1551,11 @@ function getVideoRequestPrice(job: VideoJobRecord): number | null {
 	const mapping = model?.providers.find(
 		(provider) => provider.providerId === job.usedProvider,
 	) as ProviderModelMapping | undefined;
-	return mapping?.requestPrice !== undefined
-		? Number(mapping.requestPrice)
-		: null;
+	if (mapping?.requestPrice === undefined) {
+		return null;
+	}
+	const n = Number(mapping.requestPrice);
+	return Number.isFinite(n) ? n : null;
 }
 
 function getVideoOutputCost(job: VideoJobRecord): number {
@@ -1606,7 +1608,7 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 		.find((value): value is string => value !== undefined);
 	const pricePerSecond =
 		pricePerSecondStr !== undefined ? Number(pricePerSecondStr) : undefined;
-	if (pricePerSecond === undefined) {
+	if (pricePerSecond === undefined || !Number.isFinite(pricePerSecond)) {
 		logger.warn("Could not determine per-second video price", {
 			videoId: job.id,
 			model: job.model,

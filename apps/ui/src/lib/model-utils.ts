@@ -1,8 +1,14 @@
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 
 export function formatPrice(price: number | string | undefined): string {
+	if (price === undefined || price === null) {
+		return "Free";
+	}
 	const n = typeof price === "string" ? Number(price) : price;
-	if (!n) {
+	if (!Number.isFinite(n)) {
+		return "Unknown";
+	}
+	if (n === 0) {
 		return "Free";
 	}
 	if (n < 0.000001) {

@@ -458,7 +458,7 @@ describe("getCheapestModelForProvider", () => {
 						((Number(discountProvider.inputPrice) +
 							Number(discountProvider.outputPrice ?? "0")) /
 							2) *
-						discountOf(discountProvider as ProviderModelMapping)!;
+						(1 - discountOf(discountProvider as ProviderModelMapping)!);
 
 					// The discount provider should be cheaper than the regular provider
 					expect(discountPrice).toBeLessThan(regularPrice);

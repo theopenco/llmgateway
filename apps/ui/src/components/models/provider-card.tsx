@@ -159,7 +159,7 @@ export function ProviderCard({
 							{provider.inputPrice ? (
 								<div className="space-y-1">
 									<div className="flex items-center gap-2">
-										{provider.discount ? (
+										{Number(provider.discount ?? "0") > 0 ? (
 											<>
 												<span className="line-through text-muted-foreground text-xs">
 													${(Number(provider.inputPrice) * 1e6).toFixed(2)}
@@ -177,7 +177,7 @@ export function ProviderCard({
 											`$${(Number(provider.inputPrice) * 1e6).toFixed(2)}`
 										)}
 									</div>
-									{provider.discount && (
+									{Number(provider.discount ?? "0") > 0 && (
 										<Badge
 											variant="secondary"
 											className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 border-green-200"
@@ -197,7 +197,7 @@ export function ProviderCard({
 							{provider.outputPrice ? (
 								<div className="space-y-1">
 									<div className="flex items-center gap-2">
-										{provider.discount ? (
+										{Number(provider.discount ?? "0") > 0 ? (
 											<>
 												<span className="line-through text-muted-foreground text-xs">
 													${(Number(provider.outputPrice) * 1e6).toFixed(2)}
@@ -215,7 +215,7 @@ export function ProviderCard({
 											`$${(Number(provider.outputPrice) * 1e6).toFixed(2)}`
 										)}
 									</div>
-									{provider.discount && (
+									{Number(provider.discount ?? "0") > 0 && (
 										<Badge
 											variant="secondary"
 											className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 border-green-200"

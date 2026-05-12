@@ -248,11 +248,14 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			return undefined;
 		}
 		const priceNum = Number(price);
+		if (!Number.isFinite(priceNum)) {
+			return undefined;
+		}
 		if (priceNum === 0) {
 			return 0;
 		}
 		const discountNum = discount === undefined ? 0 : Number(discount);
-		if (!discountNum || discountNum <= 0) {
+		if (!Number.isFinite(discountNum) || discountNum <= 0) {
 			return priceNum;
 		}
 		return priceNum * (1 - discountNum);
