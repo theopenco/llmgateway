@@ -403,6 +403,7 @@ export default function DashboardClient() {
 						{/* Usage — full-width with metrics + chart */}
 						<UsageOverview
 							projectId={devPlanStatus?.projectId ?? null}
+							apiKeyIds={devPlanStatus?.apiKeyIds ?? []}
 							creditsUsed={creditsUsed}
 							creditsLimit={creditsLimit}
 							planName={currentPlanName}
@@ -439,7 +440,10 @@ export default function DashboardClient() {
 
 						{/* Coding Agents */}
 						{devPlanStatus?.organizationId && (
-							<CodingAgents orgId={devPlanStatus.organizationId} />
+							<CodingAgents
+								orgId={devPlanStatus.organizationId}
+								apiKeyIds={devPlanStatus.apiKeyIds ?? []}
+							/>
 						)}
 
 						{/* Integrations */}

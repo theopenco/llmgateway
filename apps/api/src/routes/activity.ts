@@ -11,7 +11,6 @@ import {
 	and,
 	gte,
 	lte,
-	eq,
 	projectHourlyStats,
 	projectHourlyModelStats,
 	apiKeyHourlyStats,
@@ -191,8 +190,17 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
-	// If filtering by apiKeyId, use the apiKeyHourlyStats aggregation table
-	if (apiKeyId) {
+	// If filtering by apiKeyId, use the apiKeyHourlyStats aggregation table.
+	// apiKeyId may be a comma-separated list of IDs (e.g. for filtering across
+	// rotated key history) — split into an array of trimmed IDs.
+	const apiKeyIdList = apiKeyId
+		? apiKeyId
+				.split(",")
+				.map((s) => s.trim())
+				.filter((s) => s.length > 0)
+		: [];
+
+	if (apiKeyIdList.length > 0) {
 		// Query aggregated data from apiKeyHourlyStats table
 		const hourlyAggregates = await db
 			.select({
@@ -304,7 +312,7 @@ activity.openapi(getActivity, async (c) => {
 			.from(apiKeyHourlyStats)
 			.where(
 				and(
-					eq(apiKeyHourlyStats.apiKeyId, apiKeyId),
+					inArray(apiKeyHourlyStats.apiKeyId, apiKeyIdList),
 					inArray(apiKeyHourlyStats.projectId, projectIds),
 					gte(apiKeyHourlyStats.hourTimestamp, startDate),
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
@@ -356,7 +364,7 @@ activity.openapi(getActivity, async (c) => {
 			.from(apiKeyHourlyModelStats)
 			.where(
 				and(
-					eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId),
+					inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIdList),
 					inArray(apiKeyHourlyModelStats.projectId, projectIds),
 					gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
 					lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
