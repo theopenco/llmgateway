@@ -6,6 +6,7 @@ import {
 	GlobeIcon,
 	AlertTriangle,
 	Info,
+	Undo2,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
@@ -78,12 +79,14 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 import {
 	parsePlaygroundMessageMetadata,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { cn } from "@/lib/utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 
@@ -159,7 +162,8 @@ interface ChatUIProps {
 				url: string;
 			};
 		}>,
-	) => Promise<void>;
+	) => Promise<{ id: string } | undefined>;
+	onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
 	finishReason?: string | null;
@@ -470,43 +474,135 @@ const UserMessage = memo(
 		message,
 		isLastMessage,
 		status,
+		canEdit,
+		isEditing,
+		onEditStart,
+		onEditCancel,
+		onEditConfirm,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
+		canEdit?: boolean;
+		isEditing?: boolean;
+		onEditStart?: () => void;
+		onEditCancel?: () => void;
+		onEditConfirm?: (content: string) => Promise<void>;
 	}) => {
 		const { textParts, imageParts } = useMemo(
 			() => extractMessageParts(message.parts),
 			[message.parts],
 		);
+		const initialText = textParts.join("\n");
+		const [editText, setEditText] = useState(initialText);
+		const [isSaving, setIsSaving] = useState(false);
+
+		useEffect(() => {
+			if (isEditing) {
+				setEditText(initialText);
+			}
+		}, [initialText, isEditing]);
+
+		const handleEditConfirm = async () => {
+			if (!onEditConfirm || isSaving) {
+				return;
+			}
+			if (!editText.trim() && imageParts.length === 0) {
+				return;
+			}
+			setIsSaving(true);
+			try {
+				await onEditConfirm(editText);
+			} finally {
+				setIsSaving(false);
+			}
+		};
 
 		return (
-			<Message from={message.role} className="message-item">
-				<MessageContent variant="flat">
-					{textParts.map((t, idx) => (
-						<div key={idx}>{t}</div>
-					))}
-					{imageParts.length > 0 && (
-						<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-							{imageParts.map((part: any, idx: number) => {
-								const { base64Only, mediaType } = parseImagePartToDataUrl(part);
-								if (!base64Only) {
-									return null;
-								}
-								return (
-									<ImageZoom key={idx}>
-										<Image
-											base64={base64Only}
-											mediaType={mediaType}
-											alt={part.name ?? "Uploaded image"}
-											className="h-[300px] aspect-auto border rounded-lg object-cover"
-										/>
-									</ImageZoom>
-								);
-							})}
-						</div>
+			<Message from={message.role} className="message-item group/user-message">
+				<div
+					className={cn(
+						"flex flex-col items-end",
+						isEditing ? "w-full max-w-full" : "w-fit max-w-[80%]",
 					)}
-				</MessageContent>
+				>
+					<MessageContent
+						className={cn("!max-w-full", isEditing && "w-full px-5 py-4")}
+						variant="flat"
+					>
+						{isEditing ? (
+							<div className="flex w-full min-w-0 flex-col gap-3">
+								<Textarea
+									value={editText}
+									onChange={(event) => setEditText(event.currentTarget.value)}
+									className="min-h-24 w-full min-w-0 resize-y bg-background text-foreground"
+									autoFocus
+								/>
+								<div className="flex flex-wrap justify-end gap-2">
+									<Button
+										type="button"
+										size="sm"
+										variant="secondary"
+										onClick={onEditCancel}
+										disabled={isSaving}
+										className="rounded-full"
+									>
+										Cancel
+									</Button>
+									<Button
+										type="button"
+										size="sm"
+										onClick={() => void handleEditConfirm()}
+										disabled={
+											isSaving || (!editText.trim() && imageParts.length === 0)
+										}
+										className="rounded-full"
+									>
+										Send
+									</Button>
+								</div>
+							</div>
+						) : (
+							<>
+								{textParts.map((t, idx) => (
+									<div key={idx}>{t}</div>
+								))}
+							</>
+						)}
+						{imageParts.length > 0 && (
+							<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+								{imageParts.map((part: any, idx: number) => {
+									const { base64Only, mediaType } =
+										parseImagePartToDataUrl(part);
+									if (!base64Only) {
+										return null;
+									}
+									return (
+										<ImageZoom key={idx}>
+											<Image
+												base64={base64Only}
+												mediaType={mediaType}
+												alt={part.name ?? "Uploaded image"}
+												className="h-[300px] aspect-auto border rounded-lg object-cover"
+											/>
+										</ImageZoom>
+									);
+								})}
+							</div>
+						)}
+					</MessageContent>
+					{canEdit && !isEditing ? (
+						<Actions className="mt-2 opacity-0 transition-opacity group-hover/user-message:opacity-100 focus-within:opacity-100">
+							<Action
+								onClick={onEditStart}
+								label="Edit and retry"
+								tooltip="Edit and retry from here"
+							>
+								<Undo2 className="size-3" />
+							</Action>
+						</Actions>
+					) : null}
+				</div>
 				{isLastMessage &&
 					(status === "submitted" || status === "streaming") && <Loader />}
 			</Message>
@@ -574,6 +670,7 @@ export const ChatUI = ({
 	webSearchEnabled,
 	setWebSearchEnabled,
 	onUserMessage,
+	onEditUserMessage,
 	isLoading = false,
 	error = null,
 	finishReason = null,
@@ -623,6 +720,7 @@ export const ChatUI = ({
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const inputRef = useRef<HTMLDivElement | null>(null);
 	const [inputHeight, setInputHeight] = useState(0);
+	const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
 	const updateInputHeight = useCallback(() => {
 		if (inputRef.current) {
@@ -642,6 +740,8 @@ export const ChatUI = ({
 	// governs the Stop button which should only show while a request is in flight.
 	const isActive = status === "streaming" || status === "submitted";
 	const isBusy = isLoading || isActive;
+	const canEditUserMessages =
+		!isBusy && !isTemporaryChat && !!onEditUserMessage;
 
 	const handlePromptSubmit = async (
 		textContent: string,
@@ -697,16 +797,20 @@ export const ChatUI = ({
 				return;
 			}
 
+			const generatedMessageId = crypto.randomUUID();
+			let savedMessage: { id: string } | undefined;
+
 			// Ensure the chat exists + user message is persisted BEFORE streaming starts.
 			// Otherwise `onFinish` may run before `chatIdRef` is set, and we can't save the AI response.
 			if (onUserMessage && (content.trim() || imagesToSave?.length)) {
-				await onUserMessage(content, imagesToSave);
+				savedMessage =
+					(await onUserMessage(content, imagesToSave)) ?? undefined;
 			}
 
 			// Call sendMessage which will handle adding the user message and API request
 			await sendMessage(
 				{
-					id: crypto.randomUUID(),
+					id: savedMessage?.id ?? generatedMessageId,
 					role: "user",
 					parts,
 				},
@@ -847,6 +951,17 @@ export const ChatUI = ({
 								message={m}
 								isLastMessage={isLastMessage}
 								status={status}
+								canEdit={canEditUserMessages}
+								isEditing={editingMessageId === m.id}
+								onEditStart={() => setEditingMessageId(m.id)}
+								onEditCancel={() => setEditingMessageId(null)}
+								onEditConfirm={async (content) => {
+									if (!onEditUserMessage) {
+										return;
+									}
+									setEditingMessageId(null);
+									await onEditUserMessage(m, content);
+								}}
 							/>
 						);
 					}
