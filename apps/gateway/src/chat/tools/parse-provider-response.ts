@@ -38,6 +38,8 @@ export function parseProviderResponse(
 	let cacheCreation1hTokens: number | null = null;
 	let imageInputTokens: number | null = null;
 	let imageOutputTokens: number | null = null;
+	let audioInputTokens: number | null = null;
+	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
@@ -396,6 +398,21 @@ export function parseProviderResponse(
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount ?? null;
 			// Extract cached tokens from Google's implicit caching
 			cachedTokens = json.usageMetadata?.cachedContentTokenCount ?? null;
+			if (Array.isArray(json.usageMetadata?.promptTokensDetails)) {
+				for (const detail of json.usageMetadata.promptTokensDetails) {
+					if (detail?.modality === "AUDIO" && detail.tokenCount) {
+						audioInputTokens = (audioInputTokens ?? 0) + detail.tokenCount;
+					}
+				}
+			}
+			if (Array.isArray(json.usageMetadata?.cacheTokensDetails)) {
+				for (const detail of json.usageMetadata.cacheTokensDetails) {
+					if (detail?.modality === "AUDIO" && detail.tokenCount) {
+						cachedAudioInputTokens =
+							(cachedAudioInputTokens ?? 0) + detail.tokenCount;
+					}
+				}
+			}
 
 			// Adjust for inconsistent Google API behavior where
 			// candidatesTokenCount may already include thoughtsTokenCount
@@ -900,6 +917,8 @@ export function parseProviderResponse(
 		cacheCreation1hTokens,
 		imageInputTokens,
 		imageOutputTokens,
+		audioInputTokens,
+		cachedAudioInputTokens,
 		toolResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,

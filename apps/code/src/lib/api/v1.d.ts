@@ -527,6 +527,7 @@ export interface paths {
                                     role: "user" | "assistant" | "system";
                                     content: string | null;
                                     images: string | null;
+                                    audios?: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
                                     metadata?: {
@@ -1086,8 +1087,10 @@ export interface paths {
                                 cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
                                 imageInputTokens: string | null;
+                                audioInputTokens: string | null;
                                 imageOutputTokens: string | null;
                                 imageInputCost: number | null;
+                                audioInputCost: number | null;
                                 imageOutputCost: number | null;
                                 videoOutputCost: number | null;
                                 videoDownloadCount: number | null;
@@ -1337,8 +1340,10 @@ export interface paths {
                                 cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
                                 imageInputTokens: string | null;
+                                audioInputTokens: string | null;
                                 imageOutputTokens: string | null;
                                 imageInputCost: number | null;
+                                audioInputCost: number | null;
                                 imageOutputCost: number | null;
                                 videoOutputCost: number | null;
                                 videoDownloadCount: number | null;
@@ -1472,6 +1477,7 @@ export interface paths {
                                 requestCost: number;
                                 dataStorageCost: number;
                                 imageInputCost: number;
+                                audioInputCost: number;
                                 imageOutputCost: number;
                                 videoOutputCost: number;
                                 cachedInputCost: number;
@@ -7406,6 +7412,7 @@ export interface paths {
                                 role: "user" | "assistant" | "system";
                                 content: string | null;
                                 images: string | null;
+                                audios: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -7663,6 +7670,7 @@ export interface paths {
                         role: "user" | "assistant" | "system";
                         content?: string;
                         images?: string;
+                        audios?: string;
                         reasoning?: string;
                         tools?: string;
                         metadata?: {
@@ -7685,6 +7693,7 @@ export interface paths {
                                 role: "user" | "assistant" | "system";
                                 content: string | null;
                                 images: string | null;
+                                audios: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -9336,6 +9345,7 @@ export interface operations {
                                 maxOutput: number | null;
                                 streaming: boolean;
                                 vision: boolean | null;
+                                audio: boolean | null;
                                 reasoning: boolean | null;
                                 reasoningOutput: string | null;
                                 tools: boolean | null;

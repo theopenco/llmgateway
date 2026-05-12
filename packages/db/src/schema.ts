@@ -611,6 +611,8 @@ export const log = pgTable(
 		imageOutputTokens: decimal(),
 		imageInputCost: real(),
 		imageOutputCost: real(),
+		audioInputTokens: decimal(),
+		audioInputCost: real(),
 		videoOutputCost: real(),
 		videoDownloadCount: integer().notNull().default(0),
 		lastVideoDownloadedAt: timestamp(),
@@ -1035,6 +1037,7 @@ export const message = pgTable(
 		}).notNull(),
 		content: text(), // Made nullable to support image-only messages
 		images: text(), // JSON string to store images array
+		audios: text(), // JSON string to store audio attachments array
 		reasoning: text(), // Reasoning content from AI models
 		tools: text(), // JSON string to store tool call parts
 		metadata: jsonb().$type<Record<string, unknown>>(),
@@ -1761,6 +1764,7 @@ export const projectHourlyStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -1827,6 +1831,7 @@ export const projectHourlyModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -1915,6 +1920,7 @@ export const apiKeyHourlyStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -1992,6 +1998,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -2076,6 +2083,7 @@ export const globalModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -2149,6 +2157,7 @@ export const globalSourceStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),

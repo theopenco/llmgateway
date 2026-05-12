@@ -11,6 +11,7 @@ const sharedMessageSchema = z.object({
 	role: z.enum(["user", "assistant", "system"]),
 	content: z.string().nullable(),
 	images: z.string().nullable(),
+	audios: z.string().nullable().optional(),
 	reasoning: z.string().nullable(),
 	tools: z.string().nullable(),
 	metadata: z.record(z.unknown()).nullable().optional(),

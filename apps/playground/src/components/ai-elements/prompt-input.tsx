@@ -4,6 +4,7 @@ import {
 	ImageIcon,
 	Loader2Icon,
 	MicIcon,
+	Music2Icon,
 	PaperclipIcon,
 	PlusIcon,
 	SendIcon,
@@ -250,12 +251,45 @@ export function PromptInputAttachment({
 	const attachments = usePromptInputAttachments();
 
 	const mediaType =
-		data.mediaType?.startsWith("image/") && data.url ? "image" : "file";
+		data.mediaType?.startsWith("image/") && data.url
+			? "image"
+			: data.mediaType?.startsWith("audio/") && data.url
+				? "audio"
+				: "file";
+
+	if (mediaType === "audio") {
+		return (
+			<div
+				className={cn(
+					"group relative flex h-8 cursor-pointer select-none items-center gap-1.5 rounded-md border border-border px-1.5 font-medium text-sm transition-all hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+					className,
+				)}
+				key={data.id}
+				{...props}
+			>
+				<div className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded bg-background">
+					<Music2Icon className="size-3 text-muted-foreground" />
+				</div>
+				<Button
+					aria-label="Remove attachment"
+					className="size-5 rounded p-0 opacity-0 transition-opacity group-hover:opacity-100 [&>svg]:size-2.5"
+					onClick={(e) => {
+						e.stopPropagation();
+						attachments.remove(data.id);
+					}}
+					type="button"
+					variant="ghost"
+				>
+					<XIcon />
+				</Button>
+			</div>
+		);
+	}
 
 	return (
 		<div
 			className={cn(
-				"group relative h-14 w-14 rounded-md border",
+				"group relative rounded-md border",
 				className,
 				mediaType === "image" ? "h-14 w-14" : "h-8 w-auto max-w-full",
 			)}
@@ -392,8 +426,7 @@ export const PromptInputActionAddAttachments = ({
 	return (
 		<DropdownMenuItem
 			{...props}
-			onSelect={(e) => {
-				e.preventDefault();
+			onSelect={() => {
 				attachments.openFileDialog();
 			}}
 		>
@@ -473,11 +506,23 @@ export const PromptInput = ({
 			if (!accept || accept.trim() === "") {
 				return true;
 			}
-			if (accept.includes("image/*")) {
-				return f.type.startsWith("image/");
+			const patterns = accept
+				.split(",")
+				.map((p) => p.trim())
+				.filter(Boolean);
+			if (patterns.length === 0) {
+				return true;
 			}
-			// NOTE: keep simple; expand as needed
-			return true;
+			return patterns.some((pattern) => {
+				if (pattern.endsWith("/*")) {
+					const prefix = pattern.slice(0, -1);
+					return f.type.startsWith(prefix);
+				}
+				if (pattern.startsWith(".")) {
+					return f.name.toLowerCase().endsWith(pattern.toLowerCase());
+				}
+				return f.type === pattern;
+			});
 		},
 		[accept],
 	);
