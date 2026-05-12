@@ -911,6 +911,15 @@ function getAvalancheSoraTaskModelName(
 	return `${baseModelName}-${inputMode === "reference" ? "image" : "text"}-to-video`;
 }
 
+function getBytedanceVideoUpstreamModelName(baseModelName: string): string {
+	const modelNameMap: Record<string, string> = {
+		"seedance-2-0": "seedance-2-0-250526",
+		"seedance-2-0-fast": "seedance-2-0-fast-250526",
+		"seedance-1-5-pro": "seedance-1-5-pro-250901",
+	};
+	return modelNameMap[baseModelName] ?? baseModelName;
+}
+
 function getVideoUpstreamModelName(
 	providerId: Provider,
 	baseModelName: string,
@@ -920,6 +929,8 @@ function getVideoUpstreamModelName(
 	switch (providerId) {
 		case "avalanche":
 			return getAvalancheVideoModelName(baseModelName);
+		case "bytedance":
+			return getBytedanceVideoUpstreamModelName(baseModelName);
 		case "google-vertex":
 			return baseModelName;
 		default:
@@ -2804,6 +2815,103 @@ async function createGoogleVertexVideoJob(
 	};
 }
 
+function getBytedanceVideoAspectRatio(
+	videoSize: VideoSizeConfig,
+): string {
+	if (videoSize.orientation === "portrait") {
+		return "9:16";
+	}
+	return "16:9";
+}
+
+async function createBytedanceVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	includeAudio: boolean,
+	firstFrameInput: VideoImageInput | undefined,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedReferenceImages: ProcessedVideoImageInput[],
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = getBytedanceVideoUpstreamModelName(
+		providerMapping.modelName,
+	);
+	const content: Array<Record<string, unknown>> = [
+		{
+			type: "text",
+			text: prompt,
+		},
+	];
+
+	if (processedFirstFrame) {
+		content.push({
+			type: "image_url",
+			image_url: {
+				url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
+			},
+		});
+	}
+
+	if (processedReferenceImages.length > 0) {
+		for (const image of processedReferenceImages) {
+			content.push({
+				type: "image_url",
+				image_url: {
+					url: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
+				},
+			});
+		}
+	}
+
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		content,
+		duration: `${durationSeconds}s`,
+		aspect_ratio: getBytedanceVideoAspectRatio(videoSize),
+		generate_audio: includeAudio,
+	};
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/contents/generations/tasks",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("bytedance", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			status: rawResponse.status ?? "queued",
+			duration: durationSeconds,
+			aspect_ratio: upstreamRequest.aspect_ratio,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "ByteDance video response did not include a task id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -2856,6 +2964,18 @@ async function createUpstreamVideoJob(
 						lastFrameInput,
 						referenceImageInputs,
 					);
+		case "bytedance":
+			return await createBytedanceVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				includeAudio,
+				firstFrameInput,
+				processedFirstFrame,
+				processedReferenceImages,
+			);
 		case "google-vertex":
 			return await createGoogleVertexVideoJob(
 				providerContext,
