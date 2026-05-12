@@ -1025,7 +1025,12 @@ export default function ChatPageClient({
 	};
 
 	const handleForkChat = useCallback(async () => {
-		if (isTemporaryChat || status === "submitted" || status === "streaming") {
+		if (
+			forkChat.isPending ||
+			isTemporaryChat ||
+			status === "submitted" ||
+			status === "streaming"
+		) {
 			return;
 		}
 
