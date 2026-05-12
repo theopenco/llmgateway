@@ -6,6 +6,7 @@ import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 import {
 	db,
 	tables,
+	asc,
 	desc,
 	eq,
 	count,
@@ -77,6 +78,12 @@ const updateChatSchema = z.object({
 	status: z.enum(["active", "archived"]).optional(),
 });
 
+const forkChatResponseSchema = z.object({
+	chat: z.object({
+		id: z.string(),
+	}),
+});
+
 const createMessageSchema = z
 	.object({
 		role: z.enum(["user", "assistant", "system"]),
@@ -92,6 +99,40 @@ const createMessageSchema = z
 			message: "Either content or images must be provided",
 		},
 	);
+
+async function enforceActiveChatLimit(userId: string) {
+	const isUnlimited = await hasActiveApiKey(userId);
+	if (isUnlimited) {
+		return;
+	}
+
+	const chatCount = await db
+		.select({ count: count() })
+		.from(tables.chat)
+		.where(
+			and(eq(tables.chat.userId, userId), eq(tables.chat.status, "active")),
+		);
+
+	if (chatCount[0].count >= 3) {
+		throw new HTTPException(400, {
+			message: "FREE_LIMIT_REACHED",
+		});
+	}
+}
+
+function getForkedChatTitle(title: string) {
+	const maxTitleLength = 200;
+	const versionMatch = title.match(/^(.*) v(\d+)$/);
+	const base = versionMatch ? versionMatch[1] : title;
+	const nextVersion = versionMatch ? parseInt(versionMatch[2], 10) + 1 : 2;
+	const suffix = ` v${nextVersion}`;
+
+	if (base.length + suffix.length <= maxTitleLength) {
+		return `${base}${suffix}`;
+	}
+
+	return `${base.slice(0, maxTitleLength - suffix.length)}${suffix}`;
+}
 
 // List user's chats
 const listChats = createRoute({
@@ -796,11 +837,7 @@ const forkSharedChat = createRoute({
 		201: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						chat: z.object({
-							id: z.string(),
-						}),
-					}),
+					schema: forkChatResponseSchema,
 				},
 			},
 			description: "Shared chat forked successfully.",
@@ -857,21 +894,7 @@ chats.openapi(forkSharedChat, async (c) => {
 		return c.json({ message: "Shared chat not found" }, 404);
 	}
 
-	const isUnlimited = await hasActiveApiKey(user.id);
-	if (!isUnlimited) {
-		const chatCount = await db
-			.select({ count: count() })
-			.from(tables.chat)
-			.where(
-				and(eq(tables.chat.userId, user.id), eq(tables.chat.status, "active")),
-			);
-
-		if (chatCount[0].count >= 3) {
-			throw new HTTPException(400, {
-				message: "FREE_LIMIT_REACHED",
-			});
-		}
-	}
+	await enforceActiveChatLimit(user.id);
 
 	const messages = sharedMessageSnapshotSchema.parse(share.messages);
 	const newChat = await db.transaction(async (tx) => {
@@ -882,6 +905,129 @@ chats.openapi(forkSharedChat, async (c) => {
 				model: share.model,
 				userId: user.id,
 				webSearch: false,
+			})
+			.returning();
+
+		if (messages.length > 0) {
+			await tx.insert(tables.message).values(
+				messages.map((message) => ({
+					chatId: createdChat.id,
+					role: message.role,
+					content: message.content,
+					images: message.images,
+					reasoning: message.reasoning,
+					tools: message.tools,
+					metadata: message.metadata ?? null,
+					sequence: message.sequence,
+				})),
+			);
+		}
+
+		return createdChat;
+	});
+
+	return c.json(
+		{
+			chat: {
+				id: newChat.id,
+			},
+		},
+		201,
+	);
+});
+
+const forkChat = createRoute({
+	method: "post",
+	path: "/{id}/fork",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: forkChatResponseSchema,
+				},
+			},
+			description: "Chat forked successfully.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Chat limit reached or validation error.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Chat not found.",
+		},
+	},
+});
+
+chats.openapi(forkChat, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const [chat] = await db
+		.select({
+			id: tables.chat.id,
+			title: tables.chat.title,
+			model: tables.chat.model,
+			webSearch: tables.chat.webSearch,
+		})
+		.from(tables.chat)
+		.where(
+			and(
+				eq(tables.chat.id, id),
+				eq(tables.chat.userId, user.id),
+				eq(tables.chat.status, "active"),
+			),
+		)
+		.limit(1);
+
+	if (!chat) {
+		return c.json({ message: "Chat not found" }, 404);
+	}
+
+	await enforceActiveChatLimit(user.id);
+
+	const messages = await db
+		.select({
+			role: tables.message.role,
+			content: tables.message.content,
+			images: tables.message.images,
+			reasoning: tables.message.reasoning,
+			tools: tables.message.tools,
+			metadata: tables.message.metadata,
+			sequence: tables.message.sequence,
+		})
+		.from(tables.message)
+		.where(eq(tables.message.chatId, chat.id))
+		.orderBy(asc(tables.message.sequence));
+
+	const newChat = await db.transaction(async (tx) => {
+		const [createdChat] = await tx
+			.insert(tables.chat)
+			.values({
+				title: getForkedChatTitle(chat.title),
+				model: chat.model,
+				userId: user.id,
+				webSearch: chat.webSearch ?? false,
 			})
 			.returning();
 

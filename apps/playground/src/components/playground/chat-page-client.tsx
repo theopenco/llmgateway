@@ -11,7 +11,10 @@ import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
-import { ChatSidebar } from "@/components/playground/chat-sidebar";
+import {
+	ChatSidebar,
+	type ChatSidebarHandle,
+} from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -21,6 +24,7 @@ import {
 	useCreateChat,
 	useDataChat,
 	useDeleteChat,
+	useForkChat,
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
@@ -214,12 +218,9 @@ export default function ChatPageClient({
 	// Tracks which chat's messages are currently displayed in the useChat state,
 	// so we know when a navigation requires reloading from the server.
 	const loadedChatIdRef = useRef<string | null>(null);
-	// Set by ensureCurrentChat after it calls setCurrentChatId + router.replace.
-	// Used by the URL sync effect to ignore the brief window where currentChatId
-	// is the new id but chatIdFromUrl is still the stale value — without this guard
-	// the effect "corrects" currentChatId back to null and then the load effect
-	// resets loadedChatIdRef, which causes the post-stream refetch to clobber the
-	// streamed reply.
+	// Set by programmatic chat creation/forking before the URL update propagates.
+	// Used by the URL sync effect to avoid correcting currentChatId back to the
+	// stale URL value while router navigation is catching up.
 	const pendingNewChatRef = useRef<string | null>(null);
 
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
@@ -401,13 +402,13 @@ export default function ChatPageClient({
 			return;
 		}
 
-		// Guard the ensureCurrentChat race: we just set currentChatId to the new
-		// chat and called router.replace, but chatIdFromUrl hasn't propagated yet.
-		// Wait for the URL to catch up instead of downgrading the state back to null.
+		// Guard programmatic chat creation/forking races: we just set currentChatId
+		// and pushed/replaced the URL, but chatIdFromUrl hasn't propagated yet.
+		// Wait for the URL to catch up instead of downgrading to the stale URL value.
 		if (
 			pendingNewChatRef.current !== null &&
-			chatIdFromUrl === null &&
-			currentChatId === pendingNewChatRef.current
+			currentChatId === pendingNewChatRef.current &&
+			chatIdFromUrl !== pendingNewChatRef.current
 		) {
 			return;
 		}
@@ -612,10 +613,13 @@ export default function ChatPageClient({
 	>({});
 	const [comparisonResetToken, setComparisonResetToken] = useState(0);
 
+	const sidebarRef = useRef<ChatSidebarHandle | null>(null);
+
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
 	const deleteChat = useDeleteChat();
+	const forkChat = useForkChat();
 	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
 		currentChatId ?? "",
 	);
@@ -1020,6 +1024,48 @@ export default function ChatPageClient({
 		router.push(`${pathname}?${params.toString()}`);
 	};
 
+	const handleForkChat = useCallback(async () => {
+		if (isTemporaryChat || status === "submitted" || status === "streaming") {
+			return;
+		}
+
+		const chatId = chatIdRef.current ?? currentChatId;
+		if (!chatId) {
+			return;
+		}
+
+		try {
+			const data = await forkChat.mutateAsync({
+				params: { path: { id: chatId } },
+			});
+			const newChatId = data.chat.id;
+
+			setError(null);
+			setFinishReason(null);
+			shouldClearMessagesRef.current = false;
+			setMessages([]);
+			loadedChatIdRef.current = null;
+			pendingNewChatRef.current = newChatId;
+			setCurrentChatId(newChatId);
+			chatIdRef.current = newChatId;
+
+			const params = new URLSearchParams(searchParams.toString());
+			params.set("chat", newChatId);
+			router.push(`${pathname}?${params.toString()}`);
+			sidebarRef.current?.scrollToTop();
+			toast.success("Chat forked");
+		} catch {}
+	}, [
+		currentChatId,
+		forkChat,
+		isTemporaryChat,
+		pathname,
+		router,
+		searchParams,
+		setMessages,
+		status,
+	]);
+
 	// keep URL in sync with selected model
 	useEffect(() => {
 		// Read current URL params directly to avoid stale searchParams closure
@@ -1127,6 +1173,7 @@ export default function ChatPageClient({
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				{isTemporaryChat ? null : (
 					<ChatSidebar
+						ref={sidebarRef}
 						onNewChat={handleNewChat}
 						onChatSelect={handleChatSelect}
 						currentChatId={currentChatId ?? undefined}
@@ -1294,6 +1341,8 @@ export default function ChatPageClient({
 											error={error}
 											finishReason={finishReason}
 											isTemporaryChat={isTemporaryChat}
+											forkChat={!isTemporaryChat ? handleForkChat : undefined}
+											isForkingChat={forkChat.isPending}
 											setWebSearchEnabled={setWebSearchEnabled}
 											supportsWebSearch={supportsWebSearch}
 											webSearchEnabled={webSearchEnabled}
@@ -1335,6 +1384,8 @@ export default function ChatPageClient({
 										finishReason={finishReason}
 										floatingInput
 										isTemporaryChat={isTemporaryChat}
+										forkChat={!isTemporaryChat ? handleForkChat : undefined}
+										isForkingChat={forkChat.isPending}
 									/>
 								</div>
 							)}

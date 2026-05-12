@@ -162,6 +162,21 @@ export function useForkSharedChat() {
 	});
 }
 
+export function useForkChat() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("post", "/chats/{id}/fork", {
+		onSuccess: () => {
+			const queryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey });
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
 export function useAddMessage() {
 	const queryClient = useQueryClient();
 	const api = useApi();

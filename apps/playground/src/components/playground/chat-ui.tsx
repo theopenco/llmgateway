@@ -6,6 +6,8 @@ import {
 	GlobeIcon,
 	AlertTriangle,
 	Info,
+	GitFork,
+	Loader2,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
@@ -78,6 +80,11 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 import {
@@ -165,6 +172,8 @@ interface ChatUIProps {
 	finishReason?: string | null;
 	floatingInput?: boolean;
 	isTemporaryChat?: boolean;
+	forkChat?: () => void | Promise<void>;
+	isForkingChat?: boolean;
 }
 
 const suggestions = [
@@ -295,17 +304,24 @@ function MessageMetadataPopover({
 
 	return (
 		<Popover>
-			<PopoverTrigger asChild>
-				<Button
-					aria-label="Show response metadata"
-					className="relative size-9 p-1.5 text-muted-foreground hover:text-foreground"
-					size="sm"
-					type="button"
-					variant="ghost"
-				>
-					<Info className="size-3" />
-				</Button>
-			</PopoverTrigger>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<PopoverTrigger asChild>
+						<Button
+							aria-label="Show response metadata"
+							className="relative size-9 p-1.5 text-muted-foreground hover:text-foreground"
+							size="sm"
+							type="button"
+							variant="ghost"
+						>
+							<Info className="size-3" />
+						</Button>
+					</PopoverTrigger>
+				</TooltipTrigger>
+				<TooltipContent>
+					<p>Response metadata</p>
+				</TooltipContent>
+			</Tooltip>
 			<PopoverContent align="start" className="w-80 p-3">
 				<div className="space-y-2 text-xs">
 					<p className="font-medium">Response metadata</p>
@@ -336,12 +352,16 @@ const AssistantMessage = memo(
 		status,
 		regenerate,
 		finishReason,
+		forkChat,
+		isForkingChat,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
 		regenerate: () => void;
 		finishReason?: string | null;
+		forkChat?: () => void | Promise<void>;
+		isForkingChat?: boolean;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -441,6 +461,22 @@ const AssistantMessage = memo(
 								>
 									<RefreshCcw className="size-3" />
 								</Action>
+								{forkChat ? (
+									<Action
+										disabled={isForkingChat}
+										onClick={() => {
+											void forkChat();
+										}}
+										label="Fork chat"
+										tooltip="Fork chat"
+									>
+										{isForkingChat ? (
+											<Loader2 className="size-3 animate-spin" />
+										) : (
+											<GitFork className="size-3" />
+										)}
+									</Action>
+								) : null}
 								<Action
 									onClick={async () => {
 										try {
@@ -579,6 +615,8 @@ export const ChatUI = ({
 	finishReason = null,
 	floatingInput = false,
 	isTemporaryChat = false,
+	forkChat,
+	isForkingChat = false,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -838,6 +876,10 @@ export const ChatUI = ({
 								status={status}
 								regenerate={regenerate}
 								finishReason={isLastMessage ? finishReason : null}
+								forkChat={
+									isLastMessage && status === "ready" ? forkChat : undefined
+								}
+								isForkingChat={isForkingChat}
 							/>
 						);
 					} else {

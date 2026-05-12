@@ -21,7 +21,14 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useImperativeHandle,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { List, type RowComponentProps } from "react-window";
 import { toast } from "sonner";
 
@@ -69,6 +76,10 @@ import type { Organization, Project } from "@/lib/types";
 // 	() => import("./organization-switcher").then((m) => m.OrganizationSwitcher),
 // 	{ ssr: false },
 // );
+
+export interface ChatSidebarHandle {
+	scrollToTop: () => void;
+}
 
 interface ChatSidebarProps {
 	currentChatId?: string;
@@ -352,22 +363,26 @@ function groupChatsByDate(chats: Chat[]) {
 	return groups;
 }
 
-export function ChatSidebar({
+export const ChatSidebar = function ChatSidebar({
+	ref,
 	currentChatId,
 	onChatSelect,
 	onNewChat,
 	clearMessages,
 	className,
 	isLoading: isPageLoading = false,
-	// organizations,
 	selectedOrganization,
-	// onSelectOrganization,
-	// onOrganizationCreated,
-	// projects,
-	// selectedProject,
-	// onSelectProject,
-	// onProjectCreated,
-}: ChatSidebarProps) {
+}: ChatSidebarProps & { ref?: React.RefObject<ChatSidebarHandle | null> }) {
+	const listContainerRef = useRef<HTMLDivElement | null>(null);
+
+	useImperativeHandle(ref, () => ({
+		scrollToTop: () => {
+			const scrollEl = listContainerRef.current
+				?.firstElementChild as HTMLElement | null;
+			scrollEl?.scrollTo({ top: 0, behavior: "smooth" });
+		},
+	}));
+
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const pathname = usePathname();
@@ -747,6 +762,7 @@ export function ChatSidebar({
 					</SidebarMenu>
 				</div>
 				<div
+					ref={listContainerRef}
 					aria-hidden={isHistoryHidden}
 					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
 				>
@@ -847,4 +863,4 @@ export function ChatSidebar({
 			/>
 		</Sidebar>
 	);
-}
+};
