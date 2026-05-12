@@ -2153,6 +2153,8 @@ export async function prepareRequestBody(
 				isProd,
 				maxImageSizeMB,
 				userPlan,
+				undefined,
+				usedProvider,
 			);
 
 			// Transform tools from OpenAI format to Google format

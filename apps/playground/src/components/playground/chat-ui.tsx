@@ -90,6 +90,7 @@ import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 interface ChatUIProps {
 	messages: UIMessage[];
 	supportsImages: boolean;
+	supportsAudio: boolean;
 	supportsImageGen: boolean;
 	sendMessage: (
 		message: UIMessage,
@@ -159,6 +160,12 @@ interface ChatUIProps {
 				url: string;
 			};
 		}>,
+		audio?: Array<{
+			type: "audio";
+			url: string;
+			mediaType: string;
+			name?: string;
+		}>,
 	) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
@@ -207,6 +214,7 @@ type HeroSuggestionGroup = keyof typeof heroSuggestionGroups;
 interface ExtractedParts {
 	textParts: string[];
 	imageParts: any[];
+	audioParts: any[];
 	toolParts: any[];
 	reasoningContent: string;
 	sourceParts: any[];
@@ -215,6 +223,7 @@ interface ExtractedParts {
 function extractMessageParts(parts: any[]): ExtractedParts {
 	const textParts: string[] = [];
 	const imageParts: any[] = [];
+	const audioParts: any[] = [];
 	const toolParts: any[] = [];
 	const reasoningParts: string[] = [];
 	const sourceParts: any[] = [];
@@ -234,12 +243,15 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 			(p.type === "file" && p.mediaType?.startsWith("image/"))
 		) {
 			imageParts.push(p);
+		} else if (p.type === "file" && p.mediaType?.startsWith("audio/")) {
+			audioParts.push(p);
 		}
 	}
 
 	return {
 		textParts,
 		imageParts,
+		audioParts,
 		toolParts,
 		reasoningContent: reasoningParts.join(""),
 		sourceParts,
@@ -475,7 +487,7 @@ const UserMessage = memo(
 		isLastMessage: boolean;
 		status: string;
 	}) => {
-		const { textParts, imageParts } = useMemo(
+		const { textParts, imageParts, audioParts } = useMemo(
 			() => extractMessageParts(message.parts),
 			[message.parts],
 		);
@@ -504,6 +516,21 @@ const UserMessage = memo(
 									</ImageZoom>
 								);
 							})}
+						</div>
+					)}
+					{audioParts.length > 0 && (
+						<div className="mt-3 flex flex-col gap-2">
+							{audioParts.map((part: any, idx: number) => (
+								<audio
+									key={idx}
+									controls
+									src={part.url}
+									className="w-full max-w-md"
+									aria-label={part.name ?? part.filename ?? "Audio attachment"}
+								>
+									<track kind="captions" />
+								</audio>
+							))}
 						</div>
 					)}
 				</MessageContent>
@@ -549,6 +576,7 @@ export function ReadOnlyChatMessages({ messages }: { messages: UIMessage[] }) {
 export const ChatUI = ({
 	messages,
 	supportsImages,
+	supportsAudio,
 	supportsImageGen,
 	sendMessage,
 	selectedModel,
@@ -674,6 +702,18 @@ export const ChatUI = ({
 							}))
 					: undefined;
 
+			const audioToSave =
+				supportsAudio && files?.length
+					? files
+							.filter((f) => f.mediaType?.startsWith("audio/") && f.url)
+							.map((f) => ({
+								type: "audio" as const,
+								url: f.url!,
+								mediaType: f.mediaType!,
+								...(f.filename ? { name: f.filename } : {}),
+							}))
+					: undefined;
+
 			if (content.trim()) {
 				parts.push({ type: "text", text: content });
 			}
@@ -693,14 +733,30 @@ export const ChatUI = ({
 				}
 			}
 
+			if (supportsAudio && files?.length) {
+				for (const file of files) {
+					if (file.mediaType?.startsWith("audio/") && file.url) {
+						parts.push({
+							type: "file",
+							url: file.url,
+							mediaType: file.mediaType,
+							name: file.filename,
+						});
+					}
+				}
+			}
+
 			if (parts.length === 0) {
 				return;
 			}
 
 			// Ensure the chat exists + user message is persisted BEFORE streaming starts.
 			// Otherwise `onFinish` may run before `chatIdRef` is set, and we can't save the AI response.
-			if (onUserMessage && (content.trim() || imagesToSave?.length)) {
-				await onUserMessage(content, imagesToSave);
+			if (
+				onUserMessage &&
+				(content.trim() || imagesToSave?.length || audioToSave?.length)
+			) {
+				await onUserMessage(content, imagesToSave, audioToSave);
 			}
 
 			// Call sendMessage which will handle adding the user message and API request
@@ -881,10 +937,18 @@ export const ChatUI = ({
 				transition={{ duration: 0.18, ease: "easeOut" }}
 			>
 				<PromptInput
-					key={supportsImages ? "prompt-input-images" : "prompt-input-text"}
-					accept={supportsImages ? "image/*" : undefined}
+					key={`prompt-input-${supportsImages ? "img" : ""}${supportsAudio ? "aud" : ""}`}
+					accept={
+						supportsImages && supportsAudio
+							? "image/*,audio/*"
+							: supportsImages
+								? "image/*"
+								: supportsAudio
+									? "audio/*"
+									: undefined
+					}
 					multiple
-					globalDrop={supportsImages}
+					globalDrop={supportsImages || supportsAudio}
 					aria-disabled={isBusy}
 					onSubmit={(message) => {
 						void handlePromptSubmit(message.text ?? "", message.files);
@@ -903,11 +967,19 @@ export const ChatUI = ({
 					</PromptInputBody>
 					<PromptInputToolbar>
 						<PromptInputTools>
-							{supportsImages && (
+							{(supportsImages || supportsAudio) && (
 								<PromptInputActionMenu>
 									<PromptInputActionMenuTrigger />
 									<PromptInputActionMenuContent>
-										<PromptInputActionAddAttachments />
+										<PromptInputActionAddAttachments
+											label={
+												supportsImages && supportsAudio
+													? "Add photos, audio or files"
+													: supportsAudio
+														? "Add audio"
+														: undefined
+											}
+										/>
 									</PromptInputActionMenuContent>
 								</PromptInputActionMenu>
 							)}

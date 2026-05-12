@@ -33,6 +33,26 @@ export const completionsRequestSchema = z.object({
 									detail: z.enum(["low", "high", "auto"]).optional(),
 								}),
 							}),
+							z.object({
+								type: z.literal("input_audio"),
+								input_audio: z.object({
+									data: z.string(),
+									format: z.enum([
+										"wav",
+										"mp3",
+										"aiff",
+										"aac",
+										"ogg",
+										"flac",
+										"m4a",
+										"mpeg",
+										"mpga",
+										"mp4",
+										"pcm",
+										"webm",
+									]),
+								}),
+							}),
 						]),
 					),
 				])

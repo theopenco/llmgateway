@@ -15,6 +15,7 @@ export function mapModels(
 
 		// Determine capabilities based on if ANY provider supports them
 		const hasVision = rootProviders.some((p) => p.vision);
+		const hasAudio = rootProviders.some((p) => p.audio);
 		const hasTools = rootProviders.some((p) => p.tools);
 		const hasImageGen = m.output?.includes("image");
 		const supportsVideoAudio = rootProviders.some(
@@ -31,6 +32,7 @@ export function mapModels(
 			providerId: undefined,
 			family: m.family,
 			vision: hasVision,
+			audio: hasAudio,
 			tools: hasTools,
 			imageGen: hasImageGen,
 			supportsVideoAudio,
@@ -59,6 +61,7 @@ export function mapModels(
 				inputPrice: p.inputPrice ? parseFloat(p.inputPrice) : undefined,
 				outputPrice: p.outputPrice ? parseFloat(p.outputPrice) : undefined,
 				vision: p.vision ?? undefined,
+				audio: p.audio ?? undefined,
 				tools: p.tools ?? undefined,
 				imageGen: m.output?.includes("image"),
 				supportsVideoAudio: p.supportsVideoAudio ?? undefined,

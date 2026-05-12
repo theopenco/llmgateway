@@ -442,6 +442,14 @@ export default function ChatPageClient({
 		return !!mapping?.vision;
 	}, [models, selectedModel]);
 
+	const supportsAudio = useMemo(() => {
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		}
+		return !!model?.audio;
+	}, [availableModels, selectedModel]);
+
 	const supportsImageGen = useMemo(() => {
 		if (!selectedModel) {
 			return false;
@@ -702,6 +710,27 @@ export default function ChatPageClient({
 					}
 				}
 
+				if (msg.audios) {
+					try {
+						const parsedAudios = JSON.parse(msg.audios);
+						if (Array.isArray(parsedAudios)) {
+							for (const a of parsedAudios) {
+								if (!a?.url) {
+									continue;
+								}
+								parts.push({
+									type: "file",
+									mediaType: a.mediaType ?? "audio/mpeg",
+									url: a.url,
+									...(a.name ? { name: a.name } : {}),
+								});
+							}
+						}
+					} catch (error) {
+						toast.error("Failed to parse audios: " + getErrorMessage(error));
+					}
+				}
+
 				if ((msg as any).tools) {
 					try {
 						const parsedTools = JSON.parse((msg as any).tools);
@@ -819,6 +848,12 @@ export default function ChatPageClient({
 			type: "image_url";
 			image_url: { url: string };
 		}>,
+		audio?: Array<{
+			type: "audio";
+			url: string;
+			mediaType: string;
+			name?: string;
+		}>,
 	) => {
 		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
 			setShowTopUp(true);
@@ -831,6 +866,7 @@ export default function ChatPageClient({
 		posthog.capture("playground_chat_sent", {
 			model: selectedModel,
 			has_images: !!images?.length,
+			has_audio: !!audio?.length,
 			web_search: webSearchEnabled,
 		});
 		errorOccurredRef.current = false;
@@ -869,6 +905,7 @@ export default function ChatPageClient({
 					role: "user",
 					...(content.trim() ? { content } : {}),
 					...(images?.length ? { images: JSON.stringify(images) } : {}),
+					...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
 				},
 			});
 		} catch (error: any) {
@@ -887,6 +924,7 @@ export default function ChatPageClient({
 							role: "user",
 							...(content.trim() ? { content } : {}),
 							...(images?.length ? { images: JSON.stringify(images) } : {}),
+							...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
 						},
 					});
 					setIsLoading(false);
@@ -1268,6 +1306,7 @@ export default function ChatPageClient({
 										<ChatUI
 											messages={messages}
 											supportsImages={supportsImages}
+											supportsAudio={supportsAudio}
 											supportsImageGen={supportsImageGen}
 											sendMessage={sendMessageWithHeaders}
 											selectedModel={selectedModel}
@@ -1305,6 +1344,7 @@ export default function ChatPageClient({
 									<ChatUI
 										messages={messages}
 										supportsImages={supportsImages}
+										supportsAudio={supportsAudio}
 										supportsImageGen={supportsImageGen}
 										sendMessage={sendMessageWithHeaders}
 										selectedModel={selectedModel}
@@ -1464,6 +1504,14 @@ function ExtraChatPanel({
 		const def = models.find((m) => m.id === modelId);
 		return !!def?.output?.includes("image");
 	}, [models, selectedModel]);
+
+	const supportsAudio = useMemo(() => {
+		let model = availableModels.find((m) => m.id === selectedModel);
+		if (!model && !selectedModel.includes("/")) {
+			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		}
+		return !!model?.audio;
+	}, [availableModels, selectedModel]);
 
 	const supportsReasoning = useMemo(() => {
 		if (!selectedModel) {
@@ -1695,6 +1743,7 @@ function ExtraChatPanel({
 				<ChatUI
 					messages={messages}
 					supportsImages={supportsImages}
+					supportsAudio={supportsAudio}
 					supportsImageGen={supportsImageGen}
 					sendMessage={sendMessageWithHeaders}
 					selectedModel={selectedModel}

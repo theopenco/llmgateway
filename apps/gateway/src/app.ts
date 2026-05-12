@@ -7,6 +7,7 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { UnsupportedAudioFormatError } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import {
@@ -112,6 +113,22 @@ app.use("*", async (c, next) => {
 });
 
 app.onError((error, c) => {
+	if (error instanceof UnsupportedAudioFormatError) {
+		logger.warn("Unsupported audio format", {
+			message: error.message,
+			format: error.format,
+			providerTarget: error.providerTarget,
+		});
+		return c.json(
+			{
+				error: true,
+				status: 400,
+				message: error.message,
+			},
+			400,
+		);
+	}
+
 	if (error instanceof HTTPException) {
 		const status = error.status;
 

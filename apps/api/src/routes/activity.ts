@@ -48,6 +48,7 @@ const dailyActivitySchema = z.object({
 	requestCost: z.number(),
 	dataStorageCost: z.number(),
 	imageInputCost: z.number(),
+	audioInputCost: z.number(),
 	imageOutputCost: z.number(),
 	videoOutputCost: z.number(),
 	cachedInputCost: z.number(),
@@ -252,6 +253,10 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageInputCost}), 0)`.as(
 						"imageInputCost",
 					),
+				audioInputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.audioInputCost}), 0)`.as(
+						"audioInputCost",
+					),
 				imageOutputCost:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageOutputCost}), 0)`.as(
 						"imageOutputCost",
@@ -409,6 +414,7 @@ activity.openapi(getActivity, async (c) => {
 			const cacheCount = Number(day.cacheCount);
 			const discountSavings = Number(day.discountSavings);
 			const imageInputCost = Number(day.imageInputCost);
+			const audioInputCost = Number(day.audioInputCost);
 			const imageOutputCost = Number(day.imageOutputCost);
 			const videoOutputCost = Number(day.videoOutputCost);
 			const cachedInputCost = Number(day.cachedInputCost);
@@ -440,6 +446,7 @@ activity.openapi(getActivity, async (c) => {
 				requestCost,
 				dataStorageCost,
 				imageInputCost,
+				audioInputCost,
 				imageOutputCost,
 				videoOutputCost,
 				cachedInputCost,
@@ -520,6 +527,10 @@ activity.openapi(getActivity, async (c) => {
 			imageInputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.imageInputCost}), 0)`.as(
 					"imageInputCost",
+				),
+			audioInputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.audioInputCost}), 0)`.as(
+					"audioInputCost",
 				),
 			imageOutputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.imageOutputCost}), 0)`.as(
@@ -679,6 +690,7 @@ activity.openapi(getActivity, async (c) => {
 		const requestCost = Number(day.requestCost);
 		const dataStorageCost = Number(day.dataStorageCost);
 		const imageInputCost = Number(day.imageInputCost);
+		const audioInputCost = Number(day.audioInputCost);
 		const imageOutputCost = Number(day.imageOutputCost);
 		const videoOutputCost = Number(day.videoOutputCost);
 		const cachedInputCost = Number(day.cachedInputCost);
@@ -711,6 +723,7 @@ activity.openapi(getActivity, async (c) => {
 			requestCost,
 			dataStorageCost,
 			imageInputCost,
+			audioInputCost,
 			imageOutputCost,
 			videoOutputCost,
 			cachedInputCost,

@@ -176,12 +176,25 @@ export interface ProviderModelMapping {
 	 */
 	imageInputPrice?: number;
 	/**
+	 * Price per audio input token in USD. When unset, audio input tokens are
+	 * billed at the regular `inputPrice` (used for providers that don't price
+	 * audio separately, e.g. Gemini 2.5 Pro where audio follows the text tier).
+	 */
+	inputAudioPrice?: number;
+	/**
 	 * Price per cached image input token in USD. Used by image-output models
 	 * (e.g. gpt-image-2) where OpenAI bills cached image tokens at a different
 	 * rate than cached text tokens. When unset, cached image tokens fall back
 	 * to `cachedInputPrice`.
 	 */
 	cachedImageInputPrice?: number;
+	/**
+	 * Price per cached audio input token in USD. Used by Google Gemini models
+	 * which list a separate context-cache rate for audio that's higher than the
+	 * text/image/video cache rate. When unset, cached audio tokens fall back to
+	 * `cachedInputPrice`.
+	 */
+	cachedInputAudioPrice?: number;
 	/**
 	 * Resolution-based token counts for image output.
 	 * Maps resolution keys (e.g., "1K", "2K", "4K", "default") to tokens per image.
@@ -237,6 +250,13 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports vision (image inputs) for this provider
 	 */
 	vision?: boolean;
+	/**
+	 * Whether this specific model accepts audio inputs (`input_audio` content
+	 * blocks) for this provider. Used by the `model: "auto"` router to avoid
+	 * selecting providers that would fail upstream when the request contains
+	 * audio content.
+	 */
+	audio?: boolean;
 	/**
 	 * Whether this model supports reasoning mode
 	 */
