@@ -671,8 +671,12 @@ export default function ChatPageClient({
 			setWebSearchEnabled(currentChatData.chat.webSearch);
 		}
 
+		const filteredMessages = currentChatData.messages.filter(
+			(msg, index, arr) =>
+				msg.role !== "assistant" || arr[index + 1]?.role !== "assistant",
+		);
 		setMessages(
-			currentChatData.messages.map((msg) => {
+			filteredMessages.map((msg) => {
 				const parts: any[] = [];
 
 				if (msg.content) {
