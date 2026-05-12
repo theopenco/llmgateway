@@ -163,6 +163,18 @@ export function HistoryChart({
 	const summaryStats = {
 		totalRequests: data.reduce((sum, d) => sum + d.logsCount, 0),
 		totalErrors: data.reduce((sum, d) => sum + d.errorsCount, 0),
+		totalClientErrors: data.reduce(
+			(sum, d) => sum + (d.clientErrorsCount ?? 0),
+			0,
+		),
+		totalGatewayErrors: data.reduce(
+			(sum, d) => sum + (d.gatewayErrorsCount ?? 0),
+			0,
+		),
+		totalUpstreamErrors: data.reduce(
+			(sum, d) => sum + (d.upstreamErrorsCount ?? 0),
+			0,
+		),
 		totalTokens: data.reduce((sum, d) => sum + d.totalTokens, 0),
 		totalCost: data.reduce((sum, d) => sum + d.totalCost, 0),
 		avgTtft:
@@ -242,7 +254,18 @@ export function HistoryChart({
 						<strong className="text-foreground">
 							{summaryStats.totalErrors.toLocaleString()}
 						</strong>{" "}
-						({summaryStats.errorRate}%)
+						({summaryStats.errorRate}%) — client:{" "}
+						<strong className="text-foreground">
+							{summaryStats.totalClientErrors.toLocaleString()}
+						</strong>
+						, gateway:{" "}
+						<strong className="text-foreground">
+							{summaryStats.totalGatewayErrors.toLocaleString()}
+						</strong>
+						, upstream:{" "}
+						<strong className="text-foreground">
+							{summaryStats.totalUpstreamErrors.toLocaleString()}
+						</strong>
 					</span>
 					<span>
 						Tokens:{" "}
