@@ -1196,6 +1196,7 @@ chats.openapi(updateMessage, async (c) => {
 			.set({
 				content: body.content ?? null,
 				images: body.images ?? null,
+				audios: null,
 				reasoning: null,
 				tools: null,
 				metadata: null,
@@ -1218,6 +1219,7 @@ chats.openapi(updateMessage, async (c) => {
 			role: updatedMessage.role as "user" | "assistant" | "system",
 			content: updatedMessage.content,
 			images: updatedMessage.images,
+			audios: updatedMessage.audios,
 			reasoning: updatedMessage.reasoning,
 			tools: updatedMessage.tools ?? null,
 			metadata: updatedMessage.metadata ?? null,
