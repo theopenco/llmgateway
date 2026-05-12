@@ -7759,6 +7759,7 @@ export interface paths {
                                 role: "user" | "assistant" | "system";
                                 content: string | null;
                                 images: string | null;
+                                audios: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
