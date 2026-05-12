@@ -230,8 +230,7 @@ const getById = createRoute({
 
 const querySchema = z.object({
 	apiKeyId: z.string().optional().openapi({
-		description:
-			"Filter logs by API key ID (supports comma-separated list of IDs)",
+		description: "Filter logs by API key ID",
 	}),
 	providerKeyId: z.string().optional().openapi({
 		description: "Filter logs by provider key ID",
@@ -445,36 +444,25 @@ logs.openapi(get, async (c) => {
 		});
 	}
 
-	// Check apiKeyId authorization if provided. apiKeyId may be a single ID or
-	// a comma-separated list (e.g. when filtering across a key's rotation
-	// history). Every requested key must belong to one of the user's projects.
-	const apiKeyIdList = apiKeyId
-		? apiKeyId
-				.split(",")
-				.map((s) => s.trim())
-				.filter((s) => s.length > 0)
-		: [];
-
-	if (apiKeyIdList.length > 0) {
-		const apiKeys = await db.query.apiKey.findMany({
+	// Check apiKeyId authorization if provided
+	if (apiKeyId) {
+		const apiKey = await db.query.apiKey.findFirst({
 			where: {
-				id: { in: apiKeyIdList },
+				id: apiKeyId,
 			},
-			columns: { id: true, projectId: true },
 		});
 
-		if (apiKeys.length !== apiKeyIdList.length) {
+		if (!apiKey) {
 			throw new HTTPException(404, {
 				message: "API key not found",
 			});
 		}
 
-		for (const key of apiKeys) {
-			if (!projectIds.includes(key.projectId)) {
-				throw new HTTPException(403, {
-					message: "You don't have access to this API key",
-				});
-			}
+		// Check if the API key belongs to one of the user's projects
+		if (!projectIds.includes(apiKey.projectId)) {
+			throw new HTTPException(403, {
+				message: "You don't have access to this API key",
+			});
 		}
 	}
 
@@ -546,11 +534,9 @@ logs.openapi(get, async (c) => {
 		);
 	}
 
-	// Add apiKeyId filter (supports comma-separated list)
-	if (apiKeyIdList.length === 1) {
-		whereConditions.push(eq(tables.log.apiKeyId, apiKeyIdList[0]));
-	} else if (apiKeyIdList.length > 1) {
-		whereConditions.push(inArray(tables.log.apiKeyId, apiKeyIdList));
+	// Add apiKeyId filter
+	if (apiKeyId) {
+		whereConditions.push(eq(tables.log.apiKeyId, apiKeyId));
 	}
 
 	// Add providerKeyId filter

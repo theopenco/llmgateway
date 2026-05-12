@@ -76,7 +76,7 @@ function formatTokens(n: number): string {
 }
 
 interface AgentModelUsageChartProps {
-	apiKeyIds: string[];
+	projectId: string;
 }
 
 interface ChartRow {
@@ -167,13 +167,10 @@ function ChartTooltipContent({
 	);
 }
 
-export function AgentModelUsageChart({ apiKeyIds }: AgentModelUsageChartProps) {
+export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 	const [range, setRange] = useState<AgentChartTimeRange>("24h");
 	const [metric, setMetric] = useState<Metric>("cost");
 	const api = useApi();
-
-	const apiKeyIdParam = useMemo(() => apiKeyIds.join(","), [apiKeyIds]);
-	const hasApiKeys = apiKeyIds.length > 0;
 
 	const { data, isLoading, isFetching } = api.useQuery(
 		"get",
@@ -182,12 +179,12 @@ export function AgentModelUsageChart({ apiKeyIds }: AgentModelUsageChartProps) {
 			params: {
 				query: {
 					timeRange: range,
-					apiKeyId: apiKeyIdParam,
+					projectId,
 				},
 			},
 		},
 		{
-			enabled: hasApiKeys,
+			enabled: !!projectId,
 			refetchOnWindowFocus: false,
 			staleTime: 30_000,
 		},
@@ -293,7 +290,7 @@ export function AgentModelUsageChart({ apiKeyIds }: AgentModelUsageChartProps) {
 							: metric === "tokens"
 								? "tokens"
 								: "requests"}{" "}
-						across your DevPass API key over {subtitleLabel}
+						across your DevPass project over {subtitleLabel}
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">

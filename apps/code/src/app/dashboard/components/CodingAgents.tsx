@@ -465,11 +465,11 @@ function ModelUsageBreakdown({ models }: { models: ModelUsage[] }) {
 function AgentDetail({
 	stats,
 	onBack,
-	apiKeyIds,
+	projectId,
 }: {
 	stats: AgentStats;
 	onBack: () => void;
-	apiKeyIds: string[];
+	projectId: string;
 }) {
 	const Icon = stats.agent.icon;
 	const recent = stats.logs
@@ -507,7 +507,7 @@ function AgentDetail({
 					</div>
 				</div>
 			</div>
-			<AgentModelUsageChart apiKeyIds={apiKeyIds} />
+			<AgentModelUsageChart projectId={projectId} />
 			<ModelUsageBreakdown models={stats.modelBreakdown} />
 			<div className="overflow-hidden rounded-xl border">
 				<div className="border-b bg-muted/30 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -587,10 +587,10 @@ function AgentsEmpty({ hadError = false }: { hadError?: boolean }) {
 
 export default function CodingAgents({
 	orgId,
-	apiKeyIds,
+	projectId,
 }: {
 	orgId: string;
-	apiKeyIds: string[];
+	projectId: string | null;
 }) {
 	const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 	const api = useApi();
@@ -602,9 +602,6 @@ export default function CodingAgents({
 	}, []);
 	const until = useMemo(() => new Date().toISOString(), []);
 
-	const apiKeyIdParam = useMemo(() => apiKeyIds.join(","), [apiKeyIds]);
-	const hasApiKeys = apiKeyIds.length > 0;
-
 	const { data, isLoading, error } = api.useQuery(
 		"get",
 		"/logs",
@@ -612,7 +609,7 @@ export default function CodingAgents({
 			params: {
 				query: {
 					orgId,
-					apiKeyId: apiKeyIdParam,
+					...(projectId ? { projectId } : {}),
 					orderBy: "createdAt_desc",
 					limit: "100",
 					source: ALL_CODING_AGENT_SOURCES.join(","),
@@ -622,7 +619,7 @@ export default function CodingAgents({
 			},
 		},
 		{
-			enabled: !!orgId && hasApiKeys,
+			enabled: !!orgId && !!projectId,
 			refetchOnWindowFocus: false,
 			staleTime: 60_000,
 		},
@@ -667,11 +664,11 @@ export default function CodingAgents({
 						/>
 					))}
 				</div>
-			) : selectedStats ? (
+			) : selectedStats && projectId ? (
 				<AgentDetail
 					stats={selectedStats}
 					onBack={() => setSelectedAgentId(null)}
-					apiKeyIds={apiKeyIds}
+					projectId={projectId}
 				/>
 			) : agentStats.length === 0 ? (
 				<AgentsEmpty hadError={!!error} />

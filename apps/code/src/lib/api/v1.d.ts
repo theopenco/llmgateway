@@ -8158,7 +8158,6 @@ export interface paths {
                             organizationId: string | null;
                             projectId: string | null;
                             apiKey: string | null;
-                            apiKeyIds: string[];
                             devPlanAllowAllModels: boolean;
                             cachingEnabled: boolean;
                             cacheDurationSeconds: number;

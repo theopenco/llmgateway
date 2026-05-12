@@ -723,7 +723,6 @@ const getStatus = createRoute({
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
-						apiKeyIds: z.array(z.string()),
 						devPlanAllowAllModels: z.boolean(),
 						cachingEnabled: z.boolean(),
 						cacheDurationSeconds: z.number(),
@@ -773,7 +772,6 @@ devPlans.openapi(getStatus, async (c) => {
 			organizationId: null,
 			projectId: null,
 			apiKey: null,
-			apiKeyIds: [],
 			devPlanAllowAllModels: false,
 			cachingEnabled: false,
 			cacheDurationSeconds: 60,
@@ -790,7 +788,6 @@ devPlans.openapi(getStatus, async (c) => {
 	let projectId: string | null = null;
 	let cachingEnabled = false;
 	let cacheDurationSeconds = 60;
-	let apiKeyIds: string[] = [];
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -815,19 +812,6 @@ devPlans.openapi(getStatus, async (c) => {
 				project.id,
 				user.id,
 			);
-
-			// Include both active and previously rotated (status="deleted")
-			// dev-plan API keys so the dashboard can scope usage charts to the
-			// devpass key across its rotation history while excluding keys the
-			// user created via the llmgateway dashboard for the same project.
-			const devPlanKeys = await db.query.apiKey.findMany({
-				where: {
-					projectId: { eq: project.id },
-					description: { eq: "Dev Plan API Key" },
-				},
-				columns: { id: true },
-			});
-			apiKeyIds = devPlanKeys.map((k) => k.id);
 		}
 	}
 
@@ -846,7 +830,6 @@ devPlans.openapi(getStatus, async (c) => {
 		organizationId: personalOrg.id,
 		projectId,
 		apiKey,
-		apiKeyIds,
 		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
 		cachingEnabled,
 		cacheDurationSeconds,

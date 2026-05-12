@@ -16,7 +16,6 @@ type ActivityItem = ActivityResponse["activity"][number];
 
 interface UsageOverviewProps {
 	projectId: string | null;
-	apiKeyIds: string[];
 	creditsUsed: number;
 	creditsLimit: number;
 	planName: string;
@@ -109,7 +108,6 @@ function UsageBar({ used, limit }: { used: number; limit: number }) {
 
 export default function UsageOverview({
 	projectId,
-	apiKeyIds,
 	creditsUsed,
 	creditsLimit,
 	planName,
@@ -120,27 +118,18 @@ export default function UsageOverview({
 }: UsageOverviewProps) {
 	const api = useApi();
 
-	const apiKeyIdParam = apiKeyIds.join(",");
-	const hasApiKeys = apiKeyIds.length > 0;
-
 	const { data: activity } = api.useQuery(
 		"get",
 		"/activity",
 		{
 			params: {
-				query: hasApiKeys
-					? {
-							apiKeyId: apiKeyIdParam,
-							timeRange: "30d" as const,
-							...(projectId ? { projectId } : {}),
-						}
-					: projectId
-						? { projectId, timeRange: "30d" as const }
-						: { timeRange: "30d" as const },
+				query: projectId
+					? { projectId, timeRange: "30d" as const }
+					: { timeRange: "30d" as const },
 			},
 		},
 		{
-			enabled: !!projectId && hasApiKeys,
+			enabled: !!projectId,
 			refetchOnWindowFocus: false,
 			staleTime: 60_000,
 		},
@@ -266,9 +255,8 @@ export default function UsageOverview({
 				/>
 			</div>
 
-			{/* Stacked model usage chart — scoped to the DevPass API key
-			    (including any rotated key history). */}
-			<AgentModelUsageChart apiKeyIds={apiKeyIds} />
+			{/* Stacked model usage chart — scoped to the DevPass project. */}
+			{projectId ? <AgentModelUsageChart projectId={projectId} /> : null}
 		</div>
 	);
 }
