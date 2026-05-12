@@ -566,7 +566,8 @@ function ModelRowCard({
 						<div>
 							<p className="text-[11px] font-medium text-green-600 dark:text-green-400 uppercase tracking-wider">
 								LLM Gateway ({getProviderName(cheapestMapping.providerId)}
-								{cheapestMapping.discount
+								{cheapestMapping.discount &&
+								Number(cheapestMapping.discount) !== 0
 									? ` · ${Number(cheapestMapping.discount) * 100}% off`
 									: ""}
 								)

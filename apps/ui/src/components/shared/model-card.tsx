@@ -112,25 +112,28 @@ export function ModelCard({ modelName, providers }: ModelCardProps) {
 					provider.requestPrice !== undefined) && (
 					<div className="text-xs text-muted-foreground">
 						<p>
-							{provider.inputPrice !== undefined && (
-								<>
-									<span className="font-mono text-foreground font-bold">
-										${(Number(provider.inputPrice) * 1e6).toFixed(2)}
-									</span>{" "}
-									<span className="text-muted-foreground">in</span>
-								</>
-							)}
+							{provider.inputPrice !== undefined &&
+								Number.isFinite(Number(provider.inputPrice)) && (
+									<>
+										<span className="font-mono text-foreground font-bold">
+											${(Number(provider.inputPrice) * 1e6).toFixed(2)}
+										</span>{" "}
+										<span className="text-muted-foreground">in</span>
+									</>
+								)}
 
-							{provider.outputPrice !== undefined && (
-								<>
-									<span className="text-muted-foreground mx-2">/</span>
-									<span className="font-mono text-foreground font-bold">
-										${(Number(provider.outputPrice) * 1e6).toFixed(2)}
-									</span>{" "}
-									<span className="text-muted-foreground">out</span>
-								</>
-							)}
+							{provider.outputPrice !== undefined &&
+								Number.isFinite(Number(provider.outputPrice)) && (
+									<>
+										<span className="text-muted-foreground mx-2">/</span>
+										<span className="font-mono text-foreground font-bold">
+											${(Number(provider.outputPrice) * 1e6).toFixed(2)}
+										</span>{" "}
+										<span className="text-muted-foreground">out</span>
+									</>
+								)}
 							{provider.requestPrice !== undefined &&
+								Number.isFinite(Number(provider.requestPrice)) &&
 								Number(provider.requestPrice) !== 0 &&
 								` / $${(Number(provider.requestPrice) * 1000).toFixed(2)} per 1K req`}
 						</p>

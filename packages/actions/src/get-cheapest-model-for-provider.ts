@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 import {
 	models,
 	type ProviderModelMapping,
@@ -55,8 +57,8 @@ export function getCheapestModelForProvider(
 	// Filter out free models (where both input and output prices are 0)
 	const paidModels = availableModels.filter(
 		({ provider: providerInfo }) =>
-			Number(providerInfo.inputPrice ?? "0") !== 0 ||
-			Number(providerInfo.outputPrice ?? "0") !== 0,
+			!new Decimal(providerInfo.inputPrice ?? "0").isZero() ||
+			!new Decimal(providerInfo.outputPrice ?? "0").isZero(),
 	);
 
 	// Use paid models if available, otherwise fall back to free models
@@ -64,18 +66,18 @@ export function getCheapestModelForProvider(
 	const modelsToConsider = paidModels.length > 0 ? paidModels : availableModels;
 
 	let cheapestModel = modelsToConsider[0].provider.modelName;
-	let lowestPrice = Number.MAX_VALUE;
+	let lowestPrice: Decimal | null = null;
 
 	for (const { provider: providerInfo } of modelsToConsider) {
-		const discount = Number(
+		const discount = new Decimal(
 			(providerInfo as ProviderModelMapping).discount ?? "0",
 		);
-		const discountMultiplier = 1 - discount;
-		const totalPrice =
-			((Number(providerInfo.inputPrice!) + Number(providerInfo.outputPrice!)) /
-				2) *
-			discountMultiplier;
-		if (totalPrice < lowestPrice) {
+		const discountMultiplier = new Decimal(1).minus(discount);
+		const totalPrice = new Decimal(providerInfo.inputPrice!)
+			.plus(providerInfo.outputPrice!)
+			.div(2)
+			.times(discountMultiplier);
+		if (lowestPrice === null || totalPrice.lt(lowestPrice)) {
 			lowestPrice = totalPrice;
 			cheapestModel = providerInfo.modelName;
 		}

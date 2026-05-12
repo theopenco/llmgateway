@@ -1531,9 +1531,12 @@ export function ModelSelector({
 															</div>
 														)}
 													{/* Image Generation Pricing */}
-													{(previewEntry.mapping?.requestPrice ??
-														previewEntry.mapping?.imageInputPrice ??
-														previewEntry.mapping?.imageOutputPrice) && (
+													{(Number(previewEntry.mapping?.requestPrice ?? 0) >
+														0 ||
+														previewEntry.mapping?.imageInputPrice !==
+															undefined ||
+														previewEntry.mapping?.imageOutputPrice !==
+															undefined) && (
 														<div className="pt-2 border-t border-dashed">
 															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 																Image Pricing
@@ -2065,9 +2068,12 @@ export function ModelSelector({
 													</div>
 												)}
 											{/* Image Generation Pricing */}
-											{(selectedDetails.mapping?.requestPrice ??
-												selectedDetails.mapping?.imageInputPrice ??
-												selectedDetails.mapping?.imageOutputPrice) && (
+											{(Number(selectedDetails.mapping?.requestPrice ?? 0) >
+												0 ||
+												selectedDetails.mapping?.imageInputPrice !==
+													undefined ||
+												selectedDetails.mapping?.imageOutputPrice !==
+													undefined) && (
 												<div className="pt-2 border-t border-dashed">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 														Image Pricing

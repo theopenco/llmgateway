@@ -244,7 +244,11 @@ function getPricingSummary(
 	const entries = providers
 		.filter((provider) => {
 			const raw = provider[field];
-			return raw !== undefined && raw !== null && Number(raw) !== 0;
+			if (raw === undefined || raw === null) {
+				return false;
+			}
+			const num = Number(raw);
+			return Number.isFinite(num) && num !== 0;
 		})
 		.map((provider) => {
 			const rawValue = Number(provider[field] as string);
@@ -487,6 +491,9 @@ function getProviderPricingSummary(
 		return undefined;
 	}
 	const raw = Number(rawRaw);
+	if (!Number.isFinite(raw)) {
+		return undefined;
+	}
 	const multiplier =
 		field === "requestPrice"
 			? 1000
