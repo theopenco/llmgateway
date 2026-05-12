@@ -88,6 +88,7 @@ const AGGREGATE_KEYS = [
 	"discountSavings",
 	"imageInputCost",
 	"imageOutputCost",
+	"audioInputCost",
 	"videoOutputCost",
 	"cachedInputCost",
 	"cacheWriteInputCost",

@@ -55,6 +55,7 @@ import {
 	getProviderEndpoint,
 	getProviderHeaders,
 	getProviderSelectionPrice,
+	googleProviderSupportsAudioFormat,
 	prepareRequestBody,
 	resolveMetricsModelId,
 	type RoutingMetadata,
@@ -132,6 +133,10 @@ import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-o
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { mapFinishReasonToOpenai } from "./tools/map-finish-reason-to-openai.js";
+import {
+	getAudioFormatsFromMessages,
+	messagesContainAudio,
+} from "./tools/messages-contain-audio.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
@@ -346,6 +351,8 @@ function filterEligibleModelProviders(
 		webSearchTool?: WebSearchTool;
 		responseFormatType?: string;
 		hasImages: boolean;
+		hasAudio: boolean;
+		audioFormats?: string[];
 		maxTokens?: number;
 		reasoningEffort?: string;
 	},
@@ -386,6 +393,21 @@ function filterEligibleModelProviders(
 		}
 
 		if (options.hasImages && provider.vision !== true) {
+			return false;
+		}
+
+		if (options.hasAudio && provider.audio !== true) {
+			return false;
+		}
+
+		if (
+			options.hasAudio &&
+			options.audioFormats &&
+			options.audioFormats.length > 0 &&
+			!options.audioFormats.every((fmt) =>
+				googleProviderSupportsAudioFormat(provider.providerId, fmt),
+			)
+		) {
 			return false;
 		}
 
@@ -933,6 +955,7 @@ const completions = createRoute({
 									web_search_cost: z.number().nullable().optional(),
 									image_input_cost: z.number().nullable().optional(),
 									image_output_cost: z.number().nullable().optional(),
+									audio_input_cost: z.number().nullable().optional(),
 									data_storage_cost: z.number().nullable().optional(),
 								})
 								.optional(),
@@ -1115,6 +1138,10 @@ chat.openapi(completions, async (c) => {
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
+	const hasAudio = messagesContainAudio(messages as BaseMessage[]);
+	const audioFormats = hasAudio
+		? getAudioFormatsFromMessages(messages as BaseMessage[])
+		: [];
 
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
@@ -1671,7 +1698,7 @@ chat.openapi(completions, async (c) => {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
-			} else if (!allowedAutoModels.includes(modelDef.id)) {
+			} else if (!allowedAutoModels.includes(modelDef.id) && !hasAudio) {
 				continue;
 			} else if (
 				estimatedInputTokens > 10_000 &&
@@ -1779,6 +1806,20 @@ chat.openapi(completions, async (c) => {
 
 				// Check vision capability if images are present in messages
 				if (hasImages && provider.vision !== true) {
+					return false;
+				}
+
+				if (hasAudio && provider.audio !== true) {
+					return false;
+				}
+
+				if (
+					hasAudio &&
+					audioFormats.length > 0 &&
+					!audioFormats.every((fmt) =>
+						googleProviderSupportsAudioFormat(provider.providerId, fmt),
+					)
+				) {
 					return false;
 				}
 
@@ -1945,13 +1986,28 @@ chat.openapi(completions, async (c) => {
 		const allSameProviderMappings = modelInfo.providers.filter(
 			(p) => p.providerId === usedProvider,
 		);
-		const sameProviderMappings = isDevPlanRestricted
+		let sameProviderMappings = isDevPlanRestricted
 			? allSameProviderMappings.filter(providerSupportsCachedInput)
 			: allSameProviderMappings;
 		if (isDevPlanRestricted && sameProviderMappings.length === 0) {
 			throw new HTTPException(403, {
 				message: `Provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
 			});
+		}
+		if (hasAudio) {
+			sameProviderMappings = sameProviderMappings.filter(
+				(p) =>
+					p.audio === true &&
+					(audioFormats.length === 0 ||
+						audioFormats.every((fmt) =>
+							googleProviderSupportsAudioFormat(p.providerId, fmt),
+						)),
+			);
+			if (sameProviderMappings.length === 0) {
+				throw new HTTPException(400, {
+					message: `Provider ${usedProvider} does not support audio input for model ${modelInfo.id}.`,
+				});
+			}
 		}
 		const sameProviderRegionalMappings = sameProviderMappings.filter(
 			(p) => p.region,
@@ -1998,6 +2054,8 @@ chat.openapi(completions, async (c) => {
 					webSearchTool,
 					responseFormatType: response_format?.type,
 					hasImages,
+					hasAudio,
+					audioFormats,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -2162,6 +2220,18 @@ chat.openapi(completions, async (c) => {
 					if (hasImages && provider.vision !== true) {
 						return false;
 					}
+					if (hasAudio && provider.audio !== true) {
+						return false;
+					}
+					if (
+						hasAudio &&
+						audioFormats.length > 0 &&
+						!audioFormats.every((fmt) =>
+							googleProviderSupportsAudioFormat(provider.providerId, fmt),
+						)
+					) {
+						return false;
+					}
 					return true;
 				});
 
@@ -2307,6 +2377,8 @@ chat.openapi(completions, async (c) => {
 						webSearchTool,
 						responseFormatType: response_format?.type,
 						hasImages,
+						hasAudio,
+						audioFormats,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 					},
@@ -2492,20 +2564,23 @@ chat.openapi(completions, async (c) => {
 					webSearchTool,
 					responseFormatType: response_format?.type,
 					hasImages,
+					hasAudio,
+					audioFormats,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
 			);
 
 			if (availableModelProviders.length === 0) {
+				const audience =
+					project.mode === "api-keys" ? "configured" : "available";
 				throw new HTTPException(400, {
-					message:
-						project.mode === "api-keys"
-							? hasImages
-								? `No provider with vision support is available for model ${usedModel}. The request contains images but none of the configured providers support vision.`
-								: `No provider key set for any of the providers that support model ${usedModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
-							: hasImages
-								? `No provider with vision support is available for model ${usedModel}. The request contains images but none of the available providers support vision.`
+					message: hasAudio
+						? `No provider with audio support is available for model ${usedModel}. The request contains audio but none of the ${audience} providers support audio input.`
+						: hasImages
+							? `No provider with vision support is available for model ${usedModel}. The request contains images but none of the ${audience} providers support vision.`
+							: project.mode === "api-keys"
+								? `No provider key set for any of the providers that support model ${usedModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
 								: `No available provider could be found for model ${usedModel}`,
 				});
 			}
@@ -2698,6 +2773,8 @@ chat.openapi(completions, async (c) => {
 					webSearchTool,
 					responseFormatType: response_format?.type,
 					hasImages,
+					hasAudio,
+					audioFormats,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -3524,6 +3601,7 @@ chat.openapi(completions, async (c) => {
 				let cachedTokens = null;
 				let cacheWriteTokens: number | null = null;
 				let cacheWrite1hTokens: number | null = null;
+				let audioInputTokens: number | null = null;
 				let rawCachedResponseData = ""; // Raw SSE data from cached response
 				let cachedResponseSize = 0; // Track size incrementally to avoid expensive stringify
 
@@ -3586,6 +3664,11 @@ chat.openapi(completions, async (c) => {
 								chunkCacheWrite1h !== null
 							) {
 								cacheWrite1hTokens = chunkCacheWrite1h;
+							}
+							const chunkAudioTokens =
+								chunkData.usage.prompt_tokens_details?.audio_tokens;
+							if (chunkAudioTokens !== undefined && chunkAudioTokens !== null) {
+								audioInputTokens = chunkAudioTokens;
 							}
 						}
 					} catch (e) {
@@ -3656,6 +3739,7 @@ chat.openapi(completions, async (c) => {
 					{
 						cacheWriteTokens,
 						cacheWrite1hTokens,
+						audioInputTokens,
 					},
 				);
 
@@ -3695,6 +3779,8 @@ chat.openapi(completions, async (c) => {
 					imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 					imageInputCost: costs.imageInputCost ?? null,
 					imageOutputCost: costs.imageOutputCost ?? null,
+					audioInputTokens: costs.audioInputTokens?.toString() ?? null,
+					audioInputCost: costs.audioInputCost ?? null,
 					cost: costs.totalCost ?? 0,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
@@ -3824,6 +3910,8 @@ chat.openapi(completions, async (c) => {
 						cacheWrite1hTokens:
 							cachedResponse.usage?.prompt_tokens_details?.cache_creation
 								?.ephemeral_1h_input_tokens ?? null,
+						audioInputTokens:
+							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
 					},
 				);
 
@@ -3881,6 +3969,8 @@ chat.openapi(completions, async (c) => {
 					imageOutputTokens: cachedCosts.imageOutputTokens?.toString() ?? null,
 					imageInputCost: cachedCosts.imageInputCost ?? null,
 					imageOutputCost: cachedCosts.imageOutputCost ?? null,
+					audioInputTokens: cachedCosts.audioInputTokens?.toString() ?? null,
+					audioInputCost: cachedCosts.audioInputCost ?? null,
 					cost: cachedCosts.totalCost ?? 0,
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
@@ -4496,6 +4586,7 @@ chat.openapi(completions, async (c) => {
 							webSearchCost: streamingCosts.webSearchCost,
 							imageInputCost: streamingCosts.imageInputCost,
 							imageOutputCost: streamingCosts.imageOutputCost,
+							audioInputCost: streamingCosts.audioInputCost,
 							totalCost: streamingCosts.totalCost,
 							dataStorageCost: streamingCosts.dataStorageCost,
 						},
@@ -4958,6 +5049,9 @@ chat.openapi(completions, async (c) => {
 									cancelledCosts?.imageOutputTokens?.toString() ?? null,
 								imageInputCost: cancelledCosts?.imageInputCost ?? null,
 								imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+								audioInputTokens:
+									cancelledCosts?.audioInputTokens?.toString() ?? null,
+								audioInputCost: cancelledCosts?.audioInputCost ?? null,
 								cost: cancelledCosts?.totalCost ?? null,
 								estimatedCost: cancelledCosts?.estimatedCost ?? false,
 								discount: cancelledCosts?.discount ?? null,
@@ -5818,6 +5912,8 @@ chat.openapi(completions, async (c) => {
 				let cacheCreationTokens: number | null = null;
 				let cacheCreation5mTokens: number | null = null;
 				let cacheCreation1hTokens: number | null = null;
+				let audioInputTokens: number | null = null;
+				let cachedAudioInputTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -6245,6 +6341,8 @@ chat.openapi(completions, async (c) => {
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
+											audioInputTokens,
+											cachedAudioInputTokens,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -6319,6 +6417,7 @@ chat.openapi(completions, async (c) => {
 													webSearchCost: streamingCosts.webSearchCost,
 													imageInputCost: streamingCosts.imageInputCost,
 													imageOutputCost: streamingCosts.imageOutputCost,
+													audioInputCost: streamingCosts.audioInputCost,
 													totalCost: streamingCosts.totalCost,
 													dataStorageCost: streamingCosts.dataStorageCost,
 												}
@@ -6326,6 +6425,7 @@ chat.openapi(completions, async (c) => {
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens,
+										audioInputTokens,
 									});
 									const finalUsageChunk = {
 										id: `chatcmpl-${Date.now()}`,
@@ -7052,6 +7152,12 @@ chat.openapi(completions, async (c) => {
 								if (usage.cacheCreation1hTokens !== null) {
 									cacheCreation1hTokens = usage.cacheCreation1hTokens;
 								}
+								if (usage.audioInputTokens !== null) {
+									audioInputTokens = usage.audioInputTokens;
+								}
+								if (usage.cachedAudioInputTokens !== null) {
+									cachedAudioInputTokens = usage.cachedAudioInputTokens;
+								}
 								if (
 									usage.totalTokens === null &&
 									promptTokens !== null &&
@@ -7496,6 +7602,8 @@ chat.openapi(completions, async (c) => {
 										imageOutputTokens: null,
 										imageInputCost: null,
 										imageOutputCost: null,
+										audioInputTokens: null,
+										audioInputCost: null,
 										totalCost: null,
 										promptTokens: null,
 										completionTokens: null,
@@ -7531,6 +7639,8 @@ chat.openapi(completions, async (c) => {
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
+											audioInputTokens,
+											cachedAudioInputTokens,
 										},
 									);
 						if (streamingCostsEarly.totalCost !== null) {
@@ -7627,12 +7737,14 @@ chat.openapi(completions, async (c) => {
 											webSearchCost: streamingCostsEarly.webSearchCost,
 											imageInputCost: streamingCostsEarly.imageInputCost,
 											imageOutputCost: streamingCostsEarly.imageOutputCost,
+											audioInputCost: streamingCostsEarly.audioInputCost,
 											totalCost: streamingCostsEarly.totalCost,
 											dataStorageCost: streamingCostsEarly.dataStorageCost,
 										},
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens,
+										audioInputTokens,
 									});
 									return earlyUsage;
 								})(),
@@ -7806,6 +7918,8 @@ chat.openapi(completions, async (c) => {
 									imageOutputTokens: null,
 									imageInputCost: null,
 									imageOutputCost: null,
+									audioInputTokens: null,
+									audioInputCost: null,
 									totalCost: null,
 									promptTokens: null,
 									completionTokens: null,
@@ -7841,6 +7955,8 @@ chat.openapi(completions, async (c) => {
 									{
 										cacheWriteTokens: cacheCreationTokens,
 										cacheWrite1hTokens: cacheCreation1hTokens,
+										audioInputTokens,
+										cachedAudioInputTokens,
 									},
 								));
 
@@ -8007,6 +8123,8 @@ chat.openapi(completions, async (c) => {
 						imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 						imageInputCost: costs.imageInputCost ?? null,
 						imageOutputCost: costs.imageOutputCost ?? null,
+						audioInputTokens: costs.audioInputTokens?.toString() ?? null,
+						audioInputCost: costs.audioInputCost ?? null,
 						cost: costs.totalCost,
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
@@ -8571,6 +8689,8 @@ chat.openapi(completions, async (c) => {
 					cancelledCosts?.imageOutputTokens?.toString() ?? null,
 				imageInputCost: cancelledCosts?.imageInputCost ?? null,
 				imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+				audioInputTokens: cancelledCosts?.audioInputTokens?.toString() ?? null,
+				audioInputCost: cancelledCosts?.audioInputCost ?? null,
 				cost: cancelledCosts?.totalCost ?? null,
 				estimatedCost: cancelledCosts?.estimatedCost ?? false,
 				discount: cancelledCosts?.discount ?? null,
@@ -9434,6 +9554,8 @@ chat.openapi(completions, async (c) => {
 		cacheCreation1hTokens,
 		imageInputTokens,
 		imageOutputTokens,
+		audioInputTokens,
+		cachedAudioInputTokens,
 		toolResults,
 		images,
 		annotations,
@@ -9556,6 +9678,8 @@ chat.openapi(completions, async (c) => {
 		{
 			cacheWriteTokens: cacheCreationTokens,
 			cacheWrite1hTokens: cacheCreation1hTokens,
+			audioInputTokens,
+			cachedAudioInputTokens,
 		},
 	);
 	costs.dataStorageCost = toDataStorageCostNumber(
@@ -9613,6 +9737,7 @@ chat.openapi(completions, async (c) => {
 					webSearchCost: costs.webSearchCost,
 					imageInputCost: costs.imageInputCost,
 					imageOutputCost: costs.imageOutputCost,
+					audioInputCost: costs.audioInputCost,
 					totalCost: costs.totalCost,
 					dataStorageCost: costs.dataStorageCost,
 				}
@@ -9627,6 +9752,7 @@ chat.openapi(completions, async (c) => {
 		imageOutputTokens,
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
+		audioInputTokens,
 	);
 
 	// Extract plugin IDs for logging
@@ -9765,6 +9891,8 @@ chat.openapi(completions, async (c) => {
 		imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 		imageInputCost: costs.imageInputCost ?? null,
 		imageOutputCost: costs.imageOutputCost ?? null,
+		audioInputTokens: costs.audioInputTokens?.toString() ?? null,
+		audioInputCost: costs.audioInputCost ?? null,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,

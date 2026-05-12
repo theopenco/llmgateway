@@ -13,6 +13,7 @@ export interface CostData {
 	webSearchCost: number | null;
 	imageInputCost: number | null;
 	imageOutputCost: number | null;
+	audioInputCost?: number | null;
 	totalCost: number | null;
 	dataStorageCost?: number | null;
 }
@@ -28,6 +29,7 @@ export function applyExtendedUsageFields(
 		reasoningTokens?: number | null;
 		imageInputTokens?: number | null;
 		imageOutputTokens?: number | null;
+		audioInputTokens?: number | null;
 	},
 ): Record<string, any> {
 	const {
@@ -39,6 +41,7 @@ export function applyExtendedUsageFields(
 		reasoningTokens,
 		imageInputTokens,
 		imageOutputTokens,
+		audioInputTokens,
 	} = options;
 
 	if (costs) {
@@ -70,6 +73,7 @@ export function applyExtendedUsageFields(
 				web_search_cost: costs.webSearchCost,
 				image_input_cost: costs.imageInputCost,
 				image_output_cost: costs.imageOutputCost,
+				audio_input_cost: costs.audioInputCost ?? null,
 				...(costs.dataStorageCost !== null &&
 					costs.dataStorageCost !== undefined && {
 						data_storage_cost: costs.dataStorageCost,
@@ -89,6 +93,8 @@ export function applyExtendedUsageFields(
 		0;
 	const resolvedPromptImageTokens =
 		imageInputTokens ?? existingPromptDetails.image_tokens ?? 0;
+	const resolvedPromptAudioTokens =
+		audioInputTokens ?? existingPromptDetails.audio_tokens ?? 0;
 	// `cache_write_tokens` is the canonical field; `cache_creation_tokens` is emitted
 	// alongside it for backward compatibility with consumers that read the older name.
 	// Readers should prefer `cache_write_tokens ?? cache_creation_tokens`.
@@ -115,7 +121,7 @@ export function applyExtendedUsageFields(
 		...existingPromptDetails,
 		cached_tokens: resolvedCacheRead,
 		cache_write_tokens: resolvedCacheWrite,
-		audio_tokens: existingPromptDetails.audio_tokens ?? 0,
+		audio_tokens: resolvedPromptAudioTokens,
 		video_tokens: existingPromptDetails.video_tokens ?? 0,
 		image_tokens: resolvedPromptImageTokens,
 		...(resolvedCacheWrite > 0 && {
@@ -249,6 +255,7 @@ function buildUsageObject(
 	imageOutputTokens: number | null = null,
 	cacheCreation5mTokens: number | null = null,
 	cacheCreation1hTokens: number | null = null,
+	audioInputTokens: number | null = null,
 ) {
 	const usage: Record<string, any> = {
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
@@ -275,6 +282,7 @@ function buildUsageObject(
 		reasoningTokens,
 		imageInputTokens,
 		imageOutputTokens,
+		audioInputTokens,
 	});
 
 	return usage;
@@ -311,6 +319,7 @@ export function transformResponseToOpenai(
 	imageOutputTokens: number | null = null,
 	cacheCreation5mTokens: number | null = null,
 	cacheCreation1hTokens: number | null = null,
+	audioInputTokens: number | null = null,
 ) {
 	let transformedResponse = json;
 
@@ -357,6 +366,7 @@ export function transformResponseToOpenai(
 					imageOutputTokens,
 					cacheCreation5mTokens,
 					cacheCreation1hTokens,
+					audioInputTokens,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -409,6 +419,7 @@ export function transformResponseToOpenai(
 					imageOutputTokens,
 					cacheCreation5mTokens,
 					cacheCreation1hTokens,
+					audioInputTokens,
 				),
 				metadata: buildMetadata(
 					requestedModel,
@@ -551,6 +562,7 @@ export function transformResponseToOpenai(
 					imageOutputTokens,
 					cacheCreation5mTokens,
 					cacheCreation1hTokens,
+					audioInputTokens,
 				),
 				metadata: buildMetadata(
 					requestedModel,

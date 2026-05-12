@@ -573,8 +573,8 @@ importers:
         specifier: 5.2.2
         version: 5.2.2(react-hook-form@7.65.0(react@19.2.6))(zod@3.25.76)
       '@llmgateway/ai-sdk-provider':
-        specifier: 3.7.0
-        version: 3.7.0(ai@6.0.27(zod@3.25.76))(zod@3.25.76)
+        specifier: 3.8.0
+        version: 3.8.0(ai@6.0.27(zod@3.25.76))(zod@3.25.76)
       '@llmgateway/models':
         specifier: workspace:*
         version: link:../../packages/models
@@ -2760,8 +2760,15 @@ packages:
       ai: ^6.0.0
       zod: ^3.24.1 || ^v4
 
-  '@llmgateway/models@1.67.1':
-    resolution: {integrity: sha512-KxED2tmeSNMQRGDEPuh2EA6T4U828N/6BO0y1PZ3iIA4JiQoA9oUuy7OnklW28yQV8hw++sScATrQmW34L7HTg==}
+  '@llmgateway/ai-sdk-provider@3.8.0':
+    resolution: {integrity: sha512-3Yr5evl5b2QtXAPSl+kHLN0Zjni+MFAv0h0bW6nQrbqPaEmC28P4gNnRNyMkrpsGptPB7ahTl66ZXg+wi0NunA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      ai: ^6.0.0
+      zod: ^3.24.1 || ^v4
+
+  '@llmgateway/models@1.79.0':
+    resolution: {integrity: sha512-uCl6cDoDEfSais1+cPNVRtZxv0VqG2swgKGuo08gPm6p8z3SHojCnLFkC74X0V7kYidvQJUTfF9PJ1lCr+xzEA==}
 
   '@mdx-js/mdx@3.1.1':
     resolution: {integrity: sha512-f6ZO2ifpwAQIpzGWaBQT2TXxPv6z3RBzQKpVftEWN78Vl/YweF1uwussDx8ECAXVtr3Rs89fKyG9YlzUs9DyGQ==}
@@ -12720,17 +12727,23 @@ snapshots:
 
   '@llmgateway/ai-sdk-provider@3.7.0(ai@6.0.27(zod@3.25.75))(zod@3.25.75)':
     dependencies:
-      '@llmgateway/models': 1.67.1
+      '@llmgateway/models': 1.79.0
       ai: 6.0.27(zod@3.25.75)
       zod: 3.25.75
 
   '@llmgateway/ai-sdk-provider@3.7.0(ai@6.0.27(zod@3.25.76))(zod@3.25.76)':
     dependencies:
-      '@llmgateway/models': 1.67.1
+      '@llmgateway/models': 1.79.0
       ai: 6.0.27(zod@3.25.76)
       zod: 3.25.76
 
-  '@llmgateway/models@1.67.1': {}
+  '@llmgateway/ai-sdk-provider@3.8.0(ai@6.0.27(zod@3.25.76))(zod@3.25.76)':
+    dependencies:
+      '@llmgateway/models': 1.79.0
+      ai: 6.0.27(zod@3.25.76)
+      zod: 3.25.76
+
+  '@llmgateway/models@1.79.0': {}
 
   '@mdx-js/mdx@3.1.1':
     dependencies:

@@ -873,6 +873,108 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeGreaterThan(0);
 	});
 
+	it("does not subtract text-cached tokens from audio billing on Gemini 2.5 Flash-Lite", async () => {
+		// Repro for the prior bug: 100 audio tokens + 50 cached tokens that are
+		// entirely text. The pre-fix code subtracted ALL cachedReadTokens from
+		// audioInputTokens, leaving 50 audio billable. With the fix, audio
+		// billing is reduced only by the reported cachedAudioInputTokens (here
+		// 0), so all 100 audio tokens are billed at the audio rate.
+		const promptTokens = 200;
+		const audioInputTokens = 100;
+		const cachedTokens = 50;
+		const result = await calculateCosts(
+			"gemini-2.5-flash-lite",
+			"google-ai-studio",
+			promptTokens,
+			0,
+			cachedTokens,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ audioInputTokens, cachedAudioInputTokens: 0 },
+		);
+		expect(result.audioInputCost).toBeCloseTo(audioInputTokens * (0.3 / 1e6));
+		expect(result.cachedInputCost).toBeCloseTo(cachedTokens * (0.01 / 1e6));
+	});
+
+	it("bills cached audio at cachedInputAudioPrice on Gemini 2.5 Flash", async () => {
+		// 100 audio tokens, all cached. Pre-fix: charged at cached text rate
+		// ($0.03/M). Post-fix: charged at cached audio rate ($0.10/M).
+		const audioInputTokens = 100;
+		const cachedAudioInputTokens = 100;
+		const cachedTokens = 100;
+		const result = await calculateCosts(
+			"gemini-2.5-flash",
+			"google-ai-studio",
+			audioInputTokens, // entire prompt is audio
+			0,
+			cachedTokens,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ audioInputTokens, cachedAudioInputTokens },
+		);
+		expect(result.audioInputCost).toBeNull();
+		expect(result.cachedInputCost).toBeCloseTo(
+			cachedAudioInputTokens * (0.1 / 1e6),
+		);
+	});
+
+	it("splits mixed text+audio cache correctly on Gemini 2.0 Flash", async () => {
+		// 80 audio (60 cached) + 120 text (40 cached). Audio cache @ $0.175/M,
+		// text cache @ $0.025/M, uncached audio @ $0.70/M, uncached text @
+		// $0.10/M (AI Studio).
+		const promptTokens = 200;
+		const audioInputTokens = 80;
+		const cachedAudioInputTokens = 60;
+		const cachedTokens = 100;
+		const result = await calculateCosts(
+			"gemini-2.0-flash",
+			"google-ai-studio",
+			promptTokens,
+			0,
+			cachedTokens,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ audioInputTokens, cachedAudioInputTokens },
+		);
+		const uncachedAudio = audioInputTokens - cachedAudioInputTokens;
+		const uncachedText =
+			promptTokens - audioInputTokens - (cachedTokens - cachedAudioInputTokens);
+		expect(result.audioInputCost).toBeCloseTo(uncachedAudio * (0.7 / 1e6));
+		const uncachedTextCost = uncachedText * (0.1 / 1e6);
+		const uncachedAudioCost = uncachedAudio * (0.7 / 1e6);
+		expect(result.inputCost).toBeCloseTo(uncachedTextCost + uncachedAudioCost);
+		const cachedText = cachedTokens - cachedAudioInputTokens;
+		const cachedAudioCost = cachedAudioInputTokens * (0.175 / 1e6);
+		const cachedTextCost = cachedText * (0.025 / 1e6);
+		expect(result.cachedInputCost).toBeCloseTo(
+			cachedTextCost + cachedAudioCost,
+		);
+	});
+
 	it("should compute exact cost values without IEEE-754 noise", async () => {
 		// gpt-4o-mini has inputPrice 0.15/1e6 and outputPrice 0.6/1e6. Raw JS
 		// arithmetic on these prices produces values like 2.5000000000000004e-7

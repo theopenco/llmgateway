@@ -60,6 +60,7 @@ const modelProviderMappingSchema = z.object({
 	maxOutput: z.number().nullable(),
 	streaming: z.boolean(),
 	vision: z.boolean().nullable(),
+	audio: z.boolean().nullable(),
 	reasoning: z.boolean().nullable(),
 	reasoningOutput: z.string().nullable(),
 	tools: z.boolean().nullable(),
@@ -219,6 +220,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			return {
 				...mapping,
 				discount: effectiveDiscount,
+				audio: sharedMapping?.audio ?? null,
 				imageOutputPrice:
 					sharedMapping?.imageOutputPrice !== undefined
 						? String(sharedMapping.imageOutputPrice)

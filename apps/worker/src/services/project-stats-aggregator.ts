@@ -158,6 +158,9 @@ export function getCommonAggregationFields() {
 		imageOutputCost: sql<number>`coalesce(sum(${log.imageOutputCost}), 0)`.as(
 			"imageOutputCost",
 		),
+		audioInputCost: sql<number>`coalesce(sum(${log.audioInputCost}), 0)`.as(
+			"audioInputCost",
+		),
 		videoOutputCost: sql<number>`coalesce(sum(${log.videoOutputCost}), 0)`.as(
 			"videoOutputCost",
 		),
