@@ -13,6 +13,7 @@ export const metadata: Metadata = {
 	title: "AI Image Generation",
 	description:
 		"Generate images with DALL-E, Stable Diffusion, Flux, and other AI models. Compare outputs across providers in one playground.",
+	alternates: { canonical: "/image" },
 };
 
 export default async function ImagePage({

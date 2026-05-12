@@ -500,7 +500,32 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue (completed transactions, excluding gifts, using creditAmount to exclude Stripe fees)
+	// DevPass-related transaction types: exclude these from credit-purchase
+	// metrics (revenue/processed/topped-up) because DevPass revenue lives in
+	// its own dashboard, and DevPass-granted credits are virtual (capped per
+	// cycle) rather than real top-up balance.
+	const devpassExcludedTypes = [
+		"dev_plan_start",
+		"dev_plan_upgrade",
+		"dev_plan_downgrade",
+		"dev_plan_renewal",
+		"dev_plan_cancel",
+		"dev_plan_end",
+		"subscription_start",
+		"subscription_cancel",
+		"subscription_end",
+		"subscription_upgrade",
+		"subscription_downgrade",
+		"subscription_renewal",
+	] as const;
+
+	const notDevpassFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
+		devpassExcludedTypes.map((t) => sql`${t}`),
+		sql`, `,
+	)})`;
+
+	// Total revenue (completed credit-purchase transactions, excluding gifts
+	// and all DevPass subscription rows, using creditAmount to exclude Stripe fees)
 	const [revenueRow] = await db
 		.select({
 			value:
@@ -513,6 +538,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				notDevpassFilter,
 				transactionDateFilter,
 			),
 		);
@@ -529,7 +555,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalOrganizations = Number(orgsRow?.count ?? 0);
 
-	// Total topped up (credits from completed transactions)
+	// Total topped up (credits from completed credit-purchase transactions).
+	// Excludes DevPass virtual credits — those are granted per cycle and reset,
+	// so they would inflate the topped-up / unused-credits numbers.
 	const [toppedUpRow] = await db
 		.select({
 			value:
@@ -539,12 +567,19 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
+			and(
+				eq(tables.transaction.status, "completed"),
+				notDevpassFilter,
+				transactionDateFilter,
+			),
 		);
 
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
 
-	// Total spent (usage cost from hourly stats)
+	// Total spent (usage cost from hourly stats). Excludes spend from projects
+	// belonging to orgs whose usage is/was on a DevPass plan, so the
+	// unusedCredits derivation (toppedUp - spent) only reflects the
+	// credit-purchase economy.
 	const [spentRow] = await db
 		.select({
 			value:
@@ -553,11 +588,32 @@ admin.openapi(getMetrics, async (c) => {
 				),
 		})
 		.from(projectHourlyStats)
-		.where(projectStatsDateFilter);
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				projectStatsDateFilter,
+				eq(tables.organization.devPlan, "none"),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} t
+					WHERE t.organization_id = ${tables.organization.id}
+					AND (
+						t.type IN ('dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal')
+						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.isPersonal} = true)
+					)
+				)`,
+			),
+		);
 
 	const totalSpent = Number(spentRow?.value ?? 0);
 
-	// Total processed (gross Stripe amounts from completed non-gift transactions)
+	// Total processed (gross Stripe amounts from completed non-gift, non-DevPass transactions)
 	const [processedRow] = await db
 		.select({
 			value:
@@ -570,6 +626,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				notDevpassFilter,
 				transactionDateFilter,
 			),
 		);
@@ -7875,7 +7932,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 
 	const conditions = [];
 
-	// DevPass scope: subscribers (devPlan != 'none') OR (showChurned && has past dev_plan_start)
+	// DevPass scope: subscribers (devPlan != 'none') OR (showChurned && has past dev_plan_start).
+	// Only personal orgs can hold a DevPass plan — restrict to isPersonal=true
+	// so the churned list doesn't surface non-personal "Default Organization"
+	// rows that happen to share legacy `subscription_*` history with org Pro.
+	conditions.push(eq(tables.organization.isPersonal, true));
 	if (showChurned) {
 		conditions.push(
 			or(

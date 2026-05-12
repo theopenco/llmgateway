@@ -6,6 +6,7 @@ export const metadata: Metadata = {
 	title: "Terms of Use — DevPass",
 	description:
 		"Review the Terms of Use for DevPass. Learn about account eligibility, billing, fair-use limits, AI provider policies, and developer responsibilities when using our flat-rate AI coding subscription.",
+	alternates: { canonical: "/legal/terms" },
 };
 
 export default function TermsPage() {
