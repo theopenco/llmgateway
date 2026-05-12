@@ -913,9 +913,9 @@ function getAvalancheSoraTaskModelName(
 
 function getBytedanceVideoUpstreamModelName(baseModelName: string): string {
 	const modelNameMap: Record<string, string> = {
-		"seedance-2-0": "seedance-2-0-250526",
-		"seedance-2-0-fast": "seedance-2-0-fast-250526",
-		"seedance-1-5-pro": "seedance-1-5-pro-250901",
+		"seedance-2-0": "dreamina-seedance-2-0-260128",
+		"seedance-2-0-fast": "dreamina-seedance-2-0-fast-260128",
+		"seedance-1-5-pro": "seedance-1-5-pro-251215",
 	};
 	return modelNameMap[baseModelName] ?? baseModelName;
 }
@@ -980,6 +980,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "bytedance":
+			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
 		default:
@@ -2815,9 +2817,7 @@ async function createGoogleVertexVideoJob(
 	};
 }
 
-function getBytedanceVideoAspectRatio(
-	videoSize: VideoSizeConfig,
-): string {
+function getBytedanceVideoAspectRatio(videoSize: VideoSizeConfig): string {
 	if (videoSize.orientation === "portrait") {
 		return "9:16";
 	}
@@ -2869,13 +2869,20 @@ async function createBytedanceVideoJob(
 		}
 	}
 
+	const isDreaminaModel = upstreamModelName.startsWith("dreamina-");
+
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
 		content,
-		duration: `${durationSeconds}s`,
+		duration: isDreaminaModel ? `${durationSeconds}s` : durationSeconds,
 		aspect_ratio: getBytedanceVideoAspectRatio(videoSize),
 		generate_audio: includeAudio,
 	};
+
+	if (isDreaminaModel) {
+		upstreamRequest.resolution =
+			videoSize.resolution === "1080p" ? "1080p" : "720p";
+	}
 
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,

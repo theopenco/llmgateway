@@ -136,6 +136,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "bytedance":
+			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
 		default:
@@ -1824,16 +1826,13 @@ async function fetchBytedanceStatus(
 			? (body.data as Record<string, unknown>)
 			: body;
 
-	const rawStatus =
-		typeof data.status === "string" ? data.status : "queued";
+	const rawStatus = typeof data.status === "string" ? data.status : "queued";
 	const content =
 		data.content && typeof data.content === "object"
 			? (data.content as Record<string, unknown>)
 			: null;
 	const videoUrl =
-		content && typeof content.video_url === "string"
-			? content.video_url
-			: null;
+		content && typeof content.video_url === "string" ? content.video_url : null;
 
 	return addRequestedVideoMetadata(job, {
 		...body,
@@ -1852,9 +1851,9 @@ async function fetchBytedanceStatus(
 		mime_type: videoUrl ? "video/mp4" : undefined,
 		error:
 			rawStatus === "failed"
-				? extractError(data) ?? {
+				? (extractError(data) ?? {
 						message: "ByteDance video generation failed",
-					}
+					})
 				: null,
 		bytedance_raw_response: body,
 	});
