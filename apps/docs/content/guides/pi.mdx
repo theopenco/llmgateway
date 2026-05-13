@@ -1,7 +1,7 @@
 ---
 title: Pi Integration
 description: Use any model with Pi coding agent through LLM Gateway — GPT-5, Gemini, Claude, and 200+ others in your terminal.
-image: guides/pi/overview.png
+image: guides/pi/config.png
 icon: Terminal
 ---
 
@@ -9,8 +9,6 @@ import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
 [Pi](https://pi.dev) is a minimal terminal-based coding agent that gives an AI full access to read, write, edit, and run shell commands in your project. By pointing Pi at LLM Gateway, you can use any of our 200+ models — GPT-5, Gemini, Claude, DeepSeek, and more — with full cost tracking and caching.
-
-![Pi with LLM Gateway](/guides/pi/overview.png)
 
 ## Prerequisites
 
@@ -29,8 +27,6 @@ Pi uses a `models.json` configuration file to define providers and models. We'll
 1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
 2. Navigate to **API Keys** section
 3. Create a new API key and copy the key
-
-![LLM Gateway API Keys](/guides/pi/api-key.png)
 
 </Step>
 
@@ -59,6 +55,8 @@ Open (or create) the Pi models configuration file at `~/.pi/agent/models.json` a
 
 Replace `llmgtwy_your_api_key_here` with your actual API key from Step 1.
 
+![Pi models.json Configuration](/guides/pi/config.png)
+
 <Callout type="info">
 	Pi reloads `models.json` when you open the `/model` menu — no restart needed
 	after editing.
@@ -73,8 +71,6 @@ Replace `llmgtwy_your_api_key_here` with your actual API key from Step 1.
 2. Type `/model` to open the model selector
 3. Select your LLM Gateway model from the list
 
-![Pi Model Selection](/guides/pi/model-selection.png)
-
 All requests now route through LLM Gateway with full cost tracking.
 
 </Step>
@@ -85,10 +81,10 @@ All requests now route through LLM Gateway with full cost tracking.
 Ask Pi to do something in your project to verify everything works:
 
 ```
-> Explain the structure of this project
+> hello
 ```
 
-![Pi Test](/guides/pi/test.png)
+![Pi Test with LLM Gateway](/guides/pi/test.png)
 
 You should see the response streaming from your chosen model. Check your [LLM Gateway dashboard](https://llmgateway.io/dashboard) to confirm the request appears in your usage logs.
 
