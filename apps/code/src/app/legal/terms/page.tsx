@@ -16,7 +16,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> April 26, 2026
+				<strong>Last Updated:</strong> May 13, 2026
 			</p>
 			<p>
 				Welcome to <strong>DevPass</strong>, a service operated by{" "}
@@ -111,7 +111,74 @@ export default function TermsPage() {
 				interactive coding workflows.
 			</p>
 			<hr />
-			<h2>5. Data and Privacy</h2>
+			<h2>5. One Account Per Developer</h2>
+			<p>
+				DevPass is sold to <strong>one developer, on one account</strong>. The
+				flat-rate price and{" "}
+				<strong>3&times; your subscription in included usage</strong> only work
+				because each person uses a single account in good faith. Splitting that
+				usage across multiple accounts is the fastest way to break the deal for
+				everyone.
+			</p>
+			<p>
+				To keep the pricing sustainable for the developers who use DevPass
+				honestly, the following are <strong>not allowed</strong>:
+			</p>
+			<ul>
+				<li>
+					Creating more than one DevPass account per person, household, or
+					business entity
+				</li>
+				<li>
+					Reusing the same payment card, billing address, device, or IP across
+					multiple DevPass accounts to claim the included usage more than once
+				</li>
+				<li>
+					Cancelling and re-subscribing under a new account to reset usage
+					before the billing cycle renews
+				</li>
+				<li>
+					Using prepaid cards, virtual cards, or other payment instruments
+					designed to obscure identity for the purpose of opening additional
+					accounts
+				</li>
+			</ul>
+			<p>
+				We automatically check the payment card used at checkout against
+				existing DevPass subscriptions. If the same card has already been used
+				to activate DevPass on another account, the new subscription is
+				cancelled and access is not granted.
+			</p>
+			<p>
+				If we detect (manually or automatically) that the rules in this section
+				have been broken, we may, <strong>without prior notice</strong>:
+			</p>
+			<ul>
+				<li>
+					Cancel every active subscription on every related account immediately,
+					at any point in the billing cycle
+				</li>
+				<li>
+					Revoke API keys and block gateway access for every related account
+				</li>
+				<li>
+					Refuse any future signup associated with the same person, card, or
+					organization
+				</li>
+				<li>
+					Retain fees already paid for the cycle in progress, since the included
+					usage has already been provisioned
+				</li>
+			</ul>
+			<p>
+				If you genuinely need DevPass for multiple developers (for example, a
+				team or company), contact{" "}
+				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a> before
+				signing up. We offer team plans that let multiple developers share
+				DevPass legitimately.
+			</p>
+			<hr />
+			<h2>6. Data and Privacy</h2>
 			<p>
 				Your data is handled according to our{" "}
 				<Link href="/legal/privacy">Privacy Policy</Link>. Request payloads,
@@ -120,7 +187,7 @@ export default function TermsPage() {
 				available in your account settings.
 			</p>
 			<hr />
-			<h2>6. Acceptable Use</h2>
+			<h2>7. Acceptable Use</h2>
 			<p>You agree not to:</p>
 			<ul>
 				<li>
@@ -138,14 +205,21 @@ export default function TermsPage() {
 					Attempt to circumvent rate limits, plan allowances, or authentication
 					controls
 				</li>
+				<li>
+					Open multiple DevPass accounts or otherwise abuse the included usage
+					allowance as described in Section&nbsp;5
+				</li>
 				<li>Probe, scan, or attack the platform or any connected provider</li>
 			</ul>
 			<p>
-				We reserve the right to suspend or terminate accounts engaged in abuse,
-				fraud, or policy violations, including provider-level policy violations.
+				We reserve the right to <strong>permanently ban</strong> accounts — and
+				every related account — that engage in abuse, fraud, payment disputes
+				filed in bad faith, or any other policy violation, including
+				provider-level violations. Banned accounts lose access immediately; fees
+				paid for the current billing cycle are not refunded.
 			</p>
 			<hr />
-			<h2>7. AI Provider Usage</h2>
+			<h2>8. AI Provider Usage</h2>
 			<p>
 				When you use AI models through DevPass, you are also subject to the
 				terms and acceptable-use policies of the underlying providers (such as
@@ -154,7 +228,7 @@ export default function TermsPage() {
 				and we are not liable for provider outages or model output quality.
 			</p>
 			<hr />
-			<h2>8. Intellectual Property</h2>
+			<h2>9. Intellectual Property</h2>
 			<p>
 				All rights in DevPass and LLM Gateway (software, design, and branding)
 				are owned by us or our licensors. You retain ownership of your prompts
@@ -162,15 +236,18 @@ export default function TermsPage() {
 				data solely to provide and improve the Service.
 			</p>
 			<hr />
-			<h2>9. Termination</h2>
+			<h2>10. Termination &amp; Bans</h2>
 			<p>
-				You can cancel anytime from the dashboard. We may suspend or terminate
-				your account if you violate these Terms, misuse the Service, or as
-				required by law. On termination, access ceases and stored data is
-				deleted according to your retention settings.
+				You can cancel anytime from the dashboard. We may suspend, terminate, or
+				permanently ban your account — and any related accounts — if you violate
+				these Terms (including Sections&nbsp;5 and&nbsp;7), misuse the Service,
+				dispute legitimate charges, or as required by law. Bans take effect
+				immediately and do not require prior notice. On termination, access
+				ceases, active subscriptions are cancelled, and stored data is deleted
+				according to your retention settings.
 			</p>
 			<hr />
-			<h2>10. Disclaimers</h2>
+			<h2>11. Disclaimers</h2>
 			<p>
 				The Service is provided <strong>&ldquo;as is&rdquo;</strong> and{" "}
 				<strong>&ldquo;as available&rdquo;</strong> without warranties of any
@@ -180,7 +257,7 @@ export default function TermsPage() {
 				before relying on it.
 			</p>
 			<hr />
-			<h2>11. Limitation of Liability</h2>
+			<h2>12. Limitation of Liability</h2>
 			<p>To the fullest extent permitted by law:</p>
 			<ul>
 				<li>
@@ -194,7 +271,7 @@ export default function TermsPage() {
 				</li>
 			</ul>
 			<hr />
-			<h2>12. Indemnification</h2>
+			<h2>13. Indemnification</h2>
 			<p>
 				You agree to indemnify and hold harmless LLM Gateway and DevPass, our
 				founders, employees, and partners from any claims, damages, or expenses
@@ -202,7 +279,7 @@ export default function TermsPage() {
 				Terms or third-party rights.
 			</p>
 			<hr />
-			<h2>13. Changes to These Terms</h2>
+			<h2>14. Changes to These Terms</h2>
 			<p>
 				We may update these Terms from time to time. The latest version will
 				always be available at{" "}
@@ -213,14 +290,14 @@ export default function TermsPage() {
 				Continued use after changes constitutes acceptance of the updated Terms.
 			</p>
 			<hr />
-			<h2>14. Governing Law</h2>
+			<h2>15. Governing Law</h2>
 			<p>
 				These Terms are governed by the laws of <strong>Delaware, USA</strong>,
 				without regard to conflict-of-laws principles. Disputes will be resolved
 				in the state or federal courts located in Delaware.
 			</p>
 			<hr />
-			<h2>15. Contact</h2>
+			<h2>16. Contact</h2>
 			<p>
 				Questions about these Terms? Email{" "}
 				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a>.
