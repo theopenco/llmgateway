@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "ecf8a5bf-5812-4059-ad29-bef2798050e4",
-  "prevId": "3b97bbc2-c0bc-41c0-a6d1-b669a829f28c",
+  "id": "b0802d11-6beb-4c9e-8039-e849bf8144ed",
+  "prevId": "8f6d1812-6877-4dcf-a076-992b09b436e9",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -9046,6 +9046,19 @@
       "table": "organization"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_card_fingerprint",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
       "type": "numeric",
       "typeSchema": null,
       "notNull": false,
@@ -14503,6 +14516,27 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "model_provider_mapping_history"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "dev_plan_card_fingerprint",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "organization_dev_plan_card_fingerprint_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "organization"
     },
     {
       "nameExplicit": true,
