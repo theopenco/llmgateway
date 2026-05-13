@@ -5,6 +5,7 @@ import {
 	findCustomProviderKey,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
 	getProviderEndpoint,
@@ -473,11 +474,25 @@ export async function resolveProviderContext(
 		}
 	}
 
+	// Vertex OpenAI-compatible endpoint requires an OAuth2 access token derived
+	// from the configured service account JSON. The SA JSON itself is used as
+	// the long-lived credential (and for usedApiKeyHash / health attribution),
+	// while the short-lived access token is what travels in the Authorization
+	// header.
+	let upstreamAuthToken = usedToken;
+	if (usedProvider === "vertex-openai") {
+		upstreamAuthToken = await getVertexOpenAIAccessToken(usedToken);
+	}
+
 	// --- Headers ---
-	const headers = getProviderHeaders(usedProvider as Provider, usedToken, {
-		requestId: options.requestId,
-		webSearchEnabled: options.webSearchEnabled,
-	});
+	const headers = getProviderHeaders(
+		usedProvider as Provider,
+		upstreamAuthToken,
+		{
+			requestId: options.requestId,
+			webSearchEnabled: options.webSearchEnabled,
+		},
+	);
 	headers["Content-Type"] = "application/json";
 
 	if (usedProvider === "anthropic" && options.effort !== undefined) {
