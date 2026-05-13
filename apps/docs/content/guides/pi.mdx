@@ -1,0 +1,177 @@
+---
+title: Pi Integration
+description: Use any model with Pi coding agent through LLM Gateway — GPT-5, Gemini, Claude, and 200+ others in your terminal.
+image: guides/pi/overview.png
+icon: Terminal
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+[Pi](https://pi.dev) is a minimal terminal-based coding agent that gives an AI full access to read, write, edit, and run shell commands in your project. By pointing Pi at LLM Gateway, you can use any of our 200+ models — GPT-5, Gemini, Claude, DeepSeek, and more — with full cost tracking and caching.
+
+![Pi with LLM Gateway](/guides/pi/overview.png)
+
+## Prerequisites
+
+- An LLM Gateway account with an API key
+- Pi installed (`curl -fsSL https://pi.dev/install.sh | bash`)
+- Basic terminal familiarity
+
+## Setup
+
+Pi uses a `models.json` configuration file to define providers and models. We'll add LLM Gateway as a custom provider.
+
+<Steps>
+<Step>
+### Get Your API Key
+
+1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
+2. Navigate to **API Keys** section
+3. Create a new API key and copy the key
+
+![LLM Gateway API Keys](/guides/pi/api-key.png)
+
+</Step>
+
+<Step>
+### Configure Pi
+
+Open (or create) the Pi models configuration file at `~/.pi/agent/models.json` and add LLM Gateway as a provider:
+
+```json
+{
+	"providers": {
+		"llmgateway": {
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"api": "openai-completions",
+			"apiKey": "llmgtwy_your_api_key_here",
+			"models": [
+				{ "id": "gpt-5", "name": "GPT-5" },
+				{ "id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5" },
+				{ "id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro" },
+				{ "id": "deepseek-r1", "name": "DeepSeek R1", "reasoning": true }
+			]
+		}
+	}
+}
+```
+
+Replace `llmgtwy_your_api_key_here` with your actual API key from Step 1.
+
+<Callout type="info">
+	Pi reloads `models.json` when you open the `/model` menu — no restart needed
+	after editing.
+</Callout>
+
+</Step>
+
+<Step>
+### Select Your Model
+
+1. Run `pi` in any project directory
+2. Type `/model` to open the model selector
+3. Select your LLM Gateway model from the list
+
+![Pi Model Selection](/guides/pi/model-selection.png)
+
+All requests now route through LLM Gateway with full cost tracking.
+
+</Step>
+
+<Step>
+### Test the Integration
+
+Ask Pi to do something in your project to verify everything works:
+
+```
+> Explain the structure of this project
+```
+
+![Pi Test](/guides/pi/test.png)
+
+You should see the response streaming from your chosen model. Check your [LLM Gateway dashboard](https://llmgateway.io/dashboard) to confirm the request appears in your usage logs.
+
+</Step>
+</Steps>
+
+## Adding More Models
+
+You can add any model from the [LLM Gateway models page](https://llmgateway.io/models) to your `models.json`. Just add entries to the `models` array:
+
+```json
+{
+	"providers": {
+		"llmgateway": {
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"api": "openai-completions",
+			"apiKey": "llmgtwy_your_api_key_here",
+			"models": [
+				{ "id": "gpt-5", "name": "GPT-5" },
+				{ "id": "gpt-5-mini", "name": "GPT-5 Mini" },
+				{ "id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5" },
+				{ "id": "claude-opus-4", "name": "Claude Opus 4" },
+				{ "id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro" },
+				{ "id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash" },
+				{ "id": "deepseek-r1", "name": "DeepSeek R1", "reasoning": true },
+				{ "id": "llama-4-maverick", "name": "Llama 4 Maverick" }
+			]
+		}
+	}
+}
+```
+
+## Using Environment Variables for the API Key
+
+Instead of hardcoding your key, you can reference an environment variable:
+
+```json
+{
+	"providers": {
+		"llmgateway": {
+			"baseUrl": "https://api.llmgateway.io/v1",
+			"api": "openai-completions",
+			"apiKey": "LLM_GATEWAY_API_KEY",
+			"models": [{ "id": "gpt-5", "name": "GPT-5" }]
+		}
+	}
+}
+```
+
+Then set the variable in your shell profile:
+
+```bash
+export LLM_GATEWAY_API_KEY=llmgtwy_your_api_key_here
+```
+
+## Troubleshooting
+
+### Authentication Errors
+
+- Verify your API key is correct in `~/.pi/agent/models.json`
+- Check that the base URL is set to `https://api.llmgateway.io/v1`
+- Ensure your LLM Gateway account has sufficient credits
+
+### Model Not Found
+
+- Verify the model ID exists on the [models page](https://llmgateway.io/models)
+- Model IDs are case-sensitive — copy them exactly as shown
+
+### Connection Issues
+
+- Check your internet connection
+- Ensure `api` is set to `"openai-completions"` (not `"openai-responses"`)
+- Monitor your usage in the LLM Gateway dashboard
+
+<Callout type="info">
+	Need help? Join our [Discord community](https://llmgateway.io/discord) for
+	support and troubleshooting assistance.
+</Callout>
+
+## Benefits of Using LLM Gateway with Pi
+
+- **Any Model**: Use GPT-5, Claude, Gemini, DeepSeek, Llama, or 200+ others
+- **Cost Tracking**: Every Pi request appears in your dashboard with token counts and costs
+- **Caching**: Repeated requests hit cache automatically, saving money
+- **One Key**: Manage all providers through a single API key
+- **No Vendor Lock-in**: Switch models by changing one line in your config
