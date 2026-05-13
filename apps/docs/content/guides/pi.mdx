@@ -1,6 +1,6 @@
 ---
 title: Pi Integration
-description: Use any model with Pi coding agent through LLM Gateway — GPT-5, Gemini, Claude, and 200+ others in your terminal.
+description: Use any model with Pi coding agent through LLM Gateway — GPT-5.5, Gemini, Claude, DeepSeek, and 200+ others in your terminal.
 image: guides/pi/config.png
 icon: Terminal
 ---
@@ -8,7 +8,7 @@ icon: Terminal
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
-[Pi](https://pi.dev) is a minimal terminal-based coding agent that gives an AI full access to read, write, edit, and run shell commands in your project. By pointing Pi at LLM Gateway, you can use any of our 200+ models — GPT-5, Gemini, Claude, DeepSeek, and more — with full cost tracking and caching.
+[Pi](https://pi.dev) is a minimal terminal-based coding agent that gives an AI full access to read, write, edit, and run shell commands in your project. By pointing Pi at LLM Gateway, you can use any of our 200+ models — GPT-5.5, Gemini 3.1 Pro, Claude Opus 4.7, DeepSeek V4, and more — with full cost tracking and caching.
 
 ## Prerequisites
 
@@ -43,10 +43,10 @@ Open (or create) the Pi models configuration file at `~/.pi/agent/models.json` a
 			"api": "openai-completions",
 			"apiKey": "llmgtwy_your_api_key_here",
 			"models": [
-				{ "id": "gpt-5", "name": "GPT-5" },
-				{ "id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5" },
-				{ "id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro" },
-				{ "id": "deepseek-r1", "name": "DeepSeek R1", "reasoning": true }
+				{ "id": "gpt-5.5", "name": "GPT-5.5" },
+				{ "id": "claude-opus-4-7", "name": "Claude Opus 4.7" },
+				{ "id": "gemini-3.1-pro", "name": "Gemini 3.1 Pro" },
+				{ "id": "deepseek-v4", "name": "DeepSeek V4", "reasoning": true }
 			]
 		}
 	}
@@ -103,14 +103,18 @@ You can add any model from the [LLM Gateway models page](https://llmgateway.io/m
 			"api": "openai-completions",
 			"apiKey": "llmgtwy_your_api_key_here",
 			"models": [
-				{ "id": "gpt-5", "name": "GPT-5" },
-				{ "id": "gpt-5-mini", "name": "GPT-5 Mini" },
-				{ "id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5" },
-				{ "id": "claude-opus-4", "name": "Claude Opus 4" },
-				{ "id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro" },
-				{ "id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash" },
-				{ "id": "deepseek-r1", "name": "DeepSeek R1", "reasoning": true },
-				{ "id": "llama-4-maverick", "name": "Llama 4 Maverick" }
+				{ "id": "gpt-5.5", "name": "GPT-5.5" },
+				{ "id": "gpt-5.5-mini", "name": "GPT-5.5 Mini" },
+				{ "id": "claude-opus-4-7", "name": "Claude Opus 4.7" },
+				{ "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6" },
+				{ "id": "gemini-3.1-pro", "name": "Gemini 3.1 Pro" },
+				{ "id": "gemini-3.1-flash", "name": "Gemini 3.1 Flash" },
+				{ "id": "deepseek-v4", "name": "DeepSeek V4", "reasoning": true },
+				{
+					"id": "deepseek-v4-mini",
+					"name": "DeepSeek V4 Mini",
+					"reasoning": true
+				}
 			]
 		}
 	}
@@ -128,7 +132,7 @@ Instead of hardcoding your key, you can reference an environment variable:
 			"baseUrl": "https://api.llmgateway.io/v1",
 			"api": "openai-completions",
 			"apiKey": "LLM_GATEWAY_API_KEY",
-			"models": [{ "id": "gpt-5", "name": "GPT-5" }]
+			"models": [{ "id": "gpt-5.5", "name": "GPT-5.5" }]
 		}
 	}
 }
@@ -166,7 +170,7 @@ export LLM_GATEWAY_API_KEY=llmgtwy_your_api_key_here
 
 ## Benefits of Using LLM Gateway with Pi
 
-- **Any Model**: Use GPT-5, Claude, Gemini, DeepSeek, Llama, or 200+ others
+- **Any Model**: Use GPT-5.5, Claude Opus 4.7, Gemini 3.1 Pro, DeepSeek V4, or 200+ others
 - **Cost Tracking**: Every Pi request appears in your dashboard with token counts and costs
 - **Caching**: Repeated requests hit cache automatically, saving money
 - **One Key**: Manage all providers through a single API key

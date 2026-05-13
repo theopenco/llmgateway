@@ -2,7 +2,7 @@
 id: pi
 slug: pi
 title: Pi Coding Agent Integration
-description: Use any model with Pi coding agent through LLM Gateway — GPT-5, Gemini, Claude, and 200+ others in your terminal.
+description: Use any model with Pi coding agent through LLM Gateway — GPT-5.5, Gemini 3.1 Pro, Claude Opus 4.7, DeepSeek V4, and 200+ others in your terminal.
 date: 2026-05-13
 ---
 
@@ -20,10 +20,10 @@ Configure Pi to use LLM Gateway by editing `~/.pi/agent/models.json`:
       "api": "openai-completions",
       "apiKey": "llmgtwy_your_api_key_here",
       "models": [
-        { "id": "gpt-5", "name": "GPT-5" },
-        { "id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5" },
-        { "id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro" },
-        { "id": "deepseek-r1", "name": "DeepSeek R1", "reasoning": true }
+        { "id": "gpt-5.5", "name": "GPT-5.5" },
+        { "id": "claude-opus-4-7", "name": "Claude Opus 4.7" },
+        { "id": "gemini-3.1-pro", "name": "Gemini 3.1 Pro" },
+        { "id": "deepseek-v4", "name": "DeepSeek V4", "reasoning": true }
       ]
     }
   }
@@ -44,10 +44,10 @@ Then run `pi` in any project directory and type `/model` to select your LLM Gate
 Add any model from the [models page](https://llmgateway.io/models) to the `models` array in your config:
 
 ```json
-{ "id": "gpt-5-mini", "name": "GPT-5 Mini" },
-{ "id": "claude-opus-4", "name": "Claude Opus 4" },
-{ "id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash" },
-{ "id": "llama-4-maverick", "name": "Llama 4 Maverick" }
+{ "id": "gpt-5.5-mini", "name": "GPT-5.5 Mini" },
+{ "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6" },
+{ "id": "gemini-3.1-flash", "name": "Gemini 3.1 Flash" },
+{ "id": "deepseek-v4-mini", "name": "DeepSeek V4 Mini", "reasoning": true }
 ```
 
 ## Using Environment Variables
