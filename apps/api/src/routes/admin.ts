@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { getStripe } from "@/routes/payments.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -4707,6 +4708,179 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 				? "Organization disabled successfully"
 				: "Organization re-enabled successfully",
 		status,
+	});
+});
+
+// --- Block Organization (cancel subscriptions immediately + disable access) ---
+
+const blockOrganizationRoute = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/block",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						cancelledSubscriptionIds: z.array(z.string()),
+					}),
+				},
+			},
+			description:
+				"Organization blocked, subscriptions cancelled, access disabled.",
+		},
+		403: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Personal organizations cannot be blocked.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(blockOrganizationRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	if (org.isPersonal) {
+		throw new HTTPException(403, {
+			message: "Cannot block personal organization",
+		});
+	}
+
+	const subscriptionIds = [
+		org.stripeSubscriptionId,
+		org.devPlanStripeSubscriptionId,
+	].filter((id): id is string => Boolean(id));
+
+	// Cancel every Stripe subscription before mutating local state. If any
+	// cancel call fails, the error propagates to the global handler and we
+	// leave the org untouched so the admin can retry once Stripe is healthy.
+	for (const subscriptionId of subscriptionIds) {
+		await getStripe().subscriptions.cancel(subscriptionId, {
+			invoice_now: false,
+			prorate: false,
+		});
+	}
+	const cancelledSubscriptionIds = subscriptionIds;
+
+	const memberLinks = await db.query.userOrganization.findMany({
+		where: { organizationId: { eq: orgId } },
+		columns: { userId: true },
+	});
+	const memberUserIds = memberLinks.map((m) => m.userId);
+
+	// Only deactivate users whose remaining org memberships are all already
+	// deleted — mirrors the re-enable flow in setOrganizationStatus. A member
+	// who still belongs to another active org keeps their access there.
+	let userIdsToDeactivate: string[] = [];
+	if (memberUserIds.length > 0) {
+		const otherLinks = await db.query.userOrganization.findMany({
+			where: { userId: { in: memberUserIds } },
+			with: {
+				organization: {
+					columns: { id: true, status: true },
+				},
+			},
+		});
+
+		const hasOtherActiveOrg = new Set(
+			otherLinks
+				.filter(
+					(link) =>
+						link.organization?.id !== orgId &&
+						link.organization?.status !== "deleted",
+				)
+				.map((link) => link.userId),
+		);
+
+		userIdsToDeactivate = memberUserIds.filter(
+			(id) => !hasOtherActiveOrg.has(id),
+		);
+	}
+
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.organization)
+			.set({
+				status: "deleted",
+				devPlan: "none",
+				devPlanStripeSubscriptionId: null,
+				devPlanCancelled: true,
+				devPlanExpiresAt: new Date(),
+				subscriptionCancelled: true,
+			})
+			.where(eq(tables.organization.id, orgId));
+
+		if (userIdsToDeactivate.length > 0) {
+			await tx
+				.update(tables.user)
+				.set({ status: "deactivated" })
+				.where(inArray(tables.user.id, userIdsToDeactivate));
+
+			await tx
+				.delete(tables.session)
+				.where(inArray(tables.session.userId, userIdsToDeactivate));
+		}
+	});
+
+	if (userIdsToDeactivate.length > 0) {
+		const members = await db.query.user.findMany({
+			where: { id: { in: userIdsToDeactivate } },
+			columns: { email: true },
+		});
+
+		await Promise.all(
+			members.map((member) => deleteResendContact(member.email)),
+		);
+	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "organization.block",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			resourceName: org.name,
+			previousStatus: org.status ?? "active",
+			cancelledSubscriptionIds,
+			memberCount: memberUserIds.length,
+			deactivatedUserCount: userIdsToDeactivate.length,
+			source: "admin",
+		},
+	});
+
+	return c.json({
+		message: "Organization blocked and subscriptions cancelled.",
+		cancelledSubscriptionIds,
 	});
 });
 

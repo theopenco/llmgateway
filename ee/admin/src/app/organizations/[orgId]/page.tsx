@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { BlockOrgButton } from "@/components/block-org-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +23,10 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { giftCreditsToOrganization } from "@/lib/admin-organizations";
+import {
+	blockOrganization,
+	giftCreditsToOrganization,
+} from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
@@ -249,6 +253,16 @@ export default async function OrganizationPage({
 							Manage Rate Limits
 						</Link>
 					</Button>
+					<BlockOrgButton
+						orgId={orgId}
+						orgName={org.name}
+						variant="full"
+						disabled={org.status === "deleted"}
+						onBlock={async (id) => {
+							"use server";
+							return await blockOrganization(id);
+						}}
+					/>
 				</div>
 			</header>
 

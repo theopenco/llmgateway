@@ -3405,6 +3405,68 @@ export interface paths {
         };
         trace?: never;
     };
+    "/admin/organizations/{orgId}/block": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization blocked, subscriptions cancelled, access disabled. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            cancelledSubscriptionIds: string[];
+                        };
+                    };
+                };
+                /** @description Personal organizations cannot be blocked. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/providers/{providerId}/history": {
         parameters: {
             query?: never;
@@ -8574,7 +8636,7 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
                                 /** @enum {string} */
                                 resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
