@@ -4797,6 +4797,35 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 	});
 	const memberUserIds = memberLinks.map((m) => m.userId);
 
+	// Only deactivate users whose remaining org memberships are all already
+	// deleted — mirrors the re-enable flow in setOrganizationStatus. A member
+	// who still belongs to another active org keeps their access there.
+	let userIdsToDeactivate: string[] = [];
+	if (memberUserIds.length > 0) {
+		const otherLinks = await db.query.userOrganization.findMany({
+			where: { userId: { in: memberUserIds } },
+			with: {
+				organization: {
+					columns: { id: true, status: true },
+				},
+			},
+		});
+
+		const hasOtherActiveOrg = new Set(
+			otherLinks
+				.filter(
+					(link) =>
+						link.organization?.id !== orgId &&
+						link.organization?.status !== "deleted",
+				)
+				.map((link) => link.userId),
+		);
+
+		userIdsToDeactivate = memberUserIds.filter(
+			(id) => !hasOtherActiveOrg.has(id),
+		);
+	}
+
 	await db.transaction(async (tx) => {
 		await tx
 			.update(tables.organization)
@@ -4810,21 +4839,21 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 			})
 			.where(eq(tables.organization.id, orgId));
 
-		if (memberUserIds.length > 0) {
+		if (userIdsToDeactivate.length > 0) {
 			await tx
 				.update(tables.user)
 				.set({ status: "deactivated" })
-				.where(inArray(tables.user.id, memberUserIds));
+				.where(inArray(tables.user.id, userIdsToDeactivate));
 
 			await tx
 				.delete(tables.session)
-				.where(inArray(tables.session.userId, memberUserIds));
+				.where(inArray(tables.session.userId, userIdsToDeactivate));
 		}
 	});
 
-	if (memberUserIds.length > 0) {
+	if (userIdsToDeactivate.length > 0) {
 		const members = await db.query.user.findMany({
-			where: { id: { in: memberUserIds } },
+			where: { id: { in: userIdsToDeactivate } },
 			columns: { email: true },
 		});
 
@@ -4843,7 +4872,8 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 			resourceName: org.name,
 			previousStatus: org.status ?? "active",
 			cancelledSubscriptionIds,
-			affectedUserCount: memberUserIds.length,
+			memberCount: memberUserIds.length,
+			deactivatedUserCount: userIdsToDeactivate.length,
 			source: "admin",
 		},
 	});
