@@ -84,9 +84,9 @@ function getValidationModel(
 			const hasPricing =
 				providerMapping.inputPrice !== undefined &&
 				providerMapping.outputPrice !== undefined;
-			const inputPrice = providerMapping.inputPrice ?? 0;
-			const outputPrice = providerMapping.outputPrice ?? 0;
-			const discount = providerMapping.discount ?? 0;
+			const inputPrice = Number(providerMapping.inputPrice ?? "0");
+			const outputPrice = Number(providerMapping.outputPrice ?? "0");
+			const discount = Number(providerMapping.discount ?? "0");
 			const discountedAveragePrice = hasPricing
 				? ((inputPrice + outputPrice) / 2) * (1 - discount)
 				: Number.MAX_VALUE;

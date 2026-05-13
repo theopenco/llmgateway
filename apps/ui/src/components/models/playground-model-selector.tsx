@@ -138,7 +138,7 @@ export function ModelSelector({
 				const candidates =
 					stableProviders.length > 0 ? stableProviders : activeProviders;
 				const cheapest = candidates.sort(
-					(a, b) => (a.inputPrice ?? 0) - (b.inputPrice ?? 0),
+					(a, b) => Number(a.inputPrice ?? "0") - Number(b.inputPrice ?? "0"),
 				)[0];
 				if (cheapest) {
 					out.push({
@@ -206,7 +206,7 @@ export function ModelSelector({
 		}
 		if (filters.priceRange !== "all") {
 			list = list.filter((e) => {
-				const price = e.mapping.inputPrice ?? 0;
+				const price = Number(e.mapping.inputPrice ?? "0");
 				switch (filters.priceRange) {
 					case "free":
 						return price === 0;

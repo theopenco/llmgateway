@@ -113,11 +113,12 @@ export function ModelProviderCard({
 		}
 	};
 
-	const formatPrice = (price?: number) => {
+	const formatPrice = (price?: string | number) => {
 		if (price === undefined) {
 			return "—";
 		}
-		return `$${(price * 1e6).toFixed(2)}`;
+		const n = typeof price === "string" ? Number(price) : price;
+		return `$${(n * 1e6).toFixed(2)}`;
 	};
 
 	return (
@@ -273,9 +274,9 @@ export function ModelProviderCard({
 				<div className="mb-4">
 					<div className="flex items-center gap-2 mb-2">
 						<div className="text-muted-foreground text-sm">Pricing</div>
-						{provider.discount && provider.discount > 0 && (
+						{provider.discount && Number(provider.discount) > 0 && (
 							<Badge className="text-[10px] px-1.5 py-0 h-4 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-								{Math.round(provider.discount * 100)}% off
+								{Math.round(Number(provider.discount) * 100)}% off
 							</Badge>
 						)}
 					</div>
@@ -286,14 +287,15 @@ export function ModelProviderCard({
 								{provider.inputPrice ? (
 									<div className="space-y-1">
 										<div className="flex items-center gap-2">
-											{provider.discount ? (
+											{Number(provider.discount ?? "0") > 0 ? (
 												<>
 													<span className="line-through text-muted-foreground text-xs">
 														{formatPrice(provider.inputPrice)}
 													</span>
 													<span className="text-green-600 font-semibold">
 														{formatPrice(
-															provider.inputPrice * (1 - provider.discount),
+															Number(provider.inputPrice) *
+																(1 - Number(provider.discount)),
 														)}
 													</span>
 												</>
@@ -314,15 +316,15 @@ export function ModelProviderCard({
 								{provider.cachedInputPrice ? (
 									<div className="space-y-1">
 										<div className="flex items-center gap-2">
-											{provider.discount ? (
+											{Number(provider.discount ?? "0") > 0 ? (
 												<>
 													<span className="line-through text-muted-foreground text-xs">
 														{formatPrice(provider.cachedInputPrice)}
 													</span>
 													<span className="text-green-600 font-semibold">
 														{formatPrice(
-															provider.cachedInputPrice *
-																(1 - provider.discount),
+															Number(provider.cachedInputPrice) *
+																(1 - Number(provider.discount)),
 														)}
 													</span>
 												</>
@@ -343,14 +345,15 @@ export function ModelProviderCard({
 								{provider.outputPrice ? (
 									<div className="space-y-1">
 										<div className="flex items-center gap-2">
-											{provider.discount ? (
+											{Number(provider.discount ?? "0") > 0 ? (
 												<>
 													<span className="line-through text-muted-foreground text-xs">
 														{formatPrice(provider.outputPrice)}
 													</span>
 													<span className="text-green-600 font-semibold">
 														{formatPrice(
-															provider.outputPrice * (1 - provider.discount),
+															Number(provider.outputPrice) *
+																(1 - Number(provider.discount)),
 														)}
 													</span>
 												</>
@@ -389,14 +392,15 @@ export function ModelProviderCard({
 									if (entries.length === 0) {
 										return null;
 									}
-									const effectiveDiscount = provider.discount ?? 0;
+									const effectiveDiscount = Number(provider.discount ?? "0");
 									return (
 										<div className="mb-2">
 											<div className="text-xs text-muted-foreground mb-1">
 												Input
 											</div>
 											{entries.map(([res, tokensPerImage]) => {
-												const raw = tokensPerImage * provider.imageInputPrice!;
+												const raw =
+													tokensPerImage * Number(provider.imageInputPrice!);
 												const discounted = raw * (1 - effectiveDiscount);
 												return (
 													<div
@@ -433,14 +437,15 @@ export function ModelProviderCard({
 									if (entries.length === 0) {
 										return null;
 									}
-									const effectiveDiscount = provider.discount ?? 0;
+									const effectiveDiscount = Number(provider.discount ?? "0");
 									return (
 										<div>
 											<div className="text-xs text-muted-foreground mb-1">
 												Output
 											</div>
 											{entries.map(([res, tokensPerImage]) => {
-												const raw = tokensPerImage * provider.imageOutputPrice!;
+												const raw =
+													tokensPerImage * Number(provider.imageOutputPrice!);
 												const discounted = raw * (1 - effectiveDiscount);
 												return (
 													<div
@@ -470,38 +475,41 @@ export function ModelProviderCard({
 								})()}
 						</div>
 					)}
-					{provider.requestPrice !== undefined && provider.requestPrice > 0 && (
-						<div className="grid grid-cols-3 gap-3 mt-3">
-							<div className="col-span-3">
-								<div className="text-muted-foreground text-xs mb-1">
-									Per Request
-								</div>
-								<div className="font-mono">
-									<div className="space-y-1">
-										<div className="flex items-center gap-2">
-											{provider.discount ? (
-												<>
-													<span className="line-through text-muted-foreground text-xs">
-														${provider.requestPrice.toFixed(3)}
-													</span>
-													<span className="text-green-600 font-semibold">
-														$
-														{(
-															provider.requestPrice *
-															(1 - provider.discount)
-														).toFixed(3)}
-													</span>
-												</>
-											) : (
-												<>${provider.requestPrice.toFixed(3)}</>
-											)}
+					{provider.requestPrice !== undefined &&
+						Number(provider.requestPrice) > 0 && (
+							<div className="grid grid-cols-3 gap-3 mt-3">
+								<div className="col-span-3">
+									<div className="text-muted-foreground text-xs mb-1">
+										Per Request
+									</div>
+									<div className="font-mono">
+										<div className="space-y-1">
+											<div className="flex items-center gap-2">
+												{Number(provider.discount ?? "0") > 0 ? (
+													<>
+														<span className="line-through text-muted-foreground text-xs">
+															${Number(provider.requestPrice).toFixed(3)}
+														</span>
+														<span className="text-green-600 font-semibold">
+															$
+															{(
+																Number(provider.requestPrice) *
+																(1 - Number(provider.discount))
+															).toFixed(3)}
+														</span>
+													</>
+												) : (
+													<>${Number(provider.requestPrice).toFixed(3)}</>
+												)}
+											</div>
+											<span className="text-muted-foreground text-xs">
+												/req
+											</span>
 										</div>
-										<span className="text-muted-foreground text-xs">/req</span>
 									</div>
 								</div>
 							</div>
-						</div>
-					)}
+						)}
 					{(() => {
 						const tiers = provider.pricingTiers;
 						if (!tiers || tiers.length <= 1) {
@@ -523,7 +531,7 @@ export function ModelProviderCard({
 													? `>${(tiers[index - 1]?.upToTokens || 0) / 1000}K tokens`
 													: `≤${tier.upToTokens / 1000}K tokens`}
 											</span>
-											{provider.discount ? (
+											{Number(provider.discount ?? "0") > 0 ? (
 												<span className="font-mono">
 													<span className="line-through text-muted-foreground">
 														{formatPrice(tier.inputPrice)} in /{" "}
@@ -538,21 +546,23 @@ export function ModelProviderCard({
 													</span>
 													<span className="text-green-600 font-semibold ml-2">
 														{formatPrice(
-															tier.inputPrice * (1 - provider.discount),
+															Number(tier.inputPrice) *
+																(1 - Number(provider.discount)),
 														)}{" "}
 														in /{" "}
 														{tier.cachedInputPrice !== null &&
 															tier.cachedInputPrice !== undefined && (
 																<>
 																	{formatPrice(
-																		tier.cachedInputPrice *
-																			(1 - provider.discount),
+																		Number(tier.cachedInputPrice) *
+																			(1 - Number(provider.discount)),
 																	)}{" "}
 																	cached /{" "}
 																</>
 															)}
 														{formatPrice(
-															tier.outputPrice * (1 - provider.discount),
+															Number(tier.outputPrice) *
+																(1 - Number(provider.discount)),
 														)}{" "}
 														out
 													</span>
@@ -593,8 +603,7 @@ export function ModelProviderCard({
 													{key.replace(/_/g, " ")}
 												</span>
 												<span className="font-mono">
-													$
-													{typeof price === "number" ? price.toFixed(4) : price}
+													${Number(price).toFixed(4)}
 													/sec
 												</span>
 											</div>
@@ -712,7 +721,7 @@ export function ModelProviderCard({
 										<p>
 											Supports native web search
 											{provider.webSearchPrice
-												? ` ($${provider.webSearchPrice.toFixed(3)}/search)`
+												? ` ($${Number(provider.webSearchPrice).toFixed(3)}/search)`
 												: ""}
 										</p>
 									</TooltipContent>

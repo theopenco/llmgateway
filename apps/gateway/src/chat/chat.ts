@@ -1838,7 +1838,9 @@ chat.openapi(completions, async (c) => {
 				// Find the cheapest among the suitable providers for this model
 				for (const provider of suitableProviders) {
 					const totalPrice =
-						((provider.inputPrice ?? 0) + (provider.outputPrice ?? 0)) / 2;
+						(Number(provider.inputPrice ?? "0") +
+							Number(provider.outputPrice ?? "0")) /
+						2;
 
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
@@ -2276,8 +2278,8 @@ chat.openapi(completions, async (c) => {
 							(p) => p.providerId === requestedProvider,
 						);
 						const originalProviderPrice = originalProviderInfo
-							? (originalProviderInfo.inputPrice ?? 0) +
-								(originalProviderInfo.outputPrice ?? 0)
+							? Number(originalProviderInfo.inputPrice ?? "0") +
+								Number(originalProviderInfo.outputPrice ?? "0")
 							: 0;
 
 						const originalProviderScore = {
@@ -2467,8 +2469,8 @@ chat.openapi(completions, async (c) => {
 								(p) => p.providerId === requestedProvider,
 							);
 							const originalProviderPrice = originalProviderInfo
-								? (originalProviderInfo.inputPrice ?? 0) +
-									(originalProviderInfo.outputPrice ?? 0)
+								? Number(originalProviderInfo.inputPrice ?? "0") +
+									Number(originalProviderInfo.outputPrice ?? "0")
 								: 0;
 
 							// Create score entry for the original requested provider
@@ -2691,8 +2693,8 @@ chat.openapi(completions, async (c) => {
 									providerId: rlProviderId,
 									score: -1,
 									price: providerInfo
-										? (providerInfo.inputPrice ?? 0) +
-											(providerInfo.outputPrice ?? 0)
+										? Number(providerInfo.inputPrice ?? "0") +
+											Number(providerInfo.outputPrice ?? "0")
 										: 0,
 									rate_limited: true,
 								});
@@ -2889,8 +2891,8 @@ chat.openapi(completions, async (c) => {
 				{
 					providerId: "custom" as const,
 					modelName: usedModel,
-					inputPrice: 0,
-					outputPrice: 0,
+					inputPrice: "0",
+					outputPrice: "0",
 					contextSize: 8192,
 					maxOutput: 4096,
 					streaming: true,

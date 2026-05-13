@@ -168,7 +168,8 @@ describe("e2e audio input", getTestOptions(), () => {
 			expect(typeof audioInputCost).toBe("number");
 
 			const expected =
-				audioTokens * (provider.inputAudioPrice ?? provider.inputPrice ?? 0);
+				audioTokens *
+				Number(provider.inputAudioPrice ?? provider.inputPrice ?? "0");
 			expect(audioInputCost).toBeCloseTo(expected, 8);
 		},
 	);

@@ -307,7 +307,7 @@ describe("calculateCosts", () => {
 
 	it("should apply discount when model has discount field", async () => {
 		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
-			discount: 0.1,
+			discount: "0.1",
 			source: "global_provider",
 			discountId: "disc-global-openai",
 		});
@@ -327,7 +327,7 @@ describe("calculateCosts", () => {
 			null,
 			"openai",
 			"gpt-4",
-			0,
+			"0",
 			"gpt-4",
 		);
 	});
@@ -622,7 +622,7 @@ describe("calculateCosts", () => {
 		const azureProvider = models
 			.find((m) => m.id === "gpt-image-2")
 			?.providers.find((p) => p.providerId === "azure");
-		const discountMultiplier = 1 - (azureProvider?.discount ?? 0);
+		const discountMultiplier = 1 - Number(azureProvider?.discount ?? "0");
 		const expectedTextInputCost =
 			(promptTokens - reportedImageInputTokens) *
 			(5 / 1e6) *

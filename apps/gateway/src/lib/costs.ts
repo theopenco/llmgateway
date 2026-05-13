@@ -34,18 +34,18 @@ export function shouldBillCancelledRequests(): boolean {
  */
 function getPricingForTokenCount(
 	pricingTiers: PricingTier[] | undefined,
-	baseInputPrice: number,
-	baseOutputPrice: number,
-	baseCachedInputPrice: number | undefined,
-	baseCacheWriteInputPrice: number | undefined,
-	baseCacheWriteInputPrice1h: number | undefined,
+	baseInputPrice: string,
+	baseOutputPrice: string,
+	baseCachedInputPrice: string | undefined,
+	baseCacheWriteInputPrice: string | undefined,
+	baseCacheWriteInputPrice1h: string | undefined,
 	promptTokens: number,
 ): {
-	inputPrice: number;
-	outputPrice: number;
-	cachedInputPrice: number | undefined;
-	cacheWriteInputPrice: number | undefined;
-	cacheWriteInputPrice1h: number | undefined;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string | undefined;
+	cacheWriteInputPrice: string | undefined;
+	cacheWriteInputPrice1h: string | undefined;
 	tierName: string | undefined;
 } {
 	if (!pricingTiers || pricingTiers.length === 0) {
@@ -292,8 +292,8 @@ export async function calculateCosts(
 	// Get pricing based on token count (supports tiered pricing)
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
-		providerInfo.inputPrice ?? 0,
-		providerInfo.outputPrice ?? 0,
+		providerInfo.inputPrice ?? "0",
+		providerInfo.outputPrice ?? "0",
 		providerInfo.cachedInputPrice,
 		providerInfo.cacheWriteInputPrice,
 		providerInfo.cacheWriteInputPrice1h,
@@ -316,11 +316,11 @@ export async function calculateCosts(
 		pricing.cacheWriteInputPrice1h !== undefined
 			? new Decimal(pricing.cacheWriteInputPrice1h)
 			: cacheWriteInputPrice;
-	const requestPrice = new Decimal(providerInfo.requestPrice ?? 0);
+	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
 	// Get effective discount (checks org-specific, global, then hardcoded)
 	// Pass both the root model ID and the provider-specific model name for matching
-	const hardcodedDiscount = providerInfo.discount ?? 0;
+	const hardcodedDiscount = providerInfo.discount ?? "0";
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
@@ -600,7 +600,7 @@ export async function calculateCosts(
 		cachedTokens,
 		cacheWriteTokens,
 		estimatedCost: isEstimated,
-		discount: discount !== 0 ? discount : undefined,
+		discount: Number(discount) !== 0 ? Number(discount) : undefined,
 		pricingTier: pricing.tierName,
 	};
 }

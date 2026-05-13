@@ -205,7 +205,7 @@ function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
 function providerSupportsCaching(
 	providerInfo:
 		| {
-				cachedInputPrice?: number;
+				cachedInputPrice?: string;
 				pricingTiers?: ProviderModelMapping["pricingTiers"];
 				regions?: ProviderModelMapping["regions"];
 		  }
@@ -283,14 +283,16 @@ export function getProviderSelectionPrice(
 		| undefined,
 	videoPricing?: VideoPricingContext,
 ): Decimal {
-	const discount = providerInfo?.discount ?? 0;
+	const discount = providerInfo?.discount ?? "0";
 	const discountMultiplier = new Decimal(1).minus(discount);
 	const inputPrice = providerInfo?.inputPrice;
 	const outputPrice = providerInfo?.outputPrice;
 	const requestPrice = providerInfo?.requestPrice;
 	const hasAnyTokenPrice =
 		inputPrice !== undefined || outputPrice !== undefined;
-	const hasPositiveTokenPrice = (inputPrice ?? 0) > 0 || (outputPrice ?? 0) > 0;
+	const hasPositiveTokenPrice =
+		new Decimal(inputPrice ?? "0").gt(0) ||
+		new Decimal(outputPrice ?? "0").gt(0);
 
 	if (providerInfo?.perSecondPrice && videoPricing) {
 		for (const billingKey of getPerSecondBillingKeys(videoPricing)) {
@@ -304,8 +306,8 @@ export function getProviderSelectionPrice(
 	}
 
 	if (hasPositiveTokenPrice) {
-		return new Decimal(inputPrice ?? 0)
-			.plus(outputPrice ?? 0)
+		return new Decimal(inputPrice ?? "0")
+			.plus(outputPrice ?? "0")
 			.div(2)
 			.times(discountMultiplier);
 	}
@@ -315,8 +317,8 @@ export function getProviderSelectionPrice(
 	}
 
 	if (hasAnyTokenPrice) {
-		return new Decimal(inputPrice ?? 0)
-			.plus(outputPrice ?? 0)
+		return new Decimal(inputPrice ?? "0")
+			.plus(outputPrice ?? "0")
 			.div(2)
 			.times(discountMultiplier);
 	}
