@@ -13,6 +13,7 @@ export const metadata: Metadata = {
 	title: "Group Chat - Compare AI Models Side by Side",
 	description:
 		"Send one prompt to multiple AI models simultaneously. Compare responses from GPT-4, Claude, Gemini, and more in real-time.",
+	alternates: { canonical: "/group" },
 };
 
 export interface GatewayModel {

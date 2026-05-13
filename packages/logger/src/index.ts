@@ -203,6 +203,48 @@ class LLMGatewayLogger {
 	}
 }
 
+export function toError(value: unknown): Error {
+	if (value instanceof Error) {
+		return value;
+	}
+
+	if (value === null || value === undefined) {
+		return new Error("Unknown error");
+	}
+
+	if (typeof value === "string") {
+		return new Error(value);
+	}
+
+	if (typeof value !== "object") {
+		return new Error(String(value));
+	}
+
+	const candidate = value as { message?: unknown; error?: unknown };
+	if (typeof candidate.message === "string" && candidate.message.length > 0) {
+		const err = new Error(candidate.message);
+		(err as Error & { cause?: unknown }).cause = value;
+		return err;
+	}
+	if (typeof candidate.error === "string" && candidate.error.length > 0) {
+		return new Error(candidate.error);
+	}
+
+	try {
+		const serialized = JSON.stringify(value);
+		if (serialized && serialized !== "{}") {
+			return new Error(serialized);
+		}
+	} catch {
+		// fall through to constructor name fallback
+	}
+
+	const ctorName =
+		(value as { constructor?: { name?: string } }).constructor?.name ??
+		"Object";
+	return new Error(`[unserializable ${ctorName}]`);
+}
+
 // Default logger instance
 export const logger = new LLMGatewayLogger();
 

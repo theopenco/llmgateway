@@ -283,6 +283,12 @@ responses.post("/", async (c) => {
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
 	}
+	if (req.prompt_cache_key !== undefined) {
+		chatRequest.prompt_cache_key = req.prompt_cache_key;
+	}
+	if (req.prompt_cache_retention !== undefined) {
+		chatRequest.prompt_cache_retention = req.prompt_cache_retention;
+	}
 	if (response_format) {
 		chatRequest.response_format = response_format;
 	}

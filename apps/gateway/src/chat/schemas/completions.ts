@@ -33,6 +33,26 @@ export const completionsRequestSchema = z.object({
 									detail: z.enum(["low", "high", "auto"]).optional(),
 								}),
 							}),
+							z.object({
+								type: z.literal("input_audio"),
+								input_audio: z.object({
+									data: z.string(),
+									format: z.enum([
+										"wav",
+										"mp3",
+										"aiff",
+										"aac",
+										"ogg",
+										"flac",
+										"m4a",
+										"mpeg",
+										"mpga",
+										"mp4",
+										"pcm",
+										"webm",
+									]),
+								}),
+							}),
 						]),
 					),
 				])
@@ -139,6 +159,26 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	stream: z.boolean().optional().default(false),
+	prompt_cache_key: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"OpenAI prompt caching key used to improve cache routing for requests with shared prompt prefixes.",
+			example: "tenant-123",
+		}),
+	prompt_cache_retention: z
+		.enum(["in_memory", "24h"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"OpenAI prompt cache retention policy. OpenAI supports in_memory and 24h for eligible models.",
+			example: "24h",
+		}),
 	tools: z
 		.array(
 			z.union([

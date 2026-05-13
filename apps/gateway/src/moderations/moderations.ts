@@ -386,7 +386,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		providerKey = await findProviderKey(
 			project.organizationId,
 			"openai",
-			requestId,
+			upstreamModel,
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -396,7 +396,9 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		}
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
-		const envResult = getProviderEnv("openai");
+		const envResult = getProviderEnv("openai", {
+			selectionScope: upstreamModel,
+		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
 		envVarName = envResult.envVarName;
@@ -404,12 +406,14 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		providerKey = await findProviderKey(
 			project.organizationId,
 			"openai",
-			requestId,
+			upstreamModel,
 		);
 		if (providerKey) {
 			usedToken = providerKey.token;
 		} else {
-			const envResult = getProviderEnv("openai");
+			const envResult = getProviderEnv("openai", {
+				selectionScope: upstreamModel,
+			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
 			envVarName = envResult.envVarName;

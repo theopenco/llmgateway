@@ -22,6 +22,12 @@ import {
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
 
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	alternates: { canonical: "/" },
+};
+
 const featuredTools = [
 	{
 		name: "Claude Code",
@@ -41,9 +47,9 @@ const featuredTools = [
 		name: "SoulForge",
 		icon: SoulForgeIcon,
 		description:
-			"Aggressive prompt caching cuts roughly 50% of tokens on multi-turn agent runs. Pair with DevPass to effectively double your monthly usage.",
+			"Graph-powered coding agent. Maps your repo on launch and edits TypeScript by symbol name, not by find-and-replace. Roughly half the tokens of an equivalent Claude Code or OpenCode session. Pair with DevPass to double your monthly usage.",
 		setup: "/keys → paste your key",
-		highlight: "Saves ~50% tokens",
+		highlight: "Graph-powered · −50%",
 	},
 ];
 
@@ -82,7 +88,7 @@ export default function LandingPage() {
 								<span className="font-semibold text-foreground">$3</span> of
 								model usage at provider rates. Pair it with{" "}
 								<span className="font-semibold text-foreground">SoulForge</span>{" "}
-								and prompt caching pushes that to roughly{" "}
+								— the graph-powered agent — and that stretches to roughly{" "}
 								<span className="font-semibold text-foreground">$6</span>.
 							</p>
 							<p className="mx-auto mb-10 max-w-xl text-sm text-muted-foreground">

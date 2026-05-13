@@ -31,6 +31,31 @@ export function adjustGoogleCandidateTokens(
 	return candidatesTokenCount;
 }
 
+export function extractBedrockCacheCreationDetails(usage: any): {
+	cacheCreation5mTokens: number | null;
+	cacheCreation1hTokens: number | null;
+} {
+	let fiveMinuteTokens = 0;
+	let oneHourTokens = 0;
+
+	const cacheDetails = Array.isArray(usage?.cacheDetails)
+		? usage.cacheDetails
+		: [];
+	for (const detail of cacheDetails) {
+		const inputTokens = detail?.inputTokens ?? 0;
+		if (detail?.ttl === "1h") {
+			oneHourTokens += inputTokens;
+		} else if (detail?.ttl === "5m") {
+			fiveMinuteTokens += inputTokens;
+		}
+	}
+
+	return {
+		cacheCreation5mTokens: fiveMinuteTokens > 0 ? fiveMinuteTokens : null,
+		cacheCreation1hTokens: oneHourTokens > 0 ? oneHourTokens : null,
+	};
+}
+
 /**
  * Extracts token usage information from streaming data based on provider format
  */
@@ -48,6 +73,8 @@ export function extractTokenUsage(
 	let cacheCreationTokens = null;
 	let cacheCreation5mTokens: number | null = null;
 	let cacheCreation1hTokens: number | null = null;
+	let audioInputTokens: number | null = null;
+	let cachedAudioInputTokens: number | null = null;
 
 	switch (provider) {
 		case "google-ai-studio":
@@ -60,6 +87,21 @@ export function extractTokenUsage(
 				reasoningTokens = data.usageMetadata.thoughtsTokenCount ?? null;
 				// Extract cached tokens from Google's implicit caching
 				cachedTokens = data.usageMetadata.cachedContentTokenCount ?? null;
+				if (Array.isArray(data.usageMetadata.promptTokensDetails)) {
+					for (const detail of data.usageMetadata.promptTokensDetails) {
+						if (detail?.modality === "AUDIO" && detail.tokenCount) {
+							audioInputTokens = (audioInputTokens ?? 0) + detail.tokenCount;
+						}
+					}
+				}
+				if (Array.isArray(data.usageMetadata.cacheTokensDetails)) {
+					for (const detail of data.usageMetadata.cacheTokensDetails) {
+						if (detail?.modality === "AUDIO" && detail.tokenCount) {
+							cachedAudioInputTokens =
+								(cachedAudioInputTokens ?? 0) + detail.tokenCount;
+						}
+					}
+				}
 
 				// Adjust for inconsistent Google API behavior where
 				// candidatesTokenCount may already include thoughtsTokenCount
@@ -106,6 +148,7 @@ export function extractTokenUsage(
 				const inputTokens = data.usage.inputTokens ?? 0;
 				const cacheReadTokens = data.usage.cacheReadInputTokens ?? 0;
 				const cacheWriteTokens = data.usage.cacheWriteInputTokens ?? 0;
+				const cacheDetails = extractBedrockCacheCreationDetails(data.usage);
 
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
@@ -113,6 +156,8 @@ export function extractTokenUsage(
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheWriteTokens;
+				cacheCreation5mTokens = cacheDetails.cacheCreation5mTokens;
+				cacheCreation1hTokens = cacheDetails.cacheCreation1hTokens;
 				totalTokens = data.usage.totalTokens ?? null;
 			}
 			break;
@@ -186,5 +231,7 @@ export function extractTokenUsage(
 		cacheCreationTokens,
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
+		audioInputTokens,
+		cachedAudioInputTokens,
 	};
 }

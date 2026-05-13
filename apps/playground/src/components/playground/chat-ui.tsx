@@ -5,7 +5,12 @@ import {
 	Brain,
 	GlobeIcon,
 	AlertTriangle,
+	Info,
+	GitFork,
+	Loader2,
+	Undo2,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
 import { toast } from "sonner";
 
@@ -65,20 +70,37 @@ import { AspectRatioIcon } from "@/components/playground/aspect-ratio-icon";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
+import {
+	parsePlaygroundMessageMetadata,
+	type PlaygroundMessageMetadata,
+} from "@/lib/message-metadata";
+import { cn } from "@/lib/utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 
 interface ChatUIProps {
 	messages: UIMessage[];
 	supportsImages: boolean;
+	supportsAudio: boolean;
 	supportsImageGen: boolean;
 	sendMessage: (
 		message: UIMessage,
@@ -148,11 +170,21 @@ interface ChatUIProps {
 				url: string;
 			};
 		}>,
-	) => Promise<void>;
+		audio?: Array<{
+			type: "audio";
+			url: string;
+			mediaType: string;
+			name?: string;
+		}>,
+	) => Promise<{ id: string } | undefined>;
+	onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
 	finishReason?: string | null;
 	floatingInput?: boolean;
+	isTemporaryChat?: boolean;
+	forkChat?: () => void | Promise<void>;
+	isForkingChat?: boolean;
 }
 
 const suggestions = [
@@ -189,10 +221,13 @@ const heroSuggestionGroups = {
 	],
 };
 
+type HeroSuggestionGroup = keyof typeof heroSuggestionGroups;
+
 // js-combine-iterations: Extract message parts in a single pass instead of multiple filter() calls
 interface ExtractedParts {
 	textParts: string[];
 	imageParts: any[];
+	audioParts: any[];
 	toolParts: any[];
 	reasoningContent: string;
 	sourceParts: any[];
@@ -201,6 +236,7 @@ interface ExtractedParts {
 function extractMessageParts(parts: any[]): ExtractedParts {
 	const textParts: string[] = [];
 	const imageParts: any[] = [];
+	const audioParts: any[] = [];
 	const toolParts: any[] = [];
 	const reasoningParts: string[] = [];
 	const sourceParts: any[] = [];
@@ -220,12 +256,15 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 			(p.type === "file" && p.mediaType?.startsWith("image/"))
 		) {
 			imageParts.push(p);
+		} else if (p.type === "file" && p.mediaType?.startsWith("audio/")) {
+			audioParts.push(p);
 		}
 	}
 
 	return {
 		textParts,
 		imageParts,
+		audioParts,
 		toolParts,
 		reasoningContent: reasoningParts.join(""),
 		sourceParts,
@@ -244,6 +283,83 @@ function getFinishReasonLabel(reason: string): string {
 	}
 }
 
+function formatTokenCount(value?: number): string {
+	return value === undefined
+		? "-"
+		: new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatCost(value?: number): string {
+	if (value === undefined) {
+		return "-";
+	}
+	if (value > 0 && value < 0.000001) {
+		return "<$0.000001";
+	}
+	return new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: value < 0.01 ? 6 : 2,
+		maximumFractionDigits: value < 0.01 ? 6 : 4,
+	}).format(value);
+}
+
+function MessageMetadataPopover({
+	metadata,
+}: {
+	metadata: PlaygroundMessageMetadata;
+}) {
+	const usage = metadata.usage;
+	const rows = [
+		["Total cost", formatCost(usage?.totalCost)],
+		["Input tokens", formatTokenCount(usage?.inputTokens)],
+		["Cached input tokens", formatTokenCount(usage?.cachedInputTokens)],
+		["Output tokens", formatTokenCount(usage?.outputTokens)],
+		["Used model", metadata.usedModel ?? "-"],
+	] as const;
+
+	return (
+		<Popover>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<PopoverTrigger asChild>
+						<Button
+							aria-label="Show response metadata"
+							className="relative size-9 p-1.5 text-muted-foreground hover:text-foreground"
+							size="sm"
+							type="button"
+							variant="ghost"
+						>
+							<Info className="size-3" />
+						</Button>
+					</PopoverTrigger>
+				</TooltipTrigger>
+				<TooltipContent>
+					<p>Response metadata</p>
+				</TooltipContent>
+			</Tooltip>
+			<PopoverContent align="start" className="w-80 p-3">
+				<div className="space-y-2 text-xs">
+					<p className="font-medium">Response metadata</p>
+					<div className="space-y-1.5">
+						{rows.map(([label, value]) => (
+							<div
+								className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3"
+								key={label}
+							>
+								<span className="text-muted-foreground">{label}</span>
+								<span className="break-words text-right font-mono">
+									{value}
+								</span>
+							</div>
+						))}
+					</div>
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+}
+
 // rerender-memo: Memoize message component to prevent re-renders when only streaming status changes
 const AssistantMessage = memo(
 	({
@@ -252,18 +368,26 @@ const AssistantMessage = memo(
 		status,
 		regenerate,
 		finishReason,
+		forkChat,
+		isForkingChat,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
 		regenerate: () => void;
 		finishReason?: string | null;
+		forkChat?: () => void | Promise<void>;
+		isForkingChat?: boolean;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
 			useMemo(() => {
 				return extractMessageParts(message.parts);
 			}, [message.parts]);
+		const metadata = useMemo(
+			() => parsePlaygroundMessageMetadata(message.metadata),
+			[message.metadata],
+		);
 		const textContent = textParts.join("");
 
 		return (
@@ -341,29 +465,50 @@ const AssistantMessage = memo(
 					</div>
 				)}
 
-				{isLastMessage && (
+				{(metadata || isLastMessage) && (
 					<Actions className="mt-2">
-						<Action
-							onClick={() => regenerate()}
-							label="Retry"
-							tooltip="Regenerate response"
-						>
-							<RefreshCcw className="size-3" />
-						</Action>
-						<Action
-							onClick={async () => {
-								try {
-									await navigator.clipboard.writeText(textContent);
-									toast.success("Copied to clipboard");
-								} catch {
-									toast.error("Failed to copy to clipboard");
-								}
-							}}
-							label="Copy"
-							tooltip="Copy to clipboard"
-						>
-							<Copy className="size-3" />
-						</Action>
+						{metadata ? <MessageMetadataPopover metadata={metadata} /> : null}
+						{isLastMessage ? (
+							<>
+								<Action
+									onClick={() => regenerate()}
+									label="Retry"
+									tooltip="Regenerate response"
+								>
+									<RefreshCcw className="size-3" />
+								</Action>
+								{forkChat ? (
+									<Action
+										disabled={isForkingChat}
+										onClick={() => {
+											void forkChat();
+										}}
+										label="Fork chat"
+										tooltip="Fork chat"
+									>
+										{isForkingChat ? (
+											<Loader2 className="size-3 animate-spin" />
+										) : (
+											<GitFork className="size-3" />
+										)}
+									</Action>
+								) : null}
+								<Action
+									onClick={async () => {
+										try {
+											await navigator.clipboard.writeText(textContent);
+											toast.success("Copied to clipboard");
+										} catch {
+											toast.error("Failed to copy to clipboard");
+										}
+									}}
+									label="Copy"
+									tooltip="Copy to clipboard"
+								>
+									<Copy className="size-3" />
+								</Action>
+							</>
+						) : null}
 					</Actions>
 				)}
 			</div>
@@ -377,43 +522,152 @@ const UserMessage = memo(
 		message,
 		isLastMessage,
 		status,
+		canEdit,
+		isEditing,
+		onEditStart,
+		onEditCancel,
+		onEditConfirm,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
+		canEdit?: boolean;
+		isEditing?: boolean;
+		onEditStart?: () => void;
+		onEditCancel?: () => void;
+		onEditConfirm?: (content: string) => Promise<void>;
 	}) => {
-		const { textParts, imageParts } = useMemo(
+		const { textParts, imageParts, audioParts } = useMemo(
 			() => extractMessageParts(message.parts),
 			[message.parts],
 		);
+		const initialText = textParts.join("\n");
+		const [editText, setEditText] = useState(initialText);
+		const [isSaving, setIsSaving] = useState(false);
+
+		useEffect(() => {
+			if (isEditing) {
+				setEditText(initialText);
+			}
+		}, [initialText, isEditing]);
+
+		const handleEditConfirm = async () => {
+			if (!onEditConfirm || isSaving) {
+				return;
+			}
+			if (!editText.trim() && imageParts.length === 0) {
+				return;
+			}
+			setIsSaving(true);
+			try {
+				await onEditConfirm(editText);
+			} finally {
+				setIsSaving(false);
+			}
+		};
 
 		return (
-			<Message from={message.role} className="message-item">
-				<MessageContent variant="flat">
-					{textParts.map((t, idx) => (
-						<div key={idx}>{t}</div>
-					))}
-					{imageParts.length > 0 && (
-						<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-							{imageParts.map((part: any, idx: number) => {
-								const { base64Only, mediaType } = parseImagePartToDataUrl(part);
-								if (!base64Only) {
-									return null;
-								}
-								return (
-									<ImageZoom key={idx}>
-										<Image
-											base64={base64Only}
-											mediaType={mediaType}
-											alt={part.name ?? "Uploaded image"}
-											className="h-[300px] aspect-auto border rounded-lg object-cover"
-										/>
-									</ImageZoom>
-								);
-							})}
-						</div>
+			<Message from={message.role} className="message-item group/user-message">
+				<div
+					className={cn(
+						"flex flex-col items-end",
+						isEditing ? "w-full max-w-full" : "w-fit max-w-[80%]",
 					)}
-				</MessageContent>
+				>
+					<MessageContent
+						className={cn("!max-w-full", isEditing && "w-full px-5 py-4")}
+						variant="flat"
+					>
+						{isEditing ? (
+							<div className="flex w-full min-w-0 flex-col gap-3">
+								<Textarea
+									value={editText}
+									onChange={(event) => setEditText(event.currentTarget.value)}
+									className="min-h-24 w-full min-w-0 resize-y bg-background text-foreground"
+									autoFocus
+								/>
+								<div className="flex flex-wrap justify-end gap-2">
+									<Button
+										type="button"
+										size="sm"
+										variant="secondary"
+										onClick={onEditCancel}
+										disabled={isSaving}
+										className="rounded-full"
+									>
+										Cancel
+									</Button>
+									<Button
+										type="button"
+										size="sm"
+										onClick={() => void handleEditConfirm()}
+										disabled={
+											isSaving || (!editText.trim() && imageParts.length === 0)
+										}
+										className="rounded-full"
+									>
+										Send
+									</Button>
+								</div>
+							</div>
+						) : (
+							<>
+								{textParts.map((t, idx) => (
+									<div key={idx}>{t}</div>
+								))}
+							</>
+						)}
+						{imageParts.length > 0 && (
+							<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+								{imageParts.map((part: any, idx: number) => {
+									const { base64Only, mediaType } =
+										parseImagePartToDataUrl(part);
+									if (!base64Only) {
+										return null;
+									}
+									return (
+										<ImageZoom key={idx}>
+											<Image
+												base64={base64Only}
+												mediaType={mediaType}
+												alt={part.name ?? "Uploaded image"}
+												className="h-[300px] aspect-auto border rounded-lg object-cover"
+											/>
+										</ImageZoom>
+									);
+								})}
+							</div>
+						)}
+						{audioParts.length > 0 && (
+							<div className="mt-3 flex flex-col gap-2">
+								{audioParts.map((part: any, idx: number) => (
+									<audio
+										key={idx}
+										controls
+										src={part.url}
+										className="w-full max-w-md"
+										aria-label={
+											part.name ?? part.filename ?? "Audio attachment"
+										}
+									>
+										<track kind="captions" />
+									</audio>
+								))}
+							</div>
+						)}
+					</MessageContent>
+					{canEdit && !isEditing ? (
+						<Actions className="mt-2 opacity-0 transition-opacity group-hover/user-message:opacity-100 focus-within:opacity-100">
+							<Action
+								onClick={onEditStart}
+								label="Edit and retry"
+								tooltip="Edit and retry from here"
+							>
+								<Undo2 className="size-3" />
+							</Action>
+						</Actions>
+					) : null}
+				</div>
 				{isLastMessage &&
 					(status === "submitted" || status === "streaming") && <Loader />}
 			</Message>
@@ -421,9 +675,42 @@ const UserMessage = memo(
 	},
 );
 
+export function ReadOnlyChatMessages({ messages }: { messages: UIMessage[] }) {
+	return (
+		<Conversation>
+			<ConversationContent className="mx-auto max-w-4xl px-4 py-8">
+				{messages.map((message) => {
+					if (message.role === "assistant") {
+						return (
+							<AssistantMessage
+								key={message.id}
+								message={message}
+								isLastMessage={false}
+								status="ready"
+								regenerate={() => {}}
+								finishReason={null}
+							/>
+						);
+					}
+
+					return (
+						<UserMessage
+							key={message.id}
+							message={message}
+							isLastMessage={false}
+							status="ready"
+						/>
+					);
+				})}
+			</ConversationContent>
+		</Conversation>
+	);
+}
+
 export const ChatUI = ({
 	messages,
 	supportsImages,
+	supportsAudio,
 	supportsImageGen,
 	sendMessage,
 	selectedModel,
@@ -449,10 +736,14 @@ export const ChatUI = ({
 	webSearchEnabled,
 	setWebSearchEnabled,
 	onUserMessage,
+	onEditUserMessage,
 	isLoading = false,
 	error = null,
 	finishReason = null,
 	floatingInput = false,
+	isTemporaryChat = false,
+	forkChat,
+	isForkingChat = false,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -485,11 +776,19 @@ export const ChatUI = ({
 
 	const qualityOptions = ["auto", "low", "medium", "high"] as const;
 
-	const [activeGroup, setActiveGroup] =
-		useState<keyof typeof heroSuggestionGroups>("Create");
+	const [activeGroup, setActiveGroup] = useState<HeroSuggestionGroup>("Create");
+	const visibleHeroSuggestionGroups: HeroSuggestionGroup[] = supportsImageGen
+		? ["Image gen"]
+		: ["Create", "Explore", "Code"];
+	const activeSuggestionGroup: HeroSuggestionGroup = supportsImageGen
+		? "Image gen"
+		: visibleHeroSuggestionGroups.includes(activeGroup)
+			? activeGroup
+			: "Create";
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const inputRef = useRef<HTMLDivElement | null>(null);
 	const [inputHeight, setInputHeight] = useState(0);
+	const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
 	const updateInputHeight = useCallback(() => {
 		if (inputRef.current) {
@@ -509,6 +808,8 @@ export const ChatUI = ({
 	// governs the Stop button which should only show while a request is in flight.
 	const isActive = status === "streaming" || status === "submitted";
 	const isBusy = isLoading || isActive;
+	const canEditUserMessages =
+		!isBusy && !isTemporaryChat && !!onEditUserMessage;
 
 	const handlePromptSubmit = async (
 		textContent: string,
@@ -541,6 +842,18 @@ export const ChatUI = ({
 							}))
 					: undefined;
 
+			const audioToSave =
+				supportsAudio && files?.length
+					? files
+							.filter((f) => f.mediaType?.startsWith("audio/") && f.url)
+							.map((f) => ({
+								type: "audio" as const,
+								url: f.url!,
+								mediaType: f.mediaType!,
+								...(f.filename ? { name: f.filename } : {}),
+							}))
+					: undefined;
+
 			if (content.trim()) {
 				parts.push({ type: "text", text: content });
 			}
@@ -560,20 +873,48 @@ export const ChatUI = ({
 				}
 			}
 
+			if (supportsAudio && files?.length) {
+				for (const file of files) {
+					if (file.mediaType?.startsWith("audio/") && file.url) {
+						parts.push({
+							type: "file",
+							url: file.url,
+							mediaType: file.mediaType,
+							name: file.filename,
+						});
+					}
+				}
+			}
+
 			if (parts.length === 0) {
 				return;
 			}
 
+			const generatedMessageId = crypto.randomUUID();
+			let savedMessage: { id: string } | undefined;
+
 			// Ensure the chat exists + user message is persisted BEFORE streaming starts.
 			// Otherwise `onFinish` may run before `chatIdRef` is set, and we can't save the AI response.
-			if (onUserMessage && (content.trim() || imagesToSave?.length)) {
-				await onUserMessage(content, imagesToSave);
+			if (
+				onUserMessage &&
+				(content.trim() || imagesToSave?.length || audioToSave?.length)
+			) {
+				savedMessage =
+					(await onUserMessage(content, imagesToSave, audioToSave)) ??
+					undefined;
+			}
+
+			// If a persistent chat was expected (onUserMessage provided) but persistence
+			// returned nothing, a stop condition was hit (credits, limit, etc.).
+			// Temporary chats intentionally return undefined — streaming must still proceed.
+			if (onUserMessage && !savedMessage && !isTemporaryChat) {
+				return;
 			}
 
 			// Call sendMessage which will handle adding the user message and API request
 			await sendMessage(
 				{
-					id: crypto.randomUUID(),
+					id: savedMessage?.id ?? generatedMessageId,
 					role: "user",
 					parts,
 				},
@@ -595,49 +936,102 @@ export const ChatUI = ({
 				<Loader />
 			</div>
 		) : messages.length === 0 ? (
-			<div className="max-w-3xl mx-auto py-10">
-				<div className="mb-6 text-center">
-					<h2 className="text-3xl font-semibold tracking-tight">
-						How can I help you?
-					</h2>
-				</div>
-				<div className="mb-6 flex justify-center gap-2">
-					{Object.keys(heroSuggestionGroups).map((key) => (
-						<Button
-							key={key}
-							size="sm"
-							variant={activeGroup === key ? "default" : "secondary"}
-							onClick={() =>
-								setActiveGroup(key as keyof typeof heroSuggestionGroups)
-							}
-							className="rounded-full"
-						>
-							{key}
-						</Button>
-					))}
-				</div>
-				{activeGroup === "Image gen" && !supportsImageGen ? (
-					<div className="text-center text-sm text-muted-foreground py-8">
-						Please select a model that supports image generation to use this
-						feature.
-					</div>
-				) : (
-					<div className="space-y-2">
-						{heroSuggestionGroups[activeGroup].slice(0, 5).map((s) => (
-							<button
-								key={s}
-								type="button"
-								onClick={() => {
-									void handlePromptSubmit(s);
+			<AnimatePresence mode="wait" initial={false}>
+				<motion.div
+					key={isTemporaryChat ? "temporary-chat-empty" : "regular-chat-empty"}
+					initial={{ opacity: 0, scale: 0.96 }}
+					animate={{ opacity: 1, scale: 1 }}
+					exit={{ opacity: 0, scale: 0.96 }}
+					transition={{
+						opacity: { duration: 0.06, ease: "easeOut" },
+						scale: { duration: 0.14, ease: "easeOut" },
+					}}
+					className={`mx-auto w-full max-w-3xl ${
+						isTemporaryChat
+							? "flex flex-1 items-center justify-center py-10"
+							: "py-10"
+					}`}
+				>
+					<motion.div
+						className={`${isTemporaryChat ? "mb-0" : "mb-6"} text-center`}
+						layout
+						transition={{ duration: 0.14, ease: "easeOut" }}
+					>
+						<h2 className="text-3xl font-semibold tracking-tight">
+							{isTemporaryChat ? "Temporary Chat" : "How can I help you?"}
+						</h2>
+						<AnimatePresence initial={false}>
+							{isTemporaryChat ? (
+								<motion.p
+									key="temporary-subtitle"
+									initial={{ opacity: 0, scale: 0.97 }}
+									animate={{ opacity: 1, scale: 1 }}
+									exit={{ opacity: 0, scale: 0.97 }}
+									transition={{
+										opacity: { duration: 0.06, ease: "easeOut" },
+										scale: { duration: 0.12, ease: "easeOut" },
+									}}
+									className="mt-2 text-sm text-muted-foreground"
+								>
+									Temporary chats will not appear in your chat history.
+								</motion.p>
+							) : null}
+						</AnimatePresence>
+					</motion.div>
+					<AnimatePresence initial={false}>
+						{isTemporaryChat ? null : (
+							<motion.div
+								key="regular-chat-suggestions"
+								initial={{ opacity: 0, height: 0, scale: 0.97 }}
+								animate={{ opacity: 1, height: "auto", scale: 1 }}
+								exit={{ opacity: 0, height: 0, scale: 0.97 }}
+								transition={{
+									opacity: { duration: 0.06, ease: "easeOut" },
+									height: { duration: 0.16, ease: "easeOut" },
+									scale: { duration: 0.14, ease: "easeOut" },
 								}}
-								className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+								className="overflow-hidden"
 							>
-								{s}
-							</button>
-						))}
-					</div>
-				)}
-			</div>
+								{visibleHeroSuggestionGroups.length > 1 ? (
+									<div className="mb-6 flex justify-center gap-2">
+										{visibleHeroSuggestionGroups.map((key) => (
+											<Button
+												key={key}
+												size="sm"
+												variant={
+													activeSuggestionGroup === key
+														? "default"
+														: "secondary"
+												}
+												onClick={() => setActiveGroup(key)}
+												className="rounded-full"
+											>
+												{key}
+											</Button>
+										))}
+									</div>
+								) : null}
+								<div className="space-y-2">
+									{heroSuggestionGroups[activeSuggestionGroup]
+										.slice(0, 5)
+										.map((s) => (
+											<button
+												key={s}
+												type="button"
+												onClick={() => {
+													void handlePromptSubmit(s);
+												}}
+												className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+											>
+												{s}
+											</button>
+										))}
+								</div>
+							</motion.div>
+						)}
+					</AnimatePresence>
+				</motion.div>
+			</AnimatePresence>
 		) : (
 			<>
 				{messages.map((m, messageIndex) => {
@@ -652,6 +1046,10 @@ export const ChatUI = ({
 								status={status}
 								regenerate={regenerate}
 								finishReason={isLastMessage ? finishReason : null}
+								forkChat={
+									isLastMessage && status === "ready" ? forkChat : undefined
+								}
+								isForkingChat={isForkingChat}
 							/>
 						);
 					} else {
@@ -661,6 +1059,17 @@ export const ChatUI = ({
 								message={m}
 								isLastMessage={isLastMessage}
 								status={status}
+								canEdit={canEditUserMessages}
+								isEditing={editingMessageId === m.id}
+								onEditStart={() => setEditingMessageId(m.id)}
+								onEditCancel={() => setEditingMessageId(null)}
+								onEditConfirm={async (content) => {
+									if (!onEditUserMessage) {
+										return;
+									}
+									setEditingMessageId(null);
+									await onEditUserMessage(m, content);
+								}}
 							/>
 						);
 					}
@@ -685,18 +1094,28 @@ export const ChatUI = ({
 					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
 			}
 		>
-			<div
+			<motion.div
+				layout
 				className={
 					floatingInput
 						? "max-w-4xl mx-auto px-4 pb-0 pt-2 bg-background"
 						: undefined
 				}
+				transition={{ duration: 0.18, ease: "easeOut" }}
 			>
 				<PromptInput
-					key={supportsImages ? "prompt-input-images" : "prompt-input-text"}
-					accept={supportsImages ? "image/*" : undefined}
+					key={`prompt-input-${supportsImages ? "img" : ""}${supportsAudio ? "aud" : ""}`}
+					accept={
+						supportsImages && supportsAudio
+							? "image/*,audio/*"
+							: supportsImages
+								? "image/*"
+								: supportsAudio
+									? "audio/*"
+									: undefined
+					}
 					multiple
-					globalDrop={supportsImages}
+					globalDrop={supportsImages || supportsAudio}
 					aria-disabled={isBusy}
 					onSubmit={(message) => {
 						void handlePromptSubmit(message.text ?? "", message.files);
@@ -715,11 +1134,19 @@ export const ChatUI = ({
 					</PromptInputBody>
 					<PromptInputToolbar>
 						<PromptInputTools>
-							{supportsImages && (
+							{(supportsImages || supportsAudio) && (
 								<PromptInputActionMenu>
 									<PromptInputActionMenuTrigger />
 									<PromptInputActionMenuContent>
-										<PromptInputActionAddAttachments />
+										<PromptInputActionAddAttachments
+											label={
+												supportsImages && supportsAudio
+													? "Add photos, audio or files"
+													: supportsAudio
+														? "Add audio"
+														: undefined
+											}
+										/>
 									</PromptInputActionMenuContent>
 								</PromptInputActionMenu>
 							)}
@@ -919,7 +1346,31 @@ export const ChatUI = ({
 						</div>
 					</PromptInputToolbar>
 				</PromptInput>
-			</div>
+				<AnimatePresence initial={false}>
+					{isTemporaryChat ? (
+						<motion.p
+							key="temporary-chat-disclosure"
+							initial={{ opacity: 0, y: 8 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={{ opacity: 0, y: 8 }}
+							transition={{ duration: 0.16, ease: "easeOut" }}
+							className="px-1 pt-2 pb-3 text-center text-xs text-muted-foreground"
+						>
+							Some responses are saved for up to 72 hours before they are
+							deleted, read our{" "}
+							<a
+								href="https://llmgateway.io/legal/terms"
+								target="_blank"
+								rel="noopener noreferrer"
+								className="underline underline-offset-2 transition-colors hover:text-foreground"
+							>
+								terms of use
+							</a>{" "}
+							for more details
+						</motion.p>
+					) : null}
+				</AnimatePresence>
+			</motion.div>
 		</div>
 	);
 
@@ -928,7 +1379,11 @@ export const ChatUI = ({
 			<div className="relative flex flex-col h-full min-h-0">
 				<Conversation>
 					<ConversationContent
-						className="max-w-4xl mx-auto px-4"
+						className={`mx-auto max-w-4xl px-4 ${
+							isTemporaryChat && messages.length === 0
+								? "flex min-h-full w-full items-center justify-center"
+								: ""
+						}`}
 						style={{ paddingBottom: `${inputHeight + 16}px` }}
 					>
 						{messagesContent}
@@ -943,7 +1398,13 @@ export const ChatUI = ({
 		<div className="flex flex-col h-full min-h-0">
 			<div className="flex flex-col flex-1 min-h-0">
 				<Conversation>
-					<ConversationContent className="px-4 pb-4">
+					<ConversationContent
+						className={`px-4 pb-4 ${
+							isTemporaryChat && messages.length === 0
+								? "flex min-h-full items-center justify-center"
+								: ""
+						}`}
+					>
 						{messagesContent}
 					</ConversationContent>
 				</Conversation>

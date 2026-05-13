@@ -10,7 +10,9 @@ import {
 	type OpenAIRequestBody,
 	type OpenAIResponsesRequestBody,
 	type OpenAIToolInput,
+	type PromptCacheRetention,
 	type ProviderRequestBody,
+	supportsOpenAIExtendedPromptCache,
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
@@ -99,6 +101,48 @@ function isFunctionTool(
 	tool: OpenAIToolInput,
 ): tool is OpenAIFunctionToolInput {
 	return tool.type === "function";
+}
+
+/**
+ * Ensures function-tool parameters form a valid JSON Schema object. Some
+ * upstreams (e.g. DeepSeek) reject tools whose parameters omit `type` or set
+ * it to null, which happens when SDKs serialize parameter-less tools.
+ */
+function normalizeToolParameters(tools?: OpenAIToolInput[]): typeof tools {
+	if (!tools) {
+		return tools;
+	}
+	return tools.map((tool) => {
+		if (!isFunctionTool(tool)) {
+			return tool;
+		}
+		const params = tool.function.parameters as
+			| Record<string, unknown>
+			| null
+			| undefined;
+		if (
+			params &&
+			typeof params === "object" &&
+			"type" in params &&
+			params.type !== null &&
+			params.type !== undefined
+		) {
+			return tool;
+		}
+		const baseParams =
+			params && typeof params === "object" ? { ...params } : {};
+		return {
+			...tool,
+			function: {
+				...tool.function,
+				parameters: {
+					...baseParams,
+					type: "object",
+					properties: (baseParams as { properties?: unknown }).properties ?? {},
+				} as FunctionParameter,
+			},
+		};
+	});
 }
 
 /**
@@ -653,7 +697,11 @@ export async function prepareRequestBody(
 	webSearchTool?: WebSearchTool,
 	reasoning_max_tokens?: number,
 	useResponsesApi?: boolean,
+	prompt_cache_key?: string,
+	prompt_cache_retention?: PromptCacheRetention,
 ): Promise<ProviderRequestBody | FormData> {
+	tools = normalizeToolParameters(tools);
+
 	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
 	if (
 		imageGenerations &&
@@ -1123,6 +1171,19 @@ export async function prepareRequestBody(
 					},
 				};
 
+				if (usedProvider === "openai") {
+					if (prompt_cache_key !== undefined) {
+						responsesBody.prompt_cache_key = prompt_cache_key;
+					}
+					if (
+						prompt_cache_retention !== undefined &&
+						(prompt_cache_retention !== "24h" ||
+							supportsOpenAIExtendedPromptCache(usedModel))
+					) {
+						responsesBody.prompt_cache_retention = prompt_cache_retention;
+					}
+				}
+
 				// Add streaming support
 				if (stream) {
 					responsesBody.stream = true;
@@ -1194,6 +1255,19 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
+				if (usedProvider === "openai") {
+					if (prompt_cache_key !== undefined) {
+						requestBody.prompt_cache_key = prompt_cache_key;
+					}
+					if (
+						prompt_cache_retention !== undefined &&
+						(prompt_cache_retention !== "24h" ||
+							supportsOpenAIExtendedPromptCache(usedModel))
+					) {
+						requestBody.prompt_cache_retention = prompt_cache_retention;
+					}
+				}
+
 				if (stream) {
 					requestBody.stream_options = {
 						include_usage: true,
@@ -1624,6 +1698,9 @@ export async function prepareRequestBody(
 			// Track cache control usage (max 4 blocks per Anthropic/Bedrock limit)
 			let bedrockCacheControlCount = 0;
 			const bedrockMaxCacheControlBlocks = 4;
+			interface BedrockCachePoint {
+				cachePoint: { type: "default"; ttl?: "5m" | "1h" };
+			}
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const bedrockProviderMapping = modelDef?.providers.find(
@@ -1633,6 +1710,25 @@ export async function prepareRequestBody(
 				bedrockProviderMapping?.minCacheableTokens ?? 1024;
 			// Approximate 4 characters per token
 			const bedrockMinCacheableChars = bedrockMinCacheableTokens * 4;
+
+			// AWS Bedrock supports 1h TTL only on Claude Opus/Haiku/Sonnet 4.5+. For
+			// other models, forwarding ttl:"1h" causes Bedrock to reject the request.
+			// Use cacheWriteInputPrice1h on the model definition as the source of
+			// truth and silently downgrade unsupported 1h hints to the default 5m.
+			const bedrockSupports1hTtl =
+				bedrockProviderMapping?.cacheWriteInputPrice1h !== undefined;
+			const createBedrockCachePoint = (
+				ttl?: "5m" | "1h",
+			): BedrockCachePoint => {
+				const effectiveTtl =
+					ttl === "1h" && !bedrockSupports1hTtl ? undefined : ttl;
+				return {
+					cachePoint: {
+						type: "default",
+						...(effectiveTtl && { ttl: effectiveTtl }),
+					},
+				};
+			};
 
 			// Extract system messages for Bedrock's system field (required for prompt caching)
 			const bedrockSystemMessages = processedMessages.filter(
@@ -1649,13 +1745,12 @@ export async function prepareRequestBody(
 			// cachePoint, and fall back to a length heuristic when nothing was
 			// explicitly opted in.
 			if (bedrockSystemMessages.length > 0) {
-				const systemContent: Array<
-					{ text: string } | { cachePoint: { type: "default" } }
-				> = [];
+				const systemContent: Array<{ text: string } | BedrockCachePoint> = [];
 
 				const collectedBedrockBlocks: Array<{
 					text: string;
 					hasExplicitCacheControl: boolean;
+					ttl?: "5m" | "1h";
 				}> = [];
 				for (const sysMsg of bedrockSystemMessages) {
 					if (typeof sysMsg.content === "string") {
@@ -1671,6 +1766,7 @@ export async function prepareRequestBody(
 								collectedBedrockBlocks.push({
 									text: part.text,
 									hasExplicitCacheControl: !!part.cache_control,
+									ttl: part.cache_control?.ttl,
 								});
 							}
 						}
@@ -1687,7 +1783,7 @@ export async function prepareRequestBody(
 					if (block.hasExplicitCacheControl) {
 						if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
 							bedrockCacheControlCount++;
-							systemContent.push({ cachePoint: { type: "default" } });
+							systemContent.push(createBedrockCachePoint(block.ttl));
 						}
 						continue;
 					}
@@ -1699,7 +1795,7 @@ export async function prepareRequestBody(
 
 					if (shouldHeuristicCache) {
 						bedrockCacheControlCount++;
-						systemContent.push({ cachePoint: { type: "default" } });
+						systemContent.push(createBedrockCachePoint());
 					}
 				}
 
@@ -1800,9 +1896,7 @@ export async function prepareRequestBody(
 
 						if (shouldCache) {
 							bedrockCacheControlCount++;
-							bedrockMessage.content.push({
-								cachePoint: { type: "default" },
-							});
+							bedrockMessage.content.push(createBedrockCachePoint());
 						}
 					}
 				} else if (Array.isArray(msg.content)) {
@@ -1818,9 +1912,9 @@ export async function prepareRequestBody(
 								if (part.cache_control) {
 									if (bedrockCacheControlCount < bedrockMaxCacheControlBlocks) {
 										bedrockCacheControlCount++;
-										bedrockMessage.content.push({
-											cachePoint: { type: "default" },
-										});
+										bedrockMessage.content.push(
+											createBedrockCachePoint(part.cache_control.ttl),
+										);
 									}
 								} else {
 									// Add cachePoint as separate block for long text parts
@@ -1831,9 +1925,7 @@ export async function prepareRequestBody(
 
 									if (shouldCache) {
 										bedrockCacheControlCount++;
-										bedrockMessage.content.push({
-											cachePoint: { type: "default" },
-										});
+										bedrockMessage.content.push(createBedrockCachePoint());
 									}
 								}
 							}
@@ -1878,9 +1970,7 @@ export async function prepareRequestBody(
 							boundaryMsg.content[boundaryMsg.content.length - 1];
 						// Only add if the last block isn't already a cachePoint.
 						if (!lastBlock.cachePoint) {
-							boundaryMsg.content.push({
-								cachePoint: { type: "default" },
-							});
+							boundaryMsg.content.push(createBedrockCachePoint());
 							bedrockCacheControlCount++;
 						}
 					}
@@ -2063,6 +2153,8 @@ export async function prepareRequestBody(
 				isProd,
 				maxImageSizeMB,
 				userPlan,
+				undefined,
+				usedProvider,
 			);
 
 			// Transform tools from OpenAI format to Google format

@@ -24,7 +24,8 @@
 	"dependencies": {
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
-		"@llmgateway/models": "workspace:*"
+		"@llmgateway/models": "workspace:*",
+		"decimal.js": "10.5.0"
 	},
 	"devDependencies": {}
 }

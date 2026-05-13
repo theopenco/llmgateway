@@ -99,7 +99,7 @@ export default function Footer() {
 									<a
 										href={config.playgroundUrl}
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
-										rel="noopener noreferrer"
+										rel="noopener"
 										target="_blank"
 									>
 										Chat Playground
@@ -117,8 +117,6 @@ export default function Footer() {
 								<li>
 									<a
 										href="https://devpass.llmgateway.io"
-										target="_blank"
-										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										DevPass
@@ -150,6 +148,15 @@ export default function Footer() {
 								Resources
 							</h3>
 							<ul className="space-y-2">
+								<li>
+									<Link
+										href="/apps"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch
+									>
+										Apps
+									</Link>
+								</li>
 								<li>
 									<Link
 										href="/templates"

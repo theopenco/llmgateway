@@ -979,6 +979,22 @@ export const MinimaxIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => {
 	);
 };
 
+// Xiaomi Icon
+export const XiaomiIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		{...props}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 512 512"
+		className={props.className}
+	>
+		<rect width="512" height="512" rx="96" fill="#FF6900" />
+		<path
+			fill="#FFF"
+			d="M404.5 269.4c1.8 0 3.2 1.4 3.2 3.2v189.4c0 1.7-1.5 3.1-3.2 3.1h-41.5c-1.8 0-3.2-1.4-3.2-3.1V272.6c0-1.7 1.4-3.2 3.2-3.2h41.5zm-180.1 0c31.3 0 64 1.4 80.2 17.6 15.9 15.9 17.6 47.5 17.7 78.3v96.7c0 1.7-1.4 3.1-3.2 3.1h-41.5c-1.8 0-3.2-1.4-3.2-3.1v-98.8c0-17.2-1-34.8-9.9-43.7-7.6-7.6-21.8-9.4-36.6-9.8h-75.2c-1.8 0-3.2 1.4-3.2 3.1v148.6c0 1.7-1.5 3.1-3.2 3.1h-41.5c-1.8 0-3.2-1.4-3.2-3.1V272.6c0-1.7 1.4-3.2 3.2-3.2h121.2zm9.3 73.3c1.8 0 3.2 1.4 3.2 3.1v114c0 1.7-1.4 3.1-3.2 3.1h-43.6c-1.8 0-3.2-1.4-3.2-3.1V345.8c0-1.7 1.4-3.1 3.2-3.1h43.6z"
+		/>
+	</svg>
+);
+
 export const EmberCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1026,6 +1042,7 @@ export const ProviderIcons = {
 	"azure-ai-foundry": AzureIcon,
 	cerebras: CerebrasIcon,
 	minimax: MinimaxIcon,
+	xiaomi: XiaomiIcon,
 	embercloud: EmberCloudIcon,
 } as const;
 
@@ -1060,6 +1077,7 @@ export const providerLogoUrls: Partial<
 	"azure-ai-foundry": ProviderIcons["azure-ai-foundry"],
 	cerebras: ProviderIcons.cerebras,
 	minimax: ProviderIcons.minimax,
+	xiaomi: ProviderIcons.xiaomi,
 	embercloud: ProviderIcons.embercloud,
 };
 

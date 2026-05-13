@@ -68,3 +68,26 @@ export function getModelStreamingSupport(
 	const providerInfo = providers.find((p) => p.id === providerId);
 	return providerInfo?.streaming === true;
 }
+
+// OpenAI prompt_cache_retention="24h" eligibility per
+// https://developers.openai.com/api/docs/guides/prompt-caching.
+// gpt-5.5 and gpt-5.5-pro default to 24h and reject "in_memory"; the rest
+// accept either. Models not on this list only support "in_memory" caching.
+const OPENAI_EXTENDED_PROMPT_CACHE_MODELS = new Set<string>([
+	"gpt-5.5",
+	"gpt-5.5-pro",
+	"gpt-5.4",
+	"gpt-5.2",
+	"gpt-5.1-codex-max",
+	"gpt-5.1",
+	"gpt-5.1-codex",
+	"gpt-5.1-codex-mini",
+	"gpt-5.1-chat-latest",
+	"gpt-5",
+	"gpt-5-codex",
+	"gpt-4.1",
+]);
+
+export function supportsOpenAIExtendedPromptCache(modelName: string): boolean {
+	return OPENAI_EXTENDED_PROMPT_CACHE_MODELS.has(modelName);
+}

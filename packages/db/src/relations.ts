@@ -13,6 +13,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.chat.userId,
 		}),
+		chatShares: r.many.chatShare({
+			from: r.user.id,
+			to: r.chatShare.userId,
+		}),
 		createdApiKeys: r.many.apiKey({
 			from: r.user.id,
 			to: r.apiKey.createdBy,
@@ -175,6 +179,20 @@ export const relations = defineRelations(schema, (r) => ({
 		messages: r.many.message({
 			from: r.chat.id,
 			to: r.message.chatId,
+		}),
+		shares: r.many.chatShare({
+			from: r.chat.id,
+			to: r.chatShare.chatId,
+		}),
+	},
+	chatShare: {
+		chat: r.one.chat({
+			from: r.chatShare.chatId,
+			to: r.chat.id,
+		}),
+		user: r.one.user({
+			from: r.chatShare.userId,
+			to: r.user.id,
 		}),
 	},
 	message: {

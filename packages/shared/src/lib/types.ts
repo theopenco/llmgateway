@@ -5,8 +5,8 @@ export interface ComboboxModel {
 	providerId?: string; // Provider id
 	family?: string; // Model family for icon fallback
 	context?: number;
-	inputPrice?: number;
-	outputPrice?: number;
+	inputPrice?: string;
+	outputPrice?: string;
 	vision?: boolean;
 	tools?: boolean;
 	imageGen?: boolean;

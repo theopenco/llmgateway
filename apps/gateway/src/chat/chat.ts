@@ -39,6 +39,7 @@ import {
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
 	peekProviderRateLimit,
+	pickNonRateLimitedCandidates,
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
@@ -54,6 +55,7 @@ import {
 	getProviderEndpoint,
 	getProviderHeaders,
 	getProviderSelectionPrice,
+	googleProviderSupportsAudioFormat,
 	prepareRequestBody,
 	resolveMetricsModelId,
 	type RoutingMetadata,
@@ -81,7 +83,7 @@ import {
 	checkGuardrails,
 	logViolation,
 } from "@llmgateway/guardrails";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import {
 	type BaseMessage,
 	getModelStreamingSupport,
@@ -98,7 +100,7 @@ import {
 	type WebSearchTool,
 	expandAllProviderRegions,
 	getProviderDefinition,
-	getRegionSpecificEnvValue,
+	getRegionSpecificEnvVarName,
 	stripRegionFromModelName,
 } from "@llmgateway/models";
 
@@ -131,6 +133,10 @@ import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-o
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { mapFinishReasonToOpenai } from "./tools/map-finish-reason-to-openai.js";
+import {
+	getAudioFormatsFromMessages,
+	messagesContainAudio,
+} from "./tools/messages-contain-audio.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
@@ -155,6 +161,7 @@ import {
 	MAX_RETRIES,
 	providerRetryKey,
 	selectNextProvider,
+	shouldRetryAlternateKey,
 	shouldRetryRequest,
 } from "./tools/retry-with-fallback.js";
 import {
@@ -344,6 +351,8 @@ function filterEligibleModelProviders(
 		webSearchTool?: WebSearchTool;
 		responseFormatType?: string;
 		hasImages: boolean;
+		hasAudio: boolean;
+		audioFormats?: string[];
 		maxTokens?: number;
 		reasoningEffort?: string;
 	},
@@ -384,6 +393,21 @@ function filterEligibleModelProviders(
 		}
 
 		if (options.hasImages && provider.vision !== true) {
+			return false;
+		}
+
+		if (options.hasAudio && provider.audio !== true) {
+			return false;
+		}
+
+		if (
+			options.hasAudio &&
+			options.audioFormats &&
+			options.audioFormats.length > 0 &&
+			!options.audioFormats.every((fmt) =>
+				googleProviderSupportsAudioFormat(provider.providerId, fmt),
+			)
+		) {
 			return false;
 		}
 
@@ -500,7 +524,7 @@ function addContentFilterRoutingMetadata(
 							uptime: metrics?.uptime ?? 0,
 							latency: metrics?.averageLatency ?? 0,
 							throughput: metrics?.throughput ?? 0,
-							price: getProviderSelectionPrice(provider),
+							price: getProviderSelectionPrice(provider).toNumber(),
 							contentFilterProvider: true,
 							excludedByContentFilter: true,
 						};
@@ -931,6 +955,7 @@ const completions = createRoute({
 									web_search_cost: z.number().nullable().optional(),
 									image_input_cost: z.number().nullable().optional(),
 									image_output_cost: z.number().nullable().optional(),
+									audio_input_cost: z.number().nullable().optional(),
 									data_storage_cost: z.number().nullable().optional(),
 								})
 								.optional(),
@@ -1030,6 +1055,8 @@ chat.openapi(completions, async (c) => {
 		model: modelInput,
 		response_format,
 		stream,
+		prompt_cache_key,
+		prompt_cache_retention,
 		tool_choice,
 		free_models_only,
 		onboarding,
@@ -1111,6 +1138,10 @@ chat.openapi(completions, async (c) => {
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
+	const hasAudio = messagesContainAudio(messages as BaseMessage[]);
+	const audioFormats = hasAudio
+		? getAudioFormatsFromMessages(messages as BaseMessage[])
+		: [];
 
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
@@ -1518,6 +1549,7 @@ chat.openapi(completions, async (c) => {
 		tools,
 		tool_choice,
 		webSearchTool,
+		hasImages,
 	});
 
 	let usedProvider = requestedProvider;
@@ -1584,7 +1616,6 @@ chat.openapi(completions, async (c) => {
 		const customProviderKey = await findCustomProviderKey(
 			project.organizationId,
 			customProviderName,
-			requestId,
 		);
 		if (!customProviderKey) {
 			throw new HTTPException(400, {
@@ -1667,7 +1698,7 @@ chat.openapi(completions, async (c) => {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
-			} else if (!allowedAutoModels.includes(modelDef.id)) {
+			} else if (!allowedAutoModels.includes(modelDef.id) && !hasAudio) {
 				continue;
 			} else if (
 				estimatedInputTokens > 10_000 &&
@@ -1778,6 +1809,20 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				if (hasAudio && provider.audio !== true) {
+					return false;
+				}
+
+				if (
+					hasAudio &&
+					audioFormats.length > 0 &&
+					!audioFormats.every((fmt) =>
+						googleProviderSupportsAudioFormat(provider.providerId, fmt),
+					)
+				) {
+					return false;
+				}
+
 				if (
 					max_tokens !== undefined &&
 					provider.maxOutput !== undefined &&
@@ -1793,7 +1838,9 @@ chat.openapi(completions, async (c) => {
 				// Find the cheapest among the suitable providers for this model
 				for (const provider of suitableProviders) {
 					const totalPrice =
-						((provider.inputPrice ?? 0) + (provider.outputPrice ?? 0)) / 2;
+						(Number(provider.inputPrice ?? "0") +
+							Number(provider.outputPrice ?? "0")) /
+						2;
 
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
@@ -1941,13 +1988,28 @@ chat.openapi(completions, async (c) => {
 		const allSameProviderMappings = modelInfo.providers.filter(
 			(p) => p.providerId === usedProvider,
 		);
-		const sameProviderMappings = isDevPlanRestricted
+		let sameProviderMappings = isDevPlanRestricted
 			? allSameProviderMappings.filter(providerSupportsCachedInput)
 			: allSameProviderMappings;
 		if (isDevPlanRestricted && sameProviderMappings.length === 0) {
 			throw new HTTPException(403, {
 				message: `Provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
 			});
+		}
+		if (hasAudio) {
+			sameProviderMappings = sameProviderMappings.filter(
+				(p) =>
+					p.audio === true &&
+					(audioFormats.length === 0 ||
+						audioFormats.every((fmt) =>
+							googleProviderSupportsAudioFormat(p.providerId, fmt),
+						)),
+			);
+			if (sameProviderMappings.length === 0) {
+				throw new HTTPException(400, {
+					message: `Provider ${usedProvider} does not support audio input for model ${modelInfo.id}.`,
+				});
+			}
 		}
 		const sameProviderRegionalMappings = sameProviderMappings.filter(
 			(p) => p.region,
@@ -1967,7 +2029,7 @@ chat.openapi(completions, async (c) => {
 				const providerKey = await findProviderKey(
 					project.organizationId,
 					usedProvider,
-					requestId,
+					modelInfo.id || stripRegionFromModelName(usedModel, usedRegion),
 				);
 				lockedRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -1994,6 +2056,8 @@ chat.openapi(completions, async (c) => {
 					webSearchTool,
 					responseFormatType: response_format?.type,
 					hasImages,
+					hasAudio,
+					audioFormats,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -2158,26 +2222,26 @@ chat.openapi(completions, async (c) => {
 					if (hasImages && provider.vision !== true) {
 						return false;
 					}
+					if (hasAudio && provider.audio !== true) {
+						return false;
+					}
+					if (
+						hasAudio &&
+						audioFormats.length > 0 &&
+						!audioFormats.every((fmt) =>
+							googleProviderSupportsAudioFormat(provider.providerId, fmt),
+						)
+					) {
+						return false;
+					}
 					return true;
 				});
 
-				// Also filter out rate-limited alternatives
-				const rateLimitedAlternatives = await filterRateLimitedProviders(
+				const candidatesForRouting = await pickNonRateLimitedCandidates(
 					project.organizationId,
-					availableModelProviders.map((p) => ({
-						providerId: p.providerId,
-						model: baseModelId,
-						providerModelName: p.modelName,
-					})),
+					baseModelId,
+					availableModelProviders,
 				);
-				const nonRateLimitedAlternatives = availableModelProviders.filter(
-					(p) => !rateLimitedAlternatives.has(p.providerId),
-				);
-
-				const candidatesForRouting =
-					nonRateLimitedAlternatives.length > 0
-						? nonRateLimitedAlternatives
-						: availableModelProviders;
 
 				if (candidatesForRouting.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
@@ -2214,8 +2278,8 @@ chat.openapi(completions, async (c) => {
 							(p) => p.providerId === requestedProvider,
 						);
 						const originalProviderPrice = originalProviderInfo
-							? (originalProviderInfo.inputPrice ?? 0) +
-								(originalProviderInfo.outputPrice ?? 0)
+							? Number(originalProviderInfo.inputPrice ?? "0") +
+								Number(originalProviderInfo.outputPrice ?? "0")
 							: 0;
 
 						const originalProviderScore = {
@@ -2315,6 +2379,8 @@ chat.openapi(completions, async (c) => {
 						webSearchTool,
 						responseFormatType: response_format?.type,
 						hasImages,
+						hasAudio,
+						audioFormats,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 					},
@@ -2326,7 +2392,13 @@ chat.openapi(completions, async (c) => {
 						),
 				);
 
-				if (availableModelProviders.length > 0) {
+				const uptimeFallbackCandidates = await pickNonRateLimitedCandidates(
+					project.organizationId,
+					baseModelId,
+					availableModelProviders,
+				);
+
+				if (uptimeFallbackCandidates.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
 					const modelWithPricing = rawModelForFallback
 						? {
@@ -2339,7 +2411,7 @@ chat.openapi(completions, async (c) => {
 
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
-						const metricsCombinations = availableModelProviders.map((p) => ({
+						const metricsCombinations = uptimeFallbackCandidates.map((p) => ({
 							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
 							providerId: p.providerId,
 							region: p.region,
@@ -2349,7 +2421,7 @@ chat.openapi(completions, async (c) => {
 							await getProviderMetricsForCombinations(metricsCombinations);
 						const providerAgnosticCandidates =
 							collapseProvidersToBestRegionPerProvider(
-								availableModelProviders,
+								uptimeFallbackCandidates,
 								modelWithPricing,
 								{
 									metricsMap: allMetricsMap,
@@ -2397,8 +2469,8 @@ chat.openapi(completions, async (c) => {
 								(p) => p.providerId === requestedProvider,
 							);
 							const originalProviderPrice = originalProviderInfo
-								? (originalProviderInfo.inputPrice ?? 0) +
-									(originalProviderInfo.outputPrice ?? 0)
+								? Number(originalProviderInfo.inputPrice ?? "0") +
+									Number(originalProviderInfo.outputPrice ?? "0")
 								: 0;
 
 							// Create score entry for the original requested provider
@@ -2494,20 +2566,23 @@ chat.openapi(completions, async (c) => {
 					webSearchTool,
 					responseFormatType: response_format?.type,
 					hasImages,
+					hasAudio,
+					audioFormats,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
 			);
 
 			if (availableModelProviders.length === 0) {
+				const audience =
+					project.mode === "api-keys" ? "configured" : "available";
 				throw new HTTPException(400, {
-					message:
-						project.mode === "api-keys"
-							? hasImages
-								? `No provider with vision support is available for model ${usedModel}. The request contains images but none of the configured providers support vision.`
-								: `No provider key set for any of the providers that support model ${usedModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
-							: hasImages
-								? `No provider with vision support is available for model ${usedModel}. The request contains images but none of the available providers support vision.`
+					message: hasAudio
+						? `No provider with audio support is available for model ${usedModel}. The request contains audio but none of the ${audience} providers support audio input.`
+						: hasImages
+							? `No provider with vision support is available for model ${usedModel}. The request contains images but none of the ${audience} providers support vision.`
+							: project.mode === "api-keys"
+								? `No provider key set for any of the providers that support model ${usedModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
 								: `No available provider could be found for model ${usedModel}`,
 				});
 			}
@@ -2618,8 +2693,8 @@ chat.openapi(completions, async (c) => {
 									providerId: rlProviderId,
 									score: -1,
 									price: providerInfo
-										? (providerInfo.inputPrice ?? 0) +
-											(providerInfo.outputPrice ?? 0)
+										? Number(providerInfo.inputPrice ?? "0") +
+											Number(providerInfo.outputPrice ?? "0")
 										: 0,
 									rate_limited: true,
 								});
@@ -2673,7 +2748,7 @@ chat.openapi(completions, async (c) => {
 				const providerKey = await findProviderKey(
 					project.organizationId,
 					requestedProvider,
-					requestId,
+					modelInfo.id || stripRegionFromModelName(usedModel, usedRegion),
 				);
 				explicitDirectRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -2700,6 +2775,8 @@ chat.openapi(completions, async (c) => {
 					webSearchTool,
 					responseFormatType: response_format?.type,
 					hasImages,
+					hasAudio,
+					audioFormats,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -2775,7 +2852,7 @@ chat.openapi(completions, async (c) => {
 						directProviderRegionWasExplicit
 							? 1
 							: 0,
-					price: getProviderSelectionPrice(p),
+					price: getProviderSelectionPrice(p).toNumber(),
 					uptime: metrics?.uptime ?? 0,
 					latency: metrics?.averageLatency ?? 0,
 					throughput: metrics?.throughput ?? 0,
@@ -2814,8 +2891,8 @@ chat.openapi(completions, async (c) => {
 				{
 					providerId: "custom" as const,
 					modelName: usedModel,
-					inputPrice: 0,
-					outputPrice: 0,
+					inputPrice: "0",
+					outputPrice: "0",
 					contextSize: 8192,
 					maxOutput: 4096,
 					streaming: true,
@@ -2902,6 +2979,12 @@ chat.openapi(completions, async (c) => {
 	let usedApiKeyHash: string | undefined;
 	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
+	// ID for tracked-key health attribution. Equal to providerKey.id when the
+	// DB-provided key is what's actually sent. Cleared when a region-specific
+	// env var override replaces the token, so health failures route to the env
+	// credential via envVarName instead of blaming an unused DB key. Endpoint
+	// and option resolution still use providerKey for BYOK base URLs/options.
+	let trackedKeyHealthId: string | undefined;
 	if (
 		project.mode === "credits" &&
 		(usedProvider === "custom" || usedProvider === "llmgateway")
@@ -2918,13 +3001,13 @@ chat.openapi(completions, async (c) => {
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				customProviderName,
-				requestId,
+				baseModelName,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				requestId,
+				baseModelName,
 			);
 		}
 
@@ -2939,12 +3022,25 @@ chat.openapi(completions, async (c) => {
 		}
 
 		usedToken = providerKey.token;
+		trackedKeyHealthId = providerKey.id;
 		usedRegion ??= resolveRegionFromProviderKey(providerKey);
-		// Override with region-specific env var if the DB key doesn't match the requested region
+		// Override with region-specific env var if the DB key doesn't match the requested region.
+		// When we do override, route health attribution to the regional env credential.
+		// providerKey stays set so endpoint/options/baseUrl construction keeps the BYOK context;
+		// only trackedKeyHealthId is cleared so reportTrackedKey* doesn't blame the unused DB key.
 		if (usedRegion) {
-			const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-			if (regionToken && regionToken !== usedToken) {
-				usedToken = regionToken;
+			const regionEnvVarName = getRegionSpecificEnvVarName(
+				usedProvider,
+				usedRegion,
+			);
+			if (regionEnvVarName) {
+				const regionToken = process.env[regionEnvVarName];
+				if (regionToken && regionToken !== usedToken) {
+					usedToken = regionToken;
+					envVarName = regionEnvVarName;
+					configIndex = 0;
+					trackedKeyHealthId = undefined;
+				}
 			}
 		}
 	} else if (project.mode === "credits") {
@@ -2984,16 +3080,27 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		const envResult = getProviderEnv(usedProvider);
+		const envResult = getProviderEnv(usedProvider, {
+			selectionScope: baseModelName,
+		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
 		envVarName = envResult.envVarName;
 
-		// Override with region-specific env var if a non-default region is selected
+		// Override with region-specific env var if a non-default region is selected.
+		// Health attribution must follow the credential we actually send.
 		if (usedRegion) {
-			const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-			if (regionToken) {
-				usedToken = regionToken;
+			const regionEnvVarName = getRegionSpecificEnvVarName(
+				usedProvider,
+				usedRegion,
+			);
+			if (regionEnvVarName) {
+				const regionToken = process.env[regionEnvVarName];
+				if (regionToken) {
+					usedToken = regionToken;
+					envVarName = regionEnvVarName;
+					configIndex = 0;
+				}
 			}
 		}
 	} else if (project.mode === "hybrid") {
@@ -3002,24 +3109,36 @@ chat.openapi(completions, async (c) => {
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				customProviderName,
-				requestId,
+				baseModelName,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				requestId,
+				baseModelName,
 			);
 		}
 
 		if (providerKey) {
 			usedToken = providerKey.token;
+			trackedKeyHealthId = providerKey.id;
 			usedRegion ??= resolveRegionFromProviderKey(providerKey);
-			// Override with region-specific env var if the DB key doesn't match the requested region
+			// Override with region-specific env var if the DB key doesn't match the requested region.
+			// Route health attribution to the env credential while keeping providerKey for
+			// endpoint/options resolution (BYOK base URLs and provider options).
 			if (usedRegion) {
-				const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-				if (regionToken && regionToken !== usedToken) {
-					usedToken = regionToken;
+				const regionEnvVarName = getRegionSpecificEnvVarName(
+					usedProvider,
+					usedRegion,
+				);
+				if (regionEnvVarName) {
+					const regionToken = process.env[regionEnvVarName];
+					if (regionToken && regionToken !== usedToken) {
+						usedToken = regionToken;
+						envVarName = regionEnvVarName;
+						configIndex = 0;
+						trackedKeyHealthId = undefined;
+					}
 				}
 			}
 		} else {
@@ -3058,16 +3177,27 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			const envResult = getProviderEnv(usedProvider);
+			const envResult = getProviderEnv(usedProvider, {
+				selectionScope: baseModelName,
+			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
 			envVarName = envResult.envVarName;
 
-			// Override with region-specific env var if a non-default region is selected
+			// Override with region-specific env var if a non-default region is selected.
+			// Health attribution must follow the credential we actually send.
 			if (usedRegion) {
-				const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-				if (regionToken) {
-					usedToken = regionToken;
+				const regionEnvVarName = getRegionSpecificEnvVarName(
+					usedProvider,
+					usedRegion,
+				);
+				if (regionEnvVarName) {
+					const regionToken = process.env[regionEnvVarName];
+					if (regionToken) {
+						usedToken = regionToken;
+						envVarName = regionEnvVarName;
+						configIndex = 0;
+					}
 				}
 			}
 		}
@@ -3454,6 +3584,8 @@ chat.openapi(completions, async (c) => {
 			response_format,
 			reasoning_effort,
 			reasoning_max_tokens,
+			prompt_cache_key,
+			prompt_cache_retention,
 		};
 
 		if (stream) {
@@ -3471,6 +3603,7 @@ chat.openapi(completions, async (c) => {
 				let cachedTokens = null;
 				let cacheWriteTokens: number | null = null;
 				let cacheWrite1hTokens: number | null = null;
+				let audioInputTokens: number | null = null;
 				let rawCachedResponseData = ""; // Raw SSE data from cached response
 				let cachedResponseSize = 0; // Track size incrementally to avoid expensive stringify
 
@@ -3533,6 +3666,11 @@ chat.openapi(completions, async (c) => {
 								chunkCacheWrite1h !== null
 							) {
 								cacheWrite1hTokens = chunkCacheWrite1h;
+							}
+							const chunkAudioTokens =
+								chunkData.usage.prompt_tokens_details?.audio_tokens;
+							if (chunkAudioTokens !== undefined && chunkAudioTokens !== null) {
+								audioInputTokens = chunkAudioTokens;
 							}
 						}
 					} catch (e) {
@@ -3598,9 +3736,12 @@ chat.openapi(completions, async (c) => {
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
+					null,
+					null,
 					{
 						cacheWriteTokens,
 						cacheWrite1hTokens,
+						audioInputTokens,
 					},
 				);
 
@@ -3640,6 +3781,8 @@ chat.openapi(completions, async (c) => {
 					imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 					imageInputCost: costs.imageInputCost ?? null,
 					imageOutputCost: costs.imageOutputCost ?? null,
+					audioInputTokens: costs.audioInputTokens?.toString() ?? null,
+					audioInputCost: costs.audioInputCost ?? null,
 					cost: costs.totalCost ?? 0,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
@@ -3758,6 +3901,8 @@ chat.openapi(completions, async (c) => {
 					null, // webSearchCount
 					project.organizationId,
 					undefined,
+					null,
+					null,
 					{
 						cacheWriteTokens:
 							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
@@ -3767,6 +3912,8 @@ chat.openapi(completions, async (c) => {
 						cacheWrite1hTokens:
 							cachedResponse.usage?.prompt_tokens_details?.cache_creation
 								?.ephemeral_1h_input_tokens ?? null,
+						audioInputTokens:
+							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
 					},
 				);
 
@@ -3824,6 +3971,8 @@ chat.openapi(completions, async (c) => {
 					imageOutputTokens: cachedCosts.imageOutputTokens?.toString() ?? null,
 					imageInputCost: cachedCosts.imageInputCost ?? null,
 					imageOutputCost: cachedCosts.imageOutputCost ?? null,
+					audioInputTokens: cachedCosts.audioInputTokens?.toString() ?? null,
+					audioInputCost: cachedCosts.audioInputCost ?? null,
 					cost: cachedCosts.totalCost ?? 0,
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
@@ -4036,6 +4185,8 @@ chat.openapi(completions, async (c) => {
 		webSearchTool,
 		reasoning_max_tokens,
 		useResponsesApi,
+		prompt_cache_key,
+		prompt_cache_retention,
 	);
 
 	if (forceImageStreamUpstream) {
@@ -4163,6 +4314,8 @@ chat.openapi(completions, async (c) => {
 				tool_choice,
 				reasoning_effort,
 				reasoning_max_tokens,
+				prompt_cache_key,
+				prompt_cache_retention,
 				effort,
 				webSearchTool,
 				image_config,
@@ -4189,6 +4342,7 @@ chat.openapi(completions, async (c) => {
 		usedToken = ctx.usedToken;
 		usedApiKeyHash = ctx.usedApiKeyHash;
 		providerKey = ctx.providerKey;
+		trackedKeyHealthId = ctx.trackedKeyHealthId;
 		configIndex = ctx.configIndex;
 		envVarName = ctx.envVarName;
 		url = ctx.url;
@@ -4392,6 +4546,10 @@ chat.openapi(completions, async (c) => {
 						0,
 						project.organizationId,
 						image_config?.image_quality,
+						null,
+						null,
+						undefined,
+						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
 						streamingCosts.promptTokens ?? promptTokenCount,
@@ -4432,8 +4590,10 @@ chat.openapi(completions, async (c) => {
 							cacheWriteInputCost: streamingCosts.cacheWriteInputCost,
 							requestCost: streamingCosts.requestCost,
 							webSearchCost: streamingCosts.webSearchCost,
+							contentFilterCost: streamingCosts.contentFilterCost,
 							imageInputCost: streamingCosts.imageInputCost,
 							imageOutputCost: streamingCosts.imageOutputCost,
+							audioInputCost: streamingCosts.audioInputCost,
 							totalCost: streamingCosts.totalCost,
 							dataStorageCost: streamingCosts.dataStorageCost,
 						},
@@ -4517,14 +4677,16 @@ chat.openapi(completions, async (c) => {
 							break;
 						}
 
-						// Check if the fallback candidate is rate-limited
-						const retryRateLimitPeek = await peekProviderRateLimit(
+						// Check and consume a rate-limit slot for the fallback candidate.
+						// Using checkProviderRateLimit (not peek) so RPM/RPD counters include
+						// requests routed to a provider via fallback, not just the initial pick.
+						const retryRateLimitResult = await checkProviderRateLimit(
 							project.organizationId,
 							nextProvider.providerId,
 							modelInfo.id,
 							nextProvider.modelName,
 						);
-						if (retryRateLimitPeek.rateLimited) {
+						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
 								providerRetryKey(nextProvider.providerId, nextProvider.region),
 							);
@@ -4894,6 +5056,9 @@ chat.openapi(completions, async (c) => {
 									cancelledCosts?.imageOutputTokens?.toString() ?? null,
 								imageInputCost: cancelledCosts?.imageInputCost ?? null,
 								imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+								audioInputTokens:
+									cancelledCosts?.audioInputTokens?.toString() ?? null,
+								audioInputCost: cancelledCosts?.audioInputCost ?? null,
 								cost: cancelledCosts?.totalCost ?? null,
 								estimatedCost: cancelledCosts?.estimatedCost ?? false,
 								discount: cancelledCosts?.discount ?? null,
@@ -5052,10 +5217,21 @@ chat.openapi(completions, async (c) => {
 
 							// Report key health for the selected token source
 							if (envVarName !== undefined) {
-								reportKeyError(envVarName, configIndex, 0);
+								reportKeyError(
+									envVarName,
+									configIndex,
+									0,
+									undefined,
+									baseModelName,
+								);
 							}
-							if (providerKey?.id) {
-								reportTrackedKeyError(providerKey.id, 0);
+							if (trackedKeyHealthId) {
+								reportTrackedKeyError(
+									trackedKeyHealthId,
+									0,
+									undefined,
+									baseModelName,
+								);
 							}
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
@@ -5164,7 +5340,13 @@ chat.openapi(completions, async (c) => {
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
 						> | null = null;
-						if (isRetryableErrorType(finishReason)) {
+						if (
+							shouldRetryAlternateKey(
+								finishReason,
+								res.status,
+								errorResponseText,
+							)
+						) {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
@@ -5227,6 +5409,39 @@ chat.openapi(completions, async (c) => {
 						);
 						const attemptLogId = shortid();
 
+						const contentFilterPromptTokens =
+							finishReason === "content_filter"
+								? (estimateTokens(usedProvider, messages, null, null, 0)
+										.calculatedPromptTokens ?? null)
+								: null;
+						const contentFilterCosts =
+							finishReason === "content_filter"
+								? await calculateCosts(
+										usedModel,
+										usedProvider,
+										Math.max(1, Math.round(contentFilterPromptTokens ?? 1)),
+										0,
+										null,
+										{
+											prompt: messages
+												.map((m) => messageContentToString(m.content))
+												.join("\n"),
+											completion: "",
+										},
+										null,
+										0,
+										image_config?.image_size,
+										inputImageCount,
+										0,
+										project.organizationId,
+										image_config?.image_quality,
+										null,
+										null,
+										undefined,
+										true,
+									)
+								: null;
+
 						await insertLogEntry({
 							...baseLogEntry,
 							id: attemptLogId,
@@ -5237,21 +5452,9 @@ chat.openapi(completions, async (c) => {
 							content: null,
 							reasoningContent: null,
 							finishReason,
-							promptTokens:
-								finishReason === "content_filter"
-									? (
-											estimateTokens(usedProvider, messages, null, null, 0)
-												.calculatedPromptTokens ?? null
-										)?.toString()
-									: null,
+							promptTokens: contentFilterPromptTokens?.toString() ?? null,
 							completionTokens: null,
-							totalTokens:
-								finishReason === "content_filter"
-									? (
-											estimateTokens(usedProvider, messages, null, null, 0)
-												.calculatedPromptTokens ?? null
-										)?.toString()
-									: null,
+							totalTokens: contentFilterPromptTokens?.toString() ?? null,
 							reasoningTokens: null,
 							cachedTokens: null,
 							hasError: finishReason !== "content_filter", // content_filter is not an error
@@ -5265,14 +5468,18 @@ chat.openapi(completions, async (c) => {
 											statusText: res.statusText,
 											responseText: errorResponseText,
 										},
-							cachedInputCost: null,
-							requestCost: null,
-							webSearchCost: null,
+							cost: contentFilterCosts?.totalCost ?? null,
+							inputCost: contentFilterCosts?.inputCost ?? null,
+							outputCost: contentFilterCosts?.outputCost ?? null,
+							cachedInputCost: contentFilterCosts?.cachedInputCost ?? null,
+							requestCost: contentFilterCosts?.requestCost ?? null,
+							webSearchCost: contentFilterCosts?.webSearchCost ?? null,
+							contentFilterCost: contentFilterCosts?.contentFilterCost ?? null,
 							imageInputTokens: null,
 							imageOutputTokens: null,
-							imageInputCost: null,
-							imageOutputCost: null,
-							discount: null,
+							imageInputCost: contentFilterCosts?.imageInputCost ?? null,
+							imageOutputCost: contentFilterCosts?.imageOutputCost ?? null,
+							discount: contentFilterCosts?.discount ?? null,
 							dataStorageCost: "0",
 							cached: false,
 							toolResults: null,
@@ -5288,13 +5495,15 @@ chat.openapi(completions, async (c) => {
 								configIndex,
 								res.status,
 								errorResponseText,
+								baseModelName,
 							);
 						}
-						if (providerKey?.id && finishReason !== "content_filter") {
+						if (trackedKeyHealthId && finishReason !== "content_filter") {
 							reportTrackedKeyError(
-								providerKey.id,
+								trackedKeyHealthId,
 								res.status,
 								errorResponseText,
+								baseModelName,
 							);
 						}
 
@@ -5433,7 +5642,13 @@ chat.openapi(completions, async (c) => {
 						let sameProviderRetryContext: Awaited<
 							ReturnType<typeof resolveProviderContext>
 						> | null = null;
-						if (isRetryableErrorType(errorType)) {
+						if (
+							shouldRetryAlternateKey(
+								errorType,
+								inferredStatusCode,
+								errorResponseText,
+							)
+						) {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
@@ -5542,13 +5757,15 @@ chat.openapi(completions, async (c) => {
 								configIndex,
 								inferredStatusCode,
 								errorResponseText,
+								baseModelName,
 							);
 						}
-						if (providerKey?.id && errorType !== "content_filter") {
+						if (trackedKeyHealthId && errorType !== "content_filter") {
 							reportTrackedKeyError(
-								providerKey.id,
+								trackedKeyHealthId,
 								inferredStatusCode,
 								errorResponseText,
+								baseModelName,
 							);
 						}
 
@@ -5727,6 +5944,8 @@ chat.openapi(completions, async (c) => {
 				let cacheCreationTokens: number | null = null;
 				let cacheCreation5mTokens: number | null = null;
 				let cacheCreation1hTokens: number | null = null;
+				let audioInputTokens: number | null = null;
+				let cachedAudioInputTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -6149,9 +6368,13 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
+										null,
+										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
+											audioInputTokens,
+											cachedAudioInputTokens,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -6226,6 +6449,7 @@ chat.openapi(completions, async (c) => {
 													webSearchCost: streamingCosts.webSearchCost,
 													imageInputCost: streamingCosts.imageInputCost,
 													imageOutputCost: streamingCosts.imageOutputCost,
+													audioInputCost: streamingCosts.audioInputCost,
 													totalCost: streamingCosts.totalCost,
 													dataStorageCost: streamingCosts.dataStorageCost,
 												}
@@ -6233,6 +6457,7 @@ chat.openapi(completions, async (c) => {
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens,
+										audioInputTokens,
 									});
 									const finalUsageChunk = {
 										id: `chatcmpl-${Date.now()}`,
@@ -6959,6 +7184,12 @@ chat.openapi(completions, async (c) => {
 								if (usage.cacheCreation1hTokens !== null) {
 									cacheCreation1hTokens = usage.cacheCreation1hTokens;
 								}
+								if (usage.audioInputTokens !== null) {
+									audioInputTokens = usage.audioInputTokens;
+								}
+								if (usage.cachedAudioInputTokens !== null) {
+									cachedAudioInputTokens = usage.cachedAudioInputTokens;
+								}
 								if (
 									usage.totalTokens === null &&
 									promptTokens !== null &&
@@ -7074,41 +7305,37 @@ chat.openapi(completions, async (c) => {
 							phase: "upstream_read",
 						});
 
-						logger.error(
-							"Error reading upstream stream",
-							error instanceof Error ? error : new Error(String(error)),
-							{
-								requestId,
+						logger.error("Error reading upstream stream", toError(error), {
+							requestId,
+							usedProvider,
+							requestedProvider,
+							usedModel,
+							initialRequestedModel,
+							upstreamStatus: res?.status ?? null,
+							upstreamStatusText: res?.statusText ?? null,
+							upstreamHeaders: res
+								? {
+										contentType: res.headers.get("content-type"),
+										contentLength: res.headers.get("content-length"),
+										transferEncoding: res.headers.get("transfer-encoding"),
+										requestId:
+											res.headers.get("x-request-id") ??
+											res.headers.get("request-id") ??
+											res.headers.get("openai-request-id"),
+									}
+								: null,
+							streamingDiagnostics: normalizedStreamingError.log.details,
+							timeToFirstToken,
+							timeToFirstReasoningToken,
+							firstTokenReceived,
+							firstReasoningTokenReceived,
+							unifiedFinishReason: getUnifiedFinishReason(
+								normalizedStreamingError.client.type === "gateway_error"
+									? "gateway_error"
+									: "upstream_error",
 								usedProvider,
-								requestedProvider,
-								usedModel,
-								initialRequestedModel,
-								upstreamStatus: res?.status ?? null,
-								upstreamStatusText: res?.statusText ?? null,
-								upstreamHeaders: res
-									? {
-											contentType: res.headers.get("content-type"),
-											contentLength: res.headers.get("content-length"),
-											transferEncoding: res.headers.get("transfer-encoding"),
-											requestId:
-												res.headers.get("x-request-id") ??
-												res.headers.get("request-id") ??
-												res.headers.get("openai-request-id"),
-										}
-									: null,
-								streamingDiagnostics: normalizedStreamingError.log.details,
-								timeToFirstToken,
-								timeToFirstReasoningToken,
-								firstTokenReceived,
-								firstReasoningTokenReceived,
-								unifiedFinishReason: getUnifiedFinishReason(
-									normalizedStreamingError.client.type === "gateway_error"
-										? "gateway_error"
-										: "upstream_error",
-									usedProvider,
-								),
-							},
-						);
+							),
+						});
 
 						// Forward the error to the client with the buffered content that caused the error
 						try {
@@ -7387,7 +7614,7 @@ chat.openapi(completions, async (c) => {
 							} catch (error) {
 								logger.error(
 									"Error sending synthesized finish chunk",
-									error instanceof Error ? error : new Error(String(error)),
+									toError(error),
 								);
 							}
 						}
@@ -7403,10 +7630,13 @@ chat.openapi(completions, async (c) => {
 										cacheWriteInputCost: null,
 										requestCost: null,
 										webSearchCost: null,
+										contentFilterCost: null,
 										imageInputTokens: null,
 										imageOutputTokens: null,
 										imageInputCost: null,
 										imageOutputCost: null,
+										audioInputTokens: null,
+										audioInputCost: null,
 										totalCost: null,
 										promptTokens: null,
 										completionTokens: null,
@@ -7437,10 +7667,15 @@ chat.openapi(completions, async (c) => {
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
+										null,
+										null,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
+											audioInputTokens,
+											cachedAudioInputTokens,
 										},
+										finishReason === "content_filter",
 									);
 						if (streamingCostsEarly.totalCost !== null) {
 							streamingCostsEarly.dataStorageCost = toDataStorageCostNumber(
@@ -7534,14 +7769,17 @@ chat.openapi(completions, async (c) => {
 												streamingCostsEarly.cacheWriteInputCost,
 											requestCost: streamingCostsEarly.requestCost,
 											webSearchCost: streamingCostsEarly.webSearchCost,
+											contentFilterCost: streamingCostsEarly.contentFilterCost,
 											imageInputCost: streamingCostsEarly.imageInputCost,
 											imageOutputCost: streamingCostsEarly.imageOutputCost,
+											audioInputCost: streamingCostsEarly.audioInputCost,
 											totalCost: streamingCostsEarly.totalCost,
 											dataStorageCost: streamingCostsEarly.dataStorageCost,
 										},
 										cachedTokens,
 										cacheCreationTokens,
 										reasoningTokens,
+										audioInputTokens,
 									});
 									return earlyUsage;
 								})(),
@@ -7552,10 +7790,7 @@ chat.openapi(completions, async (c) => {
 								id: String(eventId++),
 							});
 						} catch (error) {
-							logger.error(
-								"Error sending final usage chunk",
-								error instanceof Error ? error : new Error(String(error)),
-							);
+							logger.error("Error sending final usage chunk", toError(error));
 						}
 
 						// Send healed content if buffering was enabled
@@ -7633,7 +7868,7 @@ chat.openapi(completions, async (c) => {
 							} catch (error) {
 								logger.error(
 									"Error sending healed content chunk",
-									error instanceof Error ? error : new Error(String(error)),
+									toError(error),
 								);
 							}
 						}
@@ -7670,7 +7905,7 @@ chat.openapi(completions, async (c) => {
 							} catch (error) {
 								logger.error(
 									"Error sending routing metadata chunk",
-									error instanceof Error ? error : new Error(String(error)),
+									toError(error),
 								);
 							}
 						}
@@ -7684,10 +7919,7 @@ chat.openapi(completions, async (c) => {
 									id: String(eventId++),
 								});
 							} catch (error) {
-								logger.error(
-									"Error sending [DONE] event",
-									error instanceof Error ? error : new Error(String(error)),
-								);
+								logger.error("Error sending [DONE] event", toError(error));
 							}
 						}
 					}
@@ -7717,10 +7949,13 @@ chat.openapi(completions, async (c) => {
 									cacheWriteInputCost: null,
 									requestCost: null,
 									webSearchCost: null,
+									contentFilterCost: null,
 									imageInputTokens: null,
 									imageOutputTokens: null,
 									imageInputCost: null,
 									imageOutputCost: null,
+									audioInputTokens: null,
+									audioInputCost: null,
 									totalCost: null,
 									promptTokens: null,
 									completionTokens: null,
@@ -7751,10 +7986,15 @@ chat.openapi(completions, async (c) => {
 									webSearchCount,
 									project.organizationId,
 									image_config?.image_quality,
+									null,
+									null,
 									{
 										cacheWriteTokens: cacheCreationTokens,
 										cacheWrite1hTokens: cacheCreation1hTokens,
+										audioInputTokens,
+										cachedAudioInputTokens,
 									},
+									finishReason === "content_filter",
 								));
 
 					// Use costs.promptTokens as canonical value (includes image input
@@ -7916,10 +8156,13 @@ chat.openapi(completions, async (c) => {
 						cacheWriteInputCost: costs.cacheWriteInputCost,
 						requestCost: costs.requestCost,
 						webSearchCost: costs.webSearchCost,
+						contentFilterCost: costs.contentFilterCost ?? null,
 						imageInputTokens: costs.imageInputTokens?.toString() ?? null,
 						imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 						imageInputCost: costs.imageInputCost ?? null,
 						imageOutputCost: costs.imageOutputCost ?? null,
+						audioInputTokens: costs.audioInputTokens?.toString() ?? null,
+						audioInputCost: costs.audioInputCost ?? null,
 						cost: costs.totalCost,
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
@@ -7942,16 +8185,27 @@ chat.openapi(completions, async (c) => {
 					// Report key health for the selected token source
 					if (envVarName !== undefined) {
 						if (streamingError !== null) {
-							reportKeyError(envVarName, configIndex, streamingErrorStatusCode);
+							reportKeyError(
+								envVarName,
+								configIndex,
+								streamingErrorStatusCode,
+								undefined,
+								baseModelName,
+							);
 						} else {
-							reportKeySuccess(envVarName, configIndex);
+							reportKeySuccess(envVarName, configIndex, baseModelName);
 						}
 					}
-					if (providerKey?.id) {
+					if (trackedKeyHealthId) {
 						if (streamingError !== null) {
-							reportTrackedKeyError(providerKey.id, streamingErrorStatusCode);
+							reportTrackedKeyError(
+								trackedKeyHealthId,
+								streamingErrorStatusCode,
+								undefined,
+								baseModelName,
+							);
 						} else {
-							reportTrackedKeySuccess(providerKey.id);
+							reportTrackedKeySuccess(trackedKeyHealthId, baseModelName);
 						}
 					}
 
@@ -7982,10 +8236,7 @@ chat.openapi(completions, async (c) => {
 								cacheDuration,
 							);
 						} catch (error) {
-							logger.error(
-								"Error saving streaming cache",
-								error instanceof Error ? error : new Error(String(error)),
-							);
+							logger.error("Error saving streaming cache", toError(error));
 						}
 					}
 				}
@@ -8056,14 +8307,16 @@ chat.openapi(completions, async (c) => {
 				break;
 			}
 
-			// Check if the fallback candidate is rate-limited
-			const retryRateLimitPeek = await peekProviderRateLimit(
+			// Check and consume a rate-limit slot for the fallback candidate.
+			// Using checkProviderRateLimit (not peek) so RPM/RPD counters include
+			// requests routed to a provider via fallback, not just the initial pick.
+			const retryRateLimitResult = await checkProviderRateLimit(
 				project.organizationId,
 				nextProvider.providerId,
 				modelInfo.id,
 				nextProvider.modelName,
 			);
-			if (retryRateLimitPeek.rateLimited) {
+			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(
 					providerRetryKey(nextProvider.providerId, nextProvider.region),
 				);
@@ -8295,10 +8548,10 @@ chat.openapi(completions, async (c) => {
 
 			// Report key health for the selected token source
 			if (envVarName !== undefined) {
-				reportKeyError(envVarName, configIndex, 0);
+				reportKeyError(envVarName, configIndex, 0, undefined, baseModelName);
 			}
-			if (providerKey?.id) {
-				reportTrackedKeyError(providerKey.id, 0);
+			if (trackedKeyHealthId) {
+				reportTrackedKeyError(trackedKeyHealthId, 0, undefined, baseModelName);
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
@@ -8474,6 +8727,8 @@ chat.openapi(completions, async (c) => {
 					cancelledCosts?.imageOutputTokens?.toString() ?? null,
 				imageInputCost: cancelledCosts?.imageInputCost ?? null,
 				imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+				audioInputTokens: cancelledCosts?.audioInputTokens?.toString() ?? null,
+				audioInputCost: cancelledCosts?.audioInputCost ?? null,
 				cost: cancelledCosts?.totalCost ?? null,
 				estimatedCost: cancelledCosts?.estimatedCost ?? false,
 				discount: cancelledCosts?.discount ?? null,
@@ -8654,7 +8909,9 @@ chat.openapi(completions, async (c) => {
 			let sameProviderRetryContext: Awaited<
 				ReturnType<typeof resolveProviderContext>
 			> | null = null;
-			if (isRetryableErrorType(finishReason)) {
+			if (
+				shouldRetryAlternateKey(finishReason, res.status, errorResponseText)
+			) {
 				rememberFailedKey(usedProvider, usedRegion, {
 					envVarName,
 					configIndex,
@@ -8717,6 +8974,39 @@ chat.openapi(completions, async (c) => {
 			);
 			const attemptLogId = shortid();
 
+			const nonStreamContentFilterPromptTokens =
+				finishReason === "content_filter"
+					? (estimateTokens(usedProvider, messages, null, null, 0)
+							.calculatedPromptTokens ?? null)
+					: null;
+			const nonStreamContentFilterCosts =
+				finishReason === "content_filter"
+					? await calculateCosts(
+							usedModel,
+							usedProvider,
+							Math.max(1, Math.round(nonStreamContentFilterPromptTokens ?? 1)),
+							0,
+							null,
+							{
+								prompt: messages
+									.map((m) => messageContentToString(m.content))
+									.join("\n"),
+								completion: "",
+							},
+							null,
+							0,
+							image_config?.image_size,
+							inputImageCount,
+							0,
+							project.organizationId,
+							image_config?.image_quality,
+							null,
+							null,
+							undefined,
+							true,
+						)
+					: null;
+
 			await insertLogEntry({
 				...baseLogEntry,
 				id: attemptLogId,
@@ -8727,9 +9017,9 @@ chat.openapi(completions, async (c) => {
 				content: null,
 				reasoningContent: null,
 				finishReason,
-				promptTokens: null,
+				promptTokens: nonStreamContentFilterPromptTokens?.toString() ?? null,
 				completionTokens: null,
-				totalTokens: null,
+				totalTokens: nonStreamContentFilterPromptTokens?.toString() ?? null,
 				reasoningTokens: null,
 				cachedTokens: null,
 				hasError: finishReason !== "content_filter", // content_filter is not an error
@@ -8760,15 +9050,20 @@ chat.openapi(completions, async (c) => {
 						responseText: errorResponseText,
 					};
 				})(),
-				cachedInputCost: null,
-				requestCost: null,
-				webSearchCost: null,
+				cost: nonStreamContentFilterCosts?.totalCost ?? null,
+				inputCost: nonStreamContentFilterCosts?.inputCost ?? null,
+				outputCost: nonStreamContentFilterCosts?.outputCost ?? null,
+				cachedInputCost: nonStreamContentFilterCosts?.cachedInputCost ?? null,
+				requestCost: nonStreamContentFilterCosts?.requestCost ?? null,
+				webSearchCost: nonStreamContentFilterCosts?.webSearchCost ?? null,
+				contentFilterCost:
+					nonStreamContentFilterCosts?.contentFilterCost ?? null,
 				imageInputTokens: null,
 				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				estimatedCost: false,
-				discount: null,
+				imageInputCost: nonStreamContentFilterCosts?.imageInputCost ?? null,
+				imageOutputCost: nonStreamContentFilterCosts?.imageOutputCost ?? null,
+				estimatedCost: nonStreamContentFilterCosts?.estimatedCost ?? false,
+				discount: nonStreamContentFilterCosts?.discount ?? null,
 				dataStorageCost: "0",
 				cached: false,
 				toolResults: null,
@@ -8779,10 +9074,21 @@ chat.openapi(completions, async (c) => {
 			// Report key health for the selected token source
 			// Don't report content_filter as a key error - it's intentional provider behavior
 			if (envVarName !== undefined && finishReason !== "content_filter") {
-				reportKeyError(envVarName, configIndex, res.status, errorResponseText);
+				reportKeyError(
+					envVarName,
+					configIndex,
+					res.status,
+					errorResponseText,
+					baseModelName,
+				);
 			}
-			if (providerKey?.id && finishReason !== "content_filter") {
-				reportTrackedKeyError(providerKey.id, res.status, errorResponseText);
+			if (trackedKeyHealthId && finishReason !== "content_filter") {
+				reportTrackedKeyError(
+					trackedKeyHealthId,
+					res.status,
+					errorResponseText,
+					baseModelName,
+				);
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
@@ -8827,6 +9133,33 @@ chat.openapi(completions, async (c) => {
 			// For content_filter, return a proper completion response (not an error)
 			// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
 			if (finishReason === "content_filter") {
+				const cfPromptTokens = Math.max(
+					1,
+					Math.round(nonStreamContentFilterPromptTokens ?? 1),
+				);
+				const contentFilterUsage: Record<string, any> = {
+					prompt_tokens: cfPromptTokens,
+					completion_tokens: 0,
+					total_tokens: cfPromptTokens,
+				};
+				if (nonStreamContentFilterCosts) {
+					applyExtendedUsageFields(contentFilterUsage, {
+						costs: {
+							inputCost: nonStreamContentFilterCosts.inputCost,
+							outputCost: nonStreamContentFilterCosts.outputCost,
+							cachedInputCost: nonStreamContentFilterCosts.cachedInputCost,
+							requestCost: nonStreamContentFilterCosts.requestCost,
+							webSearchCost: nonStreamContentFilterCosts.webSearchCost,
+							contentFilterCost: nonStreamContentFilterCosts.contentFilterCost,
+							imageInputCost: nonStreamContentFilterCosts.imageInputCost,
+							imageOutputCost: nonStreamContentFilterCosts.imageOutputCost,
+							totalCost: nonStreamContentFilterCosts.totalCost,
+						},
+						cachedTokens: null,
+						cacheCreationTokens: null,
+						reasoningTokens: null,
+					});
+				}
 				return c.json({
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
@@ -8842,11 +9175,7 @@ chat.openapi(completions, async (c) => {
 							finish_reason: "content_filter",
 						},
 					],
-					usage: {
-						prompt_tokens: 0,
-						completion_tokens: 0,
-						total_tokens: 0,
-					},
+					usage: contentFilterUsage,
 					metadata: {
 						request_id: requestId,
 						requested_model: initialRequestedModel,
@@ -9324,6 +9653,8 @@ chat.openapi(completions, async (c) => {
 		cacheCreation1hTokens,
 		imageInputTokens,
 		imageOutputTokens,
+		audioInputTokens,
+		cachedAudioInputTokens,
 		toolResults,
 		images,
 		annotations,
@@ -9441,10 +9772,15 @@ chat.openapi(completions, async (c) => {
 		webSearchCount,
 		project.organizationId,
 		image_config?.image_quality,
+		imageInputTokens,
+		imageOutputTokens,
 		{
 			cacheWriteTokens: cacheCreationTokens,
 			cacheWrite1hTokens: cacheCreation1hTokens,
+			audioInputTokens,
+			cachedAudioInputTokens,
 		},
+		finishReason === "content_filter",
 	);
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
@@ -9499,8 +9835,10 @@ chat.openapi(completions, async (c) => {
 					cacheWriteInputCost: costs.cacheWriteInputCost,
 					requestCost: costs.requestCost,
 					webSearchCost: costs.webSearchCost,
+					contentFilterCost: costs.contentFilterCost,
 					imageInputCost: costs.imageInputCost,
 					imageOutputCost: costs.imageOutputCost,
+					audioInputCost: costs.audioInputCost,
 					totalCost: costs.totalCost,
 					dataStorageCost: costs.dataStorageCost,
 				}
@@ -9515,6 +9853,7 @@ chat.openapi(completions, async (c) => {
 		imageOutputTokens,
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
+		audioInputTokens,
 	);
 
 	// Extract plugin IDs for logging
@@ -9649,10 +9988,13 @@ chat.openapi(completions, async (c) => {
 		cacheWriteInputCost: costs.cacheWriteInputCost,
 		requestCost: costs.requestCost,
 		webSearchCost: costs.webSearchCost,
+		contentFilterCost: costs.contentFilterCost ?? null,
 		imageInputTokens: costs.imageInputTokens?.toString() ?? null,
 		imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 		imageInputCost: costs.imageInputCost ?? null,
 		imageOutputCost: costs.imageOutputCost ?? null,
+		audioInputTokens: costs.audioInputTokens?.toString() ?? null,
+		audioInputCost: costs.audioInputCost ?? null,
 		cost: costs.totalCost,
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
@@ -9673,10 +10015,10 @@ chat.openapi(completions, async (c) => {
 	// Report key health for the selected token source
 	// Note: We don't report empty responses as key errors since they're not upstream errors
 	if (envVarName !== undefined) {
-		reportKeySuccess(envVarName, configIndex);
+		reportKeySuccess(envVarName, configIndex, baseModelName);
 	}
-	if (providerKey?.id) {
-		reportTrackedKeySuccess(providerKey.id);
+	if (trackedKeyHealthId) {
+		reportTrackedKeySuccess(trackedKeyHealthId, baseModelName);
 	}
 
 	if (cachingEnabled && cacheKey && !stream && !hasEmptyNonStreamingResponse) {

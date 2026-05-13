@@ -153,6 +153,10 @@ interface MappingPriceInfo {
 	discounted?: string;
 }
 
+function priceToNumber(price?: string): number | undefined {
+	return price === undefined ? undefined : Number(price);
+}
+
 // Helper to format prices using any provider discount while reusing shared formatPrice logic.
 function getMappingPriceInfo(
 	mapping: ProviderModelMapping | undefined,
@@ -164,17 +168,17 @@ function getMappingPriceInfo(
 
 	let basePrice: number | undefined;
 	if (field === "input") {
-		basePrice = mapping.inputPrice;
+		basePrice = priceToNumber(mapping.inputPrice);
 	} else if (field === "output") {
-		basePrice = mapping.outputPrice;
+		basePrice = priceToNumber(mapping.outputPrice);
 	} else if (field === "cachedInput") {
-		basePrice = mapping.cachedInputPrice;
+		basePrice = priceToNumber(mapping.cachedInputPrice);
 	} else if (field === "request") {
-		basePrice = mapping.requestPrice;
+		basePrice = priceToNumber(mapping.requestPrice);
 	} else if (field === "imageInput") {
-		basePrice = mapping.imageInputPrice;
+		basePrice = priceToNumber(mapping.imageInputPrice);
 	} else if (field === "imageOutput") {
-		basePrice = mapping.imageOutputPrice;
+		basePrice = priceToNumber(mapping.imageOutputPrice);
 	}
 
 	if (basePrice === undefined) {
@@ -186,11 +190,13 @@ function getMappingPriceInfo(
 		return { label: "Free", original: "Free" };
 	}
 
+	const discount = priceToNumber(mapping.discount);
+
 	// Request price is a flat per-request fee, not per-token
 	if (field === "request") {
 		const original = `$${basePrice.toFixed(3)}/req`;
-		if (mapping.discount && mapping.discount > 0) {
-			const discountedPrice = basePrice * (1 - mapping.discount);
+		if (discount && discount > 0) {
+			const discountedPrice = basePrice * (1 - discount);
 			const discounted = `$${discountedPrice.toFixed(3)}/req`;
 			return { label: discounted, original, discounted };
 		}
@@ -200,8 +206,8 @@ function getMappingPriceInfo(
 	const original = formatPrice(basePrice);
 
 	// Apply discount if present
-	if (mapping.discount && mapping.discount > 0) {
-		const discounted = formatPrice(basePrice * (1 - mapping.discount));
+	if (discount && discount > 0) {
+		const discounted = formatPrice(basePrice * (1 - discount));
 		return {
 			label: discounted,
 			original,
@@ -237,17 +243,22 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 	let maxOutput: number | undefined;
 	const capabilitySet = new Set<string>();
 
-	const applyDiscount = (price: number | undefined, discount?: number) => {
+	const applyDiscount = (price: string | undefined, discount?: string) => {
 		if (price === undefined) {
 			return undefined;
 		}
-		if (price === 0) {
+		const priceNum = Number(price);
+		if (!Number.isFinite(priceNum)) {
+			return undefined;
+		}
+		if (priceNum === 0) {
 			return 0;
 		}
-		if (!discount || discount <= 0) {
-			return price;
+		const discountNum = discount === undefined ? 0 : Number(discount);
+		if (!Number.isFinite(discountNum) || discountNum <= 0) {
+			return priceNum;
 		}
-		return price * (1 - discount);
+		return priceNum * (1 - discountNum);
 	};
 
 	for (const mapping of model.providers) {
@@ -564,8 +575,8 @@ export function ModelSelector({
 					return false;
 				}
 
-				const price = e.mapping.inputPrice ?? 0;
-				const requestPrice = e.mapping.requestPrice ?? 0;
+				const price = Number(e.mapping.inputPrice ?? 0);
+				const requestPrice = Number(e.mapping.requestPrice ?? 0);
 				switch (filters.priceRange) {
 					case "free":
 						return e.model.free === true && price === 0 && requestPrice === 0;
@@ -978,7 +989,7 @@ export function ModelSelector({
 													const entryKey = `${model.id}-root-${index}`;
 													const _aggregate = getRootAggregateInfo(model);
 													const hasRequestPrice = model.providers.some(
-														(p) => p.requestPrice && p.requestPrice > 0,
+														(p) => p.requestPrice && Number(p.requestPrice) > 0,
 													);
 													const isFreeRoot =
 														model.free === true && !hasRequestPrice;
@@ -1059,7 +1070,8 @@ export function ModelSelector({
 													mapping.deprecatedAt &&
 													new Date(mapping.deprecatedAt) <= new Date();
 												const hasRequestPrice =
-													mapping.requestPrice && mapping.requestPrice > 0;
+													mapping.requestPrice &&
+													Number(mapping.requestPrice) > 0;
 												const isFreeMapping =
 													model.free === true && !hasRequestPrice;
 												const isSelected =
@@ -1519,9 +1531,12 @@ export function ModelSelector({
 															</div>
 														)}
 													{/* Image Generation Pricing */}
-													{(previewEntry.mapping?.requestPrice ??
-														previewEntry.mapping?.imageInputPrice ??
-														previewEntry.mapping?.imageOutputPrice) && (
+													{(Number(previewEntry.mapping?.requestPrice ?? 0) >
+														0 ||
+														previewEntry.mapping?.imageInputPrice !==
+															undefined ||
+														previewEntry.mapping?.imageOutputPrice !==
+															undefined) && (
 														<div className="pt-2 border-t border-dashed">
 															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 																Image Pricing
@@ -1529,7 +1544,8 @@ export function ModelSelector({
 															<div className="grid grid-cols-2 gap-3">
 																{previewEntry.mapping?.requestPrice !==
 																	undefined &&
-																	previewEntry.mapping?.requestPrice > 0 && (
+																	Number(previewEntry.mapping?.requestPrice) >
+																		0 && (
 																		<div className="space-y-1">
 																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
 																				Per Request
@@ -2052,9 +2068,12 @@ export function ModelSelector({
 													</div>
 												)}
 											{/* Image Generation Pricing */}
-											{(selectedDetails.mapping?.requestPrice ??
-												selectedDetails.mapping?.imageInputPrice ??
-												selectedDetails.mapping?.imageOutputPrice) && (
+											{(Number(selectedDetails.mapping?.requestPrice ?? 0) >
+												0 ||
+												selectedDetails.mapping?.imageInputPrice !==
+													undefined ||
+												selectedDetails.mapping?.imageOutputPrice !==
+													undefined) && (
 												<div className="pt-2 border-t border-dashed">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 														Image Pricing
@@ -2062,7 +2081,8 @@ export function ModelSelector({
 													<div className="grid grid-cols-2 gap-3">
 														{selectedDetails.mapping?.requestPrice !==
 															undefined &&
-															selectedDetails.mapping?.requestPrice > 0 && (
+															Number(selectedDetails.mapping?.requestPrice) >
+																0 && (
 																<div className="space-y-1">
 																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 																		Per Request

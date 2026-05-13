@@ -54,6 +54,7 @@ interface ChatCompletionsResponse {
 			web_search_cost?: number | null;
 			image_input_cost?: number | null;
 			image_output_cost?: number | null;
+			audio_input_cost?: number | null;
 			data_storage_cost?: number | null;
 		};
 	};
@@ -90,6 +91,7 @@ export interface ResponsesApiUsage {
 		web_search_cost?: number | null;
 		image_input_cost?: number | null;
 		image_output_cost?: number | null;
+		audio_input_cost?: number | null;
 		data_storage_cost?: number | null;
 	};
 }
@@ -155,6 +157,7 @@ export interface ResponsesEchoRequest {
 	metadata?: Record<string, unknown>;
 	safety_identifier?: string;
 	prompt_cache_key?: string;
+	prompt_cache_retention?: "in_memory" | "24h";
 }
 
 /**

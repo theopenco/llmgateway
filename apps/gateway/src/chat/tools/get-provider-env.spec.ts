@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { reportKeyError, resetKeyHealth } from "@/lib/api-key-health.js";
 import { resetRoundRobinCounters } from "@/lib/round-robin-env.js";
 
 import { getProviderEnv } from "./get-provider-env.js";
@@ -9,6 +10,7 @@ describe("getProviderEnv", () => {
 
 	beforeEach(() => {
 		resetRoundRobinCounters();
+		resetKeyHealth();
 		process.env.LLM_OPENAI_API_KEY = "sk-openai-a,sk-openai-b,sk-openai-c";
 	});
 
@@ -54,5 +56,21 @@ describe("getProviderEnv", () => {
 		});
 		expect(thirdKey.token).toBe("sk-openai-c");
 		expect(thirdKey.configIndex).toBe(2);
+	});
+
+	it("passes selection scope through to env key health", () => {
+		reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
+		reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
+		reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
+
+		const gpt4Selection = getProviderEnv("openai", {
+			selectionScope: "gpt-4",
+		});
+		const claudeSelection = getProviderEnv("openai", {
+			selectionScope: "claude-3-5-sonnet",
+		});
+
+		expect(gpt4Selection.configIndex).toBe(1);
+		expect(claudeSelection.configIndex).toBe(0);
 	});
 });

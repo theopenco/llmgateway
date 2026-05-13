@@ -2,7 +2,10 @@ import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
-import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	adjustGoogleCandidateTokens,
+	extractBedrockCacheCreationDetails,
+} from "./extract-token-usage.js";
 import {
 	extractReasoningDetailsText,
 	splitReasoningFromTaggedContent,
@@ -35,6 +38,8 @@ export function parseProviderResponse(
 	let cacheCreation1hTokens: number | null = null;
 	let imageInputTokens: number | null = null;
 	let imageOutputTokens: number | null = null;
+	let audioInputTokens: number | null = null;
+	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
@@ -104,6 +109,7 @@ export function parseProviderResponse(
 				const inputTokens = json.usage.inputTokens ?? 0;
 				const cacheReadTokens = json.usage.cacheReadInputTokens ?? 0;
 				const cacheWriteTokens = json.usage.cacheWriteInputTokens ?? 0;
+				const cacheDetails = extractBedrockCacheCreationDetails(json.usage);
 
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
@@ -112,6 +118,8 @@ export function parseProviderResponse(
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheWriteTokens;
+				cacheCreation5mTokens = cacheDetails.cacheCreation5mTokens;
+				cacheCreation1hTokens = cacheDetails.cacheCreation1hTokens;
 			}
 
 			// Extract tool calls if present
@@ -390,6 +398,21 @@ export function parseProviderResponse(
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount ?? null;
 			// Extract cached tokens from Google's implicit caching
 			cachedTokens = json.usageMetadata?.cachedContentTokenCount ?? null;
+			if (Array.isArray(json.usageMetadata?.promptTokensDetails)) {
+				for (const detail of json.usageMetadata.promptTokensDetails) {
+					if (detail?.modality === "AUDIO" && detail.tokenCount) {
+						audioInputTokens = (audioInputTokens ?? 0) + detail.tokenCount;
+					}
+				}
+			}
+			if (Array.isArray(json.usageMetadata?.cacheTokensDetails)) {
+				for (const detail of json.usageMetadata.cacheTokensDetails) {
+					if (detail?.modality === "AUDIO" && detail.tokenCount) {
+						cachedAudioInputTokens =
+							(cachedAudioInputTokens ?? 0) + detail.tokenCount;
+					}
+				}
+			}
 
 			// Adjust for inconsistent Google API behavior where
 			// candidatesTokenCount may already include thoughtsTokenCount
@@ -468,6 +491,15 @@ export function parseProviderResponse(
 			if (finishReason === "end_turn") {
 				finishReason = "stop";
 			} else if (finishReason === "abort") {
+				logger.warn("Upstream sent abort finish_reason", {
+					provider: usedProvider,
+					model: usedModel,
+					responseModel: json.model,
+					responseId: json.id,
+					finishReason: json.choices?.[0]?.finish_reason,
+					nativeFinishReason: json.choices?.[0]?.native_finish_reason,
+					usage: json.usage,
+				});
 				finishReason = "canceled";
 			} else if (finishReason === "tool_use") {
 				finishReason = "tool_calls";
@@ -750,6 +782,18 @@ export function parseProviderResponse(
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 
+				if (finishReason === "abort") {
+					logger.warn("Upstream sent abort finish_reason", {
+						provider: usedProvider,
+						model: usedModel,
+						responseModel: json.model,
+						responseId: json.id,
+						finishReason: json.choices?.[0]?.finish_reason,
+						nativeFinishReason: json.choices?.[0]?.native_finish_reason,
+						usage: json.usage,
+					});
+				}
+
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
 				// Only for models that were failing tests: glm-4.5-airx and glm-4.5-flash
 				if (
@@ -873,6 +917,8 @@ export function parseProviderResponse(
 		cacheCreation1hTokens,
 		imageInputTokens,
 		imageOutputTokens,
+		audioInputTokens,
+		cachedAudioInputTokens,
 		toolResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,

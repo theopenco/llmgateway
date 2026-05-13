@@ -7,6 +7,7 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { UnsupportedAudioFormatError } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import {
@@ -15,7 +16,7 @@ import {
 	getMetrics,
 	getMetricsContentType,
 } from "@llmgateway/instrumentation";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
@@ -112,6 +113,22 @@ app.use("*", async (c, next) => {
 });
 
 app.onError((error, c) => {
+	if (error instanceof UnsupportedAudioFormatError) {
+		logger.warn("Unsupported audio format", {
+			message: error.message,
+			format: error.format,
+			providerTarget: error.providerTarget,
+		});
+		return c.json(
+			{
+				error: true,
+				status: 400,
+				message: error.message,
+			},
+			400,
+		);
+	}
+
 	if (error instanceof HTTPException) {
 		const status = error.status;
 
@@ -169,10 +186,7 @@ app.onError((error, c) => {
 	}
 
 	// For any other errors (non-HTTPException), return 500 Internal Server Error
-	logger.error(
-		"Unhandled error",
-		error instanceof Error ? error : new Error(String(error)),
-	);
+	logger.error("Unhandled error", toError(error));
 	return c.json(
 		{
 			error: true,

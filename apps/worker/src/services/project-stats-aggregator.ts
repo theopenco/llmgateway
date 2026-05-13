@@ -20,7 +20,7 @@ export const PROJECT_STATS_REFRESH_INTERVAL_SECONDS =
  * Avoids the pg driver's local-timezone interpretation of `timestamp without timezone`
  * by keeping timestamps as strings and casting via `::timestamp` in SQL.
  */
-function formatUTCTimestamp(date: Date): string {
+export function formatUTCTimestamp(date: Date): string {
 	return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
@@ -47,7 +47,7 @@ function getCurrentHourStart(): string {
 /**
  * Common aggregation select fields for all stats tables
  */
-function getCommonAggregationFields() {
+export function getCommonAggregationFields() {
 	return {
 		requestCount: sql<number>`count(*)::int`.as("requestCount"),
 		errorCount:
@@ -157,6 +157,9 @@ function getCommonAggregationFields() {
 		),
 		imageOutputCost: sql<number>`coalesce(sum(${log.imageOutputCost}), 0)`.as(
 			"imageOutputCost",
+		),
+		audioInputCost: sql<number>`coalesce(sum(${log.audioInputCost}), 0)`.as(
+			"audioInputCost",
 		),
 		videoOutputCost: sql<number>`coalesce(sum(${log.videoOutputCost}), 0)`.as(
 			"videoOutputCost",

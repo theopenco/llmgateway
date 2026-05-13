@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import { calculateCosts } from "./costs.js";
 
 const { mockGetEffectiveDiscount } = vi.hoisted(() => ({
@@ -110,6 +112,44 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
+	it("does not add a separate cache write fee for OpenAI", async () => {
+		const withoutCacheWrite = await calculateCosts(
+			"gpt-4o",
+			"openai",
+			100,
+			50,
+			20,
+		);
+		const withCacheWrite = await calculateCosts(
+			"gpt-4o",
+			"openai",
+			100,
+			50,
+			20,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{
+				cacheWriteTokens: 30,
+			},
+		);
+
+		expect(withCacheWrite.inputCost).toBe(withoutCacheWrite.inputCost);
+		expect(withCacheWrite.cachedInputCost).toBe(
+			withoutCacheWrite.cachedInputCost,
+		);
+		expect(withCacheWrite.cacheWriteInputCost).toBe(0);
+		expect(withCacheWrite.totalCost).toBe(withoutCacheWrite.totalCost);
+		expect(withCacheWrite.cacheWriteTokens).toBe(30);
+	});
+
 	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", async () => {
 		// For Anthropic first request: 4 non-cached + 1659 cache creation = 1663 total tokens, 0 cache reads
 		const result = await calculateCosts(
@@ -126,6 +166,8 @@ describe("calculateCosts", () => {
 			null,
 			null,
 			undefined,
+			null,
+			null,
 			{
 				cacheWriteTokens: 1659,
 			},
@@ -160,6 +202,8 @@ describe("calculateCosts", () => {
 			null,
 			null,
 			undefined,
+			null,
+			null,
 			{
 				cacheWriteTokens: 1000,
 				cacheWrite1hTokens: 700,
@@ -192,12 +236,52 @@ describe("calculateCosts", () => {
 			null,
 			null,
 			undefined,
+			null,
+			null,
 			{
 				cacheWriteTokens: 1000,
 			},
 		);
 
 		expect(result.cacheWriteInputCost).toBeCloseTo(1000 * (3.75 / 1e6));
+	});
+
+	it("should calculate AWS Bedrock Claude cache write costs", async () => {
+		// Bedrock Claude Haiku 4.5 input is 1.0/1M; 5m write 1.25/1M; 1h write 2.0/1M.
+		const result = await calculateCosts(
+			"claude-haiku-4-5",
+			"aws-bedrock",
+			1004,
+			50,
+			0,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{
+				cacheWriteTokens: 1000,
+				cacheWrite1hTokens: 700,
+			},
+		);
+
+		const discountMultiplier = 0.8;
+		expect(result.inputCost).toBeCloseTo(4 * (1.0 / 1e6) * discountMultiplier);
+		expect(result.outputCost).toBeCloseTo(
+			50 * (5.0 / 1e6) * discountMultiplier,
+		);
+		const fiveMinuteCacheWriteCost = 300 * (1.25 / 1e6);
+		const oneHourCacheWriteCost = 700 * (2.0 / 1e6);
+		expect(result.cacheWriteInputCost).toBeCloseTo(
+			(fiveMinuteCacheWriteCost + oneHourCacheWriteCost) * discountMultiplier,
+		);
+		expect(result.discount).toBeCloseTo(0.2);
+		expect(result.cacheWriteTokens).toBe(1000);
 	});
 
 	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", async () => {
@@ -223,7 +307,7 @@ describe("calculateCosts", () => {
 
 	it("should apply discount when model has discount field", async () => {
 		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
-			discount: 0.1,
+			discount: "0.1",
 			source: "global_provider",
 			discountId: "disc-global-openai",
 		});
@@ -243,7 +327,7 @@ describe("calculateCosts", () => {
 			null,
 			"openai",
 			"gpt-4",
-			0,
+			"0",
 			"gpt-4",
 		);
 	});
@@ -450,7 +534,7 @@ describe("calculateCosts", () => {
 			"low",
 		);
 
-		const expectedInputCost = 1000 * (8 / 1e6);
+		const expectedInputCost = 1000 * (5 / 1e6);
 		const expectedImageOutputCost = 2000 * (30 / 1e6);
 
 		expect(result.imageOutputTokens).toBe(2000);
@@ -460,6 +544,206 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(
 			expectedInputCost + expectedImageOutputCost,
 		);
+	});
+
+	it("should bill reported image input tokens at imageInputPrice for gpt-image-2 edits", async () => {
+		// /v1/images/edits sends input images as part of the prompt. OpenAI's
+		// usage payload reports text vs image tokens via input_tokens_details.
+		// We expect the gateway to bill the image portion at imageInputPrice
+		// ($8/M) and the remaining text portion at inputPrice ($5/M) — without
+		// double-billing image tokens at the text rate.
+		const promptTokens = 524; // 12 text + 512 image (from real OpenAI response)
+		const reportedImageInputTokens = 512;
+		const completionTokens = 196;
+		const reportedImageOutputTokens = 196;
+
+		const result = await calculateCosts(
+			"gpt-image-2",
+			"openai",
+			promptTokens,
+			completionTokens,
+			null, // cachedTokens
+			undefined, // fullOutput
+			null, // reasoningTokens
+			1, // outputImageCount
+			"1024x1024", // imageSize
+			0, // inputImageCount (not used for openai)
+			null, // webSearchCount
+			null, // organizationId
+			"low", // imageQuality
+			reportedImageInputTokens,
+			reportedImageOutputTokens,
+		);
+
+		const expectedTextInputCost =
+			(promptTokens - reportedImageInputTokens) * (5 / 1e6);
+		const expectedImageInputCost = reportedImageInputTokens * (8 / 1e6);
+		const expectedImageOutputCost = reportedImageOutputTokens * (30 / 1e6);
+
+		expect(result.imageInputTokens).toBe(reportedImageInputTokens);
+		expect(result.imageInputCost).toBeCloseTo(expectedImageInputCost);
+		expect(result.imageOutputTokens).toBe(reportedImageOutputTokens);
+		expect(result.imageOutputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.inputCost).toBeCloseTo(
+			expectedTextInputCost + expectedImageInputCost,
+		);
+		expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.totalCost).toBeCloseTo(
+			expectedTextInputCost + expectedImageInputCost + expectedImageOutputCost,
+		);
+	});
+
+	it("should apply azure discount on top of split image/text input pricing for gpt-image-2", async () => {
+		const promptTokens = 524;
+		const reportedImageInputTokens = 512;
+		const completionTokens = 196;
+		const reportedImageOutputTokens = 196;
+
+		const result = await calculateCosts(
+			"gpt-image-2",
+			"azure",
+			promptTokens,
+			completionTokens,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+			null,
+			null,
+			"low",
+			reportedImageInputTokens,
+			reportedImageOutputTokens,
+		);
+
+		// Read discount from the model definition so the test stays correct
+		// even if the azure discount value changes.
+		const azureProvider = models
+			.find((m) => m.id === "gpt-image-2")
+			?.providers.find((p) => p.providerId === "azure");
+		const discountMultiplier = 1 - Number(azureProvider?.discount ?? "0");
+		const expectedTextInputCost =
+			(promptTokens - reportedImageInputTokens) *
+			(5 / 1e6) *
+			discountMultiplier;
+		const expectedImageInputCost =
+			reportedImageInputTokens * (8 / 1e6) * discountMultiplier;
+		const expectedImageOutputCost =
+			reportedImageOutputTokens * (30 / 1e6) * discountMultiplier;
+
+		expect(result.imageInputTokens).toBe(reportedImageInputTokens);
+		expect(result.imageInputCost).toBeCloseTo(expectedImageInputCost);
+		expect(result.inputCost).toBeCloseTo(
+			expectedTextInputCost + expectedImageInputCost,
+		);
+		expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
+	});
+
+	it("should split cached tokens between text and image rates for gpt-image-2", async () => {
+		// OpenAI returns a single cached_tokens count without splitting text/image,
+		// so we apportion by the overall image:text ratio in prompt_tokens. With
+		// promptTokens=1000, imageInputTokens=800, cachedTokens=500 → ratio 0.8 →
+		// 400 cached image tokens billed at $2/M, 100 cached text at $1.25/M.
+		const promptTokens = 1000;
+		const reportedImageInputTokens = 800;
+		const cachedTokens = 500;
+
+		const result = await calculateCosts(
+			"gpt-image-2",
+			"openai",
+			promptTokens,
+			0, // completionTokens
+			cachedTokens,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			reportedImageInputTokens,
+			null,
+		);
+
+		const expectedCachedImageTokens = 400; // 500 * (800/1000)
+		const expectedCachedTextTokens = 100;
+		const expectedUncachedImageTokens = 400; // 800 - 400
+		const expectedUncachedTextTokens = 100; // (1000 - 800) - 100
+
+		const expectedImageInputCost = expectedUncachedImageTokens * (8 / 1e6);
+		const expectedTextInputCost = expectedUncachedTextTokens * (5 / 1e6);
+		const cachedTextCost = (expectedCachedTextTokens * 1.25) / 1e6;
+		const cachedImageCost = (expectedCachedImageTokens * 2) / 1e6;
+		const expectedCachedInputCost = cachedTextCost + cachedImageCost;
+
+		expect(result.imageInputTokens).toBe(reportedImageInputTokens);
+		expect(result.imageInputCost).toBeCloseTo(expectedImageInputCost);
+		expect(result.inputCost).toBeCloseTo(
+			expectedTextInputCost + expectedImageInputCost,
+		);
+		expect(result.cachedInputCost).toBeCloseTo(expectedCachedInputCost);
+		expect(result.totalCost).toBeCloseTo(
+			expectedTextInputCost + expectedImageInputCost + expectedCachedInputCost,
+		);
+	});
+
+	it("should bill cached image tokens for gpt-image-2 even when fully cached", async () => {
+		// Edge case: cached_tokens equals image_tokens. All image is cached, all
+		// text is uncached. Image is billed entirely at the cached image rate.
+		const promptTokens = 524;
+		const reportedImageInputTokens = 512;
+		const cachedTokens = 512; // every image token is a cache hit
+
+		const result = await calculateCosts(
+			"gpt-image-2",
+			"openai",
+			promptTokens,
+			0,
+			cachedTokens,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			reportedImageInputTokens,
+			null,
+		);
+
+		const ratio = reportedImageInputTokens / promptTokens;
+		const expectedCachedImage = Math.min(
+			cachedTokens,
+			reportedImageInputTokens,
+			Math.round(cachedTokens * ratio),
+		);
+		const expectedCachedText = cachedTokens - expectedCachedImage;
+		const expectedUncachedImage =
+			reportedImageInputTokens - expectedCachedImage;
+		const expectedUncachedText =
+			promptTokens - reportedImageInputTokens - expectedCachedText;
+
+		const uncachedTextCost = (expectedUncachedText * 5) / 1e6;
+		const uncachedImageCost = (expectedUncachedImage * 8) / 1e6;
+		const cachedTextCost = (expectedCachedText * 1.25) / 1e6;
+		const cachedImageCost = (expectedCachedImage * 2) / 1e6;
+		expect(result.inputCost).toBeCloseTo(uncachedTextCost + uncachedImageCost);
+		expect(result.cachedInputCost).toBeCloseTo(
+			cachedTextCost + cachedImageCost,
+		);
+	});
+
+	it("should fall back to single cached rate when cachedImageInputPrice is unset", async () => {
+		// gpt-4o has imageInputPrice but no cachedImageInputPrice and no
+		// output: ["image"], so the apportionment branch must NOT fire.
+		// All cached tokens stay billed at cachedInputPrice.
+		const result = await calculateCosts("gpt-4o", "openai", 1000, 100, 200);
+
+		expect(result.cachedInputCost).toBeCloseTo(200 * (1.25 / 1e6));
+		expect(result.imageInputTokens).toBeNull();
 	});
 
 	it("should return null for all image fields when no images", async () => {
@@ -587,5 +871,176 @@ describe("calculateCosts", () => {
 		// Verify image costs are still tracked as breakdown fields
 		expect(result.imageInputCost).toBeGreaterThan(0);
 		expect(result.imageOutputCost).toBeGreaterThan(0);
+	});
+
+	it("does not subtract text-cached tokens from audio billing on Gemini 2.5 Flash-Lite", async () => {
+		// Repro for the prior bug: 100 audio tokens + 50 cached tokens that are
+		// entirely text. The pre-fix code subtracted ALL cachedReadTokens from
+		// audioInputTokens, leaving 50 audio billable. With the fix, audio
+		// billing is reduced only by the reported cachedAudioInputTokens (here
+		// 0), so all 100 audio tokens are billed at the audio rate.
+		const promptTokens = 200;
+		const audioInputTokens = 100;
+		const cachedTokens = 50;
+		const result = await calculateCosts(
+			"gemini-2.5-flash-lite",
+			"google-ai-studio",
+			promptTokens,
+			0,
+			cachedTokens,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ audioInputTokens, cachedAudioInputTokens: 0 },
+		);
+		expect(result.audioInputCost).toBeCloseTo(audioInputTokens * (0.3 / 1e6));
+		expect(result.cachedInputCost).toBeCloseTo(cachedTokens * (0.01 / 1e6));
+	});
+
+	it("bills cached audio at cachedInputAudioPrice on Gemini 2.5 Flash", async () => {
+		// 100 audio tokens, all cached. Pre-fix: charged at cached text rate
+		// ($0.03/M). Post-fix: charged at cached audio rate ($0.10/M).
+		const audioInputTokens = 100;
+		const cachedAudioInputTokens = 100;
+		const cachedTokens = 100;
+		const result = await calculateCosts(
+			"gemini-2.5-flash",
+			"google-ai-studio",
+			audioInputTokens, // entire prompt is audio
+			0,
+			cachedTokens,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ audioInputTokens, cachedAudioInputTokens },
+		);
+		expect(result.audioInputCost).toBeNull();
+		expect(result.cachedInputCost).toBeCloseTo(
+			cachedAudioInputTokens * (0.1 / 1e6),
+		);
+	});
+
+	it("splits mixed text+audio cache correctly on Gemini 2.0 Flash", async () => {
+		// 80 audio (60 cached) + 120 text (40 cached). Audio cache @ $0.175/M,
+		// text cache @ $0.025/M, uncached audio @ $0.70/M, uncached text @
+		// $0.10/M (AI Studio).
+		const promptTokens = 200;
+		const audioInputTokens = 80;
+		const cachedAudioInputTokens = 60;
+		const cachedTokens = 100;
+		const result = await calculateCosts(
+			"gemini-2.0-flash",
+			"google-ai-studio",
+			promptTokens,
+			0,
+			cachedTokens,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ audioInputTokens, cachedAudioInputTokens },
+		);
+		const uncachedAudio = audioInputTokens - cachedAudioInputTokens;
+		const uncachedText =
+			promptTokens - audioInputTokens - (cachedTokens - cachedAudioInputTokens);
+		expect(result.audioInputCost).toBeCloseTo(uncachedAudio * (0.7 / 1e6));
+		const uncachedTextCost = uncachedText * (0.1 / 1e6);
+		const uncachedAudioCost = uncachedAudio * (0.7 / 1e6);
+		expect(result.inputCost).toBeCloseTo(uncachedTextCost + uncachedAudioCost);
+		const cachedText = cachedTokens - cachedAudioInputTokens;
+		const cachedAudioCost = cachedAudioInputTokens * (0.175 / 1e6);
+		const cachedTextCost = cachedText * (0.025 / 1e6);
+		expect(result.cachedInputCost).toBeCloseTo(
+			cachedTextCost + cachedAudioCost,
+		);
+	});
+
+	it("should compute exact cost values without IEEE-754 noise", async () => {
+		// gpt-4o-mini has inputPrice 0.15/1e6 and outputPrice 0.6/1e6. Raw JS
+		// arithmetic on these prices produces values like 2.5000000000000004e-7
+		// (when 5 * 0.6/1e6 is computed naively). The Decimal-backed pipeline
+		// must return the exact decimal value at the serialisation boundary.
+		const result = await calculateCosts("gpt-4o-mini", "openai", 7, 3, null);
+
+		// 7 * 0.15/1e6 = 0.00000105
+		expect(result.inputCost).toBe(1.05e-6);
+		// 3 * 0.6/1e6 = 0.0000018
+		expect(result.outputCost).toBe(1.8e-6);
+		expect(result.cachedInputCost).toBe(0);
+		expect(result.cacheWriteInputCost).toBe(0);
+		expect(result.requestCost).toBe(0);
+		expect(result.webSearchCost).toBe(0);
+		// 1.05e-6 + 1.8e-6 = 2.85e-6
+		expect(result.totalCost).toBe(2.85e-6);
+	});
+
+	it("does not charge contentFilterCost when not triggered", async () => {
+		const result = await calculateCosts(
+			"grok-3",
+			"xai",
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			undefined,
+			false,
+		);
+
+		expect(result.contentFilterCost).toBe(0);
+	});
+
+	it("charges xAI's $0.05 contentFilterCost when triggered", async () => {
+		const result = await calculateCosts(
+			"grok-3",
+			"xai",
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			undefined,
+			true,
+		);
+
+		expect(result.contentFilterCost).toBeCloseTo(0.05);
+		// Total includes the content filter fee in addition to input cost.
+		expect(result.totalCost).toBeCloseTo((result.inputCost ?? 0) + 0.05);
 	});
 });

@@ -13,6 +13,7 @@ import { nousresearchModels } from "./models/nousresearch.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { xaiModels } from "./models/xai.js";
+import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
 
 import type { providers } from "./providers.js";
@@ -20,6 +21,13 @@ import type { providers } from "./providers.js";
 export type Provider = (typeof providers)[number]["id"];
 
 export type Model = (typeof models)[number]["providers"][number]["modelName"];
+
+/**
+ * Decimal-safe price representation. Always a string so values are preserved
+ * exactly (no IEEE-754 noise) all the way from model definition through to
+ * the Decimal-based cost engine.
+ */
+export type Price = string;
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -36,26 +44,26 @@ export interface PricingTier {
 	/**
 	 * Price per input token in USD for this tier
 	 */
-	inputPrice: number;
+	inputPrice: Price;
 	/**
 	 * Price per output token in USD for this tier
 	 */
-	outputPrice: number;
+	outputPrice: Price;
 	/**
 	 * Price per cached input token in USD for this tier
 	 */
-	cachedInputPrice?: number;
+	cachedInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this tier (5-minute TTL).
 	 * For Anthropic, this is the 1.25x base-input rate.
 	 */
-	cacheWriteInputPrice?: number;
+	cacheWriteInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this tier (1-hour TTL).
 	 * For Anthropic, this is the 2x base-input rate. When unset, 1-hour writes
 	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
 	 */
-	cacheWriteInputPrice1h?: number;
+	cacheWriteInputPrice1h?: Price;
 }
 
 /**
@@ -73,25 +81,25 @@ export interface ProviderRegion {
 	 * Price per input token in USD for this region.
 	 * When absent, falls back to the mapping-level inputPrice.
 	 */
-	inputPrice?: number;
+	inputPrice?: Price;
 	/**
 	 * Price per output token in USD for this region.
 	 * When absent, falls back to the mapping-level outputPrice.
 	 */
-	outputPrice?: number;
+	outputPrice?: Price;
 	/**
 	 * Price per cached input token in USD for this region
 	 */
-	cachedInputPrice?: number;
+	cachedInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this region (5-minute TTL)
 	 */
-	cacheWriteInputPrice?: number;
+	cacheWriteInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this region (1-hour TTL).
 	 * When unset, 1-hour writes fall back to `cacheWriteInputPrice`.
 	 */
-	cacheWriteInputPrice1h?: number;
+	cacheWriteInputPrice1h?: Price;
 	/**
 	 * Context-length based pricing tiers for this region.
 	 * When absent, falls back to the mapping-level pricingTiers.
@@ -101,17 +109,17 @@ export interface ProviderRegion {
 	 * Discount multiplier (0-1) for this region.
 	 * When absent, falls back to the mapping-level discount.
 	 */
-	discount?: number;
+	discount?: Price;
 	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
 	 */
-	requestPrice?: number;
+	requestPrice?: Price;
 	/**
 	 * Price per web search query in USD for this region.
 	 * When absent, falls back to the mapping-level webSearchPrice.
 	 */
-	webSearchPrice?: number;
+	webSearchPrice?: Price;
 	/**
 	 * Context window size in tokens for this region.
 	 * When absent, falls back to the mapping-level contextSize.
@@ -140,30 +148,30 @@ export interface ProviderModelMapping {
 	/**
 	 * Price per input token in USD
 	 */
-	inputPrice?: number;
+	inputPrice?: Price;
 	/**
 	 * Price per output token in USD
 	 */
-	outputPrice?: number;
+	outputPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
-	imageOutputPrice?: number;
+	imageOutputPrice?: Price;
 	/**
 	 * Price per cached input token in USD
 	 */
-	cachedInputPrice?: number;
+	cachedInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD (5-minute TTL).
 	 * For Anthropic, this is the 1.25x base-input rate.
 	 */
-	cacheWriteInputPrice?: number;
+	cacheWriteInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD (1-hour TTL).
 	 * For Anthropic, this is the 2x base-input rate. When unset, 1-hour writes
 	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
 	 */
-	cacheWriteInputPrice1h?: number;
+	cacheWriteInputPrice1h?: Price;
 	/**
 	 * Minimum number of tokens required for a segment to be cacheable.
 	 * Prompts smaller than this threshold won't be cached even with cache_control set.
@@ -173,7 +181,27 @@ export interface ProviderModelMapping {
 	/**
 	 * Price per image input in USD
 	 */
-	imageInputPrice?: number;
+	imageInputPrice?: Price;
+	/**
+	 * Price per audio input token in USD. When unset, audio input tokens are
+	 * billed at the regular `inputPrice` (used for providers that don't price
+	 * audio separately, e.g. Gemini 2.5 Pro where audio follows the text tier).
+	 */
+	inputAudioPrice?: Price;
+	/**
+	 * Price per cached image input token in USD. Used by image-output models
+	 * (e.g. gpt-image-2) where OpenAI bills cached image tokens at a different
+	 * rate than cached text tokens. When unset, cached image tokens fall back
+	 * to `cachedInputPrice`.
+	 */
+	cachedImageInputPrice?: Price;
+	/**
+	 * Price per cached audio input token in USD. Used by Google Gemini models
+	 * which list a separate context-cache rate for audio that's higher than the
+	 * text/image/video cache rate. When unset, cached audio tokens fall back to
+	 * `cachedInputPrice`.
+	 */
+	cachedInputAudioPrice?: Price;
 	/**
 	 * Resolution-based token counts for image output.
 	 * Maps resolution keys (e.g., "1K", "2K", "4K", "default") to tokens per image.
@@ -191,17 +219,17 @@ export interface ProviderModelMapping {
 	/**
 	 * Price per request in USD
 	 */
-	requestPrice?: number;
+	requestPrice?: Price;
 	/**
 	 * Price per second in USD for video generation models.
 	 * Maps billing keys like "default", "4k", "default_audio", "4k_audio",
 	 * "default_video", and "4k_video" to per-second pricing.
 	 */
-	perSecondPrice?: Record<string, number>;
+	perSecondPrice?: Record<string, Price>;
 	/**
 	 * Discount multiplier (0-1), where 0.5 = 50% off
 	 */
-	discount?: number;
+	discount?: Price;
 	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
@@ -229,6 +257,13 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports vision (image inputs) for this provider
 	 */
 	vision?: boolean;
+	/**
+	 * Whether this specific model accepts audio inputs (`input_audio` content
+	 * blocks) for this provider. Used by the `model: "auto"` router to avoid
+	 * selecting providers that would fail upstream when the request contains
+	 * audio content.
+	 */
+	audio?: boolean;
 	/**
 	 * Whether this model supports reasoning mode
 	 */
@@ -285,7 +320,13 @@ export interface ProviderModelMapping {
 	/**
 	 * Price per web search query in USD (charged when web search is used)
 	 */
-	webSearchPrice?: number;
+	webSearchPrice?: Price;
+	/**
+	 * Price per content filter violation in USD (charged additionally when the
+	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
+	 * "Content violates usage guidelines" response).
+	 */
+	contentFilterPrice?: number;
 	/**
 	 * List of supported API parameters for this model/provider combination
 	 */
@@ -426,6 +467,7 @@ export const models = [
 	...googleModels,
 	...perplexityModels,
 	...xaiModels,
+	...xiaomiModels,
 	...metaModels,
 	...deepseekModels,
 	...mistralModels,

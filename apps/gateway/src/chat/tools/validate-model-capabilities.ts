@@ -18,6 +18,7 @@ export interface ValidateModelCapabilitiesOptions {
 	tools?: unknown[];
 	tool_choice?: unknown;
 	webSearchTool?: WebSearchTool;
+	hasImages?: boolean;
 }
 
 /**
@@ -41,7 +42,30 @@ export function validateModelCapabilities(
 		tools,
 		tool_choice,
 		webSearchTool,
+		hasImages,
 	} = options;
+
+	// Validate vision capability when the request contains images.
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically.
+	if (hasImages && requestedModel !== "auto" && requestedModel !== "custom") {
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		const supportsVision = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).vision === true,
+		);
+
+		if (!supportsVision) {
+			throw new HTTPException(400, {
+				message: requestedProvider
+					? `Provider ${requestedProvider} does not support image input for model ${requestedModel}. Remove the image content or use a vision-capable model.`
+					: `Model ${requestedModel} does not support image input. Remove the image content or use a vision-capable model.`,
+			});
+		}
+	}
 
 	// Validate JSON object output capability
 	if (response_format?.type === "json_object") {

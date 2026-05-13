@@ -403,6 +403,360 @@ describe("stats-calculator", () => {
 			expect(beijingHistory?.totalCost).toBeCloseTo(0.21);
 		});
 
+		it("should exclude same-provider recovered retries from health stats", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			await db.insert(modelProviderMapping).values({
+				id: "mapping-3",
+				modelId: "gpt-4",
+				providerId: "anthropic",
+				modelName: "gpt-4-on-anthropic",
+				status: "active",
+			});
+
+			await db.insert(log).values([
+				{
+					id: "log-same-provider-failed",
+					requestId: "req-same-provider",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 600,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 0,
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					retried: true,
+					retriedByLogId: "log-same-provider-success",
+					createdAt: new Date(previousMinuteStart.getTime() + 5000),
+				},
+				{
+					id: "log-same-provider-success",
+					requestId: "req-same-provider",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1000,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 120,
+					hasError: false,
+					promptTokens: "80",
+					completionTokens: "100",
+					totalTokens: "180",
+					unifiedFinishReason: "completed",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 10000),
+				},
+				{
+					id: "log-provider-fallback-failed",
+					requestId: "req-provider-fallback",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 700,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 0,
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					retried: true,
+					retriedByLogId: "log-provider-fallback-success",
+					createdAt: new Date(previousMinuteStart.getTime() + 15000),
+				},
+				{
+					id: "log-provider-fallback-success",
+					requestId: "req-provider-fallback",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 900,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "anthropic/gpt-4",
+					usedProvider: "anthropic",
+					responseSize: 140,
+					hasError: false,
+					promptTokens: "70",
+					completionTokens: "120",
+					totalTokens: "190",
+					unifiedFinishReason: "completed",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 20000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+			await calculateAggregatedStatistics();
+
+			const mappingHistoryRecords = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					eq(modelProviderMappingHistory.minuteTimestamp, previousMinuteStart),
+				);
+			const openaiHistory = mappingHistoryRecords.find(
+				(record) => record.modelProviderMappingId === "mapping-1",
+			);
+			const anthropicHistory = mappingHistoryRecords.find(
+				(record) => record.modelProviderMappingId === "mapping-3",
+			);
+
+			expect(openaiHistory?.logsCount).toBe(2);
+			expect(openaiHistory?.errorsCount).toBe(1);
+			expect(anthropicHistory?.logsCount).toBe(1);
+			expect(anthropicHistory?.errorsCount).toBe(0);
+
+			const gpt4ModelHistory = (await db.select().from(modelHistory)).find(
+				(record) =>
+					record.modelId === "gpt-4" &&
+					record.minuteTimestamp.getTime() === previousMinuteStart.getTime(),
+			);
+			expect(gpt4ModelHistory?.logsCount).toBe(3);
+			expect(gpt4ModelHistory?.errorsCount).toBe(1);
+
+			const mappings = await db
+				.select()
+				.from(modelProviderMapping)
+				.where(eq(modelProviderMapping.modelId, "gpt-4"));
+			const openaiMapping = mappings.find(
+				(mapping) => mapping.id === "mapping-1",
+			);
+			const anthropicMapping = mappings.find(
+				(mapping) => mapping.id === "mapping-3",
+			);
+
+			expect(openaiMapping?.routingUptime).toBeCloseTo(50);
+			expect(openaiMapping?.routingTotalRequests).toBe(2);
+			expect(anthropicMapping?.routingUptime).toBeCloseTo(100);
+			expect(anthropicMapping?.routingTotalRequests).toBe(1);
+		});
+
+		it("should keep failed regional attempts in mapping stats when recovery switches regions", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			await db.insert(provider).values({
+				id: "alibaba",
+				name: "Alibaba",
+				description: "Alibaba provider",
+				streaming: true,
+				cancellation: false,
+				color: "#ff6a00",
+				website: "https://www.alibabacloud.com",
+				status: "active",
+			});
+
+			await db.insert(model).values({
+				id: "deepseek-v3.2",
+				name: "DeepSeek V3.2",
+				family: "deepseek",
+				status: "active",
+			});
+
+			await db.insert(modelProviderMapping).values([
+				{
+					id: "mapping-aggregate-region-retry",
+					modelId: "deepseek-v3.2",
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2",
+					status: "active",
+				},
+				{
+					id: "mapping-region-singapore",
+					modelId: "deepseek-v3.2",
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2:singapore",
+					region: "singapore",
+					status: "active",
+				},
+				{
+					id: "mapping-region-beijing",
+					modelId: "deepseek-v3.2",
+					providerId: "alibaba",
+					modelName: "deepseek-v3.2:cn-beijing",
+					region: "cn-beijing",
+					status: "active",
+				},
+			]);
+
+			await db.insert(log).values([
+				{
+					id: "log-region-retry-failed",
+					requestId: "req-region-retry",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 600,
+					requestedModel: "alibaba/deepseek-v3.2",
+					requestedProvider: "alibaba",
+					usedModel: "alibaba/deepseek-v3.2:singapore",
+					usedProvider: "alibaba",
+					responseSize: 0,
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					retried: true,
+					retriedByLogId: "log-region-retry-success",
+					createdAt: new Date(previousMinuteStart.getTime() + 5000),
+				},
+				{
+					id: "log-region-retry-success",
+					requestId: "req-region-retry",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 900,
+					requestedModel: "alibaba/deepseek-v3.2",
+					requestedProvider: "alibaba",
+					usedModel: "alibaba/deepseek-v3.2:cn-beijing",
+					usedProvider: "alibaba",
+					responseSize: 140,
+					hasError: false,
+					promptTokens: "70",
+					completionTokens: "120",
+					totalTokens: "190",
+					unifiedFinishReason: "completed",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 10000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+			await calculateAggregatedStatistics();
+
+			const mappingHistoryRecords = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					eq(modelProviderMappingHistory.minuteTimestamp, previousMinuteStart),
+				);
+			const aggregateHistory = mappingHistoryRecords.find(
+				(record) =>
+					record.modelProviderMappingId === "mapping-aggregate-region-retry",
+			);
+			const singaporeHistory = mappingHistoryRecords.find(
+				(record) =>
+					record.modelProviderMappingId === "mapping-region-singapore",
+			);
+			const beijingHistory = mappingHistoryRecords.find(
+				(record) => record.modelProviderMappingId === "mapping-region-beijing",
+			);
+
+			expect(aggregateHistory?.logsCount).toBe(2);
+			expect(aggregateHistory?.errorsCount).toBe(1);
+			expect(singaporeHistory?.logsCount).toBe(1);
+			expect(singaporeHistory?.errorsCount).toBe(1);
+			expect(beijingHistory?.logsCount).toBe(1);
+			expect(beijingHistory?.errorsCount).toBe(0);
+
+			const regionalMappings = await db
+				.select()
+				.from(modelProviderMapping)
+				.where(eq(modelProviderMapping.modelId, "deepseek-v3.2"));
+			const singaporeMapping = regionalMappings.find(
+				(mapping) => mapping.id === "mapping-region-singapore",
+			);
+			const beijingMapping = regionalMappings.find(
+				(mapping) => mapping.id === "mapping-region-beijing",
+			);
+
+			expect(singaporeMapping?.routingUptime).toBeCloseTo(0);
+			expect(singaporeMapping?.routingTotalRequests).toBe(1);
+			expect(beijingMapping?.routingUptime).toBeCloseTo(100);
+			expect(beijingMapping?.routingTotalRequests).toBe(1);
+
+			const deepseekModelHistory = (await db.select().from(modelHistory)).find(
+				(record) =>
+					record.modelId === "deepseek-v3.2" &&
+					record.minuteTimestamp.getTime() === previousMinuteStart.getTime(),
+			);
+			expect(deepseekModelHistory?.logsCount).toBe(2);
+			expect(deepseekModelHistory?.errorsCount).toBe(1);
+		});
+
+		it("should keep failed attempts when the same-provider retry also failed", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			await db.insert(log).values([
+				{
+					id: "log-same-provider-failed-1",
+					requestId: "req-same-provider-all-failed",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 600,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 0,
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					retried: true,
+					retriedByLogId: "log-same-provider-failed-2",
+					createdAt: new Date(previousMinuteStart.getTime() + 5000),
+				},
+				{
+					id: "log-same-provider-failed-2",
+					requestId: "req-same-provider-all-failed",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 700,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 0,
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+					mode: "api-keys",
+					usedMode: "api-keys",
+					createdAt: new Date(previousMinuteStart.getTime() + 10000),
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			const mappingHistoryRecords = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					eq(modelProviderMappingHistory.minuteTimestamp, previousMinuteStart),
+				);
+			const openaiHistory = mappingHistoryRecords.find(
+				(record) => record.modelProviderMappingId === "mapping-1",
+			);
+
+			expect(openaiHistory?.logsCount).toBe(2);
+			expect(openaiHistory?.errorsCount).toBe(2);
+
+			const gpt4ModelHistory = (await db.select().from(modelHistory)).find(
+				(record) =>
+					record.modelId === "gpt-4" &&
+					record.minuteTimestamp.getTime() === previousMinuteStart.getTime(),
+			);
+			expect(gpt4ModelHistory?.logsCount).toBe(2);
+			expect(gpt4ModelHistory?.errorsCount).toBe(2);
+		});
+
 		it("should handle cached requests correctly by ignoring tokens but counting requests", async () => {
 			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
 

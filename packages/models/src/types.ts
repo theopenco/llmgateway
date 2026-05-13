@@ -31,6 +31,26 @@ export interface ImageContent {
 	};
 }
 
+export interface InputAudioContent {
+	type: "input_audio";
+	input_audio: {
+		data: string;
+		format:
+			| "wav"
+			| "mp3"
+			| "aiff"
+			| "aac"
+			| "ogg"
+			| "flac"
+			| "m4a"
+			| "mpeg"
+			| "mpga"
+			| "mp4"
+			| "pcm"
+			| "webm";
+	};
+}
+
 export interface ToolUseContent {
 	type: "tool_use";
 	id: string;
@@ -48,6 +68,7 @@ export type MessageContent =
 	| TextContent
 	| ImageUrlContent
 	| ImageContent
+	| InputAudioContent
 	| ToolUseContent
 	| ToolResultContent;
 
@@ -175,6 +196,8 @@ export type ToolChoiceType =
 			};
 	  };
 
+export type PromptCacheRetention = "in_memory" | "24h";
+
 export type AnthropicToolChoice =
 	| "auto"
 	| "any"
@@ -199,6 +222,8 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	messages: OpenAIMessage[];
 	tools?: OpenAITool[];
 	tool_choice?: ToolChoiceType;
+	prompt_cache_key?: string;
+	prompt_cache_retention?: PromptCacheRetention;
 	response_format?: {
 		type: "text" | "json_object" | "json_schema";
 		json_schema?: {
@@ -236,6 +261,8 @@ export type OpenAIResponsesInputItem =
 export interface OpenAIResponsesRequestBody {
 	model: string;
 	input: OpenAIResponsesInputItem[];
+	prompt_cache_key?: string;
+	prompt_cache_retention?: PromptCacheRetention;
 	reasoning: {
 		effort: "minimal" | "low" | "medium" | "high" | "xhigh";
 		summary: "detailed";
@@ -333,12 +360,12 @@ export interface ProviderValidationResult {
 export interface ModelWithPricing {
 	providers: Array<{
 		providerId: string;
-		inputPrice?: number;
-		outputPrice?: number;
-		perSecondPrice?: Record<string, number>;
+		inputPrice?: string;
+		outputPrice?: string;
+		perSecondPrice?: Record<string, string>;
 		supportedParameters?: string[];
 		modelName: string;
-		discount?: number;
+		discount?: string;
 		region?: string;
 		stability?: string;
 	}>;
@@ -368,20 +395,29 @@ export type RequestBodyPreparer = (
 	frequency_penalty?: number,
 	presence_penalty?: number,
 	response_format?: OpenAIRequestBody["response_format"],
-	tools?: OpenAITool[],
+	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
 	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 	maxImageSizeMB?: number,
-	userPlan?: "free" | "pro" | null,
+	userPlan?: "free" | "pro" | "enterprise" | null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
 	image_config?: {
 		aspect_ratio?: string;
 		image_size?: string;
 		image_quality?: string;
+		n?: number;
+		seed?: number;
 	},
-) => Promise<ProviderRequestBody>;
+	effort?: "low" | "medium" | "high",
+	imageGenerations?: boolean,
+	webSearchTool?: WebSearchTool,
+	reasoning_max_tokens?: number,
+	useResponsesApi?: boolean,
+	prompt_cache_key?: string,
+	prompt_cache_retention?: PromptCacheRetention,
+) => Promise<ProviderRequestBody | FormData>;
 
 // Type guards
 export function isTextContent(content: MessageContent): content is TextContent {
@@ -398,6 +434,12 @@ export function isImageContent(
 	content: MessageContent,
 ): content is ImageContent {
 	return content.type === "image";
+}
+
+export function isInputAudioContent(
+	content: MessageContent,
+): content is InputAudioContent {
+	return content.type === "input_audio";
 }
 
 export function isToolUseContent(

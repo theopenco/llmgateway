@@ -84,6 +84,39 @@ describe("parseProviderResponse", () => {
 			expect(result.promptTokens).toBe(150); // 100 + 0 + 50
 		});
 
+		it("extracts cache creation tokens from cacheDetails by TTL", () => {
+			const json = {
+				output: {
+					message: {
+						content: [{ text: "Hello" }],
+						role: "assistant",
+					},
+				},
+				stopReason: "end_turn",
+				usage: {
+					inputTokens: 100,
+					cacheReadInputTokens: 0,
+					cacheWriteInputTokens: 1000,
+					cacheDetails: [
+						{ ttl: "1h", inputTokens: 700 },
+						{ ttl: "5m", inputTokens: 300 },
+					],
+					outputTokens: 200,
+					totalTokens: 1300,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				json,
+			);
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(300);
+			expect(result.cacheCreation1hTokens).toBe(700);
+		});
+
 		it("returns cachedTokens with correct value when cacheReadInputTokens > 0", () => {
 			const json = {
 				output: {

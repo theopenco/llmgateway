@@ -142,42 +142,39 @@ export function Hero({
 								{/* Announcement badge - centered */}
 								<div className="mb-10 lg:mb-12 flex justify-center">
 									<AnimatedGroup variants={transitionVariants}>
-										<a
-											href="https://www.producthunt.com/products/devpass-by-llm-gateway"
-											target="_blank"
-											rel="noopener noreferrer"
-											className="group flex w-fit items-center gap-3 rounded-full border border-orange-500/40 bg-gradient-to-r from-orange-500 to-red-500 p-1 pl-4 shadow-md shadow-orange-500/20 transition-all duration-300 hover:shadow-orange-500/40"
+										<Link
+											href="/token-cost-calculator"
+											className="hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
 										>
-											<span className="flex size-5 items-center justify-center rounded-full bg-white text-[11px] font-bold text-orange-500">
-												P
+											<span className="text-foreground text-sm">
+												See How Much You Can Save on LLMs
 											</span>
-											<span className="text-sm font-medium text-white">
-												DevPass is live on Product Hunt — upvote us today
-											</span>
-											<span className="block h-4 w-0.5 border-l border-white/30" />
-											<div className="size-6 overflow-hidden rounded-full bg-white/15 duration-500 group-hover:bg-white/25">
+											<span className="dark:border-background block h-4 w-0.5 border-l bg-white dark:bg-zinc-700" />
+
+											<div className="bg-background group-hover:bg-muted size-6 overflow-hidden rounded-full duration-500">
 												<div className="flex w-12 -translate-x-1/2 duration-500 ease-in-out group-hover:translate-x-0">
 													<span className="flex size-6">
-														<ArrowRight className="m-auto size-3 text-white" />
+														<ArrowRight className="m-auto size-3" />
 													</span>
 													<span className="flex size-6">
-														<ArrowRight className="m-auto size-3 text-white" />
+														<ArrowRight className="m-auto size-3" />
 													</span>
 												</div>
 											</div>
-										</a>
+										</Link>
 									</AnimatedGroup>
 								</div>
 
 								{/* Centered hero content - optimized for conversion */}
 								<div className="text-center max-w-4xl mx-auto">
 									<AnimatedGroup variants={transitionVariants}>
-										<h1 className="text-balance text-2xl md:text-3xl lg:text-4xl font-medium tracking-tight text-foreground/80">
-											One API for every LLM. Any model, any provider.
+										<h1 className="text-balance text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
+											LLM Gateway — One API for OpenAI, Anthropic, Google, and
+											30+ providers
 										</h1>
 										<p className="mt-4 md:mt-6 max-w-2xl mx-auto text-balance text-base md:text-lg text-muted-foreground">
 											Stop juggling API keys and provider dashboards. Route
-											requests to 210+ models, track costs in real-time, and
+											requests across 200+ models, track costs in real-time, and
 											switch providers without changing your code.
 										</p>
 									</AnimatedGroup>
@@ -264,16 +261,18 @@ export function Hero({
 										</div>
 
 										{/* Secondary CTA - De-emphasized */}
-										<Button
-											asChild
-											variant="ghost"
-											className="text-muted-foreground hover:text-foreground"
-										>
-											<a href={config.docsUrl ?? ""} target="_blank">
-												<span>View documentation</span>
-												<ChevronRight className="size-4" />
-											</a>
-										</Button>
+										{config.docsUrl ? (
+											<Button
+												asChild
+												variant="ghost"
+												className="text-muted-foreground hover:text-foreground"
+											>
+												<a href={config.docsUrl} target="_blank" rel="noopener">
+													<span>View documentation</span>
+													<ChevronRight className="size-4" />
+												</a>
+											</Button>
+										) : null}
 									</AnimatedGroup>
 								</div>
 							</div>

@@ -1,6 +1,10 @@
+"use client";
+
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ModelSelector } from "@/components/model-selector";
 import { McpServersDialog } from "@/components/playground/mcp-servers-dialog";
+import { ShareChatDialog } from "@/components/playground/share-chat-dialog";
+import { TempChatSwitcher } from "@/components/playground/temp-chat-switcher";
 import { Label } from "@/components/ui/label";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
@@ -26,6 +30,14 @@ interface ChatHeaderProps {
 	) => void;
 	onRemoveMcpServer: (id: string) => void;
 	onToggleMcpServer: (id: string) => void;
+	isTemporaryChat: boolean;
+	onToggleTemporaryChat: () => void;
+	isTemporaryChatToggleDisabled: boolean;
+	hasTemporaryMessages: boolean;
+	currentChatId: string | null;
+	shareId: string | null;
+	chatTitle?: string | null;
+	previewPrompt?: string | null;
 }
 
 export const ChatHeader = ({
@@ -41,11 +53,19 @@ export const ChatHeader = ({
 	onUpdateMcpServer,
 	onRemoveMcpServer,
 	onToggleMcpServer,
+	isTemporaryChat,
+	onToggleTemporaryChat,
+	isTemporaryChatToggleDisabled,
+	hasTemporaryMessages,
+	currentChatId,
+	shareId,
+	chatTitle,
+	previewPrompt,
 }: ChatHeaderProps) => {
 	return (
 		<header className="bg-background flex items-center border-b p-4">
 			<div className="flex min-w-0 flex-1 items-center gap-3">
-				<SidebarTrigger />
+				{isTemporaryChat ? null : <SidebarTrigger />}
 				{showGlobalModelSelector ? (
 					<div className="flex w-full min-w-0 max-w-[360px] items-center gap-2 sm:max-w-[420px]">
 						<ModelSelector
@@ -59,6 +79,20 @@ export const ChatHeader = ({
 				) : null}
 			</div>
 			<div className="ml-3 flex items-center gap-3">
+				<TempChatSwitcher
+					isTemporaryChat={isTemporaryChat}
+					onToggleTemporaryChat={onToggleTemporaryChat}
+					isTemporaryChatToggleDisabled={isTemporaryChatToggleDisabled}
+					hasTemporaryMessages={hasTemporaryMessages}
+				/>
+				{isTemporaryChat || !currentChatId ? null : (
+					<ShareChatDialog
+						currentChatId={currentChatId}
+						shareId={shareId}
+						chatTitle={chatTitle}
+						previewPrompt={previewPrompt}
+					/>
+				)}
 				<TooltipProvider>
 					<McpServersDialog
 						servers={mcpServers}
@@ -68,19 +102,21 @@ export const ChatHeader = ({
 						onToggleServer={onToggleMcpServer}
 					/>
 				</TooltipProvider>
-				<div className="hidden items-center gap-2 md:flex">
-					<Label
-						htmlFor="comparison-mode"
-						className="text-muted-foreground text-xs"
-					>
-						Comparison mode
-					</Label>
-					<Switch
-						id="comparison-mode"
-						checked={comparisonEnabled}
-						onCheckedChange={onComparisonEnabledChange}
-					/>
-				</div>
+				{isTemporaryChat ? null : (
+					<div className="hidden items-center gap-2 md:flex">
+						<Label
+							htmlFor="comparison-mode"
+							className="text-muted-foreground text-xs"
+						>
+							Comparison mode
+						</Label>
+						<Switch
+							id="comparison-mode"
+							checked={comparisonEnabled}
+							onCheckedChange={onComparisonEnabledChange}
+						/>
+					</div>
+				)}
 				<ThemeToggle />
 				<a
 					href={

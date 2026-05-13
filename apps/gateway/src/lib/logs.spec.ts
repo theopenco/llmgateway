@@ -82,6 +82,24 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps OpenAI-format finish reasons returned by Google providers", () => {
+		expect(getUnifiedFinishReason("stop", "google-ai-studio")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "google-ai-studio")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "google-ai-studio")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("length", "google-vertex")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(
+			getUnifiedFinishReason("MALFORMED_FUNCTION_CALL", "google-ai-studio"),
+		).toBe(UnifiedFinishReason.TOOL_CALLS);
+	});
+
 	it("maps Glacier finish reasons like Google AI Studio", () => {
 		expect(getUnifiedFinishReason("STOP", "glacier")).toBe(
 			UnifiedFinishReason.COMPLETED,
@@ -148,6 +166,24 @@ describe("getUnifiedFinishReason", () => {
 		);
 		expect(getUnifiedFinishReason("unknown_reason", "any-provider")).toBe(
 			UnifiedFinishReason.UNKNOWN,
+		);
+	});
+
+	it("maps zai finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("stop", "zai")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "zai")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "zai")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("sensitive", "zai")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("content_filter", "zai")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
 		);
 	});
 

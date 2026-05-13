@@ -40,7 +40,7 @@ import {
 	tables,
 	type InferSelectModel,
 } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import {
 	getProviderEnvValue,
 	getProviderEnvVar,
@@ -1016,11 +1016,19 @@ function getVideoExcludedConfigIndices(
 		return undefined;
 	}
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+	const storageProjectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
 	const excluded = new Set<number>();
 	for (let index = 0; index < valueCount; index += 1) {
 		const baseUrl = getProviderEnvValue(providerId, "baseUrl", index);
 		if (baseUrl && baseUrl !== defaultBaseUrl) {
 			excluded.add(index);
+			continue;
+		}
+		if (storageProjectId) {
+			const indexProjectId = getProviderEnvValue(providerId, "project", index);
+			if (indexProjectId && indexProjectId !== storageProjectId) {
+				excluded.add(index);
+			}
 		}
 	}
 	return excluded.size > 0 ? excluded : undefined;
@@ -1055,7 +1063,8 @@ async function resolveProviderContext(
 	providerId: Provider,
 	project: InferSelectModel<typeof tables.project>,
 	organizationId: string,
-	selectionKey: string,
+	requestId: string,
+	selectionScope: string,
 ): Promise<ProviderContext> {
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 	const sharedVertexProjectId = isGoogleVertexVideoProvider(providerId)
@@ -1070,7 +1079,7 @@ async function resolveProviderContext(
 		const providerKey = await findProviderKey(
 			organizationId,
 			providerId,
-			selectionKey,
+			selectionScope,
 			undefined,
 			getVideoProviderKeyFilter(providerId),
 		);
@@ -1100,7 +1109,7 @@ async function resolveProviderContext(
 			providerId,
 			baseUrl,
 			token: providerKey.token,
-			requestId: selectionKey,
+			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
@@ -1117,6 +1126,7 @@ async function resolveProviderContext(
 	if (project.mode === "credits") {
 		const env = getProviderEnv(providerId, {
 			excludedIndices: getVideoExcludedConfigIndices(providerId),
+			selectionScope,
 		});
 		const baseUrl =
 			getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
@@ -1149,7 +1159,7 @@ async function resolveProviderContext(
 			providerId,
 			baseUrl,
 			token: env.token,
-			requestId: selectionKey,
+			requestId,
 			usedMode: "credits",
 			configIndex: env.configIndex,
 			vertexProjectId,
@@ -1170,7 +1180,7 @@ async function resolveProviderContext(
 	const providerKey = await findProviderKey(
 		organizationId,
 		providerId,
-		selectionKey,
+		selectionScope,
 		undefined,
 		getVideoProviderKeyFilter(providerId),
 	);
@@ -1195,7 +1205,7 @@ async function resolveProviderContext(
 			providerId,
 			baseUrl,
 			token: providerKey.token,
-			requestId: selectionKey,
+			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
@@ -1249,7 +1259,7 @@ async function resolveProviderContext(
 		providerId,
 		baseUrl,
 		token: env.token,
-		requestId: selectionKey,
+		requestId,
 		usedMode: "credits",
 		configIndex: env.configIndex,
 		vertexProjectId,
@@ -1506,7 +1516,10 @@ async function resolveVideoExecution(
 							(provider) => provider.providerId === requestedProvider,
 						);
 						const originalPrice = originalMapping
-							? getProviderSelectionPrice(originalMapping, videoPricing)
+							? getProviderSelectionPrice(
+									originalMapping,
+									videoPricing,
+								).toNumber()
 							: 0;
 						routingMetadata = {
 							...betterResult.metadata,
@@ -1598,7 +1611,7 @@ async function resolveVideoExecution(
 		providerScores: configuredEligibleMappings.map((provider) => ({
 			providerId: provider.providerId,
 			score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
-			price: getProviderSelectionPrice(provider, videoPricing),
+			price: getProviderSelectionPrice(provider, videoPricing).toNumber(),
 		})),
 		...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 	};
@@ -1609,6 +1622,7 @@ async function resolveVideoExecution(
 		project,
 		organizationId,
 		requestId,
+		modelInfo.id,
 	);
 	return {
 		providerMapping,
@@ -1839,7 +1853,7 @@ async function getExternalVideoContentUrl(
 		} catch (error) {
 			logger.error(
 				"Failed to create signed URL for video job",
-				error instanceof Error ? error : new Error(String(error)),
+				toError(error),
 				{
 					videoJobId: job.id,
 					storageUri: job.storageUri,
@@ -2131,7 +2145,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		const providerKey = await findProviderKey(
 			job.organizationId,
 			providerId,
-			job.requestId,
+			job.usedModel,
 			undefined,
 			getVideoProviderKeyFilter(providerId),
 		);
@@ -2161,6 +2175,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 
 	const env = getProviderEnv(providerId, {
 		excludedIndices: getVideoExcludedConfigIndices(providerId),
+		selectionScope: job.usedModel,
 	});
 	const baseUrl =
 		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
@@ -3164,6 +3179,7 @@ videos.openapi(createVideo, async (c) => {
 				project,
 				organization.id,
 				requestId,
+				modelInfo.id,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
@@ -3219,6 +3235,7 @@ videos.openapi(createVideo, async (c) => {
 				project,
 				organization.id,
 				requestId,
+				modelInfo.id,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
@@ -3315,6 +3332,7 @@ videos.openapi(createVideo, async (c) => {
 				project,
 				organization.id,
 				requestId,
+				modelInfo.id,
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,

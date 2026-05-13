@@ -38,6 +38,7 @@ function selectRoundRobinValue(
 	envVarName: string,
 	value: string,
 	_advanceCounter: boolean,
+	selectionScope?: string,
 	excludedIndices: ReadonlySet<number> = new Set(),
 ): RoundRobinResult {
 	const values = parseCommaSeparatedEnv(value);
@@ -69,7 +70,7 @@ function selectRoundRobinValue(
 			continue;
 		}
 
-		const metrics = getKeyMetrics(envVarName, i);
+		const metrics = getKeyMetrics(envVarName, i, selectionScope);
 
 		// Skip permanently blacklisted keys entirely
 		if (metrics.permanentlyBlacklisted) {
@@ -77,7 +78,7 @@ function selectRoundRobinValue(
 		}
 
 		// Check if temporarily unhealthy (consecutive errors threshold)
-		if (!isKeyHealthy(envVarName, i)) {
+		if (!isKeyHealthy(envVarName, i, selectionScope)) {
 			continue;
 		}
 
@@ -128,9 +129,16 @@ function selectRoundRobinValue(
 export function getRoundRobinValue(
 	envVarName: string,
 	value: string,
+	selectionScope?: string,
 	excludedIndices?: ReadonlySet<number>,
 ): RoundRobinResult {
-	return selectRoundRobinValue(envVarName, value, true, excludedIndices);
+	return selectRoundRobinValue(
+		envVarName,
+		value,
+		true,
+		selectionScope,
+		excludedIndices,
+	);
 }
 
 /**
@@ -140,9 +148,16 @@ export function getRoundRobinValue(
 export function peekRoundRobinValue(
 	envVarName: string,
 	value: string,
+	selectionScope?: string,
 	excludedIndices?: ReadonlySet<number>,
 ): RoundRobinResult {
-	return selectRoundRobinValue(envVarName, value, false, excludedIndices);
+	return selectRoundRobinValue(
+		envVarName,
+		value,
+		false,
+		selectionScope,
+		excludedIndices,
+	);
 }
 
 /**

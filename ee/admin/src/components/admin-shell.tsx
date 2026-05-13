@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	AlertTriangle,
+	BarChart3,
 	Building2,
 	Cpu,
 	Gauge,
@@ -85,6 +86,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
 	const isDevpass = pathname.startsWith("/devpass");
+	const isGlobalStats = pathname.startsWith("/global-stats");
 	const isDiscounts = pathname === "/discounts";
 	const isRateLimits = pathname === "/rate-limits";
 	const isProviders = pathname === "/providers";
@@ -151,6 +153,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isDevpass} size="lg">
 										<Sparkles className="h-4 w-4" />
 										<span>DevPass</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/global-stats" className="block">
+									<SidebarMenuButton isActive={isGlobalStats} size="lg">
+										<BarChart3 className="h-4 w-4" />
+										<span>Global Stats</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
