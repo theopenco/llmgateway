@@ -42,14 +42,20 @@ export function BlockOrgButton({
 	const handleConfirm = async () => {
 		setLoading(true);
 		setError(null);
-		const result = await onBlock(orgId);
-		setLoading(false);
-
-		if (result.success) {
-			setOpen(false);
-			router.refresh();
-		} else {
-			setError(result.error ?? "Failed to block organization");
+		try {
+			const result = await onBlock(orgId);
+			if (result.success) {
+				setOpen(false);
+				router.refresh();
+			} else {
+				setError(result.error ?? "Failed to block organization");
+			}
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "Failed to block organization",
+			);
+		} finally {
+			setLoading(false);
 		}
 	};
 

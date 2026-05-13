@@ -309,8 +309,9 @@ async function getSubscriptionCardFingerprint(
 
 /**
  * Cancel a Stripe dev plan subscription that was rejected because the card
- * was already used by another organization. Refunds the most recent invoice
- * to avoid charging the user for a plan we won't activate.
+ * was already used by another organization. This only cancels the
+ * subscription — no refund or invoice void is issued here. Stripe's normal
+ * dispute / refund flow is the path for fee recovery.
  */
 async function rejectDuplicateDevPlanSubscription(
 	subscriptionId: string,

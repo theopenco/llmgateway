@@ -31,7 +31,6 @@ import {
 	modelProviderMappingHistory,
 	modelHistory,
 } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
 import { DEV_PLAN_PRICES } from "@llmgateway/shared";
 import {
@@ -4770,26 +4769,27 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 
-	const cancelledSubscriptionIds: string[] = [];
+	if (org.isPersonal) {
+		throw new HTTPException(403, {
+			message: "Cannot block personal organization",
+		});
+	}
+
 	const subscriptionIds = [
 		org.stripeSubscriptionId,
 		org.devPlanStripeSubscriptionId,
 	].filter((id): id is string => Boolean(id));
 
+	// Cancel every Stripe subscription before mutating local state. If any
+	// cancel call fails, the error propagates to the global handler and we
+	// leave the org untouched so the admin can retry once Stripe is healthy.
 	for (const subscriptionId of subscriptionIds) {
-		try {
-			await getStripe().subscriptions.cancel(subscriptionId, {
-				invoice_now: false,
-				prorate: false,
-			});
-			cancelledSubscriptionIds.push(subscriptionId);
-		} catch (error) {
-			logger.error(
-				`Failed to cancel subscription ${subscriptionId} for blocked org ${orgId}`,
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		}
+		await getStripe().subscriptions.cancel(subscriptionId, {
+			invoice_now: false,
+			prorate: false,
+		});
 	}
+	const cancelledSubscriptionIds = subscriptionIds;
 
 	const memberLinks = await db.query.userOrganization.findMany({
 		where: { organizationId: { eq: orgId } },
