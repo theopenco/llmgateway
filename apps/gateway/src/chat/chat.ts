@@ -4481,6 +4481,32 @@ chat.openapi(completions, async (c) => {
 					event?: string;
 					id?: string;
 				}) => {
+					// Guard: every SSE payload must be either the [DONE] sentinel or
+					// a JSON-parseable string. An empty or non-JSON `data:` line breaks
+					// OpenAI-compatible clients (they raise JSONDecodeError on the chunk).
+					if (sseData.data !== "[DONE]") {
+						if (!sseData.data || sseData.data.trim().length === 0) {
+							logger.warn("[streaming] Dropping empty SSE payload", {
+								provider: usedProvider,
+								model: usedModel,
+								event: sseData.event,
+							});
+							return;
+						}
+						try {
+							JSON.parse(sseData.data);
+						} catch (e) {
+							logger.warn("[streaming] Dropping non-JSON SSE payload", {
+								provider: usedProvider,
+								model: usedModel,
+								event: sseData.event,
+								error: e instanceof Error ? e.message : String(e),
+								preview: sseData.data.substring(0, 200),
+							});
+							return;
+						}
+					}
+
 					await stream.writeSSE(sseData);
 
 					// Collect raw response data for logging only in debug mode and within size limit
