@@ -161,6 +161,34 @@ export interface ResponsesEchoRequest {
 }
 
 /**
+ * Normalize echoed tools so each function tool has all fields the Open Responses
+ * spec marks as required-nullable (description, parameters, strict). The spec's
+ * functionToolSchema rejects responses where these are missing even though many
+ * callers omit them on the request side.
+ */
+export function normalizeEchoedTools(tools: unknown[] | undefined): unknown[] {
+	if (!tools) {
+		return [];
+	}
+	return tools.map((tool) => {
+		if (
+			typeof tool !== "object" ||
+			tool === null ||
+			(tool as Record<string, unknown>).type !== "function"
+		) {
+			return tool;
+		}
+		const t = tool as Record<string, unknown>;
+		return {
+			...t,
+			description: t.description ?? null,
+			parameters: t.parameters ?? null,
+			strict: t.strict ?? null,
+		};
+	});
+}
+
+/**
  * Converts a chat completions response to Responses API format.
  */
 export function convertChatResponseToResponses(
@@ -266,7 +294,7 @@ export function convertChatResponseToResponses(
 		instructions: request?.instructions ?? null,
 		output,
 		error: null,
-		tools: request?.tools ?? [],
+		tools: normalizeEchoedTools(request?.tools),
 		tool_choice: request?.tool_choice ?? "auto",
 		truncation: request?.truncation ?? "disabled",
 		parallel_tool_calls: request?.parallel_tool_calls ?? true,
