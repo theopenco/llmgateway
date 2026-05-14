@@ -309,7 +309,10 @@ function getMessageImageGridClass(imageCount: number, alignEnd = false) {
 		"mt-3 gap-3",
 		imageCount === 1
 			? "grid grid-cols-1"
-			: "flex max-w-full flex-row flex-wrap justify-end",
+			: cn(
+					"flex max-w-full flex-row flex-wrap",
+					alignEnd ? "justify-end" : "justify-start",
+				),
 		alignEnd && imageCount === 1 && "justify-items-end",
 	);
 }

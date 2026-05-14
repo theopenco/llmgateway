@@ -38,14 +38,13 @@ export function ThemeToggle({ className, size = "default" }: ThemeToggleProps) {
 	if (!mounted) {
 		return (
 			<div
+				aria-hidden="true"
 				className={cn(
 					"flex p-1 rounded-full cursor-pointer transition-all duration-300",
 					sizeClasses.root,
 					"bg-white border border-zinc-200",
 					className,
 				)}
-				role="button"
-				tabIndex={0}
 			>
 				<div className="flex justify-between items-center w-full">
 					<div
@@ -78,7 +77,8 @@ export function ThemeToggle({ className, size = "default" }: ThemeToggleProps) {
 	}
 
 	return (
-		<div
+		<button
+			aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
 			className={cn(
 				"flex p-1 rounded-full cursor-pointer transition-all duration-300",
 				sizeClasses.root,
@@ -88,8 +88,7 @@ export function ThemeToggle({ className, size = "default" }: ThemeToggleProps) {
 				className,
 			)}
 			onClick={() => setTheme(isDark ? "light" : "dark")}
-			role="button"
-			tabIndex={0}
+			type="button"
 		>
 			<div className="flex justify-between items-center w-full">
 				<div
@@ -135,6 +134,6 @@ export function ThemeToggle({ className, size = "default" }: ThemeToggleProps) {
 					)}
 				</div>
 			</div>
-		</div>
+		</button>
 	);
 }
