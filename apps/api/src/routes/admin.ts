@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import Stripe from "stripe";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
@@ -31,6 +32,7 @@ import {
 	modelProviderMappingHistory,
 	modelHistory,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
 import { DEV_PLAN_PRICES } from "@llmgateway/shared";
 import {
@@ -1971,6 +1973,7 @@ const logEntrySchema = z.object({
 	cacheWriteInputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
 	webSearchCost: z.number().nullable(),
+	contentFilterCost: z.number().nullable(),
 	imageInputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
 	videoOutputCost: z.number().nullable(),
@@ -2159,6 +2162,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			cacheWriteInputCost: tables.log.cacheWriteInputCost,
 			requestCost: tables.log.requestCost,
 			webSearchCost: tables.log.webSearchCost,
+			contentFilterCost: tables.log.contentFilterCost,
 			imageInputCost: tables.log.imageInputCost,
 			imageOutputCost: tables.log.imageOutputCost,
 			videoOutputCost: tables.log.videoOutputCost,
@@ -4577,16 +4581,6 @@ const setOrganizationStatusRoute = createRoute({
 			},
 			description: "Organization status updated.",
 		},
-		403: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						message: z.string(),
-					}),
-				},
-			},
-			description: "Personal organizations cannot be disabled.",
-		},
 		404: {
 			content: {
 				"application/json": {
@@ -4611,12 +4605,6 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 
 	if (!org) {
 		throw new HTTPException(404, { message: "Organization not found" });
-	}
-
-	if (status === "deleted" && org.isPersonal) {
-		throw new HTTPException(403, {
-			message: "Personal organizations cannot be disabled.",
-		});
 	}
 
 	const memberLinks = await db.query.userOrganization.findMany({
@@ -4734,16 +4722,6 @@ const blockOrganizationRoute = createRoute({
 			description:
 				"Organization blocked, subscriptions cancelled, access disabled.",
 		},
-		403: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						message: z.string(),
-					}),
-				},
-			},
-			description: "Personal organizations cannot be blocked.",
-		},
 		404: {
 			content: {
 				"application/json": {
@@ -4769,27 +4747,40 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 
-	if (org.isPersonal) {
-		throw new HTTPException(403, {
-			message: "Cannot block personal organization",
-		});
-	}
-
 	const subscriptionIds = [
 		org.stripeSubscriptionId,
 		org.devPlanStripeSubscriptionId,
 	].filter((id): id is string => Boolean(id));
 
-	// Cancel every Stripe subscription before mutating local state. If any
-	// cancel call fails, the error propagates to the global handler and we
-	// leave the org untouched so the admin can retry once Stripe is healthy.
+	// Cancel every Stripe subscription before mutating local state. Treat
+	// already-cancelled or missing subscriptions as success (their terminal
+	// state matches what we want anyway); re-throw other Stripe errors so the
+	// admin can retry once Stripe is healthy.
+	const cancelledSubscriptionIds: string[] = [];
 	for (const subscriptionId of subscriptionIds) {
-		await getStripe().subscriptions.cancel(subscriptionId, {
-			invoice_now: false,
-			prorate: false,
-		});
+		try {
+			await getStripe().subscriptions.cancel(subscriptionId, {
+				invoice_now: false,
+				prorate: false,
+			});
+			cancelledSubscriptionIds.push(subscriptionId);
+		} catch (error) {
+			if (
+				error instanceof Stripe.errors.StripeInvalidRequestError &&
+				(error.code === "resource_missing" ||
+					error.statusCode === 404 ||
+					error.message.includes("already been canceled") ||
+					error.message.includes("already canceled"))
+			) {
+				logger.info(
+					`Stripe subscription ${subscriptionId} already terminal, skipping cancel: ${error.message}`,
+				);
+				cancelledSubscriptionIds.push(subscriptionId);
+				continue;
+			}
+			throw error;
+		}
 	}
-	const cancelledSubscriptionIds = subscriptionIds;
 
 	const memberLinks = await db.query.userOrganization.findMany({
 		where: { organizationId: { eq: orgId } },

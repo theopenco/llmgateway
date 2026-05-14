@@ -12,7 +12,12 @@ import {
 
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
-import { notifyCreditsPurchased } from "./utils/discord.js";
+import {
+	notifyCreditsPurchased,
+	notifyDevPlanCancelled,
+	notifyDevPlanRenewed,
+	notifyDevPlanSubscribed,
+} from "./utils/discord.js";
 import {
 	generateDevPlanCancellationFeedbackEmailHtml,
 	generatePaymentFailureEmailHtml,
@@ -516,6 +521,21 @@ async function handleCheckoutSessionCompleted(
 					source: "stripe_checkout",
 				},
 			});
+
+			const subscribedEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (subscribedEmail) {
+				const subscribedUser = await db.query.user.findFirst({
+					where: { email: { eq: subscribedEmail } },
+				});
+				await notifyDevPlanSubscribed(
+					subscribedEmail,
+					subscribedUser?.name,
+					devPlanTier,
+					devPlanCycle,
+				);
+			}
 		} else {
 			// Handle regular pro subscription
 			// Skip setting plan to "pro" for personal orgs - they use devPlan field instead
@@ -1699,6 +1719,17 @@ async function handleInvoicePaymentSucceeded(
 				source: "stripe_invoice",
 			},
 		});
+
+		if (organization.billingEmail) {
+			const renewedUser = await db.query.user.findFirst({
+				where: { email: { eq: organization.billingEmail } },
+			});
+			await notifyDevPlanRenewed(
+				organization.billingEmail,
+				renewedUser?.name,
+				organization.devPlan ?? "unknown",
+			);
+		}
 	} else {
 		// Handle regular pro subscription
 		// Create transaction record for subscription start
@@ -1998,6 +2029,20 @@ export async function handleSubscriptionUpdated(
 
 				logger.info(
 					`Sent dev plan cancellation feedback email to ${organization.billingEmail} for organization ${organizationId}`,
+				);
+			}
+
+			const cancelEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (cancelEmail) {
+				const cancelUser = await db.query.user.findFirst({
+					where: { email: { eq: cancelEmail } },
+				});
+				await notifyDevPlanCancelled(
+					cancelEmail,
+					cancelUser?.name,
+					organization.devPlan ?? "unknown",
 				);
 			}
 		}

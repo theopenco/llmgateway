@@ -304,6 +304,39 @@ function formatCost(value?: number): string {
 	}).format(value);
 }
 
+function getMessageImageGridClass(imageCount: number, alignEnd = false) {
+	return cn(
+		"mt-3 gap-3",
+		imageCount === 1
+			? "grid grid-cols-1"
+			: cn(
+					"flex max-w-full flex-row flex-wrap",
+					alignEnd ? "justify-end" : "justify-start",
+				),
+		alignEnd && imageCount === 1 && "justify-items-end",
+	);
+}
+
+function getUserMessageWidthClass(imageCount: number, isEditing?: boolean) {
+	if (isEditing) {
+		return "w-full max-w-full";
+	}
+
+	return imageCount > 1 ? "w-fit max-w-[80%] min-w-64" : "w-fit max-w-[80%]";
+}
+
+function getMessageImageClass(
+	imageCount: number,
+	singleImageClassName: string,
+) {
+	return cn(
+		"border rounded-lg object-cover",
+		imageCount === 1
+			? singleImageClassName
+			: "size-24 aspect-square sm:size-28",
+	);
+}
+
 function MessageMetadataPopover({
 	metadata,
 }: {
@@ -423,7 +456,7 @@ const AssistantMessage = memo(
 				) : null}
 
 				{imageParts.length > 0 ? (
-					<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+					<div className={getMessageImageGridClass(imageParts.length)}>
 						{imageParts.map((part: any, idx: number) => {
 							const { base64Only, mediaType } = parseImagePartToDataUrl(part);
 							if (!base64Only) {
@@ -435,7 +468,10 @@ const AssistantMessage = memo(
 										base64={base64Only}
 										mediaType={mediaType}
 										alt={part.name ?? "Generated image"}
-										className="h-[400px] aspect-auto border rounded-lg object-cover"
+										className={getMessageImageClass(
+											imageParts.length,
+											"h-[400px] aspect-auto",
+										)}
 									/>
 								</ImageZoom>
 							);
@@ -571,7 +607,7 @@ const UserMessage = memo(
 				<div
 					className={cn(
 						"flex flex-col items-end",
-						isEditing ? "w-full max-w-full" : "w-fit max-w-[80%]",
+						getUserMessageWidthClass(imageParts.length, isEditing),
 					)}
 				>
 					<MessageContent
@@ -618,7 +654,9 @@ const UserMessage = memo(
 							</>
 						)}
 						{imageParts.length > 0 && (
-							<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<div
+								className={getMessageImageGridClass(imageParts.length, true)}
+							>
 								{imageParts.map((part: any, idx: number) => {
 									const { base64Only, mediaType } =
 										parseImagePartToDataUrl(part);
@@ -631,7 +669,10 @@ const UserMessage = memo(
 												base64={base64Only}
 												mediaType={mediaType}
 												alt={part.name ?? "Uploaded image"}
-												className="h-[300px] aspect-auto border rounded-lg object-cover"
+												className={getMessageImageClass(
+													imageParts.length,
+													"h-[300px] aspect-auto",
+												)}
 											/>
 										</ImageZoom>
 									);
@@ -1090,7 +1131,7 @@ export const ChatUI = ({
 			ref={floatingInput ? inputRef : undefined}
 			className={
 				floatingInput
-					? "absolute bottom-0 left-0 right-0 z-10 px-4 pb-0"
+					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4"
 					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
 			}
 		>
@@ -1098,13 +1139,18 @@ export const ChatUI = ({
 				layout
 				className={
 					floatingInput
-						? "max-w-4xl mx-auto px-4 pb-0 pt-2 bg-background"
+						? "mx-auto w-full max-w-4xl px-0 pb-0 pt-2 bg-background sm:px-4"
 						: undefined
 				}
 				transition={{ duration: 0.18, ease: "easeOut" }}
 			>
 				<PromptInput
 					key={`prompt-input-${supportsImages ? "img" : ""}${supportsAudio ? "aud" : ""}`}
+					className={
+						floatingInput
+							? "[&_[data-slot=input-group]]:rounded-none sm:[&_[data-slot=input-group]]:rounded-md"
+							: undefined
+					}
 					accept={
 						supportsImages && supportsAudio
 							? "image/*,audio/*"

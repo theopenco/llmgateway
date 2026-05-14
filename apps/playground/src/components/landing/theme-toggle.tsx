@@ -8,33 +8,68 @@ import { cn } from "@/lib/utils";
 
 interface ThemeToggleProps {
 	className?: string;
+	size?: "default" | "compact";
 }
 
-export function ThemeToggle({ className }: ThemeToggleProps) {
+export function ThemeToggle({ className, size = "default" }: ThemeToggleProps) {
 	const { theme, setTheme, systemTheme } = useTheme();
 	const [mounted, setMounted] = useState(false);
 	const currentTheme = theme === "system" ? systemTheme : theme;
 	const isDark = currentTheme === "dark";
+	const sizeClasses =
+		size === "compact"
+			? {
+					root: "h-7 w-14",
+					knob: "size-5",
+					icon: "size-3.5",
+					translate: "translate-x-7",
+					negativeTranslate: "-translate-x-7",
+				}
+			: {
+					root: "h-8 w-16",
+					knob: "size-6",
+					icon: "size-4",
+					translate: "translate-x-8",
+					negativeTranslate: "-translate-x-8",
+				};
 
 	useEffect(() => setMounted(true), []);
 
 	if (!mounted) {
 		return (
 			<div
+				aria-hidden="true"
 				className={cn(
-					"flex w-16 h-8 p-1 rounded-full cursor-pointer transition-all duration-300",
+					"flex p-1 rounded-full cursor-pointer transition-all duration-300",
+					sizeClasses.root,
 					"bg-white border border-zinc-200",
 					className,
 				)}
-				role="button"
-				tabIndex={0}
 			>
 				<div className="flex justify-between items-center w-full">
-					<div className="flex justify-center items-center w-6 h-6 rounded-full transition-transform duration-300 transform translate-x-8 bg-gray-200">
-						<Sun className="w-4 h-4 text-gray-700" strokeWidth={1.5} />
+					<div
+						className={cn(
+							"flex justify-center items-center rounded-full transition-transform duration-300 transform bg-gray-200",
+							sizeClasses.knob,
+							sizeClasses.translate,
+						)}
+					>
+						<Sun
+							className={cn(sizeClasses.icon, "text-gray-700")}
+							strokeWidth={1.5}
+						/>
 					</div>
-					<div className="flex justify-center items-center w-6 h-6 rounded-full transition-transform duration-300 transform -translate-x-8">
-						<Moon className="w-4 h-4 text-black" strokeWidth={1.5} />
+					<div
+						className={cn(
+							"flex justify-center items-center rounded-full transition-transform duration-300 transform",
+							sizeClasses.knob,
+							sizeClasses.negativeTranslate,
+						)}
+					>
+						<Moon
+							className={cn(sizeClasses.icon, "text-black")}
+							strokeWidth={1.5}
+						/>
 					</div>
 				</div>
 			</div>
@@ -42,46 +77,63 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
 	}
 
 	return (
-		<div
+		<button
+			aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
 			className={cn(
-				"flex w-16 h-8 p-1 rounded-full cursor-pointer transition-all duration-300",
+				"flex p-1 rounded-full cursor-pointer transition-all duration-300",
+				sizeClasses.root,
 				isDark
 					? "bg-zinc-950 border border-zinc-800"
 					: "bg-white border border-zinc-200",
 				className,
 			)}
 			onClick={() => setTheme(isDark ? "light" : "dark")}
-			role="button"
-			tabIndex={0}
+			type="button"
 		>
 			<div className="flex justify-between items-center w-full">
 				<div
 					className={cn(
-						"flex justify-center items-center w-6 h-6 rounded-full transition-transform duration-300",
+						"flex justify-center items-center rounded-full transition-transform duration-300",
+						sizeClasses.knob,
 						isDark
 							? "transform translate-x-0 bg-zinc-800"
-							: "transform translate-x-8 bg-gray-200",
+							: `transform ${sizeClasses.translate} bg-gray-200`,
 					)}
 				>
 					{isDark ? (
-						<Moon className="w-4 h-4 text-white" strokeWidth={1.5} />
+						<Moon
+							className={cn(sizeClasses.icon, "text-white")}
+							strokeWidth={1.5}
+						/>
 					) : (
-						<Sun className="w-4 h-4 text-gray-700" strokeWidth={1.5} />
+						<Sun
+							className={cn(sizeClasses.icon, "text-gray-700")}
+							strokeWidth={1.5}
+						/>
 					)}
 				</div>
 				<div
 					className={cn(
-						"flex justify-center items-center w-6 h-6 rounded-full transition-transform duration-300",
-						isDark ? "bg-transparent" : "transform -translate-x-8",
+						"flex justify-center items-center rounded-full transition-transform duration-300",
+						sizeClasses.knob,
+						isDark
+							? "bg-transparent"
+							: `transform ${sizeClasses.negativeTranslate}`,
 					)}
 				>
 					{isDark ? (
-						<Sun className="w-4 h-4 text-gray-500" strokeWidth={1.5} />
+						<Sun
+							className={cn(sizeClasses.icon, "text-gray-500")}
+							strokeWidth={1.5}
+						/>
 					) : (
-						<Moon className="w-4 h-4 text-black" strokeWidth={1.5} />
+						<Moon
+							className={cn(sizeClasses.icon, "text-black")}
+							strokeWidth={1.5}
+						/>
 					)}
 				</div>
 			</div>
-		</div>
+		</button>
 	);
 }

@@ -1129,6 +1129,7 @@ export interface paths {
                                 cachedInputCost?: number | null;
                                 cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
+                                contentFilterCost?: number | null;
                                 imageInputTokens: string | null;
                                 audioInputTokens: string | null;
                                 imageOutputTokens: string | null;
@@ -1382,6 +1383,7 @@ export interface paths {
                                 cachedInputCost?: number | null;
                                 cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
+                                contentFilterCost?: number | null;
                                 imageInputTokens: string | null;
                                 audioInputTokens: string | null;
                                 imageOutputTokens: string | null;
@@ -2277,6 +2279,7 @@ export interface paths {
                                 cacheWriteInputCost: number | null;
                                 requestCost: number | null;
                                 webSearchCost: number | null;
+                                contentFilterCost: number | null;
                                 imageInputCost: number | null;
                                 imageOutputCost: number | null;
                                 videoOutputCost: number | null;
@@ -3379,17 +3382,6 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Personal organizations cannot be disabled. */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            message: string;
-                        };
-                    };
-                };
                 /** @description Organization not found. */
                 404: {
                     headers: {
@@ -3434,17 +3426,6 @@ export interface paths {
                         "application/json": {
                             message: string;
                             cancelledSubscriptionIds: string[];
-                        };
-                    };
-                };
-                /** @description Personal organizations cannot be blocked. */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            message: string;
                         };
                     };
                 };
