@@ -34,28 +34,6 @@ interface ShareChatDialogProps {
 	previewPrompt?: string | null;
 }
 
-const URL_DISPLAY_PREFIX = "https://chat.llmgateway.io/share/";
-
-function truncateShareUrl(url: string): string {
-	if (!url) {
-		return "";
-	}
-	try {
-		const parsed = new URL(url);
-		const segments = parsed.pathname.split("/").filter(Boolean);
-		const last = segments[segments.length - 1] ?? "";
-		const shortId = last.length > 8 ? `${last.slice(0, 6)}…` : last;
-		const builtPrefix = `${parsed.origin}/${segments.slice(0, -1).join("/")}/`;
-		const displayPrefix =
-			builtPrefix.length > URL_DISPLAY_PREFIX.length
-				? URL_DISPLAY_PREFIX
-				: builtPrefix;
-		return `${displayPrefix}${shortId}`;
-	} catch {
-		return url.length > 40 ? `${url.slice(0, 37)}…` : url;
-	}
-}
-
 function XIcon(props: React.SVGProps<SVGSVGElement>) {
 	return (
 		<svg
@@ -93,9 +71,9 @@ function ShareSocialButton({ href, label, children }: ShareSocialButtonProps) {
 			href={href}
 			target="_blank"
 			rel="noopener noreferrer"
-			className="group flex flex-col items-center gap-2"
+			className="group flex w-full flex-col items-center gap-1.5 sm:gap-2"
 		>
-			<span className="bg-foreground text-background flex size-12 items-center justify-center rounded-full transition-transform group-hover:scale-105 sm:size-14">
+			<span className="bg-foreground text-background flex size-11 items-center justify-center rounded-full transition-transform group-hover:scale-105 sm:size-14">
 				{children}
 			</span>
 			<span className="text-foreground text-xs font-medium sm:text-sm">
@@ -138,10 +116,6 @@ export function ShareChatDialog({
 		return `${window.location.origin}/share/${shareId}`;
 	}, [shareId]);
 	const activeShareUrl = createdShareUrl ?? shareUrl;
-	const truncatedDisplayUrl = useMemo(
-		() => truncateShareUrl(activeShareUrl),
-		[activeShareUrl],
-	);
 
 	const previewTitle = useMemo(() => {
 		const trimmed = chatTitle?.trim();
@@ -236,15 +210,15 @@ export function ShareChatDialog({
 					<p>{isShared ? "Public link active" : "Share chat"}</p>
 				</TooltipContent>
 			</Tooltip>
-			<DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[520px]">
-				<DialogHeader className="px-5 pt-5 sm:px-6 sm:pt-6">
-					<DialogTitle className="pr-8 text-lg font-semibold sm:text-xl">
+			<DialogContent className="w-[calc(100vw-2rem)] max-w-[520px] min-w-0 gap-0 overflow-hidden p-0">
+				<DialogHeader className="px-5 pt-5 text-left sm:px-6 sm:pt-6">
+					<DialogTitle className="pb-2 pr-8 text-left text-lg font-semibold sm:text-xl">
 						{previewTitle}
 					</DialogTitle>
 				</DialogHeader>
 				{isShared && activeShareUrl ? (
-					<div className="space-y-5 px-5 pb-5 sm:px-6 sm:pb-6">
-						<div className="bg-muted/60 border-border/60 relative overflow-hidden rounded-2xl border p-4 sm:p-5">
+					<div className="min-w-0 space-y-5 px-5 pb-5 sm:px-6 sm:pb-6">
+						<div className="bg-muted/60 border-border/60 relative min-w-0 overflow-hidden rounded-2xl border p-4 sm:p-5">
 							{previewText ? (
 								<p className="text-foreground/90 line-clamp-4 text-sm leading-relaxed sm:text-[15px]">
 									{previewText}
@@ -256,7 +230,7 @@ export function ShareChatDialog({
 								</p>
 							)}
 						</div>
-						<div className="bg-muted/40 border-border/60 flex items-center gap-2 rounded-full border px-3 py-2">
+						<div className="bg-muted/40 border-border/60 flex min-w-0 items-center gap-2 rounded-full border px-3 py-2">
 							<a
 								href={activeShareUrl}
 								target="_blank"
@@ -264,7 +238,7 @@ export function ShareChatDialog({
 								className="text-foreground min-w-0 flex-1 truncate text-sm"
 								title={activeShareUrl}
 							>
-								{truncatedDisplayUrl}
+								{activeShareUrl}
 							</a>
 							<Button
 								type="button"
@@ -281,13 +255,13 @@ export function ShareChatDialog({
 								)}
 							</Button>
 						</div>
-						<div className="flex items-center justify-around gap-2">
+						<div className="grid min-w-0 grid-cols-4 gap-2 sm:gap-3">
 							<button
 								type="button"
 								onClick={() => copyLink(activeShareUrl)}
-								className="group flex flex-col items-center gap-2"
+								className="group flex w-full flex-col items-center gap-1.5 sm:gap-2"
 							>
-								<span className="bg-foreground text-background flex size-12 items-center justify-center rounded-full transition-transform group-hover:scale-105 sm:size-14">
+								<span className="bg-foreground text-background flex size-11 items-center justify-center rounded-full transition-transform group-hover:scale-105 sm:size-14">
 									{copied ? (
 										<Check className="size-5" />
 									) : (
@@ -310,7 +284,7 @@ export function ShareChatDialog({
 						</div>
 						<div className="text-muted-foreground flex gap-2 text-xs leading-relaxed">
 							<Info className="mt-0.5 size-3.5 shrink-0" />
-							<p>
+							<p className="min-w-0">
 								Anyone with this link can open the snapshot. Avoid sharing
 								private details, and remove the link when it should no longer be
 								available.
@@ -335,14 +309,14 @@ export function ShareChatDialog({
 						</div>
 					</div>
 				) : (
-					<div className="space-y-4 px-5 pb-5 sm:px-6 sm:pb-6">
+					<div className="min-w-0 space-y-4 px-5 pb-5 sm:px-6 sm:pb-6">
 						<p className="text-muted-foreground text-sm">
 							Only messages up to this point will be shared. Anyone with the
 							link will be able to see the snapshot.
 						</p>
 						<div className="text-muted-foreground flex gap-2 text-xs leading-relaxed">
 							<Info className="mt-0.5 size-3.5 shrink-0" />
-							<p>
+							<p className="min-w-0">
 								Avoid sharing private details — once the link is created you can
 								copy it and share it on X, LinkedIn, or Reddit.
 							</p>

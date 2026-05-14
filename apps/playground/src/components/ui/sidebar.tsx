@@ -55,10 +55,7 @@ function useSidebar() {
 	return context;
 }
 
-function getDefaultOpen(): boolean {
-	if (typeof document === "undefined") {
-		return true;
-	}
+function getStoredOpen(): boolean {
 	const match = document.cookie.match(
 		new RegExp(`(?:^|; )${SIDEBAR_COOKIE_NAME}=([^;]*)`),
 	);
@@ -83,7 +80,7 @@ function SidebarProvider({
 
 	// This is the internal state of the sidebar.
 	// We use openProp and setOpenProp for control from outside the component.
-	const [_open, _setOpen] = React.useState(defaultOpen ?? getDefaultOpen());
+	const [_open, _setOpen] = React.useState(defaultOpen ?? true);
 	const open = openProp ?? _open;
 	const setOpen = React.useCallback(
 		(value: boolean | ((value: boolean) => boolean)) => {
@@ -99,6 +96,14 @@ function SidebarProvider({
 		},
 		[setOpenProp, open],
 	);
+
+	React.useEffect(() => {
+		if (defaultOpen !== undefined || openProp !== undefined) {
+			return;
+		}
+
+		_setOpen(getStoredOpen());
+	}, [defaultOpen, openProp]);
 
 	// Helper to toggle the sidebar.
 	const toggleSidebar = React.useCallback(() => {
