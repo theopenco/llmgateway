@@ -4,7 +4,7 @@
 
 **Goal:** Add compliance and trust documentation (terms URL, privacy policy URL, certifications, data policy, additional links) to each LLM provider definition, sync to DB, and display on the provider detail page.
 
-**Architecture:** Extend the existing `ProviderDefinition` interface in `packages/models/src/providers.ts` with a `compliance` field. Add corresponding columns to the `provider` DB table. Extend the worker sync and API response. Add a new UI section on `/providers/[id]`.
+**Architecture:** Extend the existing `ProviderDefinition` interface in `packages/models/src/providers.ts` with a nested `compliance` field (source of truth). Add corresponding **flat** columns to the `provider` DB table (the worker maps `providerDef.compliance?.termsUrl` → `termsUrl` column). The API returns flat fields. The UI provider detail page reads directly from the models package (SSG) using `provider.compliance?.termsUrl`, not from the API. Each compliance entry includes `sourceUrl` + `verifiedOn` for provenance tracking.
 
 **Tech Stack:** TypeScript, Drizzle ORM (PostgreSQL), Hono API, Next.js (React Server Components), Tailwind CSS
 
@@ -55,6 +55,8 @@ export interface ProviderCompliance {
 	certifications?: Certification[];
 	dataPolicy?: string | null;
 	additionalLinks?: ProviderComplianceLink[];
+	sourceUrl?: string;
+	verifiedOn?: string; // ISO date (YYYY-MM-DD) when last verified
 }
 ```
 
@@ -93,6 +95,8 @@ compliance: {
 		{ label: "Enterprise Privacy", url: "https://openai.com/enterprise-privacy" },
 		{ label: "Security Portal", url: "https://trust.openai.com" },
 	],
+	sourceUrl: "https://trust.openai.com",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -108,6 +112,8 @@ compliance: {
 		{ label: "Usage Policy", url: "https://www.anthropic.com/policies/usage-policy" },
 		{ label: "Security Practices", url: "https://trust.anthropic.com" },
 	],
+	sourceUrl: "https://trust.anthropic.com",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -123,6 +129,8 @@ compliance: {
 		{ label: "Google Cloud Data Processing Terms", url: "https://cloud.google.com/terms/data-processing-addendum" },
 		{ label: "AI Terms of Service", url: "https://ai.google.dev/gemini-api/terms" },
 	],
+	sourceUrl: "https://ai.google.dev/gemini-api/terms",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -138,6 +146,8 @@ compliance: {
 		{ label: "Cloud Data Processing Addendum", url: "https://cloud.google.com/terms/data-processing-addendum" },
 		{ label: "Compliance Offerings", url: "https://cloud.google.com/security/compliance" },
 	],
+	sourceUrl: "https://cloud.google.com/security/compliance",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -153,6 +163,8 @@ compliance: {
 		{ label: "Cloud Data Processing Addendum", url: "https://cloud.google.com/terms/data-processing-addendum" },
 		{ label: "Vertex AI Terms", url: "https://cloud.google.com/terms/service-terms" },
 	],
+	sourceUrl: "https://cloud.google.com/terms/service-terms",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -169,6 +181,8 @@ compliance: {
 		{ label: "AWS Compliance Programs", url: "https://aws.amazon.com/compliance/programs" },
 		{ label: "AWS Data Processing Addendum", url: "https://d1.awsstatic.com/legal/aws-dpa/aws-dpa.pdf" },
 	],
+	sourceUrl: "https://docs.aws.amazon.com/bedrock/latest/userguide/data-protection.html",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -185,6 +199,8 @@ compliance: {
 		{ label: "Azure Compliance", url: "https://learn.microsoft.com/en-us/azure/compliance" },
 		{ label: "Microsoft DPA", url: "https://www.microsoft.com/licensing/docs/view/Microsoft-Products-and-Services-Data-Protection-Addendum-DPA" },
 	],
+	sourceUrl: "https://learn.microsoft.com/en-us/legal/cognitive-services/openai/data-privacy",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -200,6 +216,8 @@ compliance: {
 		{ label: "Azure AI Terms", url: "https://learn.microsoft.com/en-us/legal/cognitive-services/openai/data-privacy" },
 		{ label: "Azure Compliance", url: "https://learn.microsoft.com/en-us/azure/compliance" },
 	],
+	sourceUrl: "https://learn.microsoft.com/en-us/legal/cognitive-services/openai/data-privacy",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -214,6 +232,8 @@ compliance: {
 	additionalLinks: [
 		{ label: "Data Processing Agreement", url: "https://mistral.ai/terms/#data-processing-agreement" },
 	],
+	sourceUrl: "https://mistral.ai/terms",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -226,6 +246,8 @@ compliance: {
 	certifications: ["soc2-type2"],
 	dataPolicy: "Groq does not use API inputs or outputs to train models. Data is processed in the US. Prompts and responses are not stored after the request completes.",
 	additionalLinks: [],
+	sourceUrl: "https://groq.com/privacy-policy",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -238,6 +260,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "DeepSeek may use API inputs for model improvement unless opted out. Data is stored on servers in China. Retention policies are subject to Chinese data laws.",
 	additionalLinks: [],
+	sourceUrl: "https://www.deepseek.com/privacy-policy",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -250,6 +274,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "xAI may use API interactions to improve models unless otherwise agreed. Specific retention periods are not publicly documented.",
 	additionalLinks: [],
+	sourceUrl: "https://x.ai/legal/privacy-policy",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -262,6 +288,8 @@ compliance: {
 	certifications: ["soc2-type2"],
 	dataPolicy: "Perplexity does not use API data to train models. Data is processed in the US.",
 	additionalLinks: [],
+	sourceUrl: "https://www.perplexity.ai/hub/legal/privacy-policy",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -274,6 +302,8 @@ compliance: {
 	certifications: ["soc2-type2"],
 	dataPolicy: "Cerebras does not use customer data to train models. Inference data is not persisted after the request completes.",
 	additionalLinks: [],
+	sourceUrl: "https://cerebras.ai/privacy-policy",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -286,6 +316,8 @@ compliance: {
 	certifications: ["soc2-type2", "gdpr"],
 	dataPolicy: "Together AI does not use customer data to train models. Data is processed in the US. Prompts and outputs are not logged or stored after request completion.",
 	additionalLinks: [],
+	sourceUrl: "https://www.together.ai/privacy-policy",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -301,6 +333,8 @@ compliance: {
 		{ label: "Trust Center", url: "https://www.alibabacloud.com/trust-center" },
 		{ label: "Compliance", url: "https://www.alibabacloud.com/trust-center/compliance" },
 	],
+	sourceUrl: "https://www.alibabacloud.com/trust-center/compliance",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -313,6 +347,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "NovitaAI does not use customer data for model training. Specific data retention policies are documented in their terms of service.",
 	additionalLinks: [],
+	sourceUrl: "https://novita.ai/legal/terms-of-service",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -325,6 +361,8 @@ compliance: {
 	certifications: ["gdpr", "iso27001"],
 	dataPolicy: "Nebius AI does not use customer inputs to train models. Data is processed in EU-based data centers.",
 	additionalLinks: [],
+	sourceUrl: "https://nebius.com/legal/privacy-policy",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -337,6 +375,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "Data is processed and stored on servers in China. Subject to Chinese data protection regulations.",
 	additionalLinks: [],
+	sourceUrl: "https://platform.moonshot.cn/docs/terms",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -351,6 +391,8 @@ compliance: {
 	additionalLinks: [
 		{ label: "Trust Center", url: "https://www.byteplus.com/en/trust-center" },
 	],
+	sourceUrl: "https://www.byteplus.com/en/trust-center",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -363,6 +405,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "Data is processed in China. Subject to Chinese data protection regulations.",
 	additionalLinks: [],
+	sourceUrl: "https://www.minimax.io/terms-of-service",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -375,6 +419,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "Inference.net does not store prompts or outputs after request completion. No data is used for model training.",
 	additionalLinks: [],
+	sourceUrl: "https://inference.net/terms",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -387,6 +433,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "NanoGPT acts as an aggregator routing to various providers. Data handling depends on the underlying model provider.",
 	additionalLinks: [],
+	sourceUrl: "https://nano-gpt.com/terms",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -399,6 +447,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "EmberCloud does not store prompts or outputs after request completion.",
 	additionalLinks: [],
+	sourceUrl: "https://www.embercloud.ai/terms",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -411,6 +461,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "Data is processed in China. Subject to Chinese data protection regulations.",
 	additionalLinks: [],
+	sourceUrl: "https://platform.xiaomimimo.com/terms",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -423,6 +475,8 @@ compliance: {
 	certifications: [],
 	dataPolicy: "Z AI data retention and usage policies are documented in their terms of service.",
 	additionalLinks: [],
+	sourceUrl: "https://z.ai/terms",
+	verifiedOn: "2026-05-14",
 },
 ```
 
@@ -438,12 +492,18 @@ compliance: {
 	certifications: ["gdpr"],
 	dataPolicy: "LLM Gateway routes requests to upstream providers. Request data is logged for usage tracking with configurable retention. No data is used for model training.",
 	additionalLinks: [],
+	sourceUrl: "https://llmgateway.io/terms",
+	verifiedOn: "2026-05-14",
 },
 
 // glacier, quartz, avalanche, custom - no compliance field (undefined)
 ```
 
-- [ ] **Step 28: Commit**
+- [ ] **Step 28: Validate all entries have sourceUrl and verifiedOn**
+
+Every compliance object must have `sourceUrl` and `verifiedOn` populated. Entries missing these fields are considered **unverified** and must not be published to production. During implementation, verify all URLs are reachable.
+
+- [ ] **Step 29: Commit**
 
 ```bash
 git add packages/models/src/providers.ts
@@ -467,6 +527,8 @@ privacyPolicyUrl: text(),
 certifications: text().array(),
 dataPolicy: text(),
 additionalLinks: jsonb().$type<{ label: string; url: string }[]>(),
+sourceUrl: text(),
+verifiedOn: text(),
 ```
 
 - [ ] **Step 2: Run schema sync**
@@ -500,6 +562,8 @@ privacyPolicyUrl: providerDef.compliance?.privacyPolicyUrl ?? null,
 certifications: providerDef.compliance?.certifications ?? null,
 dataPolicy: providerDef.compliance?.dataPolicy ?? null,
 additionalLinks: providerDef.compliance?.additionalLinks ?? null,
+sourceUrl: providerDef.compliance?.sourceUrl ?? null,
+verifiedOn: providerDef.compliance?.verifiedOn ?? null,
 
 // Add to .onConflictDoUpdate set:
 termsUrl: providerDef.compliance?.termsUrl ?? null,
@@ -507,7 +571,11 @@ privacyPolicyUrl: providerDef.compliance?.privacyPolicyUrl ?? null,
 certifications: providerDef.compliance?.certifications ?? null,
 dataPolicy: providerDef.compliance?.dataPolicy ?? null,
 additionalLinks: providerDef.compliance?.additionalLinks ?? null,
+sourceUrl: providerDef.compliance?.sourceUrl ?? null,
+verifiedOn: providerDef.compliance?.verifiedOn ?? null,
 ```
+
+> **Note on flat-vs-nested:** The models package uses a nested `compliance` object (source of truth). The DB stores these as flat columns on the `provider` table. The worker maps `providerDef.compliance?.fieldName` → flat column. The API returns flat fields. The UI provider detail page reads directly from `providerDefinitions` (SSG, not API), so it uses `provider.compliance?.fieldName`.
 
 - [ ] **Step 2: Commit**
 
@@ -544,6 +612,8 @@ const providerSchema = z.object({
 	additionalLinks: z
 		.array(z.object({ label: z.string(), url: z.string() }))
 		.nullable(),
+	sourceUrl: z.string().nullable(),
+	verifiedOn: z.string().nullable(),
 });
 ```
 
@@ -580,6 +650,8 @@ export interface ApiProvider {
 	certifications: string[] | null;
 	dataPolicy: string | null;
 	additionalLinks: { label: string; url: string }[] | null;
+	sourceUrl: string | null;
+	verifiedOn: string | null;
 }
 ```
 
@@ -757,7 +829,9 @@ Add import at top:
 import { ComplianceSection } from "@/components/providers/compliance-section";
 ```
 
-Insert the compliance section between `<Hero>` and the models section in the JSX:
+Insert the compliance section between `<Hero>` and the models section in the JSX.
+
+Note: The provider page uses SSG and reads directly from `providerDefinitions` (the models package), which has the nested `compliance` object. It does NOT use the flat API fields. This is intentional — the page is statically generated at build time.
 
 ```tsx
 <Navbar />

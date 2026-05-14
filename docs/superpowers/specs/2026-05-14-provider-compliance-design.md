@@ -19,12 +19,19 @@ type Certification =
   | "fedramp"
   | "pci-dss";
 
+interface ProviderComplianceLink {
+  label: string;
+  url: string;
+}
+
 interface ProviderCompliance {
   termsUrl?: string | null;
   privacyPolicyUrl?: string | null;
   certifications?: Certification[];
   dataPolicy?: string | null;
-  additionalLinks?: { label: string; url: string }[];
+  additionalLinks?: ProviderComplianceLink[];
+  sourceUrl?: string;
+  verifiedOn?: string; // ISO date string (YYYY-MM-DD)
 }
 ```
 
@@ -37,6 +44,8 @@ interface ProviderCompliance {
 | `certifications` | `Certification[]` | Array of compliance certifications the provider holds |
 | `dataPolicy` | `string \| null` | Free-text description of prompt logging/storage policy |
 | `additionalLinks` | `{ label, url }[]` | Extra compliance-related links (DPA, data protection docs, etc.) |
+| `sourceUrl` | `string` | URL to the provider's primary compliance/trust page used to verify claims |
+| `verifiedOn` | `string` | ISO date (YYYY-MM-DD) when the compliance data was last verified |
 
 ### Certification Enum Values
 
@@ -56,9 +65,11 @@ Add columns to the existing `provider` table in `packages/db/src/schema.ts`:
 ```typescript
 termsUrl: text(),
 privacyPolicyUrl: text(),
-certifications: text().$type<string[]>().array(),
+certifications: text().array(),
 dataPolicy: text(),
 additionalLinks: jsonb().$type<{ label: string; url: string }[]>(),
+sourceUrl: text(),
+verifiedOn: text(),
 ```
 
 ## Sync Logic
@@ -84,6 +95,20 @@ The section only renders if at least one compliance field is populated.
 ## Data Population
 
 All ~40 providers will have their compliance data researched and populated. For providers where information is not publicly available, fields will be left as `undefined`.
+
+### Verification & Freshness Policy
+
+Every compliance entry **must** include:
+
+- **`sourceUrl`** — The primary URL used to verify the compliance claims (e.g., the provider's trust center, terms page, or security documentation). Entries missing this field are considered **unverified** and must not be published to production.
+- **`verifiedOn`** — The ISO date (YYYY-MM-DD) when the entry was last verified against the source.
+
+**Review cadence:** All compliance entries must be re-verified at least every 90 days. During review:
+1. Visit the `sourceUrl` and confirm all claims (certifications, data policy, URLs) still hold.
+2. Update `verifiedOn` to the current date.
+3. Update any fields that have changed.
+
+**Staleness rule:** Entries with `verifiedOn` older than 90 days should be flagged in the UI with a "last verified" date and internally flagged for re-review.
 
 ## Files to Modify
 
