@@ -4546,6 +4546,10 @@ chat.openapi(completions, async (c) => {
 						0,
 						project.organizationId,
 						image_config?.image_quality,
+						null,
+						null,
+						undefined,
+						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
 						streamingCosts.promptTokens ?? promptTokenCount,
@@ -4586,6 +4590,7 @@ chat.openapi(completions, async (c) => {
 							cacheWriteInputCost: streamingCosts.cacheWriteInputCost,
 							requestCost: streamingCosts.requestCost,
 							webSearchCost: streamingCosts.webSearchCost,
+							contentFilterCost: streamingCosts.contentFilterCost,
 							imageInputCost: streamingCosts.imageInputCost,
 							imageOutputCost: streamingCosts.imageOutputCost,
 							audioInputCost: streamingCosts.audioInputCost,
@@ -5404,6 +5409,39 @@ chat.openapi(completions, async (c) => {
 						);
 						const attemptLogId = shortid();
 
+						const contentFilterPromptTokens =
+							finishReason === "content_filter"
+								? (estimateTokens(usedProvider, messages, null, null, 0)
+										.calculatedPromptTokens ?? null)
+								: null;
+						const contentFilterCosts =
+							finishReason === "content_filter"
+								? await calculateCosts(
+										usedModel,
+										usedProvider,
+										Math.max(1, Math.round(contentFilterPromptTokens ?? 1)),
+										0,
+										null,
+										{
+											prompt: messages
+												.map((m) => messageContentToString(m.content))
+												.join("\n"),
+											completion: "",
+										},
+										null,
+										0,
+										image_config?.image_size,
+										inputImageCount,
+										0,
+										project.organizationId,
+										image_config?.image_quality,
+										null,
+										null,
+										undefined,
+										true,
+									)
+								: null;
+
 						await insertLogEntry({
 							...baseLogEntry,
 							id: attemptLogId,
@@ -5414,21 +5452,9 @@ chat.openapi(completions, async (c) => {
 							content: null,
 							reasoningContent: null,
 							finishReason,
-							promptTokens:
-								finishReason === "content_filter"
-									? (
-											estimateTokens(usedProvider, messages, null, null, 0)
-												.calculatedPromptTokens ?? null
-										)?.toString()
-									: null,
+							promptTokens: contentFilterPromptTokens?.toString() ?? null,
 							completionTokens: null,
-							totalTokens:
-								finishReason === "content_filter"
-									? (
-											estimateTokens(usedProvider, messages, null, null, 0)
-												.calculatedPromptTokens ?? null
-										)?.toString()
-									: null,
+							totalTokens: contentFilterPromptTokens?.toString() ?? null,
 							reasoningTokens: null,
 							cachedTokens: null,
 							hasError: finishReason !== "content_filter", // content_filter is not an error
@@ -5442,14 +5468,18 @@ chat.openapi(completions, async (c) => {
 											statusText: res.statusText,
 											responseText: errorResponseText,
 										},
-							cachedInputCost: null,
-							requestCost: null,
-							webSearchCost: null,
+							cost: contentFilterCosts?.totalCost ?? null,
+							inputCost: contentFilterCosts?.inputCost ?? null,
+							outputCost: contentFilterCosts?.outputCost ?? null,
+							cachedInputCost: contentFilterCosts?.cachedInputCost ?? null,
+							requestCost: contentFilterCosts?.requestCost ?? null,
+							webSearchCost: contentFilterCosts?.webSearchCost ?? null,
+							contentFilterCost: contentFilterCosts?.contentFilterCost ?? null,
 							imageInputTokens: null,
 							imageOutputTokens: null,
-							imageInputCost: null,
-							imageOutputCost: null,
-							discount: null,
+							imageInputCost: contentFilterCosts?.imageInputCost ?? null,
+							imageOutputCost: contentFilterCosts?.imageOutputCost ?? null,
+							discount: contentFilterCosts?.discount ?? null,
 							dataStorageCost: "0",
 							cached: false,
 							toolResults: null,
@@ -7600,6 +7630,7 @@ chat.openapi(completions, async (c) => {
 										cacheWriteInputCost: null,
 										requestCost: null,
 										webSearchCost: null,
+										contentFilterCost: null,
 										imageInputTokens: null,
 										imageOutputTokens: null,
 										imageInputCost: null,
@@ -7644,6 +7675,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 										},
+										finishReason === "content_filter",
 									);
 						if (streamingCostsEarly.totalCost !== null) {
 							streamingCostsEarly.dataStorageCost = toDataStorageCostNumber(
@@ -7737,6 +7769,7 @@ chat.openapi(completions, async (c) => {
 												streamingCostsEarly.cacheWriteInputCost,
 											requestCost: streamingCostsEarly.requestCost,
 											webSearchCost: streamingCostsEarly.webSearchCost,
+											contentFilterCost: streamingCostsEarly.contentFilterCost,
 											imageInputCost: streamingCostsEarly.imageInputCost,
 											imageOutputCost: streamingCostsEarly.imageOutputCost,
 											audioInputCost: streamingCostsEarly.audioInputCost,
@@ -7916,6 +7949,7 @@ chat.openapi(completions, async (c) => {
 									cacheWriteInputCost: null,
 									requestCost: null,
 									webSearchCost: null,
+									contentFilterCost: null,
 									imageInputTokens: null,
 									imageOutputTokens: null,
 									imageInputCost: null,
@@ -7960,6 +7994,7 @@ chat.openapi(completions, async (c) => {
 										audioInputTokens,
 										cachedAudioInputTokens,
 									},
+									finishReason === "content_filter",
 								));
 
 					// Use costs.promptTokens as canonical value (includes image input
@@ -8121,6 +8156,7 @@ chat.openapi(completions, async (c) => {
 						cacheWriteInputCost: costs.cacheWriteInputCost,
 						requestCost: costs.requestCost,
 						webSearchCost: costs.webSearchCost,
+						contentFilterCost: costs.contentFilterCost ?? null,
 						imageInputTokens: costs.imageInputTokens?.toString() ?? null,
 						imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 						imageInputCost: costs.imageInputCost ?? null,
@@ -8938,6 +8974,39 @@ chat.openapi(completions, async (c) => {
 			);
 			const attemptLogId = shortid();
 
+			const nonStreamContentFilterPromptTokens =
+				finishReason === "content_filter"
+					? (estimateTokens(usedProvider, messages, null, null, 0)
+							.calculatedPromptTokens ?? null)
+					: null;
+			const nonStreamContentFilterCosts =
+				finishReason === "content_filter"
+					? await calculateCosts(
+							usedModel,
+							usedProvider,
+							Math.max(1, Math.round(nonStreamContentFilterPromptTokens ?? 1)),
+							0,
+							null,
+							{
+								prompt: messages
+									.map((m) => messageContentToString(m.content))
+									.join("\n"),
+								completion: "",
+							},
+							null,
+							0,
+							image_config?.image_size,
+							inputImageCount,
+							0,
+							project.organizationId,
+							image_config?.image_quality,
+							null,
+							null,
+							undefined,
+							true,
+						)
+					: null;
+
 			await insertLogEntry({
 				...baseLogEntry,
 				id: attemptLogId,
@@ -8948,9 +9017,9 @@ chat.openapi(completions, async (c) => {
 				content: null,
 				reasoningContent: null,
 				finishReason,
-				promptTokens: null,
+				promptTokens: nonStreamContentFilterPromptTokens?.toString() ?? null,
 				completionTokens: null,
-				totalTokens: null,
+				totalTokens: nonStreamContentFilterPromptTokens?.toString() ?? null,
 				reasoningTokens: null,
 				cachedTokens: null,
 				hasError: finishReason !== "content_filter", // content_filter is not an error
@@ -8981,15 +9050,20 @@ chat.openapi(completions, async (c) => {
 						responseText: errorResponseText,
 					};
 				})(),
-				cachedInputCost: null,
-				requestCost: null,
-				webSearchCost: null,
+				cost: nonStreamContentFilterCosts?.totalCost ?? null,
+				inputCost: nonStreamContentFilterCosts?.inputCost ?? null,
+				outputCost: nonStreamContentFilterCosts?.outputCost ?? null,
+				cachedInputCost: nonStreamContentFilterCosts?.cachedInputCost ?? null,
+				requestCost: nonStreamContentFilterCosts?.requestCost ?? null,
+				webSearchCost: nonStreamContentFilterCosts?.webSearchCost ?? null,
+				contentFilterCost:
+					nonStreamContentFilterCosts?.contentFilterCost ?? null,
 				imageInputTokens: null,
 				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				estimatedCost: false,
-				discount: null,
+				imageInputCost: nonStreamContentFilterCosts?.imageInputCost ?? null,
+				imageOutputCost: nonStreamContentFilterCosts?.imageOutputCost ?? null,
+				estimatedCost: nonStreamContentFilterCosts?.estimatedCost ?? false,
+				discount: nonStreamContentFilterCosts?.discount ?? null,
 				dataStorageCost: "0",
 				cached: false,
 				toolResults: null,
@@ -9059,6 +9133,33 @@ chat.openapi(completions, async (c) => {
 			// For content_filter, return a proper completion response (not an error)
 			// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
 			if (finishReason === "content_filter") {
+				const cfPromptTokens = Math.max(
+					1,
+					Math.round(nonStreamContentFilterPromptTokens ?? 1),
+				);
+				const contentFilterUsage: Record<string, any> = {
+					prompt_tokens: cfPromptTokens,
+					completion_tokens: 0,
+					total_tokens: cfPromptTokens,
+				};
+				if (nonStreamContentFilterCosts) {
+					applyExtendedUsageFields(contentFilterUsage, {
+						costs: {
+							inputCost: nonStreamContentFilterCosts.inputCost,
+							outputCost: nonStreamContentFilterCosts.outputCost,
+							cachedInputCost: nonStreamContentFilterCosts.cachedInputCost,
+							requestCost: nonStreamContentFilterCosts.requestCost,
+							webSearchCost: nonStreamContentFilterCosts.webSearchCost,
+							contentFilterCost: nonStreamContentFilterCosts.contentFilterCost,
+							imageInputCost: nonStreamContentFilterCosts.imageInputCost,
+							imageOutputCost: nonStreamContentFilterCosts.imageOutputCost,
+							totalCost: nonStreamContentFilterCosts.totalCost,
+						},
+						cachedTokens: null,
+						cacheCreationTokens: null,
+						reasoningTokens: null,
+					});
+				}
 				return c.json({
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
@@ -9074,11 +9175,7 @@ chat.openapi(completions, async (c) => {
 							finish_reason: "content_filter",
 						},
 					],
-					usage: {
-						prompt_tokens: 0,
-						completion_tokens: 0,
-						total_tokens: 0,
-					},
+					usage: contentFilterUsage,
 					metadata: {
 						request_id: requestId,
 						requested_model: initialRequestedModel,
@@ -9683,6 +9780,7 @@ chat.openapi(completions, async (c) => {
 			audioInputTokens,
 			cachedAudioInputTokens,
 		},
+		finishReason === "content_filter",
 	);
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
@@ -9737,6 +9835,7 @@ chat.openapi(completions, async (c) => {
 					cacheWriteInputCost: costs.cacheWriteInputCost,
 					requestCost: costs.requestCost,
 					webSearchCost: costs.webSearchCost,
+					contentFilterCost: costs.contentFilterCost,
 					imageInputCost: costs.imageInputCost,
 					imageOutputCost: costs.imageOutputCost,
 					audioInputCost: costs.audioInputCost,
@@ -9889,6 +9988,7 @@ chat.openapi(completions, async (c) => {
 		cacheWriteInputCost: costs.cacheWriteInputCost,
 		requestCost: costs.requestCost,
 		webSearchCost: costs.webSearchCost,
+		contentFilterCost: costs.contentFilterCost ?? null,
 		imageInputTokens: costs.imageInputTokens?.toString() ?? null,
 		imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 		imageInputCost: costs.imageInputCost ?? null,

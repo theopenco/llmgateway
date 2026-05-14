@@ -110,6 +110,7 @@ describe("Rate Limiting", () => {
 				devPlanExpiresAt: null,
 				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
+				devPlanCardFingerprint: null,
 				lastTopUpAmount: null,
 			});
 
@@ -170,6 +171,7 @@ describe("Rate Limiting", () => {
 				devPlanExpiresAt: null,
 				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
+				devPlanCardFingerprint: null,
 				lastTopUpAmount: null,
 			});
 			vi.mocked(redis.zcard).mockResolvedValue(0);
@@ -231,6 +233,7 @@ describe("Rate Limiting", () => {
 				devPlanExpiresAt: null,
 				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
+				devPlanCardFingerprint: null,
 				lastTopUpAmount: null,
 			});
 
@@ -286,6 +289,7 @@ describe("Rate Limiting", () => {
 				devPlanExpiresAt: null,
 				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
+				devPlanCardFingerprint: null,
 				lastTopUpAmount: null,
 			});
 
@@ -349,6 +353,7 @@ describe("Rate Limiting", () => {
 				devPlanExpiresAt: null,
 				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
+				devPlanCardFingerprint: null,
 				lastTopUpAmount: null,
 			});
 
@@ -412,6 +417,7 @@ describe("Rate Limiting", () => {
 				devPlanExpiresAt: null,
 				devPlanCycle: "monthly" as const,
 				devPlanAllowAllModels: false,
+				devPlanCardFingerprint: null,
 				lastTopUpAmount: null,
 			});
 			vi.mocked(redis.zremrangebyscore).mockRejectedValue(

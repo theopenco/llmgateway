@@ -993,4 +993,54 @@ describe("calculateCosts", () => {
 		// 1.05e-6 + 1.8e-6 = 2.85e-6
 		expect(result.totalCost).toBe(2.85e-6);
 	});
+
+	it("does not charge contentFilterCost when not triggered", async () => {
+		const result = await calculateCosts(
+			"grok-3",
+			"xai",
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			undefined,
+			false,
+		);
+
+		expect(result.contentFilterCost).toBe(0);
+	});
+
+	it("charges xAI's $0.05 contentFilterCost when triggered", async () => {
+		const result = await calculateCosts(
+			"grok-3",
+			"xai",
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			undefined,
+			true,
+		);
+
+		expect(result.contentFilterCost).toBeCloseTo(0.05);
+		// Total includes the content filter fee in addition to input cost.
+		expect(result.totalCost).toBeCloseTo((result.inputCost ?? 0) + 0.05);
+	});
 });
