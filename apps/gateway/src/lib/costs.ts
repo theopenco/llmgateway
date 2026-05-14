@@ -34,18 +34,18 @@ export function shouldBillCancelledRequests(): boolean {
  */
 function getPricingForTokenCount(
 	pricingTiers: PricingTier[] | undefined,
-	baseInputPrice: number,
-	baseOutputPrice: number,
-	baseCachedInputPrice: number | undefined,
-	baseCacheWriteInputPrice: number | undefined,
-	baseCacheWriteInputPrice1h: number | undefined,
+	baseInputPrice: string,
+	baseOutputPrice: string,
+	baseCachedInputPrice: string | undefined,
+	baseCacheWriteInputPrice: string | undefined,
+	baseCacheWriteInputPrice1h: string | undefined,
 	promptTokens: number,
 ): {
-	inputPrice: number;
-	outputPrice: number;
-	cachedInputPrice: number | undefined;
-	cacheWriteInputPrice: number | undefined;
-	cacheWriteInputPrice1h: number | undefined;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string | undefined;
+	cacheWriteInputPrice: string | undefined;
+	cacheWriteInputPrice1h: string | undefined;
 	tierName: string | undefined;
 } {
 	if (!pricingTiers || pricingTiers.length === 0) {
@@ -120,10 +120,15 @@ export async function calculateCosts(
 	options?: {
 		cacheWriteTokens?: number | null;
 		cacheWrite1hTokens?: number | null;
+		audioInputTokens?: number | null;
+		cachedAudioInputTokens?: number | null;
 	},
+	contentFilterTriggered = false,
 ) {
 	const cacheWriteTokens = options?.cacheWriteTokens ?? null;
 	const cacheWrite1hTokens = options?.cacheWrite1hTokens ?? null;
+	const audioInputTokens = options?.audioInputTokens ?? null;
+	const cachedAudioInputTokens = options?.cachedAudioInputTokens ?? null;
 
 	// Find the model info - try both base model name and provider model name
 	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
@@ -148,10 +153,13 @@ export async function calculateCosts(
 			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			contentFilterCost: null,
 			imageInputTokens: null,
 			imageOutputTokens: null,
 			imageInputCost: null,
 			imageOutputCost: null,
+			audioInputTokens: null,
+			audioInputCost: null,
 			totalCost: null,
 			dataStorageCost: null as number | null,
 			promptTokens,
@@ -222,10 +230,13 @@ export async function calculateCosts(
 			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			contentFilterCost: null,
 			imageInputTokens: null,
 			imageOutputTokens: null,
 			imageInputCost: null,
 			imageOutputCost: null,
+			audioInputTokens: null,
+			audioInputCost: null,
 			totalCost: null,
 			dataStorageCost: null as number | null,
 			promptTokens: calculatedPromptTokens,
@@ -263,10 +274,13 @@ export async function calculateCosts(
 			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			contentFilterCost: null,
 			imageInputTokens: null,
 			imageOutputTokens: null,
 			imageInputCost: null,
 			imageOutputCost: null,
+			audioInputTokens: null,
+			audioInputCost: null,
 			totalCost: null,
 			dataStorageCost: null as number | null,
 			promptTokens: calculatedPromptTokens,
@@ -282,8 +296,8 @@ export async function calculateCosts(
 	// Get pricing based on token count (supports tiered pricing)
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
-		providerInfo.inputPrice ?? 0,
-		providerInfo.outputPrice ?? 0,
+		providerInfo.inputPrice ?? "0",
+		providerInfo.outputPrice ?? "0",
 		providerInfo.cachedInputPrice,
 		providerInfo.cacheWriteInputPrice,
 		providerInfo.cacheWriteInputPrice1h,
@@ -306,11 +320,11 @@ export async function calculateCosts(
 		pricing.cacheWriteInputPrice1h !== undefined
 			? new Decimal(pricing.cacheWriteInputPrice1h)
 			: cacheWriteInputPrice;
-	const requestPrice = new Decimal(providerInfo.requestPrice ?? 0);
+	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
 	// Get effective discount (checks org-specific, global, then hardcoded)
 	// Pass both the root model ID and the provider-specific model name for matching
-	const hardcodedDiscount = providerInfo.discount ?? 0;
+	const hardcodedDiscount = providerInfo.discount ?? "0";
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
@@ -398,7 +412,20 @@ export async function calculateCosts(
 			Math.round(cachedReadTokens * imageRatio),
 		);
 	}
-	const cachedTextTokens = cachedReadTokens - cachedImageTokens;
+	// Cached audio tokens (Google reports these via cacheTokensDetails[] with
+	// modality=AUDIO). They're a subset of cachedReadTokens and must be billed
+	// at the model's cachedInputAudioPrice rather than the cheaper text-cache
+	// rate. When the upstream split is missing, we fall back to 0 cached audio
+	// rather than over-attributing.
+	const reportedCachedAudio = cachedAudioInputTokens ?? 0;
+	const audioCacheable = audioInputTokens ?? 0;
+	const safeCachedAudioTokens = Math.min(
+		reportedCachedAudio,
+		audioCacheable,
+		Math.max(0, cachedReadTokens - cachedImageTokens),
+	);
+	const cachedTextTokens =
+		cachedReadTokens - cachedImageTokens - safeCachedAudioTokens;
 	const uncachedImageTokens = imageInputTokens
 		? Math.max(0, imageInputTokens - cachedImageTokens)
 		: 0;
@@ -408,15 +435,34 @@ export async function calculateCosts(
 			.times(imageInputPricePerToken)
 			.times(discountMultiplier);
 	}
-	const billableTextPromptTokens =
-		promptIncludesImageTokens && imageInputTokens
-			? Math.max(0, uncachedPromptTokens - uncachedImageTokens)
-			: uncachedPromptTokens;
-	// inputCost includes both text and image input costs when applicable
+	// Audio input tokens are reported separately by Google and OpenAI but are
+	// included in the upstream prompt-token total, so we subtract them from the
+	// text-billable count and price them at inputAudioPrice (falling back to
+	// inputPrice when the model doesn't price audio separately). Cached audio
+	// portion is billed via cachedInputAudioPrice in cachedInputCost below.
+	const audioInputPricePerToken =
+		providerInfo.inputAudioPrice ?? pricing.inputPrice;
+	const billableAudioInputTokens = audioInputTokens
+		? Math.max(0, audioInputTokens - safeCachedAudioTokens)
+		: 0;
+	let audioInputCost: Decimal | null = null;
+	if (billableAudioInputTokens > 0 && audioInputPricePerToken) {
+		audioInputCost = new Decimal(billableAudioInputTokens)
+			.times(audioInputPricePerToken)
+			.times(discountMultiplier);
+	}
+	const billableTextPromptTokens = Math.max(
+		0,
+		(promptIncludesImageTokens && imageInputTokens
+			? uncachedPromptTokens - uncachedImageTokens
+			: uncachedPromptTokens) - billableAudioInputTokens,
+	);
+	// inputCost includes text, image, and audio input costs when applicable
 	const inputCost = new Decimal(billableTextPromptTokens)
 		.times(inputPrice)
 		.times(discountMultiplier)
-		.plus(imageInputCost ?? 0);
+		.plus(imageInputCost ?? 0)
+		.plus(audioInputCost ?? 0);
 
 	// For Google models, completionTokens already includes reasoning tokens
 	// (merged during extraction). For other providers, add reasoning separately.
@@ -470,11 +516,20 @@ export async function calculateCosts(
 		cachedImageInputPricePerToken !== undefined
 			? new Decimal(cachedImageInputPricePerToken)
 			: cachedInputPrice;
+	const cachedInputAudioPriceDecimal =
+		providerInfo.cachedInputAudioPrice !== undefined
+			? new Decimal(providerInfo.cachedInputAudioPrice)
+			: cachedInputPrice;
 	const cachedInputCost = cachedTokens
 		? new Decimal(cachedTextTokens)
 				.times(cachedInputPrice)
 				.plus(
 					new Decimal(cachedImageTokens).times(cachedImageInputPriceDecimal),
+				)
+				.plus(
+					new Decimal(safeCachedAudioTokens).times(
+						cachedInputAudioPriceDecimal,
+					),
 				)
 				.times(discountMultiplier)
 		: new Decimal(0);
@@ -510,6 +565,12 @@ export async function calculateCosts(
 			? webSearchPrice.times(webSearchCount).times(discountMultiplier)
 			: new Decimal(0);
 
+	// Provider content filter fee, e.g. xAI's $0.05 per usage-policy rejection.
+	const contentFilterPrice = new Decimal(providerInfo.contentFilterPrice ?? 0);
+	const contentFilterCost = contentFilterTriggered
+		? contentFilterPrice.times(discountMultiplier)
+		: new Decimal(0);
+
 	// Note: inputCost already includes imageInputCost and outputCost already
 	// includes imageOutputCost when applicable, so they are not added separately.
 	const totalCost = inputCost
@@ -517,7 +578,8 @@ export async function calculateCosts(
 		.plus(cachedInputCost)
 		.plus(cacheWriteInputCost)
 		.plus(requestCost)
-		.plus(webSearchCost);
+		.plus(webSearchCost)
+		.plus(contentFilterCost);
 
 	return {
 		inputCost: inputCost.toNumber(),
@@ -526,10 +588,13 @@ export async function calculateCosts(
 		cacheWriteInputCost: cacheWriteInputCost.toNumber(),
 		requestCost: requestCost.toNumber(),
 		webSearchCost: webSearchCost.toNumber(),
+		contentFilterCost: contentFilterCost.toNumber(),
 		imageInputTokens,
 		imageOutputTokens,
 		imageInputCost: imageInputCost?.toNumber() ?? null,
 		imageOutputCost: imageOutputCost?.toNumber() ?? null,
+		audioInputTokens,
+		audioInputCost: audioInputCost?.toNumber() ?? null,
 		totalCost: totalCost.toNumber(),
 		dataStorageCost: null as number | null,
 		// Only add image input tokens to promptTokens for providers whose upstream
@@ -547,7 +612,7 @@ export async function calculateCosts(
 		cachedTokens,
 		cacheWriteTokens,
 		estimatedCost: isEstimated,
-		discount: discount !== 0 ? discount : undefined,
+		discount: Number(discount) !== 0 ? Number(discount) : undefined,
 		pricingTier: pricing.tierName,
 	};
 }

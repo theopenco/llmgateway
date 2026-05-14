@@ -195,6 +195,11 @@ export const Navbar = ({
 			description: "Connect and manage your provider API keys.",
 		},
 		{
+			title: "Apps",
+			href: "/apps",
+			description: "Browse apps and tools that work with LLM Gateway.",
+		},
+		{
 			title: "Models",
 			href: "/models",
 			description: "Browse all available LLM models and capabilities.",

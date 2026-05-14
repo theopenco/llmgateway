@@ -78,6 +78,46 @@ function getErrorCode(error: unknown): string | undefined {
 	return undefined;
 }
 
+function safeStringifyError(error: unknown): string {
+	if (error === null || error === undefined) {
+		return "Unknown error";
+	}
+
+	if (typeof error === "string") {
+		return error;
+	}
+
+	if (typeof error !== "object") {
+		return String(error);
+	}
+
+	if (error instanceof Error) {
+		return error.message || error.name || "Unknown error";
+	}
+
+	const candidate = error as { message?: unknown; error?: unknown };
+	if (typeof candidate.message === "string" && candidate.message.length > 0) {
+		return candidate.message;
+	}
+	if (typeof candidate.error === "string" && candidate.error.length > 0) {
+		return candidate.error;
+	}
+
+	try {
+		const serialized = JSON.stringify(error);
+		if (serialized && serialized !== "{}") {
+			return serialized;
+		}
+	} catch {
+		// fall through to constructor name fallback
+	}
+
+	const ctorName =
+		(error as { constructor?: { name?: string } }).constructor?.name ??
+		"Object";
+	return `[unserializable ${ctorName}]`;
+}
+
 function isUpstreamTermination(error: unknown, cause?: string): boolean {
 	if (!(error instanceof Error)) {
 		return false;
@@ -101,9 +141,14 @@ export function normalizeStreamingError(
 ): NormalizedStreamingError {
 	const { error, provider, model, bufferSnapshot, phase } = options;
 
-	const errorName = error instanceof Error ? error.name : "UnknownError";
-	const rawMessage =
-		error instanceof Error ? error.message : String(error ?? "Unknown error");
+	const errorName =
+		error instanceof Error
+			? error.name
+			: error && typeof error === "object"
+				? ((error as { constructor?: { name?: string } }).constructor?.name ??
+					"UnknownError")
+				: "UnknownError";
+	const rawMessage = safeStringifyError(error);
 	const cause = extractErrorCause(error);
 	const errorCode = getErrorCode(error);
 

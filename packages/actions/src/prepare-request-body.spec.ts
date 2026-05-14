@@ -886,6 +886,112 @@ describe("prepareRequestBody - MiniMax", () => {
 	});
 });
 
+describe("prepareRequestBody - function tool parameter normalization", () => {
+	test("should default missing parameters to a JSON Schema object for DeepSeek", async () => {
+		const requestBody = (await prepareRequestBody(
+			"deepseek",
+			"deepseek-chat",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function" as const,
+					function: {
+						name: "web_search",
+						description: "Search the web",
+					},
+				},
+			],
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as { tools?: any[] };
+
+		expect(requestBody.tools).toBeDefined();
+		expect(requestBody.tools?.[0].function.parameters).toEqual({
+			type: "object",
+			properties: {},
+		});
+	});
+
+	test("should rewrite parameters with type: null to type: object", async () => {
+		const requestBody = (await prepareRequestBody(
+			"deepseek",
+			"deepseek-chat",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function" as const,
+					function: {
+						name: "web_search",
+						description: "Search the web",
+						parameters: { type: null as unknown as string },
+					},
+				},
+			],
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as { tools?: any[] };
+
+		expect(requestBody.tools?.[0].function.parameters).toEqual({
+			type: "object",
+			properties: {},
+		});
+	});
+
+	test("should preserve valid object parameters as-is", async () => {
+		const params = {
+			type: "object",
+			properties: { query: { type: "string" } },
+			required: ["query"],
+		};
+		const requestBody = (await prepareRequestBody(
+			"deepseek",
+			"deepseek-chat",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function" as const,
+					function: {
+						name: "web_search",
+						description: "Search the web",
+						parameters: params,
+					},
+				},
+			],
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as { tools?: any[] };
+
+		expect(requestBody.tools?.[0].function.parameters).toEqual(params);
+	});
+});
+
 describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
 		const requestBody = (await prepareRequestBody(

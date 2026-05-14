@@ -10,6 +10,12 @@ export interface DetailStats {
 	clientErrorsCount: number;
 	gatewayErrorsCount: number;
 	upstreamErrorsCount: number;
+	completedCount?: number;
+	lengthLimitCount?: number;
+	contentFilterCount?: number;
+	toolCallsCount?: number;
+	canceledCount?: number;
+	unknownFinishCount?: number;
 	cachedCount: number;
 	avgTimeToFirstToken: number | null;
 }
@@ -76,6 +82,39 @@ export function DetailStatCards({
 				<StatCard
 					label="Upstream Errors"
 					value={formatNumber(stats.upstreamErrorsCount)}
+					loading={loading}
+				/>
+			</section>
+
+			<section className="grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
+				<StatCard
+					label="Completed"
+					value={formatNumber(stats.completedCount ?? 0)}
+					loading={loading}
+				/>
+				<StatCard
+					label="Length Limit"
+					value={formatNumber(stats.lengthLimitCount ?? 0)}
+					loading={loading}
+				/>
+				<StatCard
+					label="Content Filter"
+					value={formatNumber(stats.contentFilterCount ?? 0)}
+					loading={loading}
+				/>
+				<StatCard
+					label="Tool Calls"
+					value={formatNumber(stats.toolCallsCount ?? 0)}
+					loading={loading}
+				/>
+				<StatCard
+					label="Canceled"
+					value={formatNumber(stats.canceledCount ?? 0)}
+					loading={loading}
+				/>
+				<StatCard
+					label="Unknown"
+					value={formatNumber(stats.unknownFinishCount ?? 0)}
 					loading={loading}
 				/>
 			</section>

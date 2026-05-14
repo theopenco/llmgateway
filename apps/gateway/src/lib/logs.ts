@@ -87,11 +87,18 @@ export function getUnifiedFinishReason(
 		case "google-vertex":
 		case "quartz":
 			// Google finish reasons (original format, not mapped to OpenAI)
-			if (finishReason === "STOP") {
+			if (finishReason === "STOP" || finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
 			}
-			if (finishReason === "MAX_TOKENS") {
+			if (finishReason === "MAX_TOKENS" || finishReason === "length") {
 				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (
+				finishReason === "MALFORMED_FUNCTION_CALL" ||
+				finishReason === "UNEXPECTED_TOOL_CALL" ||
+				finishReason === "tool_calls"
+			) {
+				return UnifiedFinishReason.TOOL_CALLS;
 			}
 			if (
 				finishReason === "SAFETY" ||
@@ -132,6 +139,20 @@ export function getUnifiedFinishReason(
 			}
 			if (finishReason === "error") {
 				return UnifiedFinishReason.UPSTREAM_ERROR;
+			}
+			break;
+		case "zai":
+			if (finishReason === "stop") {
+				return UnifiedFinishReason.COMPLETED;
+			}
+			if (finishReason === "length" || finishReason === "incomplete") {
+				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (finishReason === "tool_calls") {
+				return UnifiedFinishReason.TOOL_CALLS;
+			}
+			if (finishReason === "sensitive" || finishReason === "content_filter") {
+				return UnifiedFinishReason.CONTENT_FILTER;
 			}
 			break;
 		default: // OpenAI format (also used by inference.net and other providers)

@@ -159,30 +159,30 @@ export function ProviderCard({
 							{provider.inputPrice ? (
 								<div className="space-y-1">
 									<div className="flex items-center gap-2">
-										{provider.discount ? (
+										{Number(provider.discount ?? "0") > 0 ? (
 											<>
 												<span className="line-through text-muted-foreground text-xs">
-													${(provider.inputPrice * 1e6).toFixed(2)}
+													${(Number(provider.inputPrice) * 1e6).toFixed(2)}
 												</span>
 												<span className="text-green-600 font-semibold">
 													$
 													{(
-														provider.inputPrice *
+														Number(provider.inputPrice) *
 														1e6 *
-														(1 - provider.discount)
+														(1 - Number(provider.discount))
 													).toFixed(2)}
 												</span>
 											</>
 										) : (
-											`$${(provider.inputPrice * 1e6).toFixed(2)}`
+											`$${(Number(provider.inputPrice) * 1e6).toFixed(2)}`
 										)}
 									</div>
-									{provider.discount && (
+									{Number(provider.discount ?? "0") > 0 && (
 										<Badge
 											variant="secondary"
 											className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 border-green-200"
 										>
-											-{(provider.discount * 100).toFixed(0)}% off
+											-{(Number(provider.discount) * 100).toFixed(0)}% off
 										</Badge>
 									)}
 								</div>
@@ -197,30 +197,30 @@ export function ProviderCard({
 							{provider.outputPrice ? (
 								<div className="space-y-1">
 									<div className="flex items-center gap-2">
-										{provider.discount ? (
+										{Number(provider.discount ?? "0") > 0 ? (
 											<>
 												<span className="line-through text-muted-foreground text-xs">
-													${(provider.outputPrice * 1e6).toFixed(2)}
+													${(Number(provider.outputPrice) * 1e6).toFixed(2)}
 												</span>
 												<span className="text-green-600 font-semibold">
 													$
 													{(
-														provider.outputPrice *
+														Number(provider.outputPrice) *
 														1e6 *
-														(1 - provider.discount)
+														(1 - Number(provider.discount))
 													).toFixed(2)}
 												</span>
 											</>
 										) : (
-											`$${(provider.outputPrice * 1e6).toFixed(2)}`
+											`$${(Number(provider.outputPrice) * 1e6).toFixed(2)}`
 										)}
 									</div>
-									{provider.discount && (
+									{Number(provider.discount ?? "0") > 0 && (
 										<Badge
 											variant="secondary"
 											className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 border-green-200"
 										>
-											-{(provider.discount * 100).toFixed(0)}% off
+											-{(Number(provider.discount) * 100).toFixed(0)}% off
 										</Badge>
 									)}
 								</div>

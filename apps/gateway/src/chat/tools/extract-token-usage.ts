@@ -73,6 +73,8 @@ export function extractTokenUsage(
 	let cacheCreationTokens = null;
 	let cacheCreation5mTokens: number | null = null;
 	let cacheCreation1hTokens: number | null = null;
+	let audioInputTokens: number | null = null;
+	let cachedAudioInputTokens: number | null = null;
 
 	switch (provider) {
 		case "google-ai-studio":
@@ -85,6 +87,21 @@ export function extractTokenUsage(
 				reasoningTokens = data.usageMetadata.thoughtsTokenCount ?? null;
 				// Extract cached tokens from Google's implicit caching
 				cachedTokens = data.usageMetadata.cachedContentTokenCount ?? null;
+				if (Array.isArray(data.usageMetadata.promptTokensDetails)) {
+					for (const detail of data.usageMetadata.promptTokensDetails) {
+						if (detail?.modality === "AUDIO" && detail.tokenCount) {
+							audioInputTokens = (audioInputTokens ?? 0) + detail.tokenCount;
+						}
+					}
+				}
+				if (Array.isArray(data.usageMetadata.cacheTokensDetails)) {
+					for (const detail of data.usageMetadata.cacheTokensDetails) {
+						if (detail?.modality === "AUDIO" && detail.tokenCount) {
+							cachedAudioInputTokens =
+								(cachedAudioInputTokens ?? 0) + detail.tokenCount;
+						}
+					}
+				}
 
 				// Adjust for inconsistent Google API behavior where
 				// candidatesTokenCount may already include thoughtsTokenCount
@@ -214,5 +231,7 @@ export function extractTokenUsage(
 		cacheCreationTokens,
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
+		audioInputTokens,
+		cachedAudioInputTokens,
 	};
 }

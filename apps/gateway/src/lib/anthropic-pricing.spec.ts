@@ -12,9 +12,10 @@ const LEGACY_RATIO_EXCEPTIONS = new Set(["claude-3-haiku-20240307"]);
 function assertRatio(
 	modelName: string,
 	label: string,
-	actual: number,
+	actualStr: string,
 	expected: number,
 ) {
+	const actual = Number(actualStr);
 	expect(
 		actual,
 		`${modelName} ${label}: expected ${expected} (got ${actual}). If Anthropic's published price diverges from the standard multiplier, add the modelName to LEGACY_RATIO_EXCEPTIONS.`,
@@ -78,7 +79,7 @@ describe("Anthropic model pricing", () => {
 			if (provider.inputPrice === undefined) {
 				return;
 			}
-			const base = provider.inputPrice;
+			const base = Number(provider.inputPrice);
 			if (provider.cacheWriteInputPrice !== undefined) {
 				assertRatio(
 					provider.modelName,
@@ -107,7 +108,7 @@ describe("Anthropic model pricing", () => {
 				if (tier.inputPrice === undefined) {
 					continue;
 				}
-				const tierBase = tier.inputPrice;
+				const tierBase = Number(tier.inputPrice);
 				const label = `tier "${tier.name}"`;
 				if (tier.cacheWriteInputPrice !== undefined) {
 					assertRatio(
@@ -197,7 +198,7 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 			if (provider.inputPrice === undefined) {
 				return;
 			}
-			const base = provider.inputPrice;
+			const base = Number(provider.inputPrice);
 			if (provider.cacheWriteInputPrice !== undefined) {
 				assertRatio(
 					provider.modelName,

@@ -490,6 +490,168 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/chats/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active public shared chats (id + updatedAt) for sitemaps. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            shares: {
+                                id: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/chats/share/{shareId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    shareId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Public shared chat snapshot. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            share: {
+                                id: string;
+                                title: string;
+                                model: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                                messages: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    role: "user" | "assistant" | "system";
+                                    content: string | null;
+                                    images: string | null;
+                                    audios?: string | null;
+                                    reasoning: string | null;
+                                    tools: string | null;
+                                    metadata?: {
+                                        [key: string]: unknown;
+                                    } | null;
+                                    sequence: number;
+                                    /** Format: date-time */
+                                    createdAt: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+                /** @description Shared chat not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregated token usage per app/source across all LLM Gateway traffic. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            apps: {
+                                source: string;
+                                totalTokens: number;
+                                totalRequests: number;
+                                lastUsedAt: string | null;
+                            }[];
+                            totalApps: number;
+                            totalTokens: number;
+                            totalRequests: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -881,6 +1043,7 @@ export interface paths {
                             logs: {
                                 id: string;
                                 requestId: string;
+                                traceId?: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                                 organizationId: string;
@@ -966,9 +1129,12 @@ export interface paths {
                                 cachedInputCost?: number | null;
                                 cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
+                                contentFilterCost?: number | null;
                                 imageInputTokens: string | null;
+                                audioInputTokens: string | null;
                                 imageOutputTokens: string | null;
                                 imageInputCost: number | null;
+                                audioInputCost: number | null;
                                 imageOutputCost: number | null;
                                 videoOutputCost: number | null;
                                 videoDownloadCount: number | null;
@@ -1131,6 +1297,7 @@ export interface paths {
                             log: {
                                 id: string;
                                 requestId: string;
+                                traceId?: string | null;
                                 createdAt: string;
                                 updatedAt: string;
                                 organizationId: string;
@@ -1216,9 +1383,12 @@ export interface paths {
                                 cachedInputCost?: number | null;
                                 cacheWriteInputCost?: number | null;
                                 webSearchCost?: number | null;
+                                contentFilterCost?: number | null;
                                 imageInputTokens: string | null;
+                                audioInputTokens: string | null;
                                 imageOutputTokens: string | null;
                                 imageInputCost: number | null;
+                                audioInputCost: number | null;
                                 imageOutputCost: number | null;
                                 videoOutputCost: number | null;
                                 videoDownloadCount: number | null;
@@ -1352,6 +1522,7 @@ export interface paths {
                                 requestCost: number;
                                 dataStorageCost: number;
                                 imageInputCost: number;
+                                audioInputCost: number;
                                 imageOutputCost: number;
                                 videoOutputCost: number;
                                 cachedInputCost: number;
@@ -2089,6 +2260,7 @@ export interface paths {
                                 usedProvider: string;
                                 usedModelMapping: string | null;
                                 requestId: string | null;
+                                traceId: string | null;
                                 projectId: string;
                                 organizationId: string;
                                 apiKeyId: string;
@@ -2107,6 +2279,7 @@ export interface paths {
                                 cacheWriteInputCost: number | null;
                                 requestCost: number | null;
                                 webSearchCost: number | null;
+                                contentFilterCost: number | null;
                                 imageInputCost: number | null;
                                 imageOutputCost: number | null;
                                 videoOutputCost: number | null;
@@ -3074,6 +3247,12 @@ export interface paths {
                                 clientErrorsCount: number;
                                 gatewayErrorsCount: number;
                                 upstreamErrorsCount: number;
+                                completedCount: number;
+                                lengthLimitCount: number;
+                                contentFilterCount: number;
+                                toolCallsCount: number;
+                                canceledCount: number;
+                                unknownFinishCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 providerCount: number;
@@ -3203,14 +3382,50 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Personal organizations cannot be disabled. */
-                403: {
+                /** @description Organization not found. */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
                             message: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/block": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization blocked, subscriptions cancelled, access disabled. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            cancelledSubscriptionIds: string[];
                         };
                     };
                 };
@@ -3227,6 +3442,10 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/admin/providers/{providerId}/history": {
@@ -3514,6 +3733,12 @@ export interface paths {
                                 clientErrorsCount: number;
                                 gatewayErrorsCount: number;
                                 upstreamErrorsCount: number;
+                                completedCount: number;
+                                lengthLimitCount: number;
+                                contentFilterCount: number;
+                                toolCallsCount: number;
+                                canceledCount: number;
+                                unknownFinishCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
                                 updatedAt: string;
@@ -4512,6 +4737,7 @@ export interface paths {
                                 mrr: number;
                                 realCost: number;
                                 margin: number;
+                                marginPct: number | null;
                                 subscribedSince: string | null;
                                 tierChanges: number;
                                 lastPaymentFailureAt: string | null;
@@ -4535,9 +4761,64 @@ export interface paths {
                                 totalRealCostCycle: number;
                                 totalMrrCycle: number;
                                 totalMargin: number;
+                                marginPct: number | null;
                             };
                             limit: number;
                             offset: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/devpass/timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description DevPass revenue/cost/margin per day. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: {
+                                date: string;
+                                revenue: number;
+                                cost: number;
+                                margin: number;
+                            }[];
+                            totals: {
+                                revenue: number;
+                                cost: number;
+                                margin: number;
+                            };
+                            range: {
+                                from: string;
+                                to: string;
+                            };
                         };
                     };
                 };
@@ -4599,6 +4880,7 @@ export interface paths {
                                 mrr: number;
                                 realCost: number;
                                 margin: number;
+                                marginPct: number | null;
                                 subscribedSince: string | null;
                                 tierChanges: number;
                                 lastPaymentFailureAt: string | null;
@@ -7034,6 +7316,9 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                shareId: string | null;
+                                /** Format: date-time */
+                                sharedAt: string | null;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7078,6 +7363,9 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                shareId: string | null;
+                                /** Format: date-time */
+                                sharedAt: string | null;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7100,6 +7388,63 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chats/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    q?: string;
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Search user's chats */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            chats: {
+                                id: string;
+                                title: string;
+                                model: string;
+                                /** @enum {string} */
+                                status: "active" | "archived" | "deleted";
+                                webSearch: boolean;
+                                shareId: string | null;
+                                /** Format: date-time */
+                                sharedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                messageCount: number;
+                            }[];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7138,6 +7483,9 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                shareId: string | null;
+                                /** Format: date-time */
+                                sharedAt: string | null;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7150,8 +7498,12 @@ export interface paths {
                                 role: "user" | "assistant" | "system";
                                 content: string | null;
                                 images: string | null;
+                                audios: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
+                                metadata: {
+                                    [key: string]: unknown;
+                                } | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;
@@ -7233,6 +7585,9 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                shareId: string | null;
+                                /** Format: date-time */
+                                sharedAt: string | null;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7244,6 +7599,199 @@ export interface paths {
                 };
             };
         };
+        trace?: never;
+    };
+    "/chats/{id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Chat share snapshot. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            share: {
+                                id: string;
+                                url: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Chat share deleted successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chats/share/{shareId}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    shareId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Shared chat forked successfully. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            chat: {
+                                id: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Chat limit reached or validation error. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Shared chat not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chats/{id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Chat forked successfully. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            chat: {
+                                id: string;
+                            };
+                        };
+                    };
+                };
+                /** @description Chat limit reached or validation error. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Chat not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/chats/{id}/messages": {
@@ -7271,8 +7819,12 @@ export interface paths {
                         role: "user" | "assistant" | "system";
                         content?: string;
                         images?: string;
+                        audios?: string;
                         reasoning?: string;
                         tools?: string;
+                        metadata?: {
+                            [key: string]: unknown;
+                        };
                     };
                 };
             };
@@ -7290,8 +7842,12 @@ export interface paths {
                                 role: "user" | "assistant" | "system";
                                 content: string | null;
                                 images: string | null;
+                                audios: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
+                                metadata: {
+                                    [key: string]: unknown;
+                                } | null;
                                 sequence: number;
                                 /** Format: date-time */
                                 createdAt: string;
@@ -7305,6 +7861,69 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/chats/{id}/messages/{messageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    messageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        content?: string;
+                        images?: string;
+                        audios?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Message updated successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: {
+                                id: string;
+                                /** @enum {string} */
+                                role: "user" | "assistant" | "system";
+                                content: string | null;
+                                images: string | null;
+                                audios: string | null;
+                                reasoning: string | null;
+                                tools: string | null;
+                                metadata: {
+                                    [key: string]: unknown;
+                                } | null;
+                                sequence: number;
+                                /** Format: date-time */
+                                createdAt: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/subscriptions/create-pro-subscription": {
@@ -7867,6 +8486,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dev-plan-cancellation-feedback/eligibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Whether the user can submit cancellation feedback */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            eligible: boolean;
+                            subscriptionId: string | null;
+                            /** @enum {string|null} */
+                            previousDevPlan: "lite" | "pro" | "max" | null;
+                            existingFeedback: {
+                                /** @enum {string} */
+                                reason: "too_expensive" | "missing_features" | "not_using_enough" | "switched_alternative" | "other";
+                                comments: string | null;
+                                submittedAt: string;
+                            } | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev-plan-cancellation-feedback/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        reason: "too_expensive" | "missing_features" | "not_using_enough" | "switched_alternative" | "other";
+                        comments?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Feedback recorded */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audit-logs/{organizationId}": {
         parameters: {
             query?: never;
@@ -7907,7 +8617,7 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
                                 /** @enum {string} */
                                 resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
@@ -8847,6 +9557,7 @@ export interface operations {
                                 maxOutput: number | null;
                                 streaming: boolean;
                                 vision: boolean | null;
+                                audio: boolean | null;
                                 reasoning: boolean | null;
                                 reasoningOutput: string | null;
                                 tools: boolean | null;

@@ -821,6 +821,14 @@ export function LogDetailClient({
 												muted
 											/>
 										)}
+										{!!log.contentFilterCost &&
+											Number(log.contentFilterCost) > 0 && (
+												<Field
+													label="Content Filter Cost"
+													value={`$${Number(log.contentFilterCost).toFixed(8)}`}
+													muted
+												/>
+											)}
 										{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
 											<Field
 												label="Image Input Cost"
@@ -1006,6 +1014,19 @@ export function LogDetailClient({
 												label="Copy request ID"
 											/>
 										</span>
+									}
+								/>
+								<Field
+									label="Trace ID"
+									value={
+										log.traceId ? (
+											<span className="inline-flex items-center gap-2">
+												<span className="font-mono text-xs">{log.traceId}</span>
+												<CopyButton value={log.traceId} label="Copy trace ID" />
+											</span>
+										) : (
+											"—"
+										)
 									}
 								/>
 								<Field

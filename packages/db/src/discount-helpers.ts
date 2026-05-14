@@ -9,8 +9,8 @@ import { discount as discountTable } from "./schema.js";
  * Result of discount lookup with precedence information
  */
 export interface EffectiveDiscount {
-	/** The discount value (0-1, where 0.3 = 30% off) */
-	discount: number;
+	/** The discount value as a decimal-safe string (0-1, where "0.3" = 30% off) */
+	discount: string;
 	/** Source of the discount for debugging */
 	source:
 		| "org_provider_model"
@@ -49,7 +49,7 @@ export async function getEffectiveDiscount(
 	organizationId: string | null,
 	provider: string,
 	model: string,
-	hardcodedDiscount = 0,
+	hardcodedDiscount: string = "0",
 	providerModelName?: string,
 ): Promise<EffectiveDiscount> {
 	try {
@@ -125,7 +125,7 @@ export async function getEffectiveDiscount(
 			);
 			if (orgProviderModel) {
 				return {
-					discount: Number(orgProviderModel.discountPercent),
+					discount: orgProviderModel.discountPercent,
 					source: "org_provider_model",
 					discountId: orgProviderModel.id,
 				};
@@ -140,7 +140,7 @@ export async function getEffectiveDiscount(
 			);
 			if (orgProvider) {
 				return {
-					discount: Number(orgProvider.discountPercent),
+					discount: orgProvider.discountPercent,
 					source: "org_provider",
 					discountId: orgProvider.id,
 				};
@@ -155,7 +155,7 @@ export async function getEffectiveDiscount(
 			);
 			if (orgModel) {
 				return {
-					discount: Number(orgModel.discountPercent),
+					discount: orgModel.discountPercent,
 					source: "org_model",
 					discountId: orgModel.id,
 				};
@@ -171,7 +171,7 @@ export async function getEffectiveDiscount(
 		);
 		if (globalProviderModel) {
 			return {
-				discount: Number(globalProviderModel.discountPercent),
+				discount: globalProviderModel.discountPercent,
 				source: "global_provider_model",
 				discountId: globalProviderModel.id,
 			};
@@ -186,7 +186,7 @@ export async function getEffectiveDiscount(
 		);
 		if (globalProvider) {
 			return {
-				discount: Number(globalProvider.discountPercent),
+				discount: globalProvider.discountPercent,
 				source: "global_provider",
 				discountId: globalProvider.id,
 			};
@@ -201,14 +201,14 @@ export async function getEffectiveDiscount(
 		);
 		if (globalModel) {
 			return {
-				discount: Number(globalModel.discountPercent),
+				discount: globalModel.discountPercent,
 				source: "global_model",
 				discountId: globalModel.id,
 			};
 		}
 
 		// 7. Fall back to hardcoded discount
-		if (hardcodedDiscount > 0) {
+		if (Number(hardcodedDiscount) > 0) {
 			return {
 				discount: hardcodedDiscount,
 				source: "hardcoded",
@@ -216,7 +216,7 @@ export async function getEffectiveDiscount(
 		}
 
 		return {
-			discount: 0,
+			discount: "0",
 			source: "none",
 		};
 	} catch (error) {

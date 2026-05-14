@@ -12,8 +12,14 @@ import {
 
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
-import { notifyCreditsPurchased } from "./utils/discord.js";
 import {
+	notifyCreditsPurchased,
+	notifyDevPlanCancelled,
+	notifyDevPlanRenewed,
+	notifyDevPlanSubscribed,
+} from "./utils/discord.js";
+import {
+	generateDevPlanCancellationFeedbackEmailHtml,
 	generatePaymentFailureEmailHtml,
 	generateSubscriptionCancelledEmailHtml,
 	sendTransactionalEmail,
@@ -243,6 +249,92 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 	}
 });
 
+/**
+ * Resolve the card fingerprint used for a Stripe subscription. Returns null
+ * when the subscription is paid by a non-card payment method (SEPA, etc.) or
+ * when the payment method is missing for any reason.
+ */
+async function getSubscriptionCardFingerprint(
+	subscriptionId: string,
+): Promise<string | null> {
+	try {
+		const subscription = await getStripe().subscriptions.retrieve(
+			subscriptionId,
+			{ expand: ["default_payment_method"] },
+		);
+
+		const defaultPaymentMethod = subscription.default_payment_method;
+		let paymentMethod: Stripe.PaymentMethod | null = null;
+
+		if (defaultPaymentMethod) {
+			paymentMethod =
+				typeof defaultPaymentMethod === "string"
+					? await getStripe().paymentMethods.retrieve(defaultPaymentMethod)
+					: defaultPaymentMethod;
+		} else if (subscription.latest_invoice) {
+			const invoiceId =
+				typeof subscription.latest_invoice === "string"
+					? subscription.latest_invoice
+					: subscription.latest_invoice.id;
+			if (invoiceId) {
+				const invoice = await getStripe().invoices.retrieve(invoiceId, {
+					expand: ["payment_intent"],
+				});
+				const paymentIntent = (invoice as any).payment_intent as
+					| Stripe.PaymentIntent
+					| string
+					| null
+					| undefined;
+				const pi =
+					typeof paymentIntent === "string"
+						? await getStripe().paymentIntents.retrieve(paymentIntent)
+						: paymentIntent;
+				const pm = pi?.payment_method;
+				if (pm) {
+					paymentMethod =
+						typeof pm === "string"
+							? await getStripe().paymentMethods.retrieve(pm)
+							: pm;
+				}
+			}
+		}
+
+		if (!paymentMethod || paymentMethod.type !== "card") {
+			return null;
+		}
+		return paymentMethod.card?.fingerprint ?? null;
+	} catch (error) {
+		logger.error(
+			`Failed to resolve card fingerprint for subscription ${subscriptionId}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return null;
+	}
+}
+
+/**
+ * Cancel a Stripe dev plan subscription that was rejected because the card
+ * was already used by another organization. This only cancels the
+ * subscription — no refund or invoice void is issued here. Stripe's normal
+ * dispute / refund flow is the path for fee recovery.
+ */
+async function rejectDuplicateDevPlanSubscription(
+	subscriptionId: string,
+	reason: string,
+) {
+	try {
+		await getStripe().subscriptions.cancel(subscriptionId, {
+			invoice_now: false,
+			prorate: false,
+		});
+	} catch (error) {
+		logger.error(
+			`Failed to cancel duplicate dev plan subscription ${subscriptionId}: ${reason}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+}
+
 async function handleCheckoutSessionCompleted(
 	event: Stripe.CheckoutSessionCompletedEvent,
 ) {
@@ -293,6 +385,45 @@ async function handleCheckoutSessionCompleted(
 
 	try {
 		if (isDevPlan && devPlanTier) {
+			// Reject any DevPass subscription paid for with a card that already
+			// activated DevPass on another organization. Without this, a user
+			// can rotate accounts to multiply the included usage allowance.
+			const fingerprint = subscriptionId
+				? await getSubscriptionCardFingerprint(subscriptionId)
+				: null;
+
+			if (fingerprint) {
+				const conflictingOrg = await db.query.organization.findFirst({
+					where: {
+						devPlanCardFingerprint: { eq: fingerprint },
+						id: { ne: organizationId },
+					},
+				});
+
+				if (conflictingOrg) {
+					logger.warn(
+						`Rejecting duplicate dev plan subscription ${subscriptionId} for organization ${organizationId}: card fingerprint already claimed by organization ${conflictingOrg.id}`,
+					);
+					await rejectDuplicateDevPlanSubscription(
+						subscriptionId!,
+						"duplicate_card_fingerprint",
+					);
+					posthog.capture({
+						distinctId: "organization",
+						event: "dev_plan_blocked_duplicate_card",
+						groups: {
+							organization: organizationId,
+						},
+						properties: {
+							organization: organizationId,
+							conflictingOrganization: conflictingOrg.id,
+							subscriptionId,
+						},
+					});
+					return;
+				}
+			}
+
 			// Handle dev plan subscription
 			const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
 
@@ -306,6 +437,7 @@ async function handleCheckoutSessionCompleted(
 					devPlanStripeSubscriptionId: subscriptionId,
 					devPlanCancelled: false,
 					devPlanCycle,
+					devPlanCardFingerprint: fingerprint,
 				})
 				.where(eq(tables.organization.id, organizationId));
 
@@ -389,6 +521,21 @@ async function handleCheckoutSessionCompleted(
 					source: "stripe_checkout",
 				},
 			});
+
+			const subscribedEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (subscribedEmail) {
+				const subscribedUser = await db.query.user.findFirst({
+					where: { email: { eq: subscribedEmail } },
+				});
+				await notifyDevPlanSubscribed(
+					subscribedEmail,
+					subscribedUser?.name,
+					devPlanTier,
+					devPlanCycle,
+				);
+			}
 		} else {
 			// Handle regular pro subscription
 			// Skip setting plan to "pro" for personal orgs - they use devPlan field instead
@@ -1496,6 +1643,26 @@ async function handleInvoicePaymentSucceeded(
 
 	const { organizationId, organization } = result;
 
+	// Stripe fires both `checkout.session.completed` and
+	// `invoice.payment_succeeded` for the FIRST invoice of every new
+	// subscription. The checkout handler already inserts the
+	// `dev_plan_start` (or `subscription_start`) row and does the
+	// idempotent state setup, so re-running this handler for the same
+	// invoice would double-insert (and inflate admin revenue reporting)
+	// and also reset the just-set billing cycle. Bail out if a row for
+	// this invoice already exists, regardless of type.
+	if (invoice.id) {
+		const existingForInvoice = await db.query.transaction.findFirst({
+			where: { stripeInvoiceId: { eq: invoice.id } },
+		});
+		if (existingForInvoice) {
+			logger.info(
+				`Skipping invoice.payment_succeeded for ${invoice.id}: transaction ${existingForInvoice.id} (type=${existingForInvoice.type}) already recorded`,
+			);
+			return;
+		}
+	}
+
 	// Check if this is a dev plan subscription renewal
 	const isDevPlanRenewal =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
@@ -1552,6 +1719,17 @@ async function handleInvoicePaymentSucceeded(
 				source: "stripe_invoice",
 			},
 		});
+
+		if (organization.billingEmail) {
+			const renewedUser = await db.query.user.findFirst({
+				where: { email: { eq: organization.billingEmail } },
+			});
+			await notifyDevPlanRenewed(
+				organization.billingEmail,
+				renewedUser?.name,
+				organization.devPlan ?? "unknown",
+			);
+		}
 	} else {
 		// Handle regular pro subscription
 		// Create transaction record for subscription start
@@ -1789,7 +1967,7 @@ async function handleInvoicePaymentFailed(
 	);
 }
 
-async function handleSubscriptionUpdated(
+export async function handleSubscriptionUpdated(
 	event: Stripe.CustomerSubscriptionUpdatedEvent,
 ) {
 	const subscription = event.data.object;
@@ -1841,6 +2019,32 @@ async function handleSubscriptionUpdated(
 				stripeInvoiceId: subscription.latest_invoice as string,
 				description: `Dev Plan ${organization.devPlan?.toUpperCase()} cancelled`,
 			});
+
+			if (organization.billingEmail) {
+				await sendTransactionalEmail({
+					to: organization.billingEmail,
+					subject: "Before you go — could we get your feedback?",
+					html: generateDevPlanCancellationFeedbackEmailHtml(organization.name),
+				});
+
+				logger.info(
+					`Sent dev plan cancellation feedback email to ${organization.billingEmail} for organization ${organizationId}`,
+				);
+			}
+
+			const cancelEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (cancelEmail) {
+				const cancelUser = await db.query.user.findFirst({
+					where: { email: { eq: cancelEmail } },
+				});
+				await notifyDevPlanCancelled(
+					cancelEmail,
+					cancelUser?.name,
+					organization.devPlan ?? "unknown",
+				);
+			}
 		}
 
 		await db

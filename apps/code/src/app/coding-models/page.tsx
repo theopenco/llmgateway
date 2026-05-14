@@ -13,6 +13,7 @@ export const metadata: Metadata = {
 	title: "AI Models for Coding",
 	description:
 		"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
+	alternates: { canonical: "/coding-models" },
 };
 
 export default function CodingModelsPage() {

@@ -81,25 +81,25 @@ export default async function ModelProviderPage({ params }: PageProps) {
 			(d) => d.provider === decodedProvider && d.model === decodedName,
 		);
 		if (providerModel) {
-			return parseFloat(providerModel.discountPercent);
+			return providerModel.discountPercent;
 		}
 		const providerOnly = discounts.find(
 			(d) => d.provider === decodedProvider && d.model === null,
 		);
 		if (providerOnly) {
-			return parseFloat(providerOnly.discountPercent);
+			return providerOnly.discountPercent;
 		}
 		const modelOnly = discounts.find(
 			(d) => d.provider === null && d.model === decodedName,
 		);
 		if (modelOnly) {
-			return parseFloat(modelOnly.discountPercent);
+			return modelOnly.discountPercent;
 		}
 		const fullyGlobal = discounts.find(
 			(d) => d.provider === null && d.model === null,
 		);
 		if (fullyGlobal) {
-			return parseFloat(fullyGlobal.discountPercent);
+			return fullyGlobal.discountPercent;
 		}
 		return undefined;
 	})();
@@ -475,16 +475,21 @@ export async function generateMetadata({
 	);
 	const providerName = providerInfo?.name ?? decodedProvider;
 
-	const title = `${model.name ?? model.id} on ${providerName} – LLM Gateway`;
-	const description = `Pricing and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
+	const title = `${model.name ?? model.id} on ${providerName}`;
+	const description = `Pricing, latency, and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
+	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {
 		title,
 		description,
+		alternates: {
+			canonical,
+		},
 		openGraph: {
 			title,
 			description,
 			type: "website",
+			url: canonical,
 		},
 		twitter: {
 			card: "summary_large_image",

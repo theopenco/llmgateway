@@ -10,7 +10,6 @@ import {
 	LandingPageTracker,
 } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
-import { ProductHuntIcon } from "@/components/ProductHuntIcon";
 import { SoulForgeBoost } from "@/components/SoulForgeBoost";
 import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
@@ -22,6 +21,12 @@ import {
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
+
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	alternates: { canonical: "/" },
+};
 
 const featuredTools = [
 	{
@@ -42,9 +47,9 @@ const featuredTools = [
 		name: "SoulForge",
 		icon: SoulForgeIcon,
 		description:
-			"Aggressive prompt caching cuts roughly 50% of tokens on multi-turn agent runs. Pair with DevPass to effectively double your monthly usage.",
+			"Graph-powered coding agent. Maps your repo on launch and edits TypeScript by symbol name, not by find-and-replace. Roughly half the tokens of an equivalent Claude Code or OpenCode session. Pair with DevPass to double your monthly usage.",
 		setup: "/keys → paste your key",
-		highlight: "Saves ~50% tokens",
+		highlight: "Graph-powered · −50%",
 	},
 ];
 
@@ -83,7 +88,7 @@ export default function LandingPage() {
 								<span className="font-semibold text-foreground">$3</span> of
 								model usage at provider rates. Pair it with{" "}
 								<span className="font-semibold text-foreground">SoulForge</span>{" "}
-								and prompt caching pushes that to roughly{" "}
+								— the graph-powered agent — and that stretches to roughly{" "}
 								<span className="font-semibold text-foreground">$6</span>.
 							</p>
 							<p className="mx-auto mb-10 max-w-xl text-sm text-muted-foreground">
@@ -104,22 +109,6 @@ export default function LandingPage() {
 										<Link href="/pricing">See pricing</Link>
 									</Button>
 								</CodeCTATracker>
-							</div>
-
-							<div className="mt-6 flex justify-center">
-								<a
-									href="https://www.producthunt.com/products/devpass-by-llm-gateway?launch=devpass-by-llm-gateway"
-									target="_blank"
-									rel="noreferrer"
-									className="inline-flex items-center gap-2.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-5 py-2.5 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-300"
-								>
-									<ProductHuntIcon className="h-6 w-6" />
-
-									<span>
-										We&apos;re live on Product Hunt. Help us by upvoting
-									</span>
-									<ArrowRight className="h-4 w-4" />
-								</a>
 							</div>
 						</div>
 

@@ -1274,60 +1274,209 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
-	// Realistic per-agent activity for the DevPass dashboard
-	const DEVPASS_AGENTS = [
+	// Realistic per-agent activity for the DevPass dashboard and the public
+	// /apps page. Each agent has its own mix of models so per-agent charts show
+	// a breakdown across multiple models. Weights are renormalized internally
+	// so it's safe to add or reorder entries.
+	interface DevpassAgentModel {
+		model: string;
+		provider: string;
+		weight: number;
+	}
+	const DEVPASS_AGENTS: Array<{
+		source: string;
+		weight: number;
+		models: DevpassAgentModel[];
+	}> = [
 		{
 			source: "claude.com/claude-code",
-			model: "claude-3.5-sonnet",
-			provider: "anthropic",
-			weight: 0.32,
+			weight: 0.22,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.7 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.2 },
+				{ model: "claude-3-opus", provider: "anthropic", weight: 0.1 },
+			],
 		},
-		{ source: "cursor", model: "gpt-4o", provider: "openai", weight: 0.18 },
+		{
+			source: "cursor",
+			weight: 0.14,
+			models: [
+				{ model: "gpt-4o", provider: "openai", weight: 0.45 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.35 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+				{ model: "o1", provider: "openai", weight: 0.05 },
+			],
+		},
 		{
 			source: "cline",
-			model: "claude-3.5-sonnet",
-			provider: "anthropic",
-			weight: 0.16,
+			weight: 0.1,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.7 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.2 },
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.1 },
+			],
 		},
-		{ source: "codex", model: "o1", provider: "openai", weight: 0.12 },
+		{
+			source: "codex",
+			weight: 0.08,
+			models: [
+				{ model: "o1", provider: "openai", weight: 0.55 },
+				{ model: "o3-mini", provider: "openai", weight: 0.3 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.15 },
+			],
+		},
 		{
 			source: "opencode",
-			model: "claude-3-haiku",
-			provider: "anthropic",
-			weight: 0.1,
+			weight: 0.07,
+			models: [
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.5 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.2 },
+			],
+		},
+		{
+			source: "aider",
+			weight: 0.06,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.55 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.3 },
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.15 },
+			],
+		},
+		{
+			source: "continue.dev",
+			weight: 0.05,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.5 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.3 },
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.2 },
+			],
+		},
+		{
+			source: "windsurf",
+			weight: 0.05,
+			models: [
+				{ model: "gpt-4o", provider: "openai", weight: 0.5 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.35 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
+		},
+		{
+			source: "roo-cline",
+			weight: 0.04,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.65 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.1 },
+			],
+		},
+		{
+			source: "kilo-code",
+			weight: 0.03,
+			models: [
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.6 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.25 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
+		},
+		{
+			source: "zed",
+			weight: 0.03,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.15 },
+			],
+		},
+		{
+			source: "bolt.new",
+			weight: 0.03,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.65 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.1 },
+			],
+		},
+		{
+			source: "v0.dev",
+			weight: 0.025,
+			models: [
+				{ model: "gpt-4o", provider: "openai", weight: 0.55 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.35 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.1 },
+			],
+		},
+		{
+			source: "lovable.dev",
+			weight: 0.025,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.3 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.1 },
+			],
 		},
 		{
 			source: "autohand",
-			model: "deepseek-chat",
-			provider: "deepseek",
-			weight: 0.06,
+			weight: 0.02,
+			models: [
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.55 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
 		},
 		{
 			source: "soulforge",
-			model: "gemini-2.0-flash",
-			provider: "google-ai-studio",
-			weight: 0.04,
+			weight: 0.02,
+			models: [
+				{
+					model: "gemini-2.0-flash",
+					provider: "google-ai-studio",
+					weight: 0.6,
+				},
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.25 },
+				{ model: "gemini-1.5-pro", provider: "google-ai-studio", weight: 0.15 },
+			],
 		},
 		{
 			source: "openclaw",
-			model: "claude-3-haiku",
-			provider: "anthropic",
-			weight: 0.02,
+			weight: 0.015,
+			models: [
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.55 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
 		},
-		{ source: "n8n", model: "gpt-4o-mini", provider: "openai", weight: 0.02 },
+		{
+			source: "n8n",
+			weight: 0.015,
+			models: [
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.55 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.3 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.15 },
+			],
+		},
 	];
-	const DEVPASS_LOG_COUNT = 240;
+	const DEVPASS_LOG_COUNT = 1800;
+	const DEVPASS_WEIGHT_TOTAL = DEVPASS_AGENTS.reduce(
+		(sum, a) => sum + a.weight,
+		0,
+	);
 	const devpassLogs: Array<Record<string, any>> = [];
 	let devpassRunningCost = 0;
 	for (let i = 0; i < DEVPASS_LOG_COUNT; i++) {
-		const r = Math.random();
+		const r = Math.random() * DEVPASS_WEIGHT_TOTAL;
 		let acc = 0;
 		const agent =
 			DEVPASS_AGENTS.find((a) => {
 				acc += a.weight;
 				return r <= acc;
 			}) ?? DEVPASS_AGENTS[0];
-		const modelDef = MODELS.find((m) => m.model === agent.model) ?? MODELS[0];
+		const agentModel = weightedRandomChoice(agent.models);
+		const modelDef =
+			MODELS.find(
+				(m) =>
+					m.model === agentModel.model && m.provider === agentModel.provider,
+			) ?? MODELS[0];
 		const finishDef = weightedRandomChoice(FINISH_REASONS);
 		const isError =
 			finishDef.unified === "upstream_error" ||

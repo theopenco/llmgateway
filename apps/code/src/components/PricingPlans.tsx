@@ -240,7 +240,8 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 									/>
 									<div>
 										<span className="font-semibold">With SoulForge</span> →
-										prompt caching cuts ~50% of tokens, stretching your{" "}
+										graph-powered context cuts roughly half the tokens,
+										stretching your{" "}
 										<span className="font-mono font-semibold tabular-nums">
 											{formatUsd(usageValue)}
 										</span>{" "}

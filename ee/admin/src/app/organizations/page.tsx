@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { BlockOrgButton } from "@/components/block-org-button";
 import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,10 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { setOrganizationStatus } from "@/lib/admin-organizations";
+import {
+	blockOrganization,
+	setOrganizationStatus,
+} from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -186,6 +190,12 @@ export default async function OrganizationsPage({
 		"use server";
 
 		return await setOrganizationStatus(orgId, status);
+	}
+
+	async function handleBlockOrganization(orgId: string) {
+		"use server";
+
+		return await blockOrganization(orgId);
 	}
 
 	return (
@@ -381,6 +391,12 @@ export default async function OrganizationsPage({
 												orgName={org.name}
 												currentStatus={org.status}
 												onToggle={handleToggleOrgStatus}
+											/>
+											<BlockOrgButton
+												orgId={org.id}
+												orgName={org.name}
+												disabled={org.status === "deleted"}
+												onBlock={handleBlockOrganization}
 											/>
 										</div>
 									</TableCell>

@@ -101,8 +101,9 @@ function getCheapestProvider(
 		if (!hasPricing(p)) {
 			return Infinity;
 		}
-		const inPrice = (p.inputPrice ?? 0) * (1 - (p.discount ?? 0));
-		const outPrice = (p.outputPrice ?? 0) * (1 - (p.discount ?? 0));
+		const discount = Number(p.discount ?? "0");
+		const inPrice = Number(p.inputPrice ?? "0") * (1 - discount);
+		const outPrice = Number(p.outputPrice ?? "0") * (1 - discount);
 		const inCost = inPrice * inputTokens;
 		const outCost = outPrice * outputTokens;
 		return inCost + outCost;
@@ -259,18 +260,17 @@ export function TokenCostCalculatorClient() {
 			const cheapestMapping =
 				getCheapestProvider(model, row.inputTokens, row.outputTokens) ?? null;
 
-			const officialInputPrice = officialMapping?.inputPrice ?? 0;
-			const officialOutputPrice = officialMapping?.outputPrice ?? 0;
+			const officialInputPrice = Number(officialMapping?.inputPrice ?? "0");
+			const officialOutputPrice = Number(officialMapping?.outputPrice ?? "0");
 			const officialInputCost = row.inputTokens * officialInputPrice;
 			const officialOutputCost = row.outputTokens * officialOutputPrice;
 			const officialCost = officialInputCost + officialOutputCost;
 
+			const cheapestDiscount = Number(cheapestMapping?.discount ?? "0");
 			const cheapestInputPrice =
-				(cheapestMapping?.inputPrice ?? 0) *
-				(1 - (cheapestMapping?.discount ?? 0));
+				Number(cheapestMapping?.inputPrice ?? "0") * (1 - cheapestDiscount);
 			const cheapestOutputPrice =
-				(cheapestMapping?.outputPrice ?? 0) *
-				(1 - (cheapestMapping?.discount ?? 0));
+				Number(cheapestMapping?.outputPrice ?? "0") * (1 - cheapestDiscount);
 			const gatewayInputCost = row.inputTokens * cheapestInputPrice;
 			const gatewayOutputCost = row.outputTokens * cheapestOutputPrice;
 			const gatewayCost = gatewayInputCost + gatewayOutputCost;
@@ -547,12 +547,17 @@ function ModelRowCard({
 							</p>
 							<p className="text-sm font-mono mt-0.5">
 								<span className="text-muted-foreground">
-									{formatPricePerMillion(officialMapping.inputPrice ?? 0)}/M in
+									{formatPricePerMillion(
+										Number(officialMapping.inputPrice ?? "0"),
+									)}
+									/M in
 								</span>
 								{" · "}
 								<span className="text-muted-foreground">
-									{formatPricePerMillion(officialMapping.outputPrice ?? 0)}/M
-									out
+									{formatPricePerMillion(
+										Number(officialMapping.outputPrice ?? "0"),
+									)}
+									/M out
 								</span>
 							</p>
 						</div>
@@ -561,24 +566,25 @@ function ModelRowCard({
 						<div>
 							<p className="text-[11px] font-medium text-green-600 dark:text-green-400 uppercase tracking-wider">
 								LLM Gateway ({getProviderName(cheapestMapping.providerId)}
-								{cheapestMapping.discount
-									? ` · ${cheapestMapping.discount * 100}% off`
+								{cheapestMapping.discount &&
+								Number(cheapestMapping.discount) !== 0
+									? ` · ${Number(cheapestMapping.discount) * 100}% off`
 									: ""}
 								)
 							</p>
 							<p className="text-sm font-mono mt-0.5">
 								<span className="text-green-600 dark:text-green-400">
 									{formatPricePerMillion(
-										(cheapestMapping.inputPrice ?? 0) *
-											(1 - (cheapestMapping.discount ?? 0)),
+										Number(cheapestMapping.inputPrice ?? "0") *
+											(1 - Number(cheapestMapping.discount ?? "0")),
 									)}
 									/M in
 								</span>
 								{" · "}
 								<span className="text-green-600 dark:text-green-400">
 									{formatPricePerMillion(
-										(cheapestMapping.outputPrice ?? 0) *
-											(1 - (cheapestMapping.discount ?? 0)),
+										Number(cheapestMapping.outputPrice ?? "0") *
+											(1 - Number(cheapestMapping.discount ?? "0")),
 									)}
 									/M out
 								</span>

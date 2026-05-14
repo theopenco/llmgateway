@@ -40,7 +40,7 @@
 		"@opentelemetry/sdk-node": "0.205.0",
 		"decimal.js": "10.5.0",
 		"dotenv": "16.5.0",
-		"hono": "^4.12.16",
+		"hono": "^4.12.18",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
 		"redis": "5.9.0",

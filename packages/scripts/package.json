@@ -12,6 +12,7 @@
 		"generate-test-logs": "tsx src/generate-test-logs.ts",
 		"model-release-dates": "tsx src/model-release-dates.ts",
 		"send": "tsx src/send.ts",
+		"stripe-earnings": "tsx src/stripe-earnings.ts",
 		"test-gemini-tools-complex": "tsx src/test-gemini-tools-complex.ts",
 		"test-gemini-tools-simple": "tsx src/test-gemini-tools-simple.ts"
 	},
@@ -22,6 +23,7 @@
 		"openai": "4.104.0",
 		"resend": "4.5.1",
 		"sql.js": "1.12.0",
+		"stripe": "18.1.1",
 		"zod": "3.25.75"
 	},
 	"devDependencies": {

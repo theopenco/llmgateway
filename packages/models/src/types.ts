@@ -31,6 +31,26 @@ export interface ImageContent {
 	};
 }
 
+export interface InputAudioContent {
+	type: "input_audio";
+	input_audio: {
+		data: string;
+		format:
+			| "wav"
+			| "mp3"
+			| "aiff"
+			| "aac"
+			| "ogg"
+			| "flac"
+			| "m4a"
+			| "mpeg"
+			| "mpga"
+			| "mp4"
+			| "pcm"
+			| "webm";
+	};
+}
+
 export interface ToolUseContent {
 	type: "tool_use";
 	id: string;
@@ -48,6 +68,7 @@ export type MessageContent =
 	| TextContent
 	| ImageUrlContent
 	| ImageContent
+	| InputAudioContent
 	| ToolUseContent
 	| ToolResultContent;
 
@@ -339,12 +360,12 @@ export interface ProviderValidationResult {
 export interface ModelWithPricing {
 	providers: Array<{
 		providerId: string;
-		inputPrice?: number;
-		outputPrice?: number;
-		perSecondPrice?: Record<string, number>;
+		inputPrice?: string;
+		outputPrice?: string;
+		perSecondPrice?: Record<string, string>;
 		supportedParameters?: string[];
 		modelName: string;
-		discount?: number;
+		discount?: string;
 		region?: string;
 		stability?: string;
 	}>;
@@ -413,6 +434,12 @@ export function isImageContent(
 	content: MessageContent,
 ): content is ImageContent {
 	return content.type === "image";
+}
+
+export function isInputAudioContent(
+	content: MessageContent,
+): content is InputAudioContent {
+	return content.type === "input_audio";
 }
 
 export function isToolUseContent(

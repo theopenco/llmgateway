@@ -107,7 +107,7 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 			"M19 5L5 19 M9 6.5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z M20 17.5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z",
 		countFilter: (m) => {
 			const providers = m.providers as ProviderModelMapping[];
-			return providers.some((p) => p.discount && p.discount > 0);
+			return providers.some((p) => p.discount && Number(p.discount) > 0);
 		},
 	},
 };

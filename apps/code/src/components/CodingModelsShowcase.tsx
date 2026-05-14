@@ -11,8 +11,8 @@ import { getProviderIcon } from "@llmgateway/shared/components";
 
 const RECOMMENDED_MODEL_IDS: string[] = [
 	"claude-opus-4-7",
+	"gpt-5.5",
 	"gemini-3.1-pro-preview",
-	"gpt-5.5-pro",
 	"gpt-5.3-codex",
 	"glm-4.7",
 	"kimi-k2.6",
@@ -67,8 +67,8 @@ export function CodingModelsShowcase({
 	return (
 		<div className={`rounded-lg border p-6 ${className ?? ""}`}>
 			<div className="flex items-center gap-2 mb-4">
-				<Code className="h-5 w-5" />
-				<h3 className="font-semibold">Recommended Coding Models</h3>
+				<Code className="h-5 w-5" aria-hidden="true" />
+				<p className="font-semibold">Recommended for coding agents</p>
 			</div>
 			<p className="text-sm text-muted-foreground mb-4">
 				High-performance models optimized for coding tasks with tool support and
@@ -135,7 +135,7 @@ export function CodingModelsShowcase({
 											{provider.inputPrice !== undefined && (
 												<>
 													<span className="font-mono font-medium text-foreground">
-														${formatPrice(provider.inputPrice)}
+														${formatPrice(Number(provider.inputPrice))}
 													</span>
 													<span className="text-muted-foreground"> in</span>
 												</>
@@ -144,7 +144,7 @@ export function CodingModelsShowcase({
 												<>
 													<span className="text-muted-foreground mx-1">/</span>
 													<span className="font-mono font-medium text-foreground">
-														${formatPrice(provider.outputPrice)}
+														${formatPrice(Number(provider.outputPrice))}
 													</span>
 													<span className="text-muted-foreground"> out</span>
 												</>
@@ -164,7 +164,7 @@ export function CodingModelsShowcase({
 				<a
 					href={`${uiUrl}/models?category=code`}
 					target="_blank"
-					rel="noopener noreferrer"
+					rel="noopener"
 					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
 				>
 					View all coding models

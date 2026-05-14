@@ -95,13 +95,15 @@ function getImagePrice(mapping: ProviderModelMapping): {
 	discount: number;
 	pricingType: "per-request" | "per-token";
 } {
-	const discount = mapping.discount ?? 0;
+	const discount = Number(mapping.discount ?? "0");
+	const requestPriceNum = Number(mapping.requestPrice ?? "0");
+	const imageOutputPriceNum = Number(mapping.imageOutputPrice ?? "0");
 
-	if (mapping.requestPrice && mapping.requestPrice > 0) {
+	if (mapping.requestPrice && requestPriceNum > 0) {
 		return {
-			pricePerImage: mapping.requestPrice,
+			pricePerImage: requestPriceNum,
 			resolutions: [],
-			getPrice: () => mapping.requestPrice ?? 0,
+			getPrice: () => requestPriceNum,
 			discount,
 			pricingType: "per-request",
 		};
@@ -111,7 +113,7 @@ function getImagePrice(mapping: ProviderModelMapping): {
 		const resolutions = Object.keys(mapping.imageOutputTokensByResolution);
 		const getPrice = (res: string) => {
 			const tokens = mapping.imageOutputTokensByResolution?.[res] ?? 0;
-			return tokens * (mapping.imageOutputPrice ?? 0);
+			return tokens * imageOutputPriceNum;
 		};
 		return {
 			pricePerImage: getPrice(resolutions[0] ?? "1K"),
@@ -283,11 +285,12 @@ function TextSimulator() {
 
 	const selected = getModelAndMapping(selectorValue);
 	const mapping = selected?.mapping;
-	const inputPricePerToken = mapping?.inputPrice ?? 0;
-	const outputPricePerToken = mapping?.outputPrice ?? 0;
-	const cachedInputPricePerToken =
-		mapping?.cachedInputPrice ?? inputPricePerToken * 0.1;
-	const discount = mapping?.discount ?? 0;
+	const inputPricePerToken = Number(mapping?.inputPrice ?? "0");
+	const outputPricePerToken = Number(mapping?.outputPrice ?? "0");
+	const cachedInputPricePerToken = mapping?.cachedInputPrice
+		? Number(mapping.cachedInputPrice)
+		: inputPricePerToken * 0.1;
+	const discount = Number(mapping?.discount ?? "0");
 
 	const dailyRequests = dailyVolumeSteps[volumeIndex];
 	const monthlyRequests = dailyRequests * 30;

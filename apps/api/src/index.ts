@@ -21,6 +21,8 @@ import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
+import { publicApps } from "./routes/public-apps.js";
+import { publicChatShares } from "./routes/public-chat-shares.js";
 import { publicChatSupport } from "./routes/public-chat-support.js";
 import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
@@ -228,6 +230,8 @@ app.route("/public/discounts", publicDiscounts);
 app.route("/public/contact", publicContact);
 app.route("/public/newsletter", publicNewsletter);
 app.route("/public/chat-support", publicChatSupport);
+app.route("/public/chats/share", publicChatShares);
+app.route("/public/apps", publicApps);
 
 app.doc("/json", config);
 

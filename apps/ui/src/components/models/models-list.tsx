@@ -171,24 +171,29 @@ export function ModelsList() {
 										</div>
 									)}
 									{provider.inputPrice !== undefined && (
-										<div>Input: ${provider.inputPrice * 1e6} / M tokens</div>
+										<div>
+											Input: ${Number(provider.inputPrice) * 1e6} / M tokens
+										</div>
 									)}
 									{provider.outputPrice !== undefined && (
-										<div>Output: ${provider.outputPrice * 1e6} / M tokens</div>
+										<div>
+											Output: ${Number(provider.outputPrice) * 1e6} / M tokens
+										</div>
 									)}
 									{provider.imageInputPrice !== undefined && (
 										<div>Image: ${provider.imageInputPrice} / input</div>
 									)}
 									{provider.imageOutputPrice !== undefined && (
 										<div>
-											Image Output: ${provider.imageOutputPrice * 1e6} / M
-											tokens
+											Image Output: ${Number(provider.imageOutputPrice) * 1e6} /
+											M tokens
 										</div>
 									)}
 									{provider.requestPrice !== undefined &&
-										provider.requestPrice > 0 && (
+										Number(provider.requestPrice) > 0 && (
 											<div>
-												Request: ${provider.requestPrice * 1000} / 1K requests
+												Request: ${Number(provider.requestPrice) * 1000} / 1K
+												requests
 											</div>
 										)}
 								</div>

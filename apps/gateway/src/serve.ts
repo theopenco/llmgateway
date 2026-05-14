@@ -6,7 +6,7 @@ import {
 	initializeInstrumentation,
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 
 import { app } from "./app.js";
 
@@ -115,10 +115,7 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		logger.info("Graceful shutdown completed");
 		process.exit(0);
 	} catch (error) {
-		logger.error(
-			"Error during graceful shutdown",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("Error during graceful shutdown", toError(error));
 		process.exit(1);
 	}
 };

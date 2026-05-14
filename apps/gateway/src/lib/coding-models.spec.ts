@@ -10,7 +10,7 @@ const baseProvider: ProviderModelMapping = {
 	streaming: true,
 	tools: true,
 	jsonOutputSchema: true,
-	cachedInputPrice: 0.1 / 1e6,
+	cachedInputPrice: "0.1e-6",
 };
 
 const baseModel: ModelDefinition = {
@@ -22,13 +22,13 @@ const baseModel: ModelDefinition = {
 
 describe("providerSupportsCachedInput", () => {
 	it("returns true when cachedInputPrice is set to a positive number", () => {
-		expect(providerSupportsCachedInput({ cachedInputPrice: 0.1 / 1e6 })).toBe(
+		expect(providerSupportsCachedInput({ cachedInputPrice: "0.1e-6" })).toBe(
 			true,
 		);
 	});
 
 	it("returns true when cachedInputPrice is zero", () => {
-		expect(providerSupportsCachedInput({ cachedInputPrice: 0 })).toBe(true);
+		expect(providerSupportsCachedInput({ cachedInputPrice: "0" })).toBe(true);
 	});
 
 	it("returns false when cachedInputPrice is undefined", () => {

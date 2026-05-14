@@ -114,67 +114,79 @@ export const verification = pgTable("verification", {
 	updatedAt: timestamp().$onUpdate(() => new Date()),
 });
 
-export const organization = pgTable("organization", {
-	id: text().primaryKey().notNull().$defaultFn(shortid),
-	createdAt: timestamp().notNull().defaultNow(),
-	updatedAt: timestamp()
-		.notNull()
-		.defaultNow()
-		.$onUpdate(() => new Date()),
-	name: text().notNull(),
-	billingEmail: text().notNull(),
-	billingCompany: text(),
-	billingAddress: text(),
-	billingTaxId: text(),
-	billingNotes: text(),
-	stripeCustomerId: text().unique(),
-	stripeSubscriptionId: text().unique(),
-	credits: decimal().notNull().default("0"),
-	autoTopUpEnabled: boolean().notNull().default(false),
-	autoTopUpThreshold: decimal().default("10"),
-	autoTopUpAmount: decimal().default("10"),
-	plan: text({
-		enum: ["free", "pro", "enterprise"],
-	})
-		.notNull()
-		.default("free"),
-	planExpiresAt: timestamp(),
-	subscriptionCancelled: boolean().notNull().default(false),
-	trialStartDate: timestamp(),
-	trialEndDate: timestamp(),
-	isTrialActive: boolean().notNull().default(false),
-	retentionLevel: text({
-		enum: ["retain", "none"],
-	})
-		.notNull()
-		.default("none"),
-	status: text({
-		enum: ["active", "inactive", "deleted"],
-	}).default("active"),
-	referralEarnings: decimal().notNull().default("0"),
-	paymentFailureCount: integer().notNull().default(0),
-	lastPaymentFailureAt: timestamp(),
-	paymentFailureStartedAt: timestamp(),
-	// Dev Plans fields (for personal accounts)
-	isPersonal: boolean().notNull().default(false),
-	devPlan: text({
-		enum: ["none", "lite", "pro", "max"],
-	})
-		.notNull()
-		.default("none"),
-	devPlanCreditsUsed: decimal().notNull().default("0"),
-	devPlanCreditsLimit: decimal().notNull().default("0"),
-	devPlanBillingCycleStart: timestamp(),
-	devPlanStripeSubscriptionId: text().unique(),
-	devPlanCancelled: boolean().notNull().default(false),
-	devPlanExpiresAt: timestamp(),
-	devPlanCycle: text({ enum: ["monthly", "annual"] })
-		.notNull()
-		.default("monthly"),
-	devPlanAllowAllModels: boolean().notNull().default(false),
-	// Last top-up amount (used for low balance alert thresholds)
-	lastTopUpAmount: decimal(),
-});
+export const organization = pgTable(
+	"organization",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text().notNull(),
+		billingEmail: text().notNull(),
+		billingCompany: text(),
+		billingAddress: text(),
+		billingTaxId: text(),
+		billingNotes: text(),
+		stripeCustomerId: text().unique(),
+		stripeSubscriptionId: text().unique(),
+		credits: decimal().notNull().default("0"),
+		autoTopUpEnabled: boolean().notNull().default(false),
+		autoTopUpThreshold: decimal().default("10"),
+		autoTopUpAmount: decimal().default("10"),
+		plan: text({
+			enum: ["free", "pro", "enterprise"],
+		})
+			.notNull()
+			.default("free"),
+		planExpiresAt: timestamp(),
+		subscriptionCancelled: boolean().notNull().default(false),
+		trialStartDate: timestamp(),
+		trialEndDate: timestamp(),
+		isTrialActive: boolean().notNull().default(false),
+		retentionLevel: text({
+			enum: ["retain", "none"],
+		})
+			.notNull()
+			.default("none"),
+		status: text({
+			enum: ["active", "inactive", "deleted"],
+		}).default("active"),
+		referralEarnings: decimal().notNull().default("0"),
+		paymentFailureCount: integer().notNull().default(0),
+		lastPaymentFailureAt: timestamp(),
+		paymentFailureStartedAt: timestamp(),
+		// Dev Plans fields (for personal accounts)
+		isPersonal: boolean().notNull().default(false),
+		devPlan: text({
+			enum: ["none", "lite", "pro", "max"],
+		})
+			.notNull()
+			.default("none"),
+		devPlanCreditsUsed: decimal().notNull().default("0"),
+		devPlanCreditsLimit: decimal().notNull().default("0"),
+		devPlanBillingCycleStart: timestamp(),
+		devPlanStripeSubscriptionId: text().unique(),
+		devPlanCancelled: boolean().notNull().default(false),
+		devPlanExpiresAt: timestamp(),
+		devPlanCycle: text({ enum: ["monthly", "annual"] })
+			.notNull()
+			.default("monthly"),
+		devPlanAllowAllModels: boolean().notNull().default(false),
+		// Fingerprint of the card used to subscribe to a dev plan. Used to
+		// prevent a single card from claiming the DevPass usage allowance from
+		// multiple personal organizations.
+		devPlanCardFingerprint: text(),
+		// Last top-up amount (used for low balance alert thresholds)
+		lastTopUpAmount: decimal(),
+	},
+	(table) => [
+		index("organization_dev_plan_card_fingerprint_idx").on(
+			table.devPlanCardFingerprint,
+		),
+	],
+);
 
 export const referral = pgTable(
 	"referral",
@@ -247,6 +259,47 @@ export const transaction = pgTable(
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+	],
+);
+
+export const devPlanCancellationFeedback = pgTable(
+	"dev_plan_cancellation_feedback",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		devPlanStripeSubscriptionId: text().notNull(),
+		previousDevPlan: text({
+			enum: ["lite", "pro", "max"],
+		}),
+		reason: text({
+			enum: [
+				"too_expensive",
+				"missing_features",
+				"not_using_enough",
+				"switched_alternative",
+				"other",
+			],
+		}).notNull(),
+		comments: text(),
+	},
+	(table) => [
+		uniqueIndex("dev_plan_cancellation_feedback_org_sub_unique").on(
+			table.organizationId,
+			table.devPlanStripeSubscriptionId,
+		),
+		index("dev_plan_cancellation_feedback_organization_id_idx").on(
+			table.organizationId,
+		),
 	],
 );
 
@@ -567,10 +620,13 @@ export const log = pgTable(
 		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
+		contentFilterCost: real(),
 		imageInputTokens: decimal(),
 		imageOutputTokens: decimal(),
 		imageInputCost: real(),
 		imageOutputCost: real(),
+		audioInputTokens: decimal(),
+		audioInputCost: real(),
 		videoOutputCost: real(),
 		videoDownloadCount: integer().notNull().default(0),
 		lastVideoDownloadedAt: timestamp(),
@@ -949,6 +1005,35 @@ export const chat = pgTable(
 	(table) => [index("chat_user_id_idx").on(table.userId)],
 );
 
+export const chatShare = pgTable(
+	"chat_share",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		deletedAt: timestamp(),
+		chatId: text()
+			.notNull()
+			.references(() => chat.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		title: text().notNull(),
+		model: text().notNull(),
+		messages: jsonb().notNull(),
+	},
+	(table) => [
+		uniqueIndex("chat_share_active_chat_id_unique")
+			.on(table.chatId)
+			.where(sql`${table.deletedAt} IS NULL`),
+		index("chat_share_chat_id_idx").on(table.chatId),
+		index("chat_share_deleted_at_idx").on(table.deletedAt),
+	],
+);
+
 export const message = pgTable(
 	"message",
 	{
@@ -966,8 +1051,10 @@ export const message = pgTable(
 		}).notNull(),
 		content: text(), // Made nullable to support image-only messages
 		images: text(), // JSON string to store images array
+		audios: text(), // JSON string to store audio attachments array
 		reasoning: text(), // Reasoning content from AI models
 		tools: text(), // JSON string to store tool call parts
+		metadata: jsonb().$type<Record<string, unknown>>(),
 		sequence: integer().notNull(), // To maintain message order
 	},
 	(table) => [index("message_chat_id_idx").on(table.chatId)],
@@ -1212,6 +1299,12 @@ export const modelProviderMappingHistory = pgTable(
 		clientErrorsCount: integer().notNull().default(0),
 		gatewayErrorsCount: integer().notNull().default(0),
 		upstreamErrorsCount: integer().notNull().default(0),
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
 		cachedCount: integer().notNull().default(0),
 		totalInputTokens: integer().notNull().default(0),
 		totalOutputTokens: integer().notNull().default(0),
@@ -1271,6 +1364,12 @@ export const modelHistory = pgTable(
 		clientErrorsCount: integer().notNull().default(0),
 		gatewayErrorsCount: integer().notNull().default(0),
 		upstreamErrorsCount: integer().notNull().default(0),
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
 		cachedCount: integer().notNull().default(0),
 		totalInputTokens: integer().notNull().default(0),
 		totalOutputTokens: integer().notNull().default(0),
@@ -1301,6 +1400,7 @@ export const auditLogActions = [
 	"organization.create",
 	"organization.update",
 	"organization.delete",
+	"organization.block",
 	// Project
 	"project.create",
 	"project.update",
@@ -1679,6 +1779,7 @@ export const projectHourlyStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -1745,6 +1846,7 @@ export const projectHourlyModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -1833,6 +1935,7 @@ export const apiKeyHourlyStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -1910,6 +2013,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -1994,6 +2098,7 @@ export const globalModelStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -2067,6 +2172,7 @@ export const globalSourceStats = pgTable(
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),

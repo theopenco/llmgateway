@@ -10,6 +10,8 @@ export interface Chat {
 	model: string;
 	status: "active" | "archived" | "deleted";
 	webSearch: boolean;
+	shareId: string | null;
+	sharedAt: string | null;
 	createdAt: string;
 	updatedAt: string;
 	messageCount: number;
@@ -20,7 +22,10 @@ export interface ChatMessage {
 	role: "user" | "assistant" | "system";
 	content: string | null;
 	images: string | null; // JSON string from API
+	audios: string | null; // JSON string of audio attachments
 	reasoning: string | null; // Reasoning content from AI
+	tools: string | null; // Tool parts JSON
+	metadata: unknown | null; // Assistant response metadata
 	sequence: number;
 	createdAt: string;
 }
@@ -96,6 +101,83 @@ export function useDeleteChat() {
 	});
 }
 
+export function useShareChat() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("post", "/chats/{id}/share", {
+		onSuccess: (_data, variables) => {
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
+			const chatId = variables.params?.path?.id;
+			if (chatId) {
+				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
+					params: { path: { id: chatId } },
+				}).queryKey;
+				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export function useDeleteChatShare() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("delete", "/chats/{id}/share", {
+		onSuccess: (_data, variables) => {
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
+			const chatId = variables.params?.path?.id;
+			if (chatId) {
+				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
+					params: { path: { id: chatId } },
+				}).queryKey;
+				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
+			toast("Shared link deleted");
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export function useForkSharedChat() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("post", "/chats/share/{shareId}/fork", {
+		onSuccess: () => {
+			const queryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey });
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export function useForkChat() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("post", "/chats/{id}/fork", {
+		onSuccess: () => {
+			const queryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey });
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
 export function useAddMessage() {
 	const queryClient = useQueryClient();
 	const api = useApi();
@@ -117,6 +199,26 @@ export function useAddMessage() {
 		},
 		onError: (error) => {
 			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export function useUpdateMessage() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("patch", "/chats/{id}/messages/{messageId}", {
+		onSuccess: (_data, variables) => {
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
+			const chatId = variables.params?.path?.id;
+			if (chatId) {
+				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
+					params: { path: { id: chatId } },
+				}).queryKey;
+				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
 		},
 	});
 }

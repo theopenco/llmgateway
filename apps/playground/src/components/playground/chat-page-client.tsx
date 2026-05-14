@@ -11,23 +11,28 @@ import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
-import { ChatSidebar } from "@/components/playground/chat-sidebar";
+import {
+	ChatSidebar,
+	type ChatSidebarHandle,
+} from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 // No local api key. We'll call backend to ensure key cookie exists after login.
 import {
 	useAddMessage,
-	useChats,
 	useCreateChat,
 	useDataChat,
 	useDeleteChat,
+	useForkChat,
+	useUpdateMessage,
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
 import { useUser } from "@/hooks/useUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
+import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -37,6 +42,7 @@ import type {
 	ApiProvider,
 } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
+import type { UIMessage } from "ai";
 
 /**
  * Minimal interface for tool parts from AI SDK v6 (tool-{toolName} pattern)
@@ -59,6 +65,149 @@ function isToolPart(obj: unknown): obj is ToolPart {
 	);
 }
 
+function getFirstUserMessageText(
+	messages: { role: string; parts?: { type: string; text?: string }[] }[],
+): string | null {
+	for (const message of messages) {
+		if (message.role !== "user") {
+			continue;
+		}
+		const text = (message.parts ?? [])
+			.filter((p) => p.type === "text" && typeof p.text === "string")
+			.map((p) => p.text as string)
+			.join(" ")
+			.trim();
+		if (text) {
+			return text;
+		}
+	}
+	return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function readString(value: unknown): string | undefined {
+	return typeof value === "string" ? value : undefined;
+}
+
+function getImagePartsForMessage(message: UIMessage): unknown[] {
+	return (message.parts as unknown[]).filter((part) => {
+		if (!isRecord(part)) {
+			return false;
+		}
+		if (part.type === "image_url") {
+			return true;
+		}
+		if (part.type !== "file") {
+			return false;
+		}
+		const mediaType = readString(part.mediaType);
+		return !!mediaType?.startsWith("image/");
+	});
+}
+
+function getAudioPartsForMessage(message: UIMessage): unknown[] {
+	return (message.parts as unknown[]).filter((part) => {
+		if (!isRecord(part)) {
+			return false;
+		}
+		if (part.type !== "file") {
+			return false;
+		}
+		const mediaType = readString(part.mediaType);
+		return !!mediaType?.startsWith("audio/");
+	});
+}
+
+function getAudiosForStorage(
+	message: UIMessage,
+): Array<{ type: "audio"; url: string; mediaType: string; name?: string }> {
+	const audios: Array<{
+		type: "audio";
+		url: string;
+		mediaType: string;
+		name?: string;
+	}> = [];
+
+	for (const part of message.parts as unknown[]) {
+		if (!isRecord(part) || part.type !== "file") {
+			continue;
+		}
+		const mediaType = readString(part.mediaType);
+		const url = readString(part.url);
+		if (!mediaType?.startsWith("audio/") || !url) {
+			continue;
+		}
+		const name = readString(part.name);
+		audios.push({ type: "audio", url, mediaType, ...(name ? { name } : {}) });
+	}
+
+	return audios;
+}
+
+function getImagesForStorage(
+	message: UIMessage,
+): Array<{ type: "image_url"; image_url: { url: string } }> {
+	const images: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+
+	for (const part of message.parts as unknown[]) {
+		if (!isRecord(part)) {
+			continue;
+		}
+
+		if (part.type === "image_url") {
+			const imageUrl = isRecord(part.image_url)
+				? readString(part.image_url.url)
+				: undefined;
+			if (imageUrl) {
+				images.push({
+					type: "image_url",
+					image_url: { url: imageUrl },
+				});
+			}
+			continue;
+		}
+
+		if (part.type !== "file") {
+			continue;
+		}
+
+		const mediaType = readString(part.mediaType);
+		const url = readString(part.url);
+		if (!mediaType?.startsWith("image/") || !url) {
+			continue;
+		}
+
+		const { dataUrl } = parseImageFile({ url, mediaType });
+		images.push({
+			type: "image_url",
+			image_url: { url: dataUrl },
+		});
+	}
+
+	return images;
+}
+
+function buildEditedUserMessage(
+	message: UIMessage,
+	content: string,
+): UIMessage {
+	const parts: unknown[] = [];
+	if (content.trim()) {
+		parts.push({ type: "text", text: content });
+	}
+	parts.push(...getImagePartsForMessage(message));
+	parts.push(...getAudioPartsForMessage(message));
+
+	return {
+		...message,
+		role: "user",
+		parts: parts as UIMessage["parts"],
+	};
+}
+
 interface ChatPageClientProps {
 	models: ApiModel[];
 	providers: ApiProvider[];
@@ -68,6 +217,37 @@ interface ChatPageClientProps {
 	selectedProject: Project | null;
 	initialPrompt?: string;
 	enableWebSearch?: boolean;
+}
+
+function parseModelSelectorValue(value: string): {
+	providerId: string;
+	modelId: string;
+	providerModelName: string;
+} {
+	const [providerId, rawModelId] = value.includes("/")
+		? (value.split("/") as [string, string])
+		: ["", value];
+	const colonIndex = rawModelId.lastIndexOf(":");
+
+	return {
+		providerId,
+		modelId: colonIndex === -1 ? rawModelId : rawModelId.slice(0, colonIndex),
+		providerModelName: rawModelId,
+	};
+}
+
+function getSelectedMapping(
+	model: ApiModel,
+	providerId: string,
+	providerModelName: string,
+): ApiModelProviderMapping | undefined {
+	return (
+		model.mappings.find(
+			(mapping) =>
+				mapping.providerId === providerId &&
+				mapping.modelName === providerModelName,
+		) ?? model.mappings.find((mapping) => mapping.providerId === providerId)
+	);
 }
 
 export default function ChatPageClient({
@@ -137,6 +317,7 @@ export default function ChatPageClient({
 	const [error, setError] = useState<string | null>(null);
 	const [finishReason, setFinishReason] = useState<string | null>(null);
 	const [showTopUp, setShowTopUp] = useState(false);
+	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
 
 	// MCP servers management
 	const {
@@ -154,16 +335,27 @@ export default function ChatPageClient({
 		chatIdFromUrl,
 	);
 	const chatIdRef = useRef(currentChatId);
+	// Captures the chat ID at stream-start so onFinish always saves to the
+	// originating chat even if the user navigates to another chat mid-stream.
+	const streamingChatIdRef = useRef<string | null>(null);
 	const isNewChatRef = useRef(false);
 	const errorOccurredRef = useRef(false);
 	const isSendingRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
 	// Flag to indicate we should clear messages on next URL change (set by handleChatSelect)
 	const shouldClearMessagesRef = useRef(false);
+	// Tracks which chat's messages are currently displayed in the useChat state,
+	// so we know when a navigation requires reloading from the server.
+	const loadedChatIdRef = useRef<string | null>(null);
+	// Set by programmatic chat creation/forking before the URL update propagates.
+	// Used by the URL sync effect to avoid correcting currentChatId back to the
+	// stale URL value while router navigation is catching up.
+	const pendingNewChatRef = useRef<string | null>(null);
 
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
 			onError: async (e) => {
+				streamingChatIdRef.current = null;
 				isSendingRef.current = false;
 				errorOccurredRef.current = true;
 				const msg = getErrorMessage(e);
@@ -204,22 +396,15 @@ export default function ChatPageClient({
 					errorOccurredRef.current = false;
 					return;
 				}
-
-				// Wait for chatId to be available (handleUserMessage might still be running)
-				let chatId = chatIdRef.current;
-
-				if (!chatId) {
-					// Poll for chatId with timeout
-					for (let i = 0; i < 50; i++) {
-						await new Promise<void>((resolve) => {
-							setTimeout(resolve, 100);
-						});
-						chatId = chatIdRef.current;
-						if (chatId) {
-							break;
-						}
-					}
+				if (isTemporaryChat) {
+					return;
 				}
+
+				// Use the chat ID captured at stream-start. This ref is set before
+				// sendMessage is called so it's always available here, even if the
+				// user navigated to a different chat while the stream was running.
+				const chatId = streamingChatIdRef.current;
+				streamingChatIdRef.current = null;
 
 				if (!chatId) {
 					toast.error(
@@ -291,6 +476,7 @@ export default function ChatPageClient({
 
 				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
 				const toolParts = message.parts.filter(isToolPart);
+				const metadata = parsePlaygroundMessageMetadata(message.metadata);
 
 				const bodyToSave = {
 					role: "assistant" as const,
@@ -298,6 +484,7 @@ export default function ChatPageClient({
 					images: images.length > 0 ? JSON.stringify(images) : undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					...(metadata ? { metadata } : {}),
 				};
 
 				try {
@@ -327,14 +514,32 @@ export default function ChatPageClient({
 
 	// Sync currentChatId with URL param changes
 	useEffect(() => {
-		if (chatIdFromUrl !== currentChatId) {
-			// Only clear messages if explicitly requested (by handleChatSelect or handleNewChat)
-			if (shouldClearMessagesRef.current) {
-				setMessages([]);
-				shouldClearMessagesRef.current = false;
+		if (chatIdFromUrl === currentChatId) {
+			// URL caught up with state — clear the pending flag.
+			if (pendingNewChatRef.current === currentChatId) {
+				pendingNewChatRef.current = null;
 			}
-			setCurrentChatId(chatIdFromUrl);
+			return;
 		}
+
+		// Guard programmatic chat creation/forking races: we just set currentChatId
+		// and pushed/replaced the URL, but chatIdFromUrl hasn't propagated yet.
+		// Wait for the URL to catch up instead of downgrading to the stale URL value.
+		if (
+			pendingNewChatRef.current !== null &&
+			currentChatId === pendingNewChatRef.current &&
+			chatIdFromUrl !== pendingNewChatRef.current
+		) {
+			return;
+		}
+
+		if (shouldClearMessagesRef.current) {
+			setMessages([]);
+			// Release ownership so the next chat reloads from the server.
+			loadedChatIdRef.current = null;
+			shouldClearMessagesRef.current = false;
+		}
+		setCurrentChatId(chatIdFromUrl);
 	}, [chatIdFromUrl, currentChatId, setMessages]);
 
 	useEffect(() => {
@@ -342,28 +547,45 @@ export default function ChatPageClient({
 	}, [currentChatId]);
 
 	const supportsImages = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
+		}
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		return !!mapping?.vision;
+	}, [models, selectedModel]);
+
+	const supportsAudio = useMemo(() => {
 		let model = availableModels.find((m) => m.id === selectedModel);
 		if (!model && !selectedModel.includes("/")) {
 			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
 		}
-		return !!model?.vision;
+		return !!model?.audio;
 	}, [availableModels, selectedModel]);
 
 	const supportsImageGen = useMemo(() => {
-		let model = availableModels.find((m) => m.id === selectedModel);
-		if (!model && !selectedModel.includes("/")) {
-			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		if (!selectedModel) {
+			return false;
 		}
-		return !!model?.imageGen;
-	}, [availableModels, selectedModel]);
+		const { modelId } = parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		return !!def?.output?.includes("image");
+	}, [models, selectedModel]);
 
 	const supportsReasoning = useMemo(() => {
 		if (!selectedModel) {
 			return false;
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
 			return false;
@@ -371,9 +593,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -381,9 +601,8 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
 			return false;
@@ -391,9 +610,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
@@ -465,6 +682,7 @@ export default function ChatPageClient({
 					...(enabledMcpServers.length > 0
 						? { mcp_servers: enabledMcpServers }
 						: {}),
+					...(isTemporaryChat ? { temporary_chat: true } : {}),
 				},
 			};
 		},
@@ -481,6 +699,7 @@ export default function ChatPageClient({
 			webSearchEnabled,
 			supportsWebSearch,
 			getEnabledMcpServers,
+			isTemporaryChat,
 		],
 	);
 
@@ -507,6 +726,7 @@ export default function ChatPageClient({
 					(p.type === "file" && p.mediaType?.startsWith("image/")) ||
 					p.type === "image_url",
 			);
+			streamingChatIdRef.current = chatIdRef.current;
 			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
 		},
 		[regenerate, messages, buildRequestOptions],
@@ -522,98 +742,154 @@ export default function ChatPageClient({
 	>({});
 	const [comparisonResetToken, setComparisonResetToken] = useState(0);
 
+	const sidebarRef = useRef<ChatSidebarHandle | null>(null);
+
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
+	const updateMessage = useUpdateMessage();
 	const deleteChat = useDeleteChat();
+	const forkChat = useForkChat();
 	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
 		currentChatId ?? "",
 	);
-	useChats();
 
 	useEffect(() => {
-		if (!currentChatData?.messages || isSendingRef.current) {
+		// Use `status` from useChat (reactive) instead of the isSendingRef ref so
+		// the effect re-runs when a stream finishes and can pick up a chat the
+		// user navigated to mid-stream.
+		if (status === "submitted" || status === "streaming" || isTemporaryChat) {
 			return;
 		}
 
-		setMessages((prev) => {
-			// Load messages if empty (URL change clears messages first)
-			if (prev.length === 0) {
-				// Only update the selected model when first loading a chat
-				if (currentChatData.chat?.model) {
-					setSelectedModel(currentChatData.chat.model);
+		// No chat selected: drop ownership so the next chat we visit reloads cleanly.
+		if (!currentChatId) {
+			loadedChatIdRef.current = null;
+			return;
+		}
+
+		if (!currentChatData?.messages) {
+			return;
+		}
+
+		const fetchedChatId = currentChatData.chat?.id ?? null;
+
+		// Wait until the fetched data is for the chat the user actually selected —
+		// otherwise we'd briefly render the previous chat's messages while
+		// useDataChat refetches against the new key.
+		if (fetchedChatId !== currentChatId) {
+			return;
+		}
+
+		// Already loaded this chat's messages into useChat state. Skip so that
+		// post-send query invalidations don't clobber the just-streamed reply.
+		if (loadedChatIdRef.current === fetchedChatId) {
+			return;
+		}
+
+		loadedChatIdRef.current = fetchedChatId;
+
+		if (currentChatData.chat?.model) {
+			setSelectedModel(currentChatData.chat.model);
+		}
+
+		if (currentChatData.chat?.webSearch !== undefined) {
+			setWebSearchEnabled(currentChatData.chat.webSearch);
+		}
+
+		const filteredMessages = currentChatData.messages.filter(
+			(msg, index, arr) =>
+				msg.role !== "assistant" || arr[index + 1]?.role !== "assistant",
+		);
+		setMessages(
+			filteredMessages.map((msg) => {
+				const parts: any[] = [];
+
+				if (msg.content) {
+					parts.push({ type: "text", text: msg.content });
 				}
 
-				// Only update the web search state when first loading a chat
-				if (currentChatData.chat?.webSearch !== undefined) {
-					setWebSearchEnabled(currentChatData.chat.webSearch);
+				if ((msg as any).reasoning) {
+					parts.push({ type: "reasoning", text: (msg as any).reasoning });
 				}
-				return currentChatData.messages.map((msg) => {
-					const parts: any[] = [];
 
-					// Add text content
-					if (msg.content) {
-						parts.push({ type: "text", text: msg.content });
-					}
-
-					// Add reasoning if present
-					if ((msg as any).reasoning) {
-						parts.push({ type: "reasoning", text: (msg as any).reasoning });
-					}
-
-					// Add images if present
-					if (msg.images) {
-						try {
-							const parsedImages = JSON.parse(msg.images);
-							// Convert saved image_url format to file format for rendering
-							const imageParts = parsedImages.map((img: any) => {
-								const dataUrl = img.image_url?.url ?? "";
-								// Extract base64 and mediaType from data URL
-								if (dataUrl.startsWith("data:")) {
-									const [header, base64] = dataUrl.split(",");
-									const mediaType =
-										header.match(/data:([^;]+)/)?.[1] ?? "image/png";
-									return {
-										type: "file",
-										mediaType,
-										url: base64,
-									};
-								}
+				if (msg.images) {
+					try {
+						const parsedImages = JSON.parse(msg.images);
+						const imageParts = parsedImages.map((img: any) => {
+							const dataUrl = img.image_url?.url ?? "";
+							if (dataUrl.startsWith("data:")) {
+								const [header, base64] = dataUrl.split(",");
+								const mediaType =
+									header.match(/data:([^;]+)/)?.[1] ?? "image/png";
 								return {
 									type: "file",
-									mediaType: "image/png",
-									url: dataUrl,
+									mediaType,
+									url: base64,
 								};
-							});
-							parts.push(...imageParts);
-						} catch (error) {
-							toast.error("Failed to parse images: " + getErrorMessage(error));
-						}
-					}
-
-					// Add tool parts if present
-					if ((msg as any).tools) {
-						try {
-							const parsedTools = JSON.parse((msg as any).tools);
-							if (Array.isArray(parsedTools)) {
-								parts.push(...parsedTools.map((t: any) => ({ ...t })));
 							}
-						} catch (error) {
-							toast.error("Failed to parse tools: " + getErrorMessage(error));
-						}
+							return {
+								type: "file",
+								mediaType: "image/png",
+								url: dataUrl,
+							};
+						});
+						parts.push(...imageParts);
+					} catch (error) {
+						toast.error("Failed to parse images: " + getErrorMessage(error));
 					}
+				}
 
-					return {
-						id: msg.id,
-						role: msg.role,
-						content: msg.content ?? "",
-						parts,
-					};
-				});
-			}
-			return prev;
-		});
-	}, [currentChatData, setMessages, setSelectedModel]);
+				if (msg.audios) {
+					try {
+						const parsedAudios = JSON.parse(msg.audios);
+						if (Array.isArray(parsedAudios)) {
+							for (const a of parsedAudios) {
+								if (!a?.url) {
+									continue;
+								}
+								parts.push({
+									type: "file",
+									mediaType: a.mediaType ?? "audio/mpeg",
+									url: a.url,
+									...(a.name ? { name: a.name } : {}),
+								});
+							}
+						}
+					} catch (error) {
+						toast.error("Failed to parse audios: " + getErrorMessage(error));
+					}
+				}
+
+				if ((msg as any).tools) {
+					try {
+						const parsedTools = JSON.parse((msg as any).tools);
+						if (Array.isArray(parsedTools)) {
+							parts.push(...parsedTools.map((t: any) => ({ ...t })));
+						}
+					} catch (error) {
+						toast.error("Failed to parse tools: " + getErrorMessage(error));
+					}
+				}
+
+				return {
+					id: msg.id,
+					role: msg.role,
+					content: msg.content ?? "",
+					metadata: parsePlaygroundMessageMetadata(msg.metadata),
+					parts,
+				};
+			}),
+		);
+	}, [
+		currentChatId,
+		currentChatData,
+		status,
+		setMessages,
+		setSelectedModel,
+		setWebSearchEnabled,
+		isTemporaryChat,
+	]);
 
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
@@ -677,6 +953,12 @@ export default function ChatPageClient({
 
 			setCurrentChatId(newChatId);
 			chatIdRef.current = newChatId; // Manually update the ref
+			// Claim ownership: this chat's messages are being populated by the
+			// in-flight stream, so the post-send refetch must not reload from server.
+			loadedChatIdRef.current = newChatId;
+			// Tell the URL sync effect to ignore the stale chatIdFromUrl=null
+			// until router.replace propagates.
+			pendingNewChatRef.current = newChatId;
 
 			// Update URL with new chat ID (without triggering navigation)
 			const params = new URLSearchParams(searchParams.toString());
@@ -696,22 +978,49 @@ export default function ChatPageClient({
 			type: "image_url";
 			image_url: { url: string };
 		}>,
+		audio?: Array<{
+			type: "audio";
+			url: string;
+			mediaType: string;
+			name?: string;
+		}>,
 	) => {
 		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
 			setShowTopUp(true);
-			return;
+			return undefined;
 		}
 
+		let savedUserMessage: { id: string } | undefined;
 		setError(null);
 		setFinishReason(null);
 		setIsLoading(true);
 		posthog.capture("playground_chat_sent", {
 			model: selectedModel,
 			has_images: !!images?.length,
+			has_audio: !!audio?.length,
 			web_search: webSearchEnabled,
 		});
 		errorOccurredRef.current = false;
 		isSendingRef.current = true;
+		if (isTemporaryChat) {
+			isSendingRef.current = false;
+			isNewChatRef.current = false;
+			setIsLoading(false);
+			if (syncInput) {
+				const submitFns = Object.values(extraSubmitRefs.current);
+				const results = await Promise.allSettled(
+					submitFns.map((submit) => submit(content)),
+				);
+				for (const result of results) {
+					if (result.status === "rejected") {
+						posthog.capture("playground_mirror_prompt_failure", {
+							reason: String(result.reason),
+						});
+					}
+				}
+			}
+			return undefined;
+		}
 
 		const isNewChat = !chatIdRef.current;
 		if (isNewChat) {
@@ -720,15 +1029,18 @@ export default function ChatPageClient({
 
 		try {
 			const chatId = await ensureCurrentChat(content);
+			streamingChatIdRef.current = chatId;
 
-			await addMessage.mutateAsync({
+			const savedMessage = await addMessage.mutateAsync({
 				params: { path: { id: chatId } },
 				body: {
 					role: "user",
 					...(content.trim() ? { content } : {}),
 					...(images?.length ? { images: JSON.stringify(images) } : {}),
+					...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
 				},
 			});
+			savedUserMessage = savedMessage.message;
 		} catch (error: any) {
 			// If chat not found, it means the chat was deleted or is stale
 			if (error?.status === 404 && error?.message?.includes("Chat not found")) {
@@ -739,22 +1051,23 @@ export default function ChatPageClient({
 				// Try again with a new chat
 				try {
 					const newChatId = await ensureCurrentChat(content);
-					await addMessage.mutateAsync({
+					const savedMessage = await addMessage.mutateAsync({
 						params: { path: { id: newChatId } },
 						body: {
 							role: "user",
 							...(content.trim() ? { content } : {}),
 							...(images?.length ? { images: JSON.stringify(images) } : {}),
+							...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
 						},
 					});
 					setIsLoading(false);
-					return; // Exit early, don't show error
+					savedUserMessage = savedMessage.message;
 				} catch (retryError) {
 					const retryErrorMessage = getErrorMessage(retryError);
 					setError(retryErrorMessage);
 					toast.error(retryErrorMessage);
 					setIsLoading(false);
-					return;
+					return undefined;
 				}
 			}
 
@@ -766,7 +1079,7 @@ export default function ChatPageClient({
 					error?.message?.includes("FREE_LIMIT_REACHED"))
 			) {
 				toast.error(error.message);
-				return;
+				return undefined;
 			}
 
 			const errorMessage = getErrorMessage(error);
@@ -810,12 +1123,73 @@ export default function ChatPageClient({
 				}
 			}
 		}
+		return savedUserMessage;
+	};
+
+	const handleEditUserMessage = async (message: UIMessage, content: string) => {
+		const chatId = chatIdRef.current;
+		if (!chatId) {
+			toast.error("No chat selected.");
+			return;
+		}
+
+		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
+			setShowTopUp(true);
+			return;
+		}
+
+		const editedMessage = buildEditedUserMessage(message, content);
+		if (editedMessage.parts.length === 0) {
+			return;
+		}
+
+		const images = getImagesForStorage(message);
+		const audios = getAudiosForStorage(message);
+		setError(null);
+		setFinishReason(null);
+		errorOccurredRef.current = false;
+		isSendingRef.current = true;
+		loadedChatIdRef.current = chatId;
+		streamingChatIdRef.current = chatId;
+
+		try {
+			await updateMessage.mutateAsync({
+				params: { path: { id: chatId, messageId: message.id } },
+				body: {
+					...(content.trim() ? { content } : {}),
+					...(images.length ? { images: JSON.stringify(images) } : {}),
+					...(audios.length ? { audios: JSON.stringify(audios) } : {}),
+				},
+			});
+
+			const messageIndex = messages.findIndex((m) => m.id === message.id);
+			const previousMessages =
+				messageIndex === -1 ? messages : messages.slice(0, messageIndex);
+			setMessages(previousMessages);
+			await new Promise<void>((resolve) => {
+				setTimeout(resolve, 0);
+			});
+
+			await sendMessageWithHeaders(editedMessage, {
+				body: {
+					model: selectedModel,
+				},
+			});
+		} catch (error) {
+			isSendingRef.current = false;
+			const errorMessage = getErrorMessage(error);
+			setError(errorMessage);
+			toast.error(errorMessage);
+		}
 	};
 
 	const clearMessages = () => {
+		void stop();
 		setError(null);
 		setFinishReason(null);
 		shouldClearMessagesRef.current = true;
+		setCurrentChatId(null);
+		chatIdRef.current = null;
 		setMessages([]);
 		// Remove chat param from URL
 		const params = new URLSearchParams(searchParams.toString());
@@ -826,7 +1200,24 @@ export default function ChatPageClient({
 		router.push(newUrl);
 	};
 
+	const hasTemporaryMessages = isTemporaryChat && messages.length > 0;
+
+	const handleToggleTemporaryChat = () => {
+		if (isTemporaryChat) {
+			clearMessages();
+			setIsTemporaryChat(false);
+			return;
+		}
+		setComparisonEnabled(false);
+		setExtraPanelIds([]);
+		setComparisonResetToken((token) => token + 1);
+		extraSubmitRefs.current = {};
+		clearMessages();
+		setIsTemporaryChat(true);
+	};
+
 	const handleNewChat = async () => {
+		void stop();
 		setIsLoading(true);
 		setError(null);
 		setFinishReason(null);
@@ -851,6 +1242,7 @@ export default function ChatPageClient({
 	};
 
 	const handleChatSelect = (chatId: string) => {
+		void stop();
 		setError(null);
 		setFinishReason(null);
 		shouldClearMessagesRef.current = true; // Request message clear on URL change
@@ -859,6 +1251,53 @@ export default function ChatPageClient({
 		params.set("chat", chatId);
 		router.push(`${pathname}?${params.toString()}`);
 	};
+
+	const handleForkChat = useCallback(async () => {
+		if (
+			forkChat.isPending ||
+			isTemporaryChat ||
+			status === "submitted" ||
+			status === "streaming"
+		) {
+			return;
+		}
+
+		const chatId = chatIdRef.current ?? currentChatId;
+		if (!chatId) {
+			return;
+		}
+
+		try {
+			const data = await forkChat.mutateAsync({
+				params: { path: { id: chatId } },
+			});
+			const newChatId = data.chat.id;
+
+			setError(null);
+			setFinishReason(null);
+			shouldClearMessagesRef.current = false;
+			setMessages([]);
+			loadedChatIdRef.current = null;
+			pendingNewChatRef.current = newChatId;
+			setCurrentChatId(newChatId);
+			chatIdRef.current = newChatId;
+
+			const params = new URLSearchParams(searchParams.toString());
+			params.set("chat", newChatId);
+			router.push(`${pathname}?${params.toString()}`);
+			sidebarRef.current?.scrollToTop();
+			toast.success("Chat forked");
+		} catch {}
+	}, [
+		currentChatId,
+		forkChat,
+		isTemporaryChat,
+		pathname,
+		router,
+		searchParams,
+		setMessages,
+		status,
+	]);
 
 	// keep URL in sync with selected model
 	useEffect(() => {
@@ -965,21 +1404,24 @@ export default function ChatPageClient({
 				LLM Gateway Playground - Chat with 210+ AI Models
 			</h1>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
-				<ChatSidebar
-					onNewChat={handleNewChat}
-					onChatSelect={handleChatSelect}
-					currentChatId={currentChatId ?? undefined}
-					clearMessages={clearMessages}
-					isLoading={isLoading}
-					organizations={organizations}
-					selectedOrganization={selectedOrganization}
-					onSelectOrganization={handleSelectOrganization}
-					onOrganizationCreated={handleOrganizationCreated}
-					projects={projects}
-					selectedProject={selectedProject}
-					onSelectProject={handleSelectProject}
-					onProjectCreated={handleProjectCreated}
-				/>
+				{isTemporaryChat ? null : (
+					<ChatSidebar
+						ref={sidebarRef}
+						onNewChat={handleNewChat}
+						onChatSelect={handleChatSelect}
+						currentChatId={currentChatId ?? undefined}
+						clearMessages={clearMessages}
+						isLoading={isLoading}
+						organizations={organizations}
+						selectedOrganization={selectedOrganization}
+						onSelectOrganization={handleSelectOrganization}
+						onOrganizationCreated={handleOrganizationCreated}
+						projects={projects}
+						selectedProject={selectedProject}
+						onSelectProject={handleSelectProject}
+						onProjectCreated={handleProjectCreated}
+					/>
+				)}
 				<main className="flex flex-1 flex-col w-full min-h-0 overflow-hidden">
 					<header className="shrink-0">
 						<ChatHeader
@@ -1004,9 +1446,19 @@ export default function ChatPageClient({
 							onUpdateMcpServer={updateMcpServer}
 							onRemoveMcpServer={removeMcpServer}
 							onToggleMcpServer={toggleMcpServer}
+							isTemporaryChat={isTemporaryChat}
+							onToggleTemporaryChat={handleToggleTemporaryChat}
+							isTemporaryChatToggleDisabled={
+								isLoading || status === "submitted" || status === "streaming"
+							}
+							hasTemporaryMessages={hasTemporaryMessages}
+							currentChatId={currentChatId}
+							shareId={currentChatData?.chat?.shareId ?? null}
+							chatTitle={currentChatData?.chat?.title ?? null}
+							previewPrompt={getFirstUserMessageText(messages)}
 						/>
 					</header>
-					{comparisonEnabled ? (
+					{comparisonEnabled && !isTemporaryChat ? (
 						<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
 							<div className="flex items-center gap-2 text-xs text-muted-foreground">
 								<span className="font-medium">Chat windows</span>
@@ -1096,6 +1548,7 @@ export default function ChatPageClient({
 										<ChatUI
 											messages={messages}
 											supportsImages={supportsImages}
+											supportsAudio={supportsAudio}
 											supportsImageGen={supportsImageGen}
 											sendMessage={sendMessageWithHeaders}
 											selectedModel={selectedModel}
@@ -1118,9 +1571,13 @@ export default function ChatPageClient({
 											imageCount={imageCount}
 											setImageCount={setImageCount}
 											onUserMessage={handleUserMessage}
+											onEditUserMessage={handleEditUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
 											finishReason={finishReason}
+											isTemporaryChat={isTemporaryChat}
+											forkChat={!isTemporaryChat ? handleForkChat : undefined}
+											isForkingChat={forkChat.isPending}
 											setWebSearchEnabled={setWebSearchEnabled}
 											supportsWebSearch={supportsWebSearch}
 											webSearchEnabled={webSearchEnabled}
@@ -1132,6 +1589,7 @@ export default function ChatPageClient({
 									<ChatUI
 										messages={messages}
 										supportsImages={supportsImages}
+										supportsAudio={supportsAudio}
 										supportsImageGen={supportsImageGen}
 										sendMessage={sendMessageWithHeaders}
 										selectedModel={selectedModel}
@@ -1157,10 +1615,14 @@ export default function ChatPageClient({
 										webSearchEnabled={webSearchEnabled}
 										setWebSearchEnabled={setWebSearchEnabled}
 										onUserMessage={handleUserMessage}
+										onEditUserMessage={handleEditUserMessage}
 										isLoading={isLoading || isChatLoading}
 										error={error}
 										finishReason={finishReason}
 										floatingInput
+										isTemporaryChat={isTemporaryChat}
+										forkChat={!isTemporaryChat ? handleForkChat : undefined}
+										isForkingChat={forkChat.isPending}
 									/>
 								</div>
 							)}
@@ -1266,28 +1728,45 @@ function ExtraChatPanel({
 	});
 
 	const supportsImages = useMemo(() => {
-		let model = availableModels.find((m) => m.id === selectedModel);
-		if (!model && !selectedModel.includes("/")) {
-			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
+		if (!selectedModel) {
+			return false;
 		}
-		return !!model?.vision;
-	}, [availableModels, selectedModel]);
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
+		}
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		return !!mapping?.vision;
+	}, [models, selectedModel]);
 
 	const supportsImageGen = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const { modelId } = parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		return !!def?.output?.includes("image");
+	}, [models, selectedModel]);
+
+	const supportsAudio = useMemo(() => {
 		let model = availableModels.find((m) => m.id === selectedModel);
 		if (!model && !selectedModel.includes("/")) {
 			model = availableModels.find((m) => m.id.endsWith(`/${selectedModel}`));
 		}
-		return !!model?.imageGen;
+		return !!model?.audio;
 	}, [availableModels, selectedModel]);
 
 	const supportsReasoning = useMemo(() => {
 		if (!selectedModel) {
 			return false;
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
 			return false;
@@ -1295,9 +1774,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -1305,9 +1782,8 @@ function ExtraChatPanel({
 		if (!selectedModel) {
 			return false;
 		}
-		const [providerId, modelId] = selectedModel.includes("/")
-			? (selectedModel.split("/") as [string, string])
-			: ["", selectedModel];
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
 			return false;
@@ -1315,9 +1791,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = def.mappings.find(
-			(p: ApiModelProviderMapping) => p.providerId === providerId,
-		);
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
@@ -1517,6 +1991,7 @@ function ExtraChatPanel({
 				<ChatUI
 					messages={messages}
 					supportsImages={supportsImages}
+					supportsAudio={supportsAudio}
 					supportsImageGen={supportsImageGen}
 					sendMessage={sendMessageWithHeaders}
 					selectedModel={selectedModel}

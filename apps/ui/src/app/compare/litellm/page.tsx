@@ -39,7 +39,7 @@ export default function CompareLiteLLMPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs LiteLLM - Feature Comparison | LLM Gateway",
+		title: "LLM Gateway vs LiteLLM — Feature Comparison",
 		description:
 			"Compare LLM Gateway's managed infrastructure, advanced analytics, and enterprise features against LiteLLM's self-hosted proxy solution. See why teams choose our production-ready API gateway.",
 		openGraph: {

@@ -1,6 +1,8 @@
 import { subDays, format } from "date-fns";
+import { cookies } from "next/headers";
 
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
+import { DEVPASS_CARD_COLLAPSED_COOKIE } from "@/lib/cookies";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { ActivitT } from "@/types/activity";
@@ -38,7 +40,14 @@ export default async function Dashboard({
 		},
 	);
 
+	const cookieStore = await cookies();
+	const devPassCollapsed =
+		cookieStore.get(DEVPASS_CARD_COLLAPSED_COOKIE)?.value === "1";
+
 	return (
-		<DashboardClient initialActivityData={initialActivityData ?? undefined} />
+		<DashboardClient
+			initialActivityData={initialActivityData ?? undefined}
+			initialDevPassCollapsed={devPassCollapsed}
+		/>
 	);
 }

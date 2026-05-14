@@ -243,6 +243,14 @@ export function getProviderEndpoint(
 			case "minimax":
 				url = "https://api.minimax.io";
 				break;
+			case "xiaomi":
+				url =
+					envValueOrDefault(
+						"xiaomi",
+						"baseUrl",
+						"https://api.xiaomimimo.com",
+					) ?? "https://api.xiaomimimo.com";
+				break;
 			case "aws-bedrock":
 				url =
 					envValueOrDefault(
@@ -536,6 +544,7 @@ export function getProviderEndpoint(
 		case "nebius":
 		case "nanogpt":
 		case "minimax":
+		case "xiaomi":
 		case "embercloud":
 		case "custom":
 		default:
