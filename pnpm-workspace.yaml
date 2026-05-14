@@ -3,12 +3,14 @@ packages:
   - packages/*
   - ee/*
 
-allowBuilds:
-  '@parcel/watcher': true
-  '@tailwindcss/oxide': true
-  better-sqlite3: true
-  core-js: true
-  esbuild: true
-  sharp: true
-  protobufjs: false
-  unrs-resolver: false
+ignoredBuiltDependencies:
+  - protobufjs
+  - unrs-resolver
+
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - '@tailwindcss/oxide'
+  - better-sqlite3
+  - core-js
+  - esbuild
+  - sharp
