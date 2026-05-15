@@ -53,11 +53,14 @@ export default function GroupChatClient({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
-	// Filter out image/video generation models — group chat is text-only
+	// Filter out image/video/embedding models — group chat is text-only
 	const chatModels = useMemo(
 		() =>
 			models.filter(
-				(m) => !m.output?.includes("image") && !m.output?.includes("video"),
+				(m) =>
+					!m.output?.includes("image") &&
+					!m.output?.includes("video") &&
+					!m.output?.includes("embedding"),
 			),
 		[models],
 	);

@@ -25,6 +25,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.auditLog.userId,
 		}),
+		favoriteModels: r.many.userFavoriteModel({
+			from: r.user.id,
+			to: r.userFavoriteModel.userId,
+		}),
 	},
 	organization: {
 		userOrganizations: r.many.userOrganization(),
