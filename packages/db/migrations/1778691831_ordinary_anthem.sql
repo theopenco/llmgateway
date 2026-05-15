@@ -1,0 +1,2 @@
+ALTER TABLE "organization" ADD COLUMN "dev_plan_card_fingerprint" text;--> statement-breakpoint
+CREATE INDEX "organization_dev_plan_card_fingerprint_idx" ON "organization" ("dev_plan_card_fingerprint");

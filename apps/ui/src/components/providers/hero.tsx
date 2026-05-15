@@ -1,4 +1,4 @@
-import { Play } from "lucide-react";
+import { ExternalLink, Play } from "lucide-react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
@@ -70,6 +70,35 @@ export function Hero({ providerId }: HeroProps) {
 							</a>
 						</Button>
 					</div>
+					{(provider.termsUrl || provider.privacyPolicyUrl) && (
+						<div className="mt-6 flex items-center gap-x-4 text-sm text-muted-foreground">
+							{provider.termsUrl && (
+								<a
+									href={provider.termsUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+								>
+									Terms of Service
+									<ExternalLink className="h-3 w-3" />
+								</a>
+							)}
+							{provider.termsUrl && provider.privacyPolicyUrl && (
+								<span className="text-muted-foreground/50">|</span>
+							)}
+							{provider.privacyPolicyUrl && (
+								<a
+									href={provider.privacyPolicyUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+								>
+									Privacy Policy
+									<ExternalLink className="h-3 w-3" />
+								</a>
+							)}
+						</div>
+					)}
 				</div>
 				<div className="flex items-center justify-center gap-8 relative mt-20 lg:mt-0">
 					<div className="h-24 w-24 relative -top-12">

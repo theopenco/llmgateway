@@ -124,3 +124,109 @@ export async function notifyCreditsPurchased(
 		],
 	});
 }
+
+export async function notifyDevPlanSubscribed(
+	email: string,
+	name: string | null | undefined,
+	devPlan: string,
+	cycle: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "DevPass Subscribed",
+				color: 0x22c55e, // Green
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Plan",
+						value: `${devPlan.toUpperCase()} (${cycle})`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
+export async function notifyDevPlanCancelled(
+	email: string,
+	name: string | null | undefined,
+	devPlan: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "DevPass Cancelled",
+				color: 0xef4444, // Red
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Plan",
+						value: devPlan.toUpperCase(),
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
+export async function notifyDevPlanRenewed(
+	email: string,
+	name: string | null | undefined,
+	devPlan: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "DevPass Renewed",
+				color: 0x8b5cf6, // Purple
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Plan",
+						value: devPlan.toUpperCase(),
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}

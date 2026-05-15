@@ -322,6 +322,12 @@ export interface ProviderModelMapping {
 	 */
 	webSearchPrice?: Price;
 	/**
+	 * Price per content filter violation in USD (charged additionally when the
+	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
+	 * "Content violates usage guidelines" response).
+	 */
+	contentFilterPrice?: number;
+	/**
 	 * List of supported API parameters for this model/provider combination
 	 */
 	supportedParameters?: string[];
@@ -350,6 +356,12 @@ export interface ProviderModelMapping {
 	 * When true, requests are routed to a provider-specific image generation endpoint.
 	 */
 	imageGenerations?: boolean;
+	/**
+	 * Whether this model uses a dedicated embeddings API.
+	 * When true, requests are routed to a provider-specific /v1/embeddings endpoint
+	 * and pricing is computed against input tokens only (no completion tokens).
+	 */
+	embeddings?: boolean;
 	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
@@ -423,7 +435,7 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video")[];
+	output?: ("text" | "image" | "video" | "embedding")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */

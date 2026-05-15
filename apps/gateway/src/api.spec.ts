@@ -333,6 +333,259 @@ describe("api", () => {
 		expect(moderationLog?.content).toContain('"flagged":true');
 	});
 
+	test("/v1/embeddings e2e success", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings",
+			token: "real-token-embeddings",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-embeddings",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = "embeddings-request-id";
+		const inputText = "The food was delicious and the waiter was friendly.";
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				input: inputText,
+				model: "text-embedding-3-small",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(json).toHaveProperty("object", "list");
+		expect(json).toHaveProperty("model", "text-embedding-3-small");
+		expect(Array.isArray(json.data)).toBe(true);
+		expect(json.data[0]).toHaveProperty("embedding");
+		expect(Array.isArray(json.data[0].embedding)).toBe(true);
+		expect(json.usage).toEqual({
+			prompt_tokens: inputText.length,
+			total_tokens: inputText.length,
+		});
+
+		const logs = await waitForLogs(1);
+		const embeddingLog = logs.find((log) => log.requestId === requestId);
+
+		expect(embeddingLog).toBeTruthy();
+		expect(embeddingLog?.usedModel).toBe("openai/text-embedding-3-small");
+		expect(embeddingLog?.requestedModel).toBe("text-embedding-3-small");
+		expect(embeddingLog?.usedModelMapping).toBe("text-embedding-3-small");
+		expect(embeddingLog?.usedProvider).toBe("openai");
+		expect(embeddingLog?.streamed).toBe(false);
+		expect(embeddingLog?.finishReason).toBe("stop");
+		expect(embeddingLog?.promptTokens).toBe(String(inputText.length));
+		expect(embeddingLog?.totalTokens).toBe(String(inputText.length));
+		expect(Number(embeddingLog?.inputCost)).toBeCloseTo(
+			(inputText.length * 0.02) / 1e6,
+			12,
+		);
+		expect(Number(embeddingLog?.cost)).toBeCloseTo(
+			(inputText.length * 0.02) / 1e6,
+			12,
+		);
+		expect(Number(embeddingLog?.outputCost)).toBe(0);
+		expect(embeddingLog?.messages).toEqual([
+			{
+				role: "user",
+				content: inputText,
+			},
+		]);
+	});
+
+	test("/v1/embeddings rejects unknown model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-unknown",
+			token: "real-token-embeddings-unknown",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-unknown",
+			},
+			body: JSON.stringify({
+				input: "Hello",
+				model: "gpt-4o-mini",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error?.code).toBe("model_not_found");
+	});
+
+	test("/v1/embeddings enforces IAM provider rules", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-iam",
+			token: "real-token-embeddings-iam",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "embedding-deny-openai",
+			apiKeyId: "token-id-embeddings-iam",
+			ruleType: "deny_providers",
+			ruleValue: { providers: ["openai"] },
+			status: "active",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-embeddings-iam",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-iam",
+			},
+			body: JSON.stringify({
+				input: "Hello",
+				model: "text-embedding-3-small",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.message).toContain(
+			"Provider openai is in the denied providers list",
+		);
+	});
+
+	test("/v1/embeddings credits mode requires credits", async () => {
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("0");
+		// Disable retention so this isolates the credits-mode check; otherwise
+		// the retention-credit check fires first and the assertion below breaks.
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-credits",
+			token: "real-token-embeddings-credits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-credits",
+			},
+			body: JSON.stringify({
+				input: "Hello",
+				model: "text-embedding-3-small",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(json.message).toBe("Organization org-id has insufficient credits");
+	});
+
+	test("/v1/embeddings hybrid fallback requires credits", async () => {
+		await harness.setProjectMode("hybrid");
+		await harness.setOrganizationCredits("0");
+		// Disable retention so this isolates the hybrid-fallback credits check.
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-hybrid-credits",
+			token: "real-token-embeddings-hybrid-credits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-hybrid-credits",
+			},
+			body: JSON.stringify({
+				input: "Hello",
+				model: "text-embedding-3-small",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(json.message).toBe(
+			"No API key set for provider and organization has insufficient credits",
+		);
+	});
+
+	test("/v1/embeddings requires credits for retention", async () => {
+		// Relies on the seeded retentionLevel: "retain" — provider key is set so
+		// mode-specific credit checks are bypassed, leaving only the retention check.
+		await harness.setOrganizationCredits("0");
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-retention",
+			token: "real-token-embeddings-retention",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-embeddings-retention",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-retention",
+			},
+			body: JSON.stringify({
+				input: "Hello",
+				model: "text-embedding-3-small",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(json.message).toContain("insufficient credits for data retention");
+	});
+
 	test("/v1/moderations forwards request id upstream", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-moderation-forwarded-request-id",
@@ -1780,6 +2033,32 @@ describe("api", () => {
 			}),
 		});
 		expect(res.status).toBe(400);
+	});
+
+	test("/v1/chat/completions rejects embedding models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-chat-embed-reject",
+			token: "real-token-chat-embed-reject",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token-chat-embed-reject`,
+			},
+			body: JSON.stringify({
+				model: "text-embedding-3-small",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error?.message ?? json.message).toMatch(/embeddings/i);
 	});
 
 	// test for missing Content-Type header

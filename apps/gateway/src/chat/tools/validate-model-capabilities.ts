@@ -45,6 +45,16 @@ export function validateModelCapabilities(
 		hasImages,
 	} = options;
 
+	if (
+		requestedModel !== "auto" &&
+		requestedModel !== "custom" &&
+		modelInfo.output?.includes("embedding")
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${requestedModel} is an embeddings model and cannot be used with /v1/chat/completions. Use the /v1/embeddings endpoint instead.`,
+		});
+	}
+
 	// Validate vision capability when the request contains images.
 	// Skip this check for "auto" and "custom" models as they will be resolved dynamically.
 	if (hasImages && requestedModel !== "auto" && requestedModel !== "custom") {

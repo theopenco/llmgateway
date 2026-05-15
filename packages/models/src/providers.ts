@@ -49,6 +49,8 @@ export interface ProviderDefinition {
 	contentFilter?: boolean;
 	/** Region routing config - when set, provider supports multiple geographic endpoints */
 	regionConfig?: ProviderRegionConfig;
+	termsUrl?: string | null;
+	privacyPolicyUrl?: string | null;
 }
 
 export const providers = [
@@ -67,6 +69,8 @@ export const providers = [
 		color: "#6366f1",
 		website: "https://llmgateway.io",
 		announcement: null,
+		termsUrl: "https://llmgateway.io/terms",
+		privacyPolicyUrl: "https://llmgateway.io/privacy",
 	},
 	{
 		id: "openai",
@@ -83,6 +87,8 @@ export const providers = [
 		color: "#0ea5e9",
 		website: "https://openai.com",
 		announcement: null,
+		termsUrl: "https://openai.com/policies/terms-of-use",
+		privacyPolicyUrl: "https://openai.com/policies/privacy-policy",
 	},
 	{
 		id: "anthropic",
@@ -99,6 +105,8 @@ export const providers = [
 		color: "#8b5cf6",
 		website: "https://anthropic.com",
 		announcement: null,
+		termsUrl: "https://www.anthropic.com/policies/terms-of-service",
+		privacyPolicyUrl: "https://www.anthropic.com/policies/privacy",
 	},
 	{
 		id: "google-ai-studio",
@@ -119,6 +127,8 @@ export const providers = [
 		website: "https://ai.google.com",
 		announcement: null,
 		priority: 0.8,
+		termsUrl: "https://ai.google.dev/gemini-api/terms",
+		privacyPolicyUrl: "https://policies.google.com/privacy",
 	},
 	{
 		id: "glacier",
@@ -136,6 +146,8 @@ export const providers = [
 		color: "#4285f4",
 		website: null,
 		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
 	},
 	{
 		id: "google-vertex",
@@ -157,6 +169,8 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
+		termsUrl: "https://cloud.google.com/terms/service-terms",
+		privacyPolicyUrl: "https://policies.google.com/privacy",
 	},
 	{
 		id: "vertex-openai",
@@ -201,6 +215,8 @@ export const providers = [
 		website: null,
 		announcement: null,
 		priority: 0.9,
+		termsUrl: null,
+		privacyPolicyUrl: null,
 	},
 	{
 		id: "avalanche",
@@ -220,6 +236,8 @@ export const providers = [
 		color: "#0f766e",
 		website: null,
 		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
 	},
 	{
 		id: "groq",
@@ -235,6 +253,8 @@ export const providers = [
 		color: "#F55036",
 		website: "https://groq.com",
 		announcement: null,
+		termsUrl: "https://groq.com/terms-of-use",
+		privacyPolicyUrl: "https://groq.com/privacy-policy",
 	},
 	{
 		id: "cerebras",
@@ -251,6 +271,8 @@ export const providers = [
 		color: "#6b46c1",
 		website: "https://cerebras.ai",
 		announcement: null,
+		termsUrl: "https://cerebras.ai/terms-of-service",
+		privacyPolicyUrl: "https://cerebras.ai/privacy-policy",
 	},
 	{
 		id: "xai",
@@ -267,6 +289,8 @@ export const providers = [
 		website: "https://x.ai",
 		announcement: null,
 		priority: 0.1,
+		termsUrl: "https://x.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://x.ai/legal/privacy-policy",
 	},
 	{
 		id: "deepseek",
@@ -283,6 +307,10 @@ export const providers = [
 		color: "#FF6B00",
 		website: "https://deepseek.com",
 		announcement: null,
+		termsUrl:
+			"https://chat.deepseek.com/downloads/DeepSeek%20Terms%20of%20Use.html",
+		privacyPolicyUrl:
+			"https://chat.deepseek.com/downloads/DeepSeek%20Privacy%20Policy.html",
 	},
 	{
 		id: "alibaba",
@@ -316,6 +344,10 @@ export const providers = [
 				"cn-beijing": "https://dashscope.aliyuncs.com",
 			},
 		},
+		termsUrl:
+			"https://www.alibabacloud.com/help/legal/latest/chinese-mainland-chinese",
+		privacyPolicyUrl:
+			"https://www.alibabacloud.com/help/legal/latest/chinese-mainland-chinese-privacy-policy",
 	},
 	{
 		id: "novita",
@@ -331,6 +363,8 @@ export const providers = [
 		color: "#9333ea",
 		website: "https://novita.ai",
 		announcement: null,
+		termsUrl: "https://novita.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://novita.ai/legal/privacy-policy",
 	},
 	{
 		id: "aws-bedrock",
@@ -354,6 +388,8 @@ export const providers = [
 		apiKeyInstructions:
 			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
 		learnMore: "https://docs.llmgateway.io/integrations/aws-bedrock",
+		termsUrl: "https://aws.amazon.com/service-terms",
+		privacyPolicyUrl: "https://aws.amazon.com/privacy",
 	},
 	{
 		id: "azure",
@@ -379,6 +415,8 @@ export const providers = [
 		apiKeyInstructions:
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
+		termsUrl: "https://www.microsoft.com/licensing/terms",
+		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 	},
 	{
 		id: "azure-ai-foundry",
@@ -402,6 +440,8 @@ export const providers = [
 		apiKeyInstructions:
 			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
+		termsUrl: "https://www.microsoft.com/licensing/terms",
+		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 	},
 	{
 		id: "zai",
@@ -417,6 +457,8 @@ export const providers = [
 		color: "#22c55e",
 		website: "https://z.ai",
 		announcement: null,
+		termsUrl: "https://z.ai/terms",
+		privacyPolicyUrl: "https://z.ai/privacy",
 	},
 	{
 		id: "moonshot",
@@ -432,6 +474,8 @@ export const providers = [
 		color: "#4B9EFF",
 		website: "https://moonshot.ai",
 		announcement: null,
+		termsUrl: "https://platform.moonshot.cn/docs/terms",
+		privacyPolicyUrl: "https://platform.moonshot.cn/docs/privacy",
 	},
 	{
 		id: "perplexity",
@@ -448,6 +492,8 @@ export const providers = [
 		color: "#20B2AA",
 		website: "https://perplexity.ai",
 		announcement: null,
+		termsUrl: "https://www.perplexity.ai/hub/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.perplexity.ai/hub/legal/privacy-policy",
 	},
 	{
 		id: "nebius",
@@ -464,6 +510,8 @@ export const providers = [
 		color: "#3b82f6",
 		website: "https://nebius.com",
 		announcement: null,
+		termsUrl: "https://nebius.com/legal/terms-of-service",
+		privacyPolicyUrl: "https://nebius.com/legal/privacy-policy",
 	},
 	{
 		id: "mistral",
@@ -479,6 +527,8 @@ export const providers = [
 		color: "#FF7000",
 		website: "https://mistral.ai",
 		announcement: null,
+		termsUrl: "https://mistral.ai/terms",
+		privacyPolicyUrl: "https://mistral.ai/terms/#privacy-policy",
 	},
 	{
 		id: "inference.net",
@@ -495,6 +545,8 @@ export const providers = [
 		color: "#10b981",
 		website: "https://inference.net",
 		announcement: null,
+		termsUrl: "https://inference.net/terms",
+		privacyPolicyUrl: "https://inference.net/privacy",
 	},
 	{
 		id: "together-ai",
@@ -511,6 +563,8 @@ export const providers = [
 		color: "#ff6b35",
 		website: "https://together.ai",
 		announcement: null,
+		termsUrl: "https://www.together.ai/terms-of-service",
+		privacyPolicyUrl: "https://www.together.ai/privacy-policy",
 	},
 	{
 		id: "custom",
@@ -524,6 +578,8 @@ export const providers = [
 		color: "#6b7280",
 		website: null,
 		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
 	},
 	{
 		id: "nanogpt",
@@ -539,6 +595,8 @@ export const providers = [
 		color: "#10b981",
 		website: "https://nano-gpt.com",
 		announcement: null,
+		termsUrl: "https://nano-gpt.com/terms",
+		privacyPolicyUrl: "https://nano-gpt.com/privacy",
 	},
 	{
 		id: "bytedance",
@@ -555,6 +613,8 @@ export const providers = [
 		color: "#FF4757",
 		website: "https://www.byteplus.com/en/product/modelark",
 		announcement: null,
+		termsUrl: "https://www.byteplus.com/en/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.byteplus.com/en/legal/privacy-policy",
 	},
 	{
 		id: "minimax",
@@ -571,6 +631,8 @@ export const providers = [
 		color: "#7C3AED",
 		website: "https://minimax.io",
 		announcement: null,
+		termsUrl: "https://intl.minimaxi.com/protocol/terms-of-service",
+		privacyPolicyUrl: "https://intl.minimaxi.com/protocol/privacy-policy",
 	},
 	{
 		id: "embercloud",
@@ -587,6 +649,8 @@ export const providers = [
 		color: "#FF6047",
 		website: "https://www.embercloud.ai",
 		announcement: null,
+		termsUrl: "https://www.embercloud.ai/terms",
+		privacyPolicyUrl: "https://www.embercloud.ai/privacy",
 	},
 	{
 		id: "xiaomi",
@@ -606,6 +670,8 @@ export const providers = [
 		color: "#FF6900",
 		website: "https://platform.xiaomimimo.com",
 		announcement: null,
+		termsUrl: "https://platform.xiaomimimo.com/terms",
+		privacyPolicyUrl: "https://platform.xiaomimimo.com/privacy",
 	},
 ] as const satisfies ProviderDefinition[];
 
