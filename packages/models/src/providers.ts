@@ -105,8 +105,8 @@ export const providers = [
 		color: "#8b5cf6",
 		website: "https://anthropic.com",
 		announcement: null,
-		termsUrl: "https://www.anthropic.com/policies/terms-of-service",
-		privacyPolicyUrl: "https://www.anthropic.com/policies/privacy",
+		termsUrl: "https://www.anthropic.com/terms",
+		privacyPolicyUrl: "https://www.anthropic.com/privacy",
 	},
 	{
 		id: "google-ai-studio",
@@ -286,9 +286,9 @@ export const providers = [
 		website: "https://deepseek.com",
 		announcement: null,
 		termsUrl:
-			"https://chat.deepseek.com/downloads/DeepSeek%20Terms%20of%20Use.html",
+			"https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html",
 		privacyPolicyUrl:
-			"https://chat.deepseek.com/downloads/DeepSeek%20Privacy%20Policy.html",
+			"https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
 	},
 	{
 		id: "alibaba",
@@ -435,8 +435,8 @@ export const providers = [
 		color: "#22c55e",
 		website: "https://z.ai",
 		announcement: null,
-		termsUrl: "https://z.ai/terms",
-		privacyPolicyUrl: "https://z.ai/privacy",
+		termsUrl: "https://docs.z.ai/legal-agreement/terms-of-use",
+		privacyPolicyUrl: "https://docs.z.ai/legal-agreement/privacy-policy",
 	},
 	{
 		id: "moonshot",
@@ -452,8 +452,8 @@ export const providers = [
 		color: "#4B9EFF",
 		website: "https://moonshot.ai",
 		announcement: null,
-		termsUrl: "https://platform.moonshot.cn/docs/terms",
-		privacyPolicyUrl: "https://platform.moonshot.cn/docs/privacy",
+		termsUrl: "https://moonshot.ai/terms",
+		privacyPolicyUrl: "https://moonshot.ai/privacy",
 	},
 	{
 		id: "perplexity",
@@ -488,8 +488,8 @@ export const providers = [
 		color: "#3b82f6",
 		website: "https://nebius.com",
 		announcement: null,
-		termsUrl: "https://nebius.com/legal/terms-of-service",
-		privacyPolicyUrl: "https://nebius.com/legal/privacy-policy",
+		termsUrl: "https://docs.nebius.com/legal/terms-of-use",
+		privacyPolicyUrl: "https://docs.nebius.com/legal/privacy",
 	},
 	{
 		id: "mistral",
@@ -523,8 +523,8 @@ export const providers = [
 		color: "#10b981",
 		website: "https://inference.net",
 		announcement: null,
-		termsUrl: "https://inference.net/terms",
-		privacyPolicyUrl: "https://inference.net/privacy",
+		termsUrl: "https://inference.net/terms-of-service",
+		privacyPolicyUrl: "https://inference.net/privacy-policy",
 	},
 	{
 		id: "together-ai",
@@ -542,7 +542,7 @@ export const providers = [
 		website: "https://together.ai",
 		announcement: null,
 		termsUrl: "https://www.together.ai/terms-of-service",
-		privacyPolicyUrl: "https://www.together.ai/privacy-policy",
+		privacyPolicyUrl: "https://www.together.ai/privacy",
 	},
 	{
 		id: "custom",
@@ -573,8 +573,8 @@ export const providers = [
 		color: "#10b981",
 		website: "https://nano-gpt.com",
 		announcement: null,
-		termsUrl: "https://nano-gpt.com/terms",
-		privacyPolicyUrl: "https://nano-gpt.com/privacy",
+		termsUrl: "https://nano-gpt.com/legal/terms-of-service",
+		privacyPolicyUrl: "https://nano-gpt.com/legal/privacy-policy",
 	},
 	{
 		id: "bytedance",
