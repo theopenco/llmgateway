@@ -81,25 +81,25 @@ export default async function ModelProviderPage({ params }: PageProps) {
 			(d) => d.provider === decodedProvider && d.model === decodedName,
 		);
 		if (providerModel) {
-			return parseFloat(providerModel.discountPercent);
+			return providerModel.discountPercent;
 		}
 		const providerOnly = discounts.find(
 			(d) => d.provider === decodedProvider && d.model === null,
 		);
 		if (providerOnly) {
-			return parseFloat(providerOnly.discountPercent);
+			return providerOnly.discountPercent;
 		}
 		const modelOnly = discounts.find(
 			(d) => d.provider === null && d.model === decodedName,
 		);
 		if (modelOnly) {
-			return parseFloat(modelOnly.discountPercent);
+			return modelOnly.discountPercent;
 		}
 		const fullyGlobal = discounts.find(
 			(d) => d.provider === null && d.model === null,
 		);
 		if (fullyGlobal) {
-			return parseFloat(fullyGlobal.discountPercent);
+			return fullyGlobal.discountPercent;
 		}
 		return undefined;
 	})();

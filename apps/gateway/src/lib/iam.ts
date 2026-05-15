@@ -223,7 +223,7 @@ async function evaluateRule(
 					if (
 						ruleValue.maxInputPrice !== undefined &&
 						provider.inputPrice &&
-						provider.inputPrice > ruleValue.maxInputPrice
+						Number(provider.inputPrice) > ruleValue.maxInputPrice
 					) {
 						return {
 							allowed: false,
@@ -234,7 +234,7 @@ async function evaluateRule(
 					if (
 						ruleValue.maxOutputPrice !== undefined &&
 						provider.outputPrice &&
-						provider.outputPrice > ruleValue.maxOutputPrice
+						Number(provider.outputPrice) > ruleValue.maxOutputPrice
 					) {
 						return {
 							allowed: false,

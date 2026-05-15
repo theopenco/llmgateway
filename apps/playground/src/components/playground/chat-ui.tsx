@@ -6,6 +6,9 @@ import {
 	GlobeIcon,
 	AlertTriangle,
 	Info,
+	GitFork,
+	Loader2,
+	Undo2,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
@@ -78,12 +81,19 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 import {
 	parsePlaygroundMessageMetadata,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { cn } from "@/lib/utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
 
@@ -166,12 +176,15 @@ interface ChatUIProps {
 			mediaType: string;
 			name?: string;
 		}>,
-	) => Promise<void>;
+	) => Promise<{ id: string } | undefined>;
+	onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
 	isLoading?: boolean;
 	error?: string | null;
 	finishReason?: string | null;
 	floatingInput?: boolean;
 	isTemporaryChat?: boolean;
+	forkChat?: () => void | Promise<void>;
+	isForkingChat?: boolean;
 }
 
 const suggestions = [
@@ -291,6 +304,39 @@ function formatCost(value?: number): string {
 	}).format(value);
 }
 
+function getMessageImageGridClass(imageCount: number, alignEnd = false) {
+	return cn(
+		"mt-3 gap-3",
+		imageCount === 1
+			? "grid grid-cols-1"
+			: cn(
+					"flex max-w-full flex-row flex-wrap",
+					alignEnd ? "justify-end" : "justify-start",
+				),
+		alignEnd && imageCount === 1 && "justify-items-end",
+	);
+}
+
+function getUserMessageWidthClass(imageCount: number, isEditing?: boolean) {
+	if (isEditing) {
+		return "w-full max-w-full";
+	}
+
+	return imageCount > 1 ? "w-fit max-w-[80%] min-w-64" : "w-fit max-w-[80%]";
+}
+
+function getMessageImageClass(
+	imageCount: number,
+	singleImageClassName: string,
+) {
+	return cn(
+		"border rounded-lg object-cover",
+		imageCount === 1
+			? singleImageClassName
+			: "size-24 aspect-square sm:size-28",
+	);
+}
+
 function MessageMetadataPopover({
 	metadata,
 }: {
@@ -307,17 +353,24 @@ function MessageMetadataPopover({
 
 	return (
 		<Popover>
-			<PopoverTrigger asChild>
-				<Button
-					aria-label="Show response metadata"
-					className="relative size-9 p-1.5 text-muted-foreground hover:text-foreground"
-					size="sm"
-					type="button"
-					variant="ghost"
-				>
-					<Info className="size-3" />
-				</Button>
-			</PopoverTrigger>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<PopoverTrigger asChild>
+						<Button
+							aria-label="Show response metadata"
+							className="relative size-9 p-1.5 text-muted-foreground hover:text-foreground"
+							size="sm"
+							type="button"
+							variant="ghost"
+						>
+							<Info className="size-3" />
+						</Button>
+					</PopoverTrigger>
+				</TooltipTrigger>
+				<TooltipContent>
+					<p>Response metadata</p>
+				</TooltipContent>
+			</Tooltip>
 			<PopoverContent align="start" className="w-80 p-3">
 				<div className="space-y-2 text-xs">
 					<p className="font-medium">Response metadata</p>
@@ -348,12 +401,16 @@ const AssistantMessage = memo(
 		status,
 		regenerate,
 		finishReason,
+		forkChat,
+		isForkingChat,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
 		regenerate: () => void;
 		finishReason?: string | null;
+		forkChat?: () => void | Promise<void>;
+		isForkingChat?: boolean;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -399,7 +456,7 @@ const AssistantMessage = memo(
 				) : null}
 
 				{imageParts.length > 0 ? (
-					<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+					<div className={getMessageImageGridClass(imageParts.length)}>
 						{imageParts.map((part: any, idx: number) => {
 							const { base64Only, mediaType } = parseImagePartToDataUrl(part);
 							if (!base64Only) {
@@ -411,7 +468,10 @@ const AssistantMessage = memo(
 										base64={base64Only}
 										mediaType={mediaType}
 										alt={part.name ?? "Generated image"}
-										className="h-[400px] aspect-auto border rounded-lg object-cover"
+										className={getMessageImageClass(
+											imageParts.length,
+											"h-[400px] aspect-auto",
+										)}
 									/>
 								</ImageZoom>
 							);
@@ -453,6 +513,22 @@ const AssistantMessage = memo(
 								>
 									<RefreshCcw className="size-3" />
 								</Action>
+								{forkChat ? (
+									<Action
+										disabled={isForkingChat}
+										onClick={() => {
+											void forkChat();
+										}}
+										label="Fork chat"
+										tooltip="Fork chat"
+									>
+										{isForkingChat ? (
+											<Loader2 className="size-3 animate-spin" />
+										) : (
+											<GitFork className="size-3" />
+										)}
+									</Action>
+								) : null}
 								<Action
 									onClick={async () => {
 										try {
@@ -482,58 +558,157 @@ const UserMessage = memo(
 		message,
 		isLastMessage,
 		status,
+		canEdit,
+		isEditing,
+		onEditStart,
+		onEditCancel,
+		onEditConfirm,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
 		status: string;
+		canEdit?: boolean;
+		isEditing?: boolean;
+		onEditStart?: () => void;
+		onEditCancel?: () => void;
+		onEditConfirm?: (content: string) => Promise<void>;
 	}) => {
 		const { textParts, imageParts, audioParts } = useMemo(
 			() => extractMessageParts(message.parts),
 			[message.parts],
 		);
+		const initialText = textParts.join("\n");
+		const [editText, setEditText] = useState(initialText);
+		const [isSaving, setIsSaving] = useState(false);
+
+		useEffect(() => {
+			if (isEditing) {
+				setEditText(initialText);
+			}
+		}, [initialText, isEditing]);
+
+		const handleEditConfirm = async () => {
+			if (!onEditConfirm || isSaving) {
+				return;
+			}
+			if (!editText.trim() && imageParts.length === 0) {
+				return;
+			}
+			setIsSaving(true);
+			try {
+				await onEditConfirm(editText);
+			} finally {
+				setIsSaving(false);
+			}
+		};
 
 		return (
-			<Message from={message.role} className="message-item">
-				<MessageContent variant="flat">
-					{textParts.map((t, idx) => (
-						<div key={idx}>{t}</div>
-					))}
-					{imageParts.length > 0 && (
-						<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-							{imageParts.map((part: any, idx: number) => {
-								const { base64Only, mediaType } = parseImagePartToDataUrl(part);
-								if (!base64Only) {
-									return null;
-								}
-								return (
-									<ImageZoom key={idx}>
-										<Image
-											base64={base64Only}
-											mediaType={mediaType}
-											alt={part.name ?? "Uploaded image"}
-											className="h-[300px] aspect-auto border rounded-lg object-cover"
-										/>
-									</ImageZoom>
-								);
-							})}
-						</div>
+			<Message from={message.role} className="message-item group/user-message">
+				<div
+					className={cn(
+						"flex flex-col items-end",
+						getUserMessageWidthClass(imageParts.length, isEditing),
 					)}
-					{audioParts.length > 0 && (
-						<div className="mt-3 flex flex-col gap-2">
-							{audioParts.map((part: any, idx: number) => (
-								<audio
-									key={idx}
-									controls
-									src={part.url}
-									className="w-full max-w-md"
-									aria-label={part.name ?? part.filename ?? "Audio attachment"}
-								>
-									<track kind="captions" />
-								</audio>
-							))}
-						</div>
-					)}
-				</MessageContent>
+				>
+					<MessageContent
+						className={cn("!max-w-full", isEditing && "w-full px-5 py-4")}
+						variant="flat"
+					>
+						{isEditing ? (
+							<div className="flex w-full min-w-0 flex-col gap-3">
+								<Textarea
+									value={editText}
+									onChange={(event) => setEditText(event.currentTarget.value)}
+									className="min-h-24 w-full min-w-0 resize-y bg-background text-foreground"
+									autoFocus
+								/>
+								<div className="flex flex-wrap justify-end gap-2">
+									<Button
+										type="button"
+										size="sm"
+										variant="secondary"
+										onClick={onEditCancel}
+										disabled={isSaving}
+										className="rounded-full"
+									>
+										Cancel
+									</Button>
+									<Button
+										type="button"
+										size="sm"
+										onClick={() => void handleEditConfirm()}
+										disabled={
+											isSaving || (!editText.trim() && imageParts.length === 0)
+										}
+										className="rounded-full"
+									>
+										Send
+									</Button>
+								</div>
+							</div>
+						) : (
+							<>
+								{textParts.map((t, idx) => (
+									<div key={idx}>{t}</div>
+								))}
+							</>
+						)}
+						{imageParts.length > 0 && (
+							<div
+								className={getMessageImageGridClass(imageParts.length, true)}
+							>
+								{imageParts.map((part: any, idx: number) => {
+									const { base64Only, mediaType } =
+										parseImagePartToDataUrl(part);
+									if (!base64Only) {
+										return null;
+									}
+									return (
+										<ImageZoom key={idx}>
+											<Image
+												base64={base64Only}
+												mediaType={mediaType}
+												alt={part.name ?? "Uploaded image"}
+												className={getMessageImageClass(
+													imageParts.length,
+													"h-[300px] aspect-auto",
+												)}
+											/>
+										</ImageZoom>
+									);
+								})}
+							</div>
+						)}
+						{audioParts.length > 0 && (
+							<div className="mt-3 flex flex-col gap-2">
+								{audioParts.map((part: any, idx: number) => (
+									<audio
+										key={idx}
+										controls
+										src={part.url}
+										className="w-full max-w-md"
+										aria-label={
+											part.name ?? part.filename ?? "Audio attachment"
+										}
+									>
+										<track kind="captions" />
+									</audio>
+								))}
+							</div>
+						)}
+					</MessageContent>
+					{canEdit && !isEditing ? (
+						<Actions className="mt-2 opacity-0 transition-opacity group-hover/user-message:opacity-100 focus-within:opacity-100">
+							<Action
+								onClick={onEditStart}
+								label="Edit and retry"
+								tooltip="Edit and retry from here"
+							>
+								<Undo2 className="size-3" />
+							</Action>
+						</Actions>
+					) : null}
+				</div>
 				{isLastMessage &&
 					(status === "submitted" || status === "streaming") && <Loader />}
 			</Message>
@@ -602,11 +777,14 @@ export const ChatUI = ({
 	webSearchEnabled,
 	setWebSearchEnabled,
 	onUserMessage,
+	onEditUserMessage,
 	isLoading = false,
 	error = null,
 	finishReason = null,
 	floatingInput = false,
 	isTemporaryChat = false,
+	forkChat,
+	isForkingChat = false,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -651,6 +829,7 @@ export const ChatUI = ({
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const inputRef = useRef<HTMLDivElement | null>(null);
 	const [inputHeight, setInputHeight] = useState(0);
+	const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
 	const updateInputHeight = useCallback(() => {
 		if (inputRef.current) {
@@ -670,6 +849,8 @@ export const ChatUI = ({
 	// governs the Stop button which should only show while a request is in flight.
 	const isActive = status === "streaming" || status === "submitted";
 	const isBusy = isLoading || isActive;
+	const canEditUserMessages =
+		!isBusy && !isTemporaryChat && !!onEditUserMessage;
 
 	const handlePromptSubmit = async (
 		textContent: string,
@@ -750,19 +931,31 @@ export const ChatUI = ({
 				return;
 			}
 
+			const generatedMessageId = crypto.randomUUID();
+			let savedMessage: { id: string } | undefined;
+
 			// Ensure the chat exists + user message is persisted BEFORE streaming starts.
 			// Otherwise `onFinish` may run before `chatIdRef` is set, and we can't save the AI response.
 			if (
 				onUserMessage &&
 				(content.trim() || imagesToSave?.length || audioToSave?.length)
 			) {
-				await onUserMessage(content, imagesToSave, audioToSave);
+				savedMessage =
+					(await onUserMessage(content, imagesToSave, audioToSave)) ??
+					undefined;
+			}
+
+			// If a persistent chat was expected (onUserMessage provided) but persistence
+			// returned nothing, a stop condition was hit (credits, limit, etc.).
+			// Temporary chats intentionally return undefined — streaming must still proceed.
+			if (onUserMessage && !savedMessage && !isTemporaryChat) {
+				return;
 			}
 
 			// Call sendMessage which will handle adding the user message and API request
 			await sendMessage(
 				{
-					id: crypto.randomUUID(),
+					id: savedMessage?.id ?? generatedMessageId,
 					role: "user",
 					parts,
 				},
@@ -894,6 +1087,10 @@ export const ChatUI = ({
 								status={status}
 								regenerate={regenerate}
 								finishReason={isLastMessage ? finishReason : null}
+								forkChat={
+									isLastMessage && status === "ready" ? forkChat : undefined
+								}
+								isForkingChat={isForkingChat}
 							/>
 						);
 					} else {
@@ -903,6 +1100,17 @@ export const ChatUI = ({
 								message={m}
 								isLastMessage={isLastMessage}
 								status={status}
+								canEdit={canEditUserMessages}
+								isEditing={editingMessageId === m.id}
+								onEditStart={() => setEditingMessageId(m.id)}
+								onEditCancel={() => setEditingMessageId(null)}
+								onEditConfirm={async (content) => {
+									if (!onEditUserMessage) {
+										return;
+									}
+									setEditingMessageId(null);
+									await onEditUserMessage(m, content);
+								}}
 							/>
 						);
 					}
@@ -923,7 +1131,7 @@ export const ChatUI = ({
 			ref={floatingInput ? inputRef : undefined}
 			className={
 				floatingInput
-					? "absolute bottom-0 left-0 right-0 z-10 px-4 pb-0"
+					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4"
 					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
 			}
 		>
@@ -931,13 +1139,18 @@ export const ChatUI = ({
 				layout
 				className={
 					floatingInput
-						? "max-w-4xl mx-auto px-4 pb-0 pt-2 bg-background"
+						? "mx-auto w-full max-w-4xl px-0 pb-0 pt-2 bg-background sm:px-4"
 						: undefined
 				}
 				transition={{ duration: 0.18, ease: "easeOut" }}
 			>
 				<PromptInput
 					key={`prompt-input-${supportsImages ? "img" : ""}${supportsAudio ? "aud" : ""}`}
+					className={
+						floatingInput
+							? "[&_[data-slot=input-group]]:rounded-none sm:[&_[data-slot=input-group]]:rounded-md"
+							: undefined
+					}
 					accept={
 						supportsImages && supportsAudio
 							? "image/*,audio/*"

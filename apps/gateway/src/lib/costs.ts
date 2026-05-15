@@ -34,18 +34,18 @@ export function shouldBillCancelledRequests(): boolean {
  */
 function getPricingForTokenCount(
 	pricingTiers: PricingTier[] | undefined,
-	baseInputPrice: number,
-	baseOutputPrice: number,
-	baseCachedInputPrice: number | undefined,
-	baseCacheWriteInputPrice: number | undefined,
-	baseCacheWriteInputPrice1h: number | undefined,
+	baseInputPrice: string,
+	baseOutputPrice: string,
+	baseCachedInputPrice: string | undefined,
+	baseCacheWriteInputPrice: string | undefined,
+	baseCacheWriteInputPrice1h: string | undefined,
 	promptTokens: number,
 ): {
-	inputPrice: number;
-	outputPrice: number;
-	cachedInputPrice: number | undefined;
-	cacheWriteInputPrice: number | undefined;
-	cacheWriteInputPrice1h: number | undefined;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string | undefined;
+	cacheWriteInputPrice: string | undefined;
+	cacheWriteInputPrice1h: string | undefined;
 	tierName: string | undefined;
 } {
 	if (!pricingTiers || pricingTiers.length === 0) {
@@ -123,6 +123,7 @@ export async function calculateCosts(
 		audioInputTokens?: number | null;
 		cachedAudioInputTokens?: number | null;
 	},
+	contentFilterTriggered = false,
 ) {
 	const cacheWriteTokens = options?.cacheWriteTokens ?? null;
 	const cacheWrite1hTokens = options?.cacheWrite1hTokens ?? null;
@@ -152,6 +153,7 @@ export async function calculateCosts(
 			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			contentFilterCost: null,
 			imageInputTokens: null,
 			imageOutputTokens: null,
 			imageInputCost: null,
@@ -228,6 +230,7 @@ export async function calculateCosts(
 			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			contentFilterCost: null,
 			imageInputTokens: null,
 			imageOutputTokens: null,
 			imageInputCost: null,
@@ -271,6 +274,7 @@ export async function calculateCosts(
 			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			contentFilterCost: null,
 			imageInputTokens: null,
 			imageOutputTokens: null,
 			imageInputCost: null,
@@ -292,8 +296,8 @@ export async function calculateCosts(
 	// Get pricing based on token count (supports tiered pricing)
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
-		providerInfo.inputPrice ?? 0,
-		providerInfo.outputPrice ?? 0,
+		providerInfo.inputPrice ?? "0",
+		providerInfo.outputPrice ?? "0",
 		providerInfo.cachedInputPrice,
 		providerInfo.cacheWriteInputPrice,
 		providerInfo.cacheWriteInputPrice1h,
@@ -316,11 +320,11 @@ export async function calculateCosts(
 		pricing.cacheWriteInputPrice1h !== undefined
 			? new Decimal(pricing.cacheWriteInputPrice1h)
 			: cacheWriteInputPrice;
-	const requestPrice = new Decimal(providerInfo.requestPrice ?? 0);
+	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
 	// Get effective discount (checks org-specific, global, then hardcoded)
 	// Pass both the root model ID and the provider-specific model name for matching
-	const hardcodedDiscount = providerInfo.discount ?? 0;
+	const hardcodedDiscount = providerInfo.discount ?? "0";
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
@@ -561,6 +565,12 @@ export async function calculateCosts(
 			? webSearchPrice.times(webSearchCount).times(discountMultiplier)
 			: new Decimal(0);
 
+	// Provider content filter fee, e.g. xAI's $0.05 per usage-policy rejection.
+	const contentFilterPrice = new Decimal(providerInfo.contentFilterPrice ?? 0);
+	const contentFilterCost = contentFilterTriggered
+		? contentFilterPrice.times(discountMultiplier)
+		: new Decimal(0);
+
 	// Note: inputCost already includes imageInputCost and outputCost already
 	// includes imageOutputCost when applicable, so they are not added separately.
 	const totalCost = inputCost
@@ -568,7 +578,8 @@ export async function calculateCosts(
 		.plus(cachedInputCost)
 		.plus(cacheWriteInputCost)
 		.plus(requestCost)
-		.plus(webSearchCost);
+		.plus(webSearchCost)
+		.plus(contentFilterCost);
 
 	return {
 		inputCost: inputCost.toNumber(),
@@ -577,6 +588,7 @@ export async function calculateCosts(
 		cacheWriteInputCost: cacheWriteInputCost.toNumber(),
 		requestCost: requestCost.toNumber(),
 		webSearchCost: webSearchCost.toNumber(),
+		contentFilterCost: contentFilterCost.toNumber(),
 		imageInputTokens,
 		imageOutputTokens,
 		imageInputCost: imageInputCost?.toNumber() ?? null,
@@ -600,7 +612,7 @@ export async function calculateCosts(
 		cachedTokens,
 		cacheWriteTokens,
 		estimatedCost: isEstimated,
-		discount: discount !== 0 ? discount : undefined,
+		discount: Number(discount) !== 0 ? Number(discount) : undefined,
 		pricingTier: pricing.tierName,
 	};
 }

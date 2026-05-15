@@ -1,9 +1,11 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import Stripe from "stripe";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { getStripe } from "@/routes/payments.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -30,6 +32,7 @@ import {
 	modelProviderMappingHistory,
 	modelHistory,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
 import { DEV_PLAN_PRICES } from "@llmgateway/shared";
 import {
@@ -500,7 +503,32 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue (completed transactions, excluding gifts, using creditAmount to exclude Stripe fees)
+	// DevPass-related transaction types: exclude these from credit-purchase
+	// metrics (revenue/processed/topped-up) because DevPass revenue lives in
+	// its own dashboard, and DevPass-granted credits are virtual (capped per
+	// cycle) rather than real top-up balance.
+	const devpassExcludedTypes = [
+		"dev_plan_start",
+		"dev_plan_upgrade",
+		"dev_plan_downgrade",
+		"dev_plan_renewal",
+		"dev_plan_cancel",
+		"dev_plan_end",
+		"subscription_start",
+		"subscription_cancel",
+		"subscription_end",
+		"subscription_upgrade",
+		"subscription_downgrade",
+		"subscription_renewal",
+	] as const;
+
+	const notDevpassFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
+		devpassExcludedTypes.map((t) => sql`${t}`),
+		sql`, `,
+	)})`;
+
+	// Total revenue (completed credit-purchase transactions, excluding gifts
+	// and all DevPass subscription rows, using creditAmount to exclude Stripe fees)
 	const [revenueRow] = await db
 		.select({
 			value:
@@ -513,6 +541,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				notDevpassFilter,
 				transactionDateFilter,
 			),
 		);
@@ -529,7 +558,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalOrganizations = Number(orgsRow?.count ?? 0);
 
-	// Total topped up (credits from completed transactions)
+	// Total topped up (credits from completed credit-purchase transactions).
+	// Excludes DevPass virtual credits — those are granted per cycle and reset,
+	// so they would inflate the topped-up / unused-credits numbers.
 	const [toppedUpRow] = await db
 		.select({
 			value:
@@ -539,12 +570,19 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
+			and(
+				eq(tables.transaction.status, "completed"),
+				notDevpassFilter,
+				transactionDateFilter,
+			),
 		);
 
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
 
-	// Total spent (usage cost from hourly stats)
+	// Total spent (usage cost from hourly stats). Excludes spend from projects
+	// belonging to orgs whose usage is/was on a DevPass plan, so the
+	// unusedCredits derivation (toppedUp - spent) only reflects the
+	// credit-purchase economy.
 	const [spentRow] = await db
 		.select({
 			value:
@@ -553,11 +591,32 @@ admin.openapi(getMetrics, async (c) => {
 				),
 		})
 		.from(projectHourlyStats)
-		.where(projectStatsDateFilter);
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				projectStatsDateFilter,
+				eq(tables.organization.devPlan, "none"),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} t
+					WHERE t.organization_id = ${tables.organization.id}
+					AND (
+						t.type IN ('dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal')
+						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.isPersonal} = true)
+					)
+				)`,
+			),
+		);
 
 	const totalSpent = Number(spentRow?.value ?? 0);
 
-	// Total processed (gross Stripe amounts from completed non-gift transactions)
+	// Total processed (gross Stripe amounts from completed non-gift, non-DevPass transactions)
 	const [processedRow] = await db
 		.select({
 			value:
@@ -570,6 +629,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				notDevpassFilter,
 				transactionDateFilter,
 			),
 		);
@@ -1913,6 +1973,7 @@ const logEntrySchema = z.object({
 	cacheWriteInputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
 	webSearchCost: z.number().nullable(),
+	contentFilterCost: z.number().nullable(),
 	imageInputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
 	videoOutputCost: z.number().nullable(),
@@ -2101,6 +2162,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			cacheWriteInputCost: tables.log.cacheWriteInputCost,
 			requestCost: tables.log.requestCost,
 			webSearchCost: tables.log.webSearchCost,
+			contentFilterCost: tables.log.contentFilterCost,
 			imageInputCost: tables.log.imageInputCost,
 			imageOutputCost: tables.log.imageOutputCost,
 			videoOutputCost: tables.log.videoOutputCost,
@@ -4519,16 +4581,6 @@ const setOrganizationStatusRoute = createRoute({
 			},
 			description: "Organization status updated.",
 		},
-		403: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						message: z.string(),
-					}),
-				},
-			},
-			description: "Personal organizations cannot be disabled.",
-		},
 		404: {
 			content: {
 				"application/json": {
@@ -4553,12 +4605,6 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 
 	if (!org) {
 		throw new HTTPException(404, { message: "Organization not found" });
-	}
-
-	if (status === "deleted" && org.isPersonal) {
-		throw new HTTPException(403, {
-			message: "Personal organizations cannot be disabled.",
-		});
 	}
 
 	const memberLinks = await db.query.userOrganization.findMany({
@@ -4650,6 +4696,182 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 				? "Organization disabled successfully"
 				: "Organization re-enabled successfully",
 		status,
+	});
+});
+
+// --- Block Organization (cancel subscriptions immediately + disable access) ---
+
+const blockOrganizationRoute = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/block",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						cancelledSubscriptionIds: z.array(z.string()),
+					}),
+				},
+			},
+			description:
+				"Organization blocked, subscriptions cancelled, access disabled.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(blockOrganizationRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const subscriptionIds = [
+		org.stripeSubscriptionId,
+		org.devPlanStripeSubscriptionId,
+	].filter((id): id is string => Boolean(id));
+
+	// Cancel every Stripe subscription before mutating local state. Treat
+	// already-cancelled or missing subscriptions as success (their terminal
+	// state matches what we want anyway); re-throw other Stripe errors so the
+	// admin can retry once Stripe is healthy.
+	const cancelledSubscriptionIds: string[] = [];
+	for (const subscriptionId of subscriptionIds) {
+		try {
+			await getStripe().subscriptions.cancel(subscriptionId, {
+				invoice_now: false,
+				prorate: false,
+			});
+			cancelledSubscriptionIds.push(subscriptionId);
+		} catch (error) {
+			if (
+				error instanceof Stripe.errors.StripeInvalidRequestError &&
+				(error.code === "resource_missing" ||
+					error.statusCode === 404 ||
+					error.message.includes("already been canceled") ||
+					error.message.includes("already canceled"))
+			) {
+				logger.info(
+					`Stripe subscription ${subscriptionId} already terminal, skipping cancel: ${error.message}`,
+				);
+				cancelledSubscriptionIds.push(subscriptionId);
+				continue;
+			}
+			throw error;
+		}
+	}
+
+	const memberLinks = await db.query.userOrganization.findMany({
+		where: { organizationId: { eq: orgId } },
+		columns: { userId: true },
+	});
+	const memberUserIds = memberLinks.map((m) => m.userId);
+
+	// Only deactivate users whose remaining org memberships are all already
+	// deleted — mirrors the re-enable flow in setOrganizationStatus. A member
+	// who still belongs to another active org keeps their access there.
+	let userIdsToDeactivate: string[] = [];
+	if (memberUserIds.length > 0) {
+		const otherLinks = await db.query.userOrganization.findMany({
+			where: { userId: { in: memberUserIds } },
+			with: {
+				organization: {
+					columns: { id: true, status: true },
+				},
+			},
+		});
+
+		const hasOtherActiveOrg = new Set(
+			otherLinks
+				.filter(
+					(link) =>
+						link.organization?.id !== orgId &&
+						link.organization?.status !== "deleted",
+				)
+				.map((link) => link.userId),
+		);
+
+		userIdsToDeactivate = memberUserIds.filter(
+			(id) => !hasOtherActiveOrg.has(id),
+		);
+	}
+
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.organization)
+			.set({
+				status: "deleted",
+				devPlan: "none",
+				devPlanStripeSubscriptionId: null,
+				devPlanCancelled: true,
+				devPlanExpiresAt: new Date(),
+				subscriptionCancelled: true,
+			})
+			.where(eq(tables.organization.id, orgId));
+
+		if (userIdsToDeactivate.length > 0) {
+			await tx
+				.update(tables.user)
+				.set({ status: "deactivated" })
+				.where(inArray(tables.user.id, userIdsToDeactivate));
+
+			await tx
+				.delete(tables.session)
+				.where(inArray(tables.session.userId, userIdsToDeactivate));
+		}
+	});
+
+	if (userIdsToDeactivate.length > 0) {
+		const members = await db.query.user.findMany({
+			where: { id: { in: userIdsToDeactivate } },
+			columns: { email: true },
+		});
+
+		await Promise.all(
+			members.map((member) => deleteResendContact(member.email)),
+		);
+	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "organization.block",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			resourceName: org.name,
+			previousStatus: org.status ?? "active",
+			cancelledSubscriptionIds,
+			memberCount: memberUserIds.length,
+			deactivatedUserCount: userIdsToDeactivate.length,
+			source: "admin",
+		},
+	});
+
+	return c.json({
+		message: "Organization blocked and subscriptions cancelled.",
+		cancelledSubscriptionIds,
 	});
 });
 
@@ -7875,7 +8097,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 
 	const conditions = [];
 
-	// DevPass scope: subscribers (devPlan != 'none') OR (showChurned && has past dev_plan_start)
+	// DevPass scope: subscribers (devPlan != 'none') OR (showChurned && has past dev_plan_start).
+	// Only personal orgs can hold a DevPass plan — restrict to isPersonal=true
+	// so the churned list doesn't surface non-personal "Default Organization"
+	// rows that happen to share legacy `subscription_*` history with org Pro.
+	conditions.push(eq(tables.organization.isPersonal, true));
 	if (showChurned) {
 		conditions.push(
 			or(

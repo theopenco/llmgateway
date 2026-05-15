@@ -1524,7 +1524,7 @@ function videoIncludesAudio(job: VideoJobRecord): boolean | null {
 }
 
 function inferVideoIncludesAudioFromPricing(
-	pricing: Record<string, number>,
+	pricing: Record<string, string>,
 ): boolean | null {
 	const pricingKeys = Object.keys(pricing);
 	const hasAudioPricing = pricingKeys.some((key) => key.endsWith("_audio"));
@@ -1540,7 +1540,7 @@ function inferVideoIncludesAudioFromPricing(
 	return null;
 }
 
-function getVideoPricing(job: VideoJobRecord): Record<string, number> | null {
+function getVideoPricing(job: VideoJobRecord): Record<string, string> | null {
 	const model = models.find((item) => item.id === job.model);
 	const mapping = model?.providers.find(
 		(provider) => provider.providerId === job.usedProvider,
@@ -1553,7 +1553,11 @@ function getVideoRequestPrice(job: VideoJobRecord): number | null {
 	const mapping = model?.providers.find(
 		(provider) => provider.providerId === job.usedProvider,
 	) as ProviderModelMapping | undefined;
-	return mapping?.requestPrice ?? null;
+	if (mapping?.requestPrice === undefined) {
+		return null;
+	}
+	const n = Number(mapping.requestPrice);
+	return Number.isFinite(n) ? n : null;
 }
 
 function getVideoOutputCost(job: VideoJobRecord): number {
@@ -1601,10 +1605,12 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 					),
 					...resolutionCandidates,
 				];
-	const pricePerSecond = priceCandidates
+	const pricePerSecondStr = priceCandidates
 		.map((key) => pricing[key])
-		.find((value): value is number => value !== undefined);
-	if (pricePerSecond === undefined) {
+		.find((value): value is string => value !== undefined);
+	const pricePerSecond =
+		pricePerSecondStr !== undefined ? Number(pricePerSecondStr) : undefined;
+	if (pricePerSecond === undefined || !Number.isFinite(pricePerSecond)) {
 		logger.warn("Could not determine per-second video price", {
 			videoId: job.id,
 			model: job.model,

@@ -826,7 +826,7 @@ function createMcpServer(apiKey: string): McpServer {
 					responseText += `- **Family:** ${modelData.family}\n`;
 					if (
 						modelData.requestPrice !== undefined &&
-						modelData.requestPrice > 0
+						Number(modelData.requestPrice) > 0
 					) {
 						responseText += `- **Price:** $${modelData.requestPrice} per request\n`;
 					}

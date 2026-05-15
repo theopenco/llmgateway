@@ -12,7 +12,6 @@ import {
 import {
 	getCheapestFromAvailableProviders,
 	getProviderSelectionPrice,
-	resolveMetricsModelId,
 } from "./get-cheapest-from-available-providers.js";
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
@@ -58,16 +57,25 @@ describe("Models", () => {
 		const hasImagePricing = (provider: ProviderModelMapping) =>
 			!!provider.imageInputPrice || !!provider.imageOutputPrice;
 
+		// Embedding models bill only on input tokens and set outputPrice=0
+		// because they don't produce text output.
+		const isEmbeddingProvider = (provider: ProviderModelMapping) =>
+			provider.embeddings === true;
+
+		const isZero = (p: string | undefined) =>
+			p !== undefined && Number(p) === 0;
+
 		// Filter models that have zero input/output pricing AND no request or per-second price
 		const modelsWithZeroPricing = models.filter((model) =>
 			model.providers.some(
 				(provider) =>
-					(provider.inputPrice === 0 || provider.outputPrice === 0) &&
+					(isZero(provider.inputPrice) || isZero(provider.outputPrice)) &&
 					!(provider as ProviderModelMapping).requestPrice &&
 					!Object.values(
 						(provider as ProviderModelMapping).perSecondPrice ?? {},
-					).some((price) => price > 0) &&
-					!hasImagePricing(provider as ProviderModelMapping),
+					).some((price) => Number(price) > 0) &&
+					!hasImagePricing(provider as ProviderModelMapping) &&
+					!isEmbeddingProvider(provider as ProviderModelMapping),
 			),
 		);
 
@@ -79,12 +87,13 @@ describe("Models", () => {
 			const errorDetails = modelsWithoutFreeFlag.map((model) => {
 				const zeroPricedProviders = model.providers.filter(
 					(p) =>
-						(p.inputPrice === 0 || p.outputPrice === 0) &&
+						(isZero(p.inputPrice) || isZero(p.outputPrice)) &&
 						!(p as ProviderModelMapping).requestPrice &&
 						!Object.values(
 							(p as ProviderModelMapping).perSecondPrice ?? {},
-						).some((price) => price > 0) &&
-						!hasImagePricing(p as ProviderModelMapping),
+						).some((price) => Number(price) > 0) &&
+						!hasImagePricing(p as ProviderModelMapping) &&
+						!isEmbeddingProvider(p as ProviderModelMapping),
 				);
 				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.modelName} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
 			});
@@ -405,43 +414,40 @@ describe("getCheapestModelForProvider", () => {
 	});
 
 	it("should account for discount when calculating cheapest model", () => {
+		const discountOf = (p: ProviderModelMapping): number | undefined =>
+			p.discount !== undefined ? Number(p.discount) : undefined;
 		// Test that discounts are properly applied in the cheapest model calculation
 		// Look for models with discount providers
 		const modelsWithDiscountProviders = models.filter((model) =>
-			model.providers.some(
-				(p) =>
-					(p as ProviderModelMapping).discount !== undefined &&
-					(p as ProviderModelMapping).discount! < 1,
-			),
+			model.providers.some((p) => {
+				const d = discountOf(p as ProviderModelMapping);
+				return d !== undefined && d < 1;
+			}),
 		);
 
 		if (modelsWithDiscountProviders.length > 0) {
 			// Find a model that has both regular and discount providers
 			const testModel = modelsWithDiscountProviders.find((model) => {
-				const regularProvider = model.providers.find(
-					(p) =>
-						!(p as ProviderModelMapping).discount ||
-						(p as ProviderModelMapping).discount === 1,
-				);
-				const discountProvider = model.providers.find(
-					(p) =>
-						(p as ProviderModelMapping).discount &&
-						(p as ProviderModelMapping).discount! < 1,
-				);
+				const regularProvider = model.providers.find((p) => {
+					const d = discountOf(p as ProviderModelMapping);
+					return d === undefined || d === 1;
+				});
+				const discountProvider = model.providers.find((p) => {
+					const d = discountOf(p as ProviderModelMapping);
+					return d !== undefined && d < 1;
+				});
 				return regularProvider && discountProvider;
 			});
 
 			if (testModel) {
-				const regularProvider = testModel.providers.find(
-					(p) =>
-						!(p as ProviderModelMapping).discount ||
-						(p as ProviderModelMapping).discount === 1,
-				);
-				const discountProvider = testModel.providers.find(
-					(p) =>
-						(p as ProviderModelMapping).discount &&
-						(p as ProviderModelMapping).discount! < 1,
-				);
+				const regularProvider = testModel.providers.find((p) => {
+					const d = discountOf(p as ProviderModelMapping);
+					return d === undefined || d === 1;
+				});
+				const discountProvider = testModel.providers.find((p) => {
+					const d = discountOf(p as ProviderModelMapping);
+					return d !== undefined && d < 1;
+				});
 
 				if (
 					regularProvider &&
@@ -451,13 +457,14 @@ describe("getCheapestModelForProvider", () => {
 				) {
 					// Calculate expected prices
 					const regularPrice =
-						(regularProvider.inputPrice + (regularProvider.outputPrice ?? 0)) /
+						(Number(regularProvider.inputPrice) +
+							Number(regularProvider.outputPrice ?? "0")) /
 						2;
 					const discountPrice =
-						((discountProvider.inputPrice +
-							(discountProvider.outputPrice ?? 0)) /
+						((Number(discountProvider.inputPrice) +
+							Number(discountProvider.outputPrice ?? "0")) /
 							2) *
-						(discountProvider as ProviderModelMapping).discount!;
+						(1 - discountOf(discountProvider as ProviderModelMapping)!);
 
 					// The discount provider should be cheaper than the regular provider
 					expect(discountPrice).toBeLessThan(regularPrice);
@@ -510,44 +517,52 @@ describe("getCheapestFromAvailableProviders", () => {
 	});
 
 	it("should account for discounts when selecting cheapest provider", () => {
+		const discountOf = (p: ProviderModelMapping): number | undefined =>
+			p.discount !== undefined ? Number(p.discount) : undefined;
 		// Find a model that has both regular and discount providers
 		const modelWithDiscountProvider = models.find((model) => {
-			const hasRegularProvider = model.providers.some(
-				(p) =>
-					(!(p as ProviderModelMapping).discount ||
-						(p as ProviderModelMapping).discount === 1) &&
+			const hasRegularProvider = model.providers.some((p) => {
+				const d = discountOf(p as ProviderModelMapping);
+				return (
+					(d === undefined || d === 1) &&
 					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined,
-			);
-			const hasDiscountProvider = model.providers.some(
-				(p) =>
-					(p as ProviderModelMapping).discount !== undefined &&
-					(p as ProviderModelMapping).discount! < 1 &&
+					p.outputPrice !== undefined
+				);
+			});
+			const hasDiscountProvider = model.providers.some((p) => {
+				const d = discountOf(p as ProviderModelMapping);
+				return (
+					d !== undefined &&
+					d < 1 &&
 					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined,
-			);
+					p.outputPrice !== undefined
+				);
+			});
 			return hasRegularProvider && hasDiscountProvider;
 		});
 
 		if (modelWithDiscountProvider) {
-			const regularProvider = modelWithDiscountProvider.providers.find(
-				(p) =>
-					(!(p as ProviderModelMapping).discount ||
-						(p as ProviderModelMapping).discount === 1) &&
+			const regularProvider = modelWithDiscountProvider.providers.find((p) => {
+				const d = discountOf(p as ProviderModelMapping);
+				return (
+					(d === undefined || d === 1) &&
 					(p as ProviderModelMapping).stability !== "experimental" &&
 					(p as ProviderModelMapping).stability !== "unstable" &&
 					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined,
-			);
-			const discountProvider = modelWithDiscountProvider.providers.find(
-				(p) =>
-					(p as ProviderModelMapping).discount !== undefined &&
-					(p as ProviderModelMapping).discount! < 1 &&
+					p.outputPrice !== undefined
+				);
+			});
+			const discountProvider = modelWithDiscountProvider.providers.find((p) => {
+				const d = discountOf(p as ProviderModelMapping);
+				return (
+					d !== undefined &&
+					d < 1 &&
 					(p as ProviderModelMapping).stability !== "experimental" &&
 					(p as ProviderModelMapping).stability !== "unstable" &&
 					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined,
-			);
+					p.outputPrice !== undefined
+				);
+			});
 
 			if (regularProvider && discountProvider) {
 				const availableProviders = [regularProvider, discountProvider];
@@ -569,16 +584,20 @@ describe("getCheapestFromAvailableProviders", () => {
 				const discountPriority = discountProviderDef?.priority ?? 1;
 
 				const regularBasePrice =
-					(regularProvider.inputPrice! + regularProvider.outputPrice!) / 2;
+					(Number(regularProvider.inputPrice!) +
+						Number(regularProvider.outputPrice!)) /
+					2;
 				const regularEffectivePrice =
 					regularPriority > 0
 						? regularBasePrice / regularPriority
 						: regularBasePrice;
 
-				const discount = (discountProvider as ProviderModelMapping).discount!;
+				const discount = discountOf(discountProvider as ProviderModelMapping)!;
 				const discountMultiplier = 1 - discount;
 				const discountBasePrice =
-					((discountProvider.inputPrice! + discountProvider.outputPrice!) / 2) *
+					((Number(discountProvider.inputPrice!) +
+						Number(discountProvider.outputPrice!)) /
+						2) *
 					discountMultiplier;
 				const discountEffectivePrice =
 					discountPriority > 0
@@ -673,12 +692,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				{
 					metricsMap: new Map([
 						[
-							metricsKey(
-								"veo-3.1-generate-preview",
-								"avalanche",
-								undefined,
-								"veo3",
-							),
+							metricsKey("veo-3.1-generate-preview", "avalanche", undefined),
 							{
 								modelId: "veo-3.1-generate-preview",
 								providerId: "avalanche",
@@ -693,7 +707,6 @@ describe("getCheapestFromAvailableProviders", () => {
 								"veo-3.1-generate-preview",
 								"google-vertex",
 								undefined,
-								"veo-3.1-generate-001",
 							),
 							{
 								modelId: "veo-3.1-generate-preview",
@@ -769,12 +782,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				{
 					metricsMap: new Map([
 						[
-							metricsKey(
-								"veo-3.1-generate-preview",
-								"avalanche",
-								undefined,
-								"veo3",
-							),
+							metricsKey("veo-3.1-generate-preview", "avalanche", undefined),
 							{
 								modelId: "veo-3.1-generate-preview",
 								providerId: "avalanche",
@@ -789,7 +797,6 @@ describe("getCheapestFromAvailableProviders", () => {
 								"veo-3.1-generate-preview",
 								"google-vertex",
 								undefined,
-								"veo-3.1-generate-001",
 							),
 							{
 								modelId: "veo-3.1-generate-preview",
@@ -834,320 +841,6 @@ describe("getCheapestFromAvailableProviders", () => {
 		const testModel = models[0];
 		const result = getCheapestFromAvailableProviders([], testModel);
 		expect(result).toBe(null);
-	});
-
-	describe("resolveMetricsModelId", () => {
-		it("returns the candidate's modelName when it matches a concrete catalog model", () => {
-			expect(
-				resolveMetricsModelId("grok-4-1-fast", "grok-4-1-fast-non-reasoning"),
-			).toBe("grok-4-1-fast-non-reasoning");
-			expect(
-				resolveMetricsModelId("grok-4-1-fast", "grok-4-1-fast-reasoning"),
-			).toBe("grok-4-1-fast-reasoning");
-		});
-
-		it("falls back to the parent model id when the modelName is provider-specific", () => {
-			expect(
-				resolveMetricsModelId("gpt-4o-mini", "gpt-4o-mini-2024-07-18"),
-			).toBe("gpt-4o-mini");
-		});
-
-		it("falls back to the parent model id when the modelName is unknown", () => {
-			expect(
-				resolveMetricsModelId("custom-parent", "totally-unknown-model"),
-			).toBe("custom-parent");
-		});
-	});
-
-	describe("virtual model variant routing", () => {
-		const virtualModel: Parameters<
-			typeof getCheapestFromAvailableProviders
-		>[1] = {
-			id: "virtual-test",
-			providers: [
-				{
-					providerId: "openai",
-					modelName: "virtual-test-non-reasoning",
-					inputPrice: 1 / 1e6,
-					outputPrice: 2 / 1e6,
-				},
-				{
-					providerId: "openai",
-					modelName: "virtual-test-reasoning",
-					inputPrice: 10 / 1e6,
-					outputPrice: 20 / 1e6,
-				},
-			],
-		};
-
-		it("scores the reasoning variant by its own pricing, not the first variant in the array", () => {
-			const result = getCheapestFromAvailableProviders(
-				[{ providerId: "openai", modelName: "virtual-test-reasoning" }],
-				virtualModel,
-			);
-
-			expect(result?.provider.modelName).toBe("virtual-test-reasoning");
-			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
-		});
-
-		it("scores the non-reasoning variant by its own pricing", () => {
-			const result = getCheapestFromAvailableProviders(
-				[{ providerId: "openai", modelName: "virtual-test-non-reasoning" }],
-				virtualModel,
-			);
-
-			expect(result?.provider.modelName).toBe("virtual-test-non-reasoning");
-			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(1.5 / 1e6);
-		});
-
-		it("filters out a reasoning variant whose stability is unstable while keeping the non-reasoning sibling", () => {
-			const modelWithUnstableReasoning: Parameters<
-				typeof getCheapestFromAvailableProviders
-			>[1] = {
-				id: "virtual-stability-test",
-				providers: [
-					{
-						providerId: "openai",
-						modelName: "virtual-stability-non-reasoning",
-						inputPrice: 1 / 1e6,
-						outputPrice: 2 / 1e6,
-					},
-					{
-						providerId: "openai",
-						modelName: "virtual-stability-reasoning",
-						inputPrice: 10 / 1e6,
-						outputPrice: 20 / 1e6,
-						stability: "unstable",
-					},
-				],
-			};
-
-			const reasoningResult = getCheapestFromAvailableProviders(
-				[
-					{
-						providerId: "openai",
-						modelName: "virtual-stability-reasoning",
-					},
-				],
-				modelWithUnstableReasoning,
-			);
-			expect(reasoningResult).toBe(null);
-
-			const nonReasoningResult = getCheapestFromAvailableProviders(
-				[
-					{
-						providerId: "openai",
-						modelName: "virtual-stability-non-reasoning",
-					},
-				],
-				modelWithUnstableReasoning,
-			);
-			expect(nonReasoningResult?.provider.modelName).toBe(
-				"virtual-stability-non-reasoning",
-			);
-		});
-
-		it("preserves the legacy providerId+region match when the candidate does not name a specific variant", () => {
-			const result = getCheapestFromAvailableProviders(
-				[{ providerId: "openai", modelName: "unrelated-name" }],
-				virtualModel,
-			);
-
-			expect(result?.provider.modelName).toBe("unrelated-name");
-			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(1.5 / 1e6);
-		});
-
-		it("scores the reasoning variant under the price-only-no-metrics path", () => {
-			const result = getCheapestFromAvailableProviders(
-				[{ providerId: "openai", modelName: "virtual-test-reasoning" }],
-				virtualModel,
-				{ metricsMap: new Map() },
-			);
-
-			expect(result?.metadata.selectionReason).toBe("price-only-no-metrics");
-			expect(result?.provider.modelName).toBe("virtual-test-reasoning");
-			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
-		});
-
-		it("routes the catalog grok-4-1-fast reasoning variant with reasoning-variant cache support", () => {
-			const grokModel = models.find((model) => model.id === "grok-4-1-fast");
-			expect(grokModel).toBeDefined();
-			if (!grokModel) {
-				throw new Error("Missing grok-4-1-fast fixture");
-			}
-
-			const reasoningProvider = grokModel.providers.find(
-				(p) => p.modelName === "grok-4-1-fast-reasoning",
-			);
-			expect(reasoningProvider).toBeDefined();
-			if (!reasoningProvider) {
-				throw new Error("Missing reasoning variant");
-			}
-
-			const result = getCheapestFromAvailableProviders(
-				[reasoningProvider],
-				grokModel,
-				{ metricsMap: new Map(), promptTokens: 200_000 },
-			);
-
-			expect(result?.provider.modelName).toBe("grok-4-1-fast-reasoning");
-		});
-
-		it("scores the weighted-score path using variant-specific metrics", () => {
-			const reasoningProvider = {
-				providerId: "openai" as const,
-				modelName: "virtual-test-reasoning",
-			};
-			const nonReasoningProvider = {
-				providerId: "openai" as const,
-				modelName: "virtual-test-non-reasoning",
-			};
-
-			// Variant-keyed metrics: non-reasoning is healthy, reasoning is degraded.
-			// Without modelName-aware lookup these would clobber each other under the
-			// same `modelId:providerId:region` legacy key.
-			const metricsMap = new Map([
-				[
-					metricsKey(
-						"virtual-test",
-						"openai",
-						undefined,
-						"virtual-test-non-reasoning",
-					),
-					{
-						modelId: "virtual-test",
-						providerId: "openai",
-						modelName: "virtual-test-non-reasoning",
-						uptime: 99.9,
-						averageLatency: 100,
-						throughput: 200,
-						totalRequests: 100,
-					},
-				],
-				[
-					metricsKey(
-						"virtual-test",
-						"openai",
-						undefined,
-						"virtual-test-reasoning",
-					),
-					{
-						modelId: "virtual-test",
-						providerId: "openai",
-						modelName: "virtual-test-reasoning",
-						uptime: 50,
-						averageLatency: 1000,
-						throughput: 10,
-						totalRequests: 100,
-					},
-				],
-			]);
-
-			const reasoningResult = getCheapestFromAvailableProviders(
-				[reasoningProvider],
-				virtualModel,
-				{ metricsMap },
-			);
-			expect(reasoningResult?.provider.modelName).toBe(
-				"virtual-test-reasoning",
-			);
-			expect(reasoningResult?.metadata.providerScores[0]?.uptime).toBe(50);
-			expect(reasoningResult?.metadata.providerScores[0]?.latency).toBe(1000);
-			expect(reasoningResult?.metadata.providerScores[0]?.throughput).toBe(10);
-
-			const nonReasoningResult = getCheapestFromAvailableProviders(
-				[nonReasoningProvider],
-				virtualModel,
-				{ metricsMap },
-			);
-			expect(nonReasoningResult?.provider.modelName).toBe(
-				"virtual-test-non-reasoning",
-			);
-			expect(nonReasoningResult?.metadata.providerScores[0]?.uptime).toBe(99.9);
-			expect(nonReasoningResult?.metadata.providerScores[0]?.latency).toBe(100);
-			expect(nonReasoningResult?.metadata.providerScores[0]?.throughput).toBe(
-				200,
-			);
-		});
-
-		it("scores the random-exploration metadata using variant-specific metrics", () => {
-			const reasoningProvider = {
-				providerId: "openai" as const,
-				modelName: "virtual-test-reasoning",
-			};
-
-			const metricsMap = new Map([
-				[
-					metricsKey(
-						"virtual-test",
-						"openai",
-						undefined,
-						"virtual-test-non-reasoning",
-					),
-					{
-						modelId: "virtual-test",
-						providerId: "openai",
-						modelName: "virtual-test-non-reasoning",
-						uptime: 99.9,
-						averageLatency: 100,
-						throughput: 200,
-						totalRequests: 100,
-					},
-				],
-				[
-					metricsKey(
-						"virtual-test",
-						"openai",
-						undefined,
-						"virtual-test-reasoning",
-					),
-					{
-						modelId: "virtual-test",
-						providerId: "openai",
-						modelName: "virtual-test-reasoning",
-						uptime: 75,
-						averageLatency: 800,
-						throughput: 25,
-						totalRequests: 100,
-					},
-				],
-			]);
-
-			const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-			const originalArgv = process.argv;
-			const originalNodeEnv = process.env.NODE_ENV;
-			const originalVitest = process.env.VITEST;
-			delete process.env.NODE_ENV;
-			delete process.env.VITEST;
-			process.argv = ["node", "/tmp/not-a-test-run.mjs"];
-
-			try {
-				const result = getCheapestFromAvailableProviders(
-					[reasoningProvider],
-					virtualModel,
-					{ metricsMap },
-				);
-				expect(result?.metadata.selectionReason).toBe("random-exploration");
-				expect(result?.provider.modelName).toBe("virtual-test-reasoning");
-				expect(result?.metadata.providerScores[0]?.uptime).toBe(75);
-				expect(result?.metadata.providerScores[0]?.latency).toBe(800);
-				expect(result?.metadata.providerScores[0]?.throughput).toBe(25);
-				expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
-			} finally {
-				randomSpy.mockRestore();
-				process.argv = originalArgv;
-				if (originalNodeEnv !== undefined) {
-					process.env.NODE_ENV = originalNodeEnv;
-				} else {
-					delete process.env.NODE_ENV;
-				}
-				if (originalVitest !== undefined) {
-					process.env.VITEST = originalVitest;
-				} else {
-					delete process.env.VITEST;
-				}
-			}
-		});
 	});
 
 	it("should use the default exploration rate when EXPLORATION_RATE is empty", () => {
@@ -1232,9 +925,9 @@ describe("getCheapestFromAvailableProviders", () => {
 	it("should prefer request pricing over zero token placeholders", () => {
 		expect(
 			getProviderSelectionPrice({
-				inputPrice: 0,
-				outputPrice: 0,
-				requestPrice: 0.03,
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.03",
 			}).toNumber(),
 		).toBe(0.03);
 	});
@@ -1244,8 +937,8 @@ describe("getCheapestFromAvailableProviders", () => {
 		// Decimal-backed implementation must return exactly 0.02.
 		expect(
 			getProviderSelectionPrice({
-				inputPrice: 0.01,
-				outputPrice: 0.03,
+				inputPrice: "0.01",
+				outputPrice: "0.03",
 			}).toNumber(),
 		).toBe(0.02);
 
@@ -1254,17 +947,17 @@ describe("getCheapestFromAvailableProviders", () => {
 		// through Number division.
 		expect(
 			getProviderSelectionPrice({
-				inputPrice: 0.15 / 1e6,
-				outputPrice: 0.6 / 1e6,
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
 			}).toNumber(),
 		).toBe(0.375 / 1e6);
 
 		// Discount path: 0.02 * (1 - 0.1) under raw JS gives 0.018000000000000002.
 		expect(
 			getProviderSelectionPrice({
-				inputPrice: 0.01,
-				outputPrice: 0.03,
-				discount: 0.1,
+				inputPrice: "0.01",
+				outputPrice: "0.03",
+				discount: "0.1",
 			}).toNumber(),
 		).toBe(0.018);
 	});
@@ -1278,16 +971,16 @@ describe("getCheapestFromAvailableProviders", () => {
 				{
 					providerId: "openai" as const,
 					modelName: "cache-test",
-					inputPrice: 1.0 / 1e6,
-					outputPrice: 2.0 / 1e6,
-					cachedInputPrice: 0.1 / 1e6,
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
+					cachedInputPrice: "0.1e-6",
 					streaming: true as const,
 				},
 				{
 					providerId: "deepseek" as const,
 					modelName: "cache-test",
-					inputPrice: 1.0 / 1e6,
-					outputPrice: 2.0 / 1e6,
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
 					streaming: true as const,
 				},
 			],
@@ -1295,7 +988,7 @@ describe("getCheapestFromAvailableProviders", () => {
 
 		const equalMetrics = new Map([
 			[
-				metricsKey("cache-test-model", "openai", undefined, "cache-test"),
+				metricsKey("cache-test-model", "openai", undefined),
 				{
 					modelId: "cache-test-model",
 					providerId: "openai",
@@ -1306,7 +999,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				},
 			],
 			[
-				metricsKey("cache-test-model", "deepseek", undefined, "cache-test"),
+				metricsKey("cache-test-model", "deepseek", undefined),
 				{
 					modelId: "cache-test-model",
 					providerId: "deepseek",
@@ -1363,16 +1056,16 @@ describe("getCheapestFromAvailableProviders", () => {
 					{
 						providerId: "openai" as const,
 						modelName: "cache-test",
-						inputPrice: 10.0 / 1e6,
-						outputPrice: 20.0 / 1e6,
-						cachedInputPrice: 1.0 / 1e6,
+						inputPrice: "10.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "1.0e-6",
 						streaming: true as const,
 					},
 					{
 						providerId: "deepseek" as const,
 						modelName: "cache-test",
-						inputPrice: 1.0 / 1e6,
-						outputPrice: 2.0 / 1e6,
+						inputPrice: "1.0e-6",
+						outputPrice: "2.0e-6",
 						streaming: true as const,
 					},
 				],

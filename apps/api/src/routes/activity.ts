@@ -67,6 +67,104 @@ const dailyActivitySchema = z.object({
 	modelBreakdown: z.array(modelUsageSchema),
 });
 
+type ActivityRow = z.infer<typeof dailyActivitySchema>;
+
+function generateTimeSlots(
+	startDate: Date,
+	endDate: Date,
+	isHourly: boolean,
+): string[] {
+	const slots: string[] = [];
+	if (isHourly) {
+		const cur = new Date(
+			Date.UTC(
+				startDate.getUTCFullYear(),
+				startDate.getUTCMonth(),
+				startDate.getUTCDate(),
+				startDate.getUTCHours(),
+			),
+		);
+		const end = new Date(
+			Date.UTC(
+				endDate.getUTCFullYear(),
+				endDate.getUTCMonth(),
+				endDate.getUTCDate(),
+				endDate.getUTCHours(),
+			),
+		);
+		while (cur.getTime() <= end.getTime()) {
+			slots.push(cur.toISOString().slice(0, 19));
+			cur.setUTCHours(cur.getUTCHours() + 1);
+		}
+	} else {
+		const cur = new Date(
+			Date.UTC(
+				startDate.getUTCFullYear(),
+				startDate.getUTCMonth(),
+				startDate.getUTCDate(),
+			),
+		);
+		const end = new Date(
+			Date.UTC(
+				endDate.getUTCFullYear(),
+				endDate.getUTCMonth(),
+				endDate.getUTCDate(),
+			),
+		);
+		while (cur.getTime() <= end.getTime()) {
+			slots.push(cur.toISOString().slice(0, 10));
+			cur.setUTCDate(cur.getUTCDate() + 1);
+		}
+	}
+	return slots;
+}
+
+function buildEmptyActivityRow(date: string): ActivityRow {
+	return {
+		date,
+		requestCount: 0,
+		inputTokens: 0,
+		outputTokens: 0,
+		cachedTokens: 0,
+		cacheWriteTokens: 0,
+		totalTokens: 0,
+		cost: 0,
+		inputCost: 0,
+		outputCost: 0,
+		requestCost: 0,
+		dataStorageCost: 0,
+		imageInputCost: 0,
+		audioInputCost: 0,
+		imageOutputCost: 0,
+		videoOutputCost: 0,
+		cachedInputCost: 0,
+		cacheWriteInputCost: 0,
+		errorCount: 0,
+		errorRate: 0,
+		cacheCount: 0,
+		cacheRate: 0,
+		discountSavings: 0,
+		creditsRequestCount: 0,
+		apiKeysRequestCount: 0,
+		creditsCost: 0,
+		apiKeysCost: 0,
+		creditsDataStorageCost: 0,
+		apiKeysDataStorageCost: 0,
+		modelBreakdown: [],
+	};
+}
+
+function padActivity(
+	rows: ActivityRow[],
+	startDate: Date,
+	endDate: Date,
+	isHourly: boolean,
+): ActivityRow[] {
+	const slots = generateTimeSlots(startDate, endDate, isHourly);
+	const byDate = new Map(rows.map((r) => [r.date, r]));
+	return slots.map((slot) => byDate.get(slot) ?? buildEmptyActivityRow(slot));
+}
+
 // Define the route for getting activity data
 const getActivity = createRoute({
 	method: "get",
@@ -466,8 +564,12 @@ activity.openapi(getActivity, async (c) => {
 			};
 		});
 
+		const paddedActivity = timeRange
+			? padActivity(activityData, startDate, endDate, isHourly)
+			: activityData;
+
 		return c.json({
-			activity: activityData,
+			activity: paddedActivity,
 			...(timeRange ? { granularity } : {}),
 		});
 	}
@@ -743,8 +845,12 @@ activity.openapi(getActivity, async (c) => {
 		};
 	});
 
+	const paddedActivity = timeRange
+		? padActivity(activityData, startDate, endDate, isHourly)
+		: activityData;
+
 	return c.json({
-		activity: activityData,
+		activity: paddedActivity,
 		...(timeRange ? { granularity } : {}),
 	});
 });

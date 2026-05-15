@@ -360,12 +360,12 @@ export interface ProviderValidationResult {
 export interface ModelWithPricing {
 	providers: Array<{
 		providerId: string;
-		inputPrice?: number;
-		outputPrice?: number;
-		perSecondPrice?: Record<string, number>;
+		inputPrice?: string;
+		outputPrice?: string;
+		perSecondPrice?: Record<string, string>;
 		supportedParameters?: string[];
 		modelName: string;
-		discount?: number;
+		discount?: string;
 		region?: string;
 		stability?: string;
 	}>;

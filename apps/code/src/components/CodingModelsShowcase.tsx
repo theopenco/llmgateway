@@ -135,7 +135,7 @@ export function CodingModelsShowcase({
 											{provider.inputPrice !== undefined && (
 												<>
 													<span className="font-mono font-medium text-foreground">
-														${formatPrice(provider.inputPrice)}
+														${formatPrice(Number(provider.inputPrice))}
 													</span>
 													<span className="text-muted-foreground"> in</span>
 												</>
@@ -144,7 +144,7 @@ export function CodingModelsShowcase({
 												<>
 													<span className="text-muted-foreground mx-1">/</span>
 													<span className="font-mono font-medium text-foreground">
-														${formatPrice(provider.outputPrice)}
+														${formatPrice(Number(provider.outputPrice))}
 													</span>
 													<span className="text-muted-foreground"> out</span>
 												</>

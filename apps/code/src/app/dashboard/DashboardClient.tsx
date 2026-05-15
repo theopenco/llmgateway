@@ -439,7 +439,10 @@ export default function DashboardClient() {
 
 						{/* Coding Agents */}
 						{devPlanStatus?.organizationId && (
-							<CodingAgents orgId={devPlanStatus.organizationId} />
+							<CodingAgents
+								orgId={devPlanStatus.organizationId}
+								projectId={devPlanStatus.projectId ?? null}
+							/>
 						)}
 
 						{/* Integrations */}

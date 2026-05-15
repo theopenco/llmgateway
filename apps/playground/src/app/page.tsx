@@ -9,15 +9,14 @@ import { fetchServerData } from "@/lib/server-api";
 import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
-export async function generateMetadata({
-	searchParams,
-}: {
-	searchParams: Promise<{ model?: string }>;
-}): Promise<Metadata> {
-	const { model } = await searchParams;
+export async function generateMetadata(): Promise<Metadata> {
+	// All `?model=` variants of the homepage render the same page with a
+	// preselected model — they are not unique URLs from Google's perspective.
+	// Always canonicalize to "/" so the parameterized URLs don't trigger
+	// "Duplicate, Google chose different canonical than user" errors.
 	return {
 		alternates: {
-			canonical: model ? `/?model=${model}` : "/",
+			canonical: "/",
 		},
 	};
 }
@@ -172,7 +171,10 @@ export default async function ChatPage({
 				/>
 			) : null}
 			<ChatPageClient
-				models={models.filter((m) => !m.output?.includes("video"))}
+				models={models.filter(
+					(m) =>
+						!m.output?.includes("video") && !m.output?.includes("embedding"),
+				)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

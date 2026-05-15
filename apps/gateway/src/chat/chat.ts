@@ -57,7 +57,6 @@ import {
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
 	prepareRequestBody,
-	resolveMetricsModelId,
 	type RoutingMetadata,
 } from "@llmgateway/actions";
 import {
@@ -509,12 +508,7 @@ function addContentFilterRoutingMetadata(
 			: [
 					...excludedProviders.map((provider) => {
 						const metrics = metricsMap.get(
-							metricsKey(
-								resolveMetricsModelId(modelId, provider.modelName),
-								provider.providerId,
-								provider.region,
-								provider.modelName,
-							),
+							metricsKey(modelId, provider.providerId, provider.region),
 						);
 
 						return {
@@ -1838,7 +1832,9 @@ chat.openapi(completions, async (c) => {
 				// Find the cheapest among the suitable providers for this model
 				for (const provider of suitableProviders) {
 					const totalPrice =
-						((provider.inputPrice ?? 0) + (provider.outputPrice ?? 0)) / 2;
+						(Number(provider.inputPrice ?? "0") +
+							Number(provider.outputPrice ?? "0")) /
+						2;
 
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
@@ -1855,10 +1851,9 @@ chat.openapi(completions, async (c) => {
 		if (selectedModel && selectedProviders.length > 0) {
 			// Fetch uptime/latency metrics from last 5 minutes for provider selection
 			const metricsCombinations = selectedProviders.map((p) => ({
-				modelId: resolveMetricsModelId(selectedModel.id, p.modelName),
+				modelId: selectedModel.id,
 				providerId: p.providerId,
 				region: p.region,
-				modelName: p.modelName,
 			}));
 			const metricsMap =
 				await getProviderMetricsForCombinations(metricsCombinations);
@@ -2066,10 +2061,9 @@ chat.openapi(completions, async (c) => {
 
 				if (eligibleMappings.length > 1) {
 					const metricsCombinations = eligibleMappings.map((provider) => ({
-						modelId: resolveMetricsModelId(modelInfo.id, provider.modelName),
+						modelId: modelInfo.id,
 						providerId: provider.providerId,
 						region: provider.region,
-						modelName: provider.modelName,
 					}));
 					const metricsMap =
 						await getProviderMetricsForCombinations(metricsCombinations);
@@ -2254,10 +2248,9 @@ chat.openapi(completions, async (c) => {
 
 					if (modelWithPricing) {
 						const metricsCombinations = candidatesForRouting.map((p) => ({
-							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
+							modelId: modelWithPricing.id,
 							providerId: p.providerId,
 							region: p.region,
-							modelName: p.modelName,
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
@@ -2276,8 +2269,8 @@ chat.openapi(completions, async (c) => {
 							(p) => p.providerId === requestedProvider,
 						);
 						const originalProviderPrice = originalProviderInfo
-							? (originalProviderInfo.inputPrice ?? 0) +
-								(originalProviderInfo.outputPrice ?? 0)
+							? Number(originalProviderInfo.inputPrice ?? "0") +
+								Number(originalProviderInfo.outputPrice ?? "0")
 							: 0;
 
 						const originalProviderScore = {
@@ -2326,20 +2319,18 @@ chat.openapi(completions, async (c) => {
 		// Find the base model ID for metrics lookup
 		// Since custom providers are excluded above, modelInfo always has 'id'
 		const baseModelId = (modelInfo as ModelDefinition).id;
-		const metricsModelId = resolveMetricsModelId(baseModelId, usedModel);
 
 		// Fetch uptime metrics for the requested provider
 		const metricsMap = await getProviderMetricsForCombinations([
 			{
-				modelId: metricsModelId,
+				modelId: baseModelId,
 				providerId: usedProvider,
 				region: usedRegion,
-				modelName: usedModel,
 			},
 		]);
 
 		const metrics = metricsMap.get(
-			metricsKey(metricsModelId, usedProvider, usedRegion, usedModel),
+			metricsKey(baseModelId, usedProvider, usedRegion),
 		);
 
 		// If we have metrics and uptime is below 90%, route to an alternative
@@ -2410,10 +2401,9 @@ chat.openapi(completions, async (c) => {
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
 						const metricsCombinations = uptimeFallbackCandidates.map((p) => ({
-							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
+							modelId: modelWithPricing.id,
 							providerId: p.providerId,
 							region: p.region,
-							modelName: p.modelName,
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
@@ -2433,12 +2423,7 @@ chat.openapi(completions, async (c) => {
 						const betterUptimeProviders = providerAgnosticCandidates.filter(
 							(p) => {
 								const providerMetrics = allMetricsMap.get(
-									metricsKey(
-										resolveMetricsModelId(modelWithPricing.id, p.modelName),
-										p.providerId,
-										p.region,
-										p.modelName,
-									),
+									metricsKey(modelWithPricing.id, p.providerId, p.region),
 								);
 								// If no metrics, assume the provider is healthy (100% uptime)
 								// If has metrics, only include if uptime is better than original
@@ -2467,8 +2452,8 @@ chat.openapi(completions, async (c) => {
 								(p) => p.providerId === requestedProvider,
 							);
 							const originalProviderPrice = originalProviderInfo
-								? (originalProviderInfo.inputPrice ?? 0) +
-									(originalProviderInfo.outputPrice ?? 0)
+								? Number(originalProviderInfo.inputPrice ?? "0") +
+									Number(originalProviderInfo.outputPrice ?? "0")
 								: 0;
 
 							// Create score entry for the original requested provider
@@ -2629,13 +2614,9 @@ chat.openapi(completions, async (c) => {
 					...routingCandidates,
 					...contentFilterRoutingExcludedProviders,
 				].map((provider) => ({
-					modelId: resolveMetricsModelId(
-						modelWithPricing.id,
-						provider.modelName,
-					),
+					modelId: modelWithPricing.id,
 					providerId: provider.providerId,
 					region: provider.region,
-					modelName: provider.modelName,
 				}));
 				const metricsMap =
 					await getProviderMetricsForCombinations(metricsCombinations);
@@ -2691,8 +2672,8 @@ chat.openapi(completions, async (c) => {
 									providerId: rlProviderId,
 									score: -1,
 									price: providerInfo
-										? (providerInfo.inputPrice ?? 0) +
-											(providerInfo.outputPrice ?? 0)
+										? Number(providerInfo.inputPrice ?? "0") +
+											Number(providerInfo.outputPrice ?? "0")
 										: 0,
 									rate_limited: true,
 								});
@@ -2806,10 +2787,9 @@ chat.openapi(completions, async (c) => {
 				...routingMetadataProviders,
 				...contentFilterRoutingExcludedProviders,
 			].map((provider) => ({
-				modelId: resolveMetricsModelId(baseModelId, provider.modelName),
+				modelId: baseModelId,
 				providerId: provider.providerId,
 				region: provider.region,
-				modelName: provider.modelName,
 			}));
 			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
@@ -2835,12 +2815,7 @@ chat.openapi(completions, async (c) => {
 			weightedScores?.metadata.providerScores ??
 			routingMetadataProviders.map((p) => {
 				const metrics = metricsMap.get(
-					metricsKey(
-						resolveMetricsModelId(baseModelId, p.modelName),
-						p.providerId,
-						p.region,
-						p.modelName,
-					),
+					metricsKey(baseModelId, p.providerId, p.region),
 				);
 				return {
 					providerId: p.providerId,
@@ -2889,8 +2864,8 @@ chat.openapi(completions, async (c) => {
 				{
 					providerId: "custom" as const,
 					modelName: usedModel,
-					inputPrice: 0,
-					outputPrice: 0,
+					inputPrice: "0",
+					outputPrice: "0",
 					contextSize: 8192,
 					maxOutput: 4096,
 					streaming: true,
@@ -4544,6 +4519,10 @@ chat.openapi(completions, async (c) => {
 						0,
 						project.organizationId,
 						image_config?.image_quality,
+						null,
+						null,
+						undefined,
+						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
 						streamingCosts.promptTokens ?? promptTokenCount,
@@ -4584,6 +4563,7 @@ chat.openapi(completions, async (c) => {
 							cacheWriteInputCost: streamingCosts.cacheWriteInputCost,
 							requestCost: streamingCosts.requestCost,
 							webSearchCost: streamingCosts.webSearchCost,
+							contentFilterCost: streamingCosts.contentFilterCost,
 							imageInputCost: streamingCosts.imageInputCost,
 							imageOutputCost: streamingCosts.imageOutputCost,
 							audioInputCost: streamingCosts.audioInputCost,
@@ -5402,6 +5382,39 @@ chat.openapi(completions, async (c) => {
 						);
 						const attemptLogId = shortid();
 
+						const contentFilterPromptTokens =
+							finishReason === "content_filter"
+								? (estimateTokens(usedProvider, messages, null, null, 0)
+										.calculatedPromptTokens ?? null)
+								: null;
+						const contentFilterCosts =
+							finishReason === "content_filter"
+								? await calculateCosts(
+										usedModel,
+										usedProvider,
+										Math.max(1, Math.round(contentFilterPromptTokens ?? 1)),
+										0,
+										null,
+										{
+											prompt: messages
+												.map((m) => messageContentToString(m.content))
+												.join("\n"),
+											completion: "",
+										},
+										null,
+										0,
+										image_config?.image_size,
+										inputImageCount,
+										0,
+										project.organizationId,
+										image_config?.image_quality,
+										null,
+										null,
+										undefined,
+										true,
+									)
+								: null;
+
 						await insertLogEntry({
 							...baseLogEntry,
 							id: attemptLogId,
@@ -5412,21 +5425,9 @@ chat.openapi(completions, async (c) => {
 							content: null,
 							reasoningContent: null,
 							finishReason,
-							promptTokens:
-								finishReason === "content_filter"
-									? (
-											estimateTokens(usedProvider, messages, null, null, 0)
-												.calculatedPromptTokens ?? null
-										)?.toString()
-									: null,
+							promptTokens: contentFilterPromptTokens?.toString() ?? null,
 							completionTokens: null,
-							totalTokens:
-								finishReason === "content_filter"
-									? (
-											estimateTokens(usedProvider, messages, null, null, 0)
-												.calculatedPromptTokens ?? null
-										)?.toString()
-									: null,
+							totalTokens: contentFilterPromptTokens?.toString() ?? null,
 							reasoningTokens: null,
 							cachedTokens: null,
 							hasError: finishReason !== "content_filter", // content_filter is not an error
@@ -5440,14 +5441,18 @@ chat.openapi(completions, async (c) => {
 											statusText: res.statusText,
 											responseText: errorResponseText,
 										},
-							cachedInputCost: null,
-							requestCost: null,
-							webSearchCost: null,
+							cost: contentFilterCosts?.totalCost ?? null,
+							inputCost: contentFilterCosts?.inputCost ?? null,
+							outputCost: contentFilterCosts?.outputCost ?? null,
+							cachedInputCost: contentFilterCosts?.cachedInputCost ?? null,
+							requestCost: contentFilterCosts?.requestCost ?? null,
+							webSearchCost: contentFilterCosts?.webSearchCost ?? null,
+							contentFilterCost: contentFilterCosts?.contentFilterCost ?? null,
 							imageInputTokens: null,
 							imageOutputTokens: null,
-							imageInputCost: null,
-							imageOutputCost: null,
-							discount: null,
+							imageInputCost: contentFilterCosts?.imageInputCost ?? null,
+							imageOutputCost: contentFilterCosts?.imageOutputCost ?? null,
+							discount: contentFilterCosts?.discount ?? null,
 							dataStorageCost: "0",
 							cached: false,
 							toolResults: null,
@@ -7598,6 +7603,7 @@ chat.openapi(completions, async (c) => {
 										cacheWriteInputCost: null,
 										requestCost: null,
 										webSearchCost: null,
+										contentFilterCost: null,
 										imageInputTokens: null,
 										imageOutputTokens: null,
 										imageInputCost: null,
@@ -7642,6 +7648,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 										},
+										finishReason === "content_filter",
 									);
 						if (streamingCostsEarly.totalCost !== null) {
 							streamingCostsEarly.dataStorageCost = toDataStorageCostNumber(
@@ -7735,6 +7742,7 @@ chat.openapi(completions, async (c) => {
 												streamingCostsEarly.cacheWriteInputCost,
 											requestCost: streamingCostsEarly.requestCost,
 											webSearchCost: streamingCostsEarly.webSearchCost,
+											contentFilterCost: streamingCostsEarly.contentFilterCost,
 											imageInputCost: streamingCostsEarly.imageInputCost,
 											imageOutputCost: streamingCostsEarly.imageOutputCost,
 											audioInputCost: streamingCostsEarly.audioInputCost,
@@ -7914,6 +7922,7 @@ chat.openapi(completions, async (c) => {
 									cacheWriteInputCost: null,
 									requestCost: null,
 									webSearchCost: null,
+									contentFilterCost: null,
 									imageInputTokens: null,
 									imageOutputTokens: null,
 									imageInputCost: null,
@@ -7958,6 +7967,7 @@ chat.openapi(completions, async (c) => {
 										audioInputTokens,
 										cachedAudioInputTokens,
 									},
+									finishReason === "content_filter",
 								));
 
 					// Use costs.promptTokens as canonical value (includes image input
@@ -8119,6 +8129,7 @@ chat.openapi(completions, async (c) => {
 						cacheWriteInputCost: costs.cacheWriteInputCost,
 						requestCost: costs.requestCost,
 						webSearchCost: costs.webSearchCost,
+						contentFilterCost: costs.contentFilterCost ?? null,
 						imageInputTokens: costs.imageInputTokens?.toString() ?? null,
 						imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 						imageInputCost: costs.imageInputCost ?? null,
@@ -8936,6 +8947,39 @@ chat.openapi(completions, async (c) => {
 			);
 			const attemptLogId = shortid();
 
+			const nonStreamContentFilterPromptTokens =
+				finishReason === "content_filter"
+					? (estimateTokens(usedProvider, messages, null, null, 0)
+							.calculatedPromptTokens ?? null)
+					: null;
+			const nonStreamContentFilterCosts =
+				finishReason === "content_filter"
+					? await calculateCosts(
+							usedModel,
+							usedProvider,
+							Math.max(1, Math.round(nonStreamContentFilterPromptTokens ?? 1)),
+							0,
+							null,
+							{
+								prompt: messages
+									.map((m) => messageContentToString(m.content))
+									.join("\n"),
+								completion: "",
+							},
+							null,
+							0,
+							image_config?.image_size,
+							inputImageCount,
+							0,
+							project.organizationId,
+							image_config?.image_quality,
+							null,
+							null,
+							undefined,
+							true,
+						)
+					: null;
+
 			await insertLogEntry({
 				...baseLogEntry,
 				id: attemptLogId,
@@ -8946,9 +8990,9 @@ chat.openapi(completions, async (c) => {
 				content: null,
 				reasoningContent: null,
 				finishReason,
-				promptTokens: null,
+				promptTokens: nonStreamContentFilterPromptTokens?.toString() ?? null,
 				completionTokens: null,
-				totalTokens: null,
+				totalTokens: nonStreamContentFilterPromptTokens?.toString() ?? null,
 				reasoningTokens: null,
 				cachedTokens: null,
 				hasError: finishReason !== "content_filter", // content_filter is not an error
@@ -8979,15 +9023,20 @@ chat.openapi(completions, async (c) => {
 						responseText: errorResponseText,
 					};
 				})(),
-				cachedInputCost: null,
-				requestCost: null,
-				webSearchCost: null,
+				cost: nonStreamContentFilterCosts?.totalCost ?? null,
+				inputCost: nonStreamContentFilterCosts?.inputCost ?? null,
+				outputCost: nonStreamContentFilterCosts?.outputCost ?? null,
+				cachedInputCost: nonStreamContentFilterCosts?.cachedInputCost ?? null,
+				requestCost: nonStreamContentFilterCosts?.requestCost ?? null,
+				webSearchCost: nonStreamContentFilterCosts?.webSearchCost ?? null,
+				contentFilterCost:
+					nonStreamContentFilterCosts?.contentFilterCost ?? null,
 				imageInputTokens: null,
 				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				estimatedCost: false,
-				discount: null,
+				imageInputCost: nonStreamContentFilterCosts?.imageInputCost ?? null,
+				imageOutputCost: nonStreamContentFilterCosts?.imageOutputCost ?? null,
+				estimatedCost: nonStreamContentFilterCosts?.estimatedCost ?? false,
+				discount: nonStreamContentFilterCosts?.discount ?? null,
 				dataStorageCost: "0",
 				cached: false,
 				toolResults: null,
@@ -9057,6 +9106,33 @@ chat.openapi(completions, async (c) => {
 			// For content_filter, return a proper completion response (not an error)
 			// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
 			if (finishReason === "content_filter") {
+				const cfPromptTokens = Math.max(
+					1,
+					Math.round(nonStreamContentFilterPromptTokens ?? 1),
+				);
+				const contentFilterUsage: Record<string, any> = {
+					prompt_tokens: cfPromptTokens,
+					completion_tokens: 0,
+					total_tokens: cfPromptTokens,
+				};
+				if (nonStreamContentFilterCosts) {
+					applyExtendedUsageFields(contentFilterUsage, {
+						costs: {
+							inputCost: nonStreamContentFilterCosts.inputCost,
+							outputCost: nonStreamContentFilterCosts.outputCost,
+							cachedInputCost: nonStreamContentFilterCosts.cachedInputCost,
+							requestCost: nonStreamContentFilterCosts.requestCost,
+							webSearchCost: nonStreamContentFilterCosts.webSearchCost,
+							contentFilterCost: nonStreamContentFilterCosts.contentFilterCost,
+							imageInputCost: nonStreamContentFilterCosts.imageInputCost,
+							imageOutputCost: nonStreamContentFilterCosts.imageOutputCost,
+							totalCost: nonStreamContentFilterCosts.totalCost,
+						},
+						cachedTokens: null,
+						cacheCreationTokens: null,
+						reasoningTokens: null,
+					});
+				}
 				return c.json({
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
@@ -9072,11 +9148,7 @@ chat.openapi(completions, async (c) => {
 							finish_reason: "content_filter",
 						},
 					],
-					usage: {
-						prompt_tokens: 0,
-						completion_tokens: 0,
-						total_tokens: 0,
-					},
+					usage: contentFilterUsage,
 					metadata: {
 						request_id: requestId,
 						requested_model: initialRequestedModel,
@@ -9681,6 +9753,7 @@ chat.openapi(completions, async (c) => {
 			audioInputTokens,
 			cachedAudioInputTokens,
 		},
+		finishReason === "content_filter",
 	);
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
@@ -9735,6 +9808,7 @@ chat.openapi(completions, async (c) => {
 					cacheWriteInputCost: costs.cacheWriteInputCost,
 					requestCost: costs.requestCost,
 					webSearchCost: costs.webSearchCost,
+					contentFilterCost: costs.contentFilterCost,
 					imageInputCost: costs.imageInputCost,
 					imageOutputCost: costs.imageOutputCost,
 					audioInputCost: costs.audioInputCost,
@@ -9887,6 +9961,7 @@ chat.openapi(completions, async (c) => {
 		cacheWriteInputCost: costs.cacheWriteInputCost,
 		requestCost: costs.requestCost,
 		webSearchCost: costs.webSearchCost,
+		contentFilterCost: costs.contentFilterCost ?? null,
 		imageInputTokens: costs.imageInputTokens?.toString() ?? null,
 		imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
 		imageInputCost: costs.imageInputCost ?? null,

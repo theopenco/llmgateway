@@ -95,11 +95,12 @@ export function CostCalculator() {
 
 	const selected = getModelAndMapping(selectorValue);
 	const mapping = selected?.mapping;
-	const inputPricePerToken = mapping?.inputPrice ?? 0;
-	const outputPricePerToken = mapping?.outputPrice ?? 0;
-	const cachedInputPricePerToken =
-		mapping?.cachedInputPrice ?? inputPricePerToken * 0.1;
-	const discount = mapping?.discount ?? 0;
+	const inputPricePerToken = Number(mapping?.inputPrice ?? "0");
+	const outputPricePerToken = Number(mapping?.outputPrice ?? "0");
+	const cachedInputPricePerToken = mapping?.cachedInputPrice
+		? Number(mapping.cachedInputPrice)
+		: inputPricePerToken * 0.1;
+	const discount = Number(mapping?.discount ?? "0");
 
 	const dailyRequests = dailyVolumeSteps[volumeIndex];
 	const monthlyRequests = dailyRequests * 30;

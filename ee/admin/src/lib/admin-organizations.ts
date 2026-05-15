@@ -94,6 +94,32 @@ export async function setOrganizationStatus(
 	return { success: true };
 }
 
+export async function blockOrganization(orgId: string): Promise<{
+	success: boolean;
+	error?: string;
+	cancelledSubscriptionIds?: string[];
+}> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST(
+		"/admin/organizations/{orgId}/block",
+		{
+			params: { path: { orgId } },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to block organization";
+		return { success: false, error: message };
+	}
+
+	return {
+		success: true,
+		cancelledSubscriptionIds: data.cancelledSubscriptionIds,
+	};
+}
+
 export async function getLogContent(logId: string): Promise<string | null> {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/logs/{id}", {

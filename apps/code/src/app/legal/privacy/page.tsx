@@ -4,6 +4,7 @@ export const metadata: Metadata = {
 	title: "Privacy Policy — DevPass",
 	description:
 		"How DevPass collects, uses, and protects your data — including request retention, AI provider routing, cookies, and your privacy rights.",
+	alternates: { canonical: "/legal/privacy" },
 };
 
 export default function PrivacyPage() {

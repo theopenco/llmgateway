@@ -20,12 +20,21 @@ import {
 // import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useImperativeHandle,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { List, type RowComponentProps } from "react-window";
 import { toast } from "sonner";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,6 +78,10 @@ import type { Organization, Project } from "@/lib/types";
 // 	() => import("./organization-switcher").then((m) => m.OrganizationSwitcher),
 // 	{ ssr: false },
 // );
+
+export interface ChatSidebarHandle {
+	scrollToTop: () => void;
+}
 
 interface ChatSidebarProps {
 	currentChatId?: string;
@@ -352,22 +365,26 @@ function groupChatsByDate(chats: Chat[]) {
 	return groups;
 }
 
-export function ChatSidebar({
+export const ChatSidebar = function ChatSidebar({
+	ref,
 	currentChatId,
 	onChatSelect,
 	onNewChat,
 	clearMessages,
 	className,
 	isLoading: isPageLoading = false,
-	// organizations,
 	selectedOrganization,
-	// onSelectOrganization,
-	// onOrganizationCreated,
-	// projects,
-	// selectedProject,
-	// onSelectProject,
-	// onProjectCreated,
-}: ChatSidebarProps) {
+}: ChatSidebarProps & { ref?: React.RefObject<ChatSidebarHandle | null> }) {
+	const listContainerRef = useRef<HTMLDivElement | null>(null);
+
+	useImperativeHandle(ref, () => ({
+		scrollToTop: () => {
+			const scrollEl = listContainerRef.current
+				?.firstElementChild as HTMLElement | null;
+			scrollEl?.scrollTo({ top: 0, behavior: "smooth" });
+		},
+	}));
+
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const pathname = usePathname();
@@ -376,6 +393,7 @@ export function ChatSidebar({
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
+	const { theme, setTheme, systemTheme } = useTheme();
 
 	// Use real chat data from API
 	const { data: chatsData, isLoading: isChatsLoading } = useChats();
@@ -393,6 +411,10 @@ export function ChatSidebar({
 	const [isMac, setIsMac] = useState(false);
 
 	const chats = chatsData?.chats ?? [];
+	const currentTheme = theme === "system" ? systemTheme : theme;
+	const toggleTheme = useCallback(() => {
+		setTheme(currentTheme === "dark" ? "light" : "dark");
+	}, [currentTheme, setTheme]);
 
 	useEffect(() => {
 		setIsMac(/(Mac|iPhone|iPad|iPod)/i.test(window.navigator.platform));
@@ -400,7 +422,7 @@ export function ChatSidebar({
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			const key = event.key.toLowerCase();
+			const key = event.key?.toLowerCase();
 			const isSearchShortcut = isMac
 				? event.metaKey && key === "k" && !event.altKey && !event.ctrlKey
 				: event.altKey && key === "k" && !event.metaKey && !event.ctrlKey;
@@ -747,6 +769,7 @@ export function ChatSidebar({
 					</SidebarMenu>
 				</div>
 				<div
+					ref={listContainerRef}
 					aria-hidden={isHistoryHidden}
 					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
 				>
@@ -830,6 +853,22 @@ export function ChatSidebar({
 									</a>
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									className="justify-between gap-3"
+									onSelect={(event) => {
+										event.preventDefault();
+										toggleTheme();
+									}}
+								>
+									<span>Theme</span>
+									<div
+										onClick={(event) => event.stopPropagation()}
+										onKeyDown={(event) => event.stopPropagation()}
+									>
+										<ThemeToggle className="shrink-0" size="compact" />
+									</div>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
 								<DropdownMenuItem onClick={logout}>
 									<LogOut className="mr-2 h-4 w-4" />
 									Log out
@@ -847,4 +886,4 @@ export function ChatSidebar({
 			/>
 		</Sidebar>
 	);
-}
+};

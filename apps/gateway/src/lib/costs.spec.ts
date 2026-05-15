@@ -307,7 +307,7 @@ describe("calculateCosts", () => {
 
 	it("should apply discount when model has discount field", async () => {
 		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
-			discount: 0.1,
+			discount: "0.1",
 			source: "global_provider",
 			discountId: "disc-global-openai",
 		});
@@ -327,7 +327,7 @@ describe("calculateCosts", () => {
 			null,
 			"openai",
 			"gpt-4",
-			0,
+			"0",
 			"gpt-4",
 		);
 	});
@@ -622,7 +622,7 @@ describe("calculateCosts", () => {
 		const azureProvider = models
 			.find((m) => m.id === "gpt-image-2")
 			?.providers.find((p) => p.providerId === "azure");
-		const discountMultiplier = 1 - (azureProvider?.discount ?? 0);
+		const discountMultiplier = 1 - Number(azureProvider?.discount ?? "0");
 		const expectedTextInputCost =
 			(promptTokens - reportedImageInputTokens) *
 			(5 / 1e6) *
@@ -992,5 +992,55 @@ describe("calculateCosts", () => {
 		expect(result.webSearchCost).toBe(0);
 		// 1.05e-6 + 1.8e-6 = 2.85e-6
 		expect(result.totalCost).toBe(2.85e-6);
+	});
+
+	it("does not charge contentFilterCost when not triggered", async () => {
+		const result = await calculateCosts(
+			"grok-3",
+			"xai",
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			undefined,
+			false,
+		);
+
+		expect(result.contentFilterCost).toBe(0);
+	});
+
+	it("charges xAI's $0.05 contentFilterCost when triggered", async () => {
+		const result = await calculateCosts(
+			"grok-3",
+			"xai",
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			undefined,
+			true,
+		);
+
+		expect(result.contentFilterCost).toBeCloseTo(0.05);
+		// Total includes the content filter fee in addition to input cost.
+		expect(result.totalCost).toBeCloseTo((result.inputCost ?? 0) + 0.05);
 	});
 });

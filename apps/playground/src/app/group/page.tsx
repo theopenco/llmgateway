@@ -13,6 +13,7 @@ export const metadata: Metadata = {
 	title: "Group Chat - Compare AI Models Side by Side",
 	description:
 		"Send one prompt to multiple AI models simultaneously. Compare responses from GPT-4, Claude, Gemini, and more in real-time.",
+	alternates: { canonical: "/group" },
 };
 
 export interface GatewayModel {
@@ -136,7 +137,10 @@ export default async function GroupPage({
 				/>
 			) : null}
 			<GroupChatClient
-				models={models.filter((m) => !m.output?.includes("video"))}
+				models={models.filter(
+					(m) =>
+						!m.output?.includes("video") && !m.output?.includes("embedding"),
+				)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}
