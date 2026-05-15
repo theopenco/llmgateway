@@ -21,6 +21,13 @@ export {
 } from "./dev-plans.js";
 
 export {
+	getModelCategory,
+	isPremiumModel,
+	type ModelCategory,
+	PREMIUM_MODEL_IDS,
+} from "./model-categories.js";
+
+export {
 	HealthChecker,
 	type HealthCheckResult,
 	type HealthCheckOptions,
