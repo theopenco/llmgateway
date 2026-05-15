@@ -453,7 +453,8 @@ export const providers = [
 		website: "https://moonshot.ai",
 		announcement: null,
 		termsUrl: "https://www.kimi.com/user/agreement/modelUse?version=v2",
-		privacyPolicyUrl: "https://www.kimi.com/user/agreement/userPrivacy?version=v2",
+		privacyPolicyUrl:
+			"https://www.kimi.com/user/agreement/userPrivacy?version=v2",
 	},
 	{
 		id: "perplexity",
@@ -592,7 +593,8 @@ export const providers = [
 		website: "https://www.byteplus.com/en/product/modelark",
 		announcement: null,
 		termsUrl: "https://docs.byteplus.com/en/docs/legal/docs-terms-of-service",
-		privacyPolicyUrl: "https://docs.byteplus.com/en/docs/legal/docs-privacy-policy",
+		privacyPolicyUrl:
+			"https://docs.byteplus.com/en/docs/legal/docs-privacy-policy",
 	},
 	{
 		id: "minimax",
@@ -649,7 +651,8 @@ export const providers = [
 		website: "https://platform.xiaomimimo.com",
 		announcement: null,
 		termsUrl: "https://platform.xiaomimimo.com/docs/terms/user-agreement",
-		privacyPolicyUrl: "https://platform.xiaomimimo.com/docs/terms/privacy-policy",
+		privacyPolicyUrl:
+			"https://platform.xiaomimimo.com/docs/terms/privacy-policy",
 	},
 ] as const satisfies ProviderDefinition[];
 
