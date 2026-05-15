@@ -169,8 +169,8 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		termsUrl: "https://cloud.google.com/terms/ai-terms",
-		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy",
+		termsUrl: "https://cloud.google.com/terms/service-terms",
+		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 	},
 	{
 		id: "quartz",
@@ -505,7 +505,7 @@ export const providers = [
 		color: "#FF7000",
 		website: "https://mistral.ai",
 		announcement: null,
-		termsUrl: "https://mistral.ai/terms",
+		termsUrl: "https://legal.mistral.ai/terms/commercial-terms-of-service",
 		privacyPolicyUrl: "https://mistral.ai/terms/#privacy-policy",
 	},
 	{
