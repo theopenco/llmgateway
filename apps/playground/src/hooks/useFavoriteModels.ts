@@ -1,15 +1,21 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo } from "react";
 
 import { useApi } from "@/lib/fetch-client";
+
+const EMPTY_FAVORITES: string[] = [];
 
 export function useFavoriteModels() {
 	const api = useApi();
 	const queryClient = useQueryClient();
 
 	const { data } = api.useQuery("get", "/user/favorites", {});
-	const favorites: string[] = data?.favorites ?? [];
+	const favorites: string[] = useMemo(
+		() => data?.favorites ?? EMPTY_FAVORITES,
+		[data?.favorites],
+	);
 
 	const favoritesQueryKey = api.queryOptions(
 		"get",
@@ -29,7 +35,10 @@ export function useFavoriteModels() {
 		},
 	});
 
-	const isFavorite = (modelId: string) => favorites.includes(modelId);
+	const isFavorite = useCallback(
+		(modelId: string) => favorites.includes(modelId),
+		[favorites],
+	);
 
 	const toggleFavorite = (modelId: string) => {
 		if (isFavorite(modelId)) {
