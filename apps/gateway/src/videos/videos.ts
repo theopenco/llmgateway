@@ -2866,7 +2866,7 @@ async function createBytedanceVideoJob(
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
 		content,
-		duration: isDreaminaModel ? `${durationSeconds}s` : durationSeconds,
+		duration: durationSeconds,
 		aspect_ratio: getBytedanceVideoAspectRatio(videoSize),
 		generate_audio: includeAudio,
 	};
