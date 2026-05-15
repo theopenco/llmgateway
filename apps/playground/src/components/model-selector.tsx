@@ -639,6 +639,12 @@ function ModelEntryRowComponent({
 					<Button
 						variant="ghost"
 						size="sm"
+						aria-label={
+							isFavorite(model.id)
+								? "Remove from favorites"
+								: "Add to favorites"
+						}
+						aria-pressed={isFavorite(model.id)}
 						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
 						onClick={(e) => {
 							e.stopPropagation();
@@ -657,6 +663,7 @@ function ModelEntryRowComponent({
 					<Button
 						variant="ghost"
 						size="sm"
+						aria-label="Model details"
 						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
 						onClick={(e) => {
 							e.stopPropagation();
@@ -742,6 +749,12 @@ function ModelEntryRowComponent({
 				<Button
 					variant="ghost"
 					size="sm"
+					aria-label={
+						isFavorite(providerModelValue)
+							? "Remove from favorites"
+							: "Add to favorites"
+					}
+					aria-pressed={isFavorite(providerModelValue)}
 					className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
 					onClick={(e) => {
 						e.stopPropagation();
@@ -760,6 +773,7 @@ function ModelEntryRowComponent({
 				<Button
 					variant="ghost"
 					size="sm"
+					aria-label="Model details"
 					className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
 					onClick={(e) => {
 						e.stopPropagation();

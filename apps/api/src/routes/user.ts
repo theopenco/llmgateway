@@ -586,14 +586,10 @@ user.openapi(addFavorite, async (c) => {
 	}
 
 	const { modelId } = c.req.valid("json");
-	const existing = await db.query.userFavoriteModel.findFirst({
-		where: { userId: authUser.id, modelId },
-	});
-	if (!existing) {
-		await db
-			.insert(tables.userFavoriteModel)
-			.values({ userId: authUser.id, modelId });
-	}
+	await db
+		.insert(tables.userFavoriteModel)
+		.values({ userId: authUser.id, modelId })
+		.onConflictDoNothing();
 	return c.json({ message: "ok" });
 });
 
