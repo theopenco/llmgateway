@@ -208,6 +208,15 @@ export function ShareChatDialog({
 	}, [shareUrl]);
 
 	useEffect(() => {
+		setOrgShareMap(
+			orgShareId && orgShareOrganizationId
+				? { [orgShareOrganizationId]: orgShareId }
+				: {},
+		);
+		setCreatedShareUrl(null);
+	}, [currentChatId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	useEffect(() => {
 		if (orgShareId && orgShareOrganizationId) {
 			setOrgShareMap((prev) =>
 				prev[orgShareOrganizationId] === orgShareId
@@ -326,21 +335,23 @@ export function ShareChatDialog({
 		>
 			<Tooltip>
 				<TooltipTrigger asChild>
-					<DialogTrigger asChild>
-						<Button
-							type="button"
-							variant={isAnyShared ? "secondary" : "ghost"}
-							size="icon-sm"
-							className="relative"
-							disabled={disabled}
-							aria-label="Share chat"
-						>
-							<Share className="size-4" />
-							{isAnyShared ? (
-								<span className="bg-primary absolute right-1 top-1 size-1.5 rounded-full" />
-							) : null}
-						</Button>
-					</DialogTrigger>
+					<span className="inline-flex" tabIndex={disabled ? 0 : undefined}>
+						<DialogTrigger asChild>
+							<Button
+								type="button"
+								variant={isAnyShared ? "secondary" : "ghost"}
+								size="icon-sm"
+								className="relative"
+								disabled={disabled}
+								aria-label="Share chat"
+							>
+								<Share className="size-4" />
+								{isAnyShared ? (
+									<span className="bg-primary absolute right-1 top-1 size-1.5 rounded-full" />
+								) : null}
+							</Button>
+						</DialogTrigger>
+					</span>
 				</TooltipTrigger>
 				<TooltipContent>
 					<p>{tooltipText}</p>

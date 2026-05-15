@@ -45,6 +45,7 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
+import { cn } from "@/lib/utils";
 
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 import { OrgSearchDialog } from "./org-search-dialog";
@@ -382,7 +383,7 @@ export function OrgSidebar({
 	}
 
 	return (
-		<Sidebar collapsible="icon" className={className + " max-md:hidden"}>
+		<Sidebar collapsible="icon" className={cn(className, "max-md:hidden")}>
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
