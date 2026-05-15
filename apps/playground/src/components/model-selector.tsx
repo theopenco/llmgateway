@@ -14,6 +14,7 @@ import {
 	Info,
 	MessageSquare,
 	Sparkles,
+	Star,
 	Wrench,
 	Zap,
 } from "lucide-react";
@@ -44,6 +45,7 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { useFavoriteModels } from "@/hooks/useFavoriteModels";
 import {
 	formatPrice,
 	formatContextSize,
@@ -81,6 +83,7 @@ interface FilterState {
 	priceRange: "free" | "low" | "medium" | "high" | "all";
 	hideUnstable: boolean;
 	showOnlyRoot: boolean;
+	showFavoritesOnly: boolean;
 }
 
 // helper to extract simple capability labels from a mapping
@@ -527,6 +530,7 @@ export function ModelSelector({
 	isOptionDisabled,
 	getOptionDisabledReason,
 }: ModelSelectorProps) {
+	const { isFavorite, toggleFavorite } = useFavoriteModels();
 	const [open, setOpen] = React.useState(false);
 	const [filterOpen, setFilterOpen] = React.useState(false);
 	const [searchQuery, setSearchQuery] = React.useState("");
@@ -548,6 +552,7 @@ export function ModelSelector({
 		priceRange: "all",
 		hideUnstable: true,
 		showOnlyRoot: false,
+		showFavoritesOnly: false,
 	});
 	const [previewExpandTokens, setPreviewExpandTokens] = React.useState(false);
 	const [selectedExpandTokens, setSelectedExpandTokens] = React.useState(false);
@@ -759,8 +764,19 @@ export function ModelSelector({
 				}
 			});
 		}
+		if (filters.showFavoritesOnly) {
+			list = list.filter((e) => {
+				if (e.isRoot) {
+					return isFavorite(e.model.id);
+				}
+				const mappingId = e.mapping
+					? `${e.mapping.providerId}/${e.mapping.region ? e.mapping.modelName : e.model.id}`
+					: null;
+				return mappingId !== null && isFavorite(mappingId);
+			});
+		}
 		return list;
-	}, [allEntries, deferredSearch, filters]);
+	}, [allEntries, deferredSearch, filters, isFavorite]);
 
 	const updateFilter = (key: keyof FilterState, value: any) => {
 		setFilters((prev) => ({ ...prev, [key]: value }));
@@ -793,6 +809,7 @@ export function ModelSelector({
 			priceRange: "all",
 			hideUnstable: true,
 			showOnlyRoot: false,
+			showFavoritesOnly: false,
 		});
 	};
 
@@ -801,7 +818,8 @@ export function ModelSelector({
 		filters.capabilities.length > 0 ||
 		filters.priceRange !== "all" ||
 		!filters.hideUnstable ||
-		filters.showOnlyRoot;
+		filters.showOnlyRoot ||
+		filters.showFavoritesOnly;
 
 	const getProviderLogo = (providerId: ProviderId) => {
 		const LogoComponent = providerLogoUrls[providerId];
@@ -998,6 +1016,23 @@ export function ModelSelector({
 														checked={filters.showOnlyRoot}
 														onCheckedChange={(checked) =>
 															updateFilter("showOnlyRoot", checked)
+														}
+													/>
+												</div>
+
+												{/* Favorites filter */}
+												<div className="flex items-center justify-between">
+													<Label
+														htmlFor="show-favorites"
+														className="text-sm cursor-pointer font-medium"
+													>
+														Show favorites only
+													</Label>
+													<Switch
+														id="show-favorites"
+														checked={filters.showFavoritesOnly}
+														onCheckedChange={(checked) =>
+															updateFilter("showFavoritesOnly", checked)
 														}
 													/>
 												</div>
@@ -1242,6 +1277,24 @@ export function ModelSelector({
 																<Button
 																	variant="ghost"
 																	size="sm"
+																	className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		toggleFavorite(model.id);
+																	}}
+																>
+																	<Star
+																		className={cn(
+																			"h-4 w-4",
+																			isFavorite(model.id)
+																				? "fill-yellow-400 text-yellow-400"
+																				: "text-muted-foreground",
+																		)}
+																	/>
+																</Button>
+																<Button
+																	variant="ghost"
+																	size="sm"
 																	className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
 																	onClick={(e) => {
 																		e.stopPropagation();
@@ -1344,6 +1397,24 @@ export function ModelSelector({
 																	</span>
 																</div>
 															</div>
+															<Button
+																variant="ghost"
+																size="sm"
+																className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
+																onClick={(e) => {
+																	e.stopPropagation();
+																	toggleFavorite(providerModelValue);
+																}}
+															>
+																<Star
+																	className={cn(
+																		"h-4 w-4",
+																		isFavorite(providerModelValue)
+																			? "fill-yellow-400 text-yellow-400"
+																			: "text-muted-foreground",
+																	)}
+																/>
+															</Button>
 															<Button
 																variant="ghost"
 																size="sm"

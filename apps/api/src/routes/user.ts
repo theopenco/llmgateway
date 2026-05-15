@@ -527,3 +527,108 @@ user.openapi(completeOnboarding, async (c) => {
 		message: "Onboarding completed successfully",
 	});
 });
+
+const getFavorites = createRoute({
+	method: "get",
+	path: "/favorites",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ favorites: z.array(z.string()) }),
+				},
+			},
+			description: "List of favorite model IDs.",
+		},
+	},
+});
+
+user.openapi(getFavorites, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const rows = await db.query.userFavoriteModel.findMany({
+		where: { userId: authUser.id },
+	});
+	return c.json({ favorites: rows.map((r) => r.modelId) });
+});
+
+const addFavorite = createRoute({
+	method: "post",
+	path: "/favorites",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ modelId: z.string() }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Favorite added.",
+		},
+	},
+});
+
+user.openapi(addFavorite, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { modelId } = c.req.valid("json");
+	const existing = await db.query.userFavoriteModel.findFirst({
+		where: { userId: authUser.id, modelId },
+	});
+	if (!existing) {
+		await db
+			.insert(tables.userFavoriteModel)
+			.values({ userId: authUser.id, modelId });
+	}
+	return c.json({ message: "ok" });
+});
+
+const removeFavorite = createRoute({
+	method: "delete",
+	path: "/favorites",
+	request: {
+		query: z.object({ modelId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Favorite removed.",
+		},
+	},
+});
+
+user.openapi(removeFavorite, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { modelId } = c.req.valid("query");
+	await db
+		.delete(tables.userFavoriteModel)
+		.where(
+			and(
+				eq(tables.userFavoriteModel.userId, authUser.id),
+				eq(tables.userFavoriteModel.modelId, modelId),
+			),
+		);
+	return c.json({ message: "ok" });
+});
