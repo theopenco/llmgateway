@@ -522,7 +522,7 @@ interface ModelEntry {
 	searchText: string;
 }
 
-const ROW_HEIGHT = 52;
+const ROW_HEIGHT = 56;
 
 interface ModelEntryRowProps {
 	entries: ModelEntry[];
@@ -593,86 +593,86 @@ function ModelEntryRowComponent({
 					(!p.outputPrice || parseFloat(p.outputPrice) === 0),
 			);
 		return (
-			<div
-				{...ariaAttributes}
-				style={style}
-				title={disabledReason}
-				onMouseEnter={() => {
-					setFocusedIndex(index);
-					setPreviewEntry({ model, mapping, provider, isRoot });
-				}}
-				onClick={() => {
-					if (disabled) {
-						return;
-					}
-					onSelect(model.id);
-				}}
-				className={cn(
-					"relative flex select-none items-center gap-2 rounded-sm px-2 text-sm outline-none",
-					isFocused
-						? "bg-accent text-accent-foreground"
-						: "hover:bg-accent hover:text-accent-foreground",
-					disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-				)}
-			>
-				<Check
-					className={cn(
-						"h-4 w-4 shrink-0",
-						entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
-					)}
-				/>
-				<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
-					<div className="flex items-center gap-2 min-w-0 flex-1">
-						<Sparkles className="h-6 w-6 shrink-0 text-primary" />
-						<div className="flex flex-col min-w-0 flex-1">
-							<div className="flex items-center gap-1">
-								<span className="font-medium truncate">{model.name}</span>
-								{isFreeRoot && (
-									<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-								)}
-							</div>
-							<span className="text-xs text-muted-foreground truncate">
-								{disabledReason ?? "Auto-select provider"}
-							</span>
-						</div>
-					</div>
-					<Button
-						variant="ghost"
-						size="sm"
-						aria-label={
-							isFavorite(model.id)
-								? "Remove from favorites"
-								: "Add to favorites"
+			<div {...ariaAttributes} style={style} className="px-1 py-0.5">
+				<div
+					title={disabledReason}
+					onMouseEnter={() => {
+						setFocusedIndex(index);
+						setPreviewEntry({ model, mapping, provider, isRoot });
+					}}
+					onClick={() => {
+						if (disabled) {
+							return;
 						}
-						aria-pressed={isFavorite(model.id)}
-						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
-						onClick={(e) => {
-							e.stopPropagation();
-							toggleFavorite(model.id);
-						}}
-					>
-						<Star
-							className={cn(
-								"h-4 w-4",
+						onSelect(model.id);
+					}}
+					className={cn(
+						"relative flex h-full select-none items-center gap-2 rounded-sm px-2 text-sm outline-none",
+						isFocused
+							? "bg-accent text-accent-foreground"
+							: "hover:bg-accent hover:text-accent-foreground",
+						disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+					)}
+				>
+					<Check
+						className={cn(
+							"h-4 w-4 shrink-0",
+							entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
+						)}
+					/>
+					<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
+						<div className="flex items-center gap-2 min-w-0 flex-1">
+							<Sparkles className="h-6 w-6 shrink-0 text-primary" />
+							<div className="flex flex-col min-w-0 flex-1">
+								<div className="flex items-center gap-1">
+									<span className="font-medium truncate">{model.name}</span>
+									{isFreeRoot && (
+										<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+									)}
+								</div>
+								<span className="text-xs text-muted-foreground truncate">
+									{disabledReason ?? "Auto-select provider"}
+								</span>
+							</div>
+						</div>
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={
 								isFavorite(model.id)
-									? "fill-yellow-400 text-yellow-400"
-									: "text-muted-foreground",
-							)}
-						/>
-					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						aria-label="Model details"
-						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
-						onClick={(e) => {
-							e.stopPropagation();
-							setSelectedDetails({ model });
-							setDetailsOpen(true);
-						}}
-					>
-						<Info className="h-4 w-4" />
-					</Button>
+									? "Remove from favorites"
+									: "Add to favorites"
+							}
+							aria-pressed={isFavorite(model.id)}
+							className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
+							onClick={(e) => {
+								e.stopPropagation();
+								toggleFavorite(model.id);
+							}}
+						>
+							<Star
+								className={cn(
+									"h-4 w-4",
+									isFavorite(model.id)
+										? "fill-yellow-400 text-yellow-400"
+										: "text-muted-foreground",
+								)}
+							/>
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label="Model details"
+							className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
+							onClick={(e) => {
+								e.stopPropagation();
+								setSelectedDetails({ model });
+								setDetailsOpen(true);
+							}}
+						>
+							<Info className="h-4 w-4" />
+						</Button>
+					</div>
 				</div>
 			</div>
 		);
@@ -695,94 +695,94 @@ function ModelEntryRowComponent({
 		(!mapping!.outputPrice || parseFloat(mapping!.outputPrice) === 0);
 
 	return (
-		<div
-			{...ariaAttributes}
-			style={style}
-			title={disabledReason}
-			onMouseEnter={() => {
-				setFocusedIndex(index);
-				setPreviewEntry({ model, mapping, provider, isRoot });
-			}}
-			onClick={() => {
-				if (disabled) {
-					return;
-				}
-				onSelect(providerModelValue);
-			}}
-			className={cn(
-				"relative flex select-none items-center gap-2 rounded-sm px-2 text-sm outline-none",
-				isFocused
-					? "bg-accent text-accent-foreground"
-					: "hover:bg-accent hover:text-accent-foreground",
-				disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-			)}
-		>
-			<Check
-				className={cn(
-					"h-4 w-4 shrink-0",
-					entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
-				)}
-			/>
-			<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
-				<div className="flex items-center gap-2 min-w-0 flex-1">
-					{ProviderIcon ? (
-						<ProviderIcon className="h-6 w-6 shrink-0 dark:text-white" />
-					) : null}
-					<div className="flex flex-col min-w-0 flex-1">
-						<div className="flex items-center gap-1">
-							<span className="font-medium truncate">{model.name}</span>
-							{isFreeMapping && (
-								<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-							)}
-							{(isUnstable || isDeprecated) && (
-								<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-500" />
-							)}
-						</div>
-						<span className="text-xs text-muted-foreground truncate">
-							{disabledReason ?? provider?.name}
-							{!disabledReason && mapping?.region && (
-								<span className="ml-1">({mapping.region})</span>
-							)}
-						</span>
-					</div>
-				</div>
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-label={
-						isFavorite(providerModelValue)
-							? "Remove from favorites"
-							: "Add to favorites"
+		<div {...ariaAttributes} style={style} className="px-1 py-0.5">
+			<div
+				title={disabledReason}
+				onMouseEnter={() => {
+					setFocusedIndex(index);
+					setPreviewEntry({ model, mapping, provider, isRoot });
+				}}
+				onClick={() => {
+					if (disabled) {
+						return;
 					}
-					aria-pressed={isFavorite(providerModelValue)}
-					className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
-					onClick={(e) => {
-						e.stopPropagation();
-						toggleFavorite(providerModelValue);
-					}}
-				>
-					<Star
-						className={cn(
-							"h-4 w-4",
+					onSelect(providerModelValue);
+				}}
+				className={cn(
+					"relative flex h-full select-none items-center gap-2 rounded-sm px-2 text-sm outline-none",
+					isFocused
+						? "bg-accent text-accent-foreground"
+						: "hover:bg-accent hover:text-accent-foreground",
+					disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+				)}
+			>
+				<Check
+					className={cn(
+						"h-4 w-4 shrink-0",
+						entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
+					)}
+				/>
+				<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
+					<div className="flex items-center gap-2 min-w-0 flex-1">
+						{ProviderIcon ? (
+							<ProviderIcon className="h-6 w-6 shrink-0 dark:text-white" />
+						) : null}
+						<div className="flex flex-col min-w-0 flex-1">
+							<div className="flex items-center gap-1">
+								<span className="font-medium truncate">{model.name}</span>
+								{isFreeMapping && (
+									<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+								)}
+								{(isUnstable || isDeprecated) && (
+									<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-500" />
+								)}
+							</div>
+							<span className="text-xs text-muted-foreground truncate">
+								{disabledReason ?? provider?.name}
+								{!disabledReason && mapping?.region && (
+									<span className="ml-1">({mapping.region})</span>
+								)}
+							</span>
+						</div>
+					</div>
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label={
 							isFavorite(providerModelValue)
-								? "fill-yellow-400 text-yellow-400"
-								: "text-muted-foreground",
-						)}
-					/>
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-label="Model details"
-					className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
-					onClick={(e) => {
-						e.stopPropagation();
-						setSelectedDetails({ model, mapping, provider });
-						setDetailsOpen(true);
-					}}
-				>
-					<Info className="h-4 w-4" />
-				</Button>
+								? "Remove from favorites"
+								: "Add to favorites"
+						}
+						aria-pressed={isFavorite(providerModelValue)}
+						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
+						onClick={(e) => {
+							e.stopPropagation();
+							toggleFavorite(providerModelValue);
+						}}
+					>
+						<Star
+							className={cn(
+								"h-4 w-4",
+								isFavorite(providerModelValue)
+									? "fill-yellow-400 text-yellow-400"
+									: "text-muted-foreground",
+							)}
+						/>
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label="Model details"
+						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
+						onClick={(e) => {
+							e.stopPropagation();
+							setSelectedDetails({ model, mapping, provider });
+							setDetailsOpen(true);
+						}}
+					>
+						<Info className="h-4 w-4" />
+					</Button>
+				</div>
 			</div>
 		</div>
 	);
