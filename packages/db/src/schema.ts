@@ -60,6 +60,24 @@ export const user = pgTable("user", {
 		.default("active"),
 });
 
+export const userFavoriteModel = pgTable(
+	"user_favorite_model",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		modelId: text().notNull(),
+	},
+	(table) => [
+		uniqueIndex("user_favorite_model_user_id_model_id_unique").on(
+			table.userId,
+			table.modelId,
+		),
+	],
+);
+
 export const session = pgTable(
 	"session",
 	{

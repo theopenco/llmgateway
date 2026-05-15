@@ -32,7 +32,7 @@
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
-		"@opentelemetry/sdk-node": "0.205.0",
+		"@opentelemetry/sdk-node": "0.218.0",
 		"ai": "6.0.27",
 		"bcrypt-ts": "8.0.0",
 		"better-auth": "1.6.9",

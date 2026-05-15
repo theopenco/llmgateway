@@ -1995,4 +1995,73 @@ export const openaiModels = [
 			},
 		],
 	},
+	{
+		id: "text-embedding-3-small",
+		name: "Text Embedding 3 Small",
+		description:
+			"Small, efficient embedding model. Default output dimension 1536; supports the `dimensions` parameter to shorten output.",
+		family: "openai",
+		output: ["embedding"],
+		releasedAt: new Date("2024-01-25"),
+		providers: [
+			{
+				providerId: "openai",
+				modelName: "text-embedding-3-small",
+				inputPrice: "0.02e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 8192,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
+			},
+		],
+	},
+	{
+		id: "text-embedding-3-large",
+		name: "Text Embedding 3 Large",
+		description:
+			"Highest-quality OpenAI embedding model. Default output dimension 3072; supports the `dimensions` parameter to shorten output (OpenAI examples: 256, 1024).",
+		family: "openai",
+		output: ["embedding"],
+		releasedAt: new Date("2024-01-25"),
+		providers: [
+			{
+				providerId: "openai",
+				modelName: "text-embedding-3-large",
+				inputPrice: "0.13e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 8192,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
+			},
+		],
+	},
+	{
+		id: "text-embedding-ada-002",
+		name: "Text Embedding Ada 002",
+		description:
+			"Legacy OpenAI embedding model with a fixed 1536-dimensional output. Does not support the `dimensions` parameter.",
+		family: "openai",
+		output: ["embedding"],
+		releasedAt: new Date("2022-12-15"),
+		providers: [
+			{
+				providerId: "openai",
+				modelName: "text-embedding-ada-002",
+				inputPrice: "0.1e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 8192,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

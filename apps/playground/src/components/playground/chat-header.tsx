@@ -1,6 +1,5 @@
 "use client";
 
-import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ModelSelector } from "@/components/model-selector";
 import { McpServersDialog } from "@/components/playground/mcp-servers-dialog";
 import { ShareChatDialog } from "@/components/playground/share-chat-dialog";
@@ -117,19 +116,6 @@ export const ChatHeader = ({
 						/>
 					</div>
 				)}
-				<ThemeToggle />
-				<a
-					href={
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3002/dashboard"
-							: "https://llmgateway.io/dashboard"
-					}
-					target="_blank"
-					rel="noopener noreferrer"
-					className="hidden sm:inline"
-				>
-					<span className="text-nowrap">Dashboard</span>
-				</a>
 			</div>
 		</header>
 	);

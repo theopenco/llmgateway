@@ -17,6 +17,7 @@ import {
 	KiloCodeIcon,
 	N8nIcon,
 	OpenCodeIcon,
+	PiIcon,
 	VSCodeIcon,
 } from "@llmgateway/shared/components";
 
@@ -129,6 +130,14 @@ const integrations: Integration[] = [
 			"Use LLM Gateway with OpenClaw for AI-powered chat across Discord, WhatsApp, Telegram, and more.",
 		href: "/guides/openclaw",
 		icon: OpenClawIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Pi",
+		description:
+			"Use LLM Gateway with Pi coding agent for AI-powered terminal coding with any model.",
+		href: "/guides/pi",
+		icon: PiIcon,
 		comingSoon: false,
 	},
 	{

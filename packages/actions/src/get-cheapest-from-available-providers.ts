@@ -3,29 +3,10 @@ import { Decimal } from "decimal.js";
 import { type ProviderMetrics, metricsKey } from "@llmgateway/db";
 import {
 	getProviderDefinition,
-	models,
 	type AvailableModelProvider,
 	type ModelWithPricing,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-
-/**
- * Resolve the model id to use when looking up routing metrics for a candidate.
- *
- * For virtual models like `grok-4-1-fast`, the worker writes metrics to the
- * concrete variant's mapping row (e.g. `grok-4-1-fast-non-reasoning`) because
- * the request flows through the concrete model. The candidate's `modelName`
- * matches that concrete model's id, so we use it. For non-virtual models the
- * candidate's `modelName` is a provider-specific name with no matching catalog
- * entry, and we fall back to the parent model id.
- */
-export function resolveMetricsModelId(
-	parentModelId: string,
-	candidateModelName: string,
-): string {
-	const concrete = models.find((m) => m.id === candidateModelName);
-	return concrete?.id ?? parentModelId;
-}
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -399,10 +380,9 @@ export function getCheapestFromAvailableProviders<
 					const priority = providerDef?.priority ?? 1;
 					const metrics = metricsMap?.get(
 						metricsKey(
-							resolveMetricsModelId(modelWithPricing.id, provider.modelName),
+							modelWithPricing.id,
 							provider.providerId,
 							provider.region,
-							provider.modelName,
 						),
 					);
 
@@ -443,10 +423,9 @@ export function getCheapestFromAvailableProviders<
 		const price = getProviderSelectionPrice(providerInfo, videoPricing);
 
 		const mKey = metricsKey(
-			resolveMetricsModelId(modelWithPricing.id, provider.modelName),
+			modelWithPricing.id,
 			provider.providerId,
 			provider.region,
-			provider.modelName,
 		);
 		const metrics = metricsMap.get(mKey);
 

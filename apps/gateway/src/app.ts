@@ -21,6 +21,7 @@ import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
+import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
@@ -326,6 +327,7 @@ app.openapi(metricsRoute, async (c) => {
 const v1 = new OpenAPIHono<ServerTypes>();
 
 v1.route("/chat", chat);
+v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);
 v1.route("/models", models);
 v1.route("/moderations", moderationsRoute);
