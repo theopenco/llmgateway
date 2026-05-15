@@ -24,7 +24,6 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	processImageUrl,
-	resolveMetricsModelId,
 	type RoutingMetadata,
 	type VideoPricingContext,
 } from "@llmgateway/actions";
@@ -1453,10 +1452,9 @@ async function resolveVideoExecution(
 
 	if (configuredEligibleMappings.length > 1) {
 		const metricsCombinations = configuredEligibleMappings.map((provider) => ({
-			modelId: resolveMetricsModelId(modelInfo.id, provider.modelName),
+			modelId: modelInfo.id,
 			providerId: provider.providerId,
 			region: provider.region,
-			modelName: provider.modelName,
 		}));
 		const metricsMap =
 			await getProviderMetricsForCombinations(metricsCombinations);
@@ -1468,10 +1466,9 @@ async function resolveVideoExecution(
 			: undefined;
 		const requestedKey = requestedMapping
 			? metricsKey(
-					resolveMetricsModelId(modelInfo.id, requestedMapping.modelName),
+					modelInfo.id,
 					requestedMapping.providerId,
 					requestedMapping.region,
-					requestedMapping.modelName,
 				)
 			: undefined;
 
@@ -1491,12 +1488,7 @@ async function resolveVideoExecution(
 					}
 
 					const providerMetrics = metricsMap.get(
-						metricsKey(
-							resolveMetricsModelId(modelInfo.id, provider.modelName),
-							provider.providerId,
-							provider.region,
-							provider.modelName,
-						),
+						metricsKey(modelInfo.id, provider.providerId, provider.region),
 					);
 					return (
 						!providerMetrics ||
