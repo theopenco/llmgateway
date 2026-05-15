@@ -216,7 +216,7 @@ export function OrgSidebar({
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
-	const { organization, isLoading: isOrgLoading } = useOrganization();
+	const { isLoading: isOrgLoading } = useOrganization();
 
 	const { data: orgSharesData, isLoading: isSharesLoading } =
 		useOrgShares(organizationId);
@@ -507,7 +507,7 @@ export function OrgSidebar({
 			<SidebarFooter>
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
-						organization={organization}
+						organization={selectedOrganization}
 						isLoading={isOrgLoading}
 					/>
 				</div>
