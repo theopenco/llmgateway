@@ -323,9 +323,9 @@ export const providers = [
 			},
 		},
 		termsUrl:
-			"https://www.alibabacloud.com/help/legal/latest/chinese-mainland-chinese",
+			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service-v-3-8-0",
 		privacyPolicyUrl:
-			"https://www.alibabacloud.com/help/legal/latest/chinese-mainland-chinese-privacy-policy",
+			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-privacy-policy",
 	},
 	{
 		id: "novita",
@@ -591,8 +591,8 @@ export const providers = [
 		color: "#FF4757",
 		website: "https://www.byteplus.com/en/product/modelark",
 		announcement: null,
-		termsUrl: "https://www.byteplus.com/en/legal/terms-of-service",
-		privacyPolicyUrl: "https://www.byteplus.com/en/legal/privacy-policy",
+		termsUrl: "https://docs.byteplus.com/en/docs/legal/docs-terms-of-service",
+		privacyPolicyUrl: "https://docs.byteplus.com/en/docs/legal/docs-privacy-policy",
 	},
 	{
 		id: "minimax",
@@ -648,8 +648,8 @@ export const providers = [
 		color: "#FF6900",
 		website: "https://platform.xiaomimimo.com",
 		announcement: null,
-		termsUrl: "https://platform.xiaomimimo.com/terms",
-		privacyPolicyUrl: "https://platform.xiaomimimo.com/privacy",
+		termsUrl: "https://platform.xiaomimimo.com/docs/terms/user-agreement",
+		privacyPolicyUrl: "https://platform.xiaomimimo.com/docs/terms/privacy-policy",
 	},
 ] as const satisfies ProviderDefinition[];
 
