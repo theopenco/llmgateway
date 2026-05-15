@@ -452,8 +452,8 @@ export const providers = [
 		color: "#4B9EFF",
 		website: "https://moonshot.ai",
 		announcement: null,
-		termsUrl: "https://moonshot.ai/terms",
-		privacyPolicyUrl: "https://moonshot.ai/privacy",
+		termsUrl: "https://www.kimi.com/user/agreement/modelUse?version=v2",
+		privacyPolicyUrl: "https://www.kimi.com/user/agreement/userPrivacy?version=v2",
 	},
 	{
 		id: "perplexity",
