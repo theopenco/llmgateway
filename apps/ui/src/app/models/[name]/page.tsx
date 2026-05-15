@@ -8,6 +8,7 @@ import {
 	MessageSquare,
 	ImagePlus,
 	Video,
+	Boxes,
 	Braces,
 } from "lucide-react";
 import Link from "next/link";
@@ -277,6 +278,16 @@ export default async function ModelPage({ params }: PageProps) {
 						)}
 						<div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
 							<CopyModelName modelName={decodedName} />
+							{Array.isArray(modelDef.output) &&
+								modelDef.output.includes("embedding") && (
+									<Badge
+										variant="outline"
+										className="gap-1 text-xs md:text-sm px-2 md:px-3 py-1 border-indigo-500/40 text-indigo-500"
+									>
+										<Boxes className="h-3.5 w-3.5" />
+										Embedding model
+									</Badge>
+								)}
 							{(() => {
 								const stabilityProps = getStabilityBadgeProps(
 									modelDef.stability,
@@ -469,6 +480,9 @@ export default async function ModelPage({ params }: PageProps) {
 								const hasVideoGen = Array.isArray(modelDef.output)
 									? modelDef.output.includes("video")
 									: false;
+								const hasEmbedding = Array.isArray(modelDef.output)
+									? modelDef.output.includes("embedding")
+									: false;
 
 								if (hasStreaming) {
 									items.push({
@@ -524,6 +538,14 @@ export default async function ModelPage({ params }: PageProps) {
 										icon: Video,
 										label: "Video Generation",
 										color: "text-violet-500",
+									});
+								}
+								if (hasEmbedding) {
+									items.push({
+										key: "embedding",
+										icon: Boxes,
+										label: "Embeddings",
+										color: "text-indigo-500",
 									});
 								}
 
