@@ -20,6 +20,7 @@ import {
 // import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import {
 	useCallback,
@@ -33,6 +34,7 @@ import { List, type RowComponentProps } from "react-window";
 import { toast } from "sonner";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -391,6 +393,7 @@ export const ChatSidebar = function ChatSidebar({
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
+	const { theme, setTheme, systemTheme } = useTheme();
 
 	// Use real chat data from API
 	const { data: chatsData, isLoading: isChatsLoading } = useChats();
@@ -408,6 +411,10 @@ export const ChatSidebar = function ChatSidebar({
 	const [isMac, setIsMac] = useState(false);
 
 	const chats = chatsData?.chats ?? [];
+	const currentTheme = theme === "system" ? systemTheme : theme;
+	const toggleTheme = useCallback(() => {
+		setTheme(currentTheme === "dark" ? "light" : "dark");
+	}, [currentTheme, setTheme]);
 
 	useEffect(() => {
 		setIsMac(/(Mac|iPhone|iPad|iPod)/i.test(window.navigator.platform));
@@ -415,7 +422,7 @@ export const ChatSidebar = function ChatSidebar({
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			const key = event.key.toLowerCase();
+			const key = event.key?.toLowerCase();
 			const isSearchShortcut = isMac
 				? event.metaKey && key === "k" && !event.altKey && !event.ctrlKey
 				: event.altKey && key === "k" && !event.metaKey && !event.ctrlKey;
@@ -844,6 +851,22 @@ export const ChatSidebar = function ChatSidebar({
 										<ExternalLink className="mr-2 h-4 w-4" />
 										Dashboard
 									</a>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									className="justify-between gap-3"
+									onSelect={(event) => {
+										event.preventDefault();
+										toggleTheme();
+									}}
+								>
+									<span>Theme</span>
+									<div
+										onClick={(event) => event.stopPropagation()}
+										onKeyDown={(event) => event.stopPropagation()}
+									>
+										<ThemeToggle className="shrink-0" size="compact" />
+									</div>
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
 								<DropdownMenuItem onClick={logout}>

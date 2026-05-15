@@ -322,6 +322,12 @@ export interface ProviderModelMapping {
 	 */
 	webSearchPrice?: Price;
 	/**
+	 * Price per content filter violation in USD (charged additionally when the
+	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
+	 * "Content violates usage guidelines" response).
+	 */
+	contentFilterPrice?: number;
+	/**
 	 * List of supported API parameters for this model/provider combination
 	 */
 	supportedParameters?: string[];

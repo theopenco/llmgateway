@@ -114,67 +114,79 @@ export const verification = pgTable("verification", {
 	updatedAt: timestamp().$onUpdate(() => new Date()),
 });
 
-export const organization = pgTable("organization", {
-	id: text().primaryKey().notNull().$defaultFn(shortid),
-	createdAt: timestamp().notNull().defaultNow(),
-	updatedAt: timestamp()
-		.notNull()
-		.defaultNow()
-		.$onUpdate(() => new Date()),
-	name: text().notNull(),
-	billingEmail: text().notNull(),
-	billingCompany: text(),
-	billingAddress: text(),
-	billingTaxId: text(),
-	billingNotes: text(),
-	stripeCustomerId: text().unique(),
-	stripeSubscriptionId: text().unique(),
-	credits: decimal().notNull().default("0"),
-	autoTopUpEnabled: boolean().notNull().default(false),
-	autoTopUpThreshold: decimal().default("10"),
-	autoTopUpAmount: decimal().default("10"),
-	plan: text({
-		enum: ["free", "pro", "enterprise"],
-	})
-		.notNull()
-		.default("free"),
-	planExpiresAt: timestamp(),
-	subscriptionCancelled: boolean().notNull().default(false),
-	trialStartDate: timestamp(),
-	trialEndDate: timestamp(),
-	isTrialActive: boolean().notNull().default(false),
-	retentionLevel: text({
-		enum: ["retain", "none"],
-	})
-		.notNull()
-		.default("none"),
-	status: text({
-		enum: ["active", "inactive", "deleted"],
-	}).default("active"),
-	referralEarnings: decimal().notNull().default("0"),
-	paymentFailureCount: integer().notNull().default(0),
-	lastPaymentFailureAt: timestamp(),
-	paymentFailureStartedAt: timestamp(),
-	// Dev Plans fields (for personal accounts)
-	isPersonal: boolean().notNull().default(false),
-	devPlan: text({
-		enum: ["none", "lite", "pro", "max"],
-	})
-		.notNull()
-		.default("none"),
-	devPlanCreditsUsed: decimal().notNull().default("0"),
-	devPlanCreditsLimit: decimal().notNull().default("0"),
-	devPlanBillingCycleStart: timestamp(),
-	devPlanStripeSubscriptionId: text().unique(),
-	devPlanCancelled: boolean().notNull().default(false),
-	devPlanExpiresAt: timestamp(),
-	devPlanCycle: text({ enum: ["monthly", "annual"] })
-		.notNull()
-		.default("monthly"),
-	devPlanAllowAllModels: boolean().notNull().default(false),
-	// Last top-up amount (used for low balance alert thresholds)
-	lastTopUpAmount: decimal(),
-});
+export const organization = pgTable(
+	"organization",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text().notNull(),
+		billingEmail: text().notNull(),
+		billingCompany: text(),
+		billingAddress: text(),
+		billingTaxId: text(),
+		billingNotes: text(),
+		stripeCustomerId: text().unique(),
+		stripeSubscriptionId: text().unique(),
+		credits: decimal().notNull().default("0"),
+		autoTopUpEnabled: boolean().notNull().default(false),
+		autoTopUpThreshold: decimal().default("10"),
+		autoTopUpAmount: decimal().default("10"),
+		plan: text({
+			enum: ["free", "pro", "enterprise"],
+		})
+			.notNull()
+			.default("free"),
+		planExpiresAt: timestamp(),
+		subscriptionCancelled: boolean().notNull().default(false),
+		trialStartDate: timestamp(),
+		trialEndDate: timestamp(),
+		isTrialActive: boolean().notNull().default(false),
+		retentionLevel: text({
+			enum: ["retain", "none"],
+		})
+			.notNull()
+			.default("none"),
+		status: text({
+			enum: ["active", "inactive", "deleted"],
+		}).default("active"),
+		referralEarnings: decimal().notNull().default("0"),
+		paymentFailureCount: integer().notNull().default(0),
+		lastPaymentFailureAt: timestamp(),
+		paymentFailureStartedAt: timestamp(),
+		// Dev Plans fields (for personal accounts)
+		isPersonal: boolean().notNull().default(false),
+		devPlan: text({
+			enum: ["none", "lite", "pro", "max"],
+		})
+			.notNull()
+			.default("none"),
+		devPlanCreditsUsed: decimal().notNull().default("0"),
+		devPlanCreditsLimit: decimal().notNull().default("0"),
+		devPlanBillingCycleStart: timestamp(),
+		devPlanStripeSubscriptionId: text().unique(),
+		devPlanCancelled: boolean().notNull().default(false),
+		devPlanExpiresAt: timestamp(),
+		devPlanCycle: text({ enum: ["monthly", "annual"] })
+			.notNull()
+			.default("monthly"),
+		devPlanAllowAllModels: boolean().notNull().default(false),
+		// Fingerprint of the card used to subscribe to a dev plan. Used to
+		// prevent a single card from claiming the DevPass usage allowance from
+		// multiple personal organizations.
+		devPlanCardFingerprint: text(),
+		// Last top-up amount (used for low balance alert thresholds)
+		lastTopUpAmount: decimal(),
+	},
+	(table) => [
+		index("organization_dev_plan_card_fingerprint_idx").on(
+			table.devPlanCardFingerprint,
+		),
+	],
+);
 
 export const referral = pgTable(
 	"referral",
@@ -607,6 +619,7 @@ export const log = pgTable(
 		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
+		contentFilterCost: real(),
 		imageInputTokens: decimal(),
 		imageOutputTokens: decimal(),
 		imageInputCost: real(),
@@ -1386,6 +1399,7 @@ export const auditLogActions = [
 	"organization.create",
 	"organization.update",
 	"organization.delete",
+	"organization.block",
 	// Project
 	"project.create",
 	"project.update",

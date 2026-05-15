@@ -1,5 +1,7 @@
 import { shortid } from "@llmgateway/db";
 
+import { normalizeEchoedTools } from "./convert-chat-to-responses.js";
+
 import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
 
 interface StreamingState {
@@ -15,6 +17,7 @@ interface StreamingState {
 	fullReasoning: string[];
 	reasoningStarted: boolean;
 	finishReason: string | null;
+	sequenceNumber: number;
 	toolCalls: Map<
 		number,
 		{
@@ -70,6 +73,7 @@ export function createStreamingState(
 		fullReasoning: [],
 		reasoningStarted: false,
 		finishReason: null,
+		sequenceNumber: 0,
 		toolCalls: new Map(),
 		request,
 		usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
@@ -122,7 +126,7 @@ function buildResponsePayload(
 		instructions: req?.instructions ?? null,
 		output,
 		error: null,
-		tools: req?.tools ?? [],
+		tools: normalizeEchoedTools(req?.tools),
 		tool_choice: req?.tool_choice ?? "auto",
 		truncation: req?.truncation ?? "disabled",
 		parallel_tool_calls: req?.parallel_tool_calls ?? true,
@@ -154,16 +158,28 @@ interface SSEEvent {
 }
 
 /**
+ * Build an SSE event with an auto-incrementing sequence_number, which the
+ * Open Responses streaming-event schemas require on every event.
+ */
+function emitEvent(
+	state: StreamingState,
+	event: string,
+	data: Record<string, unknown>,
+): SSEEvent {
+	return {
+		event,
+		data: JSON.stringify({ ...data, sequence_number: state.sequenceNumber++ }),
+	};
+}
+
+/**
  * Generate the initial response.created event.
  */
 export function createResponseCreatedEvent(state: StreamingState): SSEEvent {
-	return {
-		event: "response.created",
-		data: JSON.stringify({
-			type: "response.created",
-			response: buildResponsePayload(state, { status: "in_progress" }),
-		}),
-	};
+	return emitEvent(state, "response.created", {
+		type: "response.created",
+		response: buildResponsePayload(state, { status: "in_progress" }),
+	});
 }
 
 /**
@@ -240,9 +256,8 @@ export function processStreamChunk(
 	if (delta.reasoning) {
 		if (!state.reasoningStarted) {
 			state.reasoningStarted = true;
-			events.push({
-				event: "response.output_item.added",
-				data: JSON.stringify({
+			events.push(
+				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
 					output_index: state.outputItemIndex,
 					item: {
@@ -251,7 +266,7 @@ export function processStreamChunk(
 						summary: [],
 					},
 				}),
-			});
+			);
 		}
 		state.fullReasoning.push(delta.reasoning);
 	}
@@ -277,9 +292,8 @@ export function processStreamChunk(
 					arguments: tc.function?.arguments ?? "",
 					outputIndex: tcOutputIndex,
 				});
-				events.push({
-					event: "response.output_item.added",
-					data: JSON.stringify({
+				events.push(
+					emitEvent(state, "response.output_item.added", {
 						type: "response.output_item.added",
 						output_index: tcOutputIndex,
 						item: {
@@ -291,19 +305,18 @@ export function processStreamChunk(
 							status: "in_progress",
 						},
 					}),
-				});
+				);
 			} else {
 				if (tc.function?.arguments) {
 					existing.arguments += tc.function.arguments;
-					events.push({
-						event: "response.function_call_arguments.delta",
-						data: JSON.stringify({
+					events.push(
+						emitEvent(state, "response.function_call_arguments.delta", {
 							type: "response.function_call_arguments.delta",
 							item_id: existing.id,
 							output_index: existing.outputIndex,
 							delta: tc.function.arguments,
 						}),
-					});
+					);
 				}
 			}
 		}
@@ -318,9 +331,8 @@ export function processStreamChunk(
 				state.outputItemIndex++;
 			}
 
-			events.push({
-				event: "response.output_item.added",
-				data: JSON.stringify({
+			events.push(
+				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
 					output_index: state.outputItemIndex,
 					item: {
@@ -331,33 +343,32 @@ export function processStreamChunk(
 						status: "in_progress",
 					},
 				}),
-			});
+			);
 		}
 
 		if (!state.contentPartStarted) {
 			state.contentPartStarted = true;
-			events.push({
-				event: "response.content_part.added",
-				data: JSON.stringify({
+			events.push(
+				emitEvent(state, "response.content_part.added", {
 					type: "response.content_part.added",
+					item_id: state.messageId,
 					output_index: state.outputItemIndex,
 					content_index: 0,
-					part: { type: "output_text", text: "" },
+					part: { type: "output_text", text: "", annotations: [] },
 				}),
-			});
+			);
 		}
 
 		state.fullContent.push(delta.content);
-		events.push({
-			event: "response.output_text.delta",
-			data: JSON.stringify({
+		events.push(
+			emitEvent(state, "response.output_text.delta", {
 				type: "response.output_text.delta",
 				item_id: state.messageId,
 				output_index: state.outputItemIndex,
 				content_index: 0,
 				delta: delta.content,
 			}),
-		});
+		);
 	}
 
 	// Check for usage in the chunk
@@ -405,34 +416,34 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 
 	// Close content part if started
 	if (state.contentPartStarted) {
-		events.push({
-			event: "response.output_text.done",
-			data: JSON.stringify({
+		events.push(
+			emitEvent(state, "response.output_text.done", {
 				type: "response.output_text.done",
+				item_id: state.messageId,
 				output_index: state.outputItemIndex,
 				content_index: 0,
 				text: state.fullContent.join(""),
 			}),
-		});
-		events.push({
-			event: "response.content_part.done",
-			data: JSON.stringify({
+		);
+		events.push(
+			emitEvent(state, "response.content_part.done", {
 				type: "response.content_part.done",
+				item_id: state.messageId,
 				output_index: state.outputItemIndex,
 				content_index: 0,
 				part: {
 					type: "output_text",
 					text: state.fullContent.join(""),
+					annotations: [],
 				},
 			}),
-		});
+		);
 	}
 
 	// Close output item if started
 	if (state.outputItemStarted) {
-		events.push({
-			event: "response.output_item.done",
-			data: JSON.stringify({
+		events.push(
+			emitEvent(state, "response.output_item.done", {
 				type: "response.output_item.done",
 				output_index: state.outputItemIndex,
 				item: {
@@ -443,19 +454,19 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 						{
 							type: "output_text",
 							text: state.fullContent.join(""),
+							annotations: [],
 						},
 					],
 					status: "completed",
 				},
 			}),
-		});
+		);
 	}
 
 	// Emit output_item.done for each function_call
 	for (const tc of state.toolCalls.values()) {
-		events.push({
-			event: "response.output_item.done",
-			data: JSON.stringify({
+		events.push(
+			emitEvent(state, "response.output_item.done", {
 				type: "response.output_item.done",
 				output_index: tc.outputIndex,
 				item: {
@@ -467,7 +478,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 					status: "completed",
 				},
 			}),
-		});
+		);
 	}
 
 	// Map finish_reason to status
@@ -512,19 +523,19 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 				{
 					type: "output_text",
 					text: state.fullContent.join(""),
+					annotations: [],
 				},
 			],
 			status: "completed",
 		});
 	}
 
-	events.push({
-		event: "response.completed",
-		data: JSON.stringify({
+	events.push(
+		emitEvent(state, "response.completed", {
 			type: "response.completed",
 			response: buildResponsePayload(state, { status, output }),
 		}),
-	});
+	);
 
 	return events;
 }
@@ -533,11 +544,8 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
  * Generate a response.failed event for streaming errors.
  */
 export function createFailedEvent(state: StreamingState): SSEEvent {
-	return {
-		event: "response.failed",
-		data: JSON.stringify({
-			type: "response.failed",
-			response: buildResponsePayload(state, { status: "failed" }),
-		}),
-	};
+	return emitEvent(state, "response.failed", {
+		type: "response.failed",
+		response: buildResponsePayload(state, { status: "failed" }),
+	});
 }

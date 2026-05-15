@@ -335,6 +335,9 @@ export default function ChatPageClient({
 		chatIdFromUrl,
 	);
 	const chatIdRef = useRef(currentChatId);
+	// Captures the chat ID at stream-start so onFinish always saves to the
+	// originating chat even if the user navigates to another chat mid-stream.
+	const streamingChatIdRef = useRef<string | null>(null);
 	const isNewChatRef = useRef(false);
 	const errorOccurredRef = useRef(false);
 	const isSendingRef = useRef(false);
@@ -352,6 +355,7 @@ export default function ChatPageClient({
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
 			onError: async (e) => {
+				streamingChatIdRef.current = null;
 				isSendingRef.current = false;
 				errorOccurredRef.current = true;
 				const msg = getErrorMessage(e);
@@ -396,21 +400,11 @@ export default function ChatPageClient({
 					return;
 				}
 
-				// Wait for chatId to be available (handleUserMessage might still be running)
-				let chatId = chatIdRef.current;
-
-				if (!chatId) {
-					// Poll for chatId with timeout
-					for (let i = 0; i < 50; i++) {
-						await new Promise<void>((resolve) => {
-							setTimeout(resolve, 100);
-						});
-						chatId = chatIdRef.current;
-						if (chatId) {
-							break;
-						}
-					}
-				}
+				// Use the chat ID captured at stream-start. This ref is set before
+				// sendMessage is called so it's always available here, even if the
+				// user navigated to a different chat while the stream was running.
+				const chatId = streamingChatIdRef.current;
+				streamingChatIdRef.current = null;
 
 				if (!chatId) {
 					toast.error(
@@ -732,6 +726,7 @@ export default function ChatPageClient({
 					(p.type === "file" && p.mediaType?.startsWith("image/")) ||
 					p.type === "image_url",
 			);
+			streamingChatIdRef.current = chatIdRef.current;
 			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
 		},
 		[regenerate, messages, buildRequestOptions],
@@ -1034,6 +1029,7 @@ export default function ChatPageClient({
 
 		try {
 			const chatId = await ensureCurrentChat(content);
+			streamingChatIdRef.current = chatId;
 
 			const savedMessage = await addMessage.mutateAsync({
 				params: { path: { id: chatId } },
@@ -1154,6 +1150,7 @@ export default function ChatPageClient({
 		errorOccurredRef.current = false;
 		isSendingRef.current = true;
 		loadedChatIdRef.current = chatId;
+		streamingChatIdRef.current = chatId;
 
 		try {
 			await updateMessage.mutateAsync({
@@ -1187,6 +1184,7 @@ export default function ChatPageClient({
 	};
 
 	const clearMessages = () => {
+		void stop();
 		setError(null);
 		setFinishReason(null);
 		shouldClearMessagesRef.current = true;
@@ -1219,6 +1217,7 @@ export default function ChatPageClient({
 	};
 
 	const handleNewChat = async () => {
+		void stop();
 		setIsLoading(true);
 		setError(null);
 		setFinishReason(null);
@@ -1243,6 +1242,7 @@ export default function ChatPageClient({
 	};
 
 	const handleChatSelect = (chatId: string) => {
+		void stop();
 		setError(null);
 		setFinishReason(null);
 		shouldClearMessagesRef.current = true; // Request message clear on URL change
