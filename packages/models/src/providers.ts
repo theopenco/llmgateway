@@ -654,6 +654,27 @@ export const providers = [
 		privacyPolicyUrl:
 			"https://platform.xiaomimimo.com/docs/terms/privacy-policy",
 	},
+	{
+		id: "deepinfra",
+		name: "DeepInfra",
+		description:
+			"DeepInfra inference platform with OpenAI-compatible API for hosting open-source models.",
+		env: {
+			required: {
+				apiKey: "LLM_DEEPINFRA_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_DEEPINFRA_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#6366F1",
+		website: "https://deepinfra.com",
+		announcement: null,
+		termsUrl: "https://deepinfra.com/terms",
+		privacyPolicyUrl: "https://deepinfra.com/privacy",
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

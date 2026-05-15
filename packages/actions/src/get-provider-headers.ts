@@ -68,6 +68,7 @@ export function getProviderHeaders(
 		case "nebius":
 		case "zai":
 		case "embercloud":
+		case "deepinfra":
 		case "custom":
 		default:
 			return {

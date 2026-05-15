@@ -285,6 +285,9 @@ export function getProviderEndpoint(
 			case "embercloud":
 				url = "https://api.embercloud.ai";
 				break;
+			case "deepinfra":
+				url = "https://api.deepinfra.com/v1/openai";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -497,6 +500,7 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
+		case "deepinfra":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
