@@ -37,9 +37,9 @@ export function getDevPlanCreditsLimit(tier: DevPlanTier): number {
  * addition to the monthly credit allowance.
  */
 export const DEV_PLAN_PREMIUM_WEEKLY_LIMITS: Record<DevPlanTier, number> = {
-	lite: 5,
-	pro: 25,
-	max: 70,
+	lite: 10,
+	pro: 50,
+	max: 140,
 };
 
 export function getDevPlanPremiumWeeklyLimit(tier: DevPlanTier): number {
