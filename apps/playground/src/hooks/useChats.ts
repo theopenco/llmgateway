@@ -108,6 +108,9 @@ export function useShareChat() {
 
 	return api.useMutation("post", "/chats/{id}/share", {
 		onSuccess: (_data, variables) => {
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
 			const chatId = variables.params?.path?.id;
 			if (chatId) {
 				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
@@ -140,6 +143,9 @@ export function useDeleteChatShare() {
 
 	return api.useMutation("delete", "/chats/{id}/share", {
 		onSuccess: (_data, variables) => {
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
 			const chatId = variables.params?.path?.id;
 			if (chatId) {
 				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
@@ -164,6 +170,9 @@ export function useDeleteOrgChatShare(
 
 	return api.useMutation("delete", "/chats/org-share/{shareId}", {
 		onSuccess: (_data, variables) => {
+			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
+			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+
 			if (chatId) {
 				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
 					params: { path: { id: chatId } },
