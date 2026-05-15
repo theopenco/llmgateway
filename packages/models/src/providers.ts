@@ -128,7 +128,7 @@ export const providers = [
 		announcement: null,
 		priority: 0.8,
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
-		privacyPolicyUrl: "https://policies.google.com/privacy",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy",
 	},
 	{
 		id: "glacier",
@@ -169,8 +169,8 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://policies.google.com/privacy",
+		termsUrl: "https://cloud.google.com/terms/ai-terms",
+		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy",
 	},
 	{
 		id: "quartz",
