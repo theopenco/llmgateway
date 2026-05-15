@@ -27,7 +27,12 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees, isCreditTopUpAmountInRange } from "@llmgateway/shared";
+import {
+	calculateFees,
+	isCreditTopUpAmountInRange,
+	isPremiumModel,
+	isPremiumWeekExpired,
+} from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import {
@@ -741,6 +746,7 @@ export async function batchProcessLogs(): Promise<void> {
 			// Group logs by organization and api key to calculate total costs
 			// Use Decimal.js to avoid floating point rounding errors
 			const orgCosts = new Map<string, Decimal>();
+			const orgPremiumCosts = new Map<string, Decimal>();
 			const apiKeyEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const logIds: string[] = [];
 
@@ -802,6 +808,15 @@ export async function batchProcessLogs(): Promise<void> {
 						const currentOrgCost =
 							orgCosts.get(row.organization_id) ?? new Decimal(0);
 						orgCosts.set(row.organization_id, currentOrgCost.plus(apiKeyCost));
+
+						if (row.used_model && isPremiumModel(row.used_model)) {
+							const currentPremium =
+								orgPremiumCosts.get(row.organization_id) ?? new Decimal(0);
+							orgPremiumCosts.set(
+								row.organization_id,
+								currentPremium.plus(apiKeyCost),
+							);
+						}
 					} else if (row.used_mode === "api-keys") {
 						// In API keys mode, only deduct storage cost (data retention billing)
 						if (row.data_storage_cost) {
@@ -853,12 +868,50 @@ export async function batchProcessLogs(): Promise<void> {
 							);
 							const deductNumber = deductFromDevPlan.toNumber();
 
-							await tx
-								.update(organization)
-								.set({
-									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${deductNumber}`,
-								})
-								.where(eq(organization.id, orgId));
+							const premiumCost = orgPremiumCosts.get(orgId) ?? new Decimal(0);
+							const deductPremium = Decimal.min(premiumCost, deductFromDevPlan);
+							const premiumDeductNumber = deductPremium.toNumber();
+							const weekExpired = isPremiumWeekExpired(
+								org.devPlanPremiumWeekStart,
+							);
+							const now = new Date();
+
+							if (premiumDeductNumber > 0) {
+								if (weekExpired) {
+									await tx
+										.update(organization)
+										.set({
+											devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${deductNumber}`,
+											devPlanPremiumCreditsUsed: String(premiumDeductNumber),
+											devPlanPremiumWeekStart: now,
+										})
+										.where(eq(organization.id, orgId));
+								} else {
+									await tx
+										.update(organization)
+										.set({
+											devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${deductNumber}`,
+											devPlanPremiumCreditsUsed: sql`${organization.devPlanPremiumCreditsUsed} + ${premiumDeductNumber}`,
+										})
+										.where(eq(organization.id, orgId));
+								}
+							} else if (weekExpired && org.devPlanPremiumWeekStart) {
+								await tx
+									.update(organization)
+									.set({
+										devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${deductNumber}`,
+										devPlanPremiumCreditsUsed: "0",
+										devPlanPremiumWeekStart: now,
+									})
+									.where(eq(organization.id, orgId));
+							} else {
+								await tx
+									.update(organization)
+									.set({
+										devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${deductNumber}`,
+									})
+									.where(eq(organization.id, orgId));
+							}
 
 							logger.debug(
 								`Deducted ${deductNumber} dev plan credits from organization ${orgId}`,

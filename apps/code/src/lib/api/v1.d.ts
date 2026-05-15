@@ -4815,6 +4815,9 @@ export interface paths {
                                 hasPaymentIssue: boolean;
                                 creditsUsed: string;
                                 creditsLimit: string;
+                                premiumCreditsUsed: string;
+                                premiumCreditsLimit: string;
+                                premiumWeekStart: string | null;
                                 utilizationPct: number | null;
                                 cycleStart: string | null;
                                 cycleDaysIn: number | null;
@@ -4958,6 +4961,9 @@ export interface paths {
                                 hasPaymentIssue: boolean;
                                 creditsUsed: string;
                                 creditsLimit: string;
+                                premiumCreditsUsed: string;
+                                premiumCreditsLimit: string;
+                                premiumWeekStart: string | null;
                                 utilizationPct: number | null;
                                 cycleStart: string | null;
                                 cycleDaysIn: number | null;

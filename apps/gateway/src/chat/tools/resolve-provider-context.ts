@@ -27,6 +27,12 @@ import {
 	type WebSearchTool,
 	stripRegionFromModelName,
 } from "@llmgateway/models";
+import {
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	type DevPlanTier,
+	getRemainingPremiumWeeklyAllowance,
+	isPremiumModel,
+} from "@llmgateway/shared";
 
 import { getProviderEnv } from "./get-provider-env.js";
 
@@ -118,7 +124,52 @@ interface OrgInfo {
 	devPlan: string;
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
+	devPlanPremiumCreditsUsed: string | null;
+	devPlanPremiumWeekStart: Date | null;
 	devPlanExpiresAt: Date | null;
+}
+
+/**
+ * Throws when a DevPass subscriber has exhausted the weekly fair-use
+ * allowance for premium-tier models. No-op for non-DevPass orgs and
+ * non-premium models.
+ */
+export function assertDevPlanPremiumCapNotExceeded(
+	organization: Pick<
+		OrgInfo,
+		"devPlan" | "devPlanPremiumCreditsUsed" | "devPlanPremiumWeekStart"
+	>,
+	modelInfo: Pick<ModelDefinition, "id">,
+): void {
+	if (organization.devPlan === "none") {
+		return;
+	}
+	if (!isPremiumModel(modelInfo.id)) {
+		return;
+	}
+	const tier = organization.devPlan as DevPlanTier;
+	const remaining = getRemainingPremiumWeeklyAllowance(
+		tier,
+		organization.devPlanPremiumCreditsUsed,
+		organization.devPlanPremiumWeekStart,
+	);
+	if (remaining > 0) {
+		return;
+	}
+	const weekStart = organization.devPlanPremiumWeekStart
+		? new Date(organization.devPlanPremiumWeekStart)
+		: new Date();
+	const resetAt = new Date(
+		weekStart.getTime() + DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	);
+	const msUntilReset = Math.max(0, resetAt.getTime() - Date.now());
+	const daysUntilReset = Math.max(
+		1,
+		Math.ceil(msUntilReset / (24 * 60 * 60 * 1000)),
+	);
+	throw new HTTPException(402, {
+		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Upgrade for a higher allowance, or use any standard model now. Resets in ${daysUntilReset} day${daysUntilReset === 1 ? "" : "s"}.`,
+	});
 }
 
 // Mirrors the initial credit gate in chat.ts so retry/fallback paths that
@@ -132,6 +183,7 @@ function assertOrganizationHasCreditsForEnvFallback(
 	if (modelInfo.free) {
 		return;
 	}
+	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
 	const regularCredits = parseFloat(organization.credits ?? "0");
 	const devPlanCreditsRemaining =
 		organization.devPlan !== "none"

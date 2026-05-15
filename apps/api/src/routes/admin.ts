@@ -34,7 +34,11 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
-import { DEV_PLAN_PRICES } from "@llmgateway/shared";
+import {
+	DEV_PLAN_PRICES,
+	type DevPlanTier,
+	getDevPlanPremiumWeeklyLimit,
+} from "@llmgateway/shared";
 import {
 	getResendClient,
 	fromEmail,
@@ -7771,6 +7775,9 @@ const devpassSubscriberSchema = z.object({
 	hasPaymentIssue: z.boolean(),
 	creditsUsed: z.string(),
 	creditsLimit: z.string(),
+	premiumCreditsUsed: z.string(),
+	premiumCreditsLimit: z.string(),
+	premiumWeekStart: z.string().nullable(),
 	utilizationPct: z.number().nullable(),
 	cycleStart: z.string().nullable(),
 	cycleDaysIn: z.number().nullable(),
@@ -8197,6 +8204,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			tier: tables.organization.devPlan,
 			creditsUsed: tables.organization.devPlanCreditsUsed,
 			creditsLimit: tables.organization.devPlanCreditsLimit,
+			premiumCreditsUsed: tables.organization.devPlanPremiumCreditsUsed,
+			premiumWeekStart: tables.organization.devPlanPremiumWeekStart,
 			cycleStart: tables.organization.devPlanBillingCycleStart,
 			expiresAt: tables.organization.devPlanExpiresAt,
 			cancelled: tables.organization.devPlanCancelled,
@@ -8420,6 +8429,12 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const marginNum = Number(row.margin ?? 0);
 		const marginPct = mrrNum > 0 ? (marginNum / mrrNum) * 100 : null;
 
+		const premiumCreditsLimitNum =
+			tier === "none" ? 0 : getDevPlanPremiumWeeklyLimit(tier as DevPlanTier);
+		const premiumWeekStart = row.premiumWeekStart
+			? new Date(row.premiumWeekStart).toISOString()
+			: null;
+
 		return {
 			id: row.id,
 			name: row.name,
@@ -8432,6 +8447,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			hasPaymentIssue,
 			creditsUsed: String(row.creditsUsed),
 			creditsLimit: String(row.creditsLimit),
+			premiumCreditsUsed: String(row.premiumCreditsUsed ?? "0"),
+			premiumCreditsLimit: String(premiumCreditsLimitNum),
+			premiumWeekStart,
 			utilizationPct,
 			cycleStart: cycleStart ? cycleStart.toISOString() : null,
 			cycleDaysIn,
@@ -8862,6 +8880,11 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 
+	const premiumCreditsLimitNum =
+		org.devPlan === "none"
+			? 0
+			: getDevPlanPremiumWeeklyLimit(org.devPlan as DevPlanTier);
+
 	const subscriber = {
 		id: org.id,
 		name: org.name,
@@ -8874,6 +8897,11 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		hasPaymentIssue,
 		creditsUsed: String(org.devPlanCreditsUsed),
 		creditsLimit: String(org.devPlanCreditsLimit),
+		premiumCreditsUsed: String(org.devPlanPremiumCreditsUsed ?? "0"),
+		premiumCreditsLimit: String(premiumCreditsLimitNum),
+		premiumWeekStart: org.devPlanPremiumWeekStart
+			? org.devPlanPremiumWeekStart.toISOString()
+			: null,
 		utilizationPct,
 		cycleStart: org.devPlanBillingCycleStart
 			? org.devPlanBillingCycleStart.toISOString()

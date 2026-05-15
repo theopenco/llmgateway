@@ -433,6 +433,8 @@ async function handleCheckoutSessionCompleted(
 					devPlan: devPlanTier,
 					devPlanCreditsLimit: creditsLimit.toString(),
 					devPlanCreditsUsed: "0",
+					devPlanPremiumCreditsUsed: "0",
+					devPlanPremiumWeekStart: new Date(),
 					devPlanBillingCycleStart: new Date(),
 					devPlanStripeSubscriptionId: subscriptionId,
 					devPlanCancelled: false,
@@ -1696,6 +1698,8 @@ async function handleInvoicePaymentSucceeded(
 			.update(tables.organization)
 			.set({
 				devPlanCreditsUsed: "0",
+				devPlanPremiumCreditsUsed: "0",
+				devPlanPremiumWeekStart: new Date(),
 				devPlanBillingCycleStart: new Date(),
 				devPlanCancelled: false,
 			})
@@ -2206,6 +2210,8 @@ async function handleSubscriptionDeleted(
 				devPlan: "none",
 				devPlanCreditsLimit: "0",
 				devPlanCreditsUsed: "0",
+				devPlanPremiumCreditsUsed: "0",
+				devPlanPremiumWeekStart: null,
 				devPlanStripeSubscriptionId: null,
 				devPlanExpiresAt: null,
 				devPlanCancelled: false,

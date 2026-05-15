@@ -184,6 +184,8 @@ export const organization = pgTable(
 			.default("none"),
 		devPlanCreditsUsed: decimal().notNull().default("0"),
 		devPlanCreditsLimit: decimal().notNull().default("0"),
+		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
+		devPlanPremiumWeekStart: timestamp(),
 		devPlanBillingCycleStart: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),

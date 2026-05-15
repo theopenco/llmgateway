@@ -12,12 +12,17 @@ export {
 
 export {
 	DEV_PLAN_ANNUAL_DISCOUNT_MONTHS,
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
 	DEV_PLAN_PRICES,
 	type DevPlanCycle,
 	type DevPlanTier,
 	getDevPlanAnnualMonthlyPrice,
 	getDevPlanAnnualPrice,
 	getDevPlanCreditsLimit,
+	getDevPlanPremiumWeeklyLimit,
+	getRemainingPremiumWeeklyAllowance,
+	isPremiumWeekExpired,
 } from "./dev-plans.js";
 
 export {

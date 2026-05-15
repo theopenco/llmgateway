@@ -783,6 +783,7 @@ export default async function DevpassPage({
 									queryString={queryString}
 								/>
 							</TableHead>
+							<TableHead>Premium (week)</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Since"
@@ -800,7 +801,7 @@ export default async function DevpassPage({
 						{data.subscribers.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={12}
+									colSpan={13}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No subscribers match
@@ -858,6 +859,31 @@ export default async function DevpassPage({
 										)}
 									>
 										{currencyFormatter.format(sub.margin)}
+									</TableCell>
+									<TableCell className="tabular-nums text-xs">
+										{(() => {
+											const premUsed = parseFloat(sub.premiumCreditsUsed);
+											const premLimit = parseFloat(sub.premiumCreditsLimit);
+											if (premLimit <= 0) {
+												return <span className="text-muted-foreground">—</span>;
+											}
+											const pct = Math.min(
+												100,
+												Math.max(0, (premUsed / premLimit) * 100),
+											);
+											const tone =
+												pct >= 100
+													? "text-rose-600 dark:text-rose-400"
+													: pct >= 80
+														? "text-orange-600 dark:text-orange-400"
+														: "text-muted-foreground";
+											return (
+												<span className={tone}>
+													{currencyFormatter.format(premUsed)} /{" "}
+													{currencyFormatter.format(premLimit)}
+												</span>
+											);
+										})()}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
 										{formatDate(sub.subscribedSince)}
