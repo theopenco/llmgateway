@@ -7406,8 +7406,10 @@ export interface paths {
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
-                                orgShareId: string | null;
-                                orgShareOrganizationId: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7455,8 +7457,10 @@ export interface paths {
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
-                                orgShareId: string | null;
-                                orgShareOrganizationId: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7522,8 +7526,10 @@ export interface paths {
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
-                                orgShareId: string | null;
-                                orgShareOrganizationId: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7579,8 +7585,10 @@ export interface paths {
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
-                                orgShareId: string | null;
-                                orgShareOrganizationId: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7683,8 +7691,10 @@ export interface paths {
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
-                                orgShareId: string | null;
-                                orgShareOrganizationId: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */

@@ -49,8 +49,7 @@ interface ShareChatDialogProps {
 	currentChatId: string;
 	disabled?: boolean;
 	shareId: string | null;
-	orgShareId: string | null;
-	orgShareOrganizationId: string | null;
+	orgShares: Array<{ id: string; organizationId: string }>;
 	organizations: Organization[];
 	chatTitle?: string | null;
 	previewPrompt?: string | null;
@@ -138,8 +137,7 @@ export function ShareChatDialog({
 	currentChatId,
 	disabled = true,
 	shareId,
-	orgShareId,
-	orgShareOrganizationId,
+	orgShares,
 	organizations,
 	chatTitle,
 	previewPrompt,
@@ -148,12 +146,9 @@ export function ShareChatDialog({
 	const [copied, setCopied] = useState(false);
 	const [createdShareUrl, setCreatedShareUrl] = useState<string | null>(null);
 	// orgId → shareId for all known org shares (from props + created in session)
-	const [orgShareMap, setOrgShareMap] = useState<Record<string, string>>(() => {
-		if (orgShareId && orgShareOrganizationId) {
-			return { [orgShareOrganizationId]: orgShareId };
-		}
-		return {};
-	});
+	const [orgShareMap, setOrgShareMap] = useState<Record<string, string>>(() =>
+		Object.fromEntries(orgShares.map((s) => [s.organizationId, s.id])),
+	);
 	const [shareMode, setShareMode] = useState<ShareMode>("public");
 	const [selectedOrgId, setSelectedOrgId] = useState<string>("");
 	const [deletingOrgId, setDeletingOrgId] = useState<string | null>(null);
@@ -209,22 +204,16 @@ export function ShareChatDialog({
 
 	useEffect(() => {
 		setOrgShareMap(
-			orgShareId && orgShareOrganizationId
-				? { [orgShareOrganizationId]: orgShareId }
-				: {},
+			Object.fromEntries(orgShares.map((s) => [s.organizationId, s.id])),
 		);
 		setCreatedShareUrl(null);
 	}, [currentChatId]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	useEffect(() => {
-		if (orgShareId && orgShareOrganizationId) {
-			setOrgShareMap((prev) =>
-				prev[orgShareOrganizationId] === orgShareId
-					? prev
-					: { ...prev, [orgShareOrganizationId]: orgShareId },
-			);
-		}
-	}, [orgShareId, orgShareOrganizationId]);
+		setOrgShareMap(
+			Object.fromEntries(orgShares.map((s) => [s.organizationId, s.id])),
+		);
+	}, [orgShares]);
 
 	useEffect(() => {
 		if (open && !wasOpenRef.current) {

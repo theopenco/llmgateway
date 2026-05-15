@@ -1469,10 +1469,7 @@ export default function ChatPageClient({
 								status === "streaming"
 							}
 							shareId={currentChatData?.chat?.shareId ?? null}
-							orgShareId={currentChatData?.chat?.orgShareId ?? null}
-							orgShareOrganizationId={
-								currentChatData?.chat?.orgShareOrganizationId ?? null
-							}
+							orgShares={currentChatData?.chat?.orgShares ?? []}
 							organizations={organizations}
 							chatTitle={currentChatData?.chat?.title ?? null}
 							previewPrompt={getFirstUserMessageText(messages)}

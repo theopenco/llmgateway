@@ -12,8 +12,7 @@ export interface Chat {
 	webSearch: boolean;
 	shareId: string | null;
 	sharedAt: string | null;
-	orgShareId: string | null;
-	orgShareOrganizationId: string | null;
+	orgShares: Array<{ id: string; organizationId: string }>;
 	createdAt: string;
 	updatedAt: string;
 	messageCount: number;

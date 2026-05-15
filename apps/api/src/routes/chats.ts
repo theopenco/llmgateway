@@ -33,8 +33,7 @@ const chatSchema = z.object({
 	webSearch: z.boolean(),
 	shareId: z.string().nullable(),
 	sharedAt: z.string().datetime().nullable(),
-	orgShareId: z.string().nullable(),
-	orgShareOrganizationId: z.string().nullable(),
+	orgShares: z.array(z.object({ id: z.string(), organizationId: z.string() })),
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
 	messageCount: z.number(),
@@ -61,7 +60,7 @@ const shareSchema = z.object({
 });
 
 const shareChatSchema = z.object({
-	organizationId: z.string().optional(),
+	organizationId: z.string().min(1).optional(),
 });
 
 const orgShareListItemSchema = z.object({
@@ -225,23 +224,18 @@ chats.openapi(listChats, async (c) => {
 			webSearch: tables.chat.webSearch,
 			shareId: tables.chatShare.id,
 			sharedAt: tables.chatShare.createdAt,
-			orgShareId: sql<string | null>`(
-				SELECT ${tables.chatShare.id}
-				FROM ${tables.chatShare}
-				WHERE ${tables.chatShare.chatId} = ${tables.chat.id}
-					AND ${tables.chatShare.organizationId} IS NOT NULL
-					AND ${tables.chatShare.deletedAt} IS NULL
-				ORDER BY ${tables.chatShare.createdAt} DESC
-				LIMIT 1
-			)`,
-			orgShareOrganizationId: sql<string | null>`(
-				SELECT ${tables.chatShare.organizationId}
-				FROM ${tables.chatShare}
-				WHERE ${tables.chatShare.chatId} = ${tables.chat.id}
-					AND ${tables.chatShare.organizationId} IS NOT NULL
-					AND ${tables.chatShare.deletedAt} IS NULL
-				ORDER BY ${tables.chatShare.createdAt} DESC
-				LIMIT 1
+			orgShares: sql<Array<{ id: string; organizationId: string }>>`COALESCE(
+				(
+					SELECT json_agg(json_build_object(
+						'id', cs.id,
+						'organizationId', cs.organization_id
+					))
+					FROM chat_share cs
+					WHERE cs.chat_id = ${tables.chat.id}
+						AND cs.organization_id IS NOT NULL
+						AND cs.deleted_at IS NULL
+				),
+				'[]'::json
 			)`,
 			createdAt: tables.chat.createdAt,
 			updatedAt: tables.chat.updatedAt,
@@ -281,8 +275,7 @@ chats.openapi(listChats, async (c) => {
 		webSearch: chat.webSearch ?? false,
 		shareId: chat.shareId,
 		sharedAt: chat.sharedAt?.toISOString() ?? null,
-		orgShareId: chat.orgShareId,
-		orgShareOrganizationId: chat.orgShareOrganizationId,
+		orgShares: chat.orgShares ?? [],
 		createdAt: chat.createdAt.toISOString(),
 		updatedAt: chat.updatedAt.toISOString(),
 		messageCount: chat.messageCount,
@@ -359,23 +352,18 @@ chats.openapi(searchChats, async (c) => {
 				webSearch: tables.chat.webSearch,
 				shareId: tables.chatShare.id,
 				sharedAt: tables.chatShare.createdAt,
-				orgShareId: sql<string | null>`(
-					SELECT ${tables.chatShare.id}
-					FROM ${tables.chatShare}
-					WHERE ${tables.chatShare.chatId} = ${tables.chat.id}
-						AND ${tables.chatShare.organizationId} IS NOT NULL
-						AND ${tables.chatShare.deletedAt} IS NULL
-					ORDER BY ${tables.chatShare.createdAt} DESC
-					LIMIT 1
-				)`,
-				orgShareOrganizationId: sql<string | null>`(
-					SELECT ${tables.chatShare.organizationId}
-					FROM ${tables.chatShare}
-					WHERE ${tables.chatShare.chatId} = ${tables.chat.id}
-						AND ${tables.chatShare.organizationId} IS NOT NULL
-						AND ${tables.chatShare.deletedAt} IS NULL
-					ORDER BY ${tables.chatShare.createdAt} DESC
-					LIMIT 1
+				orgShares: sql<Array<{ id: string; organizationId: string }>>`COALESCE(
+					(
+						SELECT json_agg(json_build_object(
+							'id', cs.id,
+							'organizationId', cs.organization_id
+						))
+						FROM chat_share cs
+						WHERE cs.chat_id = ${tables.chat.id}
+							AND cs.organization_id IS NOT NULL
+							AND cs.deleted_at IS NULL
+					),
+					'[]'::json
 				)`,
 				createdAt: tables.chat.createdAt,
 				updatedAt: tables.chat.updatedAt,
@@ -420,8 +408,7 @@ chats.openapi(searchChats, async (c) => {
 		webSearch: chat.webSearch ?? false,
 		shareId: chat.shareId,
 		sharedAt: chat.sharedAt?.toISOString() ?? null,
-		orgShareId: chat.orgShareId,
-		orgShareOrganizationId: chat.orgShareOrganizationId,
+		orgShares: chat.orgShares ?? [],
 		createdAt: chat.createdAt.toISOString(),
 		updatedAt: chat.updatedAt.toISOString(),
 		messageCount: chat.messageCount,
@@ -517,8 +504,7 @@ chats.openapi(createChat, async (c) => {
 				webSearch: newChat.webSearch ?? false,
 				shareId: null,
 				sharedAt: null,
-				orgShareId: null,
-				orgShareOrganizationId: null,
+				orgShares: [],
 				createdAt: newChat.createdAt.toISOString(),
 				updatedAt: newChat.updatedAt.toISOString(),
 				messageCount: 0,
@@ -582,23 +568,18 @@ chats.openapi(getChat, async (c) => {
 			updatedAt: tables.chat.updatedAt,
 			shareId: tables.chatShare.id,
 			sharedAt: tables.chatShare.createdAt,
-			orgShareId: sql<string | null>`(
-				SELECT ${tables.chatShare.id}
-				FROM ${tables.chatShare}
-				WHERE ${tables.chatShare.chatId} = ${tables.chat.id}
-					AND ${tables.chatShare.organizationId} IS NOT NULL
-					AND ${tables.chatShare.deletedAt} IS NULL
-				ORDER BY ${tables.chatShare.createdAt} DESC
-				LIMIT 1
-			)`,
-			orgShareOrganizationId: sql<string | null>`(
-				SELECT ${tables.chatShare.organizationId}
-				FROM ${tables.chatShare}
-				WHERE ${tables.chatShare.chatId} = ${tables.chat.id}
-					AND ${tables.chatShare.organizationId} IS NOT NULL
-					AND ${tables.chatShare.deletedAt} IS NULL
-				ORDER BY ${tables.chatShare.createdAt} DESC
-				LIMIT 1
+			orgShares: sql<Array<{ id: string; organizationId: string }>>`COALESCE(
+				(
+					SELECT json_agg(json_build_object(
+						'id', cs.id,
+						'organizationId', cs.organization_id
+					))
+					FROM chat_share cs
+					WHERE cs.chat_id = ${tables.chat.id}
+						AND cs.organization_id IS NOT NULL
+						AND cs.deleted_at IS NULL
+				),
+				'[]'::json
 			)`,
 		})
 		.from(tables.chat)
@@ -639,8 +620,7 @@ chats.openapi(getChat, async (c) => {
 				webSearch: chat.webSearch ?? false,
 				shareId: chat.shareId,
 				sharedAt: chat.sharedAt?.toISOString() ?? null,
-				orgShareId: chat.orgShareId,
-				orgShareOrganizationId: chat.orgShareOrganizationId,
+				orgShares: chat.orgShares ?? [],
 				createdAt: chat.createdAt.toISOString(),
 				updatedAt: chat.updatedAt.toISOString(),
 				messageCount: messages.length,
@@ -739,7 +719,7 @@ chats.openapi(updateChat, async (c) => {
 			),
 		)
 		.limit(1);
-	const [activeOrgShare] = await db
+	const activeOrgShares = await db
 		.select({
 			id: tables.chatShare.id,
 			organizationId: tables.chatShare.organizationId,
@@ -751,9 +731,7 @@ chats.openapi(updateChat, async (c) => {
 				isNull(tables.chatShare.deletedAt),
 				isNotNull(tables.chatShare.organizationId),
 			),
-		)
-		.orderBy(desc(tables.chatShare.createdAt))
-		.limit(1);
+		);
 
 	return c.json({
 		chat: {
@@ -764,8 +742,10 @@ chats.openapi(updateChat, async (c) => {
 			webSearch: updatedChat.webSearch ?? false,
 			shareId: activeShare?.id ?? null,
 			sharedAt: activeShare?.createdAt.toISOString() ?? null,
-			orgShareId: activeOrgShare?.id ?? null,
-			orgShareOrganizationId: activeOrgShare?.organizationId ?? null,
+			orgShares: activeOrgShares.filter(
+				(r): r is { id: string; organizationId: string } =>
+					r.organizationId !== null,
+			),
 			createdAt: updatedChat.createdAt.toISOString(),
 			updatedAt: updatedChat.updatedAt.toISOString(),
 			messageCount: messageCount[0].count,
@@ -810,7 +790,14 @@ chats.openapi(shareChat, async (c) => {
 	}
 
 	const { id } = c.req.valid("param");
-	const body = shareChatSchema.parse(await c.req.json().catch(() => ({})));
+	const body = shareChatSchema.parse(
+		await c.req.json().catch((e: unknown) => {
+			if (e instanceof SyntaxError) {
+				throw new HTTPException(400, { message: "Invalid request body" });
+			}
+			return {};
+		}),
+	);
 	const organizationId = body.organizationId ?? null;
 	if (organizationId) {
 		const hasAccess = await userHasOrganizationAccess(user.id, organizationId);
@@ -1208,6 +1195,7 @@ chats.openapi(deleteOrgShare, async (c) => {
 		.where(
 			and(
 				eq(tables.chatShare.id, shareId),
+				eq(tables.chatShare.userId, user.id),
 				isNull(tables.chatShare.deletedAt),
 				isNotNull(tables.chatShare.organizationId),
 			),
@@ -1235,6 +1223,7 @@ chats.openapi(deleteOrgShare, async (c) => {
 		.where(
 			and(
 				eq(tables.chatShare.id, shareId),
+				eq(tables.chatShare.userId, user.id),
 				isNull(tables.chatShare.deletedAt),
 				isNotNull(tables.chatShare.organizationId),
 			),

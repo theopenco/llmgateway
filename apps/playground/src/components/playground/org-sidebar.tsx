@@ -481,7 +481,7 @@ export function OrgSidebar({
 					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
 				>
 					{shares.length === 0 ? (
-						<div className="flex flex-col items-center justify-center py-8 text-center">
+						<div className="flex flex-col items-center justify-center py-8 px-4 text-center">
 							<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
 							<p className="text-sm text-muted-foreground mb-2">
 								No shared chats

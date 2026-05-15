@@ -38,8 +38,7 @@ interface ChatHeaderProps {
 	currentChatId: string | null;
 	isShareChatDisabled?: boolean;
 	shareId: string | null;
-	orgShareId: string | null;
-	orgShareOrganizationId: string | null;
+	orgShares: Array<{ id: string; organizationId: string }>;
 	organizations: Organization[];
 	chatTitle?: string | null;
 	previewPrompt?: string | null;
@@ -66,8 +65,7 @@ export const ChatHeader = ({
 	currentChatId,
 	isShareChatDisabled = true,
 	shareId,
-	orgShareId,
-	orgShareOrganizationId,
+	orgShares,
 	organizations,
 	chatTitle,
 	previewPrompt,
@@ -102,8 +100,7 @@ export const ChatHeader = ({
 						currentChatId={currentChatId}
 						disabled={isShareChatDisabled}
 						shareId={shareId}
-						orgShareId={orgShareId}
-						orgShareOrganizationId={orgShareOrganizationId}
+						orgShares={orgShares}
 						organizations={organizations}
 						chatTitle={chatTitle}
 						previewPrompt={previewPrompt}
