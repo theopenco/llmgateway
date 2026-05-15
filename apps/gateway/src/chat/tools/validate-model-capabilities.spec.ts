@@ -25,6 +25,8 @@ const noVisionModel = getModel("deepseek-v4-flash");
 // (vision: false), giving us a mixed-capability fixture.
 const mixedVisionModel = getModel("qwen3-max");
 
+const embeddingModel = getModel("text-embedding-3-small");
+
 describe("validateModelCapabilities - vision", () => {
 	it("rejects when explicit provider does not support vision", () => {
 		expect(() =>
@@ -92,6 +94,50 @@ describe("validateModelCapabilities - vision", () => {
 			validateModelCapabilities(noVisionModel, "custom", undefined, {
 				hasImages: true,
 			}),
+		).not.toThrow();
+	});
+});
+
+describe("validateModelCapabilities - embeddings", () => {
+	it("rejects embedding-only models on chat completions", () => {
+		expect(() =>
+			validateModelCapabilities(
+				embeddingModel,
+				"text-embedding-3-small",
+				undefined,
+				{},
+			),
+		).toThrow(HTTPException);
+	});
+
+	it("rejects embedding-only models even with explicit provider", () => {
+		expect(() =>
+			validateModelCapabilities(
+				embeddingModel,
+				"text-embedding-3-small",
+				"openai",
+				{},
+			),
+		).toThrow(HTTPException);
+	});
+
+	it("does not reject regular chat models", () => {
+		expect(() =>
+			validateModelCapabilities(
+				noVisionModel,
+				"deepseek-v4-flash",
+				undefined,
+				{},
+			),
+		).not.toThrow();
+	});
+
+	it("skips the embedding check for auto and custom models", () => {
+		expect(() =>
+			validateModelCapabilities(embeddingModel, "auto", undefined, {}),
+		).not.toThrow();
+		expect(() =>
+			validateModelCapabilities(embeddingModel, "custom", undefined, {}),
 		).not.toThrow();
 	});
 });

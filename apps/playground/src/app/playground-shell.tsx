@@ -178,7 +178,10 @@ export async function renderPlaygroundShell({
 				/>
 			) : null}
 			<ChatPageClient
-				models={models.filter((m) => !m.output?.includes("video"))}
+				models={models.filter(
+					(m) =>
+						!m.output?.includes("video") && !m.output?.includes("embedding"),
+				)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

@@ -1,0 +1,48 @@
+---
+title: Embeddings
+description: Generate vector embeddings using OpenAI-compatible embedding models.
+icon: Database
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Embeddings
+
+LLMGateway exposes an OpenAI-compatible `/v1/embeddings` endpoint for generating vector representations of text — useful for semantic search, clustering, recommendations, and RAG.
+
+Browse available embedding models on the [models page](https://llmgateway.io/models?filters=1&embedding=true).
+
+## cURL
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/embeddings" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "text-embedding-3-small",
+    "input": "The quick brown fox jumps over the lazy dog."
+  }'
+```
+
+## OpenAI JS SDK
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+	baseURL: "https://api.llmgateway.io/v1",
+});
+
+const response = await client.embeddings.create({
+	model: "text-embedding-3-small",
+	input: "The quick brown fox jumps over the lazy dog.",
+});
+
+console.log(response.data[0].embedding);
+```
+
+<Callout type="info">
+	Embedding models are billed only for input tokens. There are no output tokens
+	since embeddings are fixed-size vectors.
+</Callout>

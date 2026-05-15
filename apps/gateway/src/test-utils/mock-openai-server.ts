@@ -1077,6 +1077,64 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/v1/embeddings", async (c) => {
+	const body = await c.req.json();
+	const inputs = Array.isArray(body.input) ? body.input : [body.input];
+	const combinedInput = inputs
+		.map((item: any) =>
+			typeof item === "string" ? item : JSON.stringify(item ?? null),
+		)
+		.join(" ");
+
+	const timeoutDelay = extractTimeoutDelay(combinedInput);
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
+
+	const statusTrigger = extractStatusCodeTrigger(combinedInput);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (combinedInput.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	const requestedDimensions =
+		typeof body.dimensions === "number" && body.dimensions > 0
+			? body.dimensions
+			: 1536;
+	const isTokenArray =
+		Array.isArray(body.input) &&
+		body.input.length > 0 &&
+		body.input.every((item: unknown) => typeof item === "number");
+	const items =
+		Array.isArray(body.input) && !isTokenArray ? body.input.length : 1;
+	const data = Array.from({ length: items }, (_, index) => ({
+		object: "embedding",
+		index,
+		embedding: Array.from({ length: requestedDimensions }, (__, dim) => {
+			const base = dim % 2 === 0 ? 0.0023 : -0.0042;
+			const offset = index / 100000;
+			return base + offset;
+		}),
+	}));
+
+	const promptTokens = combinedInput.length || 1;
+
+	return c.json({
+		object: "list",
+		data,
+		model: body.model ?? "text-embedding-3-small",
+		usage: {
+			prompt_tokens: promptTokens,
+			total_tokens: promptTokens,
+		},
+	});
+});
+
 mockOpenAIServer.post("/v1/videos", async (c) => {
 	const contentType = c.req.header("content-type") ?? "";
 	const authorization = c.req.header("authorization") ?? "";
