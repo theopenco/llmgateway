@@ -1,15 +1,19 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
+	Building2,
 	Check,
 	Copy,
+	Globe2,
 	Info,
 	Linkedin,
 	Loader2,
+	Plus,
 	Share,
 	Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -21,18 +25,38 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useDeleteChatShare, useShareChat } from "@/hooks/useChats";
+import {
+	useDeleteChatShare,
+	useDeleteOrgChatShare,
+	useShareChat,
+} from "@/hooks/useChats";
+import { useApi } from "@/lib/fetch-client";
+
+import type { Organization } from "@/lib/types";
 
 interface ShareChatDialogProps {
 	currentChatId: string;
+	disabled?: boolean;
 	shareId: string | null;
+	orgShareId: string | null;
+	orgShareOrganizationId: string | null;
+	organizations: Organization[];
 	chatTitle?: string | null;
 	previewPrompt?: string | null;
 }
+
+type ShareMode = "public" | "organization";
 
 function XIcon(props: React.SVGProps<SVGSVGElement>) {
 	return (
@@ -97,17 +121,48 @@ function clipPreview(
 	return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
+interface ShareVisibilityIndicatorProps {
+	shared: boolean;
+}
+
+function ShareVisibilityIndicator({ shared }: ShareVisibilityIndicatorProps) {
+	return shared ? (
+		<span className="flex shrink-0 items-center gap-2">
+			<Check className="size-4 text-emerald-500" />
+			<span className="sr-only">Already shared</span>
+		</span>
+	) : null;
+}
+
 export function ShareChatDialog({
 	currentChatId,
+	disabled = true,
 	shareId,
+	orgShareId,
+	orgShareOrganizationId,
+	organizations,
 	chatTitle,
 	previewPrompt,
 }: ShareChatDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [createdShareUrl, setCreatedShareUrl] = useState<string | null>(null);
+	// orgId → shareId for all known org shares (from props + created in session)
+	const [orgShareMap, setOrgShareMap] = useState<Record<string, string>>(() => {
+		if (orgShareId && orgShareOrganizationId) {
+			return { [orgShareOrganizationId]: orgShareId };
+		}
+		return {};
+	});
+	const [shareMode, setShareMode] = useState<ShareMode>("public");
+	const [selectedOrgId, setSelectedOrgId] = useState<string>("");
+	const [deletingOrgId, setDeletingOrgId] = useState<string | null>(null);
+	const wasOpenRef = useRef(false);
+	const queryClient = useQueryClient();
+	const api = useApi();
 	const shareChat = useShareChat();
 	const deleteShare = useDeleteChatShare();
+	const deleteOrgShare = useDeleteOrgChatShare(currentChatId);
 	const shareUrl = useMemo(() => {
 		if (!shareId || typeof window === "undefined") {
 			return "";
@@ -153,10 +208,29 @@ export function ShareChatDialog({
 	}, [shareUrl]);
 
 	useEffect(() => {
-		if (open) {
-			setCopied(false);
+		if (orgShareId && orgShareOrganizationId) {
+			setOrgShareMap((prev) =>
+				prev[orgShareOrganizationId] === orgShareId
+					? prev
+					: { ...prev, [orgShareOrganizationId]: orgShareId },
+			);
 		}
+	}, [orgShareId, orgShareOrganizationId]);
+
+	useEffect(() => {
+		if (open && !wasOpenRef.current) {
+			setCopied(false);
+			setShareMode("public");
+			setSelectedOrgId("");
+		}
+		wasOpenRef.current = open;
 	}, [open]);
+
+	useEffect(() => {
+		if (organizations.length === 0 && shareMode === "organization") {
+			setShareMode("public");
+		}
+	}, [organizations.length, shareMode]);
 
 	const copyLink = async (url: string) => {
 		try {
@@ -171,10 +245,26 @@ export function ShareChatDialog({
 	const createShare = async () => {
 		const data = await shareChat.mutateAsync({
 			params: { path: { id: currentChatId } },
+			body: {},
 		});
 		const url = `${window.location.origin}${data.share.url}`;
 		setCreatedShareUrl(url);
 		await copyLink(url);
+	};
+
+	const createOrgShare = async () => {
+		if (!selectedOrgId) {
+			toast.error("Select an organization");
+			return;
+		}
+
+		const data = await shareChat.mutateAsync({
+			params: { path: { id: currentChatId } },
+			body: { organizationId: selectedOrgId },
+		});
+		setOrgShareMap((prev) => ({ ...prev, [selectedOrgId]: data.share.id }));
+		setSelectedOrgId("");
+		toast.success("Shared with organization");
 	};
 
 	const deleteSharedLink = async () => {
@@ -182,32 +272,78 @@ export function ShareChatDialog({
 			params: { path: { id: currentChatId } },
 		});
 		setCreatedShareUrl(null);
-		setOpen(false);
 	};
 
-	const isShared = Boolean(shareId || createdShareUrl);
+	const deleteOrganizationShare = async (orgId: string, shareId: string) => {
+		setDeletingOrgId(orgId);
+		try {
+			await deleteOrgShare.mutateAsync({
+				params: { path: { shareId } },
+			});
+			const orgSharesQueryKey = api.queryOptions(
+				"get",
+				"/chats/org/{organizationId}/shares",
+				{ params: { path: { organizationId: orgId } } },
+			).queryKey;
+			void queryClient.invalidateQueries({ queryKey: orgSharesQueryKey });
+			setOrgShareMap((prev) =>
+				Object.fromEntries(
+					Object.entries(prev).filter(([key]) => key !== orgId),
+				),
+			);
+		} finally {
+			setDeletingOrgId(null);
+		}
+	};
+
+	const isPublicShared = Boolean(shareId || createdShareUrl);
+	const isOrganizationShared = Object.keys(orgShareMap).length > 0;
+	const isAnyShared = Boolean(
+		shareId || createdShareUrl || isOrganizationShared,
+	);
+	const isCreatingSelectedMode = shareChat.isPending;
+	const sharedOrgEntries = Object.entries(orgShareMap).map(([orgId, sId]) => ({
+		orgId,
+		shareId: sId,
+		name: organizations.find((o) => o.id === orgId)?.name ?? orgId,
+	}));
+
+	const tooltipText = disabled
+		? "Share is available after the response finishes"
+		: isAnyShared
+			? "Share active"
+			: "Share chat";
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(nextOpen) => {
+				if (disabled && nextOpen) {
+					return;
+				}
+				setOpen(nextOpen);
+			}}
+		>
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<DialogTrigger asChild>
 						<Button
 							type="button"
-							variant={isShared ? "secondary" : "ghost"}
+							variant={isAnyShared ? "secondary" : "ghost"}
 							size="icon-sm"
 							className="relative"
+							disabled={disabled}
 							aria-label="Share chat"
 						>
 							<Share className="size-4" />
-							{isShared ? (
+							{isAnyShared ? (
 								<span className="bg-primary absolute right-1 top-1 size-1.5 rounded-full" />
 							) : null}
 						</Button>
 					</DialogTrigger>
 				</TooltipTrigger>
 				<TooltipContent>
-					<p>{isShared ? "Public link active" : "Share chat"}</p>
+					<p>{tooltipText}</p>
 				</TooltipContent>
 			</Tooltip>
 			<DialogContent className="w-[calc(100vw-2rem)] max-w-[520px] min-w-0 gap-0 overflow-hidden p-0">
@@ -216,9 +352,54 @@ export function ShareChatDialog({
 						{previewTitle}
 					</DialogTitle>
 				</DialogHeader>
-				{isShared && activeShareUrl ? (
-					<div className="min-w-0 space-y-5 px-5 pb-5 sm:px-6 sm:pb-6">
-						<div className="bg-muted/60 border-border/60 relative min-w-0 overflow-hidden rounded-2xl border p-4 sm:p-5">
+				<div className="px-5 py-4 sm:px-6">
+					<div className="border-border overflow-hidden rounded-lg border">
+						<button
+							type="button"
+							className={[
+								"flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
+								shareMode === "public" ? "bg-muted/60" : "hover:bg-muted/40",
+							].join(" ")}
+							onClick={() => setShareMode("public")}
+						>
+							<Globe2 className="text-muted-foreground size-4 shrink-0" />
+							<span className="min-w-0 flex-1">
+								<span className="block text-sm font-medium">Public</span>
+								<span className="text-muted-foreground block text-sm">
+									Anyone with the link can view
+								</span>
+							</span>
+							<ShareVisibilityIndicator shared={isPublicShared} />
+						</button>
+						<button
+							type="button"
+							disabled={organizations.length === 0}
+							className={[
+								"flex w-full items-center gap-3 border-t px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+								shareMode === "organization"
+									? "bg-muted/60"
+									: "hover:bg-muted/40",
+							].join(" ")}
+							onClick={() => {
+								if (organizations.length > 0) {
+									setShareMode("organization");
+								}
+							}}
+						>
+							<Building2 className="text-muted-foreground size-4 shrink-0" />
+							<span className="min-w-0 flex-1">
+								<span className="block text-sm font-medium">Organization</span>
+								<span className="text-muted-foreground block text-sm">
+									Members of an organization can view
+								</span>
+							</span>
+							<ShareVisibilityIndicator shared={isOrganizationShared} />
+						</button>
+					</div>
+				</div>
+				{shareMode === "public" && isPublicShared && activeShareUrl ? (
+					<div className="space-y-5 px-5 pb-5 sm:px-6 sm:pb-6">
+						<div className="bg-muted/60 border-border/60 relative overflow-hidden rounded-2xl border p-4 sm:p-5">
 							{previewText ? (
 								<p className="text-foreground/90 line-clamp-4 text-sm leading-relaxed sm:text-[15px]">
 									{previewText}
@@ -306,6 +487,83 @@ export function ShareChatDialog({
 								)}
 								{deleteShare.isPending ? "Deleting..." : "Delete shared link"}
 							</Button>
+						</div>
+					</div>
+				) : shareMode === "organization" ? (
+					<div className="space-y-3 px-5 pb-5 sm:px-6 sm:pb-6">
+						<div className="flex gap-2">
+							<Select value={selectedOrgId} onValueChange={setSelectedOrgId}>
+								<SelectTrigger className="min-w-0 flex-1">
+									<SelectValue placeholder="Select organization" />
+								</SelectTrigger>
+								<SelectContent>
+									{organizations.map((org) => (
+										<SelectItem
+											key={org.id}
+											value={org.id}
+											disabled={Boolean(orgShareMap[org.id])}
+										>
+											{org.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Button
+								type="button"
+								size="icon"
+								disabled={
+									!selectedOrgId ||
+									Boolean(orgShareMap[selectedOrgId]) ||
+									isCreatingSelectedMode
+								}
+								onClick={createOrgShare}
+								aria-label="Add organization"
+								className="sm:w-auto sm:px-4"
+							>
+								{isCreatingSelectedMode ? (
+									<Loader2 className="size-4 animate-spin" />
+								) : (
+									<>
+										<Plus className="size-4 sm:hidden" />
+										<span className="hidden sm:inline">Add</span>
+									</>
+								)}
+							</Button>
+						</div>
+						{sharedOrgEntries.length > 0 ? (
+							<div className="border-border overflow-hidden rounded-lg border">
+								{sharedOrgEntries.map(({ orgId, shareId: sId, name }) => (
+									<div
+										key={orgId}
+										className="flex items-center gap-3 px-3 py-2 text-sm [&:not(:first-child)]:border-t"
+									>
+										<span className="min-w-0 flex-1 truncate">{name}</span>
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-sm"
+											className="text-destructive hover:text-destructive shrink-0"
+											disabled={deletingOrgId !== null}
+											onClick={() => deleteOrganizationShare(orgId, sId)}
+											aria-label={`Remove ${name}`}
+										>
+											{deletingOrgId === orgId ? (
+												<Loader2 className="size-3.5 animate-spin" />
+											) : (
+												<Trash2 className="size-3.5" />
+											)}
+										</Button>
+									</div>
+								))}
+							</div>
+						) : null}
+						<div className="text-muted-foreground flex gap-2 text-xs leading-relaxed">
+							<Info className="mt-0.5 size-3.5 shrink-0" />
+							<p>
+								Only messages up to this point will be shared. Members of the
+								selected organization can view the snapshot and fork it to
+								continue privately.
+							</p>
 						</div>
 					</div>
 				) : (

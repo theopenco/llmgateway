@@ -70,6 +70,7 @@ import { useAuth } from "@/lib/auth-client";
 
 import { ChatSearchDialog } from "./chat-search-dialog";
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
+import { OrganizationSwitcher } from "./organization-switcher";
 // import { ProjectSwitcher } from "./project-switcher";
 
 import type { Organization, Project } from "@/lib/types";
@@ -373,7 +374,9 @@ export const ChatSidebar = function ChatSidebar({
 	clearMessages,
 	className,
 	isLoading: isPageLoading = false,
+	organizations,
 	selectedOrganization,
+	onSelectOrganization,
 }: ChatSidebarProps & { ref?: React.RefObject<ChatSidebarHandle | null> }) {
 	const listContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -390,6 +393,7 @@ export const ChatSidebar = function ChatSidebar({
 	const pathname = usePathname();
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile } = useSidebar();
+	const showOrganizationSwitcher = pathname === "/";
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
@@ -410,7 +414,7 @@ export const ChatSidebar = function ChatSidebar({
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
 	const [isMac, setIsMac] = useState(false);
 
-	const chats = chatsData?.chats ?? [];
+	const chats = useMemo(() => chatsData?.chats ?? [], [chatsData?.chats]);
 	const currentTheme = theme === "system" ? systemTheme : theme;
 	const toggleTheme = useCallback(() => {
 		setTheme(currentTheme === "dark" ? "light" : "dark");
@@ -726,7 +730,7 @@ export const ChatSidebar = function ChatSidebar({
 				</SidebarMenu>
 			</SidebarHeader>
 
-			<SidebarContent className="overflow-hidden py-2">
+			<SidebarContent className="overflow-hidden pb-2">
 				{/* <SidebarMenu>
 					<SidebarMenuItem>
 						<OrganizationSwitcher
@@ -751,8 +755,21 @@ export const ChatSidebar = function ChatSidebar({
 					</SidebarMenuItem>
 				</SidebarMenu> */}
 				<div>
-					<div className="mx-2 mb-3 border-t border-sidebar-border" />
-					<SidebarMenu className=" px-2">
+					<div className="mx-2 mb-2 border-t border-sidebar-border" />
+					{organizations.length > 0 && showOrganizationSwitcher ? (
+						<>
+							<SidebarMenu className="px-2 pb-2 group-data-[collapsible=icon]:hidden">
+								<SidebarMenuItem>
+									<OrganizationSwitcher
+										organizations={organizations}
+										selectedOrganization={selectedOrganization}
+										onSelectOrganization={onSelectOrganization}
+									/>
+								</SidebarMenuItem>
+							</SidebarMenu>
+						</>
+					) : null}
+					<SidebarMenu className="px-2">
 						<SidebarMenuItem>
 							<SidebarMenuButton
 								type="button"

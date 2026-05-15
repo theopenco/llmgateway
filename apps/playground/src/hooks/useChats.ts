@@ -12,6 +12,8 @@ export interface Chat {
 	webSearch: boolean;
 	shareId: string | null;
 	sharedAt: string | null;
+	orgShareId: string | null;
+	orgShareOrganizationId: string | null;
 	createdAt: string;
 	updatedAt: string;
 	messageCount: number;
@@ -107,15 +109,24 @@ export function useShareChat() {
 
 	return api.useMutation("post", "/chats/{id}/share", {
 		onSuccess: (_data, variables) => {
-			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
-			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
-
 			const chatId = variables.params?.path?.id;
 			if (chatId) {
 				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
 					params: { path: { id: chatId } },
 				}).queryKey;
 				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
+
+			const organizationId = variables.body?.organizationId;
+			if (organizationId) {
+				const orgSharesQueryKey = api.queryOptions(
+					"get",
+					"/chats/org/{organizationId}/shares",
+					{
+						params: { path: { organizationId } },
+					},
+				).queryKey;
+				void queryClient.invalidateQueries({ queryKey: orgSharesQueryKey });
 			}
 		},
 		onError: (error) => {
@@ -130,9 +141,6 @@ export function useDeleteChatShare() {
 
 	return api.useMutation("delete", "/chats/{id}/share", {
 		onSuccess: (_data, variables) => {
-			const chatsQueryKey = api.queryOptions("get", "/chats").queryKey;
-			void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
-
 			const chatId = variables.params?.path?.id;
 			if (chatId) {
 				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
@@ -146,6 +154,87 @@ export function useDeleteChatShare() {
 			toast.error(getErrorMessage(error));
 		},
 	});
+}
+
+export function useDeleteOrgChatShare(
+	chatId?: string,
+	organizationId?: string,
+) {
+	const queryClient = useQueryClient();
+	const api = useApi();
+
+	return api.useMutation("delete", "/chats/org-share/{shareId}", {
+		onSuccess: (_data, variables) => {
+			if (chatId) {
+				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
+					params: { path: { id: chatId } },
+				}).queryKey;
+				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
+
+			if (organizationId) {
+				const orgSharesQueryKey = api.queryOptions(
+					"get",
+					"/chats/org/{organizationId}/shares",
+					{
+						params: { path: { organizationId } },
+					},
+				).queryKey;
+				void queryClient.invalidateQueries({ queryKey: orgSharesQueryKey });
+			}
+
+			const shareId = variables.params?.path?.shareId;
+			if (shareId) {
+				const orgShareQueryKey = api.queryOptions(
+					"get",
+					"/chats/org-share/{shareId}",
+					{
+						params: { path: { shareId } },
+					},
+				).queryKey;
+				void queryClient.invalidateQueries({ queryKey: orgShareQueryKey });
+			}
+
+			toast("Organization share deleted");
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export function useOrgShares(organizationId: string | null) {
+	const api = useApi();
+
+	return api.useQuery(
+		"get",
+		"/chats/org/{organizationId}/shares",
+		{
+			params: {
+				path: { organizationId: organizationId ?? "" },
+			},
+		},
+		{
+			enabled: !!organizationId,
+		},
+	);
+}
+
+export function useOrgShare(shareId: string | null) {
+	const api = useApi();
+
+	return api.useQuery(
+		"get",
+		"/chats/org-share/{shareId}",
+		{
+			params: {
+				path: { shareId: shareId ?? "" },
+			},
+		},
+		{
+			enabled: !!shareId,
+		},
+	);
 }
 
 export function useForkSharedChat() {
