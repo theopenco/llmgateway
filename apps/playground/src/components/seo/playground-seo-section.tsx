@@ -11,13 +11,13 @@ interface VariantContent {
 
 const variants: Record<SeoVariant, VariantContent> = {
 	chat: {
-		h1: "Free AI chat playground — talk to 210+ models in one place",
+		h1: "AI chat playground — talk to 210+ models in one place",
 		intro:
-			"Chat with GPT, Claude, Gemini, Grok, DeepSeek, Llama, Mistral, and more from a single interface. Switch models mid-conversation, attach files and images, and stream responses in real time. No API key required for the free tier.",
+			"Chat with GPT, Claude, Gemini, Grok, DeepSeek, Llama, Mistral, and more from a single interface. Switch models mid-conversation, attach files and images, and stream responses in real time. Pay-as-you-go from a single credit balance — no per-provider billing setup.",
 		bullets: [
 			"Supports 210+ models across OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, Mistral, and other providers.",
 			"Stream responses, fork past conversations, and share read-only chat snapshots via public links.",
-			"Bring your own API key or use included credits — the playground routes through LLM Gateway for usage tracking and cost analytics.",
+			"One credit balance covers every provider — top up once, route requests anywhere, get unified usage and cost analytics through LLM Gateway.",
 		],
 		related: [
 			{ href: "/image", label: "AI image generation" },
