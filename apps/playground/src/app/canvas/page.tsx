@@ -44,26 +44,7 @@ export default async function CanvasPage({
 				},
 			)) as { projects: Project[] };
 		} catch (error) {
-			console.warn(
-				"Failed to fetch projects for organization:",
-				orgId,
-				error,
-			);
-		}
-	}
-
-	if (
-		projectId &&
-		initialProjectsData &&
-		typeof initialProjectsData === "object" &&
-		"projects" in initialProjectsData
-	) {
-		const projects = (initialProjectsData as { projects: Project[] })
-			.projects;
-		const currentProject = projects.find((p: Project) => p.id === projectId);
-
-		if (!currentProject) {
-			notFound();
+			console.warn("Failed to fetch projects for organization:", orgId, error);
 		}
 	}
 
@@ -106,7 +87,7 @@ export default async function CanvasPage({
 	let selectedProject: Project | null = null;
 	if (projectId) {
 		selectedProject = projects.find((p) => p.id === projectId) ?? null;
-		if (projectId && !selectedProject && projectId.length > 0) {
+		if (!selectedProject) {
 			notFound();
 		}
 	} else if (selectedOrganization?.id) {

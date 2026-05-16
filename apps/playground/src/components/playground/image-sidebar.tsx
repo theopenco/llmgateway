@@ -13,9 +13,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
+import { useCallback } from "react";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -84,6 +87,12 @@ export function ImageSidebar({
 			},
 		});
 	};
+
+	const { theme, setTheme, systemTheme } = useTheme();
+	const currentTheme = theme === "system" ? systemTheme : theme;
+	const toggleTheme = useCallback(() => {
+		setTheme(currentTheme === "dark" ? "light" : "dark");
+	}, [currentTheme, setTheme]);
 
 	const isAuthenticated = !!user;
 
@@ -219,10 +228,14 @@ export function ImageSidebar({
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 					<SidebarMenuItem>
-						<SidebarMenuButton asChild>
+						<SidebarMenuButton
+							asChild
+							tooltip="Canvas"
+							isActive={pathname === "/canvas"}
+						>
 							<Link href="/canvas">
 								<PenTool className="h-4 w-4" />
-								Canvas
+								<span>Canvas</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -339,6 +352,22 @@ export function ImageSidebar({
 										<ExternalLink className="mr-2 h-4 w-4" />
 										Dashboard
 									</a>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									className="justify-between gap-3"
+									onSelect={(event) => {
+										event.preventDefault();
+										toggleTheme();
+									}}
+								>
+									<span>Theme</span>
+									<div
+										onClick={(event) => event.stopPropagation()}
+										onKeyDown={(event) => event.stopPropagation()}
+									>
+										<ThemeToggle className="shrink-0" size="compact" />
+									</div>
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
 								<DropdownMenuItem onClick={logout}>

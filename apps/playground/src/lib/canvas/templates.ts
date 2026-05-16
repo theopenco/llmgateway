@@ -184,8 +184,8 @@ export const templates: CanvasTemplate[] = [
 					},
 				},
 				actions: {
-					type: "Stack",
-					props: { direction: "row", gap: 2, justify: "end" },
+					type: "Grid",
+					props: { columns: 2, gap: 2 },
 					children: ["resetBtn", "submitBtn"],
 				},
 				resetBtn: {
@@ -227,8 +227,8 @@ export const templates: CanvasTemplate[] = [
 					},
 				},
 				cards: {
-					type: "Grid",
-					props: { columns: 3, gap: 4 },
+					type: "Stack",
+					props: { direction: "row", gap: 4 },
 					children: ["free", "pro", "enterprise"],
 				},
 				free: {
@@ -397,7 +397,7 @@ export const emptySpec: Spec = {
 	elements: {
 		root: {
 			type: "Stack",
-			props: { direction: "column", gap: 4 },
+			props: { direction: "column", gap: 4, align: "center" },
 			children: ["heading", "text"],
 		},
 		heading: {

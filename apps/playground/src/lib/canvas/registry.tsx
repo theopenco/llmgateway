@@ -13,7 +13,10 @@ import {
 	RadialBarChartComponent,
 } from "./chart-components";
 
-import type { ComponentRegistry, ComponentRenderProps } from "@json-render/react";
+import type {
+	ComponentRegistry,
+	ComponentRenderProps,
+} from "@json-render/react";
 
 const { registry: shadcnRegistry } = defineRegistry(shadcnCatalog, {
 	components: {

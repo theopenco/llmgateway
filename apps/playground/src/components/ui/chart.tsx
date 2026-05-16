@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 const THEMES = { light: "", dark: ".dark" } as const;
 
 export type ChartConfig = {
-	[k in string]: {
+	[_k in string]: {
 		label?: React.ReactNode;
 		icon?: React.ComponentType;
 	} & (
@@ -18,14 +18,14 @@ export type ChartConfig = {
 	);
 };
 
-type ChartContextProps = {
+interface ChartContextProps {
 	config: ChartConfig;
-};
+}
 
 const ChartContext = React.createContext<ChartContextProps | null>(null);
 
 function useChart() {
-	const context = React.useContext(ChartContext);
+	const context = React.use(ChartContext);
 
 	if (!context) {
 		throw new Error("useChart must be used within a <ChartContainer />");
@@ -50,7 +50,7 @@ function ChartContainer({
 	const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`;
 
 	return (
-		<ChartContext.Provider value={{ config }}>
+		<ChartContext value={{ config }}>
 			<div
 				data-slot="chart"
 				data-chart={chartId}
@@ -65,7 +65,7 @@ function ChartContainer({
 					{children}
 				</RechartsPrimitive.ResponsiveContainer>
 			</div>
-		</ChartContext.Provider>
+		</ChartContext>
 	);
 }
 
@@ -78,6 +78,7 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
 		return null;
 	}
 
+	/* eslint-disable @eslint-react/dom/no-dangerously-set-innerhtml */
 	return (
 		<style
 			dangerouslySetInnerHTML={{
@@ -100,6 +101,7 @@ ${colorConfig
 			}}
 		/>
 	);
+	/* eslint-enable @eslint-react/dom/no-dangerously-set-innerhtml */
 };
 
 const ChartTooltip = RechartsPrimitive.Tooltip;

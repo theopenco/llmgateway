@@ -12,14 +12,17 @@ import {
 	Users,
 	ImagePlus,
 	Film,
+	PenTool,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -220,6 +223,12 @@ export function OrgSidebar({
 
 	const { data: orgSharesData, isLoading: isSharesLoading } =
 		useOrgShares(organizationId);
+
+	const { theme, setTheme, systemTheme } = useTheme();
+	const currentTheme = theme === "system" ? systemTheme : theme;
+	const toggleTheme = useCallback(() => {
+		setTheme(currentTheme === "dark" ? "light" : "dark");
+	}, [currentTheme, setTheme]);
 
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
 	const [isMac, setIsMac] = useState(false);
@@ -442,6 +451,14 @@ export function OrgSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton asChild tooltip="Canvas">
+							<Link href="/canvas">
+								<PenTool className="h-4 w-4" />
+								<span>Canvas</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarHeader>
 
@@ -558,6 +575,22 @@ export function OrgSidebar({
 										<ExternalLink className="mr-2 h-4 w-4" />
 										Dashboard
 									</a>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									className="justify-between gap-3"
+									onSelect={(event) => {
+										event.preventDefault();
+										toggleTheme();
+									}}
+								>
+									<span>Theme</span>
+									<div
+										onClick={(event) => event.stopPropagation()}
+										onKeyDown={(event) => event.stopPropagation()}
+									>
+										<ThemeToggle className="shrink-0" size="compact" />
+									</div>
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
 								<DropdownMenuItem onClick={logout}>

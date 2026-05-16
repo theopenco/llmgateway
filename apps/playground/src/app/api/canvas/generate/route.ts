@@ -1,6 +1,7 @@
 import { streamText } from "ai";
 import { cookies } from "next/headers";
 
+import { catalog } from "@/lib/canvas/catalog";
 import { getUser } from "@/lib/getUser";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
@@ -10,7 +11,6 @@ export const maxDuration = 300;
 interface CanvasGenerateBody {
 	prompt: string;
 	model?: string;
-	systemPrompt: string;
 }
 
 export async function POST(req: Request) {
@@ -23,7 +23,8 @@ export async function POST(req: Request) {
 	}
 
 	const body = (await req.json()) as CanvasGenerateBody;
-	const { prompt, model, systemPrompt } = body;
+	const { prompt, model } = body;
+	const systemPrompt = catalog.prompt();
 
 	if (!prompt) {
 		return new Response(JSON.stringify({ error: "Missing prompt" }), {
@@ -59,7 +60,9 @@ export async function POST(req: Request) {
 	const selectedModel = model ?? "anthropic/claude-sonnet-4-20250514";
 
 	const result = streamText({
-		model: llmgateway.chat(selectedModel as Parameters<typeof llmgateway.chat>[0]),
+		model: llmgateway.chat(
+			selectedModel as Parameters<typeof llmgateway.chat>[0],
+		),
 		system: systemPrompt,
 		messages: [{ role: "user", content: prompt }],
 	});

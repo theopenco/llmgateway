@@ -327,14 +327,16 @@ export function PieChartComponent({
 												<tspan
 													x={viewBox.cx}
 													y={viewBox.cy}
-													className="fill-foreground text-3xl font-bold"
+													fill="currentColor"
+													style={{ fontSize: "1.875rem", fontWeight: 700 }}
 												>
 													{total.toLocaleString()}
 												</tspan>
 												<tspan
 													x={viewBox.cx}
 													y={(viewBox.cy ?? 0) + 24}
-													className="fill-muted-foreground"
+													fill="currentColor"
+													fillOpacity={0.6}
 												>
 													Total
 												</tspan>
@@ -364,6 +366,15 @@ export function RadarChartComponent({
 		axisKey: string;
 	};
 }) {
+	if (!props.data?.length || !props.series?.length) {
+		return (
+			<ChartWrapper title={props.title} description={props.description}>
+				<div className="flex h-[300px] items-center justify-center text-muted-foreground">
+					No data
+				</div>
+			</ChartWrapper>
+		);
+	}
 	const config = buildConfig(props.series);
 
 	return (
@@ -400,6 +411,15 @@ export function RadialBarChartComponent({
 		showLabel?: boolean;
 	};
 }) {
+	if (!props.data?.length) {
+		return (
+			<ChartWrapper title={props.title} description={props.description}>
+				<div className="flex h-[300px] items-center justify-center text-muted-foreground">
+					No data
+				</div>
+			</ChartWrapper>
+		);
+	}
 	const chartData = props.data.map((d, i) => ({
 		...d,
 		fill: d.fill ?? CHART_COLORS[i % CHART_COLORS.length],
