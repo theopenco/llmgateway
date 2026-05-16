@@ -86,21 +86,28 @@ function deriveShareDescription(messages: SharedMessage[]): {
 }
 
 function meetsIndexThreshold(messages: SharedMessage[]): boolean {
-	const userMessage = messages.find((m) => m.role === "user");
-	const assistantMessage = messages.find((m) => m.role === "assistant");
-	if (!userMessage || !assistantMessage) {
-		return false;
+	let hasValidUserTurn = false;
+	let hasValidAssistantTurn = false;
+	for (const message of messages) {
+		const text = message.content?.replace(/\s+/g, " ").trim() ?? "";
+		if (
+			!hasValidUserTurn &&
+			message.role === "user" &&
+			text.length >= MIN_USER_PROMPT_CHARS
+		) {
+			hasValidUserTurn = true;
+		} else if (
+			!hasValidAssistantTurn &&
+			message.role === "assistant" &&
+			text.length >= MIN_ASSISTANT_RESPONSE_CHARS
+		) {
+			hasValidAssistantTurn = true;
+		}
+		if (hasValidUserTurn && hasValidAssistantTurn) {
+			return true;
+		}
 	}
-	const userText = userMessage.content?.replace(/\s+/g, " ").trim() ?? "";
-	const assistantText =
-		assistantMessage.content?.replace(/\s+/g, " ").trim() ?? "";
-	if (userText.length < MIN_USER_PROMPT_CHARS) {
-		return false;
-	}
-	if (assistantText.length < MIN_ASSISTANT_RESPONSE_CHARS) {
-		return false;
-	}
-	return true;
+	return hasValidUserTurn && hasValidAssistantTurn;
 }
 
 export async function generateMetadata({
