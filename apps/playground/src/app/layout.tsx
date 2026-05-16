@@ -25,8 +25,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
 	metadataBase: new URL("https://chat.llmgateway.io"),
 	title: {
-		default:
-			"LLM Gateway Playground - Chat, Image & Video Generation with 210+ AI Models",
+		default: "Free AI Playground — Chat with 210+ Models (GPT, Claude, Gemini)",
 		template: "%s | LLM Gateway Playground",
 	},
 	description:
@@ -46,7 +45,7 @@ export const metadata: Metadata = {
 		},
 	},
 	openGraph: {
-		title: "LLM Gateway Playground - Chat, Image & Video Generation",
+		title: "Free AI Playground — Chat with 210+ Models (GPT, Claude, Gemini)",
 		description:
 			"Test and compare 210+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
 		images: ["/opengraph.png?v=1"],
@@ -57,7 +56,7 @@ export const metadata: Metadata = {
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "LLM Gateway Playground - Chat, Image & Video Generation",
+		title: "Free AI Playground — Chat with 210+ Models (GPT, Claude, Gemini)",
 		description:
 			"Test and compare 210+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
 		images: ["/opengraph.png?v=1"],
@@ -79,6 +78,27 @@ const webSiteSchema = {
 	},
 };
 
+const softwareApplicationSchema = {
+	"@context": "https://schema.org",
+	"@type": "SoftwareApplication",
+	name: "LLM Gateway Playground",
+	url: "https://chat.llmgateway.io",
+	applicationCategory: "DeveloperApplication",
+	operatingSystem: "Web",
+	description:
+		"Free web playground to chat with 210+ AI models including GPT, Claude, Gemini, plus image and video generation.",
+	offers: {
+		"@type": "Offer",
+		price: "0",
+		priceCurrency: "USD",
+	},
+	publisher: {
+		"@type": "Organization",
+		name: "LLM Gateway",
+		url: "https://llmgateway.io",
+	},
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
 	const config = getConfig();
 
@@ -90,6 +110,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 					dangerouslySetInnerHTML={{
 						__html: JSON.stringify(webSiteSchema),
+					}}
+				/>
+				<script
+					type="application/ld+json"
+					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+					dangerouslySetInnerHTML={{
+						__html: JSON.stringify(softwareApplicationSchema),
 					}}
 				/>
 			</head>

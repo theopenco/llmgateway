@@ -6,12 +6,14 @@ interface ShareListResponse {
 	shares: Array<{ id: string; updatedAt: string }>;
 }
 
+export const revalidate = 3600;
+
 async function fetchPublicShares(): Promise<ShareListResponse["shares"]> {
 	const config = getConfig();
 	try {
 		const response = await fetch(
 			`${config.apiBackendUrl}/public/chats/share?limit=5000`,
-			{ cache: "no-store" },
+			{ next: { revalidate: 3600 } },
 		);
 		if (!response.ok) {
 			return [];
@@ -48,6 +50,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/group`,
+			lastModified: now,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/canvas`,
 			lastModified: now,
 			changeFrequency: "weekly",
 			priority: 0.8,
