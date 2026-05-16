@@ -2098,11 +2098,12 @@ export async function prepareRequestBody(
 					// room for the thinking budget plus a minimum response.
 					const bedrockModelMaxOutput = bedrockProviderMapping?.maxOutput;
 					const reasoningFloor = thinkingBudget + 1000;
-					if (!inferenceConfig.maxTokens) {
+					if (inferenceConfig.maxTokens === undefined) {
 						inferenceConfig.maxTokens =
 							max_tokens ??
 							Math.max(bedrockModelMaxOutput ?? reasoningFloor, reasoningFloor);
-					} else if (inferenceConfig.maxTokens < reasoningFloor) {
+					}
+					if (inferenceConfig.maxTokens < reasoningFloor) {
 						inferenceConfig.maxTokens = reasoningFloor;
 					}
 				}
@@ -2207,12 +2208,26 @@ export async function prepareRequestBody(
 
 			requestBody.generationConfig = {};
 
+			// Gemini 3.x has a known bug where omitting maxOutputTokens causes the
+			// request to hang indefinitely (googleapis/python-genai#2062). Fall
+			// back to the model's advertised maxOutput when the caller omits the
+			// param. For Gemini 2.x we leave it unset on purpose — thinking
+			// tokens count against the same budget, so a low default starves the
+			// response. The provider's own default wins there.
+			const isGemini3 = usedModel.startsWith("gemini-3");
+			const googleProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			) as ProviderModelMapping | undefined;
+
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.generationConfig.temperature = temperature;
 			}
 			if (max_tokens !== undefined) {
 				requestBody.generationConfig.maxOutputTokens = max_tokens;
+			} else if (isGemini3 && googleProviderMapping?.maxOutput !== undefined) {
+				requestBody.generationConfig.maxOutputTokens =
+					googleProviderMapping.maxOutput;
 			}
 			if (top_p !== undefined) {
 				requestBody.generationConfig.topP = top_p;
@@ -2236,8 +2251,30 @@ export async function prepareRequestBody(
 					includeThoughts: true,
 				};
 
-				// Use reasoning_max_tokens if provided, otherwise map reasoning_effort to thinking_budget
-				if (reasoning_max_tokens !== undefined) {
+				if (isGemini3) {
+					// Gemini 3+ replaces the numeric thinkingBudget with a
+					// categorical thinkingLevel ("low" | "high"). Sending
+					// thinkingBudget on a Gemini 3 model is rejected upstream,
+					// and reasoning_max_tokens has no analogue here — the model
+					// chooses its own budget within the chosen level.
+					const getThinkingLevel = (effort?: string): "low" | "high" => {
+						switch (effort) {
+							case "minimal":
+							case "low":
+								return "low";
+							case "high":
+							case "xhigh":
+								return "high";
+							case "medium":
+							default:
+								return "high";
+						}
+					};
+					if (reasoning_effort !== undefined) {
+						requestBody.generationConfig.thinkingConfig.thinkingLevel =
+							getThinkingLevel(reasoning_effort);
+					}
+				} else if (reasoning_max_tokens !== undefined) {
 					// Google's thinkingBudget: just use the provided value directly
 					// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
 					requestBody.generationConfig.thinkingConfig.thinkingBudget =
