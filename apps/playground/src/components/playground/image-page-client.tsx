@@ -87,7 +87,7 @@ export default function ImagePageClient({
 				return models;
 			}
 		}
-		if (typeof window !== "undefined") {
+		try {
 			const stored = localStorage.getItem(IMAGE_MODEL_KEY);
 			if (stored) {
 				const models = stored.split(",").filter(Boolean);
@@ -95,6 +95,8 @@ export default function ImagePageClient({
 					return models;
 				}
 			}
+		} catch {
+			// ignore private-mode / quota errors
 		}
 		const first = imageGenModels[0];
 		return first ? [first.id] : [];
@@ -218,7 +220,11 @@ export default function ImagePageClient({
 
 	useEffect(() => {
 		if (selectedModels.length > 0) {
-			localStorage.setItem(IMAGE_MODEL_KEY, selectedModels.join(","));
+			try {
+				localStorage.setItem(IMAGE_MODEL_KEY, selectedModels.join(","));
+			} catch {
+				// ignore private-mode / quota errors
+			}
 		}
 	}, [selectedModels]);
 

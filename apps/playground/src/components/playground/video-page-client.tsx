@@ -98,7 +98,7 @@ export default function VideoPageClient({
 				return models;
 			}
 		}
-		if (typeof window !== "undefined") {
+		try {
 			const stored = localStorage.getItem(VIDEO_MODEL_KEY);
 			if (stored) {
 				const models = stored.split(",").filter(Boolean);
@@ -106,6 +106,8 @@ export default function VideoPageClient({
 					return models;
 				}
 			}
+		} catch {
+			// ignore private-mode / quota errors
 		}
 		const first = videoGenModels[0];
 		return first ? [first.id] : [];
@@ -369,7 +371,11 @@ export default function VideoPageClient({
 
 	useEffect(() => {
 		if (selectedModels.length > 0) {
-			localStorage.setItem(VIDEO_MODEL_KEY, selectedModels.join(","));
+			try {
+				localStorage.setItem(VIDEO_MODEL_KEY, selectedModels.join(","));
+			} catch {
+				// ignore private-mode / quota errors
+			}
 		}
 	}, [selectedModels]);
 

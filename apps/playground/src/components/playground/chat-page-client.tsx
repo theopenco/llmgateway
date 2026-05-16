@@ -278,16 +278,18 @@ export default function ChatPageClient({
 		if (modelFromUrl) {
 			return modelFromUrl;
 		}
-		if (typeof window !== "undefined") {
+		try {
 			const stored = localStorage.getItem(CHAT_MODEL_KEY);
 			if (stored) {
 				return stored;
 			}
+		} catch {
+			// ignore private-mode / quota errors
 		}
 		return "auto";
 	};
 
-	const [selectedModel, setSelectedModel] = useState(getInitialModel());
+	const [selectedModel, setSelectedModel] = useState(() => getInitialModel());
 	const [reasoningEffort, setReasoningEffort] = useState<
 		"" | "minimal" | "low" | "medium" | "high"
 	>("");
@@ -1344,7 +1346,11 @@ export default function ChatPageClient({
 
 	useEffect(() => {
 		if (selectedModel) {
-			localStorage.setItem(CHAT_MODEL_KEY, selectedModel);
+			try {
+				localStorage.setItem(CHAT_MODEL_KEY, selectedModel);
+			} catch {
+				// ignore private-mode / quota errors
+			}
 		}
 	}, [selectedModel]);
 

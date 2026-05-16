@@ -1075,10 +1075,13 @@ export function ModelSelector({
 			});
 		}
 		if (filters.showOnlyWithKeys) {
+			const now = new Date();
 			list = list.filter((e) => {
 				if (e.isRoot) {
-					return e.model.mappings?.some((m) =>
-						providersWithKeys.has(m.providerId),
+					return e.model.mappings?.some(
+						(m) =>
+							providersWithKeys.has(m.providerId) &&
+							!(m.deactivatedAt && new Date(m.deactivatedAt) <= now),
 					);
 				}
 				return e.mapping ? providersWithKeys.has(e.mapping.providerId) : false;

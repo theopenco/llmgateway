@@ -393,6 +393,9 @@ keysProvider.openapi(listActive, async (c) => {
 			organizationId: {
 				in: organizationIds,
 			},
+			status: {
+				eq: "active",
+			},
 		},
 		columns: {
 			provider: true,
