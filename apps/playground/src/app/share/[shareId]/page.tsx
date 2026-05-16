@@ -231,12 +231,12 @@ export default async function SharedChatPage({
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(articleSchema) }}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbSchema) }}
 			/>
 			<div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-8">
 				<header className="mx-auto w-full max-w-4xl pb-4">
@@ -343,6 +343,13 @@ function toUiMessage(message: SharedMessage): UIMessage {
 		metadata: parsePlaygroundMessageMetadata(message.metadata),
 		parts,
 	} satisfies UIMessage;
+}
+
+function serializeJsonLd(value: unknown): string {
+	return JSON.stringify(value)
+		.replace(/</g, "\\u003c")
+		.replace(/>/g, "\\u003e")
+		.replace(/&/g, "\\u0026");
 }
 
 function isStoredImagePart(value: unknown): value is StoredImagePart {
