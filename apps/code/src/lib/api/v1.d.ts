@@ -5796,6 +5796,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/keys/provider/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of provider keys with minimal fields. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providerKeys: {
+                                provider: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/keys/provider/{id}": {
         parameters: {
             query?: never;

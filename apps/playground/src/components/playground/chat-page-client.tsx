@@ -271,16 +271,25 @@ export default function ChatPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
+	const CHAT_MODEL_KEY = "llmgateway_model_chat";
+
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
 		if (modelFromUrl) {
 			return modelFromUrl;
 		}
-		// Default to "auto" model which auto-selects the best provider
+		try {
+			const stored = localStorage.getItem(CHAT_MODEL_KEY);
+			if (stored) {
+				return stored;
+			}
+		} catch {
+			// ignore private-mode / quota errors
+		}
 		return "auto";
 	};
 
-	const [selectedModel, setSelectedModel] = useState(getInitialModel());
+	const [selectedModel, setSelectedModel] = useState(() => getInitialModel());
 	const [reasoningEffort, setReasoningEffort] = useState<
 		"" | "minimal" | "low" | "medium" | "high"
 	>("");
@@ -1334,6 +1343,16 @@ export default function ChatPageClient({
 		const qs = currentParams.toString();
 		router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
 	}, [selectedModel, pathname, router]);
+
+	useEffect(() => {
+		if (selectedModel) {
+			try {
+				localStorage.setItem(CHAT_MODEL_KEY, selectedModel);
+			} catch {
+				// ignore private-mode / quota errors
+			}
+		}
+	}, [selectedModel]);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;

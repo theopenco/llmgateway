@@ -348,6 +348,64 @@ keysProvider.openapi(list, async (c) => {
 	});
 });
 
+// List provider keys with minimal fields (provider + status only)
+const listActive = createRoute({
+	method: "get",
+	path: "/provider/active",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						providerKeys: z
+							.array(
+								z.object({
+									provider: z.string(),
+									status: z.enum(["active", "inactive", "deleted"]).nullable(),
+								}),
+							)
+							.openapi({}),
+					}),
+				},
+			},
+			description: "List of provider keys with minimal fields.",
+		},
+	},
+});
+
+keysProvider.openapi(listActive, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
+
+	if (!organizationIds.length) {
+		return c.json({ providerKeys: [] });
+	}
+
+	const providerKeys = await db.query.providerKey.findMany({
+		where: {
+			organizationId: {
+				in: organizationIds,
+			},
+			status: {
+				eq: "active",
+			},
+		},
+		columns: {
+			provider: true,
+			status: true,
+		},
+	});
+
+	return c.json({ providerKeys });
+});
+
 // Soft-delete a provider key
 const deleteKey = createRoute({
 	method: "delete",
