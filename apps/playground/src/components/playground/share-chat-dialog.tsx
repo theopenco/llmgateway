@@ -94,12 +94,12 @@ function ShareSocialButton({ href, label, children }: ShareSocialButtonProps) {
 			href={href}
 			target="_blank"
 			rel="noopener noreferrer"
-			className="group flex w-full flex-col items-center gap-1.5 sm:gap-2"
+			className="group flex min-w-0 w-full flex-col items-center gap-1.5 sm:gap-2"
 		>
-			<span className="bg-foreground text-background flex size-11 items-center justify-center rounded-full transition-transform group-hover:scale-105 sm:size-14">
+			<span className="bg-foreground text-background flex size-10 shrink-0 items-center justify-center rounded-full transition-transform group-hover:scale-105 sm:size-14">
 				{children}
 			</span>
-			<span className="text-foreground text-xs font-medium sm:text-sm">
+			<span className="text-foreground max-w-full truncate text-xs font-medium sm:text-sm">
 				{label}
 			</span>
 		</a>
@@ -346,18 +346,18 @@ export function ShareChatDialog({
 					<p>{tooltipText}</p>
 				</TooltipContent>
 			</Tooltip>
-			<DialogContent className="w-[calc(100vw-2rem)] max-w-[520px] min-w-0 gap-0 overflow-hidden p-0">
-				<DialogHeader className="px-5 pt-5 text-left sm:px-6 sm:pt-6">
+			<DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[520px] min-w-0 gap-0 overflow-hidden overflow-y-auto p-0 sm:w-[calc(100vw-2rem)]">
+				<DialogHeader className="min-w-0 px-4 pt-5 text-left sm:px-6 sm:pt-6">
 					<DialogTitle className="pb-2 pr-8 text-left text-lg font-semibold sm:text-xl">
 						{previewTitle}
 					</DialogTitle>
 				</DialogHeader>
-				<div className="px-5 py-4 sm:px-6">
+				<div className="min-w-0 px-4 py-4 sm:px-6">
 					<div className="border-border overflow-hidden rounded-lg border">
 						<button
 							type="button"
 							className={[
-								"flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
+								"flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left transition-colors",
 								shareMode === "public" ? "bg-muted/60" : "hover:bg-muted/40",
 							].join(" ")}
 							onClick={() => setShareMode("public")}
@@ -375,7 +375,7 @@ export function ShareChatDialog({
 							type="button"
 							disabled={organizations.length === 0}
 							className={[
-								"flex w-full items-center gap-3 border-t px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+								"flex w-full min-w-0 items-center gap-3 border-t px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
 								shareMode === "organization"
 									? "bg-muted/60"
 									: "hover:bg-muted/40",
@@ -398,7 +398,7 @@ export function ShareChatDialog({
 					</div>
 				</div>
 				{shareMode === "public" && isPublicShared && activeShareUrl ? (
-					<div className="space-y-5 px-5 pb-5 sm:px-6 sm:pb-6">
+					<div className="min-w-0 space-y-5 px-4 pb-5 sm:px-6 sm:pb-6">
 						<div className="bg-muted/60 border-border/60 relative overflow-hidden rounded-2xl border p-4 sm:p-5">
 							{previewText ? (
 								<p className="text-foreground/90 line-clamp-4 text-sm leading-relaxed sm:text-[15px]">
@@ -411,12 +411,12 @@ export function ShareChatDialog({
 								</p>
 							)}
 						</div>
-						<div className="bg-muted/40 border-border/60 flex min-w-0 items-center gap-2 rounded-full border px-3 py-2">
+						<div className="bg-muted/40 border-border/60 flex min-w-0 items-center gap-2 rounded-full border py-2 pl-3 pr-2">
 							<a
 								href={activeShareUrl}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="text-foreground min-w-0 flex-1 truncate text-sm"
+								className="text-foreground block min-w-0 flex-1 truncate text-sm"
 								title={activeShareUrl}
 							>
 								{activeShareUrl}
@@ -425,7 +425,7 @@ export function ShareChatDialog({
 								type="button"
 								size="sm"
 								variant="ghost"
-								className="h-8 shrink-0 rounded-full px-3"
+								className="h-8 min-w-8 shrink-0 rounded-full px-2"
 								onClick={() => copyLink(activeShareUrl)}
 								aria-label={copied ? "Link copied" : "Copy link"}
 							>
@@ -436,20 +436,20 @@ export function ShareChatDialog({
 								)}
 							</Button>
 						</div>
-						<div className="grid min-w-0 grid-cols-4 gap-2 sm:gap-3">
+						<div className="grid min-w-0 grid-cols-4 gap-1.5 sm:gap-3">
 							<button
 								type="button"
 								onClick={() => copyLink(activeShareUrl)}
-								className="group flex w-full flex-col items-center gap-1.5 sm:gap-2"
+								className="group flex min-w-0 w-full flex-col items-center gap-1.5 sm:gap-2"
 							>
-								<span className="bg-foreground text-background flex size-11 items-center justify-center rounded-full transition-transform group-hover:scale-105 sm:size-14">
+								<span className="bg-foreground text-background flex size-10 shrink-0 items-center justify-center rounded-full transition-transform group-hover:scale-105 sm:size-14">
 									{copied ? (
 										<Check className="size-5" />
 									) : (
 										<Copy className="size-5" />
 									)}
 								</span>
-								<span className="text-foreground text-xs font-medium sm:text-sm">
+								<span className="text-foreground max-w-full truncate text-xs font-medium sm:text-sm">
 									{copied ? "Copied" : "Copy link"}
 								</span>
 							</button>
@@ -490,8 +490,8 @@ export function ShareChatDialog({
 						</div>
 					</div>
 				) : shareMode === "organization" ? (
-					<div className="space-y-3 px-5 pb-5 sm:px-6 sm:pb-6">
-						<div className="flex gap-2">
+					<div className="min-w-0 space-y-3 px-4 pb-5 sm:px-6 sm:pb-6">
+						<div className="flex min-w-0 gap-2">
 							<Select value={selectedOrgId} onValueChange={setSelectedOrgId}>
 								<SelectTrigger className="min-w-0 flex-1">
 									<SelectValue placeholder="Select organization" />
@@ -531,11 +531,11 @@ export function ShareChatDialog({
 							</Button>
 						</div>
 						{sharedOrgEntries.length > 0 ? (
-							<div className="border-border overflow-hidden rounded-lg border">
+							<div className="border-border min-w-0 overflow-hidden rounded-lg border">
 								{sharedOrgEntries.map(({ orgId, shareId: sId, name }) => (
 									<div
 										key={orgId}
-										className="flex items-center gap-3 px-3 py-2 text-sm [&:not(:first-child)]:border-t"
+										className="flex min-w-0 items-center gap-3 px-3 py-2 text-sm [&:not(:first-child)]:border-t"
 									>
 										<span className="min-w-0 flex-1 truncate">{name}</span>
 										<Button
