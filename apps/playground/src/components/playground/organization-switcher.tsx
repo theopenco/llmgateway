@@ -12,6 +12,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useSidebar } from "@/components/ui/sidebar";
 
 import type { Organization } from "@/lib/types";
 
@@ -27,10 +28,18 @@ export function OrganizationSwitcher({
 	onSelectOrganization,
 }: OrganizationSwitcherProps) {
 	const [mounted, setMounted] = useState(false);
+	const { isMobile, setOpenMobile } = useSidebar();
 
 	useEffect(() => {
 		setMounted(true);
 	}, []);
+
+	const handleSelectOrganization = (org: Organization | null) => {
+		if (isMobile) {
+			setOpenMobile(false);
+		}
+		onSelectOrganization(org);
+	};
 
 	const activeClass = selectedOrganization
 		? "bg-accent text-accent-foreground"
@@ -77,7 +86,7 @@ export function OrganizationSwitcher({
 				</DropdownMenuTrigger>
 				<DropdownMenuContent className="w-60 border-border bg-background text-foreground shadow-xl">
 					<DropdownMenuItem
-						onSelect={() => onSelectOrganization(null)}
+						onSelect={() => handleSelectOrganization(null)}
 						className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent focus:bg-accent data-[highlighted]:bg-accent"
 					>
 						<User className="mr-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />
@@ -94,7 +103,7 @@ export function OrganizationSwitcher({
 					{organizations.map((org) => (
 						<DropdownMenuItem
 							key={org.id}
-							onSelect={() => onSelectOrganization(org)}
+							onSelect={() => handleSelectOrganization(org)}
 							className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent focus:bg-accent data-[highlighted]:bg-accent"
 						>
 							<Building2 className="mr-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />
