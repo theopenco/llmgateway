@@ -57,8 +57,7 @@ export default async function CanvasPage({
 			: []
 	) as Organization[];
 	const selectedOrganization =
-		(orgId ? organizations.find((o) => o.id === orgId) : organizations[0]) ??
-		null;
+		organizations.find((o) => o.id === orgId) ?? organizations[0] ?? null;
 
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {

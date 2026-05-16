@@ -22,7 +22,14 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const body = (await req.json()) as CanvasGenerateBody;
+	let body: CanvasGenerateBody;
+	try {
+		body = (await req.json()) as CanvasGenerateBody;
+	} catch {
+		return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+			status: 400,
+		});
+	}
 	const { prompt, model } = body;
 	const systemPrompt = catalog.prompt();
 
