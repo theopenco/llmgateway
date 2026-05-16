@@ -76,13 +76,24 @@ export default function ImagePageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	// State — initialize from URL params
+	const IMAGE_MODEL_KEY = "llmgateway_model_image";
+
+	// State — initialize from URL params, then localStorage, then default
 	const [selectedModels, setSelectedModels] = useState<string[]>(() => {
 		const modelParam = searchParams.get("model");
 		if (modelParam) {
 			const models = modelParam.split(",").filter(Boolean);
 			if (models.length > 0) {
 				return models;
+			}
+		}
+		if (typeof window !== "undefined") {
+			const stored = localStorage.getItem(IMAGE_MODEL_KEY);
+			if (stored) {
+				const models = stored.split(",").filter(Boolean);
+				if (models.length > 0) {
+					return models;
+				}
 			}
 		}
 		const first = imageGenModels[0];
@@ -204,6 +215,12 @@ export default function ImagePageClient({
 			router.replace(nextUrl, { scroll: false });
 		}
 	}, [comparisonMode, pathname, router, selectedModels]);
+
+	useEffect(() => {
+		if (selectedModels.length > 0) {
+			localStorage.setItem(IMAGE_MODEL_KEY, selectedModels.join(","));
+		}
+	}, [selectedModels]);
 
 	// Reset image size/quality when the selected model changes and the current
 	// value isn't valid for the new model. Including the value itself in deps

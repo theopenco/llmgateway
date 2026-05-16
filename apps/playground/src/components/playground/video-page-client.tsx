@@ -88,12 +88,23 @@ export default function VideoPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
+	const VIDEO_MODEL_KEY = "llmgateway_model_video";
+
 	const [selectedModels, setSelectedModels] = useState<string[]>(() => {
 		const modelParam = searchParams.get("model");
 		if (modelParam) {
 			const models = modelParam.split(",").filter(Boolean);
 			if (models.length > 0) {
 				return models;
+			}
+		}
+		if (typeof window !== "undefined") {
+			const stored = localStorage.getItem(VIDEO_MODEL_KEY);
+			if (stored) {
+				const models = stored.split(",").filter(Boolean);
+				if (models.length > 0) {
+					return models;
+				}
 			}
 		}
 		const first = videoGenModels[0];
@@ -355,6 +366,12 @@ export default function VideoPageClient({
 			router.replace(nextUrl, { scroll: false });
 		}
 	}, [comparisonMode, pathname, router, selectedModels]);
+
+	useEffect(() => {
+		if (selectedModels.length > 0) {
+			localStorage.setItem(VIDEO_MODEL_KEY, selectedModels.join(","));
+		}
+	}, [selectedModels]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {

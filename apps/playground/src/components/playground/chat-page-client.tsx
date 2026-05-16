@@ -271,12 +271,19 @@ export default function ChatPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
+	const CHAT_MODEL_KEY = "llmgateway_model_chat";
+
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
 		if (modelFromUrl) {
 			return modelFromUrl;
 		}
-		// Default to "auto" model which auto-selects the best provider
+		if (typeof window !== "undefined") {
+			const stored = localStorage.getItem(CHAT_MODEL_KEY);
+			if (stored) {
+				return stored;
+			}
+		}
 		return "auto";
 	};
 
@@ -1334,6 +1341,12 @@ export default function ChatPageClient({
 		const qs = currentParams.toString();
 		router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
 	}, [selectedModel, pathname, router]);
+
+	useEffect(() => {
+		if (selectedModel) {
+			localStorage.setItem(CHAT_MODEL_KEY, selectedModel);
+		}
+	}, [selectedModel]);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;
