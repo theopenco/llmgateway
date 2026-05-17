@@ -489,6 +489,8 @@ export function getProviderEndpoint(
 				return `${url}/v1/images/generations`;
 			}
 			return `${url}/v1/chat/completions`;
+		case "deepinfra":
+			return `${url}/chat/completions`;
 		case "inference.net":
 		case "llmgateway":
 		case "groq":
@@ -500,7 +502,6 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
-		case "deepinfra":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
