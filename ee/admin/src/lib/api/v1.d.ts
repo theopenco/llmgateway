@@ -6361,6 +6361,8 @@ export interface paths {
                                 devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
+                                devPlanPremiumCreditsUsed: string;
+                                devPlanPremiumWeekStart: string | null;
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
                                 devPlanAllowAllModels: boolean;
@@ -6422,6 +6424,8 @@ export interface paths {
                                 devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
+                                devPlanPremiumCreditsUsed: string;
+                                devPlanPremiumWeekStart: string | null;
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
                                 devPlanAllowAllModels: boolean;
@@ -6611,6 +6615,8 @@ export interface paths {
                                 devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
+                                devPlanPremiumCreditsUsed: string;
+                                devPlanPremiumWeekStart: string | null;
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
                                 devPlanAllowAllModels: boolean;

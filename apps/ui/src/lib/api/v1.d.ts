@@ -4815,6 +4815,9 @@ export interface paths {
                                 hasPaymentIssue: boolean;
                                 creditsUsed: string;
                                 creditsLimit: string;
+                                premiumCreditsUsed: string;
+                                premiumCreditsLimit: string;
+                                premiumWeekStart: string | null;
                                 utilizationPct: number | null;
                                 cycleStart: string | null;
                                 cycleDaysIn: number | null;
@@ -4958,6 +4961,9 @@ export interface paths {
                                 hasPaymentIssue: boolean;
                                 creditsUsed: string;
                                 creditsLimit: string;
+                                premiumCreditsUsed: string;
+                                premiumCreditsLimit: string;
+                                premiumWeekStart: string | null;
                                 utilizationPct: number | null;
                                 cycleStart: string | null;
                                 cycleDaysIn: number | null;
@@ -6355,6 +6361,8 @@ export interface paths {
                                 devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
+                                devPlanPremiumCreditsUsed: string;
+                                devPlanPremiumWeekStart: string | null;
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
                                 devPlanAllowAllModels: boolean;
@@ -6416,6 +6424,8 @@ export interface paths {
                                 devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
+                                devPlanPremiumCreditsUsed: string;
+                                devPlanPremiumWeekStart: string | null;
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
                                 devPlanAllowAllModels: boolean;
@@ -6605,6 +6615,8 @@ export interface paths {
                                 devPlanCycle: "monthly" | "annual";
                                 devPlanCreditsUsed: string;
                                 devPlanCreditsLimit: string;
+                                devPlanPremiumCreditsUsed: string;
+                                devPlanPremiumWeekStart: string | null;
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
                                 devPlanAllowAllModels: boolean;

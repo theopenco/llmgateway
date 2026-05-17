@@ -1,0 +1,2 @@
+ALTER TABLE "organization" ADD COLUMN "dev_plan_premium_credits_used" numeric DEFAULT '0' NOT NULL;--> statement-breakpoint
+ALTER TABLE "organization" ADD COLUMN "dev_plan_premium_week_start" timestamp;
