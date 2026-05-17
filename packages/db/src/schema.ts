@@ -554,6 +554,7 @@ export interface ProviderKeyOptions {
 	azure_ai_foundry_api_version?: string;
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
 	google_vertex_project_id?: string;
+	vertex_anthropic_region?: string;
 }
 
 export const providerKey = pgTable(

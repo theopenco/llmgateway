@@ -345,7 +345,8 @@ export async function resolveProviderContext(
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
 			usedProvider === "google-vertex" ||
-			usedProvider === "quartz"
+			usedProvider === "quartz" ||
+			usedProvider === "vertex-anthropic"
 			? usedToken
 			: undefined,
 		options.stream,
@@ -402,7 +403,7 @@ export async function resolveProviderContext(
 	}
 
 	// Anthropic does not allow temperature and top_p simultaneously
-	if (usedProvider === "anthropic") {
+	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
