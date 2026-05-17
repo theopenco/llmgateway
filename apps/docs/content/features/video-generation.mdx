@@ -10,7 +10,10 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 LLMGateway supports asynchronous video generation through an OpenAI-compatible `POST /v1/videos` flow.
 
-Veo 3.1 is currently available through `avalanche` for 1080p and 4k, and `google-vertex` for 720p, 1080p, and 4k.
+Currently available models:
+
+- **Veo 3.1** through `avalanche` (1080p, 4k) and `google-vertex` (720p, 1080p, 4k)
+- **Seedance 2.0**, **Seedance 2.0 Fast**, and **Seedance 1.5 Pro** through `bytedance` (720p, 1080p)
 
 You can find the current list of video-capable models on our [models page with the video filter enabled](https://llmgateway.io/models?filters=1&videoGeneration=true) or programmatically through the [/v1/models endpoint](/v1_models).
 
@@ -27,39 +30,33 @@ You can find the current list of video-capable models on our [models page with t
 
 ## Request Format
 
-LLMGateway currently supports a focused subset of the OpenAI video API for Veo 3.1 preview models.
+LLMGateway currently supports a focused subset of the OpenAI video API.
 
 ### Supported fields
 
-| Field              | Type   | Required | Description                                                                      |
-| ------------------ | ------ | -------- | -------------------------------------------------------------------------------- |
-| `model`            | string | yes      | Any video-capable model from the filtered models page                            |
-| `prompt`           | string | yes      | Text prompt for the video                                                        |
-| `seconds`          | number | yes      | Duration in seconds. Supported values: `4`, `6`, `8`, `10` depending on provider |
-| `size`             | string | no       | `widthxheight`, limited to the supported Veo sizes                               |
-| `image`            | object | no       | Optional first frame for image-to-video generation                               |
-| `last_frame`       | object | no       | Optional ending frame when `image` is provided                                   |
-| `reference_images` | array  | no       | One to three provider-specific image inputs                                      |
-| `input_reference`  | object | no       | Alias for one or more `reference_images`                                         |
-| `callback_url`     | string | no       | LLMGateway extension for completion webhooks                                     |
-| `callback_secret`  | string | no       | LLMGateway extension used to sign webhook deliveries                             |
+| Field              | Type    | Required | Description                                                                                                                |
+| ------------------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `model`            | string  | yes      | Any video-capable model from the filtered models page                                                                      |
+| `prompt`           | string  | yes      | Text prompt for the video                                                                                                  |
+| `seconds`          | number  | yes      | Duration in seconds. Supported values depend on the model (see below)                                                      |
+| `size`             | string  | no       | `widthxheight`, limited to the sizes supported by the selected model and provider                                          |
+| `audio`            | boolean | no       | Whether to include audio in the output (default `true`). Only honored when the model supports both audio and silent output |
+| `image`            | object  | no       | Optional first frame for image-to-video generation                                                                         |
+| `last_frame`       | object  | no       | Optional ending frame when `image` is provided                                                                             |
+| `reference_images` | array   | no       | One to three provider-specific image inputs                                                                                |
+| `input_reference`  | object  | no       | Alias for one or more `reference_images`                                                                                   |
+| `callback_url`     | string  | no       | LLMGateway extension for completion webhooks                                                                               |
+| `callback_secret`  | string  | no       | LLMGateway extension used to sign webhook deliveries                                                                       |
 
-Supported `size` values for Veo 3.1:
+### Sizes and durations by model
 
-- `1280x720`
-- `720x1280`
-- `1920x1080`
-- `1080x1920`
-- `3840x2160`
-- `2160x3840`
+| Model family                      | Provider        | Supported sizes                                                            | Supported durations |
+| --------------------------------- | --------------- | -------------------------------------------------------------------------- | ------------------- |
+| Veo 3.1                           | `google-vertex` | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `4`, `6`, `8`, `10` |
+| Veo 3.1                           | `avalanche`     | `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`                         | `8`                 |
+| Seedance 2.0 / 2.0 Fast / 1.5 Pro | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
 
-Current provider support:
-
-- `google-vertex` supports `4`, `6`, `8`, and `10` second outputs
-- `avalanche` currently supports only `8` second outputs
-- `google-vertex` supports all currently exposed Veo 3.1 sizes
-- `avalanche` supports `1920x1080`, `1080x1920`, `3840x2160`, and `2160x3840`
-- Requests return `400` when the requested provider cannot serve the requested `size`
+Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance derives `aspect_ratio` from the requested `size` (16:9 for landscape, 9:16 for portrait).
 
 ### Not supported yet
 
@@ -71,7 +68,9 @@ Current provider support:
 
 Video generation requires at least `$1.00` in available organization credits before the job is submitted upstream.
 
-Current pricing for Veo 3.1:
+Pricing is per second of generated video. For Seedance, enabling audio can increase the per-second rate on models that price audio and video separately.
+
+Veo 3.1:
 
 | Model                           | Provider        | Supported sizes                                  | Price            |
 | ------------------------------- | --------------- | ------------------------------------------------ | ---------------- |
@@ -83,6 +82,17 @@ Current pricing for Veo 3.1:
 | `veo-3.1-fast-generate-preview` | `avalanche`     | `1920x1080`, `1080x1920`                         | `$0.15 / second` |
 | `veo-3.1-generate-preview`      | `avalanche`     | `3840x2160`, `2160x3840`                         | `$0.60 / second` |
 | `veo-3.1-fast-generate-preview` | `avalanche`     | `3840x2160`, `2160x3840`                         | `$0.35 / second` |
+
+Seedance (ByteDance):
+
+| Model               | Provider    | Resolution | With audio          | Video only          |
+| ------------------- | ----------- | ---------- | ------------------- | ------------------- |
+| `seedance-2-0`      | `bytedance` | 720p       | `$0.1512 / second`  | `$0.1512 / second`  |
+| `seedance-2-0`      | `bytedance` | 1080p      | `$0.3402 / second`  | `$0.3402 / second`  |
+| `seedance-2-0-fast` | `bytedance` | 720p       | `$0.121 / second`   | `$0.121 / second`   |
+| `seedance-2-0-fast` | `bytedance` | 1080p      | `$0.2722 / second`  | `$0.2722 / second`  |
+| `seedance-1-5-pro`  | `bytedance` | 720p       | `$0.05184 / second` | `$0.02592 / second` |
+| `seedance-1-5-pro`  | `bytedance` | 1080p      | `$0.1166 / second`  | `$0.05832 / second` |
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/videos" \
@@ -131,6 +141,8 @@ Typical statuses:
 `avalanche` requests for `1080p` and `4k` stay `in_progress` until the upgraded output is ready. The gateway keeps polling the upstream upgrade endpoints and only marks the job `completed` once the requested resolution is available.
 
 `google-vertex` follows Vertex AI's long-running operation flow. The gateway submits Veo generation with `predictLongRunning`, polls with `fetchPredictOperation`, and streams the final bytes through the gateway content endpoint once the operation is done.
+
+`bytedance` uses the ModelArk `/contents/generations/tasks` endpoint. The gateway submits the job, polls the upstream task status, and exposes the final video bytes through the gateway content endpoint once the task succeeds.
 
 ## Download the Video
 
