@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import VideoPageClient from "@/components/playground/video-page-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -10,7 +11,7 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Video Generation",
+	title: "AI Video Generator — Compare Veo, Wan & More in One Playground",
 	description:
 		"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in one playground.",
 	alternates: { canonical: "/video" },
@@ -123,6 +124,7 @@ export default async function VideoPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
+			<PlaygroundSeoSection variant="video" />
 			<VideoPageClient
 				models={models}
 				providers={providers}
