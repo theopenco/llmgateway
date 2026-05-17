@@ -265,23 +265,31 @@ export default function ChatPageClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
-
 	const mapped = useMemo(
 		() => mapModels(models, providers),
 		[models, providers],
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
+	const CHAT_MODEL_KEY = "llmgateway_model_chat";
+
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
 		if (modelFromUrl) {
 			return modelFromUrl;
 		}
-		// Default to "auto" model which auto-selects the best provider
+		try {
+			const stored = localStorage.getItem(CHAT_MODEL_KEY);
+			if (stored) {
+				return stored;
+			}
+		} catch {
+			// ignore private-mode / quota errors
+		}
 		return "auto";
 	};
 
-	const [selectedModel, setSelectedModel] = useState(getInitialModel());
+	const [selectedModel, setSelectedModel] = useState(() => getInitialModel());
 	const [reasoningEffort, setReasoningEffort] = useState<
 		"" | "minimal" | "low" | "medium" | "high"
 	>("");
@@ -1194,9 +1202,13 @@ export default function ChatPageClient({
 		// Remove chat param from URL
 		const params = new URLSearchParams(searchParams.toString());
 		params.delete("chat");
+		params.delete("view");
+		params.delete("shareOrgId");
+		params.delete("shareId");
+		const targetPathname = pathname;
 		const newUrl = params.toString()
-			? `${pathname}?${params.toString()}`
-			: pathname;
+			? `${targetPathname}?${params.toString()}`
+			: targetPathname;
 		router.push(newUrl);
 	};
 
@@ -1227,9 +1239,13 @@ export default function ChatPageClient({
 			// Remove chat param from URL
 			const params = new URLSearchParams(searchParams.toString());
 			params.delete("chat");
+			params.delete("view");
+			params.delete("shareOrgId");
+			params.delete("shareId");
+			const targetPathname = pathname;
 			const newUrl = params.toString()
-				? `${pathname}?${params.toString()}`
-				: pathname;
+				? `${targetPathname}?${params.toString()}`
+				: targetPathname;
 			router.push(newUrl);
 			// Clear comparison windows as well
 			setComparisonResetToken((token) => token + 1);
@@ -1249,7 +1265,15 @@ export default function ChatPageClient({
 		// Update URL with chat ID - this will trigger the useEffect to update state
 		const params = new URLSearchParams(searchParams.toString());
 		params.set("chat", chatId);
-		router.push(`${pathname}?${params.toString()}`);
+		params.delete("view");
+		params.delete("shareOrgId");
+		params.delete("shareId");
+		const targetPathname = pathname;
+		router.push(
+			params.toString()
+				? `${targetPathname}?${params.toString()}`
+				: targetPathname,
+		);
 	};
 
 	const handleForkChat = useCallback(async () => {
@@ -1284,7 +1308,15 @@ export default function ChatPageClient({
 
 			const params = new URLSearchParams(searchParams.toString());
 			params.set("chat", newChatId);
-			router.push(`${pathname}?${params.toString()}`);
+			params.delete("view");
+			params.delete("shareOrgId");
+			params.delete("shareId");
+			const targetPathname = pathname;
+			router.push(
+				params.toString()
+					? `${targetPathname}?${params.toString()}`
+					: targetPathname,
+			);
 			sidebarRef.current?.scrollToTop();
 			toast.success("Chat forked");
 		} catch {}
@@ -1311,6 +1343,16 @@ export default function ChatPageClient({
 		const qs = currentParams.toString();
 		router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
 	}, [selectedModel, pathname, router]);
+
+	useEffect(() => {
+		if (selectedModel) {
+			try {
+				localStorage.setItem(CHAT_MODEL_KEY, selectedModel);
+			} catch {
+				// ignore private-mode / quota errors
+			}
+		}
+	}, [selectedModel]);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;
@@ -1350,29 +1392,15 @@ export default function ChatPageClient({
 	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
 		if (org?.id) {
-			params.set("orgId", org.id);
-		} else {
-			params.delete("orgId");
+			router.push(`/org/${org.id}`);
+			return;
 		}
-		// Clear projectId to avoid 404 when switching orgs (server will pick first/last-used)
-		params.delete("projectId");
-		// Always keep model param
-		if (!params.get("model")) {
-			params.set("model", selectedModel);
-		}
-		router.push(params.toString() ? `/?${params.toString()}` : "/");
+		router.push("/");
 	};
 
 	const handleOrganizationCreated = (org: Organization) => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
-		params.set("orgId", org.id);
-		params.delete("projectId");
-		if (!params.get("model")) {
-			params.set("model", selectedModel);
-		}
-		router.push(params.toString() ? `/?${params.toString()}` : "/");
+		router.push(`/org/${org.id}`);
 	};
 
 	const handleSelectProject = (project: Project | null) => {
@@ -1448,12 +1476,20 @@ export default function ChatPageClient({
 							onToggleMcpServer={toggleMcpServer}
 							isTemporaryChat={isTemporaryChat}
 							onToggleTemporaryChat={handleToggleTemporaryChat}
+							showTemporaryChatSwitcher={!currentChatId}
 							isTemporaryChatToggleDisabled={
 								isLoading || status === "submitted" || status === "streaming"
 							}
 							hasTemporaryMessages={hasTemporaryMessages}
 							currentChatId={currentChatId}
+							isShareChatDisabled={
+								isChatLoading ||
+								status === "submitted" ||
+								status === "streaming"
+							}
 							shareId={currentChatData?.chat?.shareId ?? null}
+							orgShares={currentChatData?.chat?.orgShares ?? []}
+							organizations={organizations}
 							chatTitle={currentChatData?.chat?.title ?? null}
 							previewPrompt={getFirstUserMessageText(messages)}
 						/>
@@ -1658,7 +1694,6 @@ export default function ChatPageClient({
 		</SidebarProvider>
 	);
 }
-
 interface ExtraChatPanelProps {
 	panelIndex: number;
 	models: ApiModel[];
