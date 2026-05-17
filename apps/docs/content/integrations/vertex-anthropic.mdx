@@ -95,7 +95,7 @@ Keep the output handy — you'll paste it into LLM Gateway in the next steps.
 
 1. Click **Add** for **Vertex AI (Anthropic)**
 2. Paste the single-line service account JSON as the **API Key**
-3. Set the **Region** (e.g. `us-east5`)
+3. Leave **Region** empty to use the recommended `global` endpoint, or set a specific region (e.g. `us-east5`) if you need data residency
 4. Click **Add Key**
 
 The project ID is extracted automatically from the service account JSON — no separate project field is needed.
@@ -131,7 +131,7 @@ If you're self-hosting LLM Gateway, configure the provider via environment varia
 
 ```bash
 LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"YOUR_PROJECT_ID","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n","client_email":"vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}
-LLM_VERTEX_ANTHROPIC_REGION=us-east5
+LLM_VERTEX_ANTHROPIC_REGION=global
 ```
 
 <Callout type="info">
@@ -158,15 +158,26 @@ This means:
 
 ## Available Regions
 
-Claude models on Vertex AI are available in these regions:
+LLM Gateway defaults to the **`global`** endpoint, which Anthropic recommends: requests are routed dynamically to whichever region has capacity, and there is no pricing premium.
 
-| Region            | Location                 |
-| ----------------- | ------------------------ |
-| `us-east5`        | Columbus, Ohio (default) |
-| `us-central1`     | Iowa                     |
-| `europe-west1`    | Belgium                  |
-| `europe-west4`    | Netherlands              |
-| `asia-southeast1` | Singapore                |
+| Region            | Notes                                         |
+| ----------------- | --------------------------------------------- |
+| `global`          | Default — dynamic routing, no pricing premium |
+| `us`              | Multi-region (US only); 10% premium           |
+| `eu`              | Multi-region (EU only); 10% premium           |
+| `us-east5`        | Columbus, Ohio; 10% premium                   |
+| `us-central1`     | Iowa; 10% premium                             |
+| `europe-west1`    | Belgium; 10% premium                          |
+| `europe-west4`    | Netherlands; 10% premium                      |
+| `asia-southeast1` | Singapore; 10% premium                        |
+
+<Callout type="info">
+	Regional and multi-region endpoints add a 10% pricing premium on Claude Sonnet
+	4.5 and newer models. They are also required if you need single-region data
+	residency or provisioned throughput. See [Anthropic's Vertex
+	docs](https://platform.claude.com/docs/en/api/claude-on-vertex-ai#global-multi-region-and-regional-endpoints)
+	for details.
+</Callout>
 
 ## Available Models
 

@@ -169,9 +169,9 @@ export function getProviderEndpoint(
 						"vertex-anthropic",
 						"region",
 						configIndex,
-						"us-east5",
+						"global",
 					) ??
-					"us-east5";
+					"global";
 				url =
 					envValueOrDefault(
 						"vertex-anthropic",
@@ -384,9 +384,9 @@ export function getProviderEndpoint(
 					"vertex-anthropic",
 					"region",
 					configIndex,
-					"us-east5",
+					"global",
 				) ??
-				"us-east5";
+				"global";
 
 			if (!vaProjectId) {
 				throw new Error(
