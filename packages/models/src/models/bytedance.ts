@@ -135,7 +135,7 @@ export const bytedanceModels = [
 			"ByteDance Seedance 2.0 high-quality video generation model with text-to-video and image-to-video support",
 		family: "bytedance",
 		output: ["video"],
-		releasedAt: new Date("2025-12-18"),
+		releasedAt: new Date("2026-04-14"),
 		providers: [
 			{
 				test: "skip",
@@ -171,7 +171,7 @@ export const bytedanceModels = [
 			"ByteDance Seedance 2.0 Fast - accelerated video generation model for quicker outputs",
 		family: "bytedance",
 		output: ["video"],
-		releasedAt: new Date("2025-12-18"),
+		releasedAt: new Date("2026-04-14"),
 		providers: [
 			{
 				test: "skip",
@@ -207,7 +207,7 @@ export const bytedanceModels = [
 			"ByteDance Seedance 1.5 Pro - professional video generation model with complex instruction following and native audio",
 		family: "bytedance",
 		output: ["video"],
-		releasedAt: new Date("2025-09-15"),
+		releasedAt: new Date("2026-03-23"),
 		providers: [
 			{
 				test: "skip",
