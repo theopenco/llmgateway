@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import CanvasPageClient from "@/components/playground/canvas-page-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -10,9 +11,10 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Canvas | LLM Gateway",
+	title: "Canvas — Build UIs from JSON Specs with Live Preview",
 	description:
-		"Build UIs from JSON specs with live preview, PDF and image export.",
+		"Build UIs from JSON specs with live preview, PDF and image export. Powered by LLM Gateway Playground.",
+	alternates: { canonical: "/canvas" },
 };
 
 export default async function CanvasPage({
@@ -107,6 +109,7 @@ export default async function CanvasPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
+			<PlaygroundSeoSection variant="canvas" />
 			<CanvasPageClient
 				models={models}
 				providers={providers}

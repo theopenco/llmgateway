@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import ImagePageClient from "@/components/playground/image-page-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -10,7 +11,7 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Image Generation",
+	title: "AI Image Generator — DALL·E, Flux, Stable Diffusion Side-by-Side",
 	description:
 		"Generate images with DALL-E, Stable Diffusion, Flux, and other AI models. Compare outputs across providers in one playground.",
 	alternates: { canonical: "/image" },
@@ -123,6 +124,7 @@ export default async function ImagePage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
+			<PlaygroundSeoSection variant="image" />
 			<ImagePageClient
 				models={models}
 				providers={providers}
