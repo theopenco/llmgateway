@@ -169,6 +169,7 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
+		priority: 0.8,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://policies.google.com/privacy",
 	},
