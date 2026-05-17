@@ -15,8 +15,6 @@ image:
 
 LLM Gateway now supports the full **ByteDance Seedance** family — three models for text-to-video, image-to-video, and reference-image generation through the same API key you use for chat.
 
-<img src="/changelog/seedance-video-models.png" alt="Seedance 2.0, Seedance 2.0 Fast, and Seedance 1.5 Pro now available on LLM Gateway" width="1024" height="1024" />
-
 ```bash
 bytedance/seedance-2-0          # high-quality text & image-to-video
 bytedance/seedance-2-0-fast     # accelerated, faster turnaround
