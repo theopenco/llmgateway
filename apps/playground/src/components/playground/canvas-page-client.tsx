@@ -77,6 +77,24 @@ interface CanvasPageClientProps {
 	selectedProject: Project | null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isRenderableSpec(value: unknown): value is Spec {
+	if (!isRecord(value)) {
+		return false;
+	}
+
+	const elements = value.elements;
+
+	return (
+		Boolean(value.root) &&
+		isRecord(elements) &&
+		Object.keys(elements).length > 0
+	);
+}
+
 interface CanvasPromptInputProps {
 	isGenerating: boolean;
 	onGenerate: (prompt: string) => void;
@@ -145,6 +163,7 @@ export default function CanvasPageClient({
 	const [parseError, setParseError] = useState<string | null>(null);
 	const [selectedTemplateName, setSelectedTemplateName] = useState<string>("");
 	const [showResetDialog, setShowResetDialog] = useState(false);
+	const [promptResetKey, setPromptResetKey] = useState(0);
 	const promptRef = useRef<HTMLTextAreaElement>(null);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showEditor, setShowEditor] = useState(true);
@@ -203,14 +222,21 @@ export default function CanvasPageClient({
 		[handleApply],
 	);
 
+	const applySpec = useCallback((nextSpec: Spec) => {
+		setSpec(nextSpec);
+		setEditorValue(JSON.stringify(nextSpec, null, 2));
+		setParseError(null);
+	}, []);
+
 	const handleGenerate = useCallback(
 		async (prompt: string) => {
 			if (!prompt.trim() || isGenerating) {
 				return;
 			}
 
+			const controller = new AbortController();
 			setIsGenerating(true);
-			abortRef.current = new AbortController();
+			abortRef.current = controller;
 
 			try {
 				const response = await fetch("/api/canvas/generate", {
@@ -220,7 +246,7 @@ export default function CanvasPageClient({
 						prompt,
 						model: selectedModel,
 					}),
-					signal: abortRef.current.signal,
+					signal: controller.signal,
 				});
 
 				if (!response.ok) {
@@ -245,13 +271,9 @@ export default function CanvasPageClient({
 
 					if (specStreamBuffer.trim()) {
 						try {
-							const compiled = compileSpecStream(
-								specStreamBuffer,
-							) as unknown as Spec;
-							if (compiled.root && Object.keys(compiled.elements).length > 0) {
-								setSpec(compiled);
-								setEditorValue(JSON.stringify(compiled, null, 2));
-								setParseError(null);
+							const compiled = compileSpecStream(specStreamBuffer) as unknown;
+							if (isRenderableSpec(compiled)) {
+								applySpec(compiled);
 							}
 						} catch {
 							// Spec not complete yet, continue
@@ -260,20 +282,24 @@ export default function CanvasPageClient({
 				}
 
 				if (specStreamBuffer.trim()) {
+					let appliedFinalSpec = false;
 					try {
-						const compiled = compileSpecStream(
-							specStreamBuffer,
-						) as unknown as Spec;
-						setSpec(compiled);
-						setEditorValue(JSON.stringify(compiled, null, 2));
-						setParseError(null);
+						const compiled = compileSpecStream(specStreamBuffer) as unknown;
+						if (isRenderableSpec(compiled)) {
+							applySpec(compiled);
+							appliedFinalSpec = true;
+						}
 					} catch {
+						// Fall back to JSON.parse below.
+					}
+
+					if (!appliedFinalSpec) {
 						try {
-							const parsed = JSON.parse(specStreamBuffer) as Spec;
-							if (parsed.root && parsed.elements) {
-								setSpec(parsed);
-								setEditorValue(JSON.stringify(parsed, null, 2));
-								setParseError(null);
+							const parsed = JSON.parse(specStreamBuffer) as unknown;
+							if (isRenderableSpec(parsed)) {
+								applySpec(parsed);
+							} else {
+								setParseError("Failed to parse AI response as a valid spec");
 							}
 						} catch {
 							setParseError("Failed to parse AI response as a valid spec");
@@ -286,11 +312,13 @@ export default function CanvasPageClient({
 				}
 				toast.error(err instanceof Error ? err.message : "Generation failed");
 			} finally {
-				setIsGenerating(false);
-				abortRef.current = null;
+				if (abortRef.current === controller) {
+					setIsGenerating(false);
+					abortRef.current = null;
+				}
 			}
 		},
-		[isGenerating, selectedModel],
+		[applySpec, isGenerating, selectedModel],
 	);
 
 	const handleStop = useCallback(() => {
@@ -386,6 +414,7 @@ export default function CanvasPageClient({
 		setEditorValue(JSON.stringify(emptySpec, null, 2));
 		setParseError(null);
 		setSelectedTemplateName("");
+		setPromptResetKey((key) => key + 1);
 		setShowResetDialog(false);
 		setTimeout(() => promptRef.current?.focus(), 50);
 	}, []);
@@ -607,6 +636,7 @@ export default function CanvasPageClient({
 
 								{/* Prompt input */}
 								<CanvasPromptInput
+									key={promptResetKey}
 									isGenerating={isGenerating}
 									onGenerate={(prompt) => {
 										void handleGenerate(prompt);
