@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import ChatPageClient from "@/components/playground/chat-page-client";
 import OrgPageClient from "@/components/playground/org-page-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -177,6 +178,7 @@ export async function renderPlaygroundShell({
 					projectId={selectedProject.id}
 				/>
 			) : null}
+			<PlaygroundSeoSection variant="chat" />
 			<ChatPageClient
 				models={models.filter(
 					(m) =>

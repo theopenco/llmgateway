@@ -62,7 +62,7 @@
 		"date-fns": "4.1.0",
 		"embla-carousel-react": "8.6.0",
 		"html-to-image": "^1.11.13",
-		"jspdf": "^2.5.2",
+		"jspdf": "^4.2.1",
 		"lucide-react": "0.548.0",
 		"motion": "12.23.24",
 		"nanoid": "5.1.6",

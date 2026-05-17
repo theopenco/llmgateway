@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import GroupChatClient from "@/components/playground/group-chat-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -136,6 +137,7 @@ export default async function GroupPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
+			<PlaygroundSeoSection variant="group" />
 			<GroupChatClient
 				models={models.filter(
 					(m) =>
