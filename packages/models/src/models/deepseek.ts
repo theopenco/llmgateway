@@ -268,7 +268,7 @@ export const deepseekModels = [
 					{
 						id: "cn-beijing",
 						inputPrice: "1.65e-6",
-						cachedInputPrice: "0.33e-6",
+						cachedInputPrice: "0.138e-6",
 						outputPrice: "3.301e-6",
 					},
 				],
