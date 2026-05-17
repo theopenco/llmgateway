@@ -126,7 +126,6 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://ai.google.com",
 		announcement: null,
-		priority: 0.8,
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 	},
@@ -701,6 +700,27 @@ export const providers = [
 		termsUrl: "https://platform.xiaomimimo.com/docs/terms/user-agreement",
 		privacyPolicyUrl:
 			"https://platform.xiaomimimo.com/docs/terms/privacy-policy",
+	},
+	{
+		id: "deepinfra",
+		name: "DeepInfra",
+		description:
+			"DeepInfra inference platform with OpenAI-compatible API for hosting open-source models.",
+		env: {
+			required: {
+				apiKey: "LLM_DEEPINFRA_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_DEEPINFRA_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#6366F1",
+		website: "https://deepinfra.com",
+		announcement: null,
+		termsUrl: "https://deepinfra.com/terms",
+		privacyPolicyUrl: "https://deepinfra.com/privacy",
 	},
 ] as const satisfies ProviderDefinition[];
 
