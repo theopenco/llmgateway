@@ -162,6 +162,14 @@ export function getProviderEndpoint(
 						"https://aiplatform.googleapis.com",
 					) ?? "https://aiplatform.googleapis.com";
 				break;
+			case "vertex-openai":
+				url =
+					envValueOrDefault(
+						"vertex-openai",
+						"baseUrl",
+						"https://aiplatform.googleapis.com",
+					) ?? "https://aiplatform.googleapis.com";
+				break;
 			case "vertex-anthropic": {
 				const vaDefaultRegion =
 					providerKeyOptions?.vertex_anthropic_region ??
@@ -365,6 +373,21 @@ export function getProviderEndpoint(
 				configIndex,
 				providerKeyOptions,
 			);
+		case "vertex-openai": {
+			const projectId =
+				providerKeyOptions?.vertex_openai_project_id ??
+				getProviderEnvValue("vertex-openai", "project", configIndex);
+			if (!projectId) {
+				const providerEnv = getProviderEnvConfig("vertex-openai");
+				throw new Error(
+					`${providerEnv?.required.project ?? "LLM_VERTEX_OPENAI_PROJECT"} environment variable is required for vertex-openai model "${modelName}"`,
+				);
+			}
+			const vertexRegion =
+				getProviderEnvValue("vertex-openai", "region", configIndex, "global") ??
+				"global";
+			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
+		}
 		case "vertex-anthropic": {
 			let vaProjectId: string | undefined =
 				process.env.LLM_VERTEX_ANTHROPIC_PROJECT;

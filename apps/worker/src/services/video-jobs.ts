@@ -136,6 +136,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "bytedance":
+			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
 		default:
@@ -1797,6 +1799,72 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 	}
 }
 
+function isBytedanceVideoProvider(providerId: string): boolean {
+	return providerId === "bytedance";
+}
+
+async function fetchBytedanceStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/contents/generations/tasks/${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.error === "object" &&
+			body.error &&
+			"message" in body.error &&
+			typeof body.error.message === "string"
+				? body.error.message
+				: `ByteDance status request failed with status ${response.status}`,
+		);
+	}
+
+	const data =
+		body.data && typeof body.data === "object"
+			? (body.data as Record<string, unknown>)
+			: body;
+
+	const rawStatus = typeof data.status === "string" ? data.status : "queued";
+	const content =
+		data.content && typeof data.content === "object"
+			? (data.content as Record<string, unknown>)
+			: null;
+	const videoUrl =
+		content && typeof content.video_url === "string" ? content.video_url : null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status: rawStatus,
+		progress:
+			rawStatus === "succeeded" || rawStatus === "completed"
+				? 100
+				: rawStatus === "failed"
+					? 100
+					: rawStatus === "running"
+						? 50
+						: 0,
+		url: videoUrl,
+		video_url: videoUrl,
+		output_url: videoUrl,
+		mime_type: videoUrl ? "video/mp4" : undefined,
+		error:
+			rawStatus === "failed"
+				? (extractError(data) ?? {
+						message: "ByteDance video generation failed",
+					})
+				: null,
+		bytedance_raw_response: body,
+	});
+}
+
 async function fetchUpstreamStatus(
 	job: VideoJobRecord,
 ): Promise<Record<string, unknown>> {
@@ -1810,6 +1878,10 @@ async function fetchUpstreamStatus(
 
 	if (isGoogleVertexVideoProvider(job.usedProvider)) {
 		return await fetchGoogleVertexStatus(job, providerContext);
+	}
+
+	if (isBytedanceVideoProvider(job.usedProvider)) {
+		return await fetchBytedanceStatus(job, providerContext);
 	}
 
 	return await fetchGenericVideoStatus(job, providerContext);

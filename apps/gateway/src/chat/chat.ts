@@ -53,6 +53,7 @@ import {
 	createStreamingCombinedSignal,
 	isTimeoutError,
 } from "@/lib/timeout-config.js";
+import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -3326,6 +3327,20 @@ chat.openapi(completions, async (c) => {
 
 	usedApiKeyHash = getApiKeyFingerprint(usedToken);
 	routingMetadata = withUsedApiKeyHash(routingMetadata, usedApiKeyHash);
+
+	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
+	// derived from the configured service account JSON. The SA JSON is the
+	// long-lived credential (kept in usedApiKeyHash above for health tracking)
+	// while the short-lived access token is what travels in the Authorization
+	// header — so swap usedToken here so downstream header builders just work.
+	// Read the env var directly to bypass round-robin comma-splitting (an SA
+	// JSON value contains commas and would otherwise be truncated).
+	if (usedProvider === "vertex-openai") {
+		const fullSaJson = providerKey
+			? usedToken
+			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
+		usedToken = await getVertexOpenAIAccessToken(fullSaJson);
+	}
 
 	const contentFilterBlocked =
 		contentFilterMode === "enabled" &&

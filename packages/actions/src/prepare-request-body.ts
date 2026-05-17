@@ -2423,6 +2423,18 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
+			// Vertex's OpenAI-compatible chat completions endpoint requires the
+			// model field to be partner-prefixed, e.g. "xai/grok-4.20-reasoning".
+			// Derive the prefix from the model family so we don't have to encode
+			// it per-mapping.
+			if (
+				usedProvider === "vertex-openai" &&
+				!usedModel.includes("/") &&
+				modelDef?.family
+			) {
+				requestBody.model = `${modelDef.family}/${usedModel}`;
+			}
+
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.temperature = temperature;

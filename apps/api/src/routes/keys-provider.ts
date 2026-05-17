@@ -39,6 +39,7 @@ const providerKeySchema = z.object({
 			alibaba_region: z
 				.enum(["singapore", "us-virginia", "cn-beijing"])
 				.optional(),
+			vertex_openai_project_id: z.string().optional(),
 		})
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -79,6 +80,7 @@ const createProviderKeySchema = z.object({
 				.enum(["singapore", "us-virginia", "cn-beijing"])
 				.optional(),
 			google_vertex_project_id: z.string().optional(),
+			vertex_openai_project_id: z.string().optional(),
 		})
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
