@@ -14,7 +14,14 @@ import {
 	Square,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import {
+	memo,
+	type RefObject,
+	useCallback,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 
 import {
@@ -70,6 +77,58 @@ interface CanvasPageClientProps {
 	selectedProject: Project | null;
 }
 
+interface CanvasPromptInputProps {
+	isGenerating: boolean;
+	onGenerate: (prompt: string) => void;
+	onStop: () => void;
+	promptRef: RefObject<HTMLTextAreaElement | null>;
+}
+
+const CanvasPromptInput = memo(function CanvasPromptInput({
+	isGenerating,
+	onGenerate,
+	onStop,
+	promptRef,
+}: CanvasPromptInputProps) {
+	const [prompt, setPrompt] = useState("");
+
+	const handleSubmit = useCallback(() => {
+		onGenerate(prompt);
+	}, [onGenerate, prompt]);
+
+	return (
+		<div className="px-0 pb-0 sm:px-4">
+			<div className="mx-auto w-full max-w-3xl bg-background px-0 pb-0 pt-2 sm:px-4">
+				<PromptInput
+					onSubmit={handleSubmit}
+					aria-disabled={isGenerating}
+					className="[&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-x-0 [&_[data-slot=input-group]]:border-b-0 sm:[&_[data-slot=input-group]]:rounded-md sm:[&_[data-slot=input-group]]:border"
+				>
+					<PromptInputBody>
+						<PromptInputTextarea
+							ref={promptRef}
+							value={prompt}
+							onChange={(e) => setPrompt(e.currentTarget.value)}
+							placeholder="Describe the UI you want to build..."
+							disabled={isGenerating}
+						/>
+					</PromptInputBody>
+					<PromptInputToolbar>
+						<PromptInputTools />
+						{isGenerating ? (
+							<PromptInputButton onClick={onStop} variant="ghost">
+								<Square className="h-3.5 w-3.5" />
+							</PromptInputButton>
+						) : (
+							<PromptInputSubmit disabled={!prompt.trim()} />
+						)}
+					</PromptInputToolbar>
+				</PromptInput>
+			</div>
+		</div>
+	);
+});
+
 export default function CanvasPageClient({
 	models,
 	providers,
@@ -84,7 +143,6 @@ export default function CanvasPageClient({
 		JSON.stringify(emptySpec, null, 2),
 	);
 	const [parseError, setParseError] = useState<string | null>(null);
-	const [prompt, setPrompt] = useState("");
 	const [selectedTemplateName, setSelectedTemplateName] = useState<string>("");
 	const [showResetDialog, setShowResetDialog] = useState(false);
 	const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -145,92 +203,95 @@ export default function CanvasPageClient({
 		[handleApply],
 	);
 
-	const handleGenerate = useCallback(async () => {
-		if (!prompt.trim() || isGenerating) {
-			return;
-		}
-
-		setIsGenerating(true);
-		abortRef.current = new AbortController();
-
-		try {
-			const response = await fetch("/api/canvas/generate", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					prompt,
-					model: selectedModel,
-				}),
-				signal: abortRef.current.signal,
-			});
-
-			if (!response.ok) {
-				throw new Error(`Generation failed: ${response.statusText}`);
+	const handleGenerate = useCallback(
+		async (prompt: string) => {
+			if (!prompt.trim() || isGenerating) {
+				return;
 			}
 
-			const reader = response.body?.getReader();
-			if (!reader) {
-				throw new Error("No response stream");
-			}
+			setIsGenerating(true);
+			abortRef.current = new AbortController();
 
-			const decoder = new TextDecoder();
-			let specStreamBuffer = "";
+			try {
+				const response = await fetch("/api/canvas/generate", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						prompt,
+						model: selectedModel,
+					}),
+					signal: abortRef.current.signal,
+				});
 
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) {
-					break;
+				if (!response.ok) {
+					throw new Error(`Generation failed: ${response.statusText}`);
 				}
 
-				specStreamBuffer += decoder.decode(value, { stream: true });
+				const reader = response.body?.getReader();
+				if (!reader) {
+					throw new Error("No response stream");
+				}
+
+				const decoder = new TextDecoder();
+				let specStreamBuffer = "";
+
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) {
+						break;
+					}
+
+					specStreamBuffer += decoder.decode(value, { stream: true });
+
+					if (specStreamBuffer.trim()) {
+						try {
+							const compiled = compileSpecStream(
+								specStreamBuffer,
+							) as unknown as Spec;
+							if (compiled.root && Object.keys(compiled.elements).length > 0) {
+								setSpec(compiled);
+								setEditorValue(JSON.stringify(compiled, null, 2));
+								setParseError(null);
+							}
+						} catch {
+							// Spec not complete yet, continue
+						}
+					}
+				}
 
 				if (specStreamBuffer.trim()) {
 					try {
 						const compiled = compileSpecStream(
 							specStreamBuffer,
 						) as unknown as Spec;
-						if (compiled.root && Object.keys(compiled.elements).length > 0) {
-							setSpec(compiled);
-							setEditorValue(JSON.stringify(compiled, null, 2));
-							setParseError(null);
-						}
+						setSpec(compiled);
+						setEditorValue(JSON.stringify(compiled, null, 2));
+						setParseError(null);
 					} catch {
-						// Spec not complete yet, continue
+						try {
+							const parsed = JSON.parse(specStreamBuffer) as Spec;
+							if (parsed.root && parsed.elements) {
+								setSpec(parsed);
+								setEditorValue(JSON.stringify(parsed, null, 2));
+								setParseError(null);
+							}
+						} catch {
+							setParseError("Failed to parse AI response as a valid spec");
+						}
 					}
 				}
-			}
-
-			if (specStreamBuffer.trim()) {
-				try {
-					const compiled = compileSpecStream(
-						specStreamBuffer,
-					) as unknown as Spec;
-					setSpec(compiled);
-					setEditorValue(JSON.stringify(compiled, null, 2));
-					setParseError(null);
-				} catch {
-					try {
-						const parsed = JSON.parse(specStreamBuffer) as Spec;
-						if (parsed.root && parsed.elements) {
-							setSpec(parsed);
-							setEditorValue(JSON.stringify(parsed, null, 2));
-							setParseError(null);
-						}
-					} catch {
-						setParseError("Failed to parse AI response as a valid spec");
-					}
+			} catch (err) {
+				if (err instanceof DOMException && err.name === "AbortError") {
+					return;
 				}
+				toast.error(err instanceof Error ? err.message : "Generation failed");
+			} finally {
+				setIsGenerating(false);
+				abortRef.current = null;
 			}
-		} catch (err) {
-			if (err instanceof DOMException && err.name === "AbortError") {
-				return;
-			}
-			toast.error(err instanceof Error ? err.message : "Generation failed");
-		} finally {
-			setIsGenerating(false);
-			abortRef.current = null;
-		}
-	}, [prompt, isGenerating, selectedModel]);
+		},
+		[isGenerating, selectedModel],
+	);
 
 	const handleStop = useCallback(() => {
 		abortRef.current?.abort();
@@ -307,8 +368,18 @@ export default function CanvasPageClient({
 		}
 	}, []);
 
-	const hasSpec = spec.root !== null && Object.keys(spec.elements).length > 0;
-	const isDefaultSpec = JSON.stringify(spec) === JSON.stringify(emptySpec);
+	const hasSpec = useMemo(
+		() => spec.root !== null && Object.keys(spec.elements).length > 0,
+		[spec],
+	);
+	const isDefaultSpec = useMemo(
+		() => JSON.stringify(spec) === JSON.stringify(emptySpec),
+		[spec],
+	);
+	const specStateKey = useMemo(
+		() => JSON.stringify(spec.state ?? {}),
+		[spec.state],
+	);
 
 	const handleResetCanvas = useCallback(() => {
 		setSpec(emptySpec);
@@ -526,7 +597,7 @@ export default function CanvasPageClient({
 								{/* Rendered preview */}
 								<div ref={previewRef} className="flex-1 overflow-auto p-6">
 									<JSONUIProvider
-										key={JSON.stringify(spec.state ?? {})}
+										key={specStateKey}
 										registry={registry}
 										initialState={spec.state ?? {}}
 									>
@@ -535,40 +606,14 @@ export default function CanvasPageClient({
 								</div>
 
 								{/* Prompt input */}
-								<div className="px-0 pb-0 sm:px-4">
-									<div className="mx-auto w-full max-w-3xl bg-background px-0 pb-0 pt-2 sm:px-4">
-										<PromptInput
-											onSubmit={() => {
-												void handleGenerate();
-											}}
-											aria-disabled={isGenerating}
-											className="[&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-x-0 [&_[data-slot=input-group]]:border-b-0 sm:[&_[data-slot=input-group]]:rounded-md sm:[&_[data-slot=input-group]]:border"
-										>
-											<PromptInputBody>
-												<PromptInputTextarea
-													ref={promptRef}
-													value={prompt}
-													onChange={(e) => setPrompt(e.currentTarget.value)}
-													placeholder="Describe the UI you want to build..."
-													disabled={isGenerating}
-												/>
-											</PromptInputBody>
-											<PromptInputToolbar>
-												<PromptInputTools />
-												{isGenerating ? (
-													<PromptInputButton
-														onClick={handleStop}
-														variant="ghost"
-													>
-														<Square className="h-3.5 w-3.5" />
-													</PromptInputButton>
-												) : (
-													<PromptInputSubmit disabled={!prompt.trim()} />
-												)}
-											</PromptInputToolbar>
-										</PromptInput>
-									</div>
-								</div>
+								<CanvasPromptInput
+									isGenerating={isGenerating}
+									onGenerate={(prompt) => {
+										void handleGenerate(prompt);
+									}}
+									onStop={handleStop}
+									promptRef={promptRef}
+								/>
 							</div>
 						</div>
 					</div>
