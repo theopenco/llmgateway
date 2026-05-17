@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "d774b45a-1bb2-4dc8-8bd9-11fc17defd09",
+  "id": "0e265d16-150c-4500-887d-2497a44e48ab",
   "prevId": "730f0770-df27-48b8-9790-482a454d3b83",
   "ddl": [
     {
@@ -2483,6 +2483,19 @@
       "generated": null,
       "identity": null,
       "name": "chat_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "chat_share"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
       "entityType": "columns",
       "schema": "public",
       "table": "chat_share"
@@ -8965,35 +8978,6 @@
       "table": "organization"
     },
     {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_premium_credits_used",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_premium_week_start",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": false,
@@ -13632,11 +13616,39 @@
         }
       ],
       "isUnique": true,
-      "where": "\"deleted_at\" IS NULL",
+      "where": "\"deleted_at\" IS NULL AND \"organization_id\" IS NULL",
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "chat_share_active_chat_id_unique",
+      "name": "chat_share_active_chat_id_public_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "chat_share"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "chat_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"deleted_at\" IS NULL AND \"organization_id\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "chat_share_active_chat_id_org_unique",
       "entityType": "indexes",
       "schema": "public",
       "table": "chat_share"
@@ -13658,6 +13670,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "chat_share_chat_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "chat_share"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "chat_share_organization_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "chat_share"
@@ -15481,6 +15514,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "chat_share_chat_id_chat_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "chat_share"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "chat_share_organization_id_organization_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "chat_share"
