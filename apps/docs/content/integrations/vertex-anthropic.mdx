@@ -1,25 +1,24 @@
 ---
-title: Vertex AI Anthropic (Claude) Setup
-description: Run Claude models on Google Cloud Vertex AI with automatic OAuth2 token management
+title: Vertex AI Anthropic Integration
+description: Connect Google Cloud Vertex AI to LLM Gateway to run Claude models on your own GCP project
 icon: Cloud
 ---
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
-Use Claude models (Sonnet, Opus, Haiku) via Google Cloud Vertex AI. This guide covers setting up service account authentication with automatic token refresh — no manual token rotation needed.
+Run Claude models (Sonnet, Opus, Haiku) on Google Cloud Vertex AI through LLM Gateway. This guide shows how to set up a GCP service account and integrate it with LLM Gateway using automatic OAuth2 token management — no manual token rotation required.
 
 ## Prerequisites
 
-- A Google Cloud project with the Vertex AI API enabled
-- Claude models enabled in your project's Model Garden
-- A GCP service account with the `Vertex AI User` role
+- A Google Cloud project with billing enabled
+- LLM Gateway account or self-hosted instance
 
-## Setup
+## Set up Google Cloud
 
 <Steps>
 <Step>
-### Enable Vertex AI API
+### Enable the Vertex AI API
 
 In the [Google Cloud Console](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com), enable the **Vertex AI API** for your project.
 
@@ -68,20 +67,67 @@ gcloud iam service-accounts keys create service-account.json \
   --iam-account=vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com
 ```
 
-Then convert it to a single-line string for use as an environment variable:
+Then convert it to a single-line string:
 
 ```bash
 cat service-account.json | tr -d '\n'
 ```
 
-Copy the output — you'll paste it as the value of `LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON` in the next step.
+Keep the output handy — you'll paste it into LLM Gateway in the next steps.
+
+</Step>
+</Steps>
+
+## Add to LLM Gateway
+
+<Steps>
+<Step>
+### Navigate to Provider Keys
+
+1. Log into [LLM Gateway Dashboard](https://llmgateway.io/dashboard)
+2. Select your organization and project
+3. Go to **Provider Keys** in the sidebar
 
 </Step>
 
 <Step>
-### Configure Environment Variables
+### Add Vertex Anthropic Provider Key
 
-Add the following to your `.env` file:
+1. Click **Add** for **Vertex AI (Anthropic)**
+2. Paste the single-line service account JSON as the **API Key**
+3. Set the **Region** (e.g. `us-east5`)
+4. Click **Add Key**
+
+The project ID is extracted automatically from the service account JSON — no separate project field is needed.
+
+</Step>
+
+<Step>
+### Test the Integration
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_LLMGATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "vertex-anthropic/claude-sonnet-4-6",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello from Vertex Anthropic!"
+      }
+    ]
+  }'
+```
+
+Replace `YOUR_LLMGATEWAY_API_KEY` with your LLM Gateway API key.
+
+</Step>
+</Steps>
+
+## Self-Host Configuration
+
+If you're self-hosting LLM Gateway, configure the provider via environment variables instead of the dashboard:
 
 ```bash
 LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"YOUR_PROJECT_ID","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n","client_email":"vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}
@@ -93,31 +139,11 @@ LLM_VERTEX_ANTHROPIC_REGION=us-east5
 	separate `LLM_VERTEX_ANTHROPIC_PROJECT` variable is needed.
 </Callout>
 
-</Step>
-
-<Step>
-### Verify the Setup
-
-Send a test request to verify everything works:
-
-```bash
-curl http://localhost:4001/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY" \
-  -d '{
-    "model": "vertex-anthropic/claude-sonnet-4-6",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-```
-
-</Step>
-</Steps>
-
 ## How Token Refresh Works
 
-The gateway handles OAuth2 token lifecycle automatically:
+LLM Gateway handles the OAuth2 token lifecycle automatically:
 
-1. On first request, it parses the `LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON` and signs a JWT
+1. On first request, the service account JSON is parsed and used to sign a JWT
 2. The JWT is exchanged for an OAuth2 access token via Google's token endpoint
 3. The token is cached in Redis with a **50-minute TTL** (Google tokens expire after 60 minutes)
 4. An in-memory cache avoids Redis round-trips on subsequent requests
@@ -127,7 +153,7 @@ This means:
 
 - No manual `gcloud auth print-access-token` commands
 - No cron jobs to refresh tokens
-- Works at any request rate (token generation happens once per 50 minutes)
+- Works at any request rate (token generation happens at most once per 50 minutes)
 - Multi-instance deployments share the cached token via Redis
 
 ## Available Regions
@@ -142,35 +168,28 @@ Claude models on Vertex AI are available in these regions:
 | `europe-west4`    | Netherlands              |
 | `asia-southeast1` | Singapore                |
 
-Set `LLM_VERTEX_ANTHROPIC_REGION` to your preferred region.
+## Available Models
 
-## Using with BYOK (Bring Your Own Key)
+Once configured, you can access Claude models on Vertex AI through LLM Gateway:
 
-If you prefer to manage tokens manually or use a different service account per organization, you can configure a provider key in the dashboard:
+- **Sonnet**: `vertex-anthropic/claude-sonnet-4-6`, `vertex-anthropic/claude-sonnet-4-5`
+- **Opus**: `vertex-anthropic/claude-opus-4-7`, `vertex-anthropic/claude-opus-4-6`, `vertex-anthropic/claude-opus-4-5`
+- **Haiku**: `vertex-anthropic/claude-haiku-4-5`
 
-1. Go to **Provider Keys** in your organization settings
-2. Add a new key for **Vertex Anthropic**
-3. Paste an OAuth2 Bearer token (generated via `gcloud auth print-access-token`)
-4. Set the project ID and region in the key options
-
-<Callout type="warn">
-	Manually provided tokens expire after 1 hour. For production use, the
-	`LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON` approach (above) is strongly
-	recommended — it refreshes tokens automatically.
-</Callout>
+Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=vertex-anthropic).
 
 ## Troubleshooting
 
 ### 401 UNAUTHENTICATED / ACCESS_TOKEN_TYPE_UNSUPPORTED
 
-This means the gateway is sending an invalid token. Check:
+The gateway is sending an invalid token. Check:
 
-- `LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON` is set to a valid service account JSON string
+- The service account JSON is valid and complete
 - The service account has `roles/aiplatform.user` on the project
 
 ### 403 Permission Denied
 
-The service account lacks permissions. Ensure it has the `Vertex AI User` role:
+The service account lacks permissions. Grant the `Vertex AI User` role:
 
 ```bash
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
