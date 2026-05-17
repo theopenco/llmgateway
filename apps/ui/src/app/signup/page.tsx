@@ -30,6 +30,7 @@ import { useFetchClient } from "@/lib/fetch-client";
 
 const createFormSchema = (isHosted: boolean) =>
 	z.object({
+		name: z.string().optional(),
 		email: isHosted
 			? z
 					.string()
@@ -73,6 +74,7 @@ export default function Signup() {
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),
 		defaultValues: {
+			name: "",
 			email: "",
 			password: "",
 			newsletter: true,
@@ -84,7 +86,7 @@ export default function Signup() {
 
 		const { error } = await signUp.email(
 			{
-				name: "",
+				name: values.name?.trim() ?? "",
 				email: values.email,
 				password: values.password,
 			},
@@ -271,6 +273,23 @@ export default function Signup() {
 				{/* Email form */}
 				<Form {...form}>
 					<form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+						<FormField
+							control={form.control}
+							name="name"
+							render={({ field }) => (
+								<FormItem>
+									<FormLabel>Name (optional)</FormLabel>
+									<FormControl>
+										<Input
+											placeholder="John Doe"
+											autoComplete="name"
+											{...field}
+										/>
+									</FormControl>
+									<FormMessage />
+								</FormItem>
+							)}
+						/>
 						<FormField
 							control={form.control}
 							name="email"

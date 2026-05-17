@@ -169,6 +169,54 @@ export const providers = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
+		priority: 0.8,
+		termsUrl: "https://cloud.google.com/terms/service-terms",
+		privacyPolicyUrl: "https://policies.google.com/privacy",
+	},
+	{
+		id: "vertex-openai",
+		name: "Vertex AI (OpenAI-compatible)",
+		description:
+			"Access partner models (e.g. xAI Grok) via Google Cloud Vertex AI's OpenAI-compatible Chat Completions endpoint.",
+		env: {
+			required: {
+				apiKey: "LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON",
+				project: "LLM_VERTEX_OPENAI_PROJECT",
+			},
+			optional: {
+				baseUrl: "LLM_VERTEX_OPENAI_BASE_URL",
+				region: "LLM_VERTEX_OPENAI_REGION",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: "https://cloud.google.com/vertex-ai",
+		announcement: null,
+		priority: 0.9,
+		termsUrl: "https://cloud.google.com/terms/service-terms",
+		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+	},
+	{
+		id: "vertex-anthropic",
+		name: "Vertex AI (Anthropic)",
+		description:
+			"Access Claude models via Google Cloud Vertex AI with the Anthropic Messages API.",
+		env: {
+			required: {
+				apiKey: "LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
+			},
+			optional: {
+				baseUrl: "LLM_VERTEX_ANTHROPIC_BASE_URL",
+				region: "LLM_VERTEX_ANTHROPIC_REGION",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: "https://cloud.google.com/vertex-ai",
+		announcement: null,
+		priority: 0.9,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 	},

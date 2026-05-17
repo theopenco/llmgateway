@@ -6,6 +6,7 @@ export interface ProviderHeaderOptions {
 	 */
 	webSearchEnabled?: boolean;
 	requestId?: string;
+	modelName?: string;
 }
 
 /**
@@ -36,9 +37,25 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "glacier":
-		case "google-vertex":
-		case "quartz":
 			return requestIdHeader;
+		case "google-vertex":
+		case "quartz": {
+			const isLiteModel =
+				options?.modelName === "gemini-2.0-flash-lite" ||
+				options?.modelName === "gemini-2.5-flash-lite";
+			if (!isLiteModel) {
+				return {
+					...requestIdHeader,
+					Authorization: `Bearer ${token}`,
+				};
+			}
+			return requestIdHeader;
+		}
+		case "vertex-anthropic":
+			return {
+				...requestIdHeader,
+				Authorization: `Bearer ${token}`,
+			};
 		case "avalanche":
 			return {
 				...requestIdHeader,
