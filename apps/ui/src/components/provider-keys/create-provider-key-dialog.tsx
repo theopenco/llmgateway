@@ -62,6 +62,9 @@ export function CreateProviderKeyDialog({
 		useState("gpt-4o-mini");
 	const [selectedRegion, setSelectedRegion] = useState("");
 	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
+	const [vertexTokenType, setVertexTokenType] = useState<"api-key" | "oauth">(
+		"api-key",
+	);
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -178,10 +181,20 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
-		if (selectedProvider === "google-vertex" && googleVertexProjectId) {
+		if (selectedProvider === "google-vertex") {
 			payload.options = {
 				...payload.options,
-				google_vertex_project_id: googleVertexProjectId,
+				...(googleVertexProjectId
+					? { google_vertex_project_id: googleVertexProjectId }
+					: {}),
+				google_vertex_token_type: vertexTokenType,
+			};
+		}
+
+		if (selectedProvider === "quartz") {
+			payload.options = {
+				...payload.options,
+				quartz_token_type: vertexTokenType,
 			};
 		}
 
@@ -231,6 +244,7 @@ export function CreateProviderKeyDialog({
 			setAzureValidationModel("gpt-4o-mini");
 			setSelectedRegion("");
 			setGoogleVertexProjectId("");
+			setVertexTokenType("api-key");
 		}, 300);
 	};
 
@@ -434,6 +448,38 @@ export function CreateProviderKeyDialog({
 							<p className="text-sm text-muted-foreground">
 								Your Google Cloud project ID, found in the Google Cloud Console.
 								Required for non-lite Vertex AI models.
+							</p>
+						</div>
+					)}
+
+					{(selectedProvider === "google-vertex" ||
+						selectedProvider === "quartz") && (
+						<div className="space-y-2">
+							<Label htmlFor="vertex-token-type">Token Type</Label>
+							<Select
+								value={vertexTokenType}
+								onValueChange={(value) =>
+									setVertexTokenType(value as "api-key" | "oauth")
+								}
+							>
+								<SelectTrigger id="vertex-token-type">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="api-key">
+										API key (sent as ?key=)
+									</SelectItem>
+									<SelectItem value="oauth">
+										OAuth access token (sent as Authorization: Bearer)
+									</SelectItem>
+								</SelectContent>
+							</Select>
+							<p className="text-sm text-muted-foreground">
+								Pick the kind of credential you pasted above. API keys are short
+								alphanumeric strings (often prefixed with <code>AIza</code>);
+								OAuth access tokens come from
+								<code> gcloud auth print-access-token</code> and look like{" "}
+								<code>ya29.…</code>.
 							</p>
 						</div>
 					)}
