@@ -6,6 +6,7 @@ import {
 	type ProviderId,
 	getProviderEnvValue,
 	getProviderEnvConfig,
+	resolveVertexTokenType,
 } from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
@@ -21,11 +22,18 @@ function buildVertexCompatibleEndpoint(
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = modelName ?? "gemini-2.5-flash-lite";
+	const tokenType = resolveVertexTokenType(
+		provider,
+		model,
+		providerKeyOptions,
+		configIndex,
+	);
+	const includeKeyQueryParam = token !== undefined && tokenType === "api-key";
 
 	if (model === "gemini-2.0-flash-lite" || model === "gemini-2.5-flash-lite") {
 		const baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
 		const queryParams = [];
-		if (token) {
+		if (includeKeyQueryParam) {
 			queryParams.push(`key=${token}`);
 		}
 		if (stream) {
@@ -51,7 +59,7 @@ function buildVertexCompatibleEndpoint(
 
 	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
 	const queryParams = [];
-	if (token) {
+	if (includeKeyQueryParam) {
 		queryParams.push(`key=${token}`);
 	}
 	if (stream) {

@@ -150,7 +150,10 @@ export async function validateProviderKey(
 		};
 		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
-		const headers = getProviderHeaders(provider, token);
+		const headers = getProviderHeaders(provider, token, {
+			modelName: validationModel,
+			providerKeyOptions,
+		});
 		headers["Content-Type"] = "application/json";
 
 		// Find the model definition to get the model ID

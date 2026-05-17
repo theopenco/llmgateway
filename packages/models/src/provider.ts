@@ -86,6 +86,43 @@ export function getProviderEnvValue(
 	return values[configIndex];
 }
 
+export type VertexTokenType = "api-key" | "oauth";
+
+interface VertexTokenTypeOptions {
+	google_vertex_token_type?: VertexTokenType;
+	quartz_token_type?: VertexTokenType;
+}
+
+/**
+ * Vertex AI accepts either an API key (sent as `?key=`) or an OAuth2 Bearer
+ * token. Wire format differs per token, so we need to know which one the
+ * caller provided. Resolution order: provider-key option → env var → fallback
+ * based on the endpoint shape (lite models use `?key=`, project-scoped models
+ * require Bearer).
+ */
+export function resolveVertexTokenType(
+	provider: "google-vertex" | "quartz",
+	modelName?: string,
+	providerKeyOptions?: VertexTokenTypeOptions,
+	configIndex?: number,
+): VertexTokenType {
+	const optionValue =
+		provider === "google-vertex"
+			? providerKeyOptions?.google_vertex_token_type
+			: providerKeyOptions?.quartz_token_type;
+	if (optionValue === "api-key" || optionValue === "oauth") {
+		return optionValue;
+	}
+	const envValue = getProviderEnvValue(provider, "tokenType", configIndex);
+	if (envValue === "api-key" || envValue === "oauth") {
+		return envValue;
+	}
+	const isLite =
+		modelName === "gemini-2.0-flash-lite" ||
+		modelName === "gemini-2.5-flash-lite";
+	return isLite ? "api-key" : "oauth";
+}
+
 export function validateProviderEnv(provider: Provider): string[] {
 	const config = getProviderEnvConfig(provider);
 	if (!config) {

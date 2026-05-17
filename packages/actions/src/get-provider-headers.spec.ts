@@ -1,0 +1,117 @@
+import { afterEach, describe, expect, it } from "vitest";
+
+import { getProviderHeaders } from "./get-provider-headers.js";
+
+const originalVertexTokenType = process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
+const originalQuartzTokenType = process.env.LLM_QUARTZ_TOKEN_TYPE;
+
+afterEach(() => {
+	if (originalVertexTokenType === undefined) {
+		delete process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
+	} else {
+		process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = originalVertexTokenType;
+	}
+
+	if (originalQuartzTokenType === undefined) {
+		delete process.env.LLM_QUARTZ_TOKEN_TYPE;
+	} else {
+		process.env.LLM_QUARTZ_TOKEN_TYPE = originalQuartzTokenType;
+	}
+});
+
+describe("getProviderHeaders", () => {
+	describe("google-vertex", () => {
+		it("returns no auth header by default for lite models", () => {
+			expect(
+				getProviderHeaders("google-vertex", "AIzaSyExampleApiKey", {
+					modelName: "gemini-2.5-flash-lite",
+				}),
+			).toEqual({});
+		});
+
+		it("defaults non-lite models to Bearer authentication", () => {
+			expect(
+				getProviderHeaders("google-vertex", "ya29.c.c0AYnqX-example", {
+					modelName: "gemini-2.5-pro",
+				}),
+			).toEqual({
+				Authorization: "Bearer ya29.c.c0AYnqX-example",
+			});
+		});
+
+		it("uses Bearer when the provider key is configured for OAuth", () => {
+			expect(
+				getProviderHeaders("google-vertex", "ya29.example", {
+					modelName: "gemini-2.5-flash-lite",
+					providerKeyOptions: { google_vertex_token_type: "oauth" },
+				}),
+			).toEqual({
+				Authorization: "Bearer ya29.example",
+			});
+		});
+
+		it("omits the Authorization header when the provider key uses an API key", () => {
+			expect(
+				getProviderHeaders("google-vertex", "AIzaSyExample", {
+					modelName: "gemini-2.5-pro",
+					providerKeyOptions: { google_vertex_token_type: "api-key" },
+				}),
+			).toEqual({});
+		});
+
+		it("honors the LLM_GOOGLE_VERTEX_TOKEN_TYPE env var when no key option is set", () => {
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+			expect(
+				getProviderHeaders("google-vertex", "ya29.example", {
+					modelName: "gemini-2.5-flash-lite",
+				}),
+			).toEqual({
+				Authorization: "Bearer ya29.example",
+			});
+		});
+
+		it("includes the request id alongside the auth header", () => {
+			expect(
+				getProviderHeaders("google-vertex", "ya29.example", {
+					modelName: "gemini-2.5-pro",
+					requestId: "req-1",
+				}),
+			).toEqual({
+				"x-request-id": "req-1",
+				Authorization: "Bearer ya29.example",
+			});
+		});
+	});
+
+	describe("quartz", () => {
+		it("defaults non-lite models to Bearer authentication", () => {
+			expect(
+				getProviderHeaders("quartz", "ya29.example", {
+					modelName: "gemini-2.5-pro",
+				}),
+			).toEqual({
+				Authorization: "Bearer ya29.example",
+			});
+		});
+
+		it("omits the auth header when the provider key uses an API key", () => {
+			expect(
+				getProviderHeaders("quartz", "quartz-api-key", {
+					modelName: "gemini-2.5-pro",
+					providerKeyOptions: { quartz_token_type: "api-key" },
+				}),
+			).toEqual({});
+		});
+
+		it("honors the LLM_QUARTZ_TOKEN_TYPE env var when no key option is set", () => {
+			process.env.LLM_QUARTZ_TOKEN_TYPE = "api-key";
+
+			expect(
+				getProviderHeaders("quartz", "ya29.example", {
+					modelName: "gemini-2.5-pro",
+				}),
+			).toEqual({});
+		});
+	});
+});

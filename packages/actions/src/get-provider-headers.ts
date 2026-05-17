@@ -1,4 +1,6 @@
-import type { ProviderId } from "@llmgateway/models";
+import { resolveVertexTokenType, type ProviderId } from "@llmgateway/models";
+
+import type { ProviderKeyOptions } from "@llmgateway/db";
 
 export interface ProviderHeaderOptions {
 	/**
@@ -6,6 +8,17 @@ export interface ProviderHeaderOptions {
 	 */
 	webSearchEnabled?: boolean;
 	requestId?: string;
+	modelName?: string;
+	/**
+	 * Provider key options used by Vertex-compatible providers to look up the
+	 * explicit token type configured on the provider key.
+	 */
+	providerKeyOptions?: ProviderKeyOptions;
+	/**
+	 * Index used to select the matching env-var slot when multiple comma-
+	 * separated values are configured. Mirrors `getProviderEndpoint`.
+	 */
+	configIndex?: number;
 }
 
 /**
@@ -36,9 +49,23 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "glacier":
-		case "google-vertex":
-		case "quartz":
 			return requestIdHeader;
+		case "google-vertex":
+		case "quartz": {
+			const tokenType = resolveVertexTokenType(
+				provider,
+				options?.modelName,
+				options?.providerKeyOptions,
+				options?.configIndex,
+			);
+			if (tokenType === "oauth") {
+				return {
+					...requestIdHeader,
+					Authorization: `Bearer ${token}`,
+				};
+			}
+			return requestIdHeader;
+		}
 		case "avalanche":
 			return {
 				...requestIdHeader,
