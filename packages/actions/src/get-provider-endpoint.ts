@@ -172,12 +172,13 @@ export function getProviderEndpoint(
 						"global",
 					) ??
 					"global";
+				const vaDefaultHost =
+					vaDefaultRegion === "global"
+						? "https://aiplatform.googleapis.com"
+						: `https://${vaDefaultRegion}-aiplatform.googleapis.com`;
 				url =
-					envValueOrDefault(
-						"vertex-anthropic",
-						"baseUrl",
-						`https://${vaDefaultRegion}-aiplatform.googleapis.com`,
-					) ?? `https://${vaDefaultRegion}-aiplatform.googleapis.com`;
+					envValueOrDefault("vertex-anthropic", "baseUrl", vaDefaultHost) ??
+					vaDefaultHost;
 				break;
 			}
 			case "quartz":
