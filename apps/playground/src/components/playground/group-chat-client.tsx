@@ -109,16 +109,19 @@ export default function GroupChatClient({
 			if (!selectedOrganization) {
 				return;
 			}
-			if (ensuredProjectRef.current === selectedProject.id) {
+			const projectId = selectedProject.id;
+			if (ensuredProjectRef.current === projectId) {
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
+				const response = await fetch("/api/ensure-playground-key", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
+					body: JSON.stringify({ projectId }),
 				});
-				ensuredProjectRef.current = selectedProject.id;
+				if (response.ok && selectedProject.id === projectId) {
+					ensuredProjectRef.current = projectId;
+				}
 			} catch {
 				// ignore for now
 			}

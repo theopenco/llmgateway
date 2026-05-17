@@ -924,17 +924,20 @@ export default function ChatPageClient({
 			if (!selectedOrganization) {
 				return;
 			}
+			const projectId = selectedProject.id;
 			// Skip if we've already ensured the key for this project
-			if (ensuredProjectRef.current === selectedProject.id) {
+			if (ensuredProjectRef.current === projectId) {
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
+				const response = await fetch("/api/ensure-playground-key", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
+					body: JSON.stringify({ projectId }),
 				});
-				ensuredProjectRef.current = selectedProject.id;
+				if (response.ok && selectedProject.id === projectId) {
+					ensuredProjectRef.current = projectId;
+				}
 			} catch {
 				// ignore for now
 			}
