@@ -187,3 +187,32 @@ export const responsesRequestSchema = z.object({
 });
 
 export type ResponsesRequest = z.infer<typeof responsesRequestSchema>;
+
+export const compactRequestSchema = z.object({
+	model: z.string().openapi({
+		example: "gpt-4o-mini",
+	}),
+	input: z
+		.union([z.string(), z.array(inputItemSchema)])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	previous_response_id: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	instructions: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	prompt_cache_key: z
+		.string()
+		.max(64)
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+});
+
+export type CompactRequest = z.infer<typeof compactRequestSchema>;

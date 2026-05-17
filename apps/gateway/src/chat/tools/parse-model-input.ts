@@ -94,19 +94,10 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 				});
 			}
 
-			// Use the provider-specific model name if available
-			// For models with multiple mappings for the same provider (routing models),
-			// keep the base model ID so routing can select the right variant later
-			const providerMappings = modelDef.providers.filter(
+			const providerMapping = modelDef.providers.find(
 				(p) => p.providerId === requestedProvider,
 			);
-			if (providerMappings.length > 1) {
-				requestedModel = modelDef.id as Model;
-			} else if (providerMappings.length === 1) {
-				requestedModel = providerMappings[0].modelName;
-			} else {
-				requestedModel = modelName as Model;
-			}
+			requestedModel = (providerMapping?.modelName ?? modelName) as Model;
 		}
 	} else if (models.find((m) => m.id === modelInput)) {
 		requestedModel = modelInput as Model;
