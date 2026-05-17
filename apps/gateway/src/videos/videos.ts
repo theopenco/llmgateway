@@ -910,15 +910,6 @@ function getAvalancheSoraTaskModelName(
 	return `${baseModelName}-${inputMode === "reference" ? "image" : "text"}-to-video`;
 }
 
-function getBytedanceVideoUpstreamModelName(baseModelName: string): string {
-	const modelNameMap: Record<string, string> = {
-		"seedance-2-0": "dreamina-seedance-2-0-260128",
-		"seedance-2-0-fast": "dreamina-seedance-2-0-fast-260128",
-		"seedance-1-5-pro": "seedance-1-5-pro-251215",
-	};
-	return modelNameMap[baseModelName] ?? baseModelName;
-}
-
 function getVideoUpstreamModelName(
 	providerId: Provider,
 	baseModelName: string,
@@ -929,9 +920,7 @@ function getVideoUpstreamModelName(
 		case "avalanche":
 			return getAvalancheVideoModelName(baseModelName);
 		case "bytedance":
-			return getBytedanceVideoUpstreamModelName(baseModelName);
 		case "google-vertex":
-			return baseModelName;
 		default:
 			return baseModelName;
 	}
@@ -2831,9 +2820,7 @@ async function createBytedanceVideoJob(
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
-	const upstreamModelName = getBytedanceVideoUpstreamModelName(
-		providerMapping.modelName,
-	);
+	const upstreamModelName = providerMapping.modelName;
 	const content: Array<Record<string, unknown>> = [
 		{
 			type: "text",

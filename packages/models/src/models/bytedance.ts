@@ -140,7 +140,7 @@ export const bytedanceModels = [
 			{
 				test: "skip",
 				providerId: "bytedance",
-				modelName: "seedance-2-0",
+				modelName: "dreamina-seedance-2-0-260128",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -176,7 +176,7 @@ export const bytedanceModels = [
 			{
 				test: "skip",
 				providerId: "bytedance",
-				modelName: "seedance-2-0-fast",
+				modelName: "dreamina-seedance-2-0-fast-260128",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -212,7 +212,7 @@ export const bytedanceModels = [
 			{
 				test: "skip",
 				providerId: "bytedance",
-				modelName: "seedance-1-5-pro",
+				modelName: "seedance-1-5-pro-251215",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
