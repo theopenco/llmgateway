@@ -13,6 +13,7 @@ import {
 	Play,
 	Square,
 } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -26,6 +27,7 @@ import {
 	PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import { ModelSelector } from "@/components/model-selector";
+import { AuthDialog } from "@/components/playground/auth-dialog";
 import { CanvasSidebar } from "@/components/playground/canvas-sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,6 +53,7 @@ import {
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useUser } from "@/hooks/useUser";
 import { registry } from "@/lib/canvas/registry";
 import { emptySpec, templates } from "@/lib/canvas/templates";
 
@@ -93,6 +96,10 @@ export default function CanvasPageClient({
 	const abortRef = useRef<AbortController | null>(null);
 
 	const isMobile = useIsMobile();
+
+	const { user, isLoading: isUserLoading } = useUser();
+	const pathname = usePathname();
+	const showAuthDialog = !isUserLoading && !user;
 
 	const handleEditorChange = useCallback(
 		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -586,6 +593,7 @@ export default function CanvasPageClient({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+			<AuthDialog open={showAuthDialog} returnUrl={pathname} />
 		</>
 	);
 }
