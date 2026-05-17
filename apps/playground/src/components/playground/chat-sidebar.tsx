@@ -120,6 +120,7 @@ interface ChatHistoryRowProps {
 	editTitle: string;
 	pendingFocusChatId: string | null;
 	isPageLoading: boolean;
+	isMobile: boolean;
 	onChatSelect?: (chatId: string) => void;
 	onEditTitleChange: (value: string) => void;
 	onSaveTitle: (chatId: string) => void;
@@ -212,6 +213,7 @@ function ChatHistoryRowComponent({
 	editTitle,
 	pendingFocusChatId,
 	isPageLoading,
+	isMobile,
 	onChatSelect,
 	onEditTitleChange,
 	onSaveTitle,
@@ -244,6 +246,7 @@ function ChatHistoryRowComponent({
 	const { chat } = row;
 	const isEditing = editingId === chat.id;
 	const isActive = currentChatId === chat.id;
+	const isActionFocusable = isActive && isMobile ? undefined : -1;
 
 	return (
 		<div {...ariaAttributes} style={style}>
@@ -288,6 +291,7 @@ function ChatHistoryRowComponent({
 								type="button"
 								aria-label={chat.pinned ? "Unpin chat" : "Pin chat"}
 								title={chat.pinned ? "Unpin chat" : "Pin chat"}
+								tabIndex={isActionFocusable}
 								onClick={(e) => {
 									e.stopPropagation();
 									onTogglePin(chat);
@@ -310,6 +314,7 @@ function ChatHistoryRowComponent({
 								<DropdownMenuTrigger asChild>
 									<SidebarMenuAction
 										type="button"
+										tabIndex={isActionFocusable}
 										onClick={(e) => {
 											e.stopPropagation();
 										}}
@@ -663,6 +668,7 @@ export const ChatSidebar = function ChatSidebar({
 			editTitle,
 			pendingFocusChatId,
 			isPageLoading,
+			isMobile,
 			onChatSelect: handleChatSelect,
 			onEditTitleChange: setEditTitle,
 			onSaveTitle: saveTitle,
@@ -679,6 +685,7 @@ export const ChatSidebar = function ChatSidebar({
 			editTitle,
 			pendingFocusChatId,
 			isPageLoading,
+			isMobile,
 			handleChatSelect,
 			saveTitle,
 			cancelEditTitle,

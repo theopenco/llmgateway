@@ -707,12 +707,16 @@ chats.openapi(updateChat, async (c) => {
 		body.title === undefined &&
 		body.status === undefined;
 
+	const updateValues = isPinOnlyUpdate
+		? body
+		: {
+				...body,
+				updatedAt: new Date(),
+			};
+
 	const [updatedChat] = await db
 		.update(tables.chat)
-		.set({
-			...body,
-			updatedAt: isPinOnlyUpdate ? existingChat.updatedAt : new Date(),
-		})
+		.set(updateValues)
 		.where(eq(tables.chat.id, id))
 		.returning();
 
