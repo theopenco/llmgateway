@@ -15,6 +15,11 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
+import {
+	getModelPreferenceCookie,
+	setModelPreferenceCookie,
+	VIDEO_MODEL_COOKIE,
+} from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import {
 	getNormalizedVideoRequestSelection,
@@ -52,6 +57,7 @@ interface VideoPageClientProps {
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
+	initialModelPreference?: string | null;
 }
 
 export default function VideoPageClient({
@@ -61,6 +67,7 @@ export default function VideoPageClient({
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
+	initialModelPreference,
 }: VideoPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
@@ -88,8 +95,6 @@ export default function VideoPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	const VIDEO_MODEL_KEY = "llmgateway_model_video";
-
 	const [selectedModels, setSelectedModels] = useState<string[]>(() => {
 		const modelParam = searchParams.get("model");
 		if (modelParam) {
@@ -98,16 +103,13 @@ export default function VideoPageClient({
 				return models;
 			}
 		}
-		try {
-			const stored = localStorage.getItem(VIDEO_MODEL_KEY);
-			if (stored) {
-				const models = stored.split(",").filter(Boolean);
-				if (models.length > 0) {
-					return models;
-				}
+		const stored =
+			getModelPreferenceCookie(VIDEO_MODEL_COOKIE) ?? initialModelPreference;
+		if (stored) {
+			const models = stored.split(",").filter(Boolean);
+			if (models.length > 0) {
+				return models;
 			}
-		} catch {
-			// ignore private-mode / quota errors
 		}
 		const first = videoGenModels[0];
 		return first ? [first.id] : [];
@@ -371,11 +373,7 @@ export default function VideoPageClient({
 
 	useEffect(() => {
 		if (selectedModels.length > 0) {
-			try {
-				localStorage.setItem(VIDEO_MODEL_KEY, selectedModels.join(","));
-			} catch {
-				// ignore private-mode / quota errors
-			}
+			setModelPreferenceCookie(VIDEO_MODEL_COOKIE, selectedModels.join(","));
 		}
 	}, [selectedModels]);
 

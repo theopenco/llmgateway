@@ -5,6 +5,10 @@ import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import ImagePageClient from "@/components/playground/image-page-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import {
+	decodeModelPreference,
+	IMAGE_MODEL_COOKIE,
+} from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
@@ -23,6 +27,10 @@ export default async function ImagePage({
 	searchParams: Promise<{ orgId: string; projectId: string }>;
 }) {
 	const { orgId, projectId } = await searchParams;
+	const cookieStore = await cookies();
+	const initialModelPreference = decodeModelPreference(
+		cookieStore.get(IMAGE_MODEL_COOKIE)?.value,
+	);
 
 	const [models, providers] = await Promise.all([
 		fetchModels(),
@@ -107,7 +115,6 @@ export default async function ImagePage({
 			notFound();
 		}
 	} else if (selectedOrganization?.id) {
-		const cookieStore = await cookies();
 		const cookieName = `llmgateway-last-used-project-${selectedOrganization.id}`;
 		const lastUsed = cookieStore.get(cookieName)?.value;
 		if (lastUsed) {
@@ -132,6 +139,7 @@ export default async function ImagePage({
 				selectedOrganization={selectedOrganization}
 				projects={projects}
 				selectedProject={selectedProject}
+				initialModelPreference={initialModelPreference}
 			/>
 		</>
 	);

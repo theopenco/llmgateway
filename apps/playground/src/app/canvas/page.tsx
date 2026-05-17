@@ -5,6 +5,10 @@ import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import CanvasPageClient from "@/components/playground/canvas-page-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import {
+	CANVAS_MODEL_COOKIE,
+	decodeModelPreference,
+} from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
@@ -23,6 +27,10 @@ export default async function CanvasPage({
 	searchParams: Promise<{ orgId: string; projectId: string }>;
 }) {
 	const { orgId, projectId } = await searchParams;
+	const cookieStore = await cookies();
+	const initialModelPreference = decodeModelPreference(
+		cookieStore.get(CANVAS_MODEL_COOKIE)?.value,
+	);
 
 	const [models, providers] = await Promise.all([
 		fetchModels(),
@@ -92,7 +100,6 @@ export default async function CanvasPage({
 			notFound();
 		}
 	} else if (selectedOrganization?.id) {
-		const cookieStore = await cookies();
 		const cookieName = `llmgateway-last-used-project-${selectedOrganization.id}`;
 		const lastUsed = cookieStore.get(cookieName)?.value;
 		if (lastUsed) {
@@ -117,6 +124,7 @@ export default async function CanvasPage({
 				selectedOrganization={selectedOrganization}
 				projects={projects}
 				selectedProject={selectedProject}
+				initialModelPreference={initialModelPreference}
 			/>
 		</>
 	);

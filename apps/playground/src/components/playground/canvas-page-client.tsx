@@ -65,6 +65,11 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useUser } from "@/hooks/useUser";
 import { registry } from "@/lib/canvas/registry";
 import { emptySpec, templates } from "@/lib/canvas/templates";
+import {
+	CANVAS_MODEL_COOKIE,
+	getModelPreferenceCookie,
+	setModelPreferenceCookie,
+} from "@/lib/model-preferences";
 import { getErrorMessage } from "@/lib/utils";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -78,6 +83,7 @@ interface CanvasPageClientProps {
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
+	initialModelPreference?: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -98,7 +104,6 @@ function isRenderableSpec(value: unknown): value is Spec {
 	);
 }
 
-const CANVAS_MODEL_KEY = "llmgateway_model_canvas";
 const DEFAULT_CANVAS_MODEL = "anthropic/claude-sonnet-4-20250514";
 
 function CanvasSpecSkeleton() {
@@ -237,15 +242,13 @@ export default function CanvasPageClient({
 	providers,
 	selectedOrganization,
 	selectedProject,
+	initialModelPreference,
 }: CanvasPageClientProps) {
 	const [selectedModel, setSelectedModel] = useState<string>(() => {
-		try {
-			const stored = localStorage.getItem(CANVAS_MODEL_KEY);
-			if (stored) {
-				return stored;
-			}
-		} catch {
-			// ignore private-mode / quota errors
+		const stored =
+			getModelPreferenceCookie(CANVAS_MODEL_COOKIE) ?? initialModelPreference;
+		if (stored) {
+			return stored;
 		}
 		return DEFAULT_CANVAS_MODEL;
 	});
@@ -277,11 +280,7 @@ export default function CanvasPageClient({
 
 	useEffect(() => {
 		if (selectedModel) {
-			try {
-				localStorage.setItem(CANVAS_MODEL_KEY, selectedModel);
-			} catch {
-				// ignore private-mode / quota errors
-			}
+			setModelPreferenceCookie(CANVAS_MODEL_COOKIE, selectedModel);
 		}
 	}, [selectedModel]);
 

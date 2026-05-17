@@ -33,6 +33,11 @@ import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
+import {
+	CHAT_MODEL_COOKIE,
+	getModelPreferenceCookie,
+	setModelPreferenceCookie,
+} from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -217,6 +222,7 @@ interface ChatPageClientProps {
 	selectedProject: Project | null;
 	initialPrompt?: string;
 	enableWebSearch?: boolean;
+	initialModelPreference?: string | null;
 }
 
 function parseModelSelectorValue(value: string): {
@@ -259,6 +265,7 @@ export default function ChatPageClient({
 	selectedProject,
 	initialPrompt,
 	enableWebSearch = false,
+	initialModelPreference,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
@@ -271,20 +278,15 @@ export default function ChatPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	const CHAT_MODEL_KEY = "llmgateway_model_chat";
-
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
 		if (modelFromUrl) {
 			return modelFromUrl;
 		}
-		try {
-			const stored = localStorage.getItem(CHAT_MODEL_KEY);
-			if (stored) {
-				return stored;
-			}
-		} catch {
-			// ignore private-mode / quota errors
+		const stored =
+			getModelPreferenceCookie(CHAT_MODEL_COOKIE) ?? initialModelPreference;
+		if (stored) {
+			return stored;
 		}
 		return "auto";
 	};
@@ -1346,11 +1348,7 @@ export default function ChatPageClient({
 
 	useEffect(() => {
 		if (selectedModel) {
-			try {
-				localStorage.setItem(CHAT_MODEL_KEY, selectedModel);
-			} catch {
-				// ignore private-mode / quota errors
-			}
+			setModelPreferenceCookie(CHAT_MODEL_COOKIE, selectedModel);
 		}
 	}, [selectedModel]);
 

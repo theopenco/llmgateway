@@ -31,7 +31,10 @@ export async function POST(req: Request) {
 			status: 400,
 		});
 	}
-	const { prompt, model, apiKey } = body;
+	const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+	const model = typeof body.model === "string" ? body.model.trim() : undefined;
+	const apiKey =
+		typeof body.apiKey === "string" ? body.apiKey.trim() : undefined;
 	const systemPrompt = catalog.prompt();
 
 	if (!prompt) {
@@ -40,13 +43,13 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const headerApiKey = req.headers.get("x-llmgateway-key") ?? undefined;
+	const headerApiKey = req.headers.get("x-llmgateway-key")?.trim() || undefined;
 
 	const cookieStore = await cookies();
 	const cookieApiKey =
-		cookieStore.get("llmgateway_playground_key")?.value ??
-		cookieStore.get("__Host-llmgateway_playground_key")?.value;
-	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
+		cookieStore.get("llmgateway_playground_key")?.value.trim() ||
+		cookieStore.get("__Host-llmgateway_playground_key")?.value.trim();
+	const finalApiKey = apiKey || headerApiKey || cookieApiKey;
 
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
@@ -68,7 +71,7 @@ export async function POST(req: Request) {
 		},
 	});
 
-	const selectedModel = model ?? "anthropic/claude-sonnet-4-20250514";
+	const selectedModel = model || "anthropic/claude-sonnet-4-20250514";
 
 	const result = streamText({
 		model: llmgateway.chat(
