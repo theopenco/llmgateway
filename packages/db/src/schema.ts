@@ -1018,6 +1018,7 @@ export const chat = pgTable(
 			enum: ["active", "archived", "deleted"],
 		}).default("active"),
 		webSearch: boolean().default(false),
+		pinned: boolean().notNull().default(false),
 	},
 	(table) => [index("chat_user_id_idx").on(table.userId)],
 );

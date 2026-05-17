@@ -10,6 +10,7 @@ export interface Chat {
 	model: string;
 	status: "active" | "archived" | "deleted";
 	webSearch: boolean;
+	pinned: boolean;
 	shareId: string | null;
 	sharedAt: string | null;
 	orgShares: Array<{ id: string; organizationId: string }>;

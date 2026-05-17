@@ -7444,6 +7444,7 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -7495,6 +7496,7 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -7564,6 +7566,7 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -7623,6 +7626,7 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -7711,6 +7715,7 @@ export interface paths {
                         title?: string;
                         /** @enum {string} */
                         status?: "active" | "archived";
+                        pinned?: boolean;
                     };
                 };
             };
@@ -7729,6 +7734,7 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
