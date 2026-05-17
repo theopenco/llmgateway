@@ -1,23 +1,28 @@
+import createFetchClient from "openapi-fetch";
+
 import { getConfig } from "@/lib/config-server";
 
+import type { paths } from "@/lib/api/v1";
 import type { MetadataRoute } from "next";
 
-interface ShareListResponse {
-	shares: Array<{ id: string; updatedAt: string }>;
+interface ShareListItem {
+	id: string;
+	updatedAt: string;
 }
 
-async function fetchPublicShares(): Promise<ShareListResponse["shares"]> {
+export const revalidate = 3600;
+
+async function fetchPublicShares(): Promise<ShareListItem[]> {
 	const config = getConfig();
+	const client = createFetchClient<paths>({
+		baseUrl: config.apiBackendUrl,
+	});
 	try {
-		const response = await fetch(
-			`${config.apiBackendUrl}/public/chats/share?limit=5000`,
-			{ cache: "no-store" },
-		);
-		if (!response.ok) {
-			return [];
-		}
-		const data = (await response.json()) as ShareListResponse;
-		return Array.isArray(data.shares) ? data.shares : [];
+		const { data } = await client.GET("/public/chats/share", {
+			params: { query: { limit: 5000 } },
+			next: { revalidate: 3600 },
+		});
+		return data?.shares ?? [];
 	} catch {
 		return [];
 	}
@@ -48,6 +53,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/group`,
+			lastModified: now,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/canvas`,
 			lastModified: now,
 			changeFrequency: "weekly",
 			priority: 0.8,

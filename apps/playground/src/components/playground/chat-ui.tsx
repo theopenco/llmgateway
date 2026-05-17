@@ -1148,7 +1148,7 @@ export const ChatUI = ({
 					key={`prompt-input-${supportsImages ? "img" : ""}${supportsAudio ? "aud" : ""}`}
 					className={
 						floatingInput
-							? "[&_[data-slot=input-group]]:rounded-none sm:[&_[data-slot=input-group]]:rounded-md"
+							? "[&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-x-0 [&_[data-slot=input-group]]:border-b-0 sm:[&_[data-slot=input-group]]:rounded-md sm:[&_[data-slot=input-group]]:border"
 							: undefined
 					}
 					accept={

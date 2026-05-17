@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import type { McpServer } from "@/hooks/useMcpServers";
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
+import type { Organization } from "@/lib/types";
 
 interface ChatHeaderProps {
 	models: ApiModel[];
@@ -31,10 +32,14 @@ interface ChatHeaderProps {
 	onToggleMcpServer: (id: string) => void;
 	isTemporaryChat: boolean;
 	onToggleTemporaryChat: () => void;
+	showTemporaryChatSwitcher: boolean;
 	isTemporaryChatToggleDisabled: boolean;
 	hasTemporaryMessages: boolean;
 	currentChatId: string | null;
+	isShareChatDisabled?: boolean;
 	shareId: string | null;
+	orgShares: Array<{ id: string; organizationId: string }>;
+	organizations: Organization[];
 	chatTitle?: string | null;
 	previewPrompt?: string | null;
 }
@@ -54,10 +59,14 @@ export const ChatHeader = ({
 	onToggleMcpServer,
 	isTemporaryChat,
 	onToggleTemporaryChat,
+	showTemporaryChatSwitcher,
 	isTemporaryChatToggleDisabled,
 	hasTemporaryMessages,
 	currentChatId,
+	isShareChatDisabled = true,
 	shareId,
+	orgShares,
+	organizations,
 	chatTitle,
 	previewPrompt,
 }: ChatHeaderProps) => {
@@ -78,16 +87,21 @@ export const ChatHeader = ({
 				) : null}
 			</div>
 			<div className="ml-3 flex items-center gap-3">
-				<TempChatSwitcher
-					isTemporaryChat={isTemporaryChat}
-					onToggleTemporaryChat={onToggleTemporaryChat}
-					isTemporaryChatToggleDisabled={isTemporaryChatToggleDisabled}
-					hasTemporaryMessages={hasTemporaryMessages}
-				/>
+				{showTemporaryChatSwitcher ? (
+					<TempChatSwitcher
+						isTemporaryChat={isTemporaryChat}
+						onToggleTemporaryChat={onToggleTemporaryChat}
+						isTemporaryChatToggleDisabled={isTemporaryChatToggleDisabled}
+						hasTemporaryMessages={hasTemporaryMessages}
+					/>
+				) : null}
 				{isTemporaryChat || !currentChatId ? null : (
 					<ShareChatDialog
 						currentChatId={currentChatId}
+						disabled={isShareChatDisabled}
 						shareId={shareId}
+						orgShares={orgShares}
+						organizations={organizations}
 						chatTitle={chatTitle}
 						previewPrompt={previewPrompt}
 					/>

@@ -105,8 +105,8 @@ export const providers = [
 		color: "#8b5cf6",
 		website: "https://anthropic.com",
 		announcement: null,
-		termsUrl: "https://www.anthropic.com/policies/terms-of-service",
-		privacyPolicyUrl: "https://www.anthropic.com/policies/privacy",
+		termsUrl: "https://www.anthropic.com/terms",
+		privacyPolicyUrl: "https://www.anthropic.com/privacy",
 	},
 	{
 		id: "google-ai-studio",
@@ -128,7 +128,7 @@ export const providers = [
 		announcement: null,
 		priority: 0.8,
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
-		privacyPolicyUrl: "https://policies.google.com/privacy",
+		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 	},
 	{
 		id: "glacier",
@@ -195,7 +195,30 @@ export const providers = [
 		announcement: null,
 		priority: 0.9,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
-		privacyPolicyUrl: "https://policies.google.com/privacy",
+		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+	},
+	{
+		id: "vertex-anthropic",
+		name: "Vertex AI (Anthropic)",
+		description:
+			"Access Claude models via Google Cloud Vertex AI with the Anthropic Messages API.",
+		env: {
+			required: {
+				apiKey: "LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
+			},
+			optional: {
+				baseUrl: "LLM_VERTEX_ANTHROPIC_BASE_URL",
+				region: "LLM_VERTEX_ANTHROPIC_REGION",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: "https://cloud.google.com/vertex-ai",
+		announcement: null,
+		priority: 0.9,
+		termsUrl: "https://cloud.google.com/terms/service-terms",
+		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 	},
 	{
 		id: "quartz",
@@ -311,9 +334,9 @@ export const providers = [
 		website: "https://deepseek.com",
 		announcement: null,
 		termsUrl:
-			"https://chat.deepseek.com/downloads/DeepSeek%20Terms%20of%20Use.html",
+			"https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html",
 		privacyPolicyUrl:
-			"https://chat.deepseek.com/downloads/DeepSeek%20Privacy%20Policy.html",
+			"https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
 	},
 	{
 		id: "alibaba",
@@ -348,9 +371,9 @@ export const providers = [
 			},
 		},
 		termsUrl:
-			"https://www.alibabacloud.com/help/legal/latest/chinese-mainland-chinese",
+			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service-v-3-8-0",
 		privacyPolicyUrl:
-			"https://www.alibabacloud.com/help/legal/latest/chinese-mainland-chinese-privacy-policy",
+			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-privacy-policy",
 	},
 	{
 		id: "novita",
@@ -460,8 +483,8 @@ export const providers = [
 		color: "#22c55e",
 		website: "https://z.ai",
 		announcement: null,
-		termsUrl: "https://z.ai/terms",
-		privacyPolicyUrl: "https://z.ai/privacy",
+		termsUrl: "https://docs.z.ai/legal-agreement/terms-of-use",
+		privacyPolicyUrl: "https://docs.z.ai/legal-agreement/privacy-policy",
 	},
 	{
 		id: "moonshot",
@@ -477,8 +500,9 @@ export const providers = [
 		color: "#4B9EFF",
 		website: "https://moonshot.ai",
 		announcement: null,
-		termsUrl: "https://platform.moonshot.cn/docs/terms",
-		privacyPolicyUrl: "https://platform.moonshot.cn/docs/privacy",
+		termsUrl: "https://www.kimi.com/user/agreement/modelUse?version=v2",
+		privacyPolicyUrl:
+			"https://www.kimi.com/user/agreement/userPrivacy?version=v2",
 	},
 	{
 		id: "perplexity",
@@ -513,8 +537,8 @@ export const providers = [
 		color: "#3b82f6",
 		website: "https://nebius.com",
 		announcement: null,
-		termsUrl: "https://nebius.com/legal/terms-of-service",
-		privacyPolicyUrl: "https://nebius.com/legal/privacy-policy",
+		termsUrl: "https://docs.nebius.com/legal/terms-of-use",
+		privacyPolicyUrl: "https://docs.nebius.com/legal/privacy",
 	},
 	{
 		id: "mistral",
@@ -530,7 +554,7 @@ export const providers = [
 		color: "#FF7000",
 		website: "https://mistral.ai",
 		announcement: null,
-		termsUrl: "https://mistral.ai/terms",
+		termsUrl: "https://legal.mistral.ai/terms/commercial-terms-of-service",
 		privacyPolicyUrl: "https://mistral.ai/terms/#privacy-policy",
 	},
 	{
@@ -548,8 +572,8 @@ export const providers = [
 		color: "#10b981",
 		website: "https://inference.net",
 		announcement: null,
-		termsUrl: "https://inference.net/terms",
-		privacyPolicyUrl: "https://inference.net/privacy",
+		termsUrl: "https://inference.net/terms-of-service",
+		privacyPolicyUrl: "https://inference.net/privacy-policy",
 	},
 	{
 		id: "together-ai",
@@ -567,7 +591,7 @@ export const providers = [
 		website: "https://together.ai",
 		announcement: null,
 		termsUrl: "https://www.together.ai/terms-of-service",
-		privacyPolicyUrl: "https://www.together.ai/privacy-policy",
+		privacyPolicyUrl: "https://www.together.ai/privacy",
 	},
 	{
 		id: "custom",
@@ -598,8 +622,8 @@ export const providers = [
 		color: "#10b981",
 		website: "https://nano-gpt.com",
 		announcement: null,
-		termsUrl: "https://nano-gpt.com/terms",
-		privacyPolicyUrl: "https://nano-gpt.com/privacy",
+		termsUrl: "https://nano-gpt.com/legal/terms-of-service",
+		privacyPolicyUrl: "https://nano-gpt.com/legal/privacy-policy",
 	},
 	{
 		id: "bytedance",
@@ -616,8 +640,9 @@ export const providers = [
 		color: "#FF4757",
 		website: "https://www.byteplus.com/en/product/modelark",
 		announcement: null,
-		termsUrl: "https://www.byteplus.com/en/legal/terms-of-service",
-		privacyPolicyUrl: "https://www.byteplus.com/en/legal/privacy-policy",
+		termsUrl: "https://docs.byteplus.com/en/docs/legal/docs-terms-of-service",
+		privacyPolicyUrl:
+			"https://docs.byteplus.com/en/docs/legal/docs-privacy-policy",
 	},
 	{
 		id: "minimax",
@@ -673,8 +698,9 @@ export const providers = [
 		color: "#FF6900",
 		website: "https://platform.xiaomimimo.com",
 		announcement: null,
-		termsUrl: "https://platform.xiaomimimo.com/terms",
-		privacyPolicyUrl: "https://platform.xiaomimimo.com/privacy",
+		termsUrl: "https://platform.xiaomimimo.com/docs/terms/user-agreement",
+		privacyPolicyUrl:
+			"https://platform.xiaomimimo.com/docs/terms/privacy-policy",
 	},
 ] as const satisfies ProviderDefinition[];
 

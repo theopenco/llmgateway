@@ -346,7 +346,8 @@ export async function resolveProviderContext(
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
 			usedProvider === "google-vertex" ||
-			usedProvider === "quartz"
+			usedProvider === "quartz" ||
+			usedProvider === "vertex-anthropic"
 			? usedToken
 			: undefined,
 		options.stream,
@@ -403,7 +404,7 @@ export async function resolveProviderContext(
 	}
 
 	// Anthropic does not allow temperature and top_p simultaneously
-	if (usedProvider === "anthropic") {
+	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -474,12 +475,6 @@ export async function resolveProviderContext(
 		}
 	}
 
-	// Vertex OpenAI-compatible endpoint requires an OAuth2 access token derived
-	// from the configured service account JSON. The SA JSON itself is used as
-	// the long-lived credential (and for usedApiKeyHash / health attribution),
-	// while the short-lived access token is what travels in the Authorization
-	// header. Read the env-var directly to bypass round-robin comma-splitting
-	// (an SA JSON value contains commas and would otherwise be truncated).
 	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
 	// derived from the configured service account JSON. The SA JSON is the
 	// long-lived credential (kept in usedApiKeyHash above for health tracking)

@@ -555,6 +555,7 @@ export interface ProviderKeyOptions {
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
 	google_vertex_project_id?: string;
 	vertex_openai_project_id?: string;
+	vertex_anthropic_region?: string;
 }
 
 export const providerKey = pgTable(
@@ -1019,6 +1020,7 @@ export const chat = pgTable(
 			enum: ["active", "archived", "deleted"],
 		}).default("active"),
 		webSearch: boolean().default(false),
+		pinned: boolean().notNull().default(false),
 	},
 	(table) => [index("chat_user_id_idx").on(table.userId)],
 );
@@ -1036,6 +1038,9 @@ export const chatShare = pgTable(
 		chatId: text()
 			.notNull()
 			.references(() => chat.id, { onDelete: "cascade" }),
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
@@ -1044,10 +1049,18 @@ export const chatShare = pgTable(
 		messages: jsonb().notNull(),
 	},
 	(table) => [
-		uniqueIndex("chat_share_active_chat_id_unique")
+		uniqueIndex("chat_share_active_chat_id_public_unique")
 			.on(table.chatId)
-			.where(sql`${table.deletedAt} IS NULL`),
+			.where(
+				sql`${table.deletedAt} IS NULL AND ${table.organizationId} IS NULL`,
+			),
+		uniqueIndex("chat_share_active_chat_id_org_unique")
+			.on(table.chatId, table.organizationId)
+			.where(
+				sql`${table.deletedAt} IS NULL AND ${table.organizationId} IS NOT NULL`,
+			),
 		index("chat_share_chat_id_idx").on(table.chatId),
+		index("chat_share_organization_id_idx").on(table.organizationId),
 		index("chat_share_deleted_at_idx").on(table.deletedAt),
 	],
 );

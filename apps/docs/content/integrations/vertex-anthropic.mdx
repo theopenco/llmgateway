@@ -1,0 +1,213 @@
+---
+title: Vertex AI Anthropic Integration
+description: Connect Google Cloud Vertex AI to LLM Gateway to run Claude models on your own GCP project
+icon: Cloud
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+Run Claude models (Sonnet, Opus, Haiku) on Google Cloud Vertex AI through LLM Gateway. This guide shows how to set up a GCP service account and integrate it with LLM Gateway using automatic OAuth2 token management — no manual token rotation required.
+
+## Prerequisites
+
+- A Google Cloud project with billing enabled
+- LLM Gateway account or self-hosted instance
+
+## Set up Google Cloud
+
+<Steps>
+<Step>
+### Enable the Vertex AI API
+
+In the [Google Cloud Console](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com), enable the **Vertex AI API** for your project.
+
+</Step>
+
+<Step>
+### Enable Claude Models in Model Garden
+
+Navigate to **Vertex AI > Model Garden** in the Cloud Console. Search for the Claude models you want to use and click **Enable** on each one.
+
+Available models:
+
+- `claude-sonnet-4-6`
+- `claude-sonnet-4-5`
+- `claude-haiku-4-5`
+- `claude-opus-4-5`
+- `claude-opus-4-6`
+- `claude-opus-4-7`
+
+</Step>
+
+<Step>
+### Create a Service Account
+
+Create a service account with the required permissions:
+
+```bash
+# Create the service account
+gcloud iam service-accounts create vertex-ai-caller \
+  --display-name="Vertex AI Caller" \
+  --project=YOUR_PROJECT_ID
+
+# Grant the Vertex AI User role
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+```
+
+</Step>
+
+<Step>
+### Download the Service Account Key
+
+```bash
+gcloud iam service-accounts keys create service-account.json \
+  --iam-account=vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com
+```
+
+Then convert it to a single-line string:
+
+```bash
+cat service-account.json | tr -d '\n'
+```
+
+Keep the output handy — you'll paste it into LLM Gateway in the next steps.
+
+</Step>
+</Steps>
+
+## Add to LLM Gateway
+
+<Steps>
+<Step>
+### Navigate to Provider Keys
+
+1. Log into [LLM Gateway Dashboard](https://llmgateway.io/dashboard)
+2. Select your organization and project
+3. Go to **Provider Keys** in the sidebar
+
+</Step>
+
+<Step>
+### Add Vertex Anthropic Provider Key
+
+1. Click **Add** for **Vertex AI (Anthropic)**
+2. Paste the single-line service account JSON as the **API Key**
+3. Leave **Region** empty to use the recommended `global` endpoint, or set a specific region (e.g. `us-east5`) if you need data residency
+4. Click **Add Key**
+
+The project ID is extracted automatically from the service account JSON — no separate project field is needed.
+
+</Step>
+
+<Step>
+### Test the Integration
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_LLMGATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "vertex-anthropic/claude-sonnet-4-6",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello from Vertex Anthropic!"
+      }
+    ]
+  }'
+```
+
+Replace `YOUR_LLMGATEWAY_API_KEY` with your LLM Gateway API key.
+
+</Step>
+</Steps>
+
+## Self-Host Configuration
+
+If you're self-hosting LLM Gateway, configure the provider via environment variables instead of the dashboard:
+
+```bash
+LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"YOUR_PROJECT_ID","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n","client_email":"vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}
+LLM_VERTEX_ANTHROPIC_REGION=global
+```
+
+<Callout type="info">
+	The project ID is extracted automatically from the service account JSON — no
+	separate `LLM_VERTEX_ANTHROPIC_PROJECT` variable is needed.
+</Callout>
+
+## How Token Refresh Works
+
+LLM Gateway handles the OAuth2 token lifecycle automatically:
+
+1. On first request, the service account JSON is parsed and used to sign a JWT
+2. The JWT is exchanged for an OAuth2 access token via Google's token endpoint
+3. The token is cached in Redis with a **50-minute TTL** (Google tokens expire after 60 minutes)
+4. An in-memory cache avoids Redis round-trips on subsequent requests
+5. When the cached token expires, a new one is generated transparently
+
+This means:
+
+- No manual `gcloud auth print-access-token` commands
+- No cron jobs to refresh tokens
+- Works at any request rate (token generation happens at most once per 50 minutes)
+- Multi-instance deployments share the cached token via Redis
+
+## Available Regions
+
+LLM Gateway defaults to the **`global`** endpoint, which Anthropic recommends: requests are routed dynamically to whichever region has capacity, and there is no pricing premium.
+
+| Region            | Notes                                         |
+| ----------------- | --------------------------------------------- |
+| `global`          | Default — dynamic routing, no pricing premium |
+| `us`              | Multi-region (US only); 10% premium           |
+| `eu`              | Multi-region (EU only); 10% premium           |
+| `us-east5`        | Columbus, Ohio; 10% premium                   |
+| `us-central1`     | Iowa; 10% premium                             |
+| `europe-west1`    | Belgium; 10% premium                          |
+| `europe-west4`    | Netherlands; 10% premium                      |
+| `asia-southeast1` | Singapore; 10% premium                        |
+
+<Callout type="info">
+	Regional and multi-region endpoints add a 10% pricing premium on Claude Sonnet
+	4.5 and newer models. They are also required if you need single-region data
+	residency or provisioned throughput. See [Anthropic's Vertex
+	docs](https://platform.claude.com/docs/en/api/claude-on-vertex-ai#global-multi-region-and-regional-endpoints)
+	for details.
+</Callout>
+
+## Available Models
+
+Once configured, you can access Claude models on Vertex AI through LLM Gateway:
+
+- **Sonnet**: `vertex-anthropic/claude-sonnet-4-6`, `vertex-anthropic/claude-sonnet-4-5`
+- **Opus**: `vertex-anthropic/claude-opus-4-7`, `vertex-anthropic/claude-opus-4-6`, `vertex-anthropic/claude-opus-4-5`
+- **Haiku**: `vertex-anthropic/claude-haiku-4-5`
+
+Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=vertex-anthropic).
+
+## Troubleshooting
+
+### 401 UNAUTHENTICATED / ACCESS_TOKEN_TYPE_UNSUPPORTED
+
+The gateway is sending an invalid token. Check:
+
+- The service account JSON is valid and complete
+- The service account has `roles/aiplatform.user` on the project
+
+### 403 Permission Denied
+
+The service account lacks permissions. Grant the `Vertex AI User` role:
+
+```bash
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:vertex-ai-caller@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+```
+
+### Model Not Found
+
+The Claude model may not be enabled in your project's Model Garden, or may not be available in the selected region. Check the [Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) in Cloud Console.

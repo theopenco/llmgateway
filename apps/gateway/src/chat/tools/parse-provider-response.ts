@@ -137,7 +137,8 @@ export function parseProviderResponse(
 
 			break;
 		}
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			// Extract content and reasoning content from Anthropic response
 			const contentBlocks = json.content ?? [];
 			const textBlocks = contentBlocks.filter(

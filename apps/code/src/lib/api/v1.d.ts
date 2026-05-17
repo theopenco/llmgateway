@@ -5799,6 +5799,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/keys/provider/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of provider keys with minimal fields. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providerKeys: {
+                                provider: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/keys/provider/{id}": {
         parameters: {
             query?: never;
@@ -7407,9 +7448,14 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7454,9 +7500,14 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7519,9 +7570,14 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7574,9 +7630,14 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7658,6 +7719,7 @@ export interface paths {
                         title?: string;
                         /** @enum {string} */
                         status?: "active" | "archived";
+                        pinned?: boolean;
                     };
                 };
             };
@@ -7676,9 +7738,14 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
+                                pinned: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
+                                orgShares: {
+                                    id: string;
+                                    organizationId: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -7710,7 +7777,13 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        organizationId?: string;
+                    };
+                };
+            };
             responses: {
                 /** @description Chat share snapshot. */
                 200: {
@@ -7724,6 +7797,7 @@ export interface paths {
                                 url: string;
                                 /** Format: date-time */
                                 createdAt: string;
+                                organizationId?: string | null;
                             };
                         };
                     };
@@ -7742,6 +7816,137 @@ export interface paths {
             requestBody?: never;
             responses: {
                 /** @description Chat share deleted successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chats/org/{organizationId}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    organizationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization shared chat snapshots. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            shares: {
+                                id: string;
+                                title: string;
+                                model: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chats/org-share/{shareId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    shareId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization shared chat snapshot. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            share: {
+                                id: string;
+                                title: string;
+                                model: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                                messages: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    role: "user" | "assistant" | "system";
+                                    content: string | null;
+                                    images: string | null;
+                                    audios?: string | null;
+                                    reasoning: string | null;
+                                    tools: string | null;
+                                    metadata?: {
+                                        [key: string]: unknown;
+                                    } | null;
+                                    sequence: number;
+                                    /** Format: date-time */
+                                    createdAt: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    shareId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization share deleted successfully. */
                 200: {
                     headers: {
                         [name: string]: unknown;

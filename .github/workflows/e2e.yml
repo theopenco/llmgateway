@@ -33,7 +33,7 @@ jobs:
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6.0.5
+      - uses: pnpm/action-setup@v6.0.6
         with:
           version: ${{ env.pnpm_version }}
 
@@ -61,6 +61,8 @@ jobs:
           LLM_GOOGLE_VERTEX_API_KEY: ${{ secrets.GOOGLE_VERTEX_API_KEY }}
           LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON: ${{ secrets.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON }}
           LLM_VERTEX_OPENAI_PROJECT: ${{ secrets.LLM_VERTEX_OPENAI_PROJECT }}
+          LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON: ${{ secrets.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON }}
+          LLM_VERTEX_ANTHROPIC_REGION: ${{ secrets.LLM_VERTEX_ANTHROPIC_REGION }}
           LLM_MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           LLM_X_AI_API_KEY: ${{ secrets.X_AI_API_KEY }}
           LLM_GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -111,7 +113,7 @@ jobs:
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6.0.5
+      - uses: pnpm/action-setup@v6.0.6
         with:
           version: ${{ env.pnpm_version }}
 

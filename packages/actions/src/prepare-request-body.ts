@@ -976,7 +976,9 @@ export async function prepareRequestBody(
 	// otherwise pass an unknown field through to OpenAI/Google/etc., risking a
 	// 400 from strict providers and confusing logs from lenient ones.
 	const providerHandlesCacheControl =
-		usedProvider === "anthropic" || usedProvider === "aws-bedrock";
+		usedProvider === "anthropic" ||
+		usedProvider === "vertex-anthropic" ||
+		usedProvider === "aws-bedrock";
 	if (!providerHandlesCacheControl) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
@@ -1396,7 +1398,8 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
@@ -1662,28 +1665,31 @@ export async function prepareRequestBody(
 				requestBody.output_config.effort = effort;
 			}
 
-			// Handle response_format for Anthropic - transform to output_format
-			// Anthropic uses output_format with type: "json_schema" and a schema object
 			if (response_format) {
 				if (
 					response_format.type === "json_schema" &&
 					response_format.json_schema
 				) {
-					// Ensure schema has additionalProperties: false as required by Anthropic
 					const schema = {
 						...response_format.json_schema.schema,
 						additionalProperties: false,
 					} as Record<string, unknown>;
-					requestBody.output_format = {
-						type: "json_schema",
-						schema,
+					requestBody.output_config = {
+						format: {
+							type: "json_schema",
+							schema,
+						},
 					};
 				} else if (response_format.type === "json_object") {
 					// For json_object, we cannot use structured outputs directly
-					// as Anthropic requires a specific schema. Instead, we skip output_format
+					// as Anthropic requires a specific schema. Instead, we skip output_config
 					// and rely on system prompt instructions for JSON output.
-					// Note: The model capability (jsonOutput) should ensure the prompt guides JSON output.
 				}
+			}
+
+			if (usedProvider === "vertex-anthropic") {
+				requestBody.anthropic_version = "vertex-2023-10-16";
+				delete requestBody.model;
 			}
 			break;
 		}

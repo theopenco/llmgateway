@@ -39,7 +39,9 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useFavoriteModels } from "@/hooks/useFavoriteModels";
+import { useApi } from "@/lib/fetch-client";
 import {
 	formatPrice,
 	formatContextSize,
@@ -78,6 +80,7 @@ interface FilterState {
 	hideUnstable: boolean;
 	showOnlyRoot: boolean;
 	showFavoritesOnly: boolean;
+	showOnlyWithKeys: boolean;
 }
 
 // helper to extract simple capability labels from a mapping
@@ -620,11 +623,11 @@ function ModelEntryRowComponent({
 							entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
 						)}
 					/>
-					<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
+					<div className="flex items-center justify-between flex-1 min-w-0 gap-2">
 						<div className="flex items-center gap-2 min-w-0 flex-1">
 							<Sparkles className="h-6 w-6 shrink-0 text-primary" />
 							<div className="flex flex-col min-w-0 flex-1">
-								<div className="flex items-center gap-1">
+								<div className="flex items-center gap-1 min-w-0">
 									<span className="font-medium truncate">{model.name}</span>
 									{isFreeRoot && (
 										<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
@@ -722,13 +725,13 @@ function ModelEntryRowComponent({
 						entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
 					)}
 				/>
-				<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
+				<div className="flex items-center justify-between flex-1 min-w-0 gap-2">
 					<div className="flex items-center gap-2 min-w-0 flex-1">
 						{ProviderIcon ? (
 							<ProviderIcon className="h-6 w-6 shrink-0 dark:text-white" />
 						) : null}
 						<div className="flex flex-col min-w-0 flex-1">
-							<div className="flex items-center gap-1">
+							<div className="flex items-center gap-1 min-w-0">
 								<span className="font-medium truncate">{model.name}</span>
 								{isFreeMapping && (
 									<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
@@ -799,6 +802,20 @@ export function ModelSelector({
 	getOptionDisabledReason,
 }: ModelSelectorProps) {
 	const { isFavorite, toggleFavorite } = useFavoriteModels();
+	const isMobile = useIsMobile();
+	const api = useApi();
+	const { data: providerKeysData } = api.useQuery(
+		"get",
+		"/keys/provider/active",
+	);
+	const providersWithKeys = React.useMemo(() => {
+		const keys = providerKeysData?.providerKeys ?? [];
+		return new Set(
+			keys
+				.filter((k) => k.status === "active")
+				.map((k) => k.provider as string),
+		);
+	}, [providerKeysData]);
 	const [open, setOpen] = React.useState(false);
 	const [filterOpen, setFilterOpen] = React.useState(false);
 	const [searchQuery, setSearchQuery] = React.useState("");
@@ -823,6 +840,7 @@ export function ModelSelector({
 		hideUnstable: true,
 		showOnlyRoot: false,
 		showFavoritesOnly: false,
+		showOnlyWithKeys: false,
 	});
 	const [previewExpandTokens, setPreviewExpandTokens] = React.useState(false);
 	const [selectedExpandTokens, setSelectedExpandTokens] = React.useState(false);
@@ -898,13 +916,29 @@ export function ModelSelector({
 			return dateB - dateA;
 		});
 
+		// Always place the "auto" model at the very top
+		const autoModel = sortedModels.find((m) => m.id === "auto");
+		if (autoModel) {
+			out.push({
+				model: autoModel,
+				isRoot: true,
+				searchText: normalize(
+					[
+						autoModel.name ?? "",
+						autoModel.family ?? "",
+						autoModel.id,
+						autoModel.aliases?.join(" ") ?? "",
+					].join(" "),
+				),
+			});
+		}
+
 		for (const m of sortedModels) {
-			if (m.id === "custom") {
+			if (m.id === "custom" || m.id === "auto") {
 				continue;
 			}
 
 			// Add root model entry (auto-routing)
-			// Only include "auto" in search text for the actual auto model
 			const aliasText = m.aliases?.join(" ") ?? "";
 			const rootSearchText = normalize(
 				[m.name ?? "", m.family ?? "", m.id, aliasText].join(" "),
@@ -914,11 +948,6 @@ export function ModelSelector({
 				isRoot: true,
 				searchText: rootSearchText,
 			});
-
-			// Skip provider entries for auto model - it should only appear as root
-			if (m.id === "auto") {
-				continue;
-			}
 
 			for (const mp of m.mappings) {
 				const isDeactivated =
@@ -1045,8 +1074,21 @@ export function ModelSelector({
 				return mappingId !== null && isFavorite(mappingId);
 			});
 		}
+		if (filters.showOnlyWithKeys) {
+			const now = new Date();
+			list = list.filter((e) => {
+				if (e.isRoot) {
+					return e.model.mappings?.some(
+						(m) =>
+							providersWithKeys.has(m.providerId) &&
+							!(m.deactivatedAt && new Date(m.deactivatedAt) <= now),
+					);
+				}
+				return e.mapping ? providersWithKeys.has(e.mapping.providerId) : false;
+			});
+		}
 		return list;
-	}, [allEntries, deferredSearch, filters, isFavorite]);
+	}, [allEntries, deferredSearch, filters, isFavorite, providersWithKeys]);
 
 	const updateFilter = (key: keyof FilterState, value: any) => {
 		setFilters((prev) => ({ ...prev, [key]: value }));
@@ -1080,6 +1122,7 @@ export function ModelSelector({
 			hideUnstable: true,
 			showOnlyRoot: false,
 			showFavoritesOnly: false,
+			showOnlyWithKeys: false,
 		});
 	};
 
@@ -1089,7 +1132,8 @@ export function ModelSelector({
 		filters.priceRange !== "all" ||
 		!filters.hideUnstable ||
 		filters.showOnlyRoot ||
-		filters.showFavoritesOnly;
+		filters.showFavoritesOnly ||
+		filters.showOnlyWithKeys;
 
 	const getProviderLogo = (providerId: ProviderId) => {
 		const LogoComponent = providerLogoUrls[providerId];
@@ -1310,13 +1354,13 @@ export function ModelSelector({
 						{/* Main content - model list & filters */}
 						<div className="flex-1 w-[300px] md:w-[340px]">
 							<Command shouldFilter={false}>
-								<div className="flex items-center border-b px-3 w-[300px] md:w-full">
+								<div className="flex items-center border-b px-3 w-[300px] md:w-full [&_[cmdk-input-wrapper]]:border-0">
 									<CommandInput
 										placeholder="Search models..."
 										value={searchQuery}
 										onValueChange={setSearchQuery}
 										onKeyDown={handleInputKeyDown}
-										className="h-12 border-0"
+										className="h-12"
 									/>
 									<Popover open={filterOpen} onOpenChange={setFilterOpen}>
 										<PopoverTrigger asChild>
@@ -1334,10 +1378,10 @@ export function ModelSelector({
 										<PopoverContent
 											className="w-[calc(100vw-2rem)] sm:w-80 h-[400px] overflow-y-scroll md:h-full"
 											style={{ zIndex: 100000 }}
-											side="bottom"
-											align="end"
+											side={isMobile ? "bottom" : "right"}
+											align={isMobile ? "end" : "start"}
 										>
-											<div className="space-y-4">
+											<div className="space-y-3">
 												<div className="flex items-center justify-between">
 													<h4 className="font-medium">Filters</h4>
 													{hasActiveFilters && (
@@ -1351,48 +1395,65 @@ export function ModelSelector({
 													)}
 												</div>
 
-												{/* Root model filter */}
-												<div className="flex items-center justify-between">
-													<Label
-														htmlFor="show-root"
-														className="text-sm cursor-pointer font-medium"
-													>
-														Show only root models
-													</Label>
-													<Switch
-														id="show-root"
-														checked={filters.showOnlyRoot}
-														onCheckedChange={(checked) =>
-															updateFilter("showOnlyRoot", checked)
-														}
-													/>
-												</div>
-
-												{/* Favorites filter */}
-												<div className="flex items-center justify-between">
-													<Label
-														htmlFor="show-favorites"
-														className="text-sm cursor-pointer font-medium"
-													>
-														Show favorites only
-													</Label>
-													<Switch
-														id="show-favorites"
-														checked={filters.showFavoritesOnly}
-														onCheckedChange={(checked) =>
-															updateFilter("showFavoritesOnly", checked)
-														}
-													/>
+												{/* Toggle filters group */}
+												<div className="space-y-2">
+													<div className="flex items-center justify-between">
+														<Label
+															htmlFor="show-root"
+															className="text-sm cursor-pointer font-medium"
+														>
+															Show only root models
+														</Label>
+														<Switch
+															id="show-root"
+															checked={filters.showOnlyRoot}
+															onCheckedChange={(checked) =>
+																updateFilter("showOnlyRoot", checked)
+															}
+														/>
+													</div>
+													<div className="flex items-center justify-between">
+														<Label
+															htmlFor="show-favorites"
+															className="text-sm cursor-pointer font-medium"
+														>
+															Show favorites only
+														</Label>
+														<Switch
+															id="show-favorites"
+															checked={filters.showFavoritesOnly}
+															onCheckedChange={(checked) =>
+																updateFilter("showFavoritesOnly", checked)
+															}
+														/>
+													</div>
+													{providersWithKeys.size > 0 && (
+														<div className="flex items-center justify-between">
+															<Label
+																htmlFor="show-with-keys"
+																className="text-sm cursor-pointer font-medium"
+															>
+																Show only providers with keys
+															</Label>
+															<Switch
+																id="show-with-keys"
+																checked={filters.showOnlyWithKeys}
+																onCheckedChange={(checked) =>
+																	updateFilter("showOnlyWithKeys", checked)
+																}
+															/>
+														</div>
+													)}
 												</div>
 
 												<Separator />
 
 												{/* Provider filter */}
-												<div className="space-y-2">
+												<div className="space-y-1.5">
 													<Label className="text-sm font-medium">
 														Providers
 													</Label>
-													<div className="space-y-2 max-h-32 overflow-y-auto">
+													<div className="space-y-1.5 max-h-28 overflow-y-auto">
 														{availableProviders.map((provider) => {
 															const ProviderIcon = getProviderIcon(provider.id);
 															return (
@@ -1432,11 +1493,11 @@ export function ModelSelector({
 												<Separator />
 
 												{/* Capabilities filter */}
-												<div className="space-y-2">
+												<div className="space-y-1.5">
 													<Label className="text-sm font-medium">
 														Capabilities
 													</Label>
-													<div className="space-y-2 max-h-32 overflow-y-auto">
+													<div className="space-y-1.5 max-h-28 overflow-y-auto">
 														{availableCapabilities.map((capability) => (
 															<div
 																key={capability}
@@ -1465,11 +1526,11 @@ export function ModelSelector({
 												<Separator />
 
 												{/* Price range filter */}
-												<div className="space-y-2">
+												<div className="space-y-1.5">
 													<Label className="text-sm font-medium">
 														Price Range
 													</Label>
-													<div className="space-y-2">
+													<div className="space-y-1.5">
 														{[
 															{ value: "all", label: "All models" },
 															{ value: "free", label: "Free models" },
@@ -1606,7 +1667,9 @@ export function ModelSelector({
 													)}
 												</div>
 												<div className="text-[11px] text-muted-foreground capitalize truncate">
-													{previewEntry.model.family} family
+													{previewEntry.model.id !== "auto"
+														? `${previewEntry.model.family} family`
+														: "-"}
 												</div>
 											</div>
 										</div>
@@ -1825,31 +1888,32 @@ export function ModelSelector({
 																</div>
 															)}
 
-															{hasCapabilities && (
-																<div className="space-y-1">
-																	<h5 className="font-medium text-xs">
-																		Capabilities
-																	</h5>
-																	<div className="flex flex-wrap gap-1">
-																		{aggregate.capabilities.map(
-																			(capability) => {
-																				const { Icon } =
-																					getCapabilityIconConfig(capability);
-																				return (
-																					<Badge
-																						key={capability}
-																						variant="secondary"
-																						className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
-																					>
-																						{Icon && <Icon size={12} />}
-																						{capability}
-																					</Badge>
-																				);
-																			},
-																		)}
+															{hasCapabilities &&
+																previewEntry.model.id !== "auto" && (
+																	<div className="space-y-1">
+																		<h5 className="font-medium text-xs">
+																			Capabilities
+																		</h5>
+																		<div className="flex flex-wrap gap-1">
+																			{aggregate.capabilities.map(
+																				(capability) => {
+																					const { Icon } =
+																						getCapabilityIconConfig(capability);
+																					return (
+																						<Badge
+																							key={capability}
+																							variant="secondary"
+																							className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
+																						>
+																							{Icon && <Icon size={12} />}
+																							{capability}
+																						</Badge>
+																					);
+																				},
+																			)}
+																		</div>
 																	</div>
-																</div>
-															)}
+																)}
 														</div>
 													);
 												})()}
