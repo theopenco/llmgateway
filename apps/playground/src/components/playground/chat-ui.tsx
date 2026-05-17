@@ -428,6 +428,7 @@ const AssistantMessage = memo(
 				{reasoningContent ? (
 					<Reasoning
 						className="w-full"
+						defaultOpen={false}
 						isStreaming={status === "streaming" && isLastMessage}
 					>
 						<ReasoningTrigger />

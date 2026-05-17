@@ -11,6 +11,7 @@ export const maxDuration = 300;
 interface CanvasGenerateBody {
 	prompt: string;
 	model?: string;
+	apiKey?: string;
 }
 
 export async function POST(req: Request) {
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
 			status: 400,
 		});
 	}
-	const { prompt, model } = body;
+	const { prompt, model, apiKey } = body;
 	const systemPrompt = catalog.prompt();
 
 	if (!prompt) {
@@ -39,12 +40,15 @@ export async function POST(req: Request) {
 		});
 	}
 
+	const headerApiKey = req.headers.get("x-llmgateway-key") ?? undefined;
+
 	const cookieStore = await cookies();
 	const cookieApiKey =
 		cookieStore.get("llmgateway_playground_key")?.value ??
 		cookieStore.get("__Host-llmgateway_playground_key")?.value;
+	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
 
-	if (!cookieApiKey) {
+	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
 			status: 400,
 		});
@@ -57,7 +61,7 @@ export async function POST(req: Request) {
 			: "https://api.llmgateway.io/v1");
 
 	const llmgateway = createLLMGateway({
-		apiKey: cookieApiKey,
+		apiKey: finalApiKey,
 		baseURL: gatewayUrl,
 		headers: {
 			"x-source": "chat.llmgateway.io",
