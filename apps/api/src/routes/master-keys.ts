@@ -50,15 +50,6 @@ async function assertEnterpriseOrgAccess(
 	return { role: userOrg.role };
 }
 
-type MasterKeyRow = typeof tables.masterKey.$inferSelect & {
-	creator?: { id: string; name: string | null; email: string } | null;
-};
-
-function serializeMasterKey<T extends MasterKeyRow>(row: T) {
-	const { tokenHash: _tokenHash, ...rest } = row;
-	return rest;
-}
-
 const masterKeySchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
@@ -161,7 +152,17 @@ masterKeys.openapi(create, async (c) => {
 			organizationId,
 			createdBy: user.id,
 		})
-		.returning();
+		.returning({
+			id: tables.masterKey.id,
+			createdAt: tables.masterKey.createdAt,
+			updatedAt: tables.masterKey.updatedAt,
+			maskedToken: tables.masterKey.maskedToken,
+			description: tables.masterKey.description,
+			status: tables.masterKey.status,
+			lastUsedAt: tables.masterKey.lastUsedAt,
+			organizationId: tables.masterKey.organizationId,
+			createdBy: tables.masterKey.createdBy,
+		});
 
 	await logAuditEvent({
 		organizationId,
@@ -175,7 +176,7 @@ masterKeys.openapi(create, async (c) => {
 	return c.json(
 		{
 			masterKey: {
-				...serializeMasterKey(created),
+				...created,
 				token,
 			},
 		},
@@ -222,6 +223,7 @@ masterKeys.openapi(list, async (c) => {
 			organizationId: { eq: organizationId },
 			status: { ne: "deleted" },
 		},
+		columns: { tokenHash: false },
 		with: {
 			creator: {
 				columns: { id: true, name: true, email: true },
@@ -231,7 +233,7 @@ masterKeys.openapi(list, async (c) => {
 	});
 
 	return c.json({
-		masterKeys: rows.map(serializeMasterKey),
+		masterKeys: rows,
 		planLimits: {
 			currentCount: rows.length,
 			maxKeys: MAX_MASTER_KEYS_PER_ORG,
@@ -290,7 +292,17 @@ masterKeys.openapi(updateStatus, async (c) => {
 		.update(tables.masterKey)
 		.set({ status })
 		.where(eq(tables.masterKey.id, id))
-		.returning();
+		.returning({
+			id: tables.masterKey.id,
+			createdAt: tables.masterKey.createdAt,
+			updatedAt: tables.masterKey.updatedAt,
+			maskedToken: tables.masterKey.maskedToken,
+			description: tables.masterKey.description,
+			status: tables.masterKey.status,
+			lastUsedAt: tables.masterKey.lastUsedAt,
+			organizationId: tables.masterKey.organizationId,
+			createdBy: tables.masterKey.createdBy,
+		});
 
 	await logAuditEvent({
 		organizationId: existing.organizationId,
@@ -306,7 +318,7 @@ masterKeys.openapi(updateStatus, async (c) => {
 
 	return c.json({
 		message: "Master key status updated successfully",
-		masterKey: serializeMasterKey(updated),
+		masterKey: updated,
 	});
 });
 
