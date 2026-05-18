@@ -24,14 +24,14 @@ import type { ServerTypes } from "@/vars.js";
 export const keysApi = new OpenAPIHono<ServerTypes>();
 
 type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
-type ApiKeyLimitConfig = Pick<
+export type ApiKeyLimitConfig = Pick<
 	ApiKeyRecord,
 	| "usageLimit"
 	| "periodUsageLimit"
 	| "periodUsageDurationValue"
 	| "periodUsageDurationUnit"
 >;
-type PartialApiKeyLimitConfig = Partial<ApiKeyLimitConfig>;
+export type PartialApiKeyLimitConfig = Partial<ApiKeyLimitConfig>;
 type ApiKeyResponseRecord = ApiKeyRecord & {
 	creator?: {
 		id: string;
@@ -183,7 +183,7 @@ function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
 	};
 }
 
-function hasPeriodConfigChanged(
+export function hasPeriodConfigChanged(
 	apiKey: ApiKeyRecord,
 	config: {
 		periodUsageLimit: string | null;
@@ -198,7 +198,7 @@ function hasPeriodConfigChanged(
 	);
 }
 
-function buildApiKeyLimitAuditChanges(
+export function buildApiKeyLimitAuditChanges(
 	previous: ApiKeyLimitConfig,
 	next: ApiKeyLimitConfig,
 ) {
@@ -235,7 +235,7 @@ function buildApiKeyLimitAuditChanges(
 	return changes;
 }
 
-function mergeApiKeyLimitConfig(
+export function mergeApiKeyLimitConfig(
 	current: ApiKeyLimitConfig,
 	update: PartialApiKeyLimitConfig,
 ): ApiKeyLimitConfig {
@@ -257,7 +257,7 @@ function mergeApiKeyLimitConfig(
 	};
 }
 
-function parseApiKeyPeriodConfig(config: ApiKeyLimitConfig) {
+export function parseApiKeyPeriodConfig(config: ApiKeyLimitConfig) {
 	const parsedConfig = apiKeyPeriodConfigSchema.safeParse({
 		periodUsageLimit: config.periodUsageLimit,
 		periodUsageDurationValue: config.periodUsageDurationValue,

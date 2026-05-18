@@ -2,7 +2,14 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { createApiKeyForProject } from "@/routes/keys-api.js";
+import {
+	buildApiKeyLimitAuditChanges,
+	createApiKeyForProject,
+	hasPeriodConfigChanged,
+	mergeApiKeyLimitConfig,
+	parseApiKeyPeriodConfig,
+	type PartialApiKeyLimitConfig,
+} from "@/routes/keys-api.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -497,31 +504,103 @@ v1Master.openapi(updateApiKey, async (c) => {
 		});
 	}
 
+	const limitUpdate: PartialApiKeyLimitConfig = {};
+	if ("usageLimit" in updates) {
+		limitUpdate.usageLimit = updates.usageLimit ?? null;
+	}
+	if ("periodUsageLimit" in updates) {
+		limitUpdate.periodUsageLimit = updates.periodUsageLimit ?? null;
+	}
+	if ("periodUsageDurationValue" in updates) {
+		limitUpdate.periodUsageDurationValue =
+			updates.periodUsageDurationValue ?? null;
+	}
+	if ("periodUsageDurationUnit" in updates) {
+		limitUpdate.periodUsageDurationUnit =
+			updates.periodUsageDurationUnit ?? null;
+	}
+
+	const hasLimitUpdate = Object.keys(limitUpdate).length > 0;
+	const nextLimitConfig = hasLimitUpdate
+		? mergeApiKeyLimitConfig(existing, limitUpdate)
+		: null;
+
+	if (nextLimitConfig) {
+		parseApiKeyPeriodConfig(nextLimitConfig);
+	}
+
+	const periodConfigChanged =
+		nextLimitConfig !== null &&
+		hasPeriodConfigChanged(existing, nextLimitConfig);
+
+	const setPayload: Record<string, unknown> = {};
+	if (updates.description !== undefined) {
+		setPayload.description = updates.description;
+	}
+	if (updates.status !== undefined) {
+		setPayload.status = updates.status;
+	}
+	if (nextLimitConfig) {
+		setPayload.usageLimit = nextLimitConfig.usageLimit;
+		setPayload.periodUsageLimit = nextLimitConfig.periodUsageLimit;
+		setPayload.periodUsageDurationValue =
+			nextLimitConfig.periodUsageDurationValue;
+		setPayload.periodUsageDurationUnit =
+			nextLimitConfig.periodUsageDurationUnit;
+		if (periodConfigChanged) {
+			setPayload.currentPeriodUsage = "0";
+			setPayload.currentPeriodStartedAt = null;
+		}
+	}
+
 	const [updated] = await db
 		.update(tables.apiKey)
-		.set(updates)
+		.set(setPayload)
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
-	const changes: Record<string, { old: unknown; new: unknown }> = {};
-	for (const [key, value] of Object.entries(updates)) {
-		const before = (existing as Record<string, unknown>)[key];
-		if (before !== value) {
-			changes[key] = { old: before, new: value };
-		}
-	}
-	if (Object.keys(changes).length > 0) {
-		const action =
-			updates.status !== undefined && Object.keys(updates).length === 1
-				? "api_key.update_status"
-				: "api_key.update_limit";
+	const statusChanged =
+		updates.status !== undefined && updates.status !== existing.status;
+	const descriptionChanged =
+		updates.description !== undefined &&
+		updates.description !== existing.description;
+	const limitChanges = nextLimitConfig
+		? buildApiKeyLimitAuditChanges(existing, nextLimitConfig)
+		: {};
+	const limitChanged = Object.keys(limitChanges).length > 0;
+
+	if (statusChanged && !descriptionChanged && !limitChanged) {
 		await logAuditEvent({
 			organizationId: existing.project.organizationId,
 			userId: masterKey.createdBy,
-			action,
+			action: "api_key.update_status",
 			resourceType: "api_key",
 			resourceId: id,
-			metadata: { changes, resourceName: existing.description },
+			metadata: {
+				resourceName: existing.description,
+				changes: { status: { old: existing.status, new: updates.status } },
+			},
+		});
+	} else if (limitChanged || descriptionChanged || statusChanged) {
+		const changes: Record<string, { old: unknown; new: unknown }> = {
+			...limitChanges,
+		};
+		if (descriptionChanged) {
+			changes.description = {
+				old: existing.description,
+				new: updates.description,
+			};
+		}
+		if (statusChanged) {
+			changes.status = { old: existing.status, new: updates.status };
+		}
+		await logAuditEvent({
+			organizationId: existing.project.organizationId,
+			userId: masterKey.createdBy,
+			action: "api_key.update_limit",
+			resourceType: "api_key",
+			resourceId: id,
+			metadata: { resourceName: existing.description, changes },
 		});
 	}
 
