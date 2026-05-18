@@ -285,7 +285,11 @@ export default function AgentDetailClient({ agentId }: { agentId: string }) {
 		notFound();
 	}
 
-	const { data: devPlanStatus, isLoading: statusLoading } = api.useQuery(
+	const {
+		data: devPlanStatus,
+		isLoading: statusLoading,
+		isError: statusError,
+	} = api.useQuery(
 		"get",
 		"/dev-plans/status",
 		{},
@@ -305,7 +309,11 @@ export default function AgentDetailClient({ agentId }: { agentId: string }) {
 	const until = useMemo(() => new Date().toISOString(), []);
 
 	const sourceParam = agent.sources.join(",");
-	const { data, isLoading: logsLoading } = api.useQuery(
+	const {
+		data,
+		isLoading: logsLoading,
+		isError: logsError,
+	} = api.useQuery(
 		"get",
 		"/logs",
 		{
@@ -348,6 +356,16 @@ export default function AgentDetailClient({ agentId }: { agentId: string }) {
 			{isLoading ? (
 				<div className="flex h-[360px] items-center justify-center rounded-xl border bg-card/50">
 					<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+				</div>
+			) : statusError || logsError ? (
+				<div className="rounded-xl border border-destructive/30 bg-destructive/5 p-8 text-center">
+					<h3 className="text-base font-semibold tracking-tight">
+						Couldn&apos;t load usage
+					</h3>
+					<p className="mx-auto mt-1.5 max-w-md text-sm text-muted-foreground">
+						Something went wrong fetching {agent.label} data. Refresh the page
+						to try again.
+					</p>
 				</div>
 			) : !projectId || !orgId ? (
 				<div className="rounded-xl border bg-card/50 p-8 text-center">

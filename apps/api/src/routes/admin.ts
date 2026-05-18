@@ -8923,8 +8923,8 @@ admin.openapi(getDevpassUsage, async (c) => {
 			tables.organization,
 			eq(tables.log.organizationId, tables.organization.id),
 		)
-		.where(and(baseWhere, isNotNull(tables.log.source)))
-		.groupBy(tables.log.source)
+		.where(baseWhere)
+		.groupBy(sql`COALESCE(${tables.log.source}, 'unknown')`)
 		.orderBy(desc(sql`COALESCE(SUM(${tables.log.cost}), 0)`))
 		.limit(limit);
 
