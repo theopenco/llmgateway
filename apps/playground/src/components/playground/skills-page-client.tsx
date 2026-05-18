@@ -48,6 +48,11 @@ export default function SkillsPageClient({
 	const [selectedSkillId, setSelectedSkillId] = useState<string | null>(
 		initialSkillId,
 	);
+
+	useEffect(() => {
+		setSelectedSkillId(initialSkillId);
+	}, [initialSkillId]);
+
 	const [createOpen, setCreateOpen] = useState(false);
 	const [uploadOpen, setUploadOpen] = useState(false);
 	const [viewMode, setViewMode] = useState<"rendered" | "raw">("rendered");
@@ -145,8 +150,9 @@ export default function SkillsPageClient({
 						<AlertDialogAction
 							className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
 							onClick={handleDeleteConfirm}
+							disabled={deleteSkill.isPending}
 						>
-							Delete
+							{deleteSkill.isPending ? "Deleting..." : "Delete"}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -314,14 +320,14 @@ function SkillsPanel({
 									<TabsTrigger
 										value="rendered"
 										className="h-6 w-6 p-0"
-										title="Rendered view"
+										aria-label="Rendered view"
 									>
 										<EyeIcon className="h-3.5 w-3.5" />
 									</TabsTrigger>
 									<TabsTrigger
 										value="raw"
 										className="h-6 w-6 p-0"
-										title="Raw view"
+										aria-label="Raw view"
 									>
 										<CodeIcon className="h-3.5 w-3.5" />
 									</TabsTrigger>
@@ -333,7 +339,7 @@ function SkillsPanel({
 					{/* Instructions content */}
 					<div className="flex-1 overflow-y-auto">
 						{viewMode === "rendered" ? (
-							<div className="skill-markdown max-w-none p-6 text-sm">
+							<div className="prose prose-sm dark:prose-invert max-w-none p-6">
 								<ReactMarkdown remarkPlugins={[remarkGfm]}>
 									{selectedSkill.instructions}
 								</ReactMarkdown>
