@@ -418,6 +418,14 @@ function OrganizationSection({
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
 					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/master-keys")}
+						label="Master Keys"
+						icon={AnimatedKeyRound}
+						isActive={isActive("org/master-keys")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
 					<SidebarMenuItem
 						onMouseEnter={() => setSettingsHovered(true)}
 						onMouseLeave={() => setSettingsHovered(false)}

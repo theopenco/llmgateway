@@ -652,6 +652,124 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/master/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        cachingEnabled?: boolean;
+                        cacheDurationSeconds?: number;
+                        /** @enum {string} */
+                        mode?: "api-keys" | "credits" | "hybrid";
+                    };
+                };
+            };
+            responses: {
+                /** @description Project created successfully via master key. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            project: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                name: string;
+                                organizationId: string;
+                                cachingEnabled: boolean;
+                                cacheDurationSeconds: number;
+                                /** @enum {string} */
+                                mode: "api-keys" | "credits" | "hybrid";
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/master/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        projectId: string;
+                        description: string;
+                        usageLimit?: string | null;
+                        periodUsageLimit?: string | null;
+                        periodUsageDurationValue?: number | null;
+                        /** @enum {string|null} */
+                        periodUsageDurationUnit?: "hour" | "day" | "week" | "month" | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Gateway API key created successfully via master key. The plain token is returned only once. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            apiKey: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                token: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                projectId: string;
+                                createdBy: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -5980,6 +6098,196 @@ export interface paths {
         };
         trace?: never;
     };
+    "/master-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    organizationId: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of master keys for the organization. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            masterKeys: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                maskedToken: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                lastUsedAt: string | null;
+                                organizationId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
+                            }[];
+                            planLimits: {
+                                currentCount: number;
+                                maxKeys: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        description: string;
+                        organizationId: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Master key created successfully. The plain token is included in the response and will not be retrievable again. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            masterKey: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                maskedToken: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                lastUsedAt: string | null;
+                                organizationId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
+                                token: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/master-keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Master key deleted successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description Master key status updated successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            masterKey: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                maskedToken: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                lastUsedAt: string | null;
+                                organizationId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/projects/{id}": {
         parameters: {
             query?: never;
@@ -8913,9 +9221,9 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
                                 /** @enum {string} */
-                                resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
+                                resourceType: "organization" | "project" | "team_member" | "api_key" | "master_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
                                 metadata?: unknown;
                                 user?: {

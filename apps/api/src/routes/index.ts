@@ -13,6 +13,7 @@ import { guardrails } from "./guardrails.js";
 import keysApi from "./keys-api.js";
 import keysProvider from "./keys-provider.js";
 import { logs } from "./logs.js";
+import masterKeys from "./master-keys.js";
 import organization from "./organization.js";
 import { payments } from "./payments.js";
 import playground from "./playground.js";
@@ -50,6 +51,7 @@ routes.route("/admin", admin);
 
 routes.route("/keys", keysApi);
 routes.route("/keys", keysProvider);
+routes.route("/master-keys", masterKeys);
 routes.route("/projects", projects);
 routes.route("/playground", playground);
 

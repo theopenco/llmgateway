@@ -301,41 +301,50 @@ const createProject = createRoute({
 	},
 });
 
-projects.openapi(createProject, async (c) => {
-	const user = c.get("user");
-	if (!user) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
+export interface CreateProjectInput {
+	name: string;
+	cachingEnabled?: boolean;
+	cacheDurationSeconds?: number;
+	mode?: "api-keys" | "credits" | "hybrid";
+}
 
-	const body = c.req.valid("json");
+export async function createProjectForOrg(
+	organizationId: string,
+	userId: string,
+	input: CreateProjectInput,
+	options: { skipAccessCheck?: boolean } = {},
+) {
 	const {
 		name,
-		organizationId,
 		cachingEnabled = false,
 		cacheDurationSeconds = 60,
 		mode = "hybrid",
-	} = body;
+	} = input;
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: user.id,
+	if (!options.skipAccessCheck) {
+		const userOrganization = await db.query.userOrganization.findFirst({
+			where: {
+				userId: { eq: userId },
+				organizationId: { eq: organizationId },
 			},
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-		with: {
-			organization: true,
-		},
+			with: { organization: true },
+		});
+
+		if (
+			!userOrganization ||
+			userOrganization.organization?.status === "deleted"
+		) {
+			throw new HTTPException(403, {
+				message: "You do not have access to this organization",
+			});
+		}
+	}
+
+	const organizationRow = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
 	});
 
-	if (
-		!userOrganization ||
-		userOrganization.organization?.status === "deleted"
-	) {
+	if (!organizationRow || organizationRow.status === "deleted") {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
 		});
@@ -343,20 +352,14 @@ projects.openapi(createProject, async (c) => {
 
 	const existingProjects = await db.query.project.findMany({
 		where: {
-			organizationId: {
-				eq: organizationId,
-			},
-			status: {
-				ne: "deleted",
-			},
+			organizationId: { eq: organizationId },
+			status: { ne: "deleted" },
 		},
 	});
 
-	const projectCount = existingProjects.length;
-	const projectLimit =
-		userOrganization.organization?.plan === "enterprise" ? 250 : 10;
+	const projectLimit = organizationRow.plan === "enterprise" ? 250 : 10;
 
-	if (projectCount >= projectLimit) {
+	if (existingProjects.length >= projectLimit) {
 		throw new HTTPException(403, {
 			message: `You have reached the limit of ${projectLimit} projects. Contact us at contact@llmgateway.io to unlock more.`,
 		});
@@ -375,12 +378,28 @@ projects.openapi(createProject, async (c) => {
 
 	await logAuditEvent({
 		organizationId,
-		userId: user.id,
+		userId,
 		action: "project.create",
 		resourceType: "project",
 		resourceId: newProject.id,
 		metadata: { resourceName: name, mode, cachingEnabled },
 	});
+
+	return newProject;
+}
+
+projects.openapi(createProject, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const body = c.req.valid("json");
+	const { organizationId, ...rest } = body;
+
+	const newProject = await createProjectForOrg(organizationId, user.id, rest);
 
 	return c.json(
 		{

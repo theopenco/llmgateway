@@ -439,48 +439,47 @@ const create = createRoute({
 	},
 });
 
-keysApi.openapi(create, async (c) => {
-	const user = c.get("user");
-	if (!user) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
+export interface CreateApiKeyInput {
+	description: string;
+	usageLimit?: string | null;
+	periodUsageLimit?: string | null;
+	periodUsageDurationValue?: number | null;
+	periodUsageDurationUnit?: ApiKeyPeriodDurationUnit | null;
+}
 
+export async function createApiKeyForProject(
+	projectId: string,
+	userId: string,
+	input: CreateApiKeyInput,
+	options: { skipAccessCheck?: boolean } = {},
+) {
 	const {
 		description,
-		projectId,
 		usageLimit,
 		periodUsageLimit,
 		periodUsageDurationValue,
 		periodUsageDurationUnit,
-	} = c.req.valid("json");
+	} = input;
 
-	// Check if user has access to the project
-	const projectIds = await getUserProjectIds(user.id);
+	if (!options.skipAccessCheck) {
+		const projectIds = await getUserProjectIds(userId);
 
-	if (!projectIds.length) {
-		throw new HTTPException(400, {
-			message: "No organizations found for user",
-		});
+		if (!projectIds.length) {
+			throw new HTTPException(400, {
+				message: "No organizations found for user",
+			});
+		}
+
+		if (!projectIds.includes(projectId)) {
+			throw new HTTPException(403, {
+				message: "You don't have access to this project",
+			});
+		}
 	}
 
-	if (!projectIds.includes(projectId)) {
-		throw new HTTPException(403, {
-			message: "You don't have access to this project",
-		});
-	}
-
-	// Get the organization for the project to check plan limits
 	const project = await db.query.project.findFirst({
-		where: {
-			id: {
-				eq: projectId,
-			},
-		},
-		with: {
-			organization: true,
-		},
+		where: { id: { eq: projectId } },
+		with: { organization: true },
 	});
 
 	if (!project?.organization) {
@@ -489,15 +488,10 @@ keysApi.openapi(create, async (c) => {
 		});
 	}
 
-	// Count existing active API keys for this project
 	const existingApiKeys = await db.query.apiKey.findMany({
 		where: {
-			projectId: {
-				eq: projectId,
-			},
-			status: {
-				ne: "deleted",
-			},
+			projectId: { eq: projectId },
+			status: { ne: "deleted" },
 		},
 	});
 
@@ -509,12 +503,10 @@ keysApi.openapi(create, async (c) => {
 		});
 	}
 
-	// Generate a token with a prefix for better identification
 	const prefix =
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
 	const token = prefix + shortid(40);
 
-	// Create the API key
 	const [apiKey] = await db
 		.insert(tables.apiKey)
 		.values({
@@ -525,13 +517,13 @@ keysApi.openapi(create, async (c) => {
 			periodUsageLimit,
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
-			createdBy: user.id,
+			createdBy: userId,
 		})
 		.returning();
 
 	await logAuditEvent({
 		organizationId: project.organization.id,
-		userId: user.id,
+		userId,
 		action: "api_key.create",
 		resourceType: "api_key",
 		resourceId: apiKey.id,
@@ -545,10 +537,29 @@ keysApi.openapi(create, async (c) => {
 		},
 	});
 
+	return { apiKey, token };
+}
+
+keysApi.openapi(create, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId, ...rest } = c.req.valid("json");
+
+	const { apiKey, token } = await createApiKeyForProject(
+		projectId,
+		user.id,
+		rest,
+	);
+
 	return c.json({
 		apiKey: serializeApiKey({
 			...apiKey,
-			token, // Include the token in the response
+			token,
 		}),
 	});
 });
