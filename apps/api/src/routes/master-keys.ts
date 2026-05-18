@@ -131,6 +131,7 @@ masterKeys.openapi(create, async (c) => {
 			organizationId: { eq: organizationId },
 			status: { ne: "deleted" },
 		},
+		columns: { id: true },
 	});
 
 	if (existingKeys.length >= MAX_MASTER_KEYS_PER_ORG) {
@@ -280,6 +281,7 @@ masterKeys.openapi(updateStatus, async (c) => {
 
 	const existing = await db.query.masterKey.findFirst({
 		where: { id: { eq: id }, status: { ne: "deleted" } },
+		columns: { tokenHash: false },
 	});
 
 	if (!existing) {
@@ -350,6 +352,7 @@ masterKeys.openapi(remove, async (c) => {
 
 	const existing = await db.query.masterKey.findFirst({
 		where: { id: { eq: id }, status: { ne: "deleted" } },
+		columns: { tokenHash: false },
 	});
 
 	if (!existing) {
