@@ -1,6 +1,6 @@
 "use client";
 
-import { Orbit } from "lucide-react";
+import { ExternalLink, Orbit } from "lucide-react";
 import { useParams } from "next/navigation";
 
 import { MasterKeysContactSalesCard } from "@/components/master-keys/contact-sales-card";
@@ -46,7 +46,16 @@ export function MasterKeysClient() {
 						<h2 className="text-3xl font-bold tracking-tight">Master Keys</h2>
 						<p className="text-muted-foreground">
 							Manage master keys to create projects and gateway API keys
-							programmatically via the /v1/master/* API.
+							programmatically via the /v1/master/* API.{" "}
+							<a
+								href="https://docs.llmgateway.io/features/master-keys"
+								target="_blank"
+								rel="noopener noreferrer"
+								className="text-primary inline-flex items-center gap-1 underline-offset-4 hover:underline"
+							>
+								View docs
+								<ExternalLink className="h-3 w-3" />
+							</a>
 						</p>
 					</div>
 					<CreateMasterKeyDialog

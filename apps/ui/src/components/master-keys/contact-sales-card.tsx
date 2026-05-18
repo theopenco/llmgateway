@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, Mail } from "lucide-react";
+import { CheckCircle, ExternalLink, Mail } from "lucide-react";
 
 import { Button } from "@/lib/components/button";
 import {
@@ -62,12 +62,24 @@ export function MasterKeysContactSalesCard() {
 							</ul>
 						</div>
 
-						<Button asChild className="gap-2">
-							<a href="mailto:contact@llmgateway.io?subject=Enterprise%20Plan%20Inquiry%20-%20Master%20Keys">
-								<Mail className="h-4 w-4" />
-								Contact Sales
-							</a>
-						</Button>
+						<div className="flex flex-wrap items-center gap-3">
+							<Button asChild className="gap-2">
+								<a href="mailto:contact@llmgateway.io?subject=Enterprise%20Plan%20Inquiry%20-%20Master%20Keys">
+									<Mail className="h-4 w-4" />
+									Contact Sales
+								</a>
+							</Button>
+							<Button asChild variant="outline" className="gap-2">
+								<a
+									href="https://docs.llmgateway.io/features/master-keys"
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									View docs
+									<ExternalLink className="h-4 w-4" />
+								</a>
+							</Button>
+						</div>
 					</CardContent>
 				</Card>
 			</div>
