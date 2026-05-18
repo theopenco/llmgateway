@@ -208,7 +208,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href={"/integrations" as any}
+										href="/integrations"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch
 									>
@@ -217,7 +217,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href={"/guides" as any}
+										href="/guides"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch
 									>
@@ -226,7 +226,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href={"/brand" as any}
+										href="/brand"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch
 									>
@@ -316,7 +316,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href={"/compare/litellm" as any}
+										href="/compare/litellm"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>

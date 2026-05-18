@@ -1617,7 +1617,7 @@ async function seed() {
 		const weights = splits.map((w) => w / splitTotal);
 		devpassModels.forEach((m, i) => {
 			const w = weights[i];
-			const reqs = Math.max(1, Math.round(bucket.requestCount * w));
+			const reqs = Math.round(bucket.requestCount * w);
 			const inTok = Math.round(Number(bucket.inputTokens) * w);
 			const outTok = Math.round(Number(bucket.outputTokens) * w);
 			const streamed = Math.floor(bucket.streamedCount * w);
