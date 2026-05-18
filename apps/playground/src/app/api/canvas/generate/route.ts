@@ -11,7 +11,6 @@ export const maxDuration = 300;
 interface CanvasGenerateBody {
 	prompt: string;
 	model?: string;
-	apiKey?: string;
 }
 
 export async function POST(req: Request) {
@@ -33,8 +32,6 @@ export async function POST(req: Request) {
 	}
 	const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
 	const model = typeof body.model === "string" ? body.model.trim() : undefined;
-	const apiKey =
-		typeof body.apiKey === "string" ? body.apiKey.trim() : undefined;
 	const systemPrompt = catalog.prompt();
 
 	if (!prompt) {
@@ -49,7 +46,7 @@ export async function POST(req: Request) {
 	const cookieApiKey =
 		cookieStore.get("llmgateway_playground_key")?.value.trim() ||
 		cookieStore.get("__Host-llmgateway_playground_key")?.value.trim();
-	const finalApiKey = apiKey || headerApiKey || cookieApiKey;
+	const finalApiKey = headerApiKey || cookieApiKey;
 
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
