@@ -1621,6 +1621,7 @@ async function seed() {
 			const inTok = Math.round(Number(bucket.inputTokens) * w);
 			const outTok = Math.round(Number(bucket.outputTokens) * w);
 			const streamed = Math.floor(bucket.streamedCount * w);
+			const errors = Math.floor(bucket.errorCount * w);
 			devpassHourlyModelStats.push({
 				id: `devpass-phms-${bucket.id}-${i}`,
 				projectId: "test-personal-project-id",
@@ -1628,11 +1629,11 @@ async function seed() {
 				usedModel: m.model,
 				usedProvider: m.provider,
 				requestCount: reqs,
-				errorCount: Math.floor(bucket.errorCount * w),
+				errorCount: errors,
 				cacheCount: Math.floor(bucket.cacheCount * w),
 				streamedCount: streamed,
 				nonStreamedCount: Math.max(0, reqs - streamed),
-				completedCount: reqs,
+				completedCount: Math.max(0, reqs - errors),
 				lengthLimitCount: 0,
 				contentFilterCount: 0,
 				toolCallsCount: 0,
