@@ -6,6 +6,7 @@ import {
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
 	hasPeriodConfigChanged,
+	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
 	type PartialApiKeyLimitConfig,
@@ -504,6 +505,24 @@ v1Master.openapi(updateApiKey, async (c) => {
 		});
 	}
 
+	if (isPlaygroundApiKey(existing)) {
+		if (
+			updates.description !== undefined &&
+			updates.description !== existing.description
+		) {
+			throw new HTTPException(403, {
+				message:
+					"Cannot rename the playground API key. This key is required for the playground to function.",
+			});
+		}
+		if (updates.status === "inactive") {
+			throw new HTTPException(403, {
+				message:
+					"Cannot deactivate the playground API key. This key is required for the playground to function.",
+			});
+		}
+	}
+
 	const limitUpdate: PartialApiKeyLimitConfig = {};
 	if ("usageLimit" in updates) {
 		limitUpdate.usageLimit = updates.usageLimit ?? null;
@@ -649,7 +668,7 @@ v1Master.openapi(deleteApiKey, async (c) => {
 		});
 	}
 
-	if (existing.description === "Auto-generated playground key") {
+	if (isPlaygroundApiKey(existing)) {
 		throw new HTTPException(403, {
 			message:
 				"Cannot delete the playground API key. This key is required for the playground to function.",

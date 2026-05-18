@@ -23,6 +23,14 @@ import type { ServerTypes } from "@/vars.js";
 
 export const keysApi = new OpenAPIHono<ServerTypes>();
 
+export const PLAYGROUND_API_KEY_DESCRIPTION = "Auto-generated playground key";
+
+export function isPlaygroundApiKey(apiKey: {
+	description: string | null;
+}): boolean {
+	return apiKey.description === PLAYGROUND_API_KEY_DESCRIPTION;
+}
+
 type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
 export type ApiKeyLimitConfig = Pick<
 	ApiKeyRecord,
@@ -837,7 +845,7 @@ keysApi.openapi(deleteKey, async (c) => {
 	}
 
 	// Prevent deletion of the auto-generated playground key
-	if (apiKey.description === "Auto-generated playground key") {
+	if (isPlaygroundApiKey(apiKey)) {
 		throw new HTTPException(403, {
 			message:
 				"Cannot delete the playground API key. This key is required for the playground to function.",
@@ -998,10 +1006,7 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	// Prevent deactivation of the auto-generated playground key
-	if (
-		apiKey.description === "Auto-generated playground key" &&
-		status === "inactive"
-	) {
+	if (isPlaygroundApiKey(apiKey) && status === "inactive") {
 		throw new HTTPException(403, {
 			message:
 				"Cannot deactivate the playground API key. This key is required for the playground to function.",
