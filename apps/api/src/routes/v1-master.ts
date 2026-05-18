@@ -409,6 +409,22 @@ v1Master.openapi(deleteProject, async (c) => {
 		});
 	}
 
+	// Mirror dashboard owner-only project deletion (projects.ts).
+	// Admins can mint master keys, so we re-check the issuer's current role.
+	const issuerOrg = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: masterKey.createdBy },
+			organizationId: { eq: masterKey.organizationId },
+		},
+		columns: { role: true },
+	});
+
+	if (!issuerOrg || issuerOrg.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only master keys issued by an owner can delete projects",
+		});
+	}
+
 	await db
 		.update(tables.project)
 		.set({ status: "deleted" })
