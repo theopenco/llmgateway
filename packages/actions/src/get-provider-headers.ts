@@ -8,7 +8,6 @@ export interface ProviderHeaderOptions {
 	 */
 	webSearchEnabled?: boolean;
 	requestId?: string;
-	modelName?: string;
 	/**
 	 * Provider key options used by Vertex-compatible providers to look up the
 	 * explicit token type configured on the provider key.
@@ -54,7 +53,6 @@ export function getProviderHeaders(
 		case "quartz": {
 			const tokenType = resolveVertexTokenType(
 				provider,
-				options?.modelName,
 				options?.providerKeyOptions,
 				options?.configIndex,
 			);

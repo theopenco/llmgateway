@@ -201,7 +201,7 @@ describe("getProviderEndpoint", () => {
 	});
 
 	describe("vertex token type resolution", () => {
-		it("omits the key query param for Vertex non-lite models by default", () => {
+		it("includes the key query param for Vertex models by default (api-key mode)", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
 			process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
 
@@ -209,11 +209,11 @@ describe("getProviderEndpoint", () => {
 				"google-vertex",
 				undefined,
 				"gemini-2.5-pro",
-				"ya29.c.c0AYnqX-example-access-token",
+				"AIzaSyExampleApiKey",
 			);
 
 			expect(endpoint).toBe(
-				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent",
+				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent?key=AIzaSyExampleApiKey",
 			);
 		});
 
@@ -228,26 +228,6 @@ describe("getProviderEndpoint", () => {
 
 			expect(endpoint).toBe(
 				"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash-lite:streamGenerateContent?key=AIzaSyExampleApiKey&alt=sse",
-			);
-		});
-
-		it("includes the key query param for Vertex non-lite models when the provider key uses an API key", () => {
-			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
-			process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
-
-			const endpoint = getProviderEndpoint(
-				"google-vertex",
-				undefined,
-				"gemini-2.5-pro",
-				"AIzaSyExampleApiKey",
-				false,
-				undefined,
-				undefined,
-				{ google_vertex_token_type: "api-key" },
-			);
-
-			expect(endpoint).toBe(
-				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent?key=AIzaSyExampleApiKey",
 			);
 		});
 

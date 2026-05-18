@@ -151,7 +151,6 @@ export async function validateProviderKey(
 		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
 		const headers = getProviderHeaders(provider, token, {
-			modelName: validationModel,
 			providerKeyOptions,
 		});
 		headers["Content-Type"] = "application/json";

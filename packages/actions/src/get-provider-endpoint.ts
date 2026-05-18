@@ -24,7 +24,6 @@ function buildVertexCompatibleEndpoint(
 	const model = modelName ?? "gemini-2.5-flash-lite";
 	const tokenType = resolveVertexTokenType(
 		provider,
-		model,
 		providerKeyOptions,
 		configIndex,
 	);

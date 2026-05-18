@@ -96,13 +96,12 @@ interface VertexTokenTypeOptions {
 /**
  * Vertex AI accepts either an API key (sent as `?key=`) or an OAuth2 Bearer
  * token. Wire format differs per token, so we need to know which one the
- * caller provided. Resolution order: provider-key option → env var → fallback
- * based on the endpoint shape (lite models use `?key=`, project-scoped models
- * require Bearer).
+ * caller provided. Resolution order: provider-key option → env var → "api-key"
+ * (preserves existing behavior; OAuth users set LLM_GOOGLE_VERTEX_TOKEN_TYPE=oauth
+ * or pick "OAuth" in the provider key dialog).
  */
 export function resolveVertexTokenType(
 	provider: "google-vertex" | "quartz",
-	modelName?: string,
 	providerKeyOptions?: VertexTokenTypeOptions,
 	configIndex?: number,
 ): VertexTokenType {
@@ -117,10 +116,7 @@ export function resolveVertexTokenType(
 	if (envValue === "api-key" || envValue === "oauth") {
 		return envValue;
 	}
-	const isLite =
-		modelName === "gemini-2.0-flash-lite" ||
-		modelName === "gemini-2.5-flash-lite";
-	return isLite ? "api-key" : "oauth";
+	return "api-key";
 }
 
 export function validateProviderEnv(provider: Provider): string[] {

@@ -4722,7 +4722,6 @@ chat.openapi(completions, async (c) => {
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
 							webSearchEnabled: !!webSearchTool,
-							modelName: upstreamModelName,
 							providerKeyOptions: providerKey?.options ?? undefined,
 							configIndex,
 						});
@@ -8356,7 +8355,6 @@ chat.openapi(completions, async (c) => {
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
 				webSearchEnabled: !!webSearchTool,
-				modelName: upstreamModelName,
 				providerKeyOptions: providerKey?.options ?? undefined,
 				configIndex,
 			});

@@ -477,7 +477,6 @@ export async function resolveProviderContext(
 	const headers = getProviderHeaders(usedProvider as Provider, usedToken, {
 		requestId: options.requestId,
 		webSearchEnabled: options.webSearchEnabled,
-		modelName: upstreamModelName,
 		providerKeyOptions: providerKey?.options ?? undefined,
 		configIndex,
 	});
