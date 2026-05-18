@@ -104,6 +104,52 @@ Body parameters:
 
 Response (201): the created project.
 
+### Update a project
+
+`PATCH /v1/master/projects/{id}`
+
+Updates a project owned by the master key's organization. All body fields are optional; provide only the ones you want to change.
+
+```bash
+curl -X PATCH https://api.llmgateway.io/v1/master/projects/proj_... \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Customer ACME (renamed)",
+    "cachingEnabled": true,
+    "status": "inactive"
+  }'
+```
+
+Body parameters (all optional, at least one required):
+
+| Field                  | Type                                  | Description                         |
+| ---------------------- | ------------------------------------- | ----------------------------------- |
+| `name`                 | string                                | 1–255 chars                         |
+| `cachingEnabled`       | boolean                               |                                     |
+| `cacheDurationSeconds` | number                                | 10–31536000                         |
+| `mode`                 | `"api-keys" \| "credits" \| "hybrid"` |                                     |
+| `status`               | `"active" \| "inactive"`              | Toggle the project without deleting |
+
+Response (200): the updated project.
+
+### Delete a project
+
+`DELETE /v1/master/projects/{id}`
+
+Soft-deletes a project (sets `status` to `"deleted"`). Cascades to its API keys.
+
+```bash
+curl -X DELETE https://api.llmgateway.io/v1/master/projects/proj_... \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{ "message": "Project deleted successfully" }
+```
+
 ### Create a gateway API key
 
 `POST /v1/master/keys`
@@ -150,3 +196,53 @@ Response (201):
 	}
 }
 ```
+
+### Update a gateway API key
+
+`PATCH /v1/master/keys/{id}`
+
+Updates an API key in a project owned by the master key's organization. All body fields are optional; provide only the ones you want to change.
+
+```bash
+curl -X PATCH https://api.llmgateway.io/v1/master/keys/ak_... \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "inactive",
+    "usageLimit": "100.00"
+  }'
+```
+
+Body parameters (all optional, at least one required):
+
+| Field                      | Type                                   | Description                            |
+| -------------------------- | -------------------------------------- | -------------------------------------- |
+| `description`              | string                                 | 1–255 chars                            |
+| `status`                   | `"active" \| "inactive"`               |                                        |
+| `usageLimit`               | string \| null                         | Lifetime usage limit (null to clear)   |
+| `periodUsageLimit`         | string \| null                         | Recurring period limit (null to clear) |
+| `periodUsageDurationValue` | number \| null                         | Required if `periodUsageLimit` is set  |
+| `periodUsageDurationUnit`  | `"hour" \| "day" \| "week" \| "month"` | Required if `periodUsageLimit` is set  |
+
+Response (200): the updated API key (the plain token is **not** included — it is only returned at creation).
+
+### Delete a gateway API key
+
+`DELETE /v1/master/keys/{id}`
+
+Soft-deletes the API key (sets `status` to `"deleted"`). Any in-flight requests using the key will be rejected immediately on next auth check.
+
+```bash
+curl -X DELETE https://api.llmgateway.io/v1/master/keys/ak_... \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{ "message": "API key deleted successfully" }
+```
+
+<Callout type="info">
+	The auto-generated playground API key cannot be deleted via the master API.
+</Callout>

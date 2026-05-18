@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createApiKeyForProject } from "@/routes/keys-api.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
@@ -269,6 +270,328 @@ v1Master.openapi(createApiKey, async (c) => {
 		},
 		201,
 	);
+});
+
+const updateProjectBody = z
+	.object({
+		name: z.string().min(1).max(255).optional(),
+		cachingEnabled: z.boolean().optional(),
+		cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+		mode: projectModeEnum.optional(),
+		status: z.enum(["active", "inactive"]).optional(),
+	})
+	.refine((v) => Object.keys(v).length > 0, {
+		message: "At least one field must be provided",
+	});
+
+const updateProject = createRoute({
+	method: "patch",
+	path: "/projects/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateProjectBody,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						project: projectSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Project updated successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(updateProject, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const updates = c.req.valid("json");
+
+	const existing = await db.query.project.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (
+		!existing ||
+		existing.status === "deleted" ||
+		existing.organizationId !== masterKey.organizationId
+	) {
+		throw new HTTPException(404, {
+			message: "Project not found in this organization",
+		});
+	}
+
+	const [updated] = await db
+		.update(tables.project)
+		.set(updates)
+		.where(eq(tables.project.id, id))
+		.returning();
+
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	for (const [key, value] of Object.entries(updates)) {
+		const before = (existing as Record<string, unknown>)[key];
+		if (before !== value) {
+			changes[key] = { old: before, new: value };
+		}
+	}
+	if (Object.keys(changes).length > 0) {
+		await logAuditEvent({
+			organizationId: existing.organizationId,
+			userId: masterKey.createdBy,
+			action: "project.update",
+			resourceType: "project",
+			resourceId: id,
+			metadata: { changes, resourceName: existing.name },
+		});
+	}
+
+	return c.json({ project: updated });
+});
+
+const deleteProject = createRoute({
+	method: "delete",
+	path: "/projects/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Project deleted successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(deleteProject, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const existing = await db.query.project.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (
+		!existing ||
+		existing.status === "deleted" ||
+		existing.organizationId !== masterKey.organizationId
+	) {
+		throw new HTTPException(404, {
+			message: "Project not found in this organization",
+		});
+	}
+
+	await db
+		.update(tables.project)
+		.set({ status: "deleted" })
+		.where(eq(tables.project.id, id));
+
+	await logAuditEvent({
+		organizationId: existing.organizationId,
+		userId: masterKey.createdBy,
+		action: "project.delete",
+		resourceType: "project",
+		resourceId: id,
+		metadata: { resourceName: existing.name },
+	});
+
+	return c.json({ message: "Project deleted successfully" });
+});
+
+const apiKeyDetailSchema = z.object({
+	id: z.string(),
+	createdAt: z.date(),
+	updatedAt: z.date(),
+	description: z.string(),
+	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	projectId: z.string(),
+	createdBy: z.string(),
+	usageLimit: z.string().nullable(),
+	periodUsageLimit: z.string().nullable(),
+	periodUsageDurationValue: z.number().int().nullable(),
+	periodUsageDurationUnit: apiKeyPeriodUnit.nullable(),
+});
+
+const updateApiKeyBody = z
+	.object({
+		description: z.string().min(1).max(255).optional(),
+		status: z.enum(["active", "inactive"]).optional(),
+		usageLimit: nonNegativeDecimal.nullable().optional(),
+		periodUsageLimit: nonNegativeDecimal.nullable().optional(),
+		periodUsageDurationValue: z.number().int().positive().nullable().optional(),
+		periodUsageDurationUnit: apiKeyPeriodUnit.nullable().optional(),
+	})
+	.refine((v) => Object.keys(v).length > 0, {
+		message: "At least one field must be provided",
+	});
+
+const updateApiKey = createRoute({
+	method: "patch",
+	path: "/keys/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateApiKeyBody,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKey: apiKeyDetailSchema.openapi({}),
+					}),
+				},
+			},
+			description: "API key updated successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(updateApiKey, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const updates = c.req.valid("json");
+
+	const existing = await db.query.apiKey.findFirst({
+		where: { id: { eq: id } },
+		with: { project: true },
+	});
+
+	if (
+		!existing ||
+		existing.status === "deleted" ||
+		!existing.project ||
+		existing.project.organizationId !== masterKey.organizationId
+	) {
+		throw new HTTPException(404, {
+			message: "API key not found in this organization",
+		});
+	}
+
+	const [updated] = await db
+		.update(tables.apiKey)
+		.set(updates)
+		.where(eq(tables.apiKey.id, id))
+		.returning();
+
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	for (const [key, value] of Object.entries(updates)) {
+		const before = (existing as Record<string, unknown>)[key];
+		if (before !== value) {
+			changes[key] = { old: before, new: value };
+		}
+	}
+	if (Object.keys(changes).length > 0) {
+		const action =
+			updates.status !== undefined && Object.keys(updates).length === 1
+				? "api_key.update_status"
+				: "api_key.update_limit";
+		await logAuditEvent({
+			organizationId: existing.project.organizationId,
+			userId: masterKey.createdBy,
+			action,
+			resourceType: "api_key",
+			resourceId: id,
+			metadata: { changes, resourceName: existing.description },
+		});
+	}
+
+	return c.json({ apiKey: updated });
+});
+
+const deleteApiKey = createRoute({
+	method: "delete",
+	path: "/keys/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "API key deleted successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(deleteApiKey, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const existing = await db.query.apiKey.findFirst({
+		where: { id: { eq: id } },
+		with: { project: true },
+	});
+
+	if (
+		!existing ||
+		existing.status === "deleted" ||
+		!existing.project ||
+		existing.project.organizationId !== masterKey.organizationId
+	) {
+		throw new HTTPException(404, {
+			message: "API key not found in this organization",
+		});
+	}
+
+	if (existing.description === "Auto-generated playground key") {
+		throw new HTTPException(403, {
+			message:
+				"Cannot delete the playground API key. This key is required for the playground to function.",
+		});
+	}
+
+	await db
+		.update(tables.apiKey)
+		.set({ status: "deleted" })
+		.where(eq(tables.apiKey.id, id));
+
+	await logAuditEvent({
+		organizationId: existing.project.organizationId,
+		userId: masterKey.createdBy,
+		action: "api_key.delete",
+		resourceType: "api_key",
+		resourceId: id,
+		metadata: { resourceName: existing.description },
+	});
+
+	return c.json({ message: "API key deleted successfully" });
 });
 
 export default v1Master;

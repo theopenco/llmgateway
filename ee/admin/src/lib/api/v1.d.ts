@@ -803,6 +803,181 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/master/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project deleted successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name?: string;
+                        cachingEnabled?: boolean;
+                        cacheDurationSeconds?: number;
+                        /** @enum {string} */
+                        mode?: "api-keys" | "credits" | "hybrid";
+                        /** @enum {string} */
+                        status?: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description Project updated successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            project: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                name: string;
+                                organizationId: string;
+                                cachingEnabled: boolean;
+                                cacheDurationSeconds: number;
+                                /** @enum {string} */
+                                mode: "api-keys" | "credits" | "hybrid";
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/v1/master/keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description API key deleted successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        description?: string;
+                        /** @enum {string} */
+                        status?: "active" | "inactive";
+                        usageLimit?: string | null;
+                        periodUsageLimit?: string | null;
+                        periodUsageDurationValue?: number | null;
+                        /** @enum {string|null} */
+                        periodUsageDurationUnit?: "hour" | "day" | "week" | "month" | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description API key updated successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            apiKey: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                projectId: string;
+                                createdBy: string;
+                                usageLimit: string | null;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
