@@ -1073,7 +1073,7 @@ export const ProviderIcons = {
 export type ProviderIconKey = keyof typeof ProviderIcons;
 
 export const providerLogoUrls: Partial<
-	Record<ProviderId, React.FC<React.SVGProps<SVGSVGElement>>>
+	Record<ProviderId | ProviderIconKey, React.FC<React.SVGProps<SVGSVGElement>>>
 > = {
 	openai: ProviderIcons.openai,
 	anthropic: ProviderIcons.anthropic,

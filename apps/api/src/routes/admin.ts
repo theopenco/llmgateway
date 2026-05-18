@@ -69,6 +69,7 @@ const adminMetricsSchema = z.object({
 	totalSpent: z.number(),
 	unusedCredits: z.number(),
 	overage: z.number(),
+	totalGiftedCredits: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -636,6 +637,25 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalProcessed = Number(processedRow?.value ?? 0);
 
+	// Total gifted credits (sum of credit_gift transactions, using creditAmount)
+	const [giftedRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_gift"),
+				transactionDateFilter,
+			),
+		);
+
+	const totalGiftedCredits = Number(giftedRow?.value ?? 0);
+
 	const rawBalance = totalToppedUp - totalSpent;
 	const unusedCredits = Math.max(0, rawBalance);
 	const overage = Math.max(0, -rawBalance);
@@ -651,6 +671,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalSpent,
 		unusedCredits,
 		overage,
+		totalGiftedCredits,
 	});
 });
 
@@ -7952,6 +7973,45 @@ const getDevpassTimeseries = createRoute({
 	},
 });
 
+const devpassUsageRowSchema = z.object({
+	id: z.string(),
+	requestCount: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+});
+
+const devpassUsageSchema = z.object({
+	models: z.array(devpassUsageRowSchema),
+	providers: z.array(devpassUsageRowSchema),
+	sources: z.array(devpassUsageRowSchema),
+	range: z.object({
+		from: z.string(),
+		to: z.string(),
+	}),
+});
+
+const getDevpassUsage = createRoute({
+	method: "get",
+	path: "/devpass/usage",
+	request: {
+		query: z.object({
+			from: z.string().optional(),
+			to: z.string().optional(),
+			limit: z.coerce.number().int().min(1).max(50).default(10).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: devpassUsageSchema.openapi({}),
+				},
+			},
+			description: "DevPass usage breakdown by model, provider, and source.",
+		},
+	},
+});
+
 function tierPriceOf(tier: string): number {
 	if (tier === "lite" || tier === "pro" || tier === "max") {
 		return DEV_PLAN_PRICES[tier];
@@ -8740,6 +8800,129 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 			cost: totalCost,
 			margin: totalRevenue - totalCost,
 		},
+		range: {
+			from: startDate.toISOString().slice(0, 10),
+			to: endDate.toISOString().slice(0, 10),
+		},
+	});
+});
+
+admin.openapi(getDevpassUsage, async (c) => {
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 10;
+	const now = new Date();
+
+	let startDate: Date;
+	let endDate: Date;
+	if (query.from && query.to) {
+		startDate = new Date(query.from + "T00:00:00.000Z");
+		endDate = new Date(query.to + "T23:59:59.999Z");
+	} else {
+		startDate = new Date(now);
+		startDate.setUTCDate(startDate.getUTCDate() - 30);
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(now);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	if (endDate.getTime() < startDate.getTime()) {
+		endDate = new Date(startDate);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	// Filter: only logs from orgs that are or were ever on a DevPass plan.
+	// Mirrors the cost-per-day query in /devpass/timeseries.
+	const devpassOrgFilter = or(
+		ne(tables.organization.devPlan, "none"),
+		sql`EXISTS (
+			SELECT 1 FROM ${tables.transaction} t
+			WHERE t.organization_id = ${tables.organization.id}
+			AND (
+				t.type = 'dev_plan_start'
+				OR (t.type = 'subscription_start' AND ${tables.organization.isPersonal} = true)
+			)
+		)`,
+	)!;
+
+	const baseWhere = and(
+		gte(tables.log.createdAt, startDate),
+		lte(tables.log.createdAt, endDate),
+		devpassOrgFilter,
+	);
+
+	const modelRows = await db
+		.select({
+			id: tables.log.usedModel,
+			requestCount: sql<number>`COUNT(*)`.as("request_count"),
+			totalTokens: sql<number>`COALESCE(SUM(${tables.log.totalTokens}), 0)`.as(
+				"total_tokens",
+			),
+			cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
+		})
+		.from(tables.log)
+		.innerJoin(
+			tables.organization,
+			eq(tables.log.organizationId, tables.organization.id),
+		)
+		.where(baseWhere)
+		.groupBy(tables.log.usedModel)
+		.orderBy(desc(sql`COALESCE(SUM(${tables.log.cost}), 0)`))
+		.limit(limit);
+
+	const providerRows = await db
+		.select({
+			id: tables.log.usedProvider,
+			requestCount: sql<number>`COUNT(*)`.as("request_count"),
+			totalTokens: sql<number>`COALESCE(SUM(${tables.log.totalTokens}), 0)`.as(
+				"total_tokens",
+			),
+			cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
+		})
+		.from(tables.log)
+		.innerJoin(
+			tables.organization,
+			eq(tables.log.organizationId, tables.organization.id),
+		)
+		.where(baseWhere)
+		.groupBy(tables.log.usedProvider)
+		.orderBy(desc(sql`COALESCE(SUM(${tables.log.cost}), 0)`))
+		.limit(limit);
+
+	const sourceRows = await db
+		.select({
+			id: sql<string>`COALESCE(${tables.log.source}, 'unknown')`.as("id"),
+			requestCount: sql<number>`COUNT(*)`.as("request_count"),
+			totalTokens: sql<number>`COALESCE(SUM(${tables.log.totalTokens}), 0)`.as(
+				"total_tokens",
+			),
+			cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
+		})
+		.from(tables.log)
+		.innerJoin(
+			tables.organization,
+			eq(tables.log.organizationId, tables.organization.id),
+		)
+		.where(and(baseWhere, isNotNull(tables.log.source)))
+		.groupBy(tables.log.source)
+		.orderBy(desc(sql`COALESCE(SUM(${tables.log.cost}), 0)`))
+		.limit(limit);
+
+	const mapRow = (r: {
+		id: string | null;
+		requestCount: number;
+		totalTokens: number;
+		cost: number;
+	}) => ({
+		id: r.id ?? "unknown",
+		requestCount: Number(r.requestCount),
+		totalTokens: Number(r.totalTokens),
+		cost: Number(r.cost),
+	});
+
+	return c.json({
+		models: modelRows.map(mapRow),
+		providers: providerRows.map(mapRow),
+		sources: sourceRows.map(mapRow),
 		range: {
 			from: startDate.toISOString().slice(0, 10),
 			to: endDate.toISOString().slice(0, 10),

@@ -5,6 +5,7 @@ import {
 	Banknote,
 	Building2,
 	CircleDollarSign,
+	Gift,
 	PiggyBank,
 	ShieldCheck,
 	UserCheck,
@@ -209,6 +210,13 @@ export default async function Page({
 					subtitle="Credits sitting unused across all orgs"
 					icon={<PiggyBank className="h-4 w-4" />}
 					accent="blue"
+				/>
+				<MetricCard
+					label="Total Gifted Credits"
+					value={currencyFormatter.format(metrics.totalGiftedCredits)}
+					subtitle="Credits given out (excluded from revenue)"
+					icon={<Gift className="h-4 w-4" />}
+					accent="purple"
 				/>
 				{metrics.overage > 0 && (
 					<MetricCard

@@ -432,6 +432,7 @@ export function DashboardClient({
 							}
 							icon={<Server className="h-4 w-4" />}
 							accent="green"
+							tooltip="Cached input tokens are already included in the Input Tokens & Cost total above. This card breaks them out so you can see how much of the input was served from cache."
 						/>
 						<MetricCard
 							label="Most Used Model"
