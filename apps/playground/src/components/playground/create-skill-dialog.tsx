@@ -55,18 +55,22 @@ export function CreateSkillDialog({
 			return;
 		}
 
-		const result = await createSkill.mutateAsync({
-			body: {
-				name: name.trim(),
-				description: description.trim(),
-				instructions: instructions.trim(),
-				enabled: true,
-			},
-		});
+		try {
+			const result = await createSkill.mutateAsync({
+				body: {
+					name: name.trim(),
+					description: description.trim(),
+					instructions: instructions.trim(),
+					enabled: true,
+				},
+			});
 
-		if (result?.skill) {
-			onSuccess?.(result.skill as Skill);
-			handleOpenChange(false);
+			if (result?.skill) {
+				onSuccess?.(result.skill as Skill);
+				handleOpenChange(false);
+			}
+		} catch {
+			// error toast handled by useCreateSkill
 		}
 	};
 

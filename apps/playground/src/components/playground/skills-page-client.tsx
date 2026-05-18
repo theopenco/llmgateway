@@ -197,15 +197,19 @@ function SkillsPanel({
 		if (!selectedSkill || !editName.trim() || !editInstructions.trim()) {
 			return;
 		}
-		await updateSkill.mutateAsync({
-			params: { path: { id: selectedSkill.id } },
-			body: {
-				name: editName.trim(),
-				description: editDescription.trim(),
-				instructions: editInstructions.trim(),
-			},
-		});
-		setIsEditing(false);
+		try {
+			await updateSkill.mutateAsync({
+				params: { path: { id: selectedSkill.id } },
+				body: {
+					name: editName.trim(),
+					description: editDescription.trim(),
+					instructions: editInstructions.trim(),
+				},
+			});
+			setIsEditing(false);
+		} catch {
+			// error toast handled by useUpdateSkill
+		}
 	};
 
 	const isSaveDisabled =

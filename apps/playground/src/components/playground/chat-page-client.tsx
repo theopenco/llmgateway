@@ -344,14 +344,16 @@ export default function ChatPageClient({
 
 	// Skills
 	const { data: skillsData } = useSkills();
+	const skillInitializedRef = useRef(false);
 	useEffect(() => {
-		if (!skillIdFromUrl || !skillsData?.skills) {
+		if (!skillIdFromUrl || !skillsData?.skills || skillInitializedRef.current) {
 			return;
 		}
 		const found = (skillsData.skills as Skill[]).find(
 			(s) => s.id === skillIdFromUrl,
 		);
 		if (found) {
+			skillInitializedRef.current = true;
 			setActiveSkills([found]);
 		}
 	}, [skillIdFromUrl, skillsData]);

@@ -20,7 +20,9 @@ interface ParsedSkill {
 }
 
 function parseSkillMarkdown(content: string): ParsedSkill | null {
-	const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+	const frontmatterMatch = content.match(
+		/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/,
+	);
 	if (!frontmatterMatch) {
 		return null;
 	}
@@ -163,8 +165,8 @@ export function UploadSkillDialog({
 						</p>
 						<ul className="text-muted-foreground list-disc space-y-1 pl-4 text-xs">
 							<li>
-								.md file must contain skill name and description formatted in
-								YAML
+								.md file must contain a <code>name</code> field in YAML
+								frontmatter
 							</li>
 							<li>.zip or .skill file must include a SKILL.md file</li>
 							<li>File size must not exceed 50 MB</li>
