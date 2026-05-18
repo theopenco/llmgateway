@@ -50,6 +50,15 @@ async function assertEnterpriseOrgAccess(
 	return { role: userOrg.role };
 }
 
+type MasterKeyRow = typeof tables.masterKey.$inferSelect & {
+	creator?: { id: string; name: string | null; email: string } | null;
+};
+
+function serializeMasterKey<T extends MasterKeyRow>(row: T) {
+	const { tokenHash: _tokenHash, ...rest } = row;
+	return rest;
+}
+
 const masterKeySchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
@@ -166,7 +175,7 @@ masterKeys.openapi(create, async (c) => {
 	return c.json(
 		{
 			masterKey: {
-				...created,
+				...serializeMasterKey(created),
 				token,
 			},
 		},
@@ -222,7 +231,7 @@ masterKeys.openapi(list, async (c) => {
 	});
 
 	return c.json({
-		masterKeys: rows,
+		masterKeys: rows.map(serializeMasterKey),
 		planLimits: {
 			currentCount: rows.length,
 			maxKeys: MAX_MASTER_KEYS_PER_ORG,
@@ -297,7 +306,7 @@ masterKeys.openapi(updateStatus, async (c) => {
 
 	return c.json({
 		message: "Master key status updated successfully",
-		masterKey: updated,
+		masterKey: serializeMasterKey(updated),
 	});
 });
 
