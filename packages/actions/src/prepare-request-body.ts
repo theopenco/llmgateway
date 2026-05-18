@@ -1429,8 +1429,20 @@ export async function prepareRequestBody(
 				}
 			};
 			const thinkingBudget = getThinkingBudget(reasoning_effort);
-			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
-			requestBody.max_tokens = max_tokens ?? minMaxTokens;
+			// Anthropic's Messages API requires max_tokens to be set. When the
+			// caller didn't specify one, fall back to the model's full advertised
+			// maxOutput (e.g. 128000 for Opus 4.7) rather than Anthropic's
+			// historical 1024 default — that default silently truncates large
+			// responses and mid-emission tool calls, breaking agent loops.
+			const anthropicProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			) as ProviderModelMapping | undefined;
+			const modelMaxOutput = anthropicProviderMapping?.maxOutput;
+			const fallbackMaxTokens = Math.max(
+				modelMaxOutput ?? 4096,
+				thinkingBudget + 1000,
+			);
+			requestBody.max_tokens = max_tokens ?? fallbackMaxTokens;
 
 			// Extract system messages for Anthropic's system field (required for prompt caching)
 			const systemMessages = processedMessages.filter(
@@ -2084,13 +2096,21 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
-					// Ensure max_tokens is sufficient for thinking + response
-					const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
-					if (
-						!inferenceConfig.maxTokens ||
-						inferenceConfig.maxTokens < minMaxTokens
-					) {
-						inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
+					// When the caller didn't supply max_tokens, fall back to the
+					// model's full advertised maxOutput rather than a flat 1024
+					// (Anthropic's historical default that silently truncates
+					// large responses and mid-emission tool calls). When the
+					// caller did supply one, leave it alone but ensure it leaves
+					// room for the thinking budget plus a minimum response.
+					const bedrockModelMaxOutput = bedrockProviderMapping?.maxOutput;
+					const reasoningFloor = thinkingBudget + 1000;
+					if (inferenceConfig.maxTokens === undefined) {
+						inferenceConfig.maxTokens =
+							max_tokens ??
+							Math.max(bedrockModelMaxOutput ?? reasoningFloor, reasoningFloor);
+					}
+					if (inferenceConfig.maxTokens < reasoningFloor) {
+						inferenceConfig.maxTokens = reasoningFloor;
 					}
 				}
 				// Anthropic requires temperature to be exactly 1 when thinking is enabled
@@ -2223,7 +2243,6 @@ export async function prepareRequestBody(
 					includeThoughts: true,
 				};
 
-				// Use reasoning_max_tokens if provided, otherwise map reasoning_effort to thinking_budget
 				if (reasoning_max_tokens !== undefined) {
 					// Google's thinkingBudget: just use the provided value directly
 					// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed

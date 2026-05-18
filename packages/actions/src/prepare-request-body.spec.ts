@@ -228,6 +228,75 @@ describe("prepareRequestBody - Anthropic", () => {
 		// Should be exactly 4 (the limit)
 		expect(totalCacheControlBlocks).toBe(4);
 	});
+
+	test("forwards caller-supplied max_tokens verbatim (no 1024 cap)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-4-7",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			32000, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.max_tokens).toBe(32000);
+	});
+
+	test("falls back to model maxOutput when caller omits max_tokens", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-4-7",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens omitted — used to silently default to 1024
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+		)) as AnthropicRequestBody;
+
+		// claude-opus-4-7's anthropic provider mapping declares maxOutput: 128000.
+		// Falling back to a flat 1024 (Anthropic's historical default) silently
+		// truncates large responses and is the bug this test guards against.
+		expect(requestBody.max_tokens).toBe(128000);
+	});
+
+	test("preserves caller max_tokens even when reasoning is enabled", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-4-7",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			32000, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"high", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.max_tokens).toBe(32000);
+	});
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {
@@ -1410,5 +1479,701 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 		expect(requestBody.generationConfig?.thinkingConfig?.thinkingBudget).toBe(
 			budget,
 		);
+	});
+});
+
+// Sibling to the Anthropic max_tokens regression tests above. Every provider
+// gets the same three checks (caller-supplied, caller-omitted, reasoning) so
+// we never silently regress to a stale fallback the way the Anthropic 1024
+// default did (see PR #2289). For providers where max_tokens is OPTIONAL
+// upstream (everything except Anthropic), the omit path must leave the field
+// undefined so the provider's own default wins.
+describe("prepareRequestBody - max_tokens forwarding", () => {
+	describe("aws-bedrock (Anthropic via Converse)", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(32000);
+		});
+
+		test("leaves maxTokens unset when caller omits (no reasoning)", async () => {
+			// Bedrock's Converse API tolerates omitting max_tokens; the historical
+			// 1024 default was Anthropic-specific. When reasoning is off, just let
+			// upstream pick.
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.inferenceConfig?.maxTokens).toBeUndefined();
+		});
+
+		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"high",
+				true,
+				false,
+			)) as any;
+
+			// claude-sonnet-4-6's aws-bedrock provider mapping declares maxOutput:
+			// 64000. Falling back to a flat 1024 (the old historical Anthropic
+			// default) silently truncates large reasoning + tool responses.
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
+		});
+
+		test("preserves caller max_tokens even when reasoning is enabled", async () => {
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"high",
+				true,
+				false,
+			)) as any;
+
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(32000);
+		});
+
+		test("preserves max_tokens=0 instead of overwriting it", async () => {
+			// Regression: the original `if (!inferenceConfig.maxTokens)` guard
+			// silently rewrote a caller-supplied 0 to the fallback. The fix uses
+			// `=== undefined`, so 0 survives the undefined branch and then gets
+			// floored by the reasoning check on the way out.
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				0,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"high",
+				true,
+				false,
+			)) as any;
+
+			// thinking budget for "high" is 4000, floor is 5000. 0 is below the
+			// floor, so it gets bumped to the reasoning floor — NOT silently
+			// replaced by the model maxOutput.
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(5000);
+		});
+	});
+
+	describe("openai (Chat Completions)", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-4o-mini",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-4o-mini",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+			expect(requestBody.max_completion_tokens).toBeUndefined();
+		});
+
+		test("uses max_completion_tokens for gpt-5 family", async () => {
+			// gpt-5 defaults to the Responses API, but the Chat Completions
+			// branch still needs to translate max_tokens to max_completion_tokens
+			// for callers who explicitly bypass the Responses API.
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(requestBody.max_completion_tokens).toBe(32000);
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("openai (Responses API)", () => {
+		test("forwards caller-supplied max_tokens to max_output_tokens", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			)) as any;
+
+			expect(requestBody.max_output_tokens).toBe(32000);
+		});
+
+		test("leaves max_output_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			)) as any;
+
+			expect(requestBody.max_output_tokens).toBeUndefined();
+		});
+	});
+
+	describe("google-ai-studio", () => {
+		test("forwards caller-supplied max_tokens to maxOutputTokens (Gemini 2.x)", async () => {
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				"gemini-2.5-pro",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				8192,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig?.maxOutputTokens).toBe(8192);
+		});
+
+		test("leaves maxOutputTokens unset when caller omits (Gemini 2.x)", async () => {
+			// Gemini 2.5+ has thinking enabled by default and counts thinking
+			// tokens against maxOutputTokens. Setting a low default starves the
+			// response. Leave it unset so the provider's own default wins.
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				"gemini-2.5-pro",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig?.maxOutputTokens).toBeUndefined();
+		});
+
+		test("preserves caller max_tokens when reasoning is enabled (Gemini 2.x)", async () => {
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				"gemini-2.5-pro",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				16000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"high",
+				true,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig?.maxOutputTokens).toBe(16000);
+		});
+	});
+
+	describe("google-vertex", () => {
+		test("leaves maxOutputTokens unset on Gemini 2.x when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"google-vertex",
+				"gemini-2.5-pro",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig?.maxOutputTokens).toBeUndefined();
+		});
+	});
+
+	describe("groq", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"groq",
+				"moonshotai/kimi-k2-instruct",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"groq",
+				"moonshotai/kimi-k2-instruct",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("mistral", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"mistral",
+				"mistral-large-latest",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"mistral",
+				"mistral-large-latest",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("together-ai", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"together-ai",
+				"meta-llama/llama-3.3-70b-instruct",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"together-ai",
+				"meta-llama/llama-3.3-70b-instruct",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("inference.net", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"inference.net",
+				"meta-llama/llama-3.1-8b-instruct/fp-8",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"inference.net",
+				"meta-llama/llama-3.1-8b-instruct/fp-8",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("cerebras", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"cerebras",
+				"llama-3.3-70b",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"cerebras",
+				"llama-3.3-70b",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("perplexity", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("zai", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"zai",
+				"glm-4.6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"zai",
+				"glm-4.6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
 	});
 });

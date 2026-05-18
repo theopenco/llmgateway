@@ -312,6 +312,9 @@ export function getProviderEndpoint(
 			case "embercloud":
 				url = "https://api.embercloud.ai";
 				break;
+			case "deepinfra":
+				url = "https://api.deepinfra.com/v1/openai";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -562,6 +565,8 @@ export function getProviderEndpoint(
 				return `${url}/v1/images/generations`;
 			}
 			return `${url}/v1/chat/completions`;
+		case "deepinfra":
+			return `${url}/chat/completions`;
 		case "inference.net":
 		case "llmgateway":
 		case "groq":
