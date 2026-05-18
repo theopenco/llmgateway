@@ -32,6 +32,7 @@ import {
 	AnimatedExternalLink,
 	AnimatedKey,
 	AnimatedKeyRound,
+	AnimatedKeySquare,
 	AnimatedLayoutDashboard,
 	AnimatedMessageSquare,
 	AnimatedSettings,
@@ -421,7 +422,7 @@ function OrganizationSection({
 					<OrgNavItem
 						href={buildOrgUrl("org/master-keys")}
 						label="Master Keys"
-						icon={AnimatedKeyRound}
+						icon={AnimatedKeySquare}
 						isActive={isActive("org/master-keys")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
