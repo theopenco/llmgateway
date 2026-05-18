@@ -389,7 +389,8 @@ export function transformResponseToOpenai(
 			};
 			break;
 		}
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",

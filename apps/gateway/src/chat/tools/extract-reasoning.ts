@@ -2,20 +2,46 @@ import { extractReasoningDetailsText } from "./reasoning-details.js";
 
 import type { Provider } from "@llmgateway/models";
 
-/**
- * Extracts reasoning content from streaming data based on provider format
- */
-export function extractReasoning(data: any, provider: Provider): string {
+interface AnthropicStreamChunk {
+	type?: string;
+	delta?: { type?: string; thinking?: string };
+}
+
+interface GoogleStreamChunk {
+	candidates?: Array<{
+		content?: { parts?: Array<{ thought?: boolean; text?: string }> };
+	}>;
+}
+
+interface OpenAIStreamChunk {
+	choices?: Array<{
+		delta?: {
+			reasoning?: string;
+			reasoning_content?: string;
+			reasoning_details?: unknown;
+		};
+	}>;
+}
+
+type StreamingChunk =
+	| AnthropicStreamChunk
+	| GoogleStreamChunk
+	| OpenAIStreamChunk;
+
+export function extractReasoning(
+	data: StreamingChunk,
+	provider: Provider,
+): string {
 	switch (provider) {
-		case "anthropic": {
-			// Handle Anthropic thinking content blocks in streaming format
+		case "anthropic":
+		case "vertex-anthropic": {
+			const chunk = data as AnthropicStreamChunk;
 			if (
-				data.type === "content_block_delta" &&
-				data.delta?.type === "thinking_delta" &&
-				data.delta?.thinking
+				chunk.type === "content_block_delta" &&
+				chunk.delta?.type === "thinking_delta" &&
+				chunk.delta?.thinking
 			) {
-				// This is a thinking delta - return the thinking content
-				return data.delta.thinking;
+				return chunk.delta.thinking;
 			}
 			return "";
 		}
@@ -23,18 +49,21 @@ export function extractReasoning(data: any, provider: Provider): string {
 		case "glacier":
 		case "google-vertex":
 		case "quartz": {
-			const parts = data.candidates?.[0]?.content?.parts ?? [];
-			const reasoningParts = parts.filter((part: any) => part.thought);
-			return reasoningParts.map((part: any) => part.text).join("") ?? "";
+			const chunk = data as GoogleStreamChunk;
+			const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+			const reasoningParts = parts.filter((part) => part.thought);
+			return reasoningParts.map((part) => part.text).join("") ?? "";
 		}
-		default: // OpenAI format (includes GLM/ZAI which use reasoning_content)
+		default: {
+			const chunk = data as OpenAIStreamChunk;
 			return (
-				data.choices?.[0]?.delta?.reasoning ??
-				data.choices?.[0]?.delta?.reasoning_content ??
+				chunk.choices?.[0]?.delta?.reasoning ??
+				chunk.choices?.[0]?.delta?.reasoning_content ??
 				extractReasoningDetailsText(
-					data.choices?.[0]?.delta?.reasoning_details,
+					chunk.choices?.[0]?.delta?.reasoning_details,
 				) ??
 				""
 			);
+		}
 	}
 }

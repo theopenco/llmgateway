@@ -76,7 +76,8 @@ function getValidationModel(
 				isDeprecated ||
 				isDeactivated ||
 				providerMapping.imageGenerations ||
-				providerMapping.videoGenerations
+				providerMapping.videoGenerations ||
+				providerMapping.embeddings
 			) {
 				return [];
 			}

@@ -37,7 +37,7 @@
 		"@llmgateway/shared": "workspace:*",
 		"@modelcontextprotocol/sdk": "1.29.0",
 		"@opentelemetry/api": "1.9.0",
-		"@opentelemetry/sdk-node": "0.205.0",
+		"@opentelemetry/sdk-node": "0.218.0",
 		"decimal.js": "10.5.0",
 		"dotenv": "16.5.0",
 		"hono": "^4.12.18",

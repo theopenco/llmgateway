@@ -96,7 +96,11 @@ publicChatShares.openapi(listSharedChats, async (c) => {
 		.from(tables.chatShare)
 		.innerJoin(tables.chat, eq(tables.chatShare.chatId, tables.chat.id))
 		.where(
-			and(isNull(tables.chatShare.deletedAt), eq(tables.chat.status, "active")),
+			and(
+				isNull(tables.chatShare.deletedAt),
+				isNull(tables.chatShare.organizationId),
+				eq(tables.chat.status, "active"),
+			),
 		)
 		.orderBy(desc(tables.chatShare.updatedAt))
 		.limit(limit ?? 5000);
@@ -128,6 +132,7 @@ publicChatShares.openapi(getSharedChat, async (c) => {
 			and(
 				eq(tables.chatShare.id, shareId),
 				isNull(tables.chatShare.deletedAt),
+				isNull(tables.chatShare.organizationId),
 				eq(tables.chat.status, "active"),
 			),
 		)

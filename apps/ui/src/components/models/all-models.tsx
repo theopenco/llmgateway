@@ -31,6 +31,7 @@ import {
 	List,
 	Grid,
 	Bot,
+	Boxes,
 	Brain,
 	Sparkles,
 	PenTool,
@@ -194,6 +195,13 @@ function computeCapabilities(
 			icon: Video,
 			label: "Video Generation",
 			color: "text-violet-500",
+		});
+	}
+	if (model?.output?.includes("embedding")) {
+		capabilities.push({
+			icon: Boxes,
+			label: "Embeddings",
+			color: "text-indigo-500",
 		});
 	}
 	if (provider.webSearch) {
@@ -592,6 +600,7 @@ export function AllModels({
 			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
 			videoGeneration: searchParams.get("videoGeneration") === "true",
+			embedding: searchParams.get("embedding") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -850,6 +859,12 @@ export function AllModels({
 			if (
 				filters.capabilities.videoGeneration &&
 				!model.output?.includes("video")
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.embedding &&
+				!model.output?.includes("embedding")
 			) {
 				return false;
 			}
@@ -1422,6 +1437,13 @@ export function AllModels({
 				color: "text-violet-500",
 			});
 		}
+		if (model?.output?.includes("embedding")) {
+			capabilities.push({
+				icon: Boxes,
+				label: "Embeddings",
+				color: "text-indigo-500",
+			});
+		}
 		if (provider.webSearch) {
 			capabilities.push({
 				icon: Globe,
@@ -1446,6 +1468,7 @@ export function AllModels({
 				jsonOutputSchema: false,
 				imageGeneration: false,
 				videoGeneration: false,
+				embedding: false,
 				webSearch: false,
 				free: false,
 				discounted: false,
@@ -1470,6 +1493,7 @@ export function AllModels({
 			jsonOutputSchema: undefined,
 			imageGeneration: undefined,
 			videoGeneration: undefined,
+			embedding: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
@@ -1611,6 +1635,12 @@ export function AllModels({
 									label: "Video Gen",
 									icon: Video,
 									color: "text-violet-500",
+								},
+								{
+									key: "embedding",
+									label: "Embeddings",
+									icon: Boxes,
+									color: "text-indigo-500",
 								},
 								{
 									key: "webSearch",

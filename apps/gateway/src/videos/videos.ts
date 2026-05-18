@@ -24,7 +24,6 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	processImageUrl,
-	resolveMetricsModelId,
 	type RoutingMetadata,
 	type VideoPricingContext,
 } from "@llmgateway/actions";
@@ -920,8 +919,8 @@ function getVideoUpstreamModelName(
 	switch (providerId) {
 		case "avalanche":
 			return getAvalancheVideoModelName(baseModelName);
+		case "bytedance":
 		case "google-vertex":
-			return baseModelName;
 		default:
 			return baseModelName;
 	}
@@ -969,6 +968,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "bytedance":
+			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
 		default:
@@ -1453,10 +1454,9 @@ async function resolveVideoExecution(
 
 	if (configuredEligibleMappings.length > 1) {
 		const metricsCombinations = configuredEligibleMappings.map((provider) => ({
-			modelId: resolveMetricsModelId(modelInfo.id, provider.modelName),
+			modelId: modelInfo.id,
 			providerId: provider.providerId,
 			region: provider.region,
-			modelName: provider.modelName,
 		}));
 		const metricsMap =
 			await getProviderMetricsForCombinations(metricsCombinations);
@@ -1468,10 +1468,9 @@ async function resolveVideoExecution(
 			: undefined;
 		const requestedKey = requestedMapping
 			? metricsKey(
-					resolveMetricsModelId(modelInfo.id, requestedMapping.modelName),
+					modelInfo.id,
 					requestedMapping.providerId,
 					requestedMapping.region,
-					requestedMapping.modelName,
 				)
 			: undefined;
 
@@ -1491,12 +1490,7 @@ async function resolveVideoExecution(
 					}
 
 					const providerMetrics = metricsMap.get(
-						metricsKey(
-							resolveMetricsModelId(modelInfo.id, provider.modelName),
-							provider.providerId,
-							provider.region,
-							provider.modelName,
-						),
+						metricsKey(modelInfo.id, provider.providerId, provider.region),
 					);
 					return (
 						!providerMetrics ||
@@ -2804,6 +2798,106 @@ async function createGoogleVertexVideoJob(
 	};
 }
 
+function getBytedanceVideoAspectRatio(videoSize: VideoSizeConfig): string {
+	if (videoSize.orientation === "portrait") {
+		return "9:16";
+	}
+	return "16:9";
+}
+
+async function createBytedanceVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	includeAudio: boolean,
+	firstFrameInput: VideoImageInput | undefined,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedReferenceImages: ProcessedVideoImageInput[],
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.modelName;
+	const content: Array<Record<string, unknown>> = [
+		{
+			type: "text",
+			text: prompt,
+		},
+	];
+
+	if (processedFirstFrame) {
+		content.push({
+			type: "image_url",
+			image_url: {
+				url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
+			},
+		});
+	}
+
+	if (processedReferenceImages.length > 0) {
+		for (const image of processedReferenceImages) {
+			content.push({
+				type: "image_url",
+				image_url: {
+					url: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
+				},
+			});
+		}
+	}
+
+	const isDreaminaModel = upstreamModelName.startsWith("dreamina-");
+
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		content,
+		duration: durationSeconds,
+		aspect_ratio: getBytedanceVideoAspectRatio(videoSize),
+		generate_audio: includeAudio,
+	};
+
+	if (isDreaminaModel) {
+		upstreamRequest.resolution =
+			videoSize.resolution === "1080p" ? "1080p" : "720p";
+	}
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/contents/generations/tasks",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("bytedance", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			status: rawResponse.status ?? "queued",
+			duration: durationSeconds,
+			aspect_ratio: upstreamRequest.aspect_ratio,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "ByteDance video response did not include a task id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -2856,6 +2950,18 @@ async function createUpstreamVideoJob(
 						lastFrameInput,
 						referenceImageInputs,
 					);
+		case "bytedance":
+			return await createBytedanceVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				includeAudio,
+				firstFrameInput,
+				processedFirstFrame,
+				processedReferenceImages,
+			);
 		case "google-vertex":
 			return await createGoogleVertexVideoJob(
 				providerContext,

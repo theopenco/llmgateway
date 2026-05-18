@@ -2,7 +2,6 @@
 
 import { Plus, X } from "lucide-react";
 
-import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ModelSelector } from "@/components/model-selector";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -109,19 +108,6 @@ export function VideoHeader({
 						onCheckedChange={onComparisonModeChange}
 					/>
 				</div>
-				<ThemeToggle />
-				<a
-					href={
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3002/dashboard"
-							: "https://llmgateway.io/dashboard"
-					}
-					target="_blank"
-					rel="noopener noreferrer"
-					className="hidden sm:inline"
-				>
-					<span className="text-nowrap">Dashboard</span>
-				</a>
 			</div>
 		</header>
 	);

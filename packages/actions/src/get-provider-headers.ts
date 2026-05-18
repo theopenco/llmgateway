@@ -64,6 +64,11 @@ export function getProviderHeaders(
 			}
 			return requestIdHeader;
 		}
+		case "vertex-anthropic":
+			return {
+				...requestIdHeader,
+				Authorization: `Bearer ${token}`,
+			};
 		case "avalanche":
 			return {
 				...requestIdHeader,
@@ -93,6 +98,7 @@ export function getProviderHeaders(
 		case "nebius":
 		case "zai":
 		case "embercloud":
+		case "deepinfra":
 		case "custom":
 		default:
 			return {

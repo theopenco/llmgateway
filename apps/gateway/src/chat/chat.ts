@@ -27,6 +27,10 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import {
+	getGcpAccessToken,
+	getVertexAnthropicProjectId,
+} from "@/lib/gcp-token.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
@@ -49,6 +53,7 @@ import {
 	createStreamingCombinedSignal,
 	isTimeoutError,
 } from "@/lib/timeout-config.js";
+import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -57,7 +62,6 @@ import {
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
 	prepareRequestBody,
-	resolveMetricsModelId,
 	type RoutingMetadata,
 } from "@llmgateway/actions";
 import {
@@ -180,6 +184,11 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+
+const _derivedProjectId = getVertexAnthropicProjectId();
+if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
+	process.env.LLM_VERTEX_ANTHROPIC_PROJECT = _derivedProjectId;
+}
 
 /**
  * Filter expanded region entries to only those with available API keys.
@@ -509,12 +518,7 @@ function addContentFilterRoutingMetadata(
 			: [
 					...excludedProviders.map((provider) => {
 						const metrics = metricsMap.get(
-							metricsKey(
-								resolveMetricsModelId(modelId, provider.modelName),
-								provider.providerId,
-								provider.region,
-								provider.modelName,
-							),
+							metricsKey(modelId, provider.providerId, provider.region),
 						);
 
 						return {
@@ -596,7 +600,12 @@ function usesGoogleQueryToken(provider: string): boolean {
 }
 
 function isGoogleCompatibleProvider(provider: string): boolean {
-	return usesGoogleQueryToken(provider);
+	return (
+		provider === "google-ai-studio" ||
+		provider === "glacier" ||
+		provider === "google-vertex" ||
+		provider === "quartz"
+	);
 }
 
 // Pre-compiled regex pattern to avoid recompilation per request
@@ -1857,10 +1866,9 @@ chat.openapi(completions, async (c) => {
 		if (selectedModel && selectedProviders.length > 0) {
 			// Fetch uptime/latency metrics from last 5 minutes for provider selection
 			const metricsCombinations = selectedProviders.map((p) => ({
-				modelId: resolveMetricsModelId(selectedModel.id, p.modelName),
+				modelId: selectedModel.id,
 				providerId: p.providerId,
 				region: p.region,
-				modelName: p.modelName,
 			}));
 			const metricsMap =
 				await getProviderMetricsForCombinations(metricsCombinations);
@@ -2068,10 +2076,9 @@ chat.openapi(completions, async (c) => {
 
 				if (eligibleMappings.length > 1) {
 					const metricsCombinations = eligibleMappings.map((provider) => ({
-						modelId: resolveMetricsModelId(modelInfo.id, provider.modelName),
+						modelId: modelInfo.id,
 						providerId: provider.providerId,
 						region: provider.region,
-						modelName: provider.modelName,
 					}));
 					const metricsMap =
 						await getProviderMetricsForCombinations(metricsCombinations);
@@ -2256,10 +2263,9 @@ chat.openapi(completions, async (c) => {
 
 					if (modelWithPricing) {
 						const metricsCombinations = candidatesForRouting.map((p) => ({
-							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
+							modelId: modelWithPricing.id,
 							providerId: p.providerId,
 							region: p.region,
-							modelName: p.modelName,
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
@@ -2328,20 +2334,18 @@ chat.openapi(completions, async (c) => {
 		// Find the base model ID for metrics lookup
 		// Since custom providers are excluded above, modelInfo always has 'id'
 		const baseModelId = (modelInfo as ModelDefinition).id;
-		const metricsModelId = resolveMetricsModelId(baseModelId, usedModel);
 
 		// Fetch uptime metrics for the requested provider
 		const metricsMap = await getProviderMetricsForCombinations([
 			{
-				modelId: metricsModelId,
+				modelId: baseModelId,
 				providerId: usedProvider,
 				region: usedRegion,
-				modelName: usedModel,
 			},
 		]);
 
 		const metrics = metricsMap.get(
-			metricsKey(metricsModelId, usedProvider, usedRegion, usedModel),
+			metricsKey(baseModelId, usedProvider, usedRegion),
 		);
 
 		// If we have metrics and uptime is below 90%, route to an alternative
@@ -2412,10 +2416,9 @@ chat.openapi(completions, async (c) => {
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
 						const metricsCombinations = uptimeFallbackCandidates.map((p) => ({
-							modelId: resolveMetricsModelId(modelWithPricing.id, p.modelName),
+							modelId: modelWithPricing.id,
 							providerId: p.providerId,
 							region: p.region,
-							modelName: p.modelName,
 						}));
 						const allMetricsMap =
 							await getProviderMetricsForCombinations(metricsCombinations);
@@ -2435,12 +2438,7 @@ chat.openapi(completions, async (c) => {
 						const betterUptimeProviders = providerAgnosticCandidates.filter(
 							(p) => {
 								const providerMetrics = allMetricsMap.get(
-									metricsKey(
-										resolveMetricsModelId(modelWithPricing.id, p.modelName),
-										p.providerId,
-										p.region,
-										p.modelName,
-									),
+									metricsKey(modelWithPricing.id, p.providerId, p.region),
 								);
 								// If no metrics, assume the provider is healthy (100% uptime)
 								// If has metrics, only include if uptime is better than original
@@ -2631,13 +2629,9 @@ chat.openapi(completions, async (c) => {
 					...routingCandidates,
 					...contentFilterRoutingExcludedProviders,
 				].map((provider) => ({
-					modelId: resolveMetricsModelId(
-						modelWithPricing.id,
-						provider.modelName,
-					),
+					modelId: modelWithPricing.id,
 					providerId: provider.providerId,
 					region: provider.region,
-					modelName: provider.modelName,
 				}));
 				const metricsMap =
 					await getProviderMetricsForCombinations(metricsCombinations);
@@ -2808,10 +2802,9 @@ chat.openapi(completions, async (c) => {
 				...routingMetadataProviders,
 				...contentFilterRoutingExcludedProviders,
 			].map((provider) => ({
-				modelId: resolveMetricsModelId(baseModelId, provider.modelName),
+				modelId: baseModelId,
 				providerId: provider.providerId,
 				region: provider.region,
-				modelName: provider.modelName,
 			}));
 			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
 		}
@@ -2837,12 +2830,7 @@ chat.openapi(completions, async (c) => {
 			weightedScores?.metadata.providerScores ??
 			routingMetadataProviders.map((p) => {
 				const metrics = metricsMap.get(
-					metricsKey(
-						resolveMetricsModelId(baseModelId, p.modelName),
-						p.providerId,
-						p.region,
-						p.modelName,
-					),
+					metricsKey(baseModelId, p.providerId, p.region),
 				);
 				return {
 					providerId: p.providerId,
@@ -3207,6 +3195,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	if (usedProvider === "vertex-anthropic") {
+		const gcpToken = await getGcpAccessToken();
+		if (gcpToken) {
+			usedToken = gcpToken;
+		}
+	}
+
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
 		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
@@ -3332,6 +3327,20 @@ chat.openapi(completions, async (c) => {
 
 	usedApiKeyHash = getApiKeyFingerprint(usedToken);
 	routingMetadata = withUsedApiKeyHash(routingMetadata, usedApiKeyHash);
+
+	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
+	// derived from the configured service account JSON. The SA JSON is the
+	// long-lived credential (kept in usedApiKeyHash above for health tracking)
+	// while the short-lived access token is what travels in the Authorization
+	// header — so swap usedToken here so downstream header builders just work.
+	// Read the env var directly to bypass round-robin comma-splitting (an SA
+	// JSON value contains commas and would otherwise be truncated).
+	if (usedProvider === "vertex-openai") {
+		const fullSaJson = providerKey
+			? usedToken
+			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
+		usedToken = await getVertexOpenAIAccessToken(fullSaJson);
+	}
 
 	const contentFilterBlocked =
 		contentFilterMode === "enabled" &&
@@ -4113,7 +4122,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Anthropic does not allow temperature and top_p to be set simultaneously
-	if (usedProvider === "anthropic") {
+	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -5979,7 +5988,8 @@ chat.openapi(completions, async (c) => {
 				const shouldBufferForHealing =
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
-						(usedProvider === "anthropic" &&
+						((usedProvider === "anthropic" ||
+							usedProvider === "vertex-anthropic") &&
 							response_format?.type === "json_object") ||
 						(usedProvider === "aws-bedrock" &&
 							response_format?.type === "json_object") ||
@@ -6789,7 +6799,11 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// For Anthropic, if we have partial usage data, complete it
-								if (usedProvider === "anthropic" && transformedData.usage) {
+								if (
+									(usedProvider === "anthropic" ||
+										usedProvider === "vertex-anthropic") &&
+									transformedData.usage
+								) {
 									const usage = transformedData.usage;
 									if (
 										usage.output_tokens !== undefined &&
@@ -6859,7 +6873,10 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
 								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
-								if (usedProvider === "anthropic") {
+								if (
+									usedProvider === "anthropic" ||
+									usedProvider === "vertex-anthropic"
+								) {
 									const toolCalls =
 										transformedData.choices?.[0]?.delta?.tool_calls;
 									if (toolCalls && toolCalls.length > 0) {
@@ -6986,7 +7003,8 @@ chat.openapi(completions, async (c) => {
 								// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 								const contentChunk = extractContent(
 									isGoogleCompatibleProvider(usedProvider) ||
-										usedProvider === "anthropic"
+										usedProvider === "anthropic" ||
+										usedProvider === "vertex-anthropic"
 										? data
 										: transformedData,
 									usedProvider,
@@ -7017,7 +7035,10 @@ chat.openapi(completions, async (c) => {
 
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
-								if (usedProvider === "anthropic") {
+								if (
+									usedProvider === "anthropic" ||
+									usedProvider === "vertex-anthropic"
+								) {
 									// For Anthropic, count web_search_tool_result blocks
 									if (
 										data.type === "content_block_start" &&
@@ -7058,7 +7079,8 @@ chat.openapi(completions, async (c) => {
 								// use raw data. For others, use transformed OpenAI format.
 								const reasoningContentChunk = extractReasoning(
 									isGoogleCompatibleProvider(usedProvider) ||
-										usedProvider === "anthropic"
+										usedProvider === "anthropic" ||
+										usedProvider === "vertex-anthropic"
 										? data
 										: transformedData,
 									usedProvider,
@@ -7086,7 +7108,8 @@ chat.openapi(completions, async (c) => {
 
 										// For Anthropic content_block_delta events, match by content block index
 										if (
-											usedProvider === "anthropic" &&
+											(usedProvider === "anthropic" ||
+												usedProvider === "vertex-anthropic") &&
 											newCall._contentBlockIndex !== undefined
 										) {
 											existingCall =
@@ -7131,6 +7154,7 @@ chat.openapi(completions, async (c) => {
 										}
 										break;
 									case "anthropic":
+									case "vertex-anthropic":
 										if (
 											data.type === "message_delta" &&
 											data.delta?.stop_reason
@@ -9683,7 +9707,7 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
-			(usedProvider === "anthropic" &&
+			((usedProvider === "anthropic" || usedProvider === "vertex-anthropic") &&
 				response_format?.type === "json_object") ||
 			(usedProvider === "aws-bedrock" &&
 				response_format?.type === "json_object") ||
