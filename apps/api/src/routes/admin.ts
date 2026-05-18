@@ -70,6 +70,7 @@ const adminMetricsSchema = z.object({
 	unusedCredits: z.number(),
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
+	totalRefunds: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -656,6 +657,25 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalGiftedCredits = Number(giftedRow?.value ?? 0);
 
+	// Total refunds (positive `amount` on credit_refund rows — Stripe-side refunds).
+	const [refundsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_refund"),
+				transactionDateFilter,
+			),
+		);
+
+	const totalRefunds = Number(refundsRow?.value ?? 0);
+
 	const rawBalance = totalToppedUp - totalSpent;
 	const unusedCredits = Math.max(0, rawBalance);
 	const overage = Math.max(0, -rawBalance);
@@ -672,6 +692,7 @@ admin.openapi(getMetrics, async (c) => {
 		unusedCredits,
 		overage,
 		totalGiftedCredits,
+		totalRefunds,
 	});
 });
 

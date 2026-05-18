@@ -1603,6 +1603,73 @@ async function seed() {
 	}
 	await bulkInsert(tables.projectHourlyStats, devpassHourlyStats);
 
+	// Split each hourly bucket across a few models so the Model Usage Overview chart has data.
+	const devpassModels: Array<{ provider: string; model: string }> = [
+		{ provider: "anthropic", model: "claude-3.5-sonnet" },
+		{ provider: "openai", model: "gpt-4o" },
+		{ provider: "anthropic", model: "claude-3-haiku" },
+		{ provider: "openai", model: "gpt-4o-mini" },
+	];
+	const devpassHourlyModelStats: Array<Record<string, any>> = [];
+	for (const bucket of devpassHourlyStats) {
+		const splits = devpassModels.map(() => randomFloat(0.1, 1));
+		const splitTotal = splits.reduce((a, b) => a + b, 0);
+		const weights = splits.map((w) => w / splitTotal);
+		devpassModels.forEach((m, i) => {
+			const w = weights[i];
+			const reqs = Math.max(1, Math.round(bucket.requestCount * w));
+			const inTok = Math.round(Number(bucket.inputTokens) * w);
+			const outTok = Math.round(Number(bucket.outputTokens) * w);
+			const streamed = Math.floor(bucket.streamedCount * w);
+			devpassHourlyModelStats.push({
+				id: `devpass-phms-${bucket.id}-${i}`,
+				projectId: "test-personal-project-id",
+				hourTimestamp: bucket.hourTimestamp,
+				usedModel: m.model,
+				usedProvider: m.provider,
+				requestCount: reqs,
+				errorCount: Math.floor(bucket.errorCount * w),
+				cacheCount: Math.floor(bucket.cacheCount * w),
+				streamedCount: streamed,
+				nonStreamedCount: Math.max(0, reqs - streamed),
+				completedCount: reqs,
+				lengthLimitCount: 0,
+				contentFilterCount: 0,
+				toolCallsCount: 0,
+				canceledCount: 0,
+				unknownFinishCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
+				inputTokens: String(inTok),
+				outputTokens: String(outTok),
+				totalTokens: String(inTok + outTok),
+				reasoningTokens: "0",
+				cachedTokens: String(Math.floor(Number(bucket.cachedTokens) * w)),
+				cacheWriteTokens: "0",
+				cost: Number((bucket.cost * w).toFixed(4)),
+				inputCost: Number((bucket.inputCost * w).toFixed(4)),
+				outputCost: Number((bucket.outputCost * w).toFixed(4)),
+				requestCost: Number((bucket.requestCost * w).toFixed(4)),
+				dataStorageCost: 0,
+				discountSavings: 0,
+				imageInputCost: 0,
+				imageOutputCost: 0,
+				audioInputCost: 0,
+				videoOutputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				creditsRequestCount: reqs,
+				apiKeysRequestCount: 0,
+				creditsCost: Number((bucket.cost * w).toFixed(4)),
+				apiKeysCost: 0,
+				creditsDataStorageCost: 0,
+				apiKeysDataStorageCost: 0,
+			});
+		});
+	}
+	await bulkInsert(tables.projectHourlyModelStats, devpassHourlyModelStats);
+
 	// Sync the personal org's used-credits to roughly match the seeded spend
 	// so the usage bar in the dashboard reflects this activity.
 	const usedCredits = Math.min(

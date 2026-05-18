@@ -1688,6 +1688,7 @@ export interface paths {
                             unusedCredits: number;
                             overage: number;
                             totalGiftedCredits: number;
+                            totalRefunds: number;
                         };
                     };
                 };

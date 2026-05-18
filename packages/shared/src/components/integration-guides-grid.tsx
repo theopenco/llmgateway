@@ -174,33 +174,36 @@ function GuideCard({ guide }: { guide: IntegrationGuide }) {
 				aria-hidden
 				className="absolute inset-0 opacity-0 transition-opacity duration-700 group-hover:opacity-100 bg-[radial-gradient(circle_at_top_right,_hsl(var(--foreground)/0.05),_transparent_60%)] dark:bg-[radial-gradient(circle_at_top_right,_hsl(var(--foreground)/0.06),_transparent_60%)]"
 			/>
-			{guide.comingSoon && (
-				<span className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground backdrop-blur">
-					<Clock className="h-2.5 w-2.5" />
-					Coming soon
-				</span>
-			)}
-			{guide.badge && !guide.comingSoon && (
-				<span className="absolute right-4 top-4 inline-flex items-center rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground backdrop-blur">
-					{guide.badge}
-				</span>
-			)}
 			<div className="relative flex items-start gap-4">
 				<div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-gradient-to-br from-muted/40 to-muted/10 transition-all duration-500 group-hover:border-foreground/20 group-hover:from-muted/60">
 					<Icon className="h-7 w-7" />
 				</div>
-				<div className="min-w-0 flex-1 space-y-1.5 pr-6">
-					<div className="flex items-center justify-between gap-2">
+				<div className="min-w-0 flex-1 space-y-1.5">
+					<div className="flex items-start justify-between gap-3">
 						<h3 className="text-[15px] font-semibold tracking-tight">
 							{guide.name}
 						</h3>
 						{!guide.comingSoon && (
-							<ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition-all duration-500 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground" />
+							<ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40 transition-all duration-500 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground" />
 						)}
 					</div>
 					<p className="text-[13.5px] leading-relaxed text-muted-foreground">
 						{guide.description}
 					</p>
+					{(guide.comingSoon || guide.badge) && (
+						<div className="pt-1">
+							{guide.comingSoon ? (
+								<span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+									<Clock className="h-2.5 w-2.5" />
+									Coming soon
+								</span>
+							) : (
+								<span className="inline-flex items-center rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+									{guide.badge}
+								</span>
+							)}
+						</div>
+					)}
 				</div>
 			</div>
 		</>
@@ -235,15 +238,15 @@ export function IntegrationGuidesGrid({
 	return (
 		<div>
 			{header}
-			<div className="relative mb-8">
-				<Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+			<div className="mb-8 flex h-12 w-full items-center gap-3 rounded-xl border border-border/60 bg-card/40 px-4 backdrop-blur-sm">
+				<Search className="h-4 w-4 shrink-0 text-muted-foreground/60" />
 				<input
 					type="search"
 					value={query}
 					onChange={(e) => setQuery(e.target.value)}
 					placeholder="Search guides…"
 					aria-label="Search guides"
-					className="h-12 w-full rounded-xl border border-border/60 bg-card/40 pl-11 pr-4 text-[15px] backdrop-blur-sm placeholder:text-muted-foreground/60 transition-all focus:border-foreground/30 focus:bg-card focus:outline-none"
+					className="h-full min-w-0 flex-1 bg-transparent text-[15px] outline-none ring-0 placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
 				/>
 			</div>
 
