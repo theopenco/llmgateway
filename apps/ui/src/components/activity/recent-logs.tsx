@@ -343,10 +343,13 @@ export function RecentLogs({
 		data?.pages.flatMap((page) => page?.logs ?? []) ?? []
 	).filter((log) => !log.retriedByLogId);
 
+	const successfulLogs = allLogs.filter(
+		(log) => !log.hasError && !log.canceled,
+	);
 	const showTopUpPrompt =
-		allLogs.length > 0 &&
 		allLogs.length <= 5 &&
-		allLogs.every((log) => !log.cost || log.cost === 0);
+		successfulLogs.length > 0 &&
+		successfulLogs.every((log) => log.cost === 0);
 
 	const selectedModelOption = useMemo(
 		() => modelOptions.find((option) => option.id === model),
