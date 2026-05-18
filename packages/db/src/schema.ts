@@ -2274,3 +2274,23 @@ export const globalAggregationState = pgTable("global_aggregation_state", {
 		.defaultNow()
 		.$onUpdate(() => new Date()),
 });
+
+export const skill = pgTable(
+	"skill",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text().notNull(),
+		instructions: text().notNull(),
+		enabled: boolean().notNull().default(true),
+	},
+	(table) => [index("skill_user_id_idx").on(table.userId)],
+);
