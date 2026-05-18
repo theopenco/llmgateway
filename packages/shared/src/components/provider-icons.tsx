@@ -1104,6 +1104,7 @@ export const providerLogoUrls: Partial<
 	minimax: ProviderIcons.minimax,
 	xiaomi: ProviderIcons.xiaomi,
 	embercloud: ProviderIcons.embercloud,
+	deepinfra: ProviderIcons.deepinfra,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
