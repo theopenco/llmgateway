@@ -343,6 +343,11 @@ export function RecentLogs({
 		data?.pages.flatMap((page) => page?.logs ?? []) ?? []
 	).filter((log) => !log.retriedByLogId);
 
+	const showTopUpPrompt =
+		allLogs.length > 0 &&
+		allLogs.length <= 5 &&
+		allLogs.every((log) => !log.cost || log.cost === 0);
+
 	const selectedModelOption = useMemo(
 		() => modelOptions.find((option) => option.id === model),
 		[model, modelOptions],
@@ -589,7 +594,7 @@ export function RecentLogs({
 								orgId={orgId ?? undefined}
 								projectId={projectId || undefined}
 							/>
-							{index === 0 && allLogs.length <= 5 && <FirstLogTopUpPrompt />}
+							{index === 0 && showTopUpPrompt && <FirstLogTopUpPrompt />}
 						</div>
 					))}
 
