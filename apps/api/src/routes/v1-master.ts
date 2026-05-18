@@ -588,19 +588,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 		: {};
 	const limitChanged = Object.keys(limitChanges).length > 0;
 
-	if (statusChanged && !descriptionChanged && !limitChanged) {
-		await logAuditEvent({
-			organizationId: existing.project.organizationId,
-			userId: masterKey.createdBy,
-			action: "api_key.update_status",
-			resourceType: "api_key",
-			resourceId: id,
-			metadata: {
-				resourceName: existing.description,
-				changes: { status: { old: existing.status, new: updates.status } },
-			},
-		});
-	} else if (limitChanged || descriptionChanged || statusChanged) {
+	if (limitChanged || descriptionChanged || statusChanged) {
 		const changes: Record<string, { old: unknown; new: unknown }> = {
 			...limitChanges,
 		};
@@ -613,10 +601,17 @@ v1Master.openapi(updateApiKey, async (c) => {
 		if (statusChanged) {
 			changes.status = { old: existing.status, new: updates.status };
 		}
+
+		const action = limitChanged
+			? "api_key.update_limit"
+			: descriptionChanged
+				? "api_key.update_description"
+				: "api_key.update_status";
+
 		await logAuditEvent({
 			organizationId: existing.project.organizationId,
 			userId: masterKey.createdBy,
-			action: "api_key.update_limit",
+			action,
 			resourceType: "api_key",
 			resourceId: id,
 			metadata: { resourceName: existing.description, changes },

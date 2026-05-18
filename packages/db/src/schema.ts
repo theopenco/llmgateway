@@ -1474,6 +1474,7 @@ export const auditLogActions = [
 	"api_key.create",
 	"api_key.update_status",
 	"api_key.update_limit",
+	"api_key.update_description",
 	"api_key.delete",
 	"api_key.iam_rule.create",
 	"api_key.iam_rule.update",
