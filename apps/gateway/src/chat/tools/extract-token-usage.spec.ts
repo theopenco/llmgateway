@@ -326,6 +326,112 @@ describe("extractTokenUsage", () => {
 		});
 	});
 
+	describe("alibaba", () => {
+		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 1500,
+					completion_tokens: 200,
+					total_tokens: 1700,
+					prompt_tokens_details: {
+						cache_creation_input_tokens: 1000,
+						cached_tokens: 0,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.promptTokens).toBe(1500);
+			expect(result.completionTokens).toBe(200);
+			expect(result.totalTokens).toBe(1700);
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(1000);
+			// Alibaba's explicit cache is fixed at 5 minutes — no 1h variant exists.
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("extracts cached_tokens from prompt_tokens_details alongside cache creation", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 2000,
+					completion_tokens: 100,
+					total_tokens: 2100,
+					prompt_tokens_details: {
+						cache_creation_input_tokens: 500,
+						cached_tokens: 800,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(500);
+			expect(result.cacheCreation5mTokens).toBe(500);
+		});
+
+		it("leaves cache creation fields null when cache_creation_input_tokens is 0", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+					prompt_tokens_details: {
+						cache_creation_input_tokens: 0,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("leaves cache creation fields null when prompt_tokens_details is absent", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+		});
+
+		it("ignores a stray top-level cache_creation_input_tokens (wrong shape)", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+					cache_creation_input_tokens: 999,
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+		});
+
+		it("returns null for all fields when usage is missing", () => {
+			const data = {};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.promptTokens).toBeNull();
+			expect(result.completionTokens).toBeNull();
+			expect(result.cacheCreationTokens).toBeNull();
+		});
+	});
+
 	describe("openai (default)", () => {
 		it("returns cachedTokens from prompt_tokens_details.cached_tokens", () => {
 			const data = {

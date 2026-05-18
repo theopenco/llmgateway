@@ -77,6 +77,14 @@ export function getFinishReasonFromError(
 		return "gateway_error";
 	}
 
+	// Upstream reports the model id as unknown (e.g. Mistral / Together / Fireworks
+	// returning `Unknown model: <name>` on a 400). This is a gateway-side mapping
+	// gap rather than a client problem, so classify as gateway_error so the
+	// request can be retried with another provider.
+	if (errorText && /unknown model/i.test(errorText)) {
+		return "gateway_error";
+	}
+
 	// zai content filter
 	if (
 		errorText?.includes(

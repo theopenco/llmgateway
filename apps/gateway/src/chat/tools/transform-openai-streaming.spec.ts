@@ -261,4 +261,57 @@ describe("transformOpenaiStreaming", () => {
 		);
 		expect(result.choices[0].delta).not.toHaveProperty("reasoning_details");
 	});
+
+	test("renames Alibaba nested cache_creation_input_tokens to cache_write_tokens / cache_creation_tokens", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "qwen-plus",
+			choices: [{ index: 0, delta: {} }],
+			usage: {
+				prompt_tokens: 1500,
+				completion_tokens: 200,
+				total_tokens: 1700,
+				prompt_tokens_details: {
+					cache_creation_input_tokens: 1000,
+					cached_tokens: 0,
+				},
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "qwen-plus");
+
+		expect(result.usage.prompt_tokens_details).toMatchObject({
+			cache_creation_input_tokens: 1000,
+			cached_tokens: 0,
+			cache_write_tokens: 1000,
+			cache_creation_tokens: 1000,
+		});
+	});
+
+	test("does not synthesize cache_write fields when nested cache_creation_input_tokens is absent", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "qwen-plus",
+			choices: [{ index: 0, delta: {} }],
+			usage: {
+				prompt_tokens: 100,
+				completion_tokens: 50,
+				total_tokens: 150,
+				prompt_tokens_details: { cached_tokens: 50 },
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "qwen-plus");
+
+		expect(result.usage.prompt_tokens_details).not.toHaveProperty(
+			"cache_write_tokens",
+		);
+		expect(result.usage.prompt_tokens_details).not.toHaveProperty(
+			"cache_creation_tokens",
+		);
+	});
 });

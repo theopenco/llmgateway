@@ -80,6 +80,8 @@ export const alibabaModels = [
 				inputPrice: "0.4e-6",
 				outputPrice: "1.2e-6",
 				cachedInputPrice: "0.08e-6",
+				cacheReadInputPrice: "0.04e-6",
+				cacheWriteInputPrice: "0.5e-6",
 				pricingTiers: [
 					{
 						name: "Up to 256K",
@@ -87,6 +89,8 @@ export const alibabaModels = [
 						inputPrice: "0.4e-6",
 						outputPrice: "1.2e-6",
 						cachedInputPrice: "0.08e-6",
+						cacheReadInputPrice: "0.04e-6",
+						cacheWriteInputPrice: "0.5e-6",
 					},
 					{
 						name: "Over 256K",
@@ -94,6 +98,8 @@ export const alibabaModels = [
 						inputPrice: "1.2e-6",
 						outputPrice: "3.6e-6",
 						cachedInputPrice: "0.24e-6",
+						cacheReadInputPrice: "0.12e-6",
+						cacheWriteInputPrice: "1.5e-6",
 					},
 				],
 				regions: [
@@ -103,6 +109,8 @@ export const alibabaModels = [
 						inputPrice: "0.115e-6",
 						outputPrice: "0.287e-6",
 						cachedInputPrice: "0.023e-6",
+						cacheReadInputPrice: "0.0115e-6",
+						cacheWriteInputPrice: "0.14375e-6",
 						pricingTiers: [
 							{
 								name: "Up to 256K",
@@ -110,6 +118,8 @@ export const alibabaModels = [
 								inputPrice: "0.115e-6",
 								outputPrice: "0.287e-6",
 								cachedInputPrice: "0.023e-6",
+								cacheReadInputPrice: "0.0115e-6",
+								cacheWriteInputPrice: "0.14375e-6",
 							},
 							{
 								name: "Over 256K",
@@ -117,6 +127,8 @@ export const alibabaModels = [
 								inputPrice: "0.345e-6",
 								outputPrice: "0.861e-6",
 								cachedInputPrice: "0.069e-6",
+								cacheReadInputPrice: "0.0345e-6",
+								cacheWriteInputPrice: "0.43125e-6",
 							},
 						],
 					},
@@ -125,6 +137,8 @@ export const alibabaModels = [
 						inputPrice: "0.115e-6",
 						outputPrice: "0.287e-6",
 						cachedInputPrice: "0.023e-6",
+						cacheReadInputPrice: "0.0115e-6",
+						cacheWriteInputPrice: "0.14375e-6",
 						pricingTiers: [
 							{
 								name: "Up to 128K",
@@ -132,6 +146,8 @@ export const alibabaModels = [
 								inputPrice: "0.115e-6",
 								outputPrice: "0.287e-6",
 								cachedInputPrice: "0.023e-6",
+								cacheReadInputPrice: "0.0115e-6",
+								cacheWriteInputPrice: "0.14375e-6",
 							},
 							{
 								name: "128K-256K",
@@ -139,6 +155,8 @@ export const alibabaModels = [
 								inputPrice: "0.345e-6",
 								outputPrice: "2.868e-6",
 								cachedInputPrice: "0.069e-6",
+								cacheReadInputPrice: "0.0345e-6",
+								cacheWriteInputPrice: "0.43125e-6",
 							},
 							{
 								name: "256K-1M",
@@ -146,6 +164,8 @@ export const alibabaModels = [
 								inputPrice: "0.689e-6",
 								outputPrice: "6.881e-6",
 								cachedInputPrice: "0.138e-6",
+								cacheReadInputPrice: "0.0689e-6",
+								cacheWriteInputPrice: "0.86125e-6",
 							},
 						],
 					},
@@ -174,6 +194,8 @@ export const alibabaModels = [
 				inputPrice: "0.4e-6",
 				outputPrice: "1.2e-6",
 				cachedInputPrice: "0.08e-6",
+				cacheReadInputPrice: "0.04e-6",
+				cacheWriteInputPrice: "0.5e-6",
 				pricingTiers: [
 					{
 						name: "Up to 256K",
@@ -181,6 +203,8 @@ export const alibabaModels = [
 						inputPrice: "0.4e-6",
 						outputPrice: "1.2e-6",
 						cachedInputPrice: "0.08e-6",
+						cacheReadInputPrice: "0.04e-6",
+						cacheWriteInputPrice: "0.5e-6",
 					},
 					{
 						name: "Over 256K",
@@ -188,6 +212,8 @@ export const alibabaModels = [
 						inputPrice: "1.2e-6",
 						outputPrice: "3.6e-6",
 						cachedInputPrice: "0.24e-6",
+						cacheReadInputPrice: "0.12e-6",
+						cacheWriteInputPrice: "1.5e-6",
 					},
 				],
 				regions: [
@@ -197,6 +223,8 @@ export const alibabaModels = [
 						inputPrice: "0.115e-6",
 						outputPrice: "0.287e-6",
 						cachedInputPrice: "0.023e-6",
+						cacheReadInputPrice: "0.0115e-6",
+						cacheWriteInputPrice: "0.14375e-6",
 						pricingTiers: [
 							{
 								name: "Up to 128K",
@@ -204,6 +232,8 @@ export const alibabaModels = [
 								inputPrice: "0.115e-6",
 								outputPrice: "0.287e-6",
 								cachedInputPrice: "0.023e-6",
+								cacheReadInputPrice: "0.0115e-6",
+								cacheWriteInputPrice: "0.14375e-6",
 							},
 							{
 								name: "128K-256K",
@@ -211,6 +241,8 @@ export const alibabaModels = [
 								inputPrice: "0.345e-6",
 								outputPrice: "2.868e-6",
 								cachedInputPrice: "0.069e-6",
+								cacheReadInputPrice: "0.0345e-6",
+								cacheWriteInputPrice: "0.43125e-6",
 							},
 							{
 								name: "256K-1M",
@@ -218,6 +250,8 @@ export const alibabaModels = [
 								inputPrice: "0.689e-6",
 								outputPrice: "6.881e-6",
 								cachedInputPrice: "0.138e-6",
+								cacheReadInputPrice: "0.0689e-6",
+								cacheWriteInputPrice: "0.86125e-6",
 							},
 						],
 					},
@@ -246,6 +280,8 @@ export const alibabaModels = [
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
+				cacheReadInputPrice: "0.005e-6",
+				cacheWriteInputPrice: "0.0625e-6",
 				regions: [
 					{
 						id: "singapore",
@@ -256,6 +292,8 @@ export const alibabaModels = [
 								inputPrice: "0.05e-6",
 								outputPrice: "0.4e-6",
 								cachedInputPrice: "0.01e-6",
+								cacheReadInputPrice: "0.005e-6",
+								cacheWriteInputPrice: "0.0625e-6",
 							},
 							{
 								name: "Over 256K",
@@ -263,6 +301,8 @@ export const alibabaModels = [
 								inputPrice: "0.25e-6",
 								outputPrice: "2.0e-6",
 								cachedInputPrice: "0.05e-6",
+								cacheReadInputPrice: "0.025e-6",
+								cacheWriteInputPrice: "0.3125e-6",
 							},
 						],
 					},
@@ -271,6 +311,8 @@ export const alibabaModels = [
 						inputPrice: "0.022e-6",
 						outputPrice: "0.216e-6",
 						cachedInputPrice: "0.0044e-6",
+						cacheReadInputPrice: "0.0022e-6",
+						cacheWriteInputPrice: "0.0275e-6",
 						pricingTiers: [
 							{
 								name: "Up to 128K",
@@ -278,6 +320,8 @@ export const alibabaModels = [
 								inputPrice: "0.022e-6",
 								outputPrice: "0.216e-6",
 								cachedInputPrice: "0.0044e-6",
+								cacheReadInputPrice: "0.0022e-6",
+								cacheWriteInputPrice: "0.0275e-6",
 							},
 							{
 								name: "128K-256K",
@@ -285,6 +329,8 @@ export const alibabaModels = [
 								inputPrice: "0.087e-6",
 								outputPrice: "0.861e-6",
 								cachedInputPrice: "0.017e-6",
+								cacheReadInputPrice: "0.0087e-6",
+								cacheWriteInputPrice: "0.10875e-6",
 							},
 							{
 								name: "256K-1M",
@@ -292,6 +338,8 @@ export const alibabaModels = [
 								inputPrice: "0.173e-6",
 								outputPrice: "1.721e-6",
 								cachedInputPrice: "0.035e-6",
+								cacheReadInputPrice: "0.0173e-6",
+								cacheWriteInputPrice: "0.21625e-6",
 							},
 						],
 					},
@@ -374,6 +422,9 @@ export const alibabaModels = [
 				discount: "0.2",
 				inputPrice: "6e-6",
 				outputPrice: "60e-6",
+				cachedInputPrice: "1.2e-6",
+				cacheReadInputPrice: "0.6e-6",
+				cacheWriteInputPrice: "7.5e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 66000,
@@ -1123,6 +1174,8 @@ export const alibabaModels = [
 				inputPrice: "3e-6",
 				outputPrice: "15e-6",
 				cachedInputPrice: "0.6e-6",
+				cacheReadInputPrice: "0.3e-6",
+				cacheWriteInputPrice: "3.75e-6",
 				requestPrice: "0",
 				contextSize: 256000,
 				maxOutput: 32800,
@@ -1607,6 +1660,8 @@ export const alibabaModels = [
 				inputPrice: "0.3e-6",
 				outputPrice: "1.5e-6",
 				cachedInputPrice: "0.06e-6",
+				cacheReadInputPrice: "0.03e-6",
+				cacheWriteInputPrice: "0.375e-6",
 				regions: [
 					{
 						id: "singapore",
@@ -1617,6 +1672,8 @@ export const alibabaModels = [
 								inputPrice: "0.3e-6",
 								outputPrice: "1.5e-6",
 								cachedInputPrice: "0.06e-6",
+								cacheReadInputPrice: "0.03e-6",
+								cacheWriteInputPrice: "0.375e-6",
 							},
 							{
 								name: "32K-128K",
@@ -1624,6 +1681,8 @@ export const alibabaModels = [
 								inputPrice: "0.5e-6",
 								outputPrice: "2.5e-6",
 								cachedInputPrice: "0.1e-6",
+								cacheReadInputPrice: "0.05e-6",
+								cacheWriteInputPrice: "0.625e-6",
 							},
 							{
 								name: "128K-256K",
@@ -1631,6 +1690,8 @@ export const alibabaModels = [
 								inputPrice: "0.8e-6",
 								outputPrice: "4.0e-6",
 								cachedInputPrice: "0.16e-6",
+								cacheReadInputPrice: "0.08e-6",
+								cacheWriteInputPrice: "1.0e-6",
 							},
 							{
 								name: "Over 256K",
@@ -1638,6 +1699,8 @@ export const alibabaModels = [
 								inputPrice: "1.6e-6",
 								outputPrice: "9.6e-6",
 								cachedInputPrice: "0.32e-6",
+								cacheReadInputPrice: "0.16e-6",
+								cacheWriteInputPrice: "2.0e-6",
 							},
 						],
 					},
@@ -1646,6 +1709,8 @@ export const alibabaModels = [
 						inputPrice: "0.144e-6",
 						outputPrice: "0.574e-6",
 						cachedInputPrice: "0.029e-6",
+						cacheReadInputPrice: "0.0144e-6",
+						cacheWriteInputPrice: "0.18e-6",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -1653,6 +1718,8 @@ export const alibabaModels = [
 								inputPrice: "0.144e-6",
 								outputPrice: "0.574e-6",
 								cachedInputPrice: "0.029e-6",
+								cacheReadInputPrice: "0.0144e-6",
+								cacheWriteInputPrice: "0.18e-6",
 							},
 							{
 								name: "32K-128K",
@@ -1660,6 +1727,8 @@ export const alibabaModels = [
 								inputPrice: "0.24e-6",
 								outputPrice: "0.957e-6",
 								cachedInputPrice: "0.048e-6",
+								cacheReadInputPrice: "0.024e-6",
+								cacheWriteInputPrice: "0.3e-6",
 							},
 							{
 								name: "128K-256K",
@@ -1667,6 +1736,8 @@ export const alibabaModels = [
 								inputPrice: "0.384e-6",
 								outputPrice: "1.53e-6",
 								cachedInputPrice: "0.077e-6",
+								cacheReadInputPrice: "0.0384e-6",
+								cacheWriteInputPrice: "0.48e-6",
 							},
 							{
 								name: "Over 256K",
@@ -1674,6 +1745,8 @@ export const alibabaModels = [
 								inputPrice: "0.768e-6",
 								outputPrice: "3.67e-6",
 								cachedInputPrice: "0.154e-6",
+								cacheReadInputPrice: "0.0768e-6",
+								cacheWriteInputPrice: "0.96e-6",
 							},
 						],
 					},
@@ -1682,6 +1755,8 @@ export const alibabaModels = [
 						inputPrice: "0.144e-6",
 						outputPrice: "0.574e-6",
 						cachedInputPrice: "0.029e-6",
+						cacheReadInputPrice: "0.0144e-6",
+						cacheWriteInputPrice: "0.18e-6",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -1689,6 +1764,8 @@ export const alibabaModels = [
 								inputPrice: "0.144e-6",
 								outputPrice: "0.574e-6",
 								cachedInputPrice: "0.029e-6",
+								cacheReadInputPrice: "0.0144e-6",
+								cacheWriteInputPrice: "0.18e-6",
 							},
 							{
 								name: "32K-128K",
@@ -1696,6 +1773,8 @@ export const alibabaModels = [
 								inputPrice: "0.216e-6",
 								outputPrice: "0.861e-6",
 								cachedInputPrice: "0.043e-6",
+								cacheReadInputPrice: "0.0216e-6",
+								cacheWriteInputPrice: "0.27e-6",
 							},
 							{
 								name: "128K-256K",
@@ -1703,6 +1782,8 @@ export const alibabaModels = [
 								inputPrice: "0.359e-6",
 								outputPrice: "1.434e-6",
 								cachedInputPrice: "0.072e-6",
+								cacheReadInputPrice: "0.0359e-6",
+								cacheWriteInputPrice: "0.44875e-6",
 							},
 							{
 								name: "256K-1M",
@@ -1710,6 +1791,8 @@ export const alibabaModels = [
 								inputPrice: "0.717e-6",
 								outputPrice: "3.584e-6",
 								cachedInputPrice: "0.143e-6",
+								cacheReadInputPrice: "0.0717e-6",
+								cacheWriteInputPrice: "0.89625e-6",
 							},
 						],
 					},
@@ -1738,6 +1821,8 @@ export const alibabaModels = [
 				inputPrice: "0.2e-6",
 				outputPrice: "1.6e-6",
 				cachedInputPrice: "0.04e-6",
+				cacheReadInputPrice: "0.02e-6",
+				cacheWriteInputPrice: "0.25e-6",
 				regions: [
 					{
 						id: "singapore",
@@ -1748,6 +1833,8 @@ export const alibabaModels = [
 								inputPrice: "0.2e-6",
 								outputPrice: "1.6e-6",
 								cachedInputPrice: "0.04e-6",
+								cacheReadInputPrice: "0.02e-6",
+								cacheWriteInputPrice: "0.25e-6",
 							},
 							{
 								name: "32K-128K",
@@ -1755,6 +1842,8 @@ export const alibabaModels = [
 								inputPrice: "0.3e-6",
 								outputPrice: "2.4e-6",
 								cachedInputPrice: "0.06e-6",
+								cacheReadInputPrice: "0.03e-6",
+								cacheWriteInputPrice: "0.375e-6",
 							},
 							{
 								name: "128K-256K",
@@ -1762,6 +1851,8 @@ export const alibabaModels = [
 								inputPrice: "0.6e-6",
 								outputPrice: "4.8e-6",
 								cachedInputPrice: "0.12e-6",
+								cacheReadInputPrice: "0.06e-6",
+								cacheWriteInputPrice: "0.75e-6",
 							},
 						],
 					},
@@ -1770,6 +1861,8 @@ export const alibabaModels = [
 						inputPrice: "0.143e-6",
 						outputPrice: "1.434e-6",
 						cachedInputPrice: "0.029e-6",
+						cacheReadInputPrice: "0.0143e-6",
+						cacheWriteInputPrice: "0.17875e-6",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -1777,6 +1870,8 @@ export const alibabaModels = [
 								inputPrice: "0.143e-6",
 								outputPrice: "1.434e-6",
 								cachedInputPrice: "0.029e-6",
+								cacheReadInputPrice: "0.0143e-6",
+								cacheWriteInputPrice: "0.17875e-6",
 							},
 							{
 								name: "32K-128K",
@@ -1784,6 +1879,8 @@ export const alibabaModels = [
 								inputPrice: "0.215e-6",
 								outputPrice: "2.151e-6",
 								cachedInputPrice: "0.043e-6",
+								cacheReadInputPrice: "0.0215e-6",
+								cacheWriteInputPrice: "0.26875e-6",
 							},
 							{
 								name: "Over 128K",
@@ -1791,6 +1888,8 @@ export const alibabaModels = [
 								inputPrice: "0.429e-6",
 								outputPrice: "4.302e-6",
 								cachedInputPrice: "0.086e-6",
+								cacheReadInputPrice: "0.0429e-6",
+								cacheWriteInputPrice: "0.53625e-6",
 							},
 						],
 					},
@@ -1799,6 +1898,8 @@ export const alibabaModels = [
 						inputPrice: "0.143e-6",
 						outputPrice: "1.434e-6",
 						cachedInputPrice: "0.029e-6",
+						cacheReadInputPrice: "0.0143e-6",
+						cacheWriteInputPrice: "0.17875e-6",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -1806,6 +1907,8 @@ export const alibabaModels = [
 								inputPrice: "0.143e-6",
 								outputPrice: "1.434e-6",
 								cachedInputPrice: "0.029e-6",
+								cacheReadInputPrice: "0.0143e-6",
+								cacheWriteInputPrice: "0.17875e-6",
 							},
 							{
 								name: "32K-128K",
@@ -1813,6 +1916,8 @@ export const alibabaModels = [
 								inputPrice: "0.215e-6",
 								outputPrice: "2.15e-6",
 								cachedInputPrice: "0.043e-6",
+								cacheReadInputPrice: "0.0215e-6",
+								cacheWriteInputPrice: "0.26875e-6",
 							},
 							{
 								name: "128K-256K",
@@ -1820,6 +1925,8 @@ export const alibabaModels = [
 								inputPrice: "0.43e-6",
 								outputPrice: "4.301e-6",
 								cachedInputPrice: "0.086e-6",
+								cacheReadInputPrice: "0.043e-6",
+								cacheWriteInputPrice: "0.5375e-6",
 							},
 						],
 					},
@@ -2060,6 +2167,8 @@ export const alibabaModels = [
 				inputPrice: "1.2e-6",
 				outputPrice: "6.0e-6",
 				cachedInputPrice: "0.24e-6",
+				cacheReadInputPrice: "0.12e-6",
+				cacheWriteInputPrice: "1.5e-6",
 				regions: [
 					{
 						id: "singapore",
@@ -2070,6 +2179,8 @@ export const alibabaModels = [
 								inputPrice: "1.2e-6",
 								outputPrice: "6.0e-6",
 								cachedInputPrice: "0.24e-6",
+								cacheReadInputPrice: "0.12e-6",
+								cacheWriteInputPrice: "1.5e-6",
 							},
 							{
 								name: "32K-128K",
@@ -2077,6 +2188,8 @@ export const alibabaModels = [
 								inputPrice: "2.4e-6",
 								outputPrice: "12.0e-6",
 								cachedInputPrice: "0.48e-6",
+								cacheReadInputPrice: "0.24e-6",
+								cacheWriteInputPrice: "3.0e-6",
 							},
 							{
 								name: "128K-252K",
@@ -2084,6 +2197,8 @@ export const alibabaModels = [
 								inputPrice: "3.0e-6",
 								outputPrice: "15.0e-6",
 								cachedInputPrice: "0.6e-6",
+								cacheReadInputPrice: "0.3e-6",
+								cacheWriteInputPrice: "3.75e-6",
 							},
 						],
 					},
@@ -2092,6 +2207,8 @@ export const alibabaModels = [
 						inputPrice: "0.359e-6",
 						outputPrice: "1.434e-6",
 						cachedInputPrice: "0.072e-6",
+						cacheReadInputPrice: "0.0359e-6",
+						cacheWriteInputPrice: "0.44875e-6",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -2099,6 +2216,8 @@ export const alibabaModels = [
 								inputPrice: "0.359e-6",
 								outputPrice: "1.434e-6",
 								cachedInputPrice: "0.072e-6",
+								cacheReadInputPrice: "0.0359e-6",
+								cacheWriteInputPrice: "0.44875e-6",
 							},
 							{
 								name: "32K-128K",
@@ -2106,6 +2225,8 @@ export const alibabaModels = [
 								inputPrice: "0.718e-6",
 								outputPrice: "2.868e-6",
 								cachedInputPrice: "0.144e-6",
+								cacheReadInputPrice: "0.0718e-6",
+								cacheWriteInputPrice: "0.8975e-6",
 							},
 							{
 								name: "Over 128K",
@@ -2113,6 +2234,8 @@ export const alibabaModels = [
 								inputPrice: "0.898e-6",
 								outputPrice: "3.585e-6",
 								cachedInputPrice: "0.18e-6",
+								cacheReadInputPrice: "0.0898e-6",
+								cacheWriteInputPrice: "1.1225e-6",
 							},
 						],
 					},
@@ -2121,6 +2244,8 @@ export const alibabaModels = [
 						inputPrice: "0.359e-6",
 						outputPrice: "1.434e-6",
 						cachedInputPrice: "0.072e-6",
+						cacheReadInputPrice: "0.0359e-6",
+						cacheWriteInputPrice: "0.44875e-6",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -2128,6 +2253,8 @@ export const alibabaModels = [
 								inputPrice: "0.359e-6",
 								outputPrice: "1.434e-6",
 								cachedInputPrice: "0.072e-6",
+								cacheReadInputPrice: "0.0359e-6",
+								cacheWriteInputPrice: "0.44875e-6",
 							},
 							{
 								name: "32K-128K",
@@ -2135,6 +2262,8 @@ export const alibabaModels = [
 								inputPrice: "0.574e-6",
 								outputPrice: "2.294e-6",
 								cachedInputPrice: "0.115e-6",
+								cacheReadInputPrice: "0.0574e-6",
+								cacheWriteInputPrice: "0.7175e-6",
 							},
 							{
 								name: "128K-252K",
@@ -2142,6 +2271,8 @@ export const alibabaModels = [
 								inputPrice: "1.004e-6",
 								outputPrice: "4.014e-6",
 								cachedInputPrice: "0.201e-6",
+								cacheReadInputPrice: "0.1004e-6",
+								cacheWriteInputPrice: "1.255e-6",
 							},
 						],
 					},

@@ -201,6 +201,26 @@ export function extractTokenUsage(
 				}
 			}
 			break;
+		case "alibaba":
+			// Alibaba Qwen uses Anthropic-style `cache_control: {type: "ephemeral"}`
+			// on the request, but reports usage in OpenAI shape with
+			// `cache_creation_input_tokens` nested under `prompt_tokens_details`.
+			// `prompt_tokens` already includes cache write/read tokens, so we do
+			// not re-add them. Only a 5m TTL exists; write tokens bill at 1.25x.
+			if (data.usage) {
+				promptTokens = data.usage.prompt_tokens ?? null;
+				completionTokens = data.usage.completion_tokens ?? null;
+				totalTokens = data.usage.total_tokens ?? null;
+				reasoningTokens = data.usage.reasoning_tokens ?? null;
+				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
+				const cacheCreation =
+					data.usage.prompt_tokens_details?.cache_creation_input_tokens ?? 0;
+				if (cacheCreation > 0) {
+					cacheCreationTokens = cacheCreation;
+					cacheCreation5mTokens = cacheCreation;
+				}
+			}
+			break;
 		default: // OpenAI format
 			if (data.response?.usage) {
 				// OpenAI Responses API format (response.completed events)

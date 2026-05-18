@@ -1043,4 +1043,83 @@ describe("calculateCosts", () => {
 		// Total includes the content filter fee in addition to input cost.
 		expect(result.totalCost).toBeCloseTo((result.inputCost ?? 0) + 0.05);
 	});
+
+	describe("Alibaba explicit-vs-implicit cache pricing", () => {
+		// qwen-plus has inputPrice 0.4e-6, cachedInputPrice 0.08e-6 (20%, implicit),
+		// cacheReadInputPrice 0.04e-6 (10%, explicit). The same cachedTokens count
+		// must bill at different rates depending on whether the request used
+		// `cache_control`.
+		const cachedTokens = 1000;
+
+		it("bills cachedTokens at the implicit rate (20%) when no cache_control was sent", async () => {
+			const result = await calculateCosts(
+				"qwen-plus",
+				"alibaba",
+				cachedTokens,
+				0,
+				cachedTokens,
+			);
+
+			expect(result.cachedInputCost).toBeCloseTo(cachedTokens * 0.08e-6);
+		});
+
+		it("bills cachedTokens at the explicit rate (10%) when cache_control was sent", async () => {
+			const result = await calculateCosts(
+				"qwen-plus",
+				"alibaba",
+				cachedTokens,
+				0,
+				cachedTokens,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ explicitCacheUsed: true },
+			);
+
+			expect(result.cachedInputCost).toBeCloseTo(cachedTokens * 0.04e-6);
+		});
+
+		it("falls back to cachedInputPrice when explicitCacheUsed=true but the model has no cacheReadInputPrice (e.g., openai)", async () => {
+			// gpt-4 has cachedInputPrice but no cacheReadInputPrice, so the
+			// explicit flag is a no-op and we keep the existing OpenAI rate.
+			const promptTokens = 100;
+			const cached = 50;
+			const explicit = await calculateCosts(
+				"gpt-4",
+				"openai",
+				promptTokens,
+				0,
+				cached,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ explicitCacheUsed: true },
+			);
+			const implicit = await calculateCosts(
+				"gpt-4",
+				"openai",
+				promptTokens,
+				0,
+				cached,
+			);
+
+			expect(explicit.cachedInputCost).toBeCloseTo(
+				implicit.cachedInputCost ?? 0,
+			);
+		});
+	});
 });

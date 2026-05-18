@@ -543,6 +543,36 @@ export const apiKeyIamRule = pgTable(
 	],
 );
 
+export const masterKey = pgTable(
+	"master_key",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		tokenHash: text().notNull().unique(),
+		maskedToken: text().notNull(),
+		description: text().notNull(),
+		status: text({
+			enum: ["active", "inactive", "deleted"],
+		}).default("active"),
+		lastUsedAt: timestamp(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		createdBy: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		index("master_key_organization_id_idx").on(table.organizationId),
+		index("master_key_token_hash_idx").on(table.tokenHash),
+		index("master_key_created_by_idx").on(table.createdBy),
+	],
+);
+
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
 	azure_resource?: string;
@@ -1444,10 +1474,15 @@ export const auditLogActions = [
 	"api_key.create",
 	"api_key.update_status",
 	"api_key.update_limit",
+	"api_key.update_description",
 	"api_key.delete",
 	"api_key.iam_rule.create",
 	"api_key.iam_rule.update",
 	"api_key.iam_rule.delete",
+	// Master Key
+	"master_key.create",
+	"master_key.update_status",
+	"master_key.delete",
 	// Provider Key
 	"provider_key.create",
 	"provider_key.update",
@@ -1479,6 +1514,7 @@ export const auditLogResourceTypes = [
 	"project",
 	"team_member",
 	"api_key",
+	"master_key",
 	"iam_rule",
 	"provider_key",
 	"subscription",

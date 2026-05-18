@@ -972,13 +972,17 @@ export async function prepareRequestBody(
 	// Strip Anthropic-style cache_control markers from text content parts when
 	// the resolved provider doesn't natively understand them. The Anthropic and
 	// AWS Bedrock branches below transform/forward cache_control on their own;
-	// every other provider receives the raw `processedMessages` and would
-	// otherwise pass an unknown field through to OpenAI/Google/etc., risking a
-	// 400 from strict providers and confusing logs from lenient ones.
+	// Alibaba accepts `cache_control: {type: "ephemeral"}` on its OpenAI-compatible
+	// surface but supports only a fixed 5-minute TTL, so any Anthropic-style
+	// `ttl: "1h"` must be normalized away before forwarding. Every other provider
+	// receives the raw `processedMessages` and would otherwise pass an unknown
+	// field through to OpenAI/Google/etc., risking a 400 from strict providers
+	// and confusing logs from lenient ones.
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
 		usedProvider === "vertex-anthropic" ||
-		usedProvider === "aws-bedrock";
+		usedProvider === "aws-bedrock" ||
+		usedProvider === "alibaba";
 	if (!providerHandlesCacheControl) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
@@ -996,6 +1000,47 @@ export async function prepareRequestBody(
 					mutated = true;
 					const { cache_control: _ignored, ...rest } = asRecord;
 					return rest as unknown as typeof part;
+				}
+				return part;
+			});
+			return mutated ? { ...m, content: newContent } : m;
+		});
+	} else if (usedProvider === "alibaba") {
+		// Alibaba's cache_control accepts only `{type: "ephemeral"}` (5m fixed).
+		// Drop the `ttl` field if present so Anthropic-style requests don't trip
+		// the upstream's strict validation.
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const newContent = m.content.map((part) => {
+				const asRecord = part as unknown as Record<string, unknown>;
+				const cc = asRecord?.cache_control as
+					| Record<string, unknown>
+					| undefined;
+				if (
+					asRecord &&
+					typeof asRecord === "object" &&
+					asRecord.type === "text" &&
+					cc &&
+					typeof cc === "object" &&
+					"ttl" in cc
+				) {
+					mutated = true;
+					const { ttl: _ttl, ...ccRest } = cc;
+					// If stripping `ttl` leaves an empty/malformed marker (e.g. the
+					// caller passed only `{ttl: "1h"}` with no `type`), drop the
+					// `cache_control` field entirely rather than forwarding `{}`,
+					// which Alibaba would either ignore or reject as malformed.
+					if (Object.keys(ccRest).length === 0 || !("type" in asRecord)) {
+						const { cache_control: _omit, ...rest } = asRecord;
+						return rest as unknown as typeof part;
+					}
+					return {
+						...asRecord,
+						cache_control: ccRest,
+					} as unknown as typeof part;
 				}
 				return part;
 			});

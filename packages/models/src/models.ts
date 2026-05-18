@@ -50,9 +50,20 @@ export interface PricingTier {
 	 */
 	outputPrice: Price;
 	/**
-	 * Price per cached input token in USD for this tier
+	 * Price per cached input token in USD for this tier.
+	 * Used when the cache hit was NOT explicitly requested by the caller. For
+	 * Alibaba this is the implicit-cache rate (20% of input); for Anthropic this
+	 * is the explicit-cache read rate (10%) since Anthropic only has explicit
+	 * caching; for OpenAI this is the automatic prompt-cache rate.
 	 */
 	cachedInputPrice?: Price;
+	/**
+	 * Price per cached input token when the request used `cache_control` to
+	 * explicitly mark content for caching (provider-specific explicit-cache hit
+	 * rate). When unset, falls back to `cachedInputPrice`. Currently only set on
+	 * Alibaba Qwen, where explicit hits bill at 10% vs. implicit at 20%.
+	 */
+	cacheReadInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this tier (5-minute TTL).
 	 * For Anthropic, this is the 1.25x base-input rate.
@@ -91,6 +102,12 @@ export interface ProviderRegion {
 	 * Price per cached input token in USD for this region
 	 */
 	cachedInputPrice?: Price;
+	/**
+	 * Price per cached input token when the request used `cache_control` to
+	 * explicitly mark content for caching. When unset, falls back to
+	 * `cachedInputPrice`. See PricingTier docs.
+	 */
+	cacheReadInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this region (5-minute TTL)
 	 */
@@ -158,9 +175,20 @@ export interface ProviderModelMapping {
 	 */
 	imageOutputPrice?: Price;
 	/**
-	 * Price per cached input token in USD
+	 * Price per cached input token in USD.
+	 * Used when the cache hit was NOT explicitly requested by the caller. For
+	 * Alibaba this is the implicit-cache rate (20% of input); for Anthropic this
+	 * is the explicit-cache read rate (10%) since Anthropic only has explicit
+	 * caching; for OpenAI this is the automatic prompt-cache rate.
 	 */
 	cachedInputPrice?: Price;
+	/**
+	 * Price per cached input token when the request used `cache_control` to
+	 * explicitly mark content for caching (provider-specific explicit-cache hit
+	 * rate). When unset, falls back to `cachedInputPrice`. Currently only set on
+	 * Alibaba Qwen, where explicit hits bill at 10% vs. implicit at 20%.
+	 */
+	cacheReadInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD (5-minute TTL).
 	 * For Anthropic, this is the 1.25x base-input rate.

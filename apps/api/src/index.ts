@@ -28,6 +28,7 @@ import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
 import { referral } from "./routes/referral.js";
+import { v1Master } from "./routes/v1-master.js";
 import { stripeRoutes } from "./stripe.js";
 
 import type { ServerTypes } from "./vars.js";
@@ -238,5 +239,7 @@ app.doc("/json", config);
 app.get("/docs", swaggerUI({ url: "./json" }));
 
 app.route("/", authHandler);
+
+app.route("/v1/master", v1Master);
 
 app.route("/", routes);

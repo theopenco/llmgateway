@@ -1,0 +1,248 @@
+---
+title: Master Keys
+description: Provision projects and gateway API keys programmatically with org-scoped bearer tokens (Enterprise only)
+icon: KeyRound
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Master Keys
+
+Master keys are org-scoped bearer tokens that let you create projects and gateway API keys programmatically — without going through the dashboard. They are intended for server-to-server provisioning (e.g. multi-tenant onboarding from your own backend).
+
+<Callout type="info">
+	Master keys are available on the **Enterprise** plan only. Contact us at
+	contact@llmgateway.io to enable them for your organization.
+</Callout>
+
+## Security
+
+- Master keys are stored as **HMAC-SHA256 hashes** in the database (using the `GATEWAY_API_KEY_HASH_SECRET` secret). The plain token is shown to you **only once** at creation time.
+- Each master key is scoped to a single organization and cannot access resources in other organizations.
+- Deleting or deactivating a master key revokes all programmatic access immediately.
+- All creates/deletes/status changes are recorded in your organization audit log.
+
+## Limits
+
+- Maximum **10 active master keys per organization**.
+- Programmatic project and API-key creation enforces the same per-org and per-project limits as the dashboard flow.
+
+## Managing master keys
+
+In the dashboard, go to **Organization → Master Keys**. From there you can:
+
+- Create a new master key (the plain token is shown once — copy it immediately).
+- View the masked token, status, creator, and last-used timestamp for each existing key.
+- Activate / deactivate or delete keys.
+
+## Authentication
+
+All programmatic endpoints live under `/v1/master/*` and require a master key in the `Authorization` header:
+
+```
+Authorization: Bearer llmgmk_...
+```
+
+A request with a missing, invalid, inactive, or non-enterprise master key receives a 401 / 403 response.
+
+## Endpoints
+
+### List projects
+
+`GET /v1/master/projects`
+
+Returns all non-deleted projects in the master key's organization.
+
+```bash
+curl https://api.llmgateway.io/v1/master/projects \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{
+	"projects": [
+		{
+			"id": "proj_...",
+			"name": "Customer ACME",
+			"organizationId": "org_...",
+			"cachingEnabled": false,
+			"cacheDurationSeconds": 60,
+			"mode": "hybrid",
+			"status": "active",
+			"createdAt": "...",
+			"updatedAt": "..."
+		}
+	]
+}
+```
+
+### Create a project
+
+`POST /v1/master/projects`
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/master/projects \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Customer ACME",
+    "cachingEnabled": false,
+    "mode": "hybrid"
+  }'
+```
+
+Body parameters:
+
+| Field                  | Type                                             | Description                |
+| ---------------------- | ------------------------------------------------ | -------------------------- |
+| `name`                 | string                                           | Project name (1–255 chars) |
+| `cachingEnabled`       | boolean (optional)                               | Default `false`            |
+| `cacheDurationSeconds` | number (optional)                                | 10–31536000, default 60    |
+| `mode`                 | `"api-keys" \| "credits" \| "hybrid"` (optional) | Default `"hybrid"`         |
+
+Response (201): the created project.
+
+### Update a project
+
+`PATCH /v1/master/projects/{id}`
+
+Updates a project owned by the master key's organization. All body fields are optional; provide only the ones you want to change.
+
+```bash
+curl -X PATCH https://api.llmgateway.io/v1/master/projects/proj_... \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Customer ACME (renamed)",
+    "cachingEnabled": true,
+    "status": "inactive"
+  }'
+```
+
+Body parameters (all optional, at least one required):
+
+| Field                  | Type                                  | Description                         |
+| ---------------------- | ------------------------------------- | ----------------------------------- |
+| `name`                 | string                                | 1–255 chars                         |
+| `cachingEnabled`       | boolean                               |                                     |
+| `cacheDurationSeconds` | number                                | 10–31536000                         |
+| `mode`                 | `"api-keys" \| "credits" \| "hybrid"` |                                     |
+| `status`               | `"active" \| "inactive"`              | Toggle the project without deleting |
+
+Response (200): the updated project.
+
+### Delete a project
+
+`DELETE /v1/master/projects/{id}`
+
+Soft-deletes a project (sets `status` to `"deleted"`). Cascades to its API keys.
+
+```bash
+curl -X DELETE https://api.llmgateway.io/v1/master/projects/proj_... \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{ "message": "Project deleted successfully" }
+```
+
+### Create a gateway API key
+
+`POST /v1/master/keys`
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/master/keys \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "projectId": "proj_...",
+    "description": "Customer ACME — production key"
+  }'
+```
+
+Body parameters:
+
+| Field                      | Type                                              | Description                                  |
+| -------------------------- | ------------------------------------------------- | -------------------------------------------- |
+| `projectId`                | string                                            | Must belong to the master key's organization |
+| `description`              | string                                            | API key description (1–255 chars)            |
+| `usageLimit`               | string (optional)                                 | Lifetime usage limit                         |
+| `periodUsageLimit`         | string (optional)                                 | Recurring period usage limit                 |
+| `periodUsageDurationValue` | number (optional)                                 | Required if `periodUsageLimit` is set        |
+| `periodUsageDurationUnit`  | `"hour" \| "day" \| "week" \| "month"` (optional) | Required if `periodUsageLimit` is set        |
+
+<Callout type="warning">
+	The created gateway API key's plain token is returned in the response **only
+	once**. Persist it immediately on your side.
+</Callout>
+
+Response (201):
+
+```json
+{
+	"apiKey": {
+		"id": "ak_...",
+		"token": "llmgtwy_...",
+		"description": "Customer ACME — production key",
+		"status": "active",
+		"projectId": "proj_...",
+		"createdBy": "usr_...",
+		"createdAt": "...",
+		"updatedAt": "..."
+	}
+}
+```
+
+### Update a gateway API key
+
+`PATCH /v1/master/keys/{id}`
+
+Updates an API key in a project owned by the master key's organization. All body fields are optional; provide only the ones you want to change.
+
+```bash
+curl -X PATCH https://api.llmgateway.io/v1/master/keys/ak_... \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "inactive",
+    "usageLimit": "100.00"
+  }'
+```
+
+Body parameters (all optional, at least one required):
+
+| Field                      | Type                                   | Description                            |
+| -------------------------- | -------------------------------------- | -------------------------------------- |
+| `description`              | string                                 | 1–255 chars                            |
+| `status`                   | `"active" \| "inactive"`               |                                        |
+| `usageLimit`               | string \| null                         | Lifetime usage limit (null to clear)   |
+| `periodUsageLimit`         | string \| null                         | Recurring period limit (null to clear) |
+| `periodUsageDurationValue` | number \| null                         | Required if `periodUsageLimit` is set  |
+| `periodUsageDurationUnit`  | `"hour" \| "day" \| "week" \| "month"` | Required if `periodUsageLimit` is set  |
+
+Response (200): the updated API key (the plain token is **not** included — it is only returned at creation).
+
+### Delete a gateway API key
+
+`DELETE /v1/master/keys/{id}`
+
+Soft-deletes the API key (sets `status` to `"deleted"`). Any in-flight requests using the key will be rejected immediately on next auth check.
+
+```bash
+curl -X DELETE https://api.llmgateway.io/v1/master/keys/ak_... \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{ "message": "API key deleted successfully" }
+```
+
+<Callout type="info">
+	The auto-generated playground API key cannot be deleted via the master API.
+</Callout>

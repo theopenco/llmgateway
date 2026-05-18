@@ -24,6 +24,10 @@
 		"./email": {
 			"types": "./dist/email.d.ts",
 			"import": "./dist/email.js"
+		},
+		"./api-key-hash": {
+			"types": "./dist/api-key-hash.d.ts",
+			"import": "./dist/api-key-hash.js"
 		}
 	},
 	"module": "./dist/index.js",

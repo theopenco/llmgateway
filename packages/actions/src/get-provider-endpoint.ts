@@ -505,7 +505,7 @@ export function getProviderEndpoint(
 						true;
 
 					if (supportsResponsesApi) {
-						return `${url}/openai/v1/responses`;
+						return `${url}/openai/v1/responses?api-version=preview`;
 					}
 				}
 				return `${url}/openai/v1/chat/completions`;
