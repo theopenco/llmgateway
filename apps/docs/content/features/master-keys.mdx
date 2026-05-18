@@ -47,6 +47,37 @@ A request with a missing, invalid, inactive, or non-enterprise master key receiv
 
 ## Endpoints
 
+### List projects
+
+`GET /v1/master/projects`
+
+Returns all non-deleted projects in the master key's organization.
+
+```bash
+curl https://api.llmgateway.io/v1/master/projects \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{
+	"projects": [
+		{
+			"id": "proj_...",
+			"name": "Customer ACME",
+			"organizationId": "org_...",
+			"cachingEnabled": false,
+			"cacheDurationSeconds": 60,
+			"mode": "hybrid",
+			"status": "active",
+			"createdAt": "...",
+			"updatedAt": "..."
+		}
+	]
+}
+```
+
 ### Create a project
 
 `POST /v1/master/projects`

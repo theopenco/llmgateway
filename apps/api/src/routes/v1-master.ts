@@ -120,6 +120,40 @@ const createProject = createRoute({
 	},
 });
 
+const listProjects = createRoute({
+	method: "get",
+	path: "/projects",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						projects: z.array(projectSchema).openapi({}),
+					}),
+				},
+			},
+			description:
+				"List all non-deleted projects in the master key's organization.",
+		},
+	},
+});
+
+v1Master.openapi(listProjects, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const projects = await db.query.project.findMany({
+		where: {
+			organizationId: { eq: masterKey.organizationId },
+			status: { ne: "deleted" },
+		},
+	});
+
+	return c.json({ projects });
+});
+
 v1Master.openapi(createProject, async (c) => {
 	const masterKey = c.get("masterKey");
 	if (!masterKey) {
