@@ -168,4 +168,16 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(400)).toBe("client_error");
 		expect(getFinishReasonFromError(422)).toBe("client_error");
 	});
+
+	it("returns gateway_error for upstream 'Unknown model' messages", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"object":"error","message":"Unknown model: foo","type":"invalid_model"}',
+			),
+		).toBe("gateway_error");
+		expect(getFinishReasonFromError(400, "unknown model: bar")).toBe(
+			"gateway_error",
+		);
+	});
 });
