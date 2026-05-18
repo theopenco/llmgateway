@@ -1687,6 +1687,7 @@ export interface paths {
                             totalSpent: number;
                             unusedCredits: number;
                             overage: number;
+                            totalGiftedCredits: number;
                         };
                     };
                 };
@@ -4902,6 +4903,68 @@ export interface paths {
                                 cost: number;
                                 margin: number;
                             };
+                            range: {
+                                from: string;
+                                to: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/devpass/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description DevPass usage breakdown by model, provider, and source. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            models: {
+                                id: string;
+                                requestCount: number;
+                                totalTokens: number;
+                                cost: number;
+                            }[];
+                            providers: {
+                                id: string;
+                                requestCount: number;
+                                totalTokens: number;
+                                cost: number;
+                            }[];
+                            sources: {
+                                id: string;
+                                requestCount: number;
+                                totalTokens: number;
+                                cost: number;
+                            }[];
                             range: {
                                 from: string;
                                 to: string;
