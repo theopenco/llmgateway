@@ -42,7 +42,7 @@ function readFixturePdfDataUrl(): string {
 // chat completions).
 const pdfModels: { model: string }[] = [
 	{ model: "anthropic/claude-sonnet-4-5" },
-	{ model: "google-ai-studio/gemini-2.5-flash" },
+	{ model: "google-ai-studio/gemini-3.5-flash" },
 	{ model: "openai/gpt-4.1-mini" },
 ];
 
