@@ -148,14 +148,17 @@ export function getProviderEndpoint(
 						"https://aiplatform.googleapis.com",
 					) ?? "https://aiplatform.googleapis.com";
 				break;
-			case "vertex-openai":
+			case "vertex-openai": {
+				const vertexOpenaiDefaultHost =
+					regionBaseUrl ?? "https://aiplatform.googleapis.com";
 				url =
 					envValueOrDefault(
 						"vertex-openai",
 						"baseUrl",
-						"https://aiplatform.googleapis.com",
-					) ?? "https://aiplatform.googleapis.com";
+						vertexOpenaiDefaultHost,
+					) ?? vertexOpenaiDefaultHost;
 				break;
+			}
 			case "vertex-anthropic": {
 				const vaDefaultRegion =
 					providerKeyOptions?.vertex_anthropic_region ??
@@ -373,6 +376,8 @@ export function getProviderEndpoint(
 				);
 			}
 			const vertexRegion =
+				region ??
+				providerKeyOptions?.vertex_openai_region ??
 				getProviderEnvValue("vertex-openai", "region", configIndex, "global") ??
 				"global";
 			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;

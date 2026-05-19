@@ -585,6 +585,7 @@ export interface ProviderKeyOptions {
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
 	google_vertex_project_id?: string;
 	vertex_openai_project_id?: string;
+	vertex_openai_region?: "global" | "us-west2";
 	vertex_anthropic_region?: string;
 }
 
