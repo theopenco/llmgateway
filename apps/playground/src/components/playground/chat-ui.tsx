@@ -87,6 +87,11 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+	heroSuggestionGroups,
+	sampleSuggestions,
+	type HeroSuggestionGroup,
+} from "@/lib/hero-suggestions";
 import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 import {
@@ -187,41 +192,17 @@ interface ChatUIProps {
 	isForkingChat?: boolean;
 }
 
-const suggestions = [
-	"Write a Python script to analyze CSV data and create visualizations",
-	"Create a compelling elevator pitch for a sustainable fashion startup",
-	"Explain quantum computing like I'm 12 years old",
-	"Design a 7-day workout plan for busy professionals",
-	"Write a short mystery story in exactly 100 words",
-	"Debug this React component and suggest performance improvements",
-	"Plan the perfect weekend in Tokyo for first-time visitors",
-	"Generate creative Instagram captions for a coffee shop",
-	"Analyze the pros and cons of different programming languages",
-	"Create a meal prep plan for someone with a nut allergy",
-];
-
-const heroSuggestionGroups = {
-	Create: suggestions,
-	Explore: [
-		"What are trending AI research topics right now?",
-		"Summarize the latest news about TypeScript",
-		"Find interesting datasets for a side project",
-		"Suggest tech blogs to follow for frontend performance",
-	],
-	Code: [
-		"Refactor this React component for readability",
-		"Write unit tests for a Node.js service",
-		"Explain how to debounce an input in React",
-		"Show an example of a Zod schema with refinement",
-	],
-	"Image gen": [
-		"Generate an image of a cyberpunk city at night",
-		"Create a serene mountain landscape at sunrise",
-		"Design a futuristic robot assistant",
-	],
-};
-
-type HeroSuggestionGroup = keyof typeof heroSuggestionGroups;
+function getRandomHeroSuggestionGroups(): Record<
+	HeroSuggestionGroup,
+	readonly string[]
+> {
+	return {
+		Create: sampleSuggestions(heroSuggestionGroups.Create, 5),
+		Explore: sampleSuggestions(heroSuggestionGroups.Explore, 5),
+		Code: sampleSuggestions(heroSuggestionGroups.Code, 5),
+		"Image gen": sampleSuggestions(heroSuggestionGroups["Image gen"], 5),
+	};
+}
 
 // js-combine-iterations: Extract message parts in a single pass instead of multiple filter() calls
 interface ExtractedParts {
@@ -710,8 +691,6 @@ const UserMessage = memo(
 						</Actions>
 					) : null}
 				</div>
-				{isLastMessage &&
-					(status === "submitted" || status === "streaming") && <Loader />}
 			</Message>
 		);
 	},
@@ -819,6 +798,12 @@ export const ChatUI = ({
 	const qualityOptions = ["auto", "low", "medium", "high"] as const;
 
 	const [activeGroup, setActiveGroup] = useState<HeroSuggestionGroup>("Create");
+	const [randomizedHeroSuggestionGroups, setRandomizedHeroSuggestionGroups] =
+		useState<Record<HeroSuggestionGroup, readonly string[]> | null>(null);
+	useEffect(
+		() => setRandomizedHeroSuggestionGroups(getRandomHeroSuggestionGroups()),
+		[],
+	);
 	const visibleHeroSuggestionGroups: HeroSuggestionGroup[] = supportsImageGen
 		? ["Image gen"]
 		: ["Create", "Explore", "Code"];
@@ -1053,22 +1038,40 @@ export const ChatUI = ({
 										))}
 									</div>
 								) : null}
-								<div className="space-y-2">
-									{heroSuggestionGroups[activeSuggestionGroup]
-										.slice(0, 5)
-										.map((s) => (
-											<button
-												key={s}
-												type="button"
-												onClick={() => {
-													void handlePromptSubmit(s);
-												}}
-												className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
-											>
-												{s}
-											</button>
-										))}
-								</div>
+								<AnimatePresence mode="wait">
+									{randomizedHeroSuggestionGroups ? (
+										<motion.div
+											key={activeSuggestionGroup}
+											initial={{ opacity: 0 }}
+											animate={{ opacity: 1 }}
+											exit={{ opacity: 0 }}
+											transition={{ duration: 0.07, ease: "easeOut" }}
+											className="space-y-2"
+										>
+											{randomizedHeroSuggestionGroups[
+												activeSuggestionGroup
+											].map((s, index) => (
+												<motion.button
+													key={s}
+													type="button"
+													initial={{ opacity: 0, y: -6 }}
+													animate={{ opacity: 1, y: 0 }}
+													transition={{
+														duration: 0.12,
+														delay: index * 0.025,
+														ease: "easeOut",
+													}}
+													onClick={() => {
+														void handlePromptSubmit(s);
+													}}
+													className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+												>
+													{s}
+												</motion.button>
+											))}
+										</motion.div>
+									) : null}
+								</AnimatePresence>
 							</motion.div>
 						)}
 					</AnimatePresence>
@@ -1116,6 +1119,11 @@ export const ChatUI = ({
 						);
 					}
 				})}
+				{status === "submitted" && (
+					<div className="message-item mt-3">
+						<Loader />
+					</div>
+				)}
 				{messages.length > 0 &&
 					messages[messages.length - 1].role === "user" &&
 					error && (
