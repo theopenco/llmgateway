@@ -131,7 +131,7 @@ export function DevpassUsage({ from, to }: { from?: string; to?: string }) {
 		<div className="grid gap-4 lg:grid-cols-3">
 			<UsageList
 				title="Top models"
-				description="By provider cost from DevPass subscribers."
+				description="DevPass spend from hourly project rollups."
 				icon={<Cpu className="h-4 w-4" />}
 				rows={models}
 				isLoading={isLoading}
@@ -140,7 +140,7 @@ export function DevpassUsage({ from, to }: { from?: string; to?: string }) {
 			/>
 			<UsageList
 				title="Top providers"
-				description="Real provider spend from DevPass orgs."
+				description="DevPass spend from hourly project rollups."
 				icon={<Server className="h-4 w-4" />}
 				rows={providers}
 				isLoading={isLoading}
@@ -148,7 +148,7 @@ export function DevpassUsage({ from, to }: { from?: string; to?: string }) {
 			/>
 			<UsageList
 				title="Top coding agents"
-				description="Inferred from request `source` header."
+				description="Global `source` header rollups (cross-org)."
 				icon={<Bot className="h-4 w-4" />}
 				rows={sources}
 				isLoading={isLoading}

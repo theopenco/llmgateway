@@ -54,7 +54,7 @@ A request with a missing, invalid, inactive, or non-enterprise master key receiv
 Returns all non-deleted projects in the master key's organization.
 
 ```bash
-curl https://api.llmgateway.io/v1/master/projects \
+curl https://internal.llmgateway.io/v1/master/projects \
   -H "Authorization: Bearer $MASTER_KEY"
 ```
 
@@ -83,7 +83,7 @@ Response (200):
 `POST /v1/master/projects`
 
 ```bash
-curl -X POST https://api.llmgateway.io/v1/master/projects \
+curl -X POST https://internal.llmgateway.io/v1/master/projects \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -111,7 +111,7 @@ Response (201): the created project.
 Updates a project owned by the master key's organization. All body fields are optional; provide only the ones you want to change.
 
 ```bash
-curl -X PATCH https://api.llmgateway.io/v1/master/projects/proj_... \
+curl -X PATCH https://internal.llmgateway.io/v1/master/projects/proj_... \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -140,7 +140,7 @@ Response (200): the updated project.
 Soft-deletes a project (sets `status` to `"deleted"`). Cascades to its API keys.
 
 ```bash
-curl -X DELETE https://api.llmgateway.io/v1/master/projects/proj_... \
+curl -X DELETE https://internal.llmgateway.io/v1/master/projects/proj_... \
   -H "Authorization: Bearer $MASTER_KEY"
 ```
 
@@ -155,7 +155,7 @@ Response (200):
 `POST /v1/master/keys`
 
 ```bash
-curl -X POST https://api.llmgateway.io/v1/master/keys \
+curl -X POST https://internal.llmgateway.io/v1/master/keys \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -204,7 +204,7 @@ Response (201):
 Updates an API key in a project owned by the master key's organization. All body fields are optional; provide only the ones you want to change.
 
 ```bash
-curl -X PATCH https://api.llmgateway.io/v1/master/keys/ak_... \
+curl -X PATCH https://internal.llmgateway.io/v1/master/keys/ak_... \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -233,7 +233,7 @@ Response (200): the updated API key (the plain token is **not** included — it 
 Soft-deletes the API key (sets `status` to `"deleted"`). Any in-flight requests using the key will be rejected immediately on next auth check.
 
 ```bash
-curl -X DELETE https://api.llmgateway.io/v1/master/keys/ak_... \
+curl -X DELETE https://internal.llmgateway.io/v1/master/keys/ak_... \
   -H "Authorization: Bearer $MASTER_KEY"
 ```
 
