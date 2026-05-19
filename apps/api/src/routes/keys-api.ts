@@ -371,48 +371,39 @@ const updateApiKeyUsageLimitSchema = z
 	})
 	.strict();
 
-// Schema for IAM rule
-const iamRuleSchema = z.object({
+export const iamRuleTypeEnum = z.enum([
+	"allow_models",
+	"deny_models",
+	"allow_pricing",
+	"deny_pricing",
+	"allow_providers",
+	"deny_providers",
+]);
+
+export const iamRuleValueSchema = z.object({
+	models: z.array(z.string()).optional(),
+	providers: z.array(z.string()).optional(),
+	pricingType: z.enum(["free", "paid"]).optional(),
+	maxInputPrice: z.number().optional(),
+	maxOutputPrice: z.number().optional(),
+});
+
+export const iamRuleStatusEnum = z.enum(["active", "inactive"]);
+
+export const iamRuleSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	apiKeyId: z.string(),
-	ruleType: z.enum([
-		"allow_models",
-		"deny_models",
-		"allow_pricing",
-		"deny_pricing",
-		"allow_providers",
-		"deny_providers",
-	]),
-	ruleValue: z.object({
-		models: z.array(z.string()).optional(),
-		providers: z.array(z.string()).optional(),
-		pricingType: z.enum(["free", "paid"]).optional(),
-		maxInputPrice: z.number().optional(),
-		maxOutputPrice: z.number().optional(),
-	}),
-	status: z.enum(["active", "inactive"]),
+	ruleType: iamRuleTypeEnum,
+	ruleValue: iamRuleValueSchema,
+	status: iamRuleStatusEnum,
 });
 
-// Schema for creating/updating IAM rules
-const createIamRuleSchema = z.object({
-	ruleType: z.enum([
-		"allow_models",
-		"deny_models",
-		"allow_pricing",
-		"deny_pricing",
-		"allow_providers",
-		"deny_providers",
-	]),
-	ruleValue: z.object({
-		models: z.array(z.string()).optional(),
-		providers: z.array(z.string()).optional(),
-		pricingType: z.enum(["free", "paid"]).optional(),
-		maxInputPrice: z.number().optional(),
-		maxOutputPrice: z.number().optional(),
-	}),
-	status: z.enum(["active", "inactive"]).default("active"),
+export const createIamRuleSchema = z.object({
+	ruleType: iamRuleTypeEnum,
+	ruleValue: iamRuleValueSchema,
+	status: iamRuleStatusEnum.default("active"),
 });
 
 // Create a new API key

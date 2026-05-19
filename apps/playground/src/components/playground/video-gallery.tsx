@@ -1,12 +1,17 @@
 "use client";
 
 import { AlertCircle, Download, Film } from "lucide-react";
-import { memo } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { memo, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+	videoStudioSuggestions,
+	sampleSuggestions,
+} from "@/lib/hero-suggestions";
 import { downloadVideo } from "@/lib/video-gen";
 
 import type { VideoGalleryItem } from "@/lib/video-gen";
@@ -16,15 +21,6 @@ interface VideoGalleryProps {
 	comparisonMode: boolean;
 	onSuggestionClick?: (prompt: string) => void;
 }
-
-const videoSuggestions = [
-	"A cinematic drone shot flying through a neon-lit futuristic city at night",
-	"A serene timelapse of clouds moving over mountain peaks at sunset",
-	"A slow-motion shot of ocean waves crashing on a rocky coastline",
-	"A magical forest with glowing fireflies and swirling mist",
-	"An astronaut floating in space with Earth visible in the background",
-	"A bustling Tokyo street scene in the rain with neon reflections",
-];
 
 const VideoPlayer = memo(
 	({ url, modelName }: { url: string; modelName?: string }) => (
@@ -90,6 +86,14 @@ function EmptyState({
 }: {
 	onSuggestionClick?: (prompt: string) => void;
 }) {
+	const [suggestions, setSuggestions] = useState<readonly string[] | null>(
+		null,
+	);
+	useEffect(
+		() => setSuggestions(sampleSuggestions(videoStudioSuggestions, 6)),
+		[],
+	);
+
 	return (
 		<div className="flex flex-col items-center justify-center py-20 text-center">
 			<Film className="h-16 w-16 text-muted-foreground/30 mb-6" />
@@ -97,18 +101,36 @@ function EmptyState({
 			<p className="text-sm text-muted-foreground mb-8 max-w-md">
 				Describe the video you want to create and click Generate to get started.
 			</p>
-			<div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl w-full">
-				{videoSuggestions.map((s) => (
-					<button
-						key={s}
-						type="button"
-						onClick={() => onSuggestionClick?.(s)}
-						className="rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60 transition-colors"
+			<AnimatePresence>
+				{suggestions ? (
+					<motion.div
+						key="suggestions"
+						initial={{ opacity: 0 }}
+						animate={{ opacity: 1 }}
+						exit={{ opacity: 0 }}
+						transition={{ duration: 0.07, ease: "easeOut" }}
+						className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl w-full"
 					>
-						{s}
-					</button>
-				))}
-			</div>
+						{suggestions.map((s, index) => (
+							<motion.button
+								key={s}
+								type="button"
+								initial={{ opacity: 0, y: -6 }}
+								animate={{ opacity: 1, y: 0 }}
+								transition={{
+									duration: 0.12,
+									delay: index * 0.025,
+									ease: "easeOut",
+								}}
+								onClick={() => onSuggestionClick?.(s)}
+								className="rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60 transition-colors"
+							>
+								{s}
+							</motion.button>
+						))}
+					</motion.div>
+				) : null}
+			</AnimatePresence>
 		</div>
 	);
 }

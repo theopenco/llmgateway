@@ -5,7 +5,12 @@ import { z } from "zod";
 import {
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
+	createIamRuleSchema,
 	hasPeriodConfigChanged,
+	iamRuleSchema,
+	iamRuleStatusEnum,
+	iamRuleTypeEnum,
+	iamRuleValueSchema,
 	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
@@ -83,6 +88,28 @@ v1Master.use("*", async (c, next) => {
 
 	await next();
 });
+
+async function loadApiKeyForOrg(apiKeyId: string, organizationId: string) {
+	const apiKey = await db.query.apiKey.findFirst({
+		where: { id: { eq: apiKeyId } },
+		with: { project: true },
+	});
+
+	if (
+		!apiKey ||
+		apiKey.status === "deleted" ||
+		!apiKey.project ||
+		apiKey.project.organizationId !== organizationId
+	) {
+		throw new HTTPException(404, {
+			message: "API key not found in this organization",
+		});
+	}
+
+	return apiKey as typeof apiKey & {
+		project: NonNullable<typeof apiKey.project>;
+	};
+}
 
 const projectModeEnum = z.enum(["api-keys", "credits", "hybrid"]);
 
@@ -505,21 +532,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 	const { id } = c.req.param();
 	const updates = c.req.valid("json");
 
-	const existing = await db.query.apiKey.findFirst({
-		where: { id: { eq: id } },
-		with: { project: true },
-	});
-
-	if (
-		!existing ||
-		existing.status === "deleted" ||
-		!existing.project ||
-		existing.project.organizationId !== masterKey.organizationId
-	) {
-		throw new HTTPException(404, {
-			message: "API key not found in this organization",
-		});
-	}
+	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
 
 	if (isPlaygroundApiKey(existing)) {
 		if (
@@ -663,21 +676,7 @@ v1Master.openapi(deleteApiKey, async (c) => {
 
 	const { id } = c.req.param();
 
-	const existing = await db.query.apiKey.findFirst({
-		where: { id: { eq: id } },
-		with: { project: true },
-	});
-
-	if (
-		!existing ||
-		existing.status === "deleted" ||
-		!existing.project ||
-		existing.project.organizationId !== masterKey.organizationId
-	) {
-		throw new HTTPException(404, {
-			message: "API key not found in this organization",
-		});
-	}
+	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
 
 	if (isPlaygroundApiKey(existing)) {
 		throw new HTTPException(403, {
@@ -701,6 +700,244 @@ v1Master.openapi(deleteApiKey, async (c) => {
 	});
 
 	return c.json({ message: "API key deleted successfully" });
+});
+
+const updateIamRuleBody = z
+	.object({
+		ruleType: iamRuleTypeEnum.optional(),
+		ruleValue: iamRuleValueSchema.optional(),
+		status: iamRuleStatusEnum.optional(),
+	})
+	.refine((v) => Object.keys(v).length > 0, {
+		message: "At least one field must be provided",
+	});
+
+const createIamRule = createRoute({
+	method: "post",
+	path: "/keys/{id}/iam",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: createIamRuleSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ rule: iamRuleSchema.openapi({}) }),
+				},
+			},
+			description: "IAM rule created successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(createIamRule, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const ruleData = c.req.valid("json");
+
+	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
+
+	const [rule] = await db
+		.insert(tables.apiKeyIamRule)
+		.values({
+			apiKeyId: apiKey.id,
+			...ruleData,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "api_key.iam_rule.create",
+		resourceType: "iam_rule",
+		resourceId: rule.id,
+		metadata: {
+			apiKeyId: apiKey.id,
+			ruleType: ruleData.ruleType,
+			ruleValue: ruleData.ruleValue,
+		},
+	});
+
+	return c.json({ rule }, 201);
+});
+
+const listIamRules = createRoute({
+	method: "get",
+	path: "/keys/{id}/iam",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						rules: z.array(iamRuleSchema).openapi({}),
+					}),
+				},
+			},
+			description: "List IAM rules for an API key via master key.",
+		},
+	},
+});
+
+v1Master.openapi(listIamRules, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
+
+	const rules = await db.query.apiKeyIamRule.findMany({
+		where: { apiKeyId: { eq: apiKey.id } },
+	});
+
+	return c.json({ rules });
+});
+
+const updateIamRule = createRoute({
+	method: "patch",
+	path: "/keys/{id}/iam/{ruleId}",
+	request: {
+		params: z.object({ id: z.string(), ruleId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateIamRuleBody,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ rule: iamRuleSchema.openapi({}) }),
+				},
+			},
+			description: "IAM rule updated successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(updateIamRule, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id, ruleId } = c.req.param();
+	const updates = c.req.valid("json");
+
+	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
+
+	const existingRule = await db.query.apiKeyIamRule.findFirst({
+		where: { id: { eq: ruleId }, apiKeyId: { eq: apiKey.id } },
+	});
+
+	if (!existingRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found for this API key",
+		});
+	}
+
+	const [updated] = await db
+		.update(tables.apiKeyIamRule)
+		.set(updates)
+		.where(eq(tables.apiKeyIamRule.id, ruleId))
+		.returning();
+
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	for (const [key, value] of Object.entries(updates)) {
+		const before = (existingRule as Record<string, unknown>)[key];
+		if (JSON.stringify(before) !== JSON.stringify(value)) {
+			changes[key] = { old: before, new: value };
+		}
+	}
+
+	if (Object.keys(changes).length > 0) {
+		await logAuditEvent({
+			organizationId: masterKey.organizationId,
+			userId: masterKey.createdBy,
+			action: "api_key.iam_rule.update",
+			resourceType: "iam_rule",
+			resourceId: ruleId,
+			metadata: { apiKeyId: apiKey.id, changes },
+		});
+	}
+
+	return c.json({ rule: updated });
+});
+
+const deleteIamRule = createRoute({
+	method: "delete",
+	path: "/keys/{id}/iam/{ruleId}",
+	request: {
+		params: z.object({ id: z.string(), ruleId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "IAM rule deleted successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(deleteIamRule, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id, ruleId } = c.req.param();
+
+	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
+
+	const existingRule = await db.query.apiKeyIamRule.findFirst({
+		where: { id: { eq: ruleId }, apiKeyId: { eq: apiKey.id } },
+	});
+
+	if (!existingRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found for this API key",
+		});
+	}
+
+	await db
+		.delete(tables.apiKeyIamRule)
+		.where(eq(tables.apiKeyIamRule.id, ruleId));
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "api_key.iam_rule.delete",
+		resourceType: "iam_rule",
+		resourceId: ruleId,
+		metadata: {
+			apiKeyId: apiKey.id,
+			ruleType: existingRule.ruleType,
+		},
+	});
+
+	return c.json({ message: "IAM rule deleted successfully" });
 });
 
 export default v1Master;

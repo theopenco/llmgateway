@@ -978,6 +978,220 @@ export interface paths {
         };
         trace?: never;
     };
+    "/v1/master/keys/{id}/iam": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List IAM rules for an API key via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rules: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                apiKeyId: string;
+                                /** @enum {string} */
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleValue: {
+                                    models?: string[];
+                                    providers?: string[];
+                                    /** @enum {string} */
+                                    pricingType?: "free" | "paid";
+                                    maxInputPrice?: number;
+                                    maxOutputPrice?: number;
+                                };
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleValue: {
+                            models?: string[];
+                            providers?: string[];
+                            /** @enum {string} */
+                            pricingType?: "free" | "paid";
+                            maxInputPrice?: number;
+                            maxOutputPrice?: number;
+                        };
+                        /**
+                         * @default active
+                         * @enum {string}
+                         */
+                        status?: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description IAM rule created successfully via master key. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rule: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                apiKeyId: string;
+                                /** @enum {string} */
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleValue: {
+                                    models?: string[];
+                                    providers?: string[];
+                                    /** @enum {string} */
+                                    pricingType?: "free" | "paid";
+                                    maxInputPrice?: number;
+                                    maxOutputPrice?: number;
+                                };
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/master/keys/{id}/iam/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description IAM rule deleted successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleValue?: {
+                            models?: string[];
+                            providers?: string[];
+                            /** @enum {string} */
+                            pricingType?: "free" | "paid";
+                            maxInputPrice?: number;
+                            maxOutputPrice?: number;
+                        };
+                        /** @enum {string} */
+                        status?: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description IAM rule updated successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rule: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                apiKeyId: string;
+                                /** @enum {string} */
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleValue: {
+                                    models?: string[];
+                                    providers?: string[];
+                                    /** @enum {string} */
+                                    pricingType?: "free" | "paid";
+                                    maxInputPrice?: number;
+                                    maxOutputPrice?: number;
+                                };
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;

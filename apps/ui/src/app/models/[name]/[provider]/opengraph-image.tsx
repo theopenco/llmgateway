@@ -12,6 +12,7 @@ import {
 import {
 	AWSBedrockIconStatic,
 	getProviderIcon,
+	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
 } from "@llmgateway/shared/components";
 
@@ -104,7 +105,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 				? MinimaxIconStatic
 				: selectedMapping.providerId === "aws-bedrock"
 					? AWSBedrockIconStatic
-					: getProviderIcon(selectedMapping.providerId)
+					: selectedMapping.providerId === "google-ai-studio"
+						? GoogleStudioAIIconStatic
+						: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const pricing = getEffectivePricePerMillion(selectedMapping);
 		const requestPrice =
@@ -140,7 +143,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						? AWSBedrockIconStatic
 						: providerId === "minimax"
 							? MinimaxIconStatic
-							: getProviderIcon(providerId);
+							: providerId === "google-ai-studio"
+								? GoogleStudioAIIconStatic
+								: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,
