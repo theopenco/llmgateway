@@ -104,6 +104,48 @@ export const GoogleStudioAIIcon: React.FC<React.SVGProps<SVGSVGElement>> = ({
 	/>
 );
 
+export const GoogleStudioAIIconStatic: React.FC<
+	React.SVGProps<SVGSVGElement>
+> = (props) => (
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" {...props}>
+		<defs>
+			<linearGradient
+				id="googleAiStudioStaticTop"
+				x1="21"
+				y1="60"
+				x2="171"
+				y2="60"
+				gradientUnits="userSpaceOnUse"
+			>
+				<stop offset="0%" stopColor="#22a05a" />
+				<stop offset="45%" stopColor="#1e88e5" />
+				<stop offset="100%" stopColor="#2f7df5" />
+			</linearGradient>
+			<linearGradient
+				id="googleAiStudioStaticBottom"
+				x1="21"
+				y1="132"
+				x2="171"
+				y2="132"
+				gradientUnits="userSpaceOnUse"
+			>
+				<stop offset="0%" stopColor="#2f7df5" />
+				<stop offset="55%" stopColor="#5d8df0" />
+				<stop offset="80%" stopColor="#f4a72b" />
+				<stop offset="100%" stopColor="#ea3a2d" />
+			</linearGradient>
+		</defs>
+		<path
+			fill="url(#googleAiStudioStaticTop)"
+			d="M161.23 55.76 79.92 98.11C53.06 112.1 21.01 92.5 21.01 62.08c0-22.42 18.08-40.59 40.37-40.58l91.57.04c18.88 0 25.04 25.5 8.28 34.22"
+		/>
+		<path
+			fill="url(#googleAiStudioStaticBottom)"
+			d="m30.77 136.24 81.31-42.35c26.86-13.99 58.91 5.61 58.91 36.03 0 22.42-18.08 40.59-40.37 40.58l-91.57-.04c-18.88 0-25.04-25.5-8.28-34.22"
+		/>
+	</svg>
+);
+
 // Google Vertex Icon
 export const GoogleVertexIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
