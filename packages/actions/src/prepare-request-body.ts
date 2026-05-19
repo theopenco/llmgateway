@@ -527,6 +527,7 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
  * The Responses API uses different content type identifiers:
  * - "text" -> "input_text" (for user/system/tool messages) or "output_text" (for assistant messages)
  * - "image_url" -> "input_image"
+ * - "file" -> "input_file"
  */
 function transformContentForResponsesApi(content: any, role: string): any {
 	// Handle string content - wrap it in the appropriate format
@@ -569,6 +570,21 @@ function transformContentForResponsesApi(content: any, role: string): any {
 					type: "input_image",
 					image_url: imageUrl,
 				};
+			}
+			if (part.type === "file") {
+				// Transform "file" to "input_file"
+				const file = part.file ?? {};
+				const transformed: Record<string, unknown> = { type: "input_file" };
+				if (file.file_id) {
+					transformed.file_id = file.file_id;
+				}
+				if (file.file_data) {
+					transformed.file_data = file.file_data;
+				}
+				if (file.filename) {
+					transformed.filename = file.filename;
+				}
+				return transformed;
 			}
 			// Return other content types as-is (they may need additional handling)
 			return part;

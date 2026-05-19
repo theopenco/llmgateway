@@ -1,5 +1,6 @@
 export * from "./transform-anthropic-messages.js";
 export * from "./process-image-url.js";
+export * from "./process-file-url.js";
 export * from "./transform-google-messages.js";
 export * from "./get-provider-headers.js";
 export * from "./prepare-request-body.js";

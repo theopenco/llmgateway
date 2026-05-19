@@ -229,6 +229,17 @@ function convertContent(
 				},
 			};
 		}
+		if (item.type === "input_file") {
+			return {
+				type: "file",
+				file: {
+					...(item.file_data ? { file_data: item.file_data } : {}),
+					...(item.file_url ? { file_data: item.file_url } : {}),
+					...(item.file_id ? { file_id: item.file_id } : {}),
+					...(item.filename ? { filename: item.filename } : {}),
+				},
+			};
+		}
 		// Pass through unknown types
 		return item;
 	});

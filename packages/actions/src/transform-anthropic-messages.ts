@@ -2,6 +2,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	type AnthropicMessage,
 	type BaseMessage,
+	isFileContent,
 	isImageUrlContent,
 	isTextContent,
 	type MessageContent,
@@ -10,6 +11,7 @@ import {
 	type ToolUseContent,
 } from "@llmgateway/models";
 
+import { processFileContent } from "./process-file-url.js";
 import { processImageUrl } from "./process-image-url.js";
 
 /**
@@ -120,6 +122,22 @@ export async function transformAnthropicMessages(
 								text: `[Image failed to load: ${part.image_url.url}]`,
 							} as TextContent;
 						}
+					}
+					if (isFileContent(part)) {
+						const { data, mimeType } = await processFileContent(
+							part.file,
+							isProd,
+							32,
+							userPlan,
+						);
+						return {
+							type: "document",
+							source: {
+								type: "base64",
+								media_type: mimeType,
+								data,
+							},
+						};
 					}
 					if (isTextContent(part) && part.text && !part.cache_control) {
 						// Automatically add cache_control for long text blocks

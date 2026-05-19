@@ -31,6 +31,37 @@ export interface ImageContent {
 	};
 }
 
+/**
+ * OpenAI-style file content part. The `file_data` field accepts either:
+ * - A base64 data URL (e.g. `data:application/pdf;base64,...`), or
+ * - An https URL that the gateway fetches before forwarding to providers
+ *   that need inline data (Anthropic, Google).
+ * `file_id` references a pre-uploaded OpenAI file and is only meaningful for
+ * the OpenAI provider; other providers will return an error if it's used
+ * without `file_data`.
+ */
+export interface FileContent {
+	type: "file";
+	file: {
+		file_data?: string;
+		filename?: string;
+		file_id?: string;
+	};
+}
+
+/**
+ * Anthropic-native document block emitted by the Anthropic transformer when
+ * forwarding PDFs to the Anthropic API.
+ */
+export interface DocumentContent {
+	type: "document";
+	source: {
+		type: "base64";
+		media_type: string;
+		data: string;
+	};
+}
+
 export interface InputAudioContent {
 	type: "input_audio";
 	input_audio: {
@@ -68,7 +99,9 @@ export type MessageContent =
 	| TextContent
 	| ImageUrlContent
 	| ImageContent
+	| DocumentContent
 	| InputAudioContent
+	| FileContent
 	| ToolUseContent
 	| ToolResultContent;
 
@@ -440,6 +473,10 @@ export function isInputAudioContent(
 	content: MessageContent,
 ): content is InputAudioContent {
 	return content.type === "input_audio";
+}
+
+export function isFileContent(content: MessageContent): content is FileContent {
+	return content.type === "file";
 }
 
 export function isToolUseContent(

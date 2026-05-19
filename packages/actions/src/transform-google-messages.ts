@@ -1,11 +1,13 @@
 import {
 	type BaseMessage,
+	isFileContent,
 	isImageUrlContent,
 	isInputAudioContent,
 	isTextContent,
 	type ProviderId,
 } from "@llmgateway/models";
 
+import { processFileContent } from "./process-file-url.js";
 import { processImageUrl } from "./process-image-url.js";
 
 type GoogleAudioFormat =
@@ -285,6 +287,19 @@ export async function transformGoogleMessages(
 						inline_data: {
 							mime_type: mimeType,
 							data: content.input_audio.data,
+						},
+					});
+				} else if (isFileContent(content)) {
+					const { data, mimeType } = await processFileContent(
+						content.file,
+						isProd,
+						32,
+						userPlan,
+					);
+					parts.push({
+						inline_data: {
+							mime_type: mimeType,
+							data,
 						},
 					});
 				} else {

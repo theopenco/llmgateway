@@ -53,6 +53,14 @@ export const completionsRequestSchema = z.object({
 									]),
 								}),
 							}),
+							z.object({
+								type: z.literal("file"),
+								file: z.object({
+									file_data: z.string().optional(),
+									filename: z.string().optional(),
+									file_id: z.string().optional(),
+								}),
+							}),
 						]),
 					),
 				])
