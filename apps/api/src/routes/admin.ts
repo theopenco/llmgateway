@@ -8857,7 +8857,7 @@ admin.openapi(getDevpassUsage, async (c) => {
 		endDate.setUTCHours(23, 59, 59, 999);
 	}
 
-	// Filter: only logs from orgs that are or were ever on a DevPass plan.
+	// Filter: only orgs that are or were ever on a DevPass plan.
 	// Mirrors the cost-per-day query in /devpass/timeseries.
 	const devpassOrgFilter = or(
 		ne(tables.organization.devPlan, "none"),
@@ -8871,67 +8871,113 @@ admin.openapi(getDevpassUsage, async (c) => {
 		)`,
 	)!;
 
-	const baseWhere = and(
-		gte(tables.log.createdAt, startDate),
-		lte(tables.log.createdAt, endDate),
+	// Models + providers: use the per-project hourly model aggregator so the
+	// dashboard reads from rollups instead of the raw `log` table. Joins
+	// project -> organization to restrict to DevPass orgs.
+	const projectModelWhere = and(
+		gte(projectHourlyModelStats.hourTimestamp, startDate),
+		lte(projectHourlyModelStats.hourTimestamp, endDate),
 		devpassOrgFilter,
 	);
 
 	const modelRows = await db
 		.select({
-			id: tables.log.usedModel,
-			requestCount: sql<number>`COUNT(*)`.as("request_count"),
-			totalTokens: sql<number>`COALESCE(SUM(${tables.log.totalTokens}), 0)`.as(
-				"total_tokens",
+			id: projectHourlyModelStats.usedModel,
+			requestCount:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				"cost",
 			),
-			cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
 		})
-		.from(tables.log)
+		.from(projectHourlyModelStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyModelStats.projectId, tables.project.id),
+		)
 		.innerJoin(
 			tables.organization,
-			eq(tables.log.organizationId, tables.organization.id),
+			eq(tables.project.organizationId, tables.organization.id),
 		)
-		.where(baseWhere)
-		.groupBy(tables.log.usedModel)
-		.orderBy(desc(sql`COALESCE(SUM(${tables.log.cost}), 0)`))
+		.where(projectModelWhere)
+		.groupBy(projectHourlyModelStats.usedModel)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
 		.limit(limit);
 
 	const providerRows = await db
 		.select({
-			id: tables.log.usedProvider,
-			requestCount: sql<number>`COUNT(*)`.as("request_count"),
-			totalTokens: sql<number>`COALESCE(SUM(${tables.log.totalTokens}), 0)`.as(
-				"total_tokens",
+			id: projectHourlyModelStats.usedProvider,
+			requestCount:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				"cost",
 			),
-			cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
 		})
-		.from(tables.log)
+		.from(projectHourlyModelStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyModelStats.projectId, tables.project.id),
+		)
 		.innerJoin(
 			tables.organization,
-			eq(tables.log.organizationId, tables.organization.id),
+			eq(tables.project.organizationId, tables.organization.id),
 		)
-		.where(baseWhere)
-		.groupBy(tables.log.usedProvider)
-		.orderBy(desc(sql`COALESCE(SUM(${tables.log.cost}), 0)`))
+		.where(projectModelWhere)
+		.groupBy(projectHourlyModelStats.usedProvider)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
 		.limit(limit);
+
+	// Sources: no per-org source aggregator exists, so use the same
+	// cross-org day-bucketed table the /global-stats endpoint reads.
+	// Snap range to UTC day boundaries to match the bucket grain.
+	const sourceStart = new Date(
+		Date.UTC(
+			startDate.getUTCFullYear(),
+			startDate.getUTCMonth(),
+			startDate.getUTCDate(),
+		),
+	);
+	const sourceEnd = new Date(
+		Date.UTC(
+			endDate.getUTCFullYear(),
+			endDate.getUTCMonth(),
+			endDate.getUTCDate(),
+		),
+	);
 
 	const sourceRows = await db
 		.select({
-			id: sql<string>`COALESCE(${tables.log.source}, 'unknown')`.as("id"),
-			requestCount: sql<number>`COUNT(*)`.as("request_count"),
-			totalTokens: sql<number>`COALESCE(SUM(${tables.log.totalTokens}), 0)`.as(
-				"total_tokens",
-			),
-			cost: sql<number>`COALESCE(SUM(${tables.log.cost}), 0)`.as("cost"),
+			id: globalSourceStats.source,
+			requestCount:
+				sql<number>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${globalSourceStats.cost}), 0)`.as("cost"),
 		})
-		.from(tables.log)
-		.innerJoin(
-			tables.organization,
-			eq(tables.log.organizationId, tables.organization.id),
+		.from(globalSourceStats)
+		.where(
+			and(
+				gte(globalSourceStats.dayTimestamp, sourceStart),
+				lte(globalSourceStats.dayTimestamp, sourceEnd),
+			),
 		)
-		.where(baseWhere)
-		.groupBy(sql`COALESCE(${tables.log.source}, 'unknown')`)
-		.orderBy(desc(sql`COALESCE(SUM(${tables.log.cost}), 0)`))
+		.groupBy(globalSourceStats.source)
+		.orderBy(desc(sql`COALESCE(SUM(${globalSourceStats.cost}), 0)`))
 		.limit(limit);
 
 	const mapRow = (r: {
