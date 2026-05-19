@@ -5,7 +5,12 @@ import { z } from "zod";
 import {
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
+	createIamRuleSchema,
 	hasPeriodConfigChanged,
+	iamRuleSchema,
+	iamRuleStatusEnum,
+	iamRuleTypeEnum,
+	iamRuleValueSchema,
 	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
@@ -703,44 +708,11 @@ v1Master.openapi(deleteApiKey, async (c) => {
 	return c.json({ message: "API key deleted successfully" });
 });
 
-const iamRuleTypeEnum = z.enum([
-	"allow_models",
-	"deny_models",
-	"allow_pricing",
-	"deny_pricing",
-	"allow_providers",
-	"deny_providers",
-]);
-
-const iamRuleValueSchema = z.object({
-	models: z.array(z.string()).optional(),
-	providers: z.array(z.string()).optional(),
-	pricingType: z.enum(["free", "paid"]).optional(),
-	maxInputPrice: z.number().optional(),
-	maxOutputPrice: z.number().optional(),
-});
-
-const iamRuleSchema = z.object({
-	id: z.string(),
-	createdAt: z.date(),
-	updatedAt: z.date(),
-	apiKeyId: z.string(),
-	ruleType: iamRuleTypeEnum,
-	ruleValue: iamRuleValueSchema,
-	status: z.enum(["active", "inactive"]),
-});
-
-const createIamRuleBody = z.object({
-	ruleType: iamRuleTypeEnum,
-	ruleValue: iamRuleValueSchema,
-	status: z.enum(["active", "inactive"]).default("active"),
-});
-
 const updateIamRuleBody = z
 	.object({
 		ruleType: iamRuleTypeEnum.optional(),
 		ruleValue: iamRuleValueSchema.optional(),
-		status: z.enum(["active", "inactive"]).optional(),
+		status: iamRuleStatusEnum.optional(),
 	})
 	.refine((v) => Object.keys(v).length > 0, {
 		message: "At least one field must be provided",
@@ -774,7 +746,7 @@ const createIamRule = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: createIamRuleBody,
+					schema: createIamRuleSchema,
 				},
 			},
 		},
