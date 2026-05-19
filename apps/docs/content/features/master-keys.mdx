@@ -246,3 +246,127 @@ Response (200):
 <Callout type="info">
 	The auto-generated playground API key cannot be deleted via the master API.
 </Callout>
+
+## IAM rules
+
+Each gateway API key can have one or more IAM rules that restrict which models, providers, or pricing tiers it is allowed to use. Rules are evaluated at request time by the gateway. A key with no active rules has no IAM restrictions.
+
+Rule types:
+
+| `ruleType`        | Description                                               |
+| ----------------- | --------------------------------------------------------- |
+| `allow_models`    | Only the listed models are permitted                      |
+| `deny_models`     | The listed models are blocked                             |
+| `allow_providers` | Only the listed providers are permitted                   |
+| `deny_providers`  | The listed providers are blocked                          |
+| `allow_pricing`   | Only models matching the pricing constraint are permitted |
+| `deny_pricing`    | Models matching the pricing constraint are blocked        |
+
+The `ruleValue` JSON object holds the rule's parameters. The fields it accepts depend on the `ruleType`:
+
+| Field            | Type               | Used by                             |
+| ---------------- | ------------------ | ----------------------------------- |
+| `models`         | string[]           | `allow_models`, `deny_models`       |
+| `providers`      | string[]           | `allow_providers`, `deny_providers` |
+| `pricingType`    | `"free" \| "paid"` | `allow_pricing`, `deny_pricing`     |
+| `maxInputPrice`  | number             | `allow_pricing`, `deny_pricing`     |
+| `maxOutputPrice` | number             | `allow_pricing`, `deny_pricing`     |
+
+All endpoints scope by the master key's organization: a `404` is returned if the API key (or rule) is not part of the authenticated master key's organization.
+
+### List IAM rules
+
+`GET /v1/master/keys/{id}/iam`
+
+```bash
+curl https://internal.llmgateway.io/v1/master/keys/ak_.../iam \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{
+	"rules": [
+		{
+			"id": "iam_...",
+			"apiKeyId": "ak_...",
+			"ruleType": "allow_models",
+			"ruleValue": {
+				"models": ["openai/gpt-4o", "anthropic/claude-3-5-sonnet"]
+			},
+			"status": "active",
+			"createdAt": "...",
+			"updatedAt": "..."
+		}
+	]
+}
+```
+
+### Create an IAM rule
+
+`POST /v1/master/keys/{id}/iam`
+
+```bash
+curl -X POST https://internal.llmgateway.io/v1/master/keys/ak_.../iam \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ruleType": "allow_models",
+    "ruleValue": {
+      "models": ["openai/gpt-4o", "anthropic/claude-3-5-sonnet"]
+    }
+  }'
+```
+
+Body parameters:
+
+| Field       | Type                     | Description                                             |
+| ----------- | ------------------------ | ------------------------------------------------------- |
+| `ruleType`  | rule type enum (above)   | Required                                                |
+| `ruleValue` | object (see table above) | Must include the fields appropriate for the chosen type |
+| `status`    | `"active" \| "inactive"` | Optional, defaults to `"active"`                        |
+
+Response (201): the created IAM rule.
+
+### Update an IAM rule
+
+`PATCH /v1/master/keys/{id}/iam/{ruleId}`
+
+All body fields are optional; provide only the ones you want to change.
+
+```bash
+curl -X PATCH https://internal.llmgateway.io/v1/master/keys/ak_.../iam/iam_... \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "inactive"
+  }'
+```
+
+Body parameters (all optional, at least one required):
+
+| Field       | Type                     | Description                             |
+| ----------- | ------------------------ | --------------------------------------- |
+| `ruleType`  | rule type enum (above)   | Change the rule type                    |
+| `ruleValue` | object (see table above) | Replace the rule value                  |
+| `status`    | `"active" \| "inactive"` | Activate or deactivate without deleting |
+
+Response (200): the updated IAM rule.
+
+### Delete an IAM rule
+
+`DELETE /v1/master/keys/{id}/iam/{ruleId}`
+
+Permanently removes an IAM rule from the API key.
+
+```bash
+curl -X DELETE https://internal.llmgateway.io/v1/master/keys/ak_.../iam/iam_... \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{ "message": "IAM rule deleted successfully" }
+```
