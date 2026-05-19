@@ -4487,11 +4487,14 @@ chat.openapi(completions, async (c) => {
 				}> = [];
 				const streamStartTime = Date.now();
 
-				// SSE keepalive to prevent proxy/load balancer timeouts
-				// Sends SSE comments (ignored by clients) every 15 seconds to keep connection alive
+				// SSE keepalive to prevent proxy/load balancer timeouts.
+				// Sends a single-newline comment (no trailing blank line) so buggy
+				// SSE parsers (e.g. openai-python <=2.37.0, openai/openai-python#2722)
+				// don't dispatch an empty-data event from a `\n\n` sequence when
+				// last_event_id is already set.
 				const KEEPALIVE_INTERVAL_MS = 15000;
 				const keepaliveInterval = setInterval(() => {
-					stream.write(": ping\n\n").catch(() => {
+					stream.write(": ping\n").catch(() => {
 						// Stream likely closed, cleanup will happen via abort handler or finally
 					});
 				}, KEEPALIVE_INTERVAL_MS);
