@@ -89,6 +89,28 @@ v1Master.use("*", async (c, next) => {
 	await next();
 });
 
+async function loadApiKeyForOrg(apiKeyId: string, organizationId: string) {
+	const apiKey = await db.query.apiKey.findFirst({
+		where: { id: { eq: apiKeyId } },
+		with: { project: true },
+	});
+
+	if (
+		!apiKey ||
+		apiKey.status === "deleted" ||
+		!apiKey.project ||
+		apiKey.project.organizationId !== organizationId
+	) {
+		throw new HTTPException(404, {
+			message: "API key not found in this organization",
+		});
+	}
+
+	return apiKey as typeof apiKey & {
+		project: NonNullable<typeof apiKey.project>;
+	};
+}
+
 const projectModeEnum = z.enum(["api-keys", "credits", "hybrid"]);
 
 const projectSchema = z.object({
@@ -510,21 +532,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 	const { id } = c.req.param();
 	const updates = c.req.valid("json");
 
-	const existing = await db.query.apiKey.findFirst({
-		where: { id: { eq: id } },
-		with: { project: true },
-	});
-
-	if (
-		!existing ||
-		existing.status === "deleted" ||
-		!existing.project ||
-		existing.project.organizationId !== masterKey.organizationId
-	) {
-		throw new HTTPException(404, {
-			message: "API key not found in this organization",
-		});
-	}
+	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
 
 	if (isPlaygroundApiKey(existing)) {
 		if (
@@ -668,21 +676,7 @@ v1Master.openapi(deleteApiKey, async (c) => {
 
 	const { id } = c.req.param();
 
-	const existing = await db.query.apiKey.findFirst({
-		where: { id: { eq: id } },
-		with: { project: true },
-	});
-
-	if (
-		!existing ||
-		existing.status === "deleted" ||
-		!existing.project ||
-		existing.project.organizationId !== masterKey.organizationId
-	) {
-		throw new HTTPException(404, {
-			message: "API key not found in this organization",
-		});
-	}
+	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
 
 	if (isPlaygroundApiKey(existing)) {
 		throw new HTTPException(403, {
@@ -717,26 +711,6 @@ const updateIamRuleBody = z
 	.refine((v) => Object.keys(v).length > 0, {
 		message: "At least one field must be provided",
 	});
-
-async function loadApiKeyForOrg(apiKeyId: string, organizationId: string) {
-	const apiKey = await db.query.apiKey.findFirst({
-		where: { id: { eq: apiKeyId } },
-		with: { project: true },
-	});
-
-	if (
-		!apiKey ||
-		apiKey.status === "deleted" ||
-		!apiKey.project ||
-		apiKey.project.organizationId !== organizationId
-	) {
-		throw new HTTPException(404, {
-			message: "API key not found in this organization",
-		});
-	}
-
-	return apiKey;
-}
 
 const createIamRule = createRoute({
 	method: "post",
