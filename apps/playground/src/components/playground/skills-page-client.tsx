@@ -27,7 +27,14 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useDeleteSkill, useSkills, useUpdateSkill } from "@/hooks/useSkills";
+import {
+	SKILL_DESCRIPTION_MAX,
+	SKILL_NAME_MAX,
+	useDeleteSkill,
+	useSkills,
+	useUpdateSkill,
+} from "@/hooks/useSkills";
+import { cn } from "@/lib/utils";
 
 import type { Skill } from "@/hooks/useSkills";
 import type { Organization } from "@/lib/types";
@@ -218,8 +225,14 @@ function SkillsPanel({
 		}
 	};
 
+	const editNameTooLong = editName.length > SKILL_NAME_MAX;
+	const editDescriptionTooLong = editDescription.length > SKILL_DESCRIPTION_MAX;
 	const isSaveDisabled =
-		!editName.trim() || !editInstructions.trim() || updateSkill.isPending;
+		!editName.trim() ||
+		!editInstructions.trim() ||
+		editNameTooLong ||
+		editDescriptionTooLong ||
+		updateSkill.isPending;
 
 	return (
 		<div className="flex flex-1 min-h-0 flex-col overflow-hidden">
@@ -248,22 +261,48 @@ function SkillsPanel({
 					</div>
 					<div className="flex-1 overflow-y-auto p-6 space-y-4">
 						<div className="space-y-2">
-							<Label htmlFor="inline-edit-name">Name</Label>
+							<div className="flex items-center justify-between">
+								<Label htmlFor="inline-edit-name">Name</Label>
+								<span
+									className={cn(
+										"text-xs tabular-nums",
+										editNameTooLong
+											? "text-destructive"
+											: "text-muted-foreground",
+									)}
+								>
+									{editName.length}/{SKILL_NAME_MAX}
+								</span>
+							</div>
 							<Input
 								id="inline-edit-name"
 								value={editName}
 								onChange={(e) => setEditName(e.target.value)}
 								placeholder="brand-guidelines"
+								aria-invalid={editNameTooLong || undefined}
 							/>
 						</div>
 						<div className="space-y-2">
-							<Label htmlFor="inline-edit-description">Description</Label>
+							<div className="flex items-center justify-between">
+								<Label htmlFor="inline-edit-description">Description</Label>
+								<span
+									className={cn(
+										"text-xs tabular-nums",
+										editDescriptionTooLong
+											? "text-destructive"
+											: "text-muted-foreground",
+									)}
+								>
+									{editDescription.length}/{SKILL_DESCRIPTION_MAX}
+								</span>
+							</div>
 							<Textarea
 								id="inline-edit-description"
 								value={editDescription}
 								onChange={(e) => setEditDescription(e.target.value)}
 								placeholder="Describe when to use this skill..."
 								rows={2}
+								aria-invalid={editDescriptionTooLong || undefined}
 							/>
 						</div>
 						<div className="space-y-2">

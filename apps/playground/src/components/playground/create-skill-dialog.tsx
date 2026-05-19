@@ -14,7 +14,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useCreateSkill } from "@/hooks/useSkills";
+import {
+	SKILL_DESCRIPTION_MAX,
+	SKILL_NAME_MAX,
+	useCreateSkill,
+} from "@/hooks/useSkills";
+import { cn } from "@/lib/utils";
 
 import type { Skill } from "@/hooks/useSkills";
 
@@ -75,7 +80,14 @@ export function CreateSkillDialog({
 	};
 
 	const isSubmitting = createSkill.isPending;
-	const isDisabled = !name.trim() || !instructions.trim() || isSubmitting;
+	const nameTooLong = name.length > SKILL_NAME_MAX;
+	const descriptionTooLong = description.length > SKILL_DESCRIPTION_MAX;
+	const isDisabled =
+		!name.trim() ||
+		!instructions.trim() ||
+		nameTooLong ||
+		descriptionTooLong ||
+		isSubmitting;
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
@@ -90,17 +102,40 @@ export function CreateSkillDialog({
 
 				<div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
 					<div className="space-y-2">
-						<Label htmlFor="skill-name">Name</Label>
+						<div className="flex items-center justify-between">
+							<Label htmlFor="skill-name">Name</Label>
+							<span
+								className={cn(
+									"text-xs tabular-nums",
+									nameTooLong ? "text-destructive" : "text-muted-foreground",
+								)}
+							>
+								{name.length}/{SKILL_NAME_MAX}
+							</span>
+						</div>
 						<Input
 							id="skill-name"
 							placeholder="brand-guidelines"
 							value={name}
 							onChange={(e) => setName(e.target.value)}
+							aria-invalid={nameTooLong || undefined}
 						/>
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="skill-description">Description</Label>
+						<div className="flex items-center justify-between">
+							<Label htmlFor="skill-description">Description</Label>
+							<span
+								className={cn(
+									"text-xs tabular-nums",
+									descriptionTooLong
+										? "text-destructive"
+										: "text-muted-foreground",
+								)}
+							>
+								{description.length}/{SKILL_DESCRIPTION_MAX}
+							</span>
+						</div>
 						<Textarea
 							id="skill-description"
 							placeholder="Apply Acme Corp brand guidelines to presentations and documents..."
@@ -108,6 +143,7 @@ export function CreateSkillDialog({
 							onChange={(e) => setDescription(e.target.value)}
 							rows={2}
 							className="max-h-[10vh] overflow-y-auto resize-none"
+							aria-invalid={descriptionTooLong || undefined}
 						/>
 					</div>
 

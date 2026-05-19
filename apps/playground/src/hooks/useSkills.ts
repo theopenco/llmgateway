@@ -4,6 +4,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { useApi } from "@/lib/fetch-client";
+import { getErrorMessage } from "@/lib/utils";
+
+export const SKILL_NAME_MAX = 100;
+export const SKILL_DESCRIPTION_MAX = 2000;
 
 export interface Skill {
 	id: string;
@@ -29,8 +33,8 @@ export function useCreateSkill() {
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: skillsQueryKey });
 		},
-		onError: () => {
-			toast.error("Failed to create skill");
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
 		},
 	});
 }
@@ -44,8 +48,8 @@ export function useUpdateSkill() {
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: skillsQueryKey });
 		},
-		onError: () => {
-			toast.error("Failed to update skill");
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
 		},
 	});
 }
@@ -59,8 +63,8 @@ export function useDeleteSkill() {
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: skillsQueryKey });
 		},
-		onError: () => {
-			toast.error("Failed to delete skill");
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
 		},
 	});
 }

@@ -19,14 +19,14 @@ const skillSchema = z.object({
 
 const createSkillSchema = z.object({
 	name: z.string().min(1).max(100),
-	description: z.string().max(500),
+	description: z.string().max(2000),
 	instructions: z.string().min(1),
 	enabled: z.boolean().optional().default(true),
 });
 
 const updateSkillSchema = z.object({
 	name: z.string().min(1).max(100).optional(),
-	description: z.string().max(500).optional(),
+	description: z.string().max(2000).optional(),
 	instructions: z.string().min(1).optional(),
 	enabled: z.boolean().optional(),
 });
