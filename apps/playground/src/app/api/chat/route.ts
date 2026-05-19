@@ -384,6 +384,7 @@ interface ChatRequestBody {
 	mcp_servers?: McpServerConfig[];
 	is_image_gen?: boolean;
 	temporary_chat?: boolean;
+	skill_instructions?: string;
 }
 
 interface McpClientWrapper {
@@ -411,6 +412,7 @@ export async function POST(req: Request) {
 		web_search,
 		mcp_servers,
 		is_image_gen,
+		skill_instructions,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
@@ -426,6 +428,16 @@ export async function POST(req: Request) {
 		return new Response(JSON.stringify({ error: "Invalid temporary_chat" }), {
 			status: 400,
 		});
+	}
+
+	if (
+		skill_instructions !== undefined &&
+		typeof skill_instructions !== "string"
+	) {
+		return new Response(
+			JSON.stringify({ error: "Invalid skill_instructions" }),
+			{ status: 400 },
+		);
 	}
 
 	const headerApiKey = req.headers.get("x-llmgateway-key") ?? undefined;
@@ -884,9 +896,26 @@ export async function POST(req: Request) {
 		const hasTools = Object.keys(allTools).length > 0;
 
 		// Streaming chat with optional MCP tools
+		const existingSystem = messages
+			.filter((m) => m.role === "system")
+			.map((m) =>
+				m.parts
+					.filter(
+						(p): p is Extract<typeof p, { type: "text" }> => p.type === "text",
+					)
+					.map((p) => p.text)
+					.join(""),
+			)
+			.join("\n\n");
+		const resolvedSystem =
+			[existingSystem, skill_instructions].filter(Boolean).join("\n\n") ||
+			undefined;
 		const result = streamText({
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
-			messages: await convertToModelMessages(messages),
+			messages: await convertToModelMessages(
+				messages.filter((m) => m.role !== "system"),
+			),
+			...(resolvedSystem ? { system: resolvedSystem } : {}),
 			...(hasTools ? { tools: allTools, maxSteps: 10 } : {}),
 			onFinish: async () => {
 				// Clean up MCP clients when streaming is done

@@ -28,6 +28,7 @@ import {
 	useUpdateMessage,
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
+import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
@@ -272,6 +273,7 @@ export default function ChatPageClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
+	const skillIdFromUrl = searchParams.get("skillId");
 	const mapped = useMemo(
 		() => mapModels(models, providers),
 		[models, providers],
@@ -323,6 +325,7 @@ export default function ChatPageClient({
 	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
+	const [activeSkills, setActiveSkills] = useState<Skill[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [finishReason, setFinishReason] = useState<string | null>(null);
@@ -338,6 +341,22 @@ export default function ChatPageClient({
 		toggleServer: toggleMcpServer,
 		getEnabledServers: getEnabledMcpServers,
 	} = useMcpServers();
+
+	// Skills
+	const { data: skillsData } = useSkills();
+	const skillInitializedRef = useRef(false);
+	useEffect(() => {
+		if (!skillIdFromUrl || !skillsData?.skills || skillInitializedRef.current) {
+			return;
+		}
+		const found = (skillsData.skills as Skill[]).find(
+			(s) => s.id === skillIdFromUrl,
+		);
+		if (found) {
+			skillInitializedRef.current = true;
+			setActiveSkills([found]);
+		}
+	}, [skillIdFromUrl, skillsData]);
 
 	// Get chat ID from URL search params
 	const chatIdFromUrl = searchParams.get("chat");
@@ -693,6 +712,14 @@ export default function ChatPageClient({
 						? { mcp_servers: enabledMcpServers }
 						: {}),
 					...(isTemporaryChat ? { temporary_chat: true } : {}),
+					...(activeSkills.length > 0
+						? {
+								skill_instructions: activeSkills
+									.filter((s) => s.enabled)
+									.map((s) => s.instructions)
+									.join("\n\n"),
+							}
+						: {}),
 				},
 			};
 		},
@@ -710,6 +737,7 @@ export default function ChatPageClient({
 			supportsWebSearch,
 			getEnabledMcpServers,
 			isTemporaryChat,
+			activeSkills,
 		],
 	);
 
@@ -1618,6 +1646,19 @@ export default function ChatPageClient({
 											setWebSearchEnabled={setWebSearchEnabled}
 											supportsWebSearch={supportsWebSearch}
 											webSearchEnabled={webSearchEnabled}
+											activeSkills={activeSkills}
+											onSelectSkill={(skill) =>
+												setActiveSkills((prev) =>
+													prev.some((s) => s.id === skill.id)
+														? prev
+														: [...prev, skill],
+												)
+											}
+											onRemoveSkill={(id) =>
+												setActiveSkills((prev) =>
+													prev.filter((s) => s.id !== id),
+												)
+											}
 										/>
 									</div>
 								</div>
@@ -1660,6 +1701,17 @@ export default function ChatPageClient({
 										isTemporaryChat={isTemporaryChat}
 										forkChat={!isTemporaryChat ? handleForkChat : undefined}
 										isForkingChat={forkChat.isPending}
+										activeSkills={activeSkills}
+										onSelectSkill={(skill) =>
+											setActiveSkills((prev) =>
+												prev.some((s) => s.id === skill.id)
+													? prev
+													: [...prev, skill],
+											)
+										}
+										onRemoveSkill={(id) =>
+											setActiveSkills((prev) => prev.filter((s) => s.id !== id))
+										}
 									/>
 								</div>
 							)}

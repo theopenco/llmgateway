@@ -139,8 +139,9 @@ describe("getProviderEndpoint", () => {
 		);
 	});
 
-	it("uses the Vertex base URL override for lite models", () => {
+	it("uses the Vertex base URL override", () => {
 		process.env.LLM_GOOGLE_VERTEX_BASE_URL = "https://vertex-override.example";
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
 
 		const endpoint = getProviderEndpoint(
 			"google-vertex",
@@ -149,7 +150,7 @@ describe("getProviderEndpoint", () => {
 		);
 
 		expect(endpoint).toBe(
-			"https://vertex-override.example/v1/publishers/google/models/gemini-2.5-flash-lite:generateContent",
+			"https://vertex-override.example/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-flash-lite:generateContent",
 		);
 	});
 
@@ -352,7 +353,7 @@ describe("getProviderEndpoint", () => {
 				undefined,
 				undefined,
 				undefined,
-				undefined,
+				{ google_vertex_project_id: "byok-project" },
 				undefined,
 				undefined,
 				undefined,
@@ -360,7 +361,7 @@ describe("getProviderEndpoint", () => {
 			);
 
 			expect(endpoint).toBe(
-				"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash-lite:generateContent",
+				"https://aiplatform.googleapis.com/v1/projects/byok-project/locations/global/publishers/google/models/gemini-2.5-flash-lite:generateContent",
 			);
 		});
 
