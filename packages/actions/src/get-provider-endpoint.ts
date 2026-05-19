@@ -22,20 +22,6 @@ function buildVertexCompatibleEndpoint(
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = modelName ?? "gemini-2.5-flash-lite";
 
-	if (model === "gemini-2.0-flash-lite" || model === "gemini-2.5-flash-lite") {
-		const baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
-		const queryParams = [];
-		if (token) {
-			queryParams.push(`key=${token}`);
-		}
-		if (stream) {
-			queryParams.push("alt=sse");
-		}
-		return queryParams.length > 0
-			? `${baseEndpoint}?${queryParams.join("&")}`
-			: baseEndpoint;
-	}
-
 	const projectId =
 		providerKeyOptions?.google_vertex_project_id ??
 		getProviderEnvValue(provider, "project", configIndex);
