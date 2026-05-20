@@ -970,6 +970,96 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 	return stats;
 }
 
+// Coding-agent sources recognized by the Agents dashboard, with relative weights.
+const AGENT_SOURCES: Array<{ source: string; weight: number }> = [
+	{ source: "claude.com/claude-code", weight: 0.35 },
+	{ source: "cursor", weight: 0.2 },
+	{ source: "cline", weight: 0.15 },
+	{ source: "codex", weight: 0.1 },
+	{ source: "opencode", weight: 0.1 },
+	{ source: "autohand", weight: 0.06 },
+	{ source: "n8n", weight: 0.04 },
+];
+
+function generateProjectHourlySourceStats(projects: ProjectDef[]) {
+	const stats = [];
+	let statIdx = 0;
+	for (const proj of projects) {
+		const org = EXTRA_ORGS.find((o) => o.id === proj.orgId);
+		const isHighVolume = org?.plan === "enterprise";
+		const isMedVolume = org?.plan === "pro";
+		const numHours = isHighVolume ? 168 : isMedVolume ? 72 : 24;
+		const sourcesUsed = isHighVolume
+			? AGENT_SOURCES.slice(0, 7)
+			: isMedVolume
+				? AGENT_SOURCES.slice(0, 5)
+				: AGENT_SOURCES.slice(0, 3);
+
+		for (let h = 0; h < numHours; h++) {
+			const hourTs = hoursAgo(h);
+			hourTs.setMinutes(0, 0, 0);
+			for (const sourceDef of sourcesUsed) {
+				if (Math.random() < 0.35) {
+					continue;
+				}
+				const reqCount = randomInt(1, isHighVolume ? 25 : 8);
+				const errCount = Math.random() < 0.1 ? randomInt(1, 3) : 0;
+				const inputTok = reqCount * randomInt(200, 4000);
+				const outputTok = reqCount * randomInt(100, 2500);
+				const costPerReq = randomFloat(0.002, 0.06);
+				const costVal = reqCount * costPerReq;
+
+				stats.push({
+					id: `phss-${statIdx}`,
+					projectId: proj.id,
+					hourTimestamp: hourTs,
+					source: sourceDef.source,
+					requestCount: reqCount,
+					errorCount: errCount,
+					cacheCount: randomInt(0, Math.floor(reqCount * 0.2)),
+					streamedCount: Math.floor(reqCount * 0.6),
+					nonStreamedCount: Math.floor(reqCount * 0.4),
+					completedCount: reqCount - errCount,
+					lengthLimitCount: 0,
+					contentFilterCount: 0,
+					toolCallsCount: randomInt(0, 2),
+					canceledCount: 0,
+					unknownFinishCount: 0,
+					clientErrorCount: 0,
+					gatewayErrorCount: 0,
+					upstreamErrorCount: errCount,
+					inputTokens: String(inputTok),
+					outputTokens: String(outputTok),
+					totalTokens: String(inputTok + outputTok),
+					reasoningTokens: "0",
+					cachedTokens: "0",
+					cacheWriteTokens: "0",
+					cost: Number(costVal.toFixed(6)),
+					inputCost: Number((costVal * 0.4).toFixed(6)),
+					outputCost: Number((costVal * 0.5).toFixed(6)),
+					requestCost: Number((costVal * 0.1).toFixed(6)),
+					dataStorageCost: 0,
+					discountSavings: 0,
+					imageInputCost: 0,
+					imageOutputCost: 0,
+					audioInputCost: 0,
+					videoOutputCost: 0,
+					cachedInputCost: 0,
+					cacheWriteInputCost: 0,
+					creditsRequestCount: Math.floor(reqCount * 0.6),
+					apiKeysRequestCount: Math.floor(reqCount * 0.4),
+					creditsCost: Number((costVal * 0.6).toFixed(6)),
+					apiKeysCost: Number((costVal * 0.4).toFixed(6)),
+					creditsDataStorageCost: 0,
+					apiKeysDataStorageCost: 0,
+				});
+				statIdx++;
+			}
+		}
+	}
+	return stats;
+}
+
 function minutesAgo(minutes: number) {
 	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - minutes * 60 * 1000);
@@ -1671,6 +1761,71 @@ async function seed() {
 	}
 	await bulkInsert(tables.projectHourlyModelStats, devpassHourlyModelStats);
 
+	// Split each hourly bucket across coding-agent sources so the Agents
+	// dashboard and the DevPass "Top coding agents" breakdown have data.
+	const devpassHourlySourceStats: Array<Record<string, any>> = [];
+	for (const bucket of devpassHourlyStats) {
+		const splits = DEVPASS_AGENTS.map((a) => a.weight * randomFloat(0.5, 1.5));
+		const splitTotal = splits.reduce((a, b) => a + b, 0);
+		const weights = splits.map((w) => w / splitTotal);
+		DEVPASS_AGENTS.forEach((agent, i) => {
+			const w = weights[i];
+			const reqs = Math.round(bucket.requestCount * w);
+			if (reqs === 0) {
+				return;
+			}
+			const inTok = Math.round(Number(bucket.inputTokens) * w);
+			const outTok = Math.round(Number(bucket.outputTokens) * w);
+			const streamed = Math.floor(bucket.streamedCount * w);
+			const errors = Math.floor(bucket.errorCount * w);
+			devpassHourlySourceStats.push({
+				id: `devpass-phss-${bucket.id}-${i}`,
+				projectId: "test-personal-project-id",
+				hourTimestamp: bucket.hourTimestamp,
+				source: agent.source,
+				requestCount: reqs,
+				errorCount: errors,
+				cacheCount: Math.floor(bucket.cacheCount * w),
+				streamedCount: streamed,
+				nonStreamedCount: Math.max(0, reqs - streamed),
+				completedCount: Math.max(0, reqs - errors),
+				lengthLimitCount: 0,
+				contentFilterCount: 0,
+				toolCallsCount: 0,
+				canceledCount: 0,
+				unknownFinishCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
+				inputTokens: String(inTok),
+				outputTokens: String(outTok),
+				totalTokens: String(inTok + outTok),
+				reasoningTokens: "0",
+				cachedTokens: String(Math.floor(Number(bucket.cachedTokens) * w)),
+				cacheWriteTokens: "0",
+				cost: Number((bucket.cost * w).toFixed(4)),
+				inputCost: Number((bucket.inputCost * w).toFixed(4)),
+				outputCost: Number((bucket.outputCost * w).toFixed(4)),
+				requestCost: Number((bucket.requestCost * w).toFixed(4)),
+				dataStorageCost: 0,
+				discountSavings: 0,
+				imageInputCost: 0,
+				imageOutputCost: 0,
+				audioInputCost: 0,
+				videoOutputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				creditsRequestCount: reqs,
+				apiKeysRequestCount: 0,
+				creditsCost: Number((bucket.cost * w).toFixed(4)),
+				apiKeysCost: 0,
+				creditsDataStorageCost: 0,
+				apiKeysDataStorageCost: 0,
+			});
+		});
+	}
+	await bulkInsert(tables.projectHourlySourceStats, devpassHourlySourceStats);
+
 	// Sync the personal org's used-credits to roughly match the seeded spend
 	// so the usage bar in the dashboard reflects this activity.
 	const usedCredits = Math.min(
@@ -1853,6 +2008,9 @@ async function seed() {
 
 	const hourlyModelStats = generateProjectHourlyModelStats(projects);
 	await bulkInsert(tables.projectHourlyModelStats, hourlyModelStats);
+
+	const hourlySourceStats = generateProjectHourlySourceStats(projects);
+	await bulkInsert(tables.projectHourlySourceStats, hourlySourceStats);
 
 	// Seed providers, models, and mappings
 	const seedProviders = generateSeedProviders();
