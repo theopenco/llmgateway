@@ -8545,6 +8545,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -9010,6 +9011,7 @@ export interface paths {
                         content?: string;
                         images?: string;
                         audios?: string;
+                        documents?: string;
                         reasoning?: string;
                         tools?: string;
                         metadata?: {
@@ -9033,6 +9035,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -9100,6 +9103,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -10950,6 +10954,7 @@ export interface operations {
                                 streaming: boolean;
                                 vision: boolean | null;
                                 audio: boolean | null;
+                                document: boolean | null;
                                 reasoning: boolean | null;
                                 reasoningOutput: string | null;
                                 tools: boolean | null;

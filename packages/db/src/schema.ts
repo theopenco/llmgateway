@@ -1116,6 +1116,7 @@ export const message = pgTable(
 		content: text(), // Made nullable to support image-only messages
 		images: text(), // JSON string to store images array
 		audios: text(), // JSON string to store audio attachments array
+		documents: text(), // JSON string to store document attachments array
 		reasoning: text(), // Reasoning content from AI models
 		tools: text(), // JSON string to store tool call parts
 		metadata: jsonb().$type<Record<string, unknown>>(),
