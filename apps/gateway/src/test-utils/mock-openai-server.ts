@@ -329,7 +329,7 @@ function hasUserMessageTrigger(
 // Each test that relies on TRIGGER_FAIL_ONCE must call resetFailOnceCounter()
 // in its beforeEach to avoid cross-test interference.
 let failOnceCounter = 0;
-let currentMockServerUrl = "http://localhost:3001";
+let currentMockServerUrl = "";
 let videoCounter = 0;
 
 interface MockVideoJobState {
@@ -2220,20 +2220,25 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 
 let server: any = null;
 
-export function startMockServer(port = 3001): string {
-	if (server) {
-		return `http://localhost:${port}`;
-	}
+export function startMockServer(port = 0): Promise<string> {
+	return new Promise((resolve) => {
+		if (server) {
+			resolve(currentMockServerUrl);
+			return;
+		}
 
-	currentMockServerUrl = `http://localhost:${port}`;
-
-	server = serve({
-		fetch: mockOpenAIServer.fetch,
-		port,
+		server = serve(
+			{
+				fetch: mockOpenAIServer.fetch,
+				port,
+			},
+			(info) => {
+				currentMockServerUrl = `http://localhost:${info.port}`;
+				console.log(`Mock OpenAI server started on port ${info.port}`);
+				resolve(currentMockServerUrl);
+			},
+		);
 	});
-
-	console.log(`Mock OpenAI server started on port ${port}`);
-	return `http://localhost:${port}`;
 }
 
 export function stopMockServer() {

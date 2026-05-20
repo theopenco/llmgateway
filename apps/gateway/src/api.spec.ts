@@ -13,9 +13,7 @@ import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harne
 import { readAll, waitForLogs } from "./test-utils/test-helpers.js";
 
 describe("api", () => {
-	const harness = createGatewayApiTestHarness({
-		mockServerPort: 3001,
-	});
+	const harness = createGatewayApiTestHarness();
 	let mockServerUrl = "";
 
 	beforeAll(() => {

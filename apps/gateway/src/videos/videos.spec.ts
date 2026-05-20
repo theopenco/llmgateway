@@ -11,9 +11,7 @@ import {
 import { db, eq, tables } from "@llmgateway/db";
 
 describe("videos", () => {
-	const harness = createGatewayApiTestHarness({
-		mockServerPort: 3002,
-	});
+	const harness = createGatewayApiTestHarness();
 	let mockServerUrl: string;
 	let originalGoogleVertexBaseUrl: string | undefined;
 

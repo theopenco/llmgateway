@@ -7,9 +7,7 @@ import { redisClient } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 
 describe("chat resilience under DB outage", () => {
-	const harness = createGatewayApiTestHarness({
-		mockServerPort: 3010,
-	});
+	const harness = createGatewayApiTestHarness();
 	let mockServerUrl = "";
 
 	beforeAll(() => {
