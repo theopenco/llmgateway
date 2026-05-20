@@ -1,13 +1,18 @@
 "use client";
 
 import { Download, AlertCircle, ImageIcon } from "lucide-react";
-import { memo } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { memo, useEffect, useState } from "react";
 
 import { Image } from "@/components/ai-elements/image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+	heroSuggestionGroups,
+	sampleSuggestions,
+} from "@/lib/hero-suggestions";
 import { downloadImage } from "@/lib/image-gen";
 
 import type { GalleryItem } from "@/lib/image-gen";
@@ -16,15 +21,6 @@ interface ImageGalleryProps {
 	items: GalleryItem[];
 	comparisonMode: boolean;
 }
-
-const imageSuggestions = [
-	"A cyberpunk cityscape at night with neon lights reflecting on wet streets",
-	"A serene mountain landscape at sunrise with mist in the valleys",
-	"A futuristic robot assistant helping in a cozy kitchen",
-	"An underwater scene with bioluminescent creatures in the deep ocean",
-	"A steampunk airship flying over a Victorian-era city",
-	"A magical forest with glowing mushrooms and fireflies",
-];
 
 const GalleryImage = memo(
 	({
@@ -84,6 +80,15 @@ function EmptyState({
 }: {
 	onSuggestionClick?: (prompt: string) => void;
 }) {
+	const [suggestions, setSuggestions] = useState<readonly string[] | null>(
+		null,
+	);
+	useEffect(
+		() =>
+			setSuggestions(sampleSuggestions(heroSuggestionGroups["Image gen"], 6)),
+		[],
+	);
+
 	return (
 		<div className="flex flex-col items-center justify-center py-20 text-center">
 			<ImageIcon className="h-16 w-16 text-muted-foreground/30 mb-6" />
@@ -91,18 +96,36 @@ function EmptyState({
 			<p className="text-sm text-muted-foreground mb-8 max-w-md">
 				Describe what you want to create and click Generate to get started.
 			</p>
-			<div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl w-full">
-				{imageSuggestions.map((s) => (
-					<button
-						key={s}
-						type="button"
-						onClick={() => onSuggestionClick?.(s)}
-						className="rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60 transition-colors"
+			<AnimatePresence>
+				{suggestions ? (
+					<motion.div
+						key="suggestions"
+						initial={{ opacity: 0 }}
+						animate={{ opacity: 1 }}
+						exit={{ opacity: 0 }}
+						transition={{ duration: 0.07, ease: "easeOut" }}
+						className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl w-full"
 					>
-						{s}
-					</button>
-				))}
-			</div>
+						{suggestions.map((s, index) => (
+							<motion.button
+								key={s}
+								type="button"
+								initial={{ opacity: 0, y: -6 }}
+								animate={{ opacity: 1, y: 0 }}
+								transition={{
+									duration: 0.12,
+									delay: index * 0.025,
+									ease: "easeOut",
+								}}
+								onClick={() => onSuggestionClick?.(s)}
+								className="rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60 transition-colors"
+							>
+								{s}
+							</motion.button>
+						))}
+					</motion.div>
+				) : null}
+			</AnimatePresence>
 		</div>
 	);
 }

@@ -8,10 +8,16 @@ import {
 	Info,
 	GitFork,
 	Loader2,
+	ExternalLinkIcon,
+	PlusIcon,
+	ScrollTextIcon,
 	Undo2,
+	XIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useRouter } from "next/navigation";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Actions, Action } from "@/components/ai-elements/actions";
@@ -67,6 +73,7 @@ import {
 	ToolOutput,
 } from "@/components/ai-elements/tool";
 import { AspectRatioIcon } from "@/components/playground/aspect-ratio-icon";
+import { CreateSkillDialog } from "@/components/playground/create-skill-dialog";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
@@ -87,6 +94,12 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSkills, type Skill } from "@/hooks/useSkills";
+import {
+	heroSuggestionGroups,
+	sampleSuggestions,
+	type HeroSuggestionGroup,
+} from "@/lib/hero-suggestions";
 import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 import {
@@ -96,6 +109,55 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
+
+function getCaretCoordinates(
+	textarea: HTMLTextAreaElement,
+	position: number,
+): { top: number; left: number; height: number } {
+	const div = document.createElement("div");
+	const style = window.getComputedStyle(textarea);
+	for (const prop of [
+		"font-family",
+		"font-size",
+		"font-weight",
+		"font-style",
+		"letter-spacing",
+		"line-height",
+		"padding-top",
+		"padding-right",
+		"padding-bottom",
+		"padding-left",
+		"border-top-width",
+		"border-right-width",
+		"border-bottom-width",
+		"border-left-width",
+		"box-sizing",
+		"word-spacing",
+	]) {
+		div.style.setProperty(prop, style.getPropertyValue(prop));
+	}
+	div.style.position = "absolute";
+	div.style.top = "0";
+	div.style.left = "0";
+	div.style.visibility = "hidden";
+	div.style.whiteSpace = "pre-wrap";
+	div.style.wordBreak = "break-word";
+	div.style.width = `${textarea.offsetWidth}px`;
+	div.style.height = "auto";
+	div.appendChild(document.createTextNode(textarea.value.slice(0, position)));
+	const span = document.createElement("span");
+	span.textContent = "​";
+	div.appendChild(span);
+	div.appendChild(document.createTextNode(textarea.value.slice(position)));
+	document.body.appendChild(div);
+	const result = {
+		top: span.offsetTop,
+		left: span.offsetLeft,
+		height: span.offsetHeight,
+	};
+	document.body.removeChild(div);
+	return result;
+}
 
 interface ChatUIProps {
 	messages: UIMessage[];
@@ -185,43 +247,22 @@ interface ChatUIProps {
 	isTemporaryChat?: boolean;
 	forkChat?: () => void | Promise<void>;
 	isForkingChat?: boolean;
+	activeSkills?: Skill[];
+	onSelectSkill?: (skill: Skill) => void;
+	onRemoveSkill?: (skillId: string) => void;
 }
 
-const suggestions = [
-	"Write a Python script to analyze CSV data and create visualizations",
-	"Create a compelling elevator pitch for a sustainable fashion startup",
-	"Explain quantum computing like I'm 12 years old",
-	"Design a 7-day workout plan for busy professionals",
-	"Write a short mystery story in exactly 100 words",
-	"Debug this React component and suggest performance improvements",
-	"Plan the perfect weekend in Tokyo for first-time visitors",
-	"Generate creative Instagram captions for a coffee shop",
-	"Analyze the pros and cons of different programming languages",
-	"Create a meal prep plan for someone with a nut allergy",
-];
-
-const heroSuggestionGroups = {
-	Create: suggestions,
-	Explore: [
-		"What are trending AI research topics right now?",
-		"Summarize the latest news about TypeScript",
-		"Find interesting datasets for a side project",
-		"Suggest tech blogs to follow for frontend performance",
-	],
-	Code: [
-		"Refactor this React component for readability",
-		"Write unit tests for a Node.js service",
-		"Explain how to debounce an input in React",
-		"Show an example of a Zod schema with refinement",
-	],
-	"Image gen": [
-		"Generate an image of a cyberpunk city at night",
-		"Create a serene mountain landscape at sunrise",
-		"Design a futuristic robot assistant",
-	],
-};
-
-type HeroSuggestionGroup = keyof typeof heroSuggestionGroups;
+function getRandomHeroSuggestionGroups(): Record<
+	HeroSuggestionGroup,
+	readonly string[]
+> {
+	return {
+		Create: sampleSuggestions(heroSuggestionGroups.Create, 5),
+		Explore: sampleSuggestions(heroSuggestionGroups.Explore, 5),
+		Code: sampleSuggestions(heroSuggestionGroups.Code, 5),
+		"Image gen": sampleSuggestions(heroSuggestionGroups["Image gen"], 5),
+	};
+}
 
 // js-combine-iterations: Extract message parts in a single pass instead of multiple filter() calls
 interface ExtractedParts {
@@ -710,8 +751,6 @@ const UserMessage = memo(
 						</Actions>
 					) : null}
 				</div>
-				{isLastMessage &&
-					(status === "submitted" || status === "streaming") && <Loader />}
 			</Message>
 		);
 	},
@@ -786,6 +825,9 @@ export const ChatUI = ({
 	isTemporaryChat = false,
 	forkChat,
 	isForkingChat = false,
+	activeSkills = [],
+	onSelectSkill,
+	onRemoveSkill,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -819,6 +861,12 @@ export const ChatUI = ({
 	const qualityOptions = ["auto", "low", "medium", "high"] as const;
 
 	const [activeGroup, setActiveGroup] = useState<HeroSuggestionGroup>("Create");
+	const [randomizedHeroSuggestionGroups, setRandomizedHeroSuggestionGroups] =
+		useState<Record<HeroSuggestionGroup, readonly string[]> | null>(null);
+	useEffect(
+		() => setRandomizedHeroSuggestionGroups(getRandomHeroSuggestionGroups()),
+		[],
+	);
 	const visibleHeroSuggestionGroups: HeroSuggestionGroup[] = supportsImageGen
 		? ["Image gen"]
 		: ["Create", "Explore", "Code"];
@@ -831,6 +879,26 @@ export const ChatUI = ({
 	const inputRef = useRef<HTMLDivElement | null>(null);
 	const [inputHeight, setInputHeight] = useState(0);
 	const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
+	const [skillTriggerOpen, setSkillTriggerOpen] = useState(false);
+	const [skillTriggerPos, setSkillTriggerPos] = useState({ top: 0, left: 0 });
+	const [skillTriggerFilter, setSkillTriggerFilter] = useState("");
+	const skillTriggerIndexRef = useRef(-1);
+
+	const handleSkillTriggerSelect = useCallback(
+		(skill: Skill) => {
+			const before = text.slice(0, skillTriggerIndexRef.current);
+			const after = text.slice(
+				skillTriggerIndexRef.current + 1 + skillTriggerFilter.length,
+			);
+			setText(before + after);
+			onSelectSkill?.(skill);
+			setSkillTriggerOpen(false);
+			skillTriggerIndexRef.current = -1;
+			setTimeout(() => textareaRef.current?.focus(), 0);
+		},
+		[text, skillTriggerFilter, setText, onSelectSkill],
+	);
 
 	const updateInputHeight = useCallback(() => {
 		if (inputRef.current) {
@@ -1053,22 +1121,40 @@ export const ChatUI = ({
 										))}
 									</div>
 								) : null}
-								<div className="space-y-2">
-									{heroSuggestionGroups[activeSuggestionGroup]
-										.slice(0, 5)
-										.map((s) => (
-											<button
-												key={s}
-												type="button"
-												onClick={() => {
-													void handlePromptSubmit(s);
-												}}
-												className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
-											>
-												{s}
-											</button>
-										))}
-								</div>
+								<AnimatePresence mode="wait">
+									{randomizedHeroSuggestionGroups ? (
+										<motion.div
+											key={activeSuggestionGroup}
+											initial={{ opacity: 0 }}
+											animate={{ opacity: 1 }}
+											exit={{ opacity: 0 }}
+											transition={{ duration: 0.07, ease: "easeOut" }}
+											className="space-y-2"
+										>
+											{randomizedHeroSuggestionGroups[
+												activeSuggestionGroup
+											].map((s, index) => (
+												<motion.button
+													key={s}
+													type="button"
+													initial={{ opacity: 0, y: -6 }}
+													animate={{ opacity: 1, y: 0 }}
+													transition={{
+														duration: 0.12,
+														delay: index * 0.025,
+														ease: "easeOut",
+													}}
+													onClick={() => {
+														void handlePromptSubmit(s);
+													}}
+													className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+												>
+													{s}
+												</motion.button>
+											))}
+										</motion.div>
+									) : null}
+								</AnimatePresence>
 							</motion.div>
 						)}
 					</AnimatePresence>
@@ -1116,6 +1202,11 @@ export const ChatUI = ({
 						);
 					}
 				})}
+				{status === "submitted" && (
+					<div className="message-item mt-3">
+						<Loader />
+					</div>
+				)}
 				{messages.length > 0 &&
 					messages[messages.length - 1].role === "user" &&
 					error && (
@@ -1169,13 +1260,53 @@ export const ChatUI = ({
 					}}
 				>
 					<PromptInputBody>
+						{activeSkills.length > 0 && (
+							<div className="w-full flex flex-wrap gap-1.5 px-2 pt-2">
+								{activeSkills.map((skill) => (
+									<SkillChip
+										key={skill.id}
+										skill={skill}
+										onRemove={() => onRemoveSkill?.(skill.id)}
+									/>
+								))}
+							</div>
+						)}
 						<PromptInputAttachments>
 							{(attachment) => <PromptInputAttachment data={attachment} />}
 						</PromptInputAttachments>
 						<PromptInputTextarea
 							ref={textareaRef}
 							value={text}
-							onChange={(e) => setText(e.currentTarget.value)}
+							onChange={(e) => {
+								const value = e.currentTarget.value;
+								const cursor = e.currentTarget.selectionStart ?? value.length;
+								setText(value);
+								const textUpToCursor = value.slice(0, cursor);
+								const match = textUpToCursor.match(
+									/(?:^|(?<=\s))@([a-zA-Z_-]*)$/,
+								);
+								if (match) {
+									const idx = cursor - match[0].length;
+									skillTriggerIndexRef.current = idx;
+									setSkillTriggerFilter(match[1].toLowerCase());
+									setSkillTriggerOpen(true);
+									if (textareaRef.current) {
+										const coords = getCaretCoordinates(
+											textareaRef.current,
+											idx,
+										);
+										const rect = textareaRef.current.getBoundingClientRect();
+										setSkillTriggerPos({
+											top:
+												rect.top + coords.top - textareaRef.current.scrollTop,
+											left: rect.left + coords.left,
+										});
+									}
+								} else {
+									setSkillTriggerOpen(false);
+									skillTriggerIndexRef.current = -1;
+								}
+							}}
 							placeholder="Message"
 						/>
 					</PromptInputBody>
@@ -1209,6 +1340,10 @@ export const ChatUI = ({
 									<GlobeIcon size={16} />
 								</PromptInputButton>
 							)}
+							<SkillPickerButton
+								onSelectSkill={onSelectSkill}
+								activeSkills={activeSkills}
+							/>
 						</PromptInputTools>
 						<div className="flex items-center gap-2">
 							{supportsReasoning && (
@@ -1393,6 +1528,13 @@ export const ChatUI = ({
 						</div>
 					</PromptInputToolbar>
 				</PromptInput>
+				<SkillTriggerMenu
+					open={skillTriggerOpen}
+					position={skillTriggerPos}
+					filter={skillTriggerFilter}
+					onSelect={handleSkillTriggerSelect}
+					onClose={() => setSkillTriggerOpen(false)}
+				/>
 				<AnimatePresence initial={false}>
 					{isTemporaryChat ? (
 						<motion.p
@@ -1460,3 +1602,214 @@ export const ChatUI = ({
 		</div>
 	);
 };
+
+function SkillChip({
+	skill,
+	onRemove,
+}: {
+	skill: Skill;
+	onRemove?: () => void;
+}) {
+	return (
+		<div className="inline-flex items-center gap-1.5 rounded-md border bg-muted px-2 py-1 text-xs font-medium">
+			<ScrollTextIcon className="h-3 w-3 text-muted-foreground" />
+			<span>{skill.name}</span>
+			{onRemove && (
+				<button
+					type="button"
+					onClick={onRemove}
+					className="text-muted-foreground hover:text-foreground ml-0.5 rounded"
+					aria-label="Remove skill"
+				>
+					<XIcon className="h-3 w-3" />
+				</button>
+			)}
+		</div>
+	);
+}
+
+function SkillPickerButton({
+	onSelectSkill,
+	activeSkills = [],
+}: {
+	onSelectSkill?: (skill: Skill) => void;
+	activeSkills?: Skill[];
+}) {
+	const [createOpen, setCreateOpen] = useState(false);
+	const router = useRouter();
+	const { data } = useSkills();
+	const skills = (data?.skills as Skill[] | undefined) ?? [];
+	const enabledSkills = skills.filter((s) => s.enabled);
+	const activeIds = new Set(activeSkills.map((s) => s.id));
+
+	return (
+		<>
+			<Popover>
+				<PopoverTrigger asChild>
+					<PromptInputButton
+						variant={activeSkills.length > 0 ? "default" : "ghost"}
+						aria-label="Select a skill"
+					>
+						<ScrollTextIcon size={16} />
+					</PromptInputButton>
+				</PopoverTrigger>
+				<PopoverContent align="start" className="w-64 p-1">
+					<div className="mb-1 flex items-center justify-between px-2 py-1">
+						<span className="text-xs font-medium text-muted-foreground">
+							Select a skill
+						</span>
+						<div className="flex items-center gap-0.5">
+							<button
+								type="button"
+								className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+								aria-label="View all skills"
+								onClick={() => router.push("/skills")}
+							>
+								<ExternalLinkIcon className="h-3.5 w-3.5" />
+							</button>
+							<button
+								type="button"
+								className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+								aria-label="Create skill"
+								onClick={() => setCreateOpen(true)}
+							>
+								<PlusIcon className="h-3.5 w-3.5" />
+							</button>
+						</div>
+					</div>
+					{enabledSkills.length === 0 ? (
+						<p className="px-2 py-3 text-center text-xs text-muted-foreground">
+							No skills yet. Click + to create one.
+						</p>
+					) : (
+						enabledSkills.map((skill) => {
+							const isActive = activeIds.has(skill.id);
+							return (
+								<button
+									key={skill.id}
+									type="button"
+									className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
+									onClick={() => !isActive && onSelectSkill?.(skill)}
+								>
+									<ScrollTextIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									<div className="min-w-0 flex-1">
+										<div className="truncate font-medium">{skill.name}</div>
+										{skill.description && (
+											<div className="truncate text-xs text-muted-foreground">
+												{skill.description}
+											</div>
+										)}
+									</div>
+									{isActive && (
+										<span className="ml-auto text-xs text-muted-foreground">
+											✓
+										</span>
+									)}
+								</button>
+							);
+						})
+					)}
+				</PopoverContent>
+			</Popover>
+			<CreateSkillDialog open={createOpen} onOpenChange={setCreateOpen} />
+		</>
+	);
+}
+
+function SkillTriggerMenu({
+	open,
+	position,
+	filter,
+	onSelect,
+	onClose,
+}: {
+	open: boolean;
+	position: { top: number; left: number };
+	filter: string;
+	onSelect: (skill: Skill) => void;
+	onClose: () => void;
+}) {
+	const { data } = useSkills();
+	const [highlight, setHighlight] = useState(0);
+	const skills = (data?.skills as Skill[] | undefined) ?? [];
+	const filtered = skills
+		.filter((s) => s.enabled)
+		.filter((s) => !filter || s.name.toLowerCase().includes(filter));
+
+	useEffect(() => {
+		setHighlight(0);
+	}, [filter]);
+
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		const handler = (e: KeyboardEvent) => {
+			if (e.key === "ArrowDown") {
+				e.preventDefault();
+				setHighlight((h) => (h + 1) % Math.max(filtered.length, 1));
+			} else if (e.key === "ArrowUp") {
+				e.preventDefault();
+				setHighlight(
+					(h) =>
+						(h - 1 + Math.max(filtered.length, 1)) %
+						Math.max(filtered.length, 1),
+				);
+			} else if (e.key === "Enter") {
+				e.preventDefault();
+				if (filtered[highlight]) {
+					onSelect(filtered[highlight]);
+				}
+			} else if (e.key === "Escape") {
+				onClose();
+			}
+		};
+		window.addEventListener("keydown", handler, true);
+		return () => window.removeEventListener("keydown", handler, true);
+	}, [open, filtered, highlight, onSelect, onClose]);
+
+	if (!open || filtered.length === 0) {
+		return null;
+	}
+
+	const ITEM_HEIGHT = 52;
+	const itemsHeight = filtered.length * ITEM_HEIGHT;
+	const menuHeight = Math.min(itemsHeight + 8, 240);
+
+	return createPortal(
+		<div
+			style={{
+				position: "fixed",
+				top: position.top - menuHeight - 6,
+				left: position.left,
+				zIndex: 9999,
+				width: 240,
+			}}
+			className="rounded-md border bg-popover p-1 shadow-md"
+		>
+			{filtered.map((skill, i) => (
+				<button
+					key={skill.id}
+					type="button"
+					className={cn(
+						"flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+						i === highlight ? "bg-muted" : "hover:bg-muted",
+					)}
+					onMouseEnter={() => setHighlight(i)}
+					onClick={() => onSelect(skill)}
+				>
+					<ScrollTextIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+					<div className="min-w-0">
+						<div className="truncate font-medium">{skill.name}</div>
+						{skill.description && (
+							<div className="truncate text-xs text-muted-foreground">
+								{skill.description}
+							</div>
+						)}
+					</div>
+				</button>
+			))}
+		</div>,
+		document.body,
+	);
+}

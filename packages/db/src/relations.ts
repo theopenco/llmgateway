@@ -33,6 +33,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.userFavoriteModel.userId,
 		}),
+		skills: r.many.skill({
+			from: r.user.id,
+			to: r.skill.userId,
+		}),
 	},
 	organization: {
 		userOrganizations: r.many.userOrganization(),
@@ -295,6 +299,12 @@ export const relations = defineRelations(schema, (r) => ({
 		organization: r.one.organization({
 			from: r.paymentFailure.organizationId,
 			to: r.organization.id,
+		}),
+	},
+	skill: {
+		user: r.one.user({
+			from: r.skill.userId,
+			to: r.user.id,
 		}),
 	},
 }));
