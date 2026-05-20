@@ -16,7 +16,7 @@ Browse available embedding models on the [models page](https://llmgateway.io/mod
 
 - **OpenAI** — `text-embedding-3-small`, `text-embedding-3-large`, `text-embedding-ada-002`
 - **Google AI Studio** — `gemini-embedding-2` (recommended), `gemini-embedding-001` (legacy)
-- **Google Vertex AI** — `gemini-embedding-001`, `text-embedding-005`, `text-embedding-004`, `text-multilingual-embedding-002`. Prefix the model id with `google-vertex/` (e.g. `google-vertex/gemini-embedding-001`) when the same id also exists on `google-ai-studio`. `gemini-embedding-001` accepts only one input per request on Vertex; the `text-embedding-*` family supports native batching.
+- **Google Vertex AI** — `gemini-embedding-001`, `text-embedding-005`
 
 The gateway translates between provider-native request/response shapes (e.g. Google's `:embedContent` / `:batchEmbedContents`) and the OpenAI-compatible payload, so you can swap models without changing your client code.
 
