@@ -22,6 +22,7 @@ import {
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
 } from "@/lib/cached-queries.js";
+import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
 	providerSupportsCachedInput,
@@ -31,11 +32,7 @@ import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
 } from "@/lib/gcp-token.js";
-import {
-	getClientIpFromRequest,
-	throwIamException,
-	validateModelAccess,
-} from "@/lib/iam.js";
+import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
