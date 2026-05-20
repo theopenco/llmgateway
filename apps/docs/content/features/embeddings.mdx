@@ -16,13 +16,9 @@ Browse available embedding models on the [models page](https://llmgateway.io/mod
 
 - **OpenAI** — `text-embedding-3-small`, `text-embedding-3-large`, `text-embedding-ada-002`
 - **Google AI Studio** — `gemini-embedding-2` (recommended), `gemini-embedding-001` (legacy)
-- **Google Vertex AI** — `gemini-embedding-2`, `gemini-embedding-001`. Requires:
-  - A **service-account JSON** for `LLM_GOOGLE_VERTEX_API_KEY` (or as the provider-key token). Vertex's `:predict` and `:embedContent` endpoints reject Express-mode API keys (`API_KEY_SERVICE_BLOCKED` / `CREDENTIALS_MISSING`), so the gateway mints a short-lived OAuth2 access token from the SA JSON for embedding requests.
-  - `LLM_GOOGLE_CLOUD_PROJECT` (or `google_vertex_project_id` on the provider key).
-  - When a model is offered by more than one provider, prefix the id (e.g. `google-vertex/gemini-embedding-001`) to route explicitly.
-  - **Single input per request (for the Gemini embedding models).** `gemini-embedding-001`'s `:predict` and `gemini-embedding-2`'s `:embedContent` each accept exactly one input per upstream call, so the gateway rejects array `input` for these models with `400 batch_not_supported`. Loop on your side or route the same model through `google-ai-studio`, which natively batches via `batchEmbedContents`. (Vertex's older `text-embedding-005` / `text-multilingual-embedding-002` accept up to 5 inputs natively, but those aren't exposed by this gateway yet.)
+- **Google Vertex AI** — `gemini-embedding-001`, `text-embedding-005`, `text-embedding-004`, `text-multilingual-embedding-002`. Prefix the model id with `google-vertex/` (e.g. `google-vertex/gemini-embedding-001`) when the same id also exists on `google-ai-studio`. `gemini-embedding-001` accepts only one input per request on Vertex; the `text-embedding-*` family supports native batching.
 
-The gateway translates between provider-native request/response shapes — Google AI Studio's `:embedContent` / `:batchEmbedContents`, Vertex's `:predict` (for `gemini-embedding-001`) and `:embedContent` (for `gemini-embedding-2`) — and the OpenAI-compatible payload, so you can swap models without changing your client code.
+The gateway translates between provider-native request/response shapes (e.g. Google's `:embedContent` / `:batchEmbedContents`) and the OpenAI-compatible payload, so you can swap models without changing your client code.
 
 ## cURL
 

@@ -22,7 +22,6 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
-import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
@@ -674,16 +673,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			requestBody = buildSingleRequest(googleInputs[0]);
 		}
 	} else if (isGoogleVertex) {
-		// gemini-embedding-001's :predict and gemini-embedding-2's
-		// :embedContent each accept exactly one input per request (Vertex's
-		// other text-embedding-* models support up to 5, but we don't expose
-		// those here yet). Rather than silently fanning a batch into N
-		// upstream calls — which hides cost, latency, quota consumption,
-		// and partial-failure semantics from the caller — we reject batched
-		// input upfront. Callers can loop on their side or use the same
-		// model via google-ai-studio, which natively batches via
-		// batchEmbedContents.
-		if (googleInputs.length > 1) {
+		// All exposed google-vertex embedding models go through PredictionService's
+		// :predict endpoint, which accepts API-key auth via ?key= just like the
+		// chat path. The text-embedding-* family natively batches up to 250
+		// inputs per request; gemini-embedding-001 is the one model that only
+		// accepts a single input per call, so we reject batches for it upfront
+		// rather than fanning out silently (which would hide cost/quota/latency).
+		const singleInputOnlyModels = new Set(["gemini-embedding-001"]);
+		if (singleInputOnlyModels.has(upstreamModel) && googleInputs.length > 1) {
 			return c.json(
 				{
 					error: {
@@ -717,89 +714,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
 			"global";
 
-		// Vertex's PredictionService.{Predict,EmbedContent} reject Express-mode
-		// API keys (API_KEY_SERVICE_BLOCKED / CREDENTIALS_MISSING), so we
-		// require a service-account JSON and mint a short-lived OAuth2 access
-		// token. In credits/hybrid mode the SA JSON contains commas, which the
-		// env round-robin splitter would have mangled — re-read the env var
-		// directly. In api-keys mode the SA JSON is stored intact on the
-		// provider key.
-		const rawCredential = providerKey
-			? usedToken
-			: (process.env.LLM_GOOGLE_VERTEX_API_KEY ?? "");
-		let serviceAccount: { client_email?: unknown } | null = null;
-		try {
-			serviceAccount = JSON.parse(rawCredential) as {
-				client_email?: unknown;
-			};
-		} catch {
-			serviceAccount = null;
-		}
-		if (!serviceAccount || typeof serviceAccount.client_email !== "string") {
-			return c.json(
-				{
-					error: {
-						message:
-							"Google Vertex embeddings require a service-account JSON. Express-mode API keys are not accepted by Vertex's :predict / :embedContent endpoints. Provide service-account JSON via LLM_GOOGLE_VERTEX_API_KEY (credits/hybrid mode) or as the provider key token (api-keys mode).",
-						type: "invalid_request_error",
-						param: null,
-						code: "missing_service_account",
-					},
-				},
-				400,
-			);
-		}
-		try {
-			usedToken = await getVertexOpenAIAccessToken(rawCredential);
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			logger.warn("Vertex OAuth token exchange failed", {
-				requestId,
-				provider: providerId,
-				model: upstreamModel,
-				error: message,
-			});
-			if (envVarName !== undefined) {
-				reportKeyError(envVarName, configIndex, 401, message);
-			}
-			if (providerKey?.id) {
-				reportTrackedKeyError(providerKey.id, 401, message);
-			}
-			return c.json(
-				{
-					error: {
-						message: `Failed to obtain Google Vertex OAuth access token from service account: ${message}`,
-						type: "upstream_error",
-						param: null,
-						code: "vertex_oauth_failed",
-					},
-				},
-				502,
-			);
-		}
-
-		// gemini-embedding-2 (multimodal) is documented against Vertex's
-		// v1beta1 :embedContent endpoint (content/parts body, embedding +
-		// usageMetadata response). gemini-embedding-001 uses the legacy
-		// :predict shape (instances[].content, predictions[].embeddings).
-		const useEmbedContent = upstreamModel === "gemini-embedding-2";
-		const onlyText = googleInputs[0];
-		if (useEmbedContent) {
-			upstreamUrl = `${resolvedBaseUrl}/v1beta1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:embedContent`;
-			requestBody = {
-				content: { parts: [{ text: onlyText }] },
-			};
-			if (dimensions !== undefined) {
-				requestBody.outputDimensionality = dimensions;
-			}
-		} else {
-			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:predict`;
-			requestBody = {
-				instances: [{ content: onlyText }],
-			};
-			if (dimensions !== undefined) {
-				requestBody.parameters = { outputDimensionality: dimensions };
-			}
+		upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:predict?key=${encodeURIComponent(usedToken)}`;
+		requestBody = {
+			instances: googleInputs.map((text) => ({ content: text })),
+		};
+		if (dimensions !== undefined) {
+			requestBody.parameters = { outputDimensionality: dimensions };
 		}
 	} else {
 		upstreamUrl = `${resolvedBaseUrl}/v1/embeddings`;
@@ -1135,60 +1055,46 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			upstreamJson && typeof upstreamJson === "object"
 				? (upstreamJson as Record<string, unknown>)
 				: {};
-		// Single-input contract enforced earlier in the handler. Two upstream
-		// response shapes (one per endpoint) — both yield exactly one vector:
-		//   :predict       → { predictions: [{embeddings: {values, statistics: {token_count}}}] }
-		//   :embedContent  → { embedding: {values}, usageMetadata: {promptTokenCount} }
+		// Vertex :predict response: { predictions: [{embeddings: {values, statistics: {token_count}}}, ...] }
+		// One prediction per instance. text-embedding-* models return multiple
+		// when batched; gemini-embedding-001 always returns one.
+		const predictions = Array.isArray(upstream.predictions)
+			? (upstream.predictions as Array<Record<string, unknown>>)
+			: [];
 		const wantsBase64 = encoding_format === "base64";
-		let values: number[] = [];
-		let perItemTokens: number | null = null;
-		if (Array.isArray(upstream.predictions)) {
-			const prediction =
-				upstream.predictions[0] && typeof upstream.predictions[0] === "object"
-					? (upstream.predictions[0] as Record<string, unknown>)
-					: {};
+		let upstreamTokenSum = 0;
+		let anyTokenStatMissing = false;
+		const data = predictions.map((prediction, index) => {
 			const embeddingsObj =
 				prediction.embeddings && typeof prediction.embeddings === "object"
 					? (prediction.embeddings as Record<string, unknown>)
 					: {};
-			values = Array.isArray(embeddingsObj.values)
+			const values = Array.isArray(embeddingsObj.values)
 				? (embeddingsObj.values as number[])
 				: [];
 			const stats =
 				embeddingsObj.statistics && typeof embeddingsObj.statistics === "object"
 					? (embeddingsObj.statistics as Record<string, unknown>)
 					: undefined;
-			perItemTokens =
-				typeof stats?.token_count === "number" ? stats.token_count : null;
-		} else if (upstream.embedding && typeof upstream.embedding === "object") {
-			const emb = upstream.embedding as Record<string, unknown>;
-			values = Array.isArray(emb.values) ? (emb.values as number[]) : [];
-		}
-		const data = [
-			{
+			if (typeof stats?.token_count === "number") {
+				upstreamTokenSum += stats.token_count;
+			} else {
+				anyTokenStatMissing = true;
+			}
+			return {
 				object: "embedding" as const,
-				index: 0,
+				index,
 				embedding: wantsBase64 ? packFloat32Base64(values) : values,
-			},
-		];
-		// :predict reports usage per-prediction; :embedContent reports it at
-		// the top level. Fall back to a char-based estimate only if neither
-		// is present.
-		const topLevelUsage =
-			upstream.usageMetadata && typeof upstream.usageMetadata === "object"
-				? (upstream.usageMetadata as Record<string, unknown>)
-				: undefined;
-		const topLevelPromptTokens =
-			typeof topLevelUsage?.promptTokenCount === "number"
-				? topLevelUsage.promptTokenCount
-				: null;
-		if (perItemTokens !== null) {
-			promptTokens = perItemTokens;
-		} else if (topLevelPromptTokens !== null) {
-			promptTokens = topLevelPromptTokens;
-		} else {
-			promptTokens = Math.max(1, Math.ceil(googleInputs[0].length / 4));
+			};
+		});
+		if (predictions.length === 0 || anyTokenStatMissing) {
+			promptTokens = googleInputs.reduce(
+				(sum, text) => sum + Math.max(1, Math.ceil(text.length / 4)),
+				0,
+			);
 			estimatedUsage = true;
+		} else {
+			promptTokens = upstreamTokenSum;
 		}
 		totalTokens = promptTokens;
 		normalizedResponse = {

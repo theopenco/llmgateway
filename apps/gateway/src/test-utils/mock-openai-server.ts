@@ -1810,18 +1810,20 @@ const vertexPublisherModelHandler = async (
 
 	if (action === "predict") {
 		const instances = Array.isArray(body.instances) ? body.instances : [];
-		const firstInstance =
-			instances.length > 0 && typeof instances[0] === "object"
-				? (instances[0] as Record<string, unknown>)
-				: {};
-		const text =
-			typeof firstInstance.content === "string" ? firstInstance.content : "";
-		const statusTrigger = extractStatusCodeTrigger(text);
+		const texts: string[] = instances.map((inst: unknown) => {
+			if (inst && typeof inst === "object") {
+				const content = (inst as Record<string, unknown>).content;
+				return typeof content === "string" ? content : "";
+			}
+			return "";
+		});
+		const firstText = texts[0] ?? "";
+		const statusTrigger = extractStatusCodeTrigger(firstText);
 		if (statusTrigger) {
 			c.status(statusTrigger.statusCode as any);
 			return c.json(statusTrigger.errorResponse);
 		}
-		if (text.includes("TRIGGER_ERROR")) {
+		if (firstText.includes("TRIGGER_ERROR")) {
 			c.status(500);
 			return c.json({
 				error: {
@@ -1846,19 +1848,16 @@ const vertexPublisherModelHandler = async (
 		});
 		// Distinct from the gateway's ceil(chars/4) fallback so tests can
 		// detect when upstream token_count is used vs. estimated.
-		const tokenCount = Math.max(1, Math.floor(text.length / 5));
 		return c.json({
-			predictions: [
-				{
-					embeddings: {
-						values,
-						statistics: {
-							truncated: false,
-							token_count: tokenCount,
-						},
+			predictions: texts.map((text) => ({
+				embeddings: {
+					values,
+					statistics: {
+						truncated: false,
+						token_count: Math.max(1, Math.floor(text.length / 5)),
 					},
 				},
-			],
+			})),
 		});
 	}
 

@@ -1,5 +1,3 @@
-import { generateKeyPairSync } from "node:crypto";
-
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -13,24 +11,6 @@ import {
 } from "./lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import { readAll, waitForLogs } from "./test-utils/test-helpers.js";
-
-// A real RSA private key so the gateway's JWT-grant signing succeeds. We
-// don't verify the JWT in the mock OAuth endpoint, so any valid key works.
-const { privateKey: stubVertexPrivateKey } = generateKeyPairSync("rsa", {
-	modulusLength: 2048,
-	privateKeyEncoding: { type: "pkcs8", format: "pem" },
-	publicKeyEncoding: { type: "spki", format: "pem" },
-});
-
-function buildStubVertexServiceAccountJson(mockServerUrl: string): string {
-	return JSON.stringify({
-		type: "service_account",
-		project_id: "test-project",
-		client_email: "test-sa@test-project.iam.gserviceaccount.com",
-		private_key: stubVertexPrivateKey,
-		token_uri: `${mockServerUrl}/mock-google-oauth/token`,
-	});
-}
 
 describe("api", () => {
 	const harness = createGatewayApiTestHarness({
@@ -869,7 +849,7 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex",
-				token: buildStubVertexServiceAccountJson(mockServerUrl),
+				token: "vertex-test-token",
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -943,71 +923,6 @@ describe("api", () => {
 		}
 	});
 
-	test("/v1/embeddings google-vertex gemini-embedding-2 routes via embedContent", async () => {
-		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
-		try {
-			await db.insert(tables.apiKey).values({
-				id: "token-id-embeddings-vertex-v2",
-				token: "real-token-embeddings-vertex-v2",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-embeddings-vertex-v2",
-				token: buildStubVertexServiceAccountJson(mockServerUrl),
-				provider: "google-vertex",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
-
-			const requestId = "embeddings-vertex-v2-request-id";
-			const inputText = "Vertex embeddings v2 input.";
-			const res = await app.request("/v1/embeddings", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token-embeddings-vertex-v2",
-					"x-request-id": requestId,
-				},
-				body: JSON.stringify({
-					input: inputText,
-					model: "google-vertex/gemini-embedding-2",
-				}),
-			});
-
-			expect(res.status).toBe(200);
-			const json = await res.json();
-			expect(json).toHaveProperty("model", "google-vertex/gemini-embedding-2");
-			expect(json.data).toHaveLength(1);
-			expect(json.data[0].embedding).toHaveLength(3072);
-
-			const logs = await waitForLogs(1);
-			const embeddingLog = logs.find((log) => log.requestId === requestId);
-			expect(embeddingLog?.usedModel).toBe("google-vertex/gemini-embedding-2");
-			expect(embeddingLog?.usedModelMapping).toBe("gemini-embedding-2");
-			// Mock embedContent returns floor(chars/5) via usageMetadata.
-			const expectedUpstreamTokens = Math.max(
-				1,
-				Math.floor(inputText.length / 5),
-			);
-			expect(json.usage.prompt_tokens).toBe(expectedUpstreamTokens);
-			expect(embeddingLog?.estimatedCost).toBe(false);
-			expect(Number(embeddingLog?.inputCost)).toBeCloseTo(
-				(expectedUpstreamTokens * 0.2) / 1e6,
-				12,
-			);
-		} finally {
-			if (originalGoogleCloudProject !== undefined) {
-				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
-			} else {
-				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
-			}
-		}
-	});
-
 	test("/v1/embeddings google-vertex rejects batched input", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
@@ -1022,7 +937,7 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex-batch",
-				token: buildStubVertexServiceAccountJson(mockServerUrl),
+				token: "vertex-test-token",
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -1070,7 +985,7 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex-b64",
-				token: buildStubVertexServiceAccountJson(mockServerUrl),
+				token: "vertex-test-token",
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -1131,7 +1046,7 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex-tokenid",
-				token: buildStubVertexServiceAccountJson(mockServerUrl),
+				token: "vertex-test-token",
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -1176,7 +1091,7 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex-noproj",
-				token: buildStubVertexServiceAccountJson(mockServerUrl),
+				token: "vertex-test-token",
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -1206,97 +1121,53 @@ describe("api", () => {
 		}
 	});
 
-	test("/v1/embeddings google-vertex rejects non-service-account credentials", async () => {
+	test("/v1/embeddings google-vertex text-embedding-005 batches natively", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
 		try {
 			await db.insert(tables.apiKey).values({
-				id: "token-id-embeddings-vertex-nosa",
-				token: "real-token-embeddings-vertex-nosa",
+				id: "token-id-embeddings-vertex-005",
+				token: "real-token-embeddings-vertex-005",
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 
 			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-embeddings-vertex-nosa",
-				token: "plain-api-key-not-a-service-account",
+				id: "provider-key-id-embeddings-vertex-005",
+				token: "vertex-test-token",
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			});
 
+			const inputs = ["first input", "second input", "third input"];
 			const res = await app.request("/v1/embeddings", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token-embeddings-vertex-nosa",
+					Authorization: "Bearer real-token-embeddings-vertex-005",
 				},
 				body: JSON.stringify({
-					input: "express mode key won't work for vertex embeddings",
-					model: "google-vertex/gemini-embedding-001",
+					input: inputs,
+					model: "google-vertex/text-embedding-005",
+					dimensions: 768,
 				}),
 			});
 
-			expect(res.status).toBe(400);
+			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.error?.code).toBe("missing_service_account");
-		} finally {
-			if (originalGoogleCloudProject !== undefined) {
-				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
-			} else {
-				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
-			}
-		}
-	});
-
-	test("/v1/embeddings google-vertex normalizes OAuth exchange failure", async () => {
-		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
-		try {
-			await db.insert(tables.apiKey).values({
-				id: "token-id-embeddings-vertex-oauthfail",
-				token: "real-token-embeddings-vertex-oauthfail",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			// SA JSON whose token_uri points at a 404 path on the mock server,
-			// so the JWT-bearer exchange throws inside getVertexOpenAIAccessToken
-			// before any fetch to Vertex happens. The handler must catch that
-			// and return a normalized 502, not let it hit the global 500 path.
-			const baseSa = JSON.parse(
-				buildStubVertexServiceAccountJson(mockServerUrl),
+			expect(json).toHaveProperty("model", "google-vertex/text-embedding-005");
+			expect(json.data).toHaveLength(3);
+			expect(json.data[0]).toHaveProperty("index", 0);
+			expect(json.data[1]).toHaveProperty("index", 1);
+			expect(json.data[2]).toHaveProperty("index", 2);
+			expect(json.data[0].embedding).toHaveLength(768);
+			const expectedTokens = inputs.reduce(
+				(sum, text) => sum + Math.max(1, Math.floor(text.length / 5)),
+				0,
 			);
-			baseSa.client_email = "oauth-fail@test-project.iam.gserviceaccount.com";
-			baseSa.token_uri = `${mockServerUrl}/mock-google-oauth/token-does-not-exist`;
-			const saJsonWithBadTokenUri = JSON.stringify(baseSa);
-
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-embeddings-vertex-oauthfail",
-				token: saJsonWithBadTokenUri,
-				provider: "google-vertex",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
-
-			const res = await app.request("/v1/embeddings", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token-embeddings-vertex-oauthfail",
-				},
-				body: JSON.stringify({
-					input: "trigger oauth failure",
-					model: "google-vertex/gemini-embedding-001",
-				}),
-			});
-
-			expect(res.status).toBe(502);
-			const json = await res.json();
-			expect(json.error?.code).toBe("vertex_oauth_failed");
-			expect(json.error?.type).toBe("upstream_error");
+			expect(json.usage.prompt_tokens).toBe(expectedTokens);
 		} finally {
 			if (originalGoogleCloudProject !== undefined) {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
