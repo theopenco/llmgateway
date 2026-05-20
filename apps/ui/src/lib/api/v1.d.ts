@@ -2690,10 +2690,84 @@ export interface paths {
                                 projectId: string;
                                 projectName: string;
                                 createdAt: string;
+                                iamRules: {
+                                    id: string;
+                                    createdAt: string;
+                                    updatedAt: string;
+                                    apiKeyId: string;
+                                    /** @enum {string} */
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleValue: {
+                                        models?: string[];
+                                        providers?: string[];
+                                        /** @enum {string} */
+                                        pricingType?: "free" | "paid";
+                                        maxInputPrice?: number;
+                                        maxOutputPrice?: number;
+                                    };
+                                    /** @enum {string} */
+                                    status: "active" | "inactive";
+                                }[];
                             }[];
                             total: number;
                             limit: number;
                             offset: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/provider-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization provider keys. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providerKeys: {
+                                id: string;
+                                token: string;
+                                provider: string;
+                                name: string | null;
+                                baseUrl: string | null;
+                                status: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            total: number;
                         };
                     };
                 };
