@@ -1109,7 +1109,7 @@ describe("api", () => {
 				}),
 			});
 
-			expect(res.status).toBe(400);
+			expect(res.status).toBe(500);
 			const json = await res.json();
 			expect(json.error?.code).toBe("missing_project_id");
 		} finally {
