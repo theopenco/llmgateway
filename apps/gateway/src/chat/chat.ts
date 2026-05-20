@@ -2946,8 +2946,9 @@ chat.openapi(completions, async (c) => {
 	let usedModelMapping = usedModel; // Store the original provider model name
 	let usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
-		usedRegion ? `${baseModelName}:${usedRegion}` : baseModelName,
+		baseModelName,
 		customProviderName,
+		usedRegion,
 	); // Store in LLMGateway format
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
@@ -3564,8 +3565,9 @@ chat.openapi(completions, async (c) => {
 		if (usedRegion) {
 			usedModelFormatted = formatUsedModelForDisplay(
 				usedProvider,
-				`${baseModelName}:${usedRegion}`,
+				baseModelName,
 				customProviderName,
+				usedRegion,
 			);
 		}
 	} catch (error) {
@@ -5581,7 +5583,12 @@ chat.openapi(completions, async (c) => {
 							await writeStreamingContentFilterResponse({
 								billingModel: usedModel,
 								billingProvider: usedProvider,
-								responseModel: `${usedProvider}/${baseModelName}`,
+								responseModel: formatUsedModelForDisplay(
+									usedProvider,
+									baseModelName,
+									customProviderName,
+									usedRegion,
+								),
 								metadata: {
 									requested_model: initialRequestedModel,
 									requested_provider: requestedProvider,
@@ -7926,7 +7933,12 @@ chat.openapi(completions, async (c) => {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: Math.floor(Date.now() / 1000),
-									model: usedModel,
+									model: formatUsedModelForDisplay(
+										usedProvider,
+										baseModelName,
+										customProviderName,
+										usedRegion,
+									),
 									choices: [
 										{
 											index: 0,
@@ -9211,7 +9223,12 @@ chat.openapi(completions, async (c) => {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						customProviderName,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -9509,7 +9526,12 @@ chat.openapi(completions, async (c) => {
 						id: `chatcmpl-${Date.now()}`,
 						object: "chat.completion",
 						created: Math.floor(Date.now() / 1000),
-						model: `${usedProvider}/${baseModelName}`,
+						model: formatUsedModelForDisplay(
+							usedProvider,
+							baseModelName,
+							customProviderName,
+							usedRegion,
+						),
 						choices: [
 							{
 								index: 0,
