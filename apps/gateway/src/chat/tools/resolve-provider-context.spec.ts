@@ -14,4 +14,16 @@ describe("formatUsedModelForDisplay", () => {
 			"stuff/gpt-5.4-nano",
 		);
 	});
+
+	it("appends the region suffix when provided", () => {
+		expect(
+			formatUsedModelForDisplay("alibaba", "glm-4.6", undefined, "cn-beijing"),
+		).toBe("alibaba/glm-4.6:cn-beijing");
+	});
+
+	it("omits the region suffix when undefined", () => {
+		expect(
+			formatUsedModelForDisplay("alibaba", "glm-4.6", undefined, undefined),
+		).toBe("alibaba/glm-4.6");
+	});
 });

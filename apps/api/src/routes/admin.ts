@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
+import { maskToken } from "@/lib/maskToken.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 
@@ -27,6 +28,7 @@ import {
 	tables,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	projectHourlySourceStats,
 	globalModelStats,
 	globalSourceStats,
 	modelProviderMappingHistory,
@@ -182,6 +184,32 @@ const projectsListSchema = z.object({
 	total: z.number(),
 });
 
+const iamRuleAdminSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+	apiKeyId: z.string(),
+	ruleType: z.enum([
+		"allow_models",
+		"deny_models",
+		"allow_pricing",
+		"deny_pricing",
+		"allow_providers",
+		"deny_providers",
+		"allow_ip_cidrs",
+		"deny_ip_cidrs",
+	]),
+	ruleValue: z.object({
+		models: z.array(z.string()).optional(),
+		providers: z.array(z.string()).optional(),
+		pricingType: z.enum(["free", "paid"]).optional(),
+		maxInputPrice: z.number().optional(),
+		maxOutputPrice: z.number().optional(),
+		ipCidrs: z.array(z.string()).optional(),
+	}),
+	status: z.enum(["active", "inactive"]),
+});
+
 const apiKeySchema = z.object({
 	id: z.string(),
 	token: z.string(),
@@ -192,6 +220,7 @@ const apiKeySchema = z.object({
 	projectId: z.string(),
 	projectName: z.string(),
 	createdAt: z.string(),
+	iamRules: z.array(iamRuleAdminSchema),
 });
 
 const apiKeysListSchema = z.object({
@@ -199,6 +228,22 @@ const apiKeysListSchema = z.object({
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
+});
+
+const providerKeyAdminSchema = z.object({
+	id: z.string(),
+	token: z.string(),
+	provider: z.string(),
+	name: z.string().nullable(),
+	baseUrl: z.string().nullable(),
+	status: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const providerKeysListSchema = z.object({
+	providerKeys: z.array(providerKeyAdminSchema),
+	total: z.number(),
 });
 
 const memberSchema = z.object({
@@ -375,6 +420,29 @@ const getOrganizationApiKeys = createRoute({
 				},
 			},
 			description: "Organization API keys.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const getOrganizationProviderKeys = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/provider-keys",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerKeysListSchema.openapi({}),
+				},
+			},
+			description: "Organization provider keys.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -1690,16 +1758,82 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		.limit(limit)
 		.offset(offset);
 
+	const apiKeyIds = apiKeys.map((k) => k.id);
+	const iamRules = apiKeyIds.length
+		? await db
+				.select()
+				.from(tables.apiKeyIamRule)
+				.where(inArray(tables.apiKeyIamRule.apiKeyId, apiKeyIds))
+				.orderBy(desc(tables.apiKeyIamRule.createdAt))
+		: [];
+
+	const rulesByKey = new Map<string, typeof iamRules>();
+	for (const rule of iamRules) {
+		const list = rulesByKey.get(rule.apiKeyId) ?? [];
+		list.push(rule);
+		rulesByKey.set(rule.apiKeyId, list);
+	}
+
 	return c.json({
 		apiKeys: apiKeys.map((k) => ({
 			...k,
 			usage: String(k.usage),
 			usageLimit: k.usageLimit ? String(k.usageLimit) : null,
 			createdAt: k.createdAt.toISOString(),
+			iamRules: (rulesByKey.get(k.id) ?? []).map((r) => ({
+				id: r.id,
+				createdAt: r.createdAt.toISOString(),
+				updatedAt: r.updatedAt.toISOString(),
+				apiKeyId: r.apiKeyId,
+				ruleType: r.ruleType,
+				ruleValue: r.ruleValue,
+				status: r.status,
+			})),
 		})),
 		total,
 		limit,
 		offset,
+	});
+});
+
+admin.openapi(getOrganizationProviderKeys, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const providerKeys = await db
+		.select({
+			id: tables.providerKey.id,
+			token: tables.providerKey.token,
+			provider: tables.providerKey.provider,
+			name: tables.providerKey.name,
+			baseUrl: tables.providerKey.baseUrl,
+			status: tables.providerKey.status,
+			createdAt: tables.providerKey.createdAt,
+			updatedAt: tables.providerKey.updatedAt,
+		})
+		.from(tables.providerKey)
+		.where(eq(tables.providerKey.organizationId, orgId))
+		.orderBy(desc(tables.providerKey.createdAt));
+
+	return c.json({
+		providerKeys: providerKeys.map((k) => ({
+			...k,
+			token: maskToken(k.token, 6),
+			createdAt: k.createdAt.toISOString(),
+			updatedAt: k.updatedAt.toISOString(),
+		})),
+		total: providerKeys.length,
 	});
 });
 
@@ -8938,46 +9072,42 @@ admin.openapi(getDevpassUsage, async (c) => {
 		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
 		.limit(limit);
 
-	// Sources: no per-org source aggregator exists, so use the same
-	// cross-org day-bucketed table the /global-stats endpoint reads.
-	// Snap range to UTC day boundaries to match the bucket grain.
-	const sourceStart = new Date(
-		Date.UTC(
-			startDate.getUTCFullYear(),
-			startDate.getUTCMonth(),
-			startDate.getUTCDate(),
-		),
-	);
-	const sourceEnd = new Date(
-		Date.UTC(
-			endDate.getUTCFullYear(),
-			endDate.getUTCMonth(),
-			endDate.getUTCDate(),
-		),
+	// Sources: use the per-project hourly source aggregator so the breakdown
+	// is scoped to DevPass orgs (joins project -> organization), instead of the
+	// cross-org globalSourceStats table.
+	const projectSourceWhere = and(
+		gte(projectHourlySourceStats.hourTimestamp, startDate),
+		lte(projectHourlySourceStats.hourTimestamp, endDate),
+		devpassOrgFilter,
 	);
 
 	const sourceRows = await db
 		.select({
-			id: globalSourceStats.source,
+			id: projectHourlySourceStats.source,
 			requestCount:
-				sql<number>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
 					"request_count",
 				),
 			totalTokens:
-				sql<number>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${globalSourceStats.cost}), 0)`.as("cost"),
-		})
-		.from(globalSourceStats)
-		.where(
-			and(
-				gte(globalSourceStats.dayTimestamp, sourceStart),
-				lte(globalSourceStats.dayTimestamp, sourceEnd),
+			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+				"cost",
 			),
+		})
+		.from(projectHourlySourceStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlySourceStats.projectId, tables.project.id),
 		)
-		.groupBy(globalSourceStats.source)
-		.orderBy(desc(sql`COALESCE(SUM(${globalSourceStats.cost}), 0)`))
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(projectSourceWhere)
+		.groupBy(projectHourlySourceStats.source)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`))
 		.limit(limit);
 
 	const mapRow = (r: {

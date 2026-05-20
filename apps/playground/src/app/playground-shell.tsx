@@ -121,7 +121,8 @@ export async function renderPlaygroundShell({
 	}
 
 	const selectedOrganization =
-		(orgId ? organizations.find((o) => o.id === orgId) : null) ?? null;
+		(orgId ? organizations.find((o) => o.id === orgId) : organizations[0]) ??
+		null;
 
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {

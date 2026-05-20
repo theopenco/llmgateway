@@ -12,9 +12,6 @@ import {
 import { clearCache } from "./test-helpers.js";
 
 type ProjectMode = "api-keys" | "credits" | "hybrid";
-interface GatewayApiTestHarnessOptions {
-	mockServerPort: number;
-}
 interface LockClient {
 	query: (text: string, values?: unknown[]) => Promise<unknown>;
 	release: () => void;
@@ -121,14 +118,12 @@ async function ensureRoutingMetricMapping(modelId: string, providerId: string) {
 		.onConflictDoNothing();
 }
 
-export function createGatewayApiTestHarness(
-	options: GatewayApiTestHarnessOptions,
-) {
+export function createGatewayApiTestHarness() {
 	let mockServerUrl = "";
 	let lockClient: LockClient | null = null;
 
-	beforeAll(() => {
-		mockServerUrl = startMockServer(options.mockServerPort);
+	beforeAll(async () => {
+		mockServerUrl = await startMockServer();
 	});
 
 	afterAll(() => {

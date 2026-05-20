@@ -14,6 +14,7 @@ import {
 	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
+	validateIamRuleInput,
 	type PartialApiKeyLimitConfig,
 } from "@/routes/keys-api.js";
 import { createProjectForOrg } from "@/routes/projects.js";
@@ -746,6 +747,8 @@ v1Master.openapi(createIamRule, async (c) => {
 	const { id } = c.req.param();
 	const ruleData = c.req.valid("json");
 
+	validateIamRuleInput(ruleData);
+
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
 	const [rule] = await db
@@ -843,6 +846,8 @@ v1Master.openapi(updateIamRule, async (c) => {
 	const { id, ruleId } = c.req.param();
 	const updates = c.req.valid("json");
 
+	validateIamRuleInput(updates);
+
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
 	const existingRule = await db.query.apiKeyIamRule.findFirst({
@@ -852,6 +857,13 @@ v1Master.openapi(updateIamRule, async (c) => {
 	if (!existingRule) {
 		throw new HTTPException(404, {
 			message: "IAM rule not found for this API key",
+		});
+	}
+
+	if (updates.ruleType || updates.ruleValue) {
+		validateIamRuleInput({
+			ruleType: updates.ruleType ?? existingRule.ruleType,
+			ruleValue: updates.ruleValue ?? existingRule.ruleValue,
 		});
 	}
 
