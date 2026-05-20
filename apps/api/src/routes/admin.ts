@@ -195,6 +195,8 @@ const iamRuleAdminSchema = z.object({
 		"deny_pricing",
 		"allow_providers",
 		"deny_providers",
+		"allow_ip_cidrs",
+		"deny_ip_cidrs",
 	]),
 	ruleValue: z.object({
 		models: z.array(z.string()).optional(),
@@ -202,6 +204,7 @@ const iamRuleAdminSchema = z.object({
 		pricingType: z.enum(["free", "paid"]).optional(),
 		maxInputPrice: z.number().optional(),
 		maxOutputPrice: z.number().optional(),
+		ipCidrs: z.array(z.string()).optional(),
 	}),
 	status: z.enum(["active", "inactive"]),
 });

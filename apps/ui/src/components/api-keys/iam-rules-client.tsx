@@ -6,6 +6,7 @@ import {
 	ArrowLeft,
 	CheckCircle2,
 	Lock,
+	Network,
 	Plus,
 	Shield,
 	Trash2,
@@ -56,15 +57,32 @@ export interface IamRule {
 		| "allow_pricing"
 		| "deny_pricing"
 		| "allow_providers"
-		| "deny_providers";
+		| "deny_providers"
+		| "allow_ip_cidrs"
+		| "deny_ip_cidrs";
 	ruleValue: {
 		models?: string[];
 		providers?: string[];
 		pricingType?: "free" | "paid";
 		maxInputPrice?: number;
 		maxOutputPrice?: number;
+		ipCidrs?: string[];
 	};
 	status: "active" | "inactive";
+}
+
+const IPV4_OR_IPV6_CIDR =
+	/^([0-9]{1,3}(\.[0-9]{1,3}){3}|[0-9a-fA-F:]+)\/[0-9]{1,3}$/;
+
+function parseCidrList(input: string): string[] {
+	return input
+		.split(/[\s,]+/)
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
+}
+
+function isValidCidrSyntax(cidr: string): boolean {
+	return IPV4_OR_IPV6_CIDR.test(cidr);
 }
 
 interface IamRulesClientProps {
@@ -85,6 +103,7 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 		pricingType: string;
 		maxInputPrice: string;
 		maxOutputPrice: string;
+		ipCidrs: string;
 	}>({
 		ruleType: "allow_models",
 		models: [],
@@ -92,6 +111,7 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 		pricingType: "",
 		maxInputPrice: "",
 		maxOutputPrice: "",
+		ipCidrs: "",
 	});
 
 	const queryClient = useQueryClient();
@@ -142,6 +162,19 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 				ruleValue.maxOutputPrice = parseFloat(newRule.maxOutputPrice);
 			}
 		}
+		if (newRule.ruleType.includes("ip_cidrs")) {
+			const cidrs = parseCidrList(newRule.ipCidrs);
+			const invalid = cidrs.filter((c) => !isValidCidrSyntax(c));
+			if (invalid.length > 0) {
+				toast({
+					title: "Invalid CIDR",
+					description: `Not a valid CIDR: ${invalid.join(", ")}`,
+					variant: "destructive",
+				});
+				return;
+			}
+			ruleValue.ipCidrs = cidrs;
+		}
 
 		createRule(
 			{
@@ -168,6 +201,7 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 						pricingType: "",
 						maxInputPrice: "",
 						maxOutputPrice: "",
+						ipCidrs: "",
 					});
 
 					toast({ title: "IAM rule created successfully" });
@@ -216,6 +250,9 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 				parts.push(`Max output: $${ruleValue.maxOutputPrice}/M tokens`);
 			}
 			return parts.join(", ") || "No constraints";
+		}
+		if (ruleType.includes("ip_cidrs") && ruleValue.ipCidrs) {
+			return ruleValue.ipCidrs.join(", ");
 		}
 
 		return "No constraints";
@@ -335,6 +372,18 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 													Deny Pricing Constraints
 												</div>
 											</SelectItem>
+											<SelectItem value="allow_ip_cidrs">
+												<div className="flex items-center gap-2">
+													<Network className="h-4 w-4 text-blue-500" />
+													Allow IP Ranges (CIDR)
+												</div>
+											</SelectItem>
+											<SelectItem value="deny_ip_cidrs">
+												<div className="flex items-center gap-2">
+													<Network className="h-4 w-4 text-blue-500" />
+													Deny IP Ranges (CIDR)
+												</div>
+											</SelectItem>
 										</SelectContent>
 									</Select>
 								</div>
@@ -377,6 +426,33 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 											}
 											placeholder="Select providers..."
 										/>
+									</div>
+								)}
+
+								{(newRule.ruleType === "allow_ip_cidrs" ||
+									newRule.ruleType === "deny_ip_cidrs") && (
+									<div className="space-y-1 md:col-span-2">
+										<Label htmlFor="ipCidrs" className="text-sm font-medium">
+											IP Ranges (CIDR)
+										</Label>
+										<Input
+											id="ipCidrs"
+											className="h-9 font-mono"
+											value={newRule.ipCidrs}
+											onChange={(e) =>
+												setNewRule((prev) => ({
+													...prev,
+													ipCidrs: e.target.value,
+												}))
+											}
+											placeholder="192.0.2.0/24, 2001:db8::/32"
+										/>
+										<p className="text-xs text-muted-foreground">
+											Comma or whitespace separated. IPv4 and IPv6 supported.
+											The gateway reads the client IP from the first entry in{" "}
+											<code>X-Forwarded-For</code> (set by the GCP load
+											balancer).
+										</p>
 									</div>
 								)}
 
@@ -473,7 +549,9 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 									(newRule.ruleType.includes("pricing") &&
 										!newRule.pricingType &&
 										!newRule.maxInputPrice &&
-										!newRule.maxOutputPrice)
+										!newRule.maxOutputPrice) ||
+									(newRule.ruleType.includes("ip_cidrs") &&
+										parseCidrList(newRule.ipCidrs).length === 0)
 								}
 								className="w-full md:w-auto"
 							>

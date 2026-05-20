@@ -57,6 +57,9 @@ function formatRuleValue(rule: IamRule): string {
 	if (v.providers?.length) {
 		return `providers: ${v.providers.join(", ")}`;
 	}
+	if (v.ipCidrs?.length) {
+		return `cidrs: ${v.ipCidrs.join(", ")}`;
+	}
 	if (v.pricingType) {
 		const parts = [`pricing: ${v.pricingType}`];
 		if (typeof v.maxInputPrice === "number") {

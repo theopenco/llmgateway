@@ -1009,7 +1009,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -1017,6 +1017,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -1040,7 +1041,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue: {
                             models?: string[];
                             providers?: string[];
@@ -1048,6 +1049,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /**
                          * @default active
@@ -1071,7 +1073,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -1079,6 +1081,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -1145,7 +1148,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue?: {
                             models?: string[];
                             providers?: string[];
@@ -1153,6 +1156,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /** @enum {string} */
                         status?: "active" | "inactive";
@@ -1173,7 +1177,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -1181,6 +1185,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -2706,7 +2711,7 @@ export interface paths {
                                     updatedAt: string;
                                     apiKeyId: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -2714,6 +2719,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -5755,7 +5761,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5763,6 +5769,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -5839,7 +5846,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5847,6 +5854,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -5976,7 +5984,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5984,6 +5992,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -6089,7 +6098,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -6097,6 +6106,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -6163,7 +6173,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -6171,6 +6181,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -6194,7 +6205,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue: {
                             models?: string[];
                             providers?: string[];
@@ -6202,6 +6213,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /**
                          * @default active
@@ -6226,7 +6238,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -6234,6 +6246,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -6300,7 +6313,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue?: {
                             models?: string[];
                             providers?: string[];
@@ -6308,6 +6321,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /**
                          * @default active
@@ -6332,7 +6346,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -6340,6 +6354,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";

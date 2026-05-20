@@ -22,6 +22,7 @@ import {
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
 } from "@/lib/cached-queries.js";
+import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
 	providerSupportsCachedInput,
@@ -1597,11 +1598,13 @@ chat.openapi(completions, async (c) => {
 	// only considers active providers. This prevents a deny rule from being bypassed
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
+	const clientIp = getClientIpFromRequest(c);
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
 		modelInfo.id,
 		requestedProvider,
 		modelInfo,
+		clientIp,
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
@@ -1740,6 +1743,7 @@ chat.openapi(completions, async (c) => {
 				modelDef.id,
 				undefined,
 				modelDef,
+				clientIp,
 			);
 			if (!candidateIam.allowed) {
 				continue;
@@ -1970,6 +1974,7 @@ chat.openapi(completions, async (c) => {
 			modelInfo.id,
 			undefined,
 			modelInfo,
+			clientIp,
 		);
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
