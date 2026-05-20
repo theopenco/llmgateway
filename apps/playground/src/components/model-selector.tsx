@@ -683,7 +683,7 @@ function ModelEntryRowComponent({
 
 	const ProviderIcon = provider ? getProviderIcon(provider.id) : null;
 	const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
-	const providerModelValue = `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
+	const providerModelValue = `${mapping!.providerId}/${mapping!.region ? `${model.id}:${mapping!.region}` : model.id}`;
 	const disabled = isOptionDisabled?.(providerModelValue) ?? false;
 	const disabledReason = getOptionDisabledReason?.(providerModelValue);
 	const isUnstable = isModelUnstable(mapping!, model);
@@ -859,26 +859,34 @@ export function ModelSelector({
 	}, [selectedDetails?.model]);
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
-	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing" or
+	// "aws-bedrock/claude-haiku-4-5:global". The region is the substring after
+	// the last ":" (model.id never contains ":"; upstream modelNames may).
 	const raw = value ?? "";
 	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
-	// Strip :region suffix for root model lookup, keep raw for mapping match
-	const selectedModelId = selectedModelIdRaw.includes(":")
-		? selectedModelIdRaw.split(":")[0]
-		: selectedModelIdRaw;
+	const lastColonIdx = selectedModelIdRaw.lastIndexOf(":");
+	const selectedRegion =
+		lastColonIdx > -1 ? selectedModelIdRaw.slice(lastColonIdx + 1) : undefined;
+	const selectedModelId =
+		lastColonIdx > -1
+			? selectedModelIdRaw.slice(0, lastColonIdx)
+			: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping =
-		selectedModel?.mappings.find(
-			(p) =>
-				p.providerId === selectedProviderId &&
-				p.modelName === selectedModelIdRaw,
-		) ??
-		selectedModel?.mappings.find((p) => p.providerId === selectedProviderId);
+	const selectedMapping = selectedRegion
+		? (selectedModel?.mappings.find(
+				(p) =>
+					p.providerId === selectedProviderId && p.region === selectedRegion,
+			) ??
+			selectedModel?.mappings.find((p) => p.providerId === selectedProviderId))
+		: (selectedModel?.mappings.find(
+				(p) => p.providerId === selectedProviderId && !p.region,
+			) ??
+			selectedModel?.mappings.find((p) => p.providerId === selectedProviderId));
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
 			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
@@ -1069,7 +1077,7 @@ export function ModelSelector({
 					return isFavorite(e.model.id);
 				}
 				const mappingId = e.mapping
-					? `${e.mapping.providerId}/${e.mapping.region ? e.mapping.modelName : e.model.id}`
+					? `${e.mapping.providerId}/${e.mapping.region ? `${e.model.id}:${e.mapping.region}` : e.model.id}`
 					: null;
 				return mappingId !== null && isFavorite(mappingId);
 			});
@@ -1234,7 +1242,7 @@ export function ModelSelector({
 				const { model, mapping, isRoot } = entry;
 				const value = isRoot
 					? model.id
-					: `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
+					: `${mapping!.providerId}/${mapping!.region ? `${model.id}:${mapping!.region}` : model.id}`;
 				const disabled = isRoot
 					? (isOptionDisabled?.(model.id) ?? false)
 					: (isOptionDisabled?.(value) ?? false);
