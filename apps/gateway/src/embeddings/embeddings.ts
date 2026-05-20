@@ -709,7 +709,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 						code: "missing_project_id",
 					},
 				},
-				400,
+				500,
 			);
 		}
 		const vertexRegion =
