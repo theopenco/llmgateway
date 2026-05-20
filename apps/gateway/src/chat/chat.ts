@@ -40,6 +40,11 @@ import {
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import {
+	getPreferredProvider,
+	resolvePreferredProvider,
+	setPreferredProvider,
+} from "@/lib/preferred-provider.js";
+import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
@@ -2789,12 +2794,53 @@ chat.openapi(completions, async (c) => {
 				);
 
 				if (cheapestResult) {
-					usedProvider = cheapestResult.provider.providerId;
-					usedModel = cheapestResult.provider.modelName;
-					usedRegion = cheapestResult.provider.region;
+					// Apply provider preference hysteresis to reduce unnecessary switching.
+					// Skip for exploration requests — they exist to refresh per-provider metrics.
+					let selectedProvider = cheapestResult.provider;
+					let hysteresisSelectionReason =
+						cheapestResult.metadata.selectionReason;
+
+					if (hysteresisSelectionReason !== "random-exploration") {
+						const preferred = await getPreferredProvider(
+							project.organizationId,
+							modelWithPricing.id,
+						);
+
+						if (preferred) {
+							const stableCandidate = resolvePreferredProvider(
+								preferred,
+								providerAgnosticCandidates,
+								cheapestResult.metadata.providerScores,
+							);
+							if (stableCandidate) {
+								selectedProvider = stableCandidate;
+								hysteresisSelectionReason = "stable-preferred";
+							} else {
+								void setPreferredProvider(
+									project.organizationId,
+									modelWithPricing.id,
+									cheapestResult.provider.providerId,
+									cheapestResult.provider.region,
+								);
+							}
+						} else {
+							void setPreferredProvider(
+								project.organizationId,
+								modelWithPricing.id,
+								cheapestResult.provider.providerId,
+								cheapestResult.provider.region,
+							);
+						}
+					}
+
+					usedProvider = selectedProvider.providerId;
+					usedModel = selectedProvider.modelName;
+					usedRegion = selectedProvider.region;
 					routingMetadata = addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
+							selectedProvider: usedProvider,
+							selectionReason: hysteresisSelectionReason,
 							...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 						},
 						contentFilterMatched,
