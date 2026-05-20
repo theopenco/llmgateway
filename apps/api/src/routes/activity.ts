@@ -1001,8 +1001,9 @@ activity.openapi(getSourceActivity, async (c) => {
 	let startDate: Date;
 	let endDate: Date;
 	if (from && to) {
-		startDate = new Date(from + "T00:00:00.000Z");
-		endDate = new Date(to + "T23:59:59.999Z");
+		// Parse without a timezone suffix to match the sibling GET / handler.
+		startDate = new Date(from + "T00:00:00");
+		endDate = new Date(to + "T23:59:59.999");
 	} else {
 		endDate = new Date();
 		startDate = new Date();
