@@ -251,11 +251,13 @@ export function getProviderEndpoint(
 				break;
 			case "aws-bedrock":
 				url =
+					regionBaseUrl ??
 					envValueOrDefault(
 						"aws-bedrock",
 						"baseUrl",
 						"https://bedrock-runtime.us-east-1.amazonaws.com",
-					) ?? "https://bedrock-runtime.us-east-1.amazonaws.com";
+					) ??
+					"https://bedrock-runtime.us-east-1.amazonaws.com";
 				break;
 			case "azure": {
 				const resource =
@@ -421,8 +423,16 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
+			const awsRegionPrefix = region
+				? (
+						providers.find((p) => p.id === "aws-bedrock") as
+							| ProviderDefinition
+							| undefined
+					)?.regionConfig?.modelPrefixMap?.[region]
+				: undefined;
 			const prefix =
 				providerKeyOptions?.aws_bedrock_region_prefix ??
+				awsRegionPrefix ??
 				getProviderEnvValue("aws-bedrock", "region", configIndex, "global.") ??
 				"global.";
 

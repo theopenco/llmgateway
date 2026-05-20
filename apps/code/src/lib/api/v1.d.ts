@@ -6300,6 +6300,8 @@ export interface paths {
                                 options: {
                                     /** @enum {string} */
                                     aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    /** @enum {string} */
+                                    aws_bedrock_region?: "global" | "us" | "eu" | "apac";
                                     azure_resource?: string;
                                     azure_api_version?: string;
                                     /** @enum {string} */
@@ -6341,6 +6343,8 @@ export interface paths {
                         options?: {
                             /** @enum {string} */
                             aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                            /** @enum {string} */
+                            aws_bedrock_region?: "global" | "us" | "eu" | "apac";
                             azure_resource?: string;
                             azure_api_version?: string;
                             /** @enum {string} */
@@ -6376,6 +6380,8 @@ export interface paths {
                                 options: {
                                     /** @enum {string} */
                                     aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    /** @enum {string} */
+                                    aws_bedrock_region?: "global" | "us" | "eu" | "apac";
                                     azure_resource?: string;
                                     azure_api_version?: string;
                                     /** @enum {string} */
@@ -6539,6 +6545,8 @@ export interface paths {
                                 options: {
                                     /** @enum {string} */
                                     aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    /** @enum {string} */
+                                    aws_bedrock_region?: "global" | "us" | "eu" | "apac";
                                     azure_resource?: string;
                                     azure_api_version?: string;
                                     /** @enum {string} */

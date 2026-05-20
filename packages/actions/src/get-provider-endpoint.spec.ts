@@ -407,4 +407,112 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 	});
+
+	describe("aws-bedrock regions", () => {
+		it("defaults to us-east-1 endpoint with global. prefix when no region is set", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it("routes to eu-central-1 with eu. prefix when region is 'eu'", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"eu",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.eu-central-1.amazonaws.com/model/eu.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it("routes to ap-northeast-1 with apac. prefix when region is 'apac'", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				true,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"apac",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.ap-northeast-1.amazonaws.com/model/apac.anthropic.claude-haiku-4-5-20251001-v1:0/converse-stream",
+			);
+		});
+
+		it("uses us-east-1 endpoint with us. prefix when region is 'us'", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it("lets aws_bedrock_region_prefix provider-key option override the region-derived prefix", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				{ aws_bedrock_region_prefix: "global." },
+				undefined,
+				undefined,
+				"eu",
+				true,
+			);
+
+			// Endpoint URL still follows the region, but the prefix is overridden
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.eu-central-1.amazonaws.com/model/global.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+	});
 });

@@ -19,6 +19,13 @@ export interface ProviderRegionConfig {
 	regions: { id: string; label: string }[];
 	/** Maps region id to its base URL */
 	endpointMap: Record<string, string>;
+	/**
+	 * Maps region id to a model-id prefix for providers where the upstream model
+	 * identifier varies per region (e.g. AWS Bedrock cross-region inference
+	 * profiles: `global.`, `us.`, `eu.`, `apac.`). When unset, no prefix is
+	 * applied.
+	 */
+	modelPrefixMap?: Record<string, string>;
 }
 
 export interface ProviderDefinition {
@@ -413,6 +420,28 @@ export const providers = [
 		apiKeyInstructions:
 			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
 		learnMore: "https://docs.llmgateway.io/integrations/aws-bedrock",
+		regionConfig: {
+			optionsKey: "aws_bedrock_region",
+			defaultRegion: "global",
+			regions: [
+				{ id: "global", label: "Global (default)" },
+				{ id: "us", label: "US" },
+				{ id: "eu", label: "EU" },
+				{ id: "apac", label: "Asia Pacific" },
+			],
+			endpointMap: {
+				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
+				us: "https://bedrock-runtime.us-east-1.amazonaws.com",
+				eu: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+				apac: "https://bedrock-runtime.ap-northeast-1.amazonaws.com",
+			},
+			modelPrefixMap: {
+				global: "global.",
+				us: "us.",
+				eu: "eu.",
+				apac: "apac.",
+			},
+		},
 		termsUrl: "https://aws.amazon.com/service-terms",
 		privacyPolicyUrl: "https://aws.amazon.com/privacy",
 	},

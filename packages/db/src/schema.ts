@@ -575,6 +575,7 @@ export const masterKey = pgTable(
 
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+	aws_bedrock_region?: "global" | "us" | "eu" | "apac";
 	azure_resource?: string;
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
