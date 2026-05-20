@@ -104,3 +104,8 @@ export interface LogsData {
 
 export type LogDetailData =
 	paths["/logs/{id}"]["get"]["responses"][200]["content"]["application/json"];
+
+export type SourceActivityData =
+	paths["/activity/sources"]["get"]["responses"][200]["content"]["application/json"];
+
+export type SourceUsage = SourceActivityData["sources"][number];

@@ -1959,6 +1959,87 @@ export const projectHourlyModelStats = pgTable(
 	],
 );
 
+// Project hourly source statistics — per-project aggregation by the x-source
+// header (e.g. coding agents). Mirrors projectHourlyModelStats but keyed by
+// source. NULL log.source rows are stored under the literal 'unknown' so the
+// unique constraint and onConflictDoUpdate target stay valid.
+export const projectHourlySourceStats = pgTable(
+	"project_hourly_source_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		source: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per project-hour-source
+		unique().on(table.projectId, table.hourTimestamp, table.source),
+		// Index for dashboard queries (project + time range)
+		index("project_hourly_source_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("project_hourly_source_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+		// Index for admin source detail queries (aggregation by source)
+		index("project_hourly_source_stats_source_hour_timestamp_idx").on(
+			table.source,
+			table.hourTimestamp,
+		),
+	],
+);
+
 // API key hourly statistics aggregation - for per-key breakdown queries
 export const apiKeyHourlyStats = pgTable(
 	"api_key_hourly_stats",

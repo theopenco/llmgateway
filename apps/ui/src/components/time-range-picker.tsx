@@ -27,16 +27,29 @@ export type TimeRangeValue =
 interface TimeRangePickerProps {
 	value: TimeRangeValue;
 	onChange: (value: TimeRangeValue) => void;
+	// Restrict which ranges are shown. Defaults to all ranges.
+	allowedValues?: readonly TimeRangeValue[];
 }
 
-export function TimeRangePicker({ value, onChange }: TimeRangePickerProps) {
+export function TimeRangePicker({
+	value,
+	onChange,
+	allowedValues,
+}: TimeRangePickerProps) {
 	const config = useAppConfig();
 	const isGated = config.hosted;
+
+	const freeRanges = allowedValues
+		? FREE_RANGES.filter((r) => allowedValues.includes(r.value))
+		: FREE_RANGES;
+	const proRanges = allowedValues
+		? PRO_RANGES.filter((r) => allowedValues.includes(r.value))
+		: PRO_RANGES;
 
 	return (
 		<TooltipProvider>
 			<div className="inline-flex items-center rounded-md border bg-muted p-0.5">
-				{FREE_RANGES.map((range) => (
+				{freeRanges.map((range) => (
 					<button
 						key={range.value}
 						type="button"
@@ -51,7 +64,7 @@ export function TimeRangePicker({ value, onChange }: TimeRangePickerProps) {
 						{range.label}
 					</button>
 				))}
-				{PRO_RANGES.map((range) =>
+				{proRanges.map((range) =>
 					isGated ? (
 						<Tooltip key={range.value}>
 							<TooltipTrigger asChild>
