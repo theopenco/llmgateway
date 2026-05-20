@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
+import { maskToken } from "@/lib/maskToken.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 
@@ -182,6 +183,29 @@ const projectsListSchema = z.object({
 	total: z.number(),
 });
 
+const iamRuleAdminSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+	apiKeyId: z.string(),
+	ruleType: z.enum([
+		"allow_models",
+		"deny_models",
+		"allow_pricing",
+		"deny_pricing",
+		"allow_providers",
+		"deny_providers",
+	]),
+	ruleValue: z.object({
+		models: z.array(z.string()).optional(),
+		providers: z.array(z.string()).optional(),
+		pricingType: z.enum(["free", "paid"]).optional(),
+		maxInputPrice: z.number().optional(),
+		maxOutputPrice: z.number().optional(),
+	}),
+	status: z.enum(["active", "inactive"]),
+});
+
 const apiKeySchema = z.object({
 	id: z.string(),
 	token: z.string(),
@@ -192,6 +216,7 @@ const apiKeySchema = z.object({
 	projectId: z.string(),
 	projectName: z.string(),
 	createdAt: z.string(),
+	iamRules: z.array(iamRuleAdminSchema),
 });
 
 const apiKeysListSchema = z.object({
@@ -199,6 +224,22 @@ const apiKeysListSchema = z.object({
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
+});
+
+const providerKeyAdminSchema = z.object({
+	id: z.string(),
+	token: z.string(),
+	provider: z.string(),
+	name: z.string().nullable(),
+	baseUrl: z.string().nullable(),
+	status: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const providerKeysListSchema = z.object({
+	providerKeys: z.array(providerKeyAdminSchema),
+	total: z.number(),
 });
 
 const memberSchema = z.object({
@@ -375,6 +416,29 @@ const getOrganizationApiKeys = createRoute({
 				},
 			},
 			description: "Organization API keys.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const getOrganizationProviderKeys = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/provider-keys",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerKeysListSchema.openapi({}),
+				},
+			},
+			description: "Organization provider keys.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -1690,16 +1754,82 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		.limit(limit)
 		.offset(offset);
 
+	const apiKeyIds = apiKeys.map((k) => k.id);
+	const iamRules = apiKeyIds.length
+		? await db
+				.select()
+				.from(tables.apiKeyIamRule)
+				.where(inArray(tables.apiKeyIamRule.apiKeyId, apiKeyIds))
+				.orderBy(desc(tables.apiKeyIamRule.createdAt))
+		: [];
+
+	const rulesByKey = new Map<string, typeof iamRules>();
+	for (const rule of iamRules) {
+		const list = rulesByKey.get(rule.apiKeyId) ?? [];
+		list.push(rule);
+		rulesByKey.set(rule.apiKeyId, list);
+	}
+
 	return c.json({
 		apiKeys: apiKeys.map((k) => ({
 			...k,
 			usage: String(k.usage),
 			usageLimit: k.usageLimit ? String(k.usageLimit) : null,
 			createdAt: k.createdAt.toISOString(),
+			iamRules: (rulesByKey.get(k.id) ?? []).map((r) => ({
+				id: r.id,
+				createdAt: r.createdAt.toISOString(),
+				updatedAt: r.updatedAt.toISOString(),
+				apiKeyId: r.apiKeyId,
+				ruleType: r.ruleType,
+				ruleValue: r.ruleValue,
+				status: r.status,
+			})),
 		})),
 		total,
 		limit,
 		offset,
+	});
+});
+
+admin.openapi(getOrganizationProviderKeys, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const providerKeys = await db
+		.select({
+			id: tables.providerKey.id,
+			token: tables.providerKey.token,
+			provider: tables.providerKey.provider,
+			name: tables.providerKey.name,
+			baseUrl: tables.providerKey.baseUrl,
+			status: tables.providerKey.status,
+			createdAt: tables.providerKey.createdAt,
+			updatedAt: tables.providerKey.updatedAt,
+		})
+		.from(tables.providerKey)
+		.where(eq(tables.providerKey.organizationId, orgId))
+		.orderBy(desc(tables.providerKey.createdAt));
+
+	return c.json({
+		providerKeys: providerKeys.map((k) => ({
+			...k,
+			token: maskToken(k.token, 6),
+			createdAt: k.createdAt.toISOString(),
+			updatedAt: k.updatedAt.toISOString(),
+		})),
+		total: providerKeys.length,
 	});
 });
 
