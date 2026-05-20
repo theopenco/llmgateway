@@ -18,6 +18,7 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
@@ -515,6 +516,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		modelDefId,
 		providerId,
 		modelDef,
+		getClientIpFromRequest(c),
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");

@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import ipaddr from "ipaddr.js";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
@@ -57,13 +58,16 @@ type ApiKeyResponseRecord = ApiKeyRecord & {
 			| "allow_pricing"
 			| "deny_pricing"
 			| "allow_providers"
-			| "deny_providers";
+			| "deny_providers"
+			| "allow_ip_cidrs"
+			| "deny_ip_cidrs";
 		ruleValue: {
 			models?: string[];
 			providers?: string[];
 			pricingType?: "free" | "paid";
 			maxInputPrice?: number;
 			maxOutputPrice?: number;
+			ipCidrs?: string[];
 		};
 		status: "active" | "inactive";
 	}>;
@@ -321,6 +325,8 @@ const apiKeySchema = z.object({
 					"deny_pricing",
 					"allow_providers",
 					"deny_providers",
+					"allow_ip_cidrs",
+					"deny_ip_cidrs",
 				]),
 				ruleValue: z.object({
 					models: z.array(z.string()).optional(),
@@ -328,6 +334,7 @@ const apiKeySchema = z.object({
 					pricingType: z.enum(["free", "paid"]).optional(),
 					maxInputPrice: z.number().optional(),
 					maxOutputPrice: z.number().optional(),
+					ipCidrs: z.array(z.string()).optional(),
 				}),
 				status: z.enum(["active", "inactive"]),
 			}),
@@ -378,6 +385,8 @@ export const iamRuleTypeEnum = z.enum([
 	"deny_pricing",
 	"allow_providers",
 	"deny_providers",
+	"allow_ip_cidrs",
+	"deny_ip_cidrs",
 ]);
 
 export const iamRuleValueSchema = z.object({
@@ -386,7 +395,42 @@ export const iamRuleValueSchema = z.object({
 	pricingType: z.enum(["free", "paid"]).optional(),
 	maxInputPrice: z.number().optional(),
 	maxOutputPrice: z.number().optional(),
+	ipCidrs: z.array(z.string()).optional(),
 });
+
+function isValidCidr(cidr: string): boolean {
+	try {
+		const parsed = ipaddr.parseCIDR(cidr);
+		return Array.isArray(parsed) && parsed.length === 2;
+	} catch {
+		return false;
+	}
+}
+
+export function validateIamRuleInput(input: {
+	ruleType?: z.infer<typeof iamRuleTypeEnum>;
+	ruleValue?: z.infer<typeof iamRuleValueSchema>;
+}): void {
+	const { ruleType, ruleValue } = input;
+	if (!ruleType || !ruleValue) {
+		return;
+	}
+	if (ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs") {
+		const cidrs = ruleValue.ipCidrs;
+		if (!cidrs || cidrs.length === 0) {
+			throw new HTTPException(400, {
+				message: `ruleValue.ipCidrs is required for ruleType ${ruleType}`,
+			});
+		}
+		for (const cidr of cidrs) {
+			if (!isValidCidr(cidr)) {
+				throw new HTTPException(400, {
+					message: `Invalid CIDR: ${cidr}. Expected IPv4 (e.g. 192.0.2.0/24) or IPv6 (e.g. 2001:db8::/32).`,
+				});
+			}
+		}
+	}
+}
 
 export const iamRuleStatusEnum = z.enum(["active", "inactive"]);
 
@@ -1269,6 +1313,8 @@ keysApi.openapi(createIamRule, async (c) => {
 	const { id } = c.req.param();
 	const ruleData = c.req.valid("json");
 
+	validateIamRuleInput(ruleData);
+
 	// Verify user has access to the API key
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -1494,6 +1540,12 @@ keysApi.openapi(updateIamRule, async (c) => {
 	const { id, ruleId } = c.req.param();
 	const updateData = c.req.valid("json");
 
+	// We may not yet know the existing ruleType for partial updates; the
+	// validator pulls it from the patch and runs only when both fields are
+	// present. For pure ruleValue changes we re-validate after loading the
+	// existing rule below.
+	validateIamRuleInput(updateData);
+
 	// Verify user has access to the API key and rule
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -1563,6 +1615,15 @@ keysApi.openapi(updateIamRule, async (c) => {
 			},
 		},
 	});
+
+	// Re-validate using the effective ruleType + ruleValue after merging
+	// with the existing rule, so partial updates can't bypass CIDR checks.
+	if (existingRule && (updateData.ruleType || updateData.ruleValue)) {
+		validateIamRuleInput({
+			ruleType: updateData.ruleType ?? existingRule.ruleType,
+			ruleValue: updateData.ruleValue ?? existingRule.ruleValue,
+		});
+	}
 
 	// Update the IAM rule
 	const [updatedRule] = await db

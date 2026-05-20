@@ -124,8 +124,8 @@ describe("fallback and error status code handling", () => {
 		]);
 	}
 
-	beforeAll(() => {
-		mockServerUrl = startMockServer(3001);
+	beforeAll(async () => {
+		mockServerUrl = await startMockServer();
 	});
 
 	afterAll(() => {

@@ -1364,24 +1364,23 @@ export default function ChatPageClient({
 		status,
 	]);
 
-	// keep URL in sync with selected model
-	useEffect(() => {
-		// Read current URL params directly to avoid stale searchParams closure
-		const currentParams = new URLSearchParams(window.location.search);
-		if (selectedModel) {
-			currentParams.set("model", selectedModel);
-		} else {
-			currentParams.delete("model");
-		}
-		const qs = currentParams.toString();
-		router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
-	}, [selectedModel, pathname, router]);
-
-	useEffect(() => {
-		if (selectedModel) {
-			setModelPreferenceCookie(CHAT_MODEL_COOKIE, selectedModel);
-		}
-	}, [selectedModel]);
+	const handleSelectModel = useCallback(
+		(model: string) => {
+			setSelectedModel(model);
+			if (model) {
+				setModelPreferenceCookie(CHAT_MODEL_COOKIE, model);
+			}
+			const currentParams = new URLSearchParams(window.location.search);
+			if (model) {
+				currentParams.set("model", model);
+			} else {
+				currentParams.delete("model");
+			}
+			const qs = currentParams.toString();
+			router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+		},
+		[pathname, router],
+	);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;
@@ -1485,7 +1484,7 @@ export default function ChatPageClient({
 							models={models}
 							providers={providers}
 							selectedModel={selectedModel}
-							setSelectedModel={setSelectedModel}
+							setSelectedModel={handleSelectModel}
 							comparisonEnabled={comparisonEnabled}
 							onComparisonEnabledChange={(enabled) => {
 								setComparisonEnabled(enabled);
@@ -1604,7 +1603,7 @@ export default function ChatPageClient({
 												models={models}
 												providers={providers}
 												value={selectedModel}
-												onValueChange={setSelectedModel}
+												onValueChange={handleSelectModel}
 												placeholder="Select a model..."
 											/>
 										</div>

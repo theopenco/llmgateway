@@ -253,7 +253,10 @@ async function persistMessages(
 
 		await db
 			.update(t)
-			.set({ messageCount: existingCount + newMessages.length })
+			.set({
+				messageCount: existingCount + newMessages.length,
+				archivedAt: null,
+			})
 			.where(eq(t.id, conversationId));
 	} catch (error) {
 		logger.error("Failed to persist chat support messages", { error });
