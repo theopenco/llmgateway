@@ -2121,6 +2121,7 @@ export interface paths {
                     projectId?: string;
                     apiKeyId?: string;
                     timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
+                    groupBy?: "model" | "apiKey";
                 };
                 header?: never;
                 path?: never;
@@ -2168,6 +2169,15 @@ export interface paths {
                                 modelBreakdown: {
                                     id: string;
                                     provider: string;
+                                    requestCount: number;
+                                    inputTokens: number;
+                                    outputTokens: number;
+                                    totalTokens: number;
+                                    cost: number;
+                                }[];
+                                apiKeyBreakdown: {
+                                    id: string;
+                                    description: string;
                                     requestCount: number;
                                     inputTokens: number;
                                     outputTokens: number;
