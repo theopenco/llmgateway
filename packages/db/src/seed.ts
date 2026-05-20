@@ -2012,6 +2012,71 @@ async function seed() {
 	const hourlySourceStats = generateProjectHourlySourceStats(projects);
 	await bulkInsert(tables.projectHourlySourceStats, hourlySourceStats);
 
+	// Seed agent source stats for the default "Test Project" so the Agents
+	// dashboard the test user lands on shows activity out of the box.
+	const testProjectSourceStats: Array<Record<string, any>> = [];
+	let testSourceIdx = 0;
+	for (let h = 0; h < 30 * 24; h++) {
+		const hourTs = hoursAgo(h);
+		hourTs.setMinutes(0, 0, 0);
+		for (const sourceDef of AGENT_SOURCES) {
+			if (Math.random() < 0.45) {
+				continue;
+			}
+			const reqCount = randomInt(1, 12);
+			const errCount = Math.random() < 0.1 ? randomInt(1, 2) : 0;
+			const inputTok = reqCount * randomInt(200, 4000);
+			const outputTok = reqCount * randomInt(100, 2500);
+			const costVal = reqCount * randomFloat(0.002, 0.06);
+			testProjectSourceStats.push({
+				id: `test-phss-${testSourceIdx}`,
+				projectId: "test-project-id",
+				hourTimestamp: hourTs,
+				source: sourceDef.source,
+				requestCount: reqCount,
+				errorCount: errCount,
+				cacheCount: randomInt(0, Math.floor(reqCount * 0.2)),
+				streamedCount: Math.floor(reqCount * 0.6),
+				nonStreamedCount: Math.floor(reqCount * 0.4),
+				completedCount: reqCount - errCount,
+				lengthLimitCount: 0,
+				contentFilterCount: 0,
+				toolCallsCount: randomInt(0, 2),
+				canceledCount: 0,
+				unknownFinishCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: errCount,
+				inputTokens: String(inputTok),
+				outputTokens: String(outputTok),
+				totalTokens: String(inputTok + outputTok),
+				reasoningTokens: "0",
+				cachedTokens: "0",
+				cacheWriteTokens: "0",
+				cost: Number(costVal.toFixed(6)),
+				inputCost: Number((costVal * 0.4).toFixed(6)),
+				outputCost: Number((costVal * 0.5).toFixed(6)),
+				requestCost: Number((costVal * 0.1).toFixed(6)),
+				dataStorageCost: 0,
+				discountSavings: 0,
+				imageInputCost: 0,
+				imageOutputCost: 0,
+				audioInputCost: 0,
+				videoOutputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				creditsRequestCount: Math.floor(reqCount * 0.6),
+				apiKeysRequestCount: Math.floor(reqCount * 0.4),
+				creditsCost: Number((costVal * 0.6).toFixed(6)),
+				apiKeysCost: Number((costVal * 0.4).toFixed(6)),
+				creditsDataStorageCost: 0,
+				apiKeysDataStorageCost: 0,
+			});
+			testSourceIdx++;
+		}
+	}
+	await bulkInsert(tables.projectHourlySourceStats, testProjectSourceStats);
+
 	// Seed providers, models, and mappings
 	const seedProviders = generateSeedProviders();
 	await bulkInsert(tables.provider, seedProviders);
