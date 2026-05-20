@@ -1561,265 +1561,394 @@ mockOpenAIServer.post("/api/file-base64-upload", async (c) => {
 	});
 });
 
-mockOpenAIServer.post(
-	"/v1/projects/:project/locations/:location/publishers/google/models/*",
-	async (c, next) => {
-		const vertexApiKey = c.req.query("key");
+const vertexPublisherModelHandler = async (
+	c: Context,
+	next: () => Promise<void>,
+) => {
+	const vertexApiKey = c.req.query("key");
+	const authHeader = c.req.header("authorization") ?? "";
+	const bearerToken = authHeader.toLowerCase().startsWith("bearer ")
+		? authHeader.slice(7).trim()
+		: "";
+	// :predict and :embedContent require an OAuth bearer (Vertex blocks API
+	// keys on PredictionService). Other actions like :predictLongRunning
+	// still accept the legacy ?key= query param.
+	const authorized =
+		vertexApiKey === "vertex-test-token" ||
+		vertexApiKey === "google-test-key" ||
+		bearerToken === "mock-oauth-access-token";
+	if (!authorized) {
+		c.status(401);
+		return c.json({
+			error: {
+				message: "Invalid Vertex credentials",
+			},
+		});
+	}
+
+	const modelPath = c.req.path.split("/models/")[1] ?? "";
+	const [modelName, action] = modelPath.split(":");
+
+	if (
+		action !== "predictLongRunning" &&
+		action !== "fetchPredictOperation" &&
+		action !== "predict" &&
+		action !== "embedContent"
+	) {
+		// Don't consume the request body — let another route handle it (e.g.
+		// :generateContent for chat tests).
+		return await next();
+	}
+
+	const body = await c.req.json();
+
+	if (action === "predictLongRunning") {
+		const prompt =
+			Array.isArray(body.instances) &&
+			body.instances[0] &&
+			typeof body.instances[0] === "object" &&
+			typeof (body.instances[0] as Record<string, unknown>).prompt === "string"
+				? ((body.instances[0] as Record<string, unknown>).prompt as string)
+				: "";
 		if (
-			vertexApiKey !== "vertex-test-token" &&
-			vertexApiKey !== "google-test-key"
+			prompt.includes("TRIGGER_STATUS_500_VERTEX_ONLY") ||
+			prompt.includes("TRIGGER_VERTEX_ONLY_500")
 		) {
-			c.status(401);
+			c.status(500);
+			return c.json(sample500ErrorResponse);
+		}
+		const statusTrigger = extractStatusCodeTrigger(prompt);
+		if (statusTrigger) {
+			c.status(statusTrigger.statusCode as any);
+			return c.json(statusTrigger.errorResponse);
+		}
+		videoCounter++;
+		const operationName = `projects/${c.req.param("project")}/locations/${c.req.param("location")}/publishers/google/models/${modelName}/operations/video_${videoCounter}`;
+		const parameters =
+			body.parameters && typeof body.parameters === "object"
+				? body.parameters
+				: {};
+		const videoSize = getMockVertexVideoSizeMetadata(
+			(parameters as Record<string, unknown>).resolution,
+			(parameters as Record<string, unknown>).aspectRatio,
+		);
+		const storageUri =
+			typeof (parameters as Record<string, unknown>).storageUri === "string"
+				? (parameters as Record<string, unknown>).storageUri
+				: undefined;
+		const instance =
+			Array.isArray(body.instances) &&
+			body.instances[0] &&
+			typeof body.instances[0] === "object"
+				? (body.instances[0] as Record<string, unknown>)
+				: null;
+		const firstFrame =
+			instance?.image && typeof instance.image === "object"
+				? (instance.image as Record<string, unknown>)
+				: null;
+		const lastFrame =
+			instance?.lastFrame && typeof instance.lastFrame === "object"
+				? (instance.lastFrame as Record<string, unknown>)
+				: null;
+		const referenceImages = Array.isArray(instance?.referenceImages)
+			? instance.referenceImages
+			: [];
+		const job: MockVideoJobState = {
+			id: operationName,
+			object: "video",
+			model: modelName || "veo-3.1-generate-preview",
+			status: "queued",
+			progress: 0,
+			firstFrame:
+				typeof firstFrame?.bytesBase64Encoded === "string" &&
+				firstFrame.bytesBase64Encoded.length > 0
+					? {
+							bytesBase64Encoded: firstFrame.bytesBase64Encoded,
+							mimeType:
+								typeof firstFrame.mimeType === "string" &&
+								firstFrame.mimeType.length > 0
+									? firstFrame.mimeType
+									: "image/png",
+						}
+					: undefined,
+			lastFrame:
+				typeof lastFrame?.bytesBase64Encoded === "string" &&
+				lastFrame.bytesBase64Encoded.length > 0
+					? {
+							bytesBase64Encoded: lastFrame.bytesBase64Encoded,
+							mimeType:
+								typeof lastFrame.mimeType === "string" &&
+								lastFrame.mimeType.length > 0
+									? lastFrame.mimeType
+									: "image/png",
+						}
+					: undefined,
+			referenceImages: referenceImages
+				.map((referenceImage) => {
+					if (
+						!referenceImage ||
+						typeof referenceImage !== "object" ||
+						!("image" in referenceImage)
+					) {
+						return null;
+					}
+
+					const image =
+						(referenceImage as Record<string, unknown>).image &&
+						typeof (referenceImage as Record<string, unknown>).image ===
+							"object"
+							? ((referenceImage as Record<string, unknown>).image as Record<
+									string,
+									unknown
+								>)
+							: null;
+					if (
+						typeof image?.bytesBase64Encoded !== "string" ||
+						image.bytesBase64Encoded.length === 0
+					) {
+						return null;
+					}
+
+					const referenceType =
+						typeof (referenceImage as Record<string, unknown>).referenceType ===
+						"string"
+							? ((referenceImage as Record<string, unknown>)
+									.referenceType as string)
+							: "asset";
+
+					return {
+						bytesBase64Encoded: image.bytesBase64Encoded,
+						mimeType:
+							typeof image.mimeType === "string" && image.mimeType.length > 0
+								? image.mimeType
+								: "image/png",
+						referenceType: referenceType.length > 0 ? referenceType : "asset",
+					};
+				})
+				.filter(
+					(
+						referenceImage,
+					): referenceImage is NonNullable<typeof referenceImage> =>
+						referenceImage !== null,
+				),
+			size: videoSize.size,
+			duration:
+				typeof (parameters as Record<string, unknown>).durationSeconds ===
+					"number" &&
+				Number.isFinite((parameters as Record<string, unknown>).durationSeconds)
+					? ((parameters as Record<string, unknown>).durationSeconds as number)
+					: 8,
+			generateAudio:
+				typeof (parameters as Record<string, unknown>).generateAudio ===
+				"boolean"
+					? ((parameters as Record<string, unknown>).generateAudio as boolean)
+					: true,
+			resolution: videoSize.resolution,
+			width: videoSize.width,
+			height: videoSize.height,
+			storageUri:
+				typeof storageUri === "string"
+					? `${storageUri.replace(/\/$/, "")}/output.mp4`
+					: undefined,
+			created_at: Math.floor(Date.now() / 1000),
+			completed_at: null,
+			expires_at: null,
+			error: null,
+		};
+
+		videoJobs.set(operationName, job);
+
+		return c.json({
+			name: operationName,
+			done: false,
+		});
+	}
+
+	if (action === "embedContent") {
+		const contentObj =
+			body.content && typeof body.content === "object"
+				? (body.content as Record<string, unknown>)
+				: {};
+		const parts = Array.isArray(contentObj.parts) ? contentObj.parts : [];
+		const text =
+			parts.length > 0 &&
+			typeof parts[0] === "object" &&
+			parts[0] !== null &&
+			typeof (parts[0] as Record<string, unknown>).text === "string"
+				? ((parts[0] as Record<string, unknown>).text as string)
+				: "";
+		const statusTrigger = extractStatusCodeTrigger(text);
+		if (statusTrigger) {
+			c.status(statusTrigger.statusCode as any);
+			return c.json(statusTrigger.errorResponse);
+		}
+		if (text.includes("TRIGGER_ERROR")) {
+			c.status(500);
 			return c.json({
 				error: {
-					message: "Invalid Vertex API key",
+					code: 500,
+					message: "Internal server error",
+					status: "INTERNAL",
+				},
+			});
+		}
+		const dimensions =
+			typeof body.outputDimensionality === "number" &&
+			body.outputDimensionality > 0
+				? (body.outputDimensionality as number)
+				: 3072;
+		const values = Array.from({ length: dimensions }, (_, dim) => {
+			const base = dim % 2 === 0 ? 0.0011 : -0.0033;
+			return base;
+		});
+		const tokenCount = Math.max(1, Math.floor(text.length / 5));
+		return c.json({
+			embedding: { values },
+			usageMetadata: { promptTokenCount: tokenCount },
+		});
+	}
+
+	if (action === "predict") {
+		const instances = Array.isArray(body.instances) ? body.instances : [];
+		const texts: string[] = instances.map((inst: unknown) => {
+			if (inst && typeof inst === "object") {
+				const content = (inst as Record<string, unknown>).content;
+				return typeof content === "string" ? content : "";
+			}
+			return "";
+		});
+		const firstText = texts[0] ?? "";
+		const statusTrigger = extractStatusCodeTrigger(firstText);
+		if (statusTrigger) {
+			c.status(statusTrigger.statusCode as any);
+			return c.json(statusTrigger.errorResponse);
+		}
+		if (firstText.includes("TRIGGER_ERROR")) {
+			c.status(500);
+			return c.json({
+				error: {
+					code: 500,
+					message: "Internal server error",
+					status: "INTERNAL",
+				},
+			});
+		}
+		const parameters =
+			body.parameters && typeof body.parameters === "object"
+				? (body.parameters as Record<string, unknown>)
+				: {};
+		const dimensions =
+			typeof parameters.outputDimensionality === "number" &&
+			parameters.outputDimensionality > 0
+				? (parameters.outputDimensionality as number)
+				: 3072;
+		const values = Array.from({ length: dimensions }, (_, dim) => {
+			const base = dim % 2 === 0 ? 0.0011 : -0.0033;
+			return base;
+		});
+		// Distinct from the gateway's ceil(chars/4) fallback so tests can
+		// detect when upstream token_count is used vs. estimated.
+		return c.json({
+			predictions: texts.map((text) => ({
+				embeddings: {
+					values,
+					statistics: {
+						truncated: false,
+						token_count: Math.max(1, Math.floor(text.length / 5)),
+					},
+				},
+			})),
+		});
+	}
+
+	if (action === "fetchPredictOperation") {
+		const operationName =
+			body && typeof body === "object" ? body.operationName : undefined;
+
+		if (typeof operationName !== "string" || operationName.length === 0) {
+			c.status(400);
+			return c.json({
+				error: {
+					message: "operationName is required",
 				},
 			});
 		}
 
-		const body = await c.req.json();
-		const modelPath = c.req.path.split("/models/")[1] ?? "";
-		const [modelName, action] = modelPath.split(":");
-
-		if (action !== "predictLongRunning" && action !== "fetchPredictOperation") {
-			return await next();
+		const job = videoJobs.get(operationName);
+		if (!job) {
+			c.status(404);
+			return c.json({
+				error: {
+					message: "Operation not found",
+				},
+			});
 		}
 
-		if (action === "predictLongRunning") {
-			const prompt =
-				Array.isArray(body.instances) &&
-				body.instances[0] &&
-				typeof body.instances[0] === "object" &&
-				typeof (body.instances[0] as Record<string, unknown>).prompt ===
-					"string"
-					? ((body.instances[0] as Record<string, unknown>).prompt as string)
-					: "";
-			if (
-				prompt.includes("TRIGGER_STATUS_500_VERTEX_ONLY") ||
-				prompt.includes("TRIGGER_VERTEX_ONLY_500")
-			) {
-				c.status(500);
-				return c.json(sample500ErrorResponse);
-			}
-			const statusTrigger = extractStatusCodeTrigger(prompt);
-			if (statusTrigger) {
-				c.status(statusTrigger.statusCode as any);
-				return c.json(statusTrigger.errorResponse);
-			}
-			videoCounter++;
-			const operationName = `projects/${c.req.param("project")}/locations/${c.req.param("location")}/publishers/google/models/${modelName}/operations/video_${videoCounter}`;
-			const parameters =
-				body.parameters && typeof body.parameters === "object"
-					? body.parameters
-					: {};
-			const videoSize = getMockVertexVideoSizeMetadata(
-				(parameters as Record<string, unknown>).resolution,
-				(parameters as Record<string, unknown>).aspectRatio,
-			);
-			const storageUri =
-				typeof (parameters as Record<string, unknown>).storageUri === "string"
-					? (parameters as Record<string, unknown>).storageUri
-					: undefined;
-			const instance =
-				Array.isArray(body.instances) &&
-				body.instances[0] &&
-				typeof body.instances[0] === "object"
-					? (body.instances[0] as Record<string, unknown>)
-					: null;
-			const firstFrame =
-				instance?.image && typeof instance.image === "object"
-					? (instance.image as Record<string, unknown>)
-					: null;
-			const lastFrame =
-				instance?.lastFrame && typeof instance.lastFrame === "object"
-					? (instance.lastFrame as Record<string, unknown>)
-					: null;
-			const referenceImages = Array.isArray(instance?.referenceImages)
-				? instance.referenceImages
-				: [];
-			const job: MockVideoJobState = {
-				id: operationName,
-				object: "video",
-				model: modelName || "veo-3.1-generate-preview",
-				status: "queued",
-				progress: 0,
-				firstFrame:
-					typeof firstFrame?.bytesBase64Encoded === "string" &&
-					firstFrame.bytesBase64Encoded.length > 0
-						? {
-								bytesBase64Encoded: firstFrame.bytesBase64Encoded,
-								mimeType:
-									typeof firstFrame.mimeType === "string" &&
-									firstFrame.mimeType.length > 0
-										? firstFrame.mimeType
-										: "image/png",
-							}
-						: undefined,
-				lastFrame:
-					typeof lastFrame?.bytesBase64Encoded === "string" &&
-					lastFrame.bytesBase64Encoded.length > 0
-						? {
-								bytesBase64Encoded: lastFrame.bytesBase64Encoded,
-								mimeType:
-									typeof lastFrame.mimeType === "string" &&
-									lastFrame.mimeType.length > 0
-										? lastFrame.mimeType
-										: "image/png",
-							}
-						: undefined,
-				referenceImages: referenceImages
-					.map((referenceImage) => {
-						if (
-							!referenceImage ||
-							typeof referenceImage !== "object" ||
-							!("image" in referenceImage)
-						) {
-							return null;
-						}
+		if (job.status === "failed") {
+			return c.json({
+				name: operationName,
+				done: true,
+				error: {
+					code: 13,
+					message: "Mock Vertex generation failed",
+				},
+			});
+		}
 
-						const image =
-							(referenceImage as Record<string, unknown>).image &&
-							typeof (referenceImage as Record<string, unknown>).image ===
-								"object"
-								? ((referenceImage as Record<string, unknown>).image as Record<
-										string,
-										unknown
-									>)
-								: null;
-						if (
-							typeof image?.bytesBase64Encoded !== "string" ||
-							image.bytesBase64Encoded.length === 0
-						) {
-							return null;
-						}
-
-						const referenceType =
-							typeof (referenceImage as Record<string, unknown>)
-								.referenceType === "string"
-								? ((referenceImage as Record<string, unknown>)
-										.referenceType as string)
-								: "asset";
-
-						return {
-							bytesBase64Encoded: image.bytesBase64Encoded,
-							mimeType:
-								typeof image.mimeType === "string" && image.mimeType.length > 0
-									? image.mimeType
-									: "image/png",
-							referenceType: referenceType.length > 0 ? referenceType : "asset",
-						};
-					})
-					.filter(
-						(
-							referenceImage,
-						): referenceImage is NonNullable<typeof referenceImage> =>
-							referenceImage !== null,
-					),
-				size: videoSize.size,
-				duration:
-					typeof (parameters as Record<string, unknown>).durationSeconds ===
-						"number" &&
-					Number.isFinite(
-						(parameters as Record<string, unknown>).durationSeconds,
-					)
-						? ((parameters as Record<string, unknown>)
-								.durationSeconds as number)
-						: 8,
-				generateAudio:
-					typeof (parameters as Record<string, unknown>).generateAudio ===
-					"boolean"
-						? ((parameters as Record<string, unknown>).generateAudio as boolean)
-						: true,
-				resolution: videoSize.resolution,
-				width: videoSize.width,
-				height: videoSize.height,
-				storageUri:
-					typeof storageUri === "string"
-						? `${storageUri.replace(/\/$/, "")}/output.mp4`
-						: undefined,
-				created_at: Math.floor(Date.now() / 1000),
-				completed_at: null,
-				expires_at: null,
-				error: null,
-			};
-
-			videoJobs.set(operationName, job);
-
+		if (job.status !== "completed") {
 			return c.json({
 				name: operationName,
 				done: false,
 			});
 		}
 
-		if (action === "fetchPredictOperation") {
-			const operationName =
-				body && typeof body === "object" ? body.operationName : undefined;
-
-			if (typeof operationName !== "string" || operationName.length === 0) {
-				c.status(400);
-				return c.json({
-					error: {
-						message: "operationName is required",
-					},
-				});
-			}
-
-			const job = videoJobs.get(operationName);
-			if (!job) {
-				c.status(404);
-				return c.json({
-					error: {
-						message: "Operation not found",
-					},
-				});
-			}
-
-			if (job.status === "failed") {
-				return c.json({
-					name: operationName,
-					done: true,
-					error: {
-						code: 13,
-						message: "Mock Vertex generation failed",
-					},
-				});
-			}
-
-			if (job.status !== "completed") {
-				return c.json({
-					name: operationName,
-					done: false,
-				});
-			}
-
-			return c.json({
-				name: operationName,
-				done: true,
-				response: {
-					videos: [
-						job.storageUri
-							? {
-									gcsUri: job.storageUri,
-									mimeType: "video/mp4",
-								}
-							: {
-									bytesBase64Encoded: Buffer.from(
-										`mock-video-${operationName}`,
-									).toString("base64"),
-									mimeType: "video/mp4",
-								},
-					],
-				},
-			});
-		}
-
-		c.status(404);
 		return c.json({
-			error: {
-				message: "Unsupported Google Vertex mock action",
+			name: operationName,
+			done: true,
+			response: {
+				videos: [
+					job.storageUri
+						? {
+								gcsUri: job.storageUri,
+								mimeType: "video/mp4",
+							}
+						: {
+								bytesBase64Encoded: Buffer.from(
+									`mock-video-${operationName}`,
+								).toString("base64"),
+								mimeType: "video/mp4",
+							},
+				],
 			},
 		});
-	},
+	}
+
+	c.status(404);
+	return c.json({
+		error: {
+			message: "Unsupported Google Vertex mock action",
+		},
+	});
+};
+
+mockOpenAIServer.post(
+	"/v1/projects/:project/locations/:location/publishers/google/models/*",
+	vertexPublisherModelHandler,
+);
+mockOpenAIServer.post(
+	"/v1beta1/projects/:project/locations/:location/publishers/google/models/*",
+	vertexPublisherModelHandler,
+);
+
+// Stub Vertex OAuth token endpoint. Test fixtures build a service-account
+// JSON whose token_uri points here, so the gateway's JWT-grant exchange
+// receives a fake access token instead of hitting Google.
+mockOpenAIServer.post("/mock-google-oauth/token", async (c) =>
+	c.json({
+		access_token: "mock-oauth-access-token",
+		token_type: "Bearer",
+		expires_in: 3600,
+	}),
 );
 
 mockOpenAIServer.get("/v1/videos/:id", async (c) => {

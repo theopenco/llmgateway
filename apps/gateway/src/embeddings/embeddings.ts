@@ -27,7 +27,10 @@ import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import { getProviderHeaders } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { models as modelDefinitions } from "@llmgateway/models";
+import {
+	getProviderEnvValue,
+	models as modelDefinitions,
+} from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -192,13 +195,27 @@ function findEmbeddingMapping(modelId: string): {
 	modelDef: ModelDefinition;
 	modelDefId: string;
 } | null {
+	// Split an optional "<provider>/<model>" prefix. When present, only
+	// mappings on that provider are considered — this lets callers pick
+	// e.g. google-vertex/gemini-embedding-001 explicitly when the same
+	// model id also exists on google-ai-studio.
+	let requestedProvider: string | undefined;
+	let modelKey = modelId;
+	const slashIdx = modelId.indexOf("/");
+	if (slashIdx > 0) {
+		requestedProvider = modelId.slice(0, slashIdx);
+		modelKey = modelId.slice(slashIdx + 1);
+	}
 	for (const model of modelDefinitions) {
 		for (const mapping of model.providers) {
 			const candidate = mapping as ProviderModelMapping;
 			if (!candidate.embeddings) {
 				continue;
 			}
-			if (model.id === modelId || candidate.modelName === modelId) {
+			if (requestedProvider && candidate.providerId !== requestedProvider) {
+				continue;
+			}
+			if (model.id === modelKey || candidate.modelName === modelKey) {
 				return { mapping: candidate, modelDef: model, modelDefId: model.id };
 			}
 		}
@@ -445,12 +462,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		);
 	})();
 
-	if (isTokenIdInput && providerId === "google-ai-studio") {
+	if (
+		isTokenIdInput &&
+		(providerId === "google-ai-studio" || providerId === "google-vertex")
+	) {
 		return c.json(
 			{
 				error: {
-					message:
-						"Provider google-ai-studio does not support token-ID inputs for embeddings. Pass a string or array of strings instead.",
+					message: `Provider ${providerId} does not support token-ID inputs for embeddings. Pass a string or array of strings instead.`,
 					type: "invalid_request_error",
 					param: "input",
 					code: "unsupported_input",
@@ -604,18 +623,29 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	const providerBaseUrlDefaults: Partial<Record<string, string>> = {
 		openai: "https://api.openai.com",
 		"google-ai-studio": "https://generativelanguage.googleapis.com",
+		"google-vertex": "https://aiplatform.googleapis.com",
 	};
+	// Env baseUrl override: LLM_<PROVIDER>_BASE_URL can redirect upstream
+	// traffic to proxies, regional endpoints, or test mocks. Applies to
+	// any provider — getProviderEnvValue returns undefined for providers
+	// that don't declare a baseUrl env in packages/models/src/providers.ts,
+	// so the ?? chain falls through safely. providerKey.baseUrl still wins
+	// when set, so BYOK callers can opt out by configuring their own.
+	const envBaseUrl = getProviderEnvValue(providerId, "baseUrl", configIndex);
 	const resolvedBaseUrl =
 		providerKey?.baseUrl ??
+		envBaseUrl ??
 		providerBaseUrlDefaults[providerId] ??
 		"https://api.openai.com";
 
 	const isGoogleAiStudio = providerId === "google-ai-studio";
-	const googleInputs: string[] = isGoogleAiStudio
-		? Array.isArray(input)
-			? (input as string[])
-			: [input as string]
-		: [];
+	const isGoogleVertex = providerId === "google-vertex";
+	const googleInputs: string[] =
+		isGoogleAiStudio || isGoogleVertex
+			? Array.isArray(input)
+				? (input as string[])
+				: [input as string]
+			: [];
 
 	let upstreamUrl: string;
 	let requestBody: Record<string, unknown>;
@@ -643,6 +673,55 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			};
 		} else {
 			requestBody = buildSingleRequest(googleInputs[0]);
+		}
+	} else if (isGoogleVertex) {
+		// All exposed google-vertex embedding models go through PredictionService's
+		// :predict endpoint, which accepts API-key auth via ?key= just like the
+		// chat path. The text-embedding-* family natively batches up to 250
+		// inputs per request; gemini-embedding-001 is the one model that only
+		// accepts a single input per call, so we reject batches for it upfront
+		// rather than fanning out silently (which would hide cost/quota/latency).
+		const singleInputOnlyModels = new Set(["gemini-embedding-001"]);
+		if (singleInputOnlyModels.has(upstreamModel) && googleInputs.length > 1) {
+			return c.json(
+				{
+					error: {
+						message: `Model ${upstreamModel} accepts only one input per request on google-vertex. Pass a single string instead of an array, loop client-side, or use the same model via the google-ai-studio provider which supports native batching via batchEmbedContents.`,
+						type: "invalid_request_error",
+						param: "input",
+						code: "batch_not_supported",
+					},
+				},
+				400,
+			);
+		}
+		const vertexProjectId =
+			providerKey?.options?.google_vertex_project_id ??
+			getProviderEnvValue("google-vertex", "project", configIndex);
+		if (!vertexProjectId) {
+			return c.json(
+				{
+					error: {
+						message:
+							"Google Vertex requires a project ID. Set LLM_GOOGLE_CLOUD_PROJECT or configure google_vertex_project_id on the provider key.",
+						type: "invalid_request_error",
+						param: null,
+						code: "missing_project_id",
+					},
+				},
+				500,
+			);
+		}
+		const vertexRegion =
+			getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+			"global";
+
+		upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:predict?key=${encodeURIComponent(usedToken)}`;
+		requestBody = {
+			instances: googleInputs.map((text) => ({ content: text })),
+		};
+		if (dimensions !== undefined) {
+			requestBody.parameters = { outputDimensionality: dimensions };
 		}
 	} else {
 		upstreamUrl = `${resolvedBaseUrl}/v1/embeddings`;
@@ -962,6 +1041,62 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		} else {
 			promptTokens = estimatedTokens;
 			estimatedUsage = true;
+		}
+		totalTokens = promptTokens;
+		normalizedResponse = {
+			object: "list",
+			data,
+			model: requestedModel,
+			usage: {
+				prompt_tokens: promptTokens,
+				total_tokens: totalTokens,
+			},
+		};
+	} else if (isGoogleVertex) {
+		const upstream =
+			upstreamJson && typeof upstreamJson === "object"
+				? (upstreamJson as Record<string, unknown>)
+				: {};
+		// Vertex :predict response: { predictions: [{embeddings: {values, statistics: {token_count}}}, ...] }
+		// One prediction per instance. text-embedding-* models return multiple
+		// when batched; gemini-embedding-001 always returns one.
+		const predictions = Array.isArray(upstream.predictions)
+			? (upstream.predictions as Array<Record<string, unknown>>)
+			: [];
+		const wantsBase64 = encoding_format === "base64";
+		let upstreamTokenSum = 0;
+		let anyTokenStatMissing = false;
+		const data = predictions.map((prediction, index) => {
+			const embeddingsObj =
+				prediction.embeddings && typeof prediction.embeddings === "object"
+					? (prediction.embeddings as Record<string, unknown>)
+					: {};
+			const values = Array.isArray(embeddingsObj.values)
+				? (embeddingsObj.values as number[])
+				: [];
+			const stats =
+				embeddingsObj.statistics && typeof embeddingsObj.statistics === "object"
+					? (embeddingsObj.statistics as Record<string, unknown>)
+					: undefined;
+			if (typeof stats?.token_count === "number") {
+				upstreamTokenSum += stats.token_count;
+			} else {
+				anyTokenStatMissing = true;
+			}
+			return {
+				object: "embedding" as const,
+				index,
+				embedding: wantsBase64 ? packFloat32Base64(values) : values,
+			};
+		});
+		if (predictions.length === 0 || anyTokenStatMissing) {
+			promptTokens = googleInputs.reduce(
+				(sum, text) => sum + Math.max(1, Math.ceil(text.length / 4)),
+				0,
+			);
+			estimatedUsage = true;
+		} else {
+			promptTokens = upstreamTokenSum;
 		}
 		totalTokens = promptTokens;
 		normalizedResponse = {
