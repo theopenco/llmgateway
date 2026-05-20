@@ -833,6 +833,348 @@ describe("api", () => {
 		expect(json.data[2]).toHaveProperty("index", 2);
 	});
 
+	test("/v1/embeddings google-vertex single input", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-embeddings-vertex",
+				token: "real-token-embeddings-vertex",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-embeddings-vertex",
+				token: "vertex-test-token",
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const requestId = "embeddings-vertex-request-id";
+			const inputText = "Vertex embeddings test input.";
+			const res = await app.request("/v1/embeddings", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-embeddings-vertex",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					input: inputText,
+					model: "google-vertex/gemini-embedding-001",
+					dimensions: 768,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json).toHaveProperty("object", "list");
+			expect(json).toHaveProperty(
+				"model",
+				"google-vertex/gemini-embedding-001",
+			);
+			expect(Array.isArray(json.data)).toBe(true);
+			expect(json.data).toHaveLength(1);
+			expect(json.data[0]).toHaveProperty("object", "embedding");
+			expect(json.data[0]).toHaveProperty("index", 0);
+			expect(Array.isArray(json.data[0].embedding)).toBe(true);
+			expect(json.data[0].embedding).toHaveLength(768);
+			// Mock returns floor(chars/5) — distinct from the gateway's
+			// ceil(chars/4) fallback so we can detect upstream usage.
+			const expectedUpstreamTokens = Math.max(
+				1,
+				Math.floor(inputText.length / 5),
+			);
+			expect(json.usage.prompt_tokens).toBe(expectedUpstreamTokens);
+			expect(json.usage.total_tokens).toBe(expectedUpstreamTokens);
+
+			const logs = await waitForLogs(1);
+			const embeddingLog = logs.find((log) => log.requestId === requestId);
+
+			expect(embeddingLog).toBeTruthy();
+			expect(embeddingLog?.usedModel).toBe(
+				"google-vertex/gemini-embedding-001",
+			);
+			expect(embeddingLog?.requestedModel).toBe(
+				"google-vertex/gemini-embedding-001",
+			);
+			expect(embeddingLog?.usedModelMapping).toBe("gemini-embedding-001");
+			expect(embeddingLog?.usedProvider).toBe("google-vertex");
+			expect(embeddingLog?.finishReason).toBe("stop");
+			expect(embeddingLog?.streamed).toBe(false);
+			expect(embeddingLog?.estimatedCost).toBe(false);
+			expect(Number(embeddingLog?.outputCost)).toBe(0);
+			expect(Number(embeddingLog?.inputCost)).toBeCloseTo(
+				(expectedUpstreamTokens * 0.15) / 1e6,
+				12,
+			);
+		} finally {
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+		}
+	});
+
+	test("/v1/embeddings google-vertex rejects batched input", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-embeddings-vertex-batch",
+				token: "real-token-embeddings-vertex-batch",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-embeddings-vertex-batch",
+				token: "vertex-test-token",
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/embeddings", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-embeddings-vertex-batch",
+				},
+				body: JSON.stringify({
+					input: ["first sentence", "second sentence", "third sentence"],
+					model: "google-vertex/gemini-embedding-001",
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("batch_not_supported");
+			expect(json.error?.param).toBe("input");
+			// Message must name the specific model so callers don't read it as
+			// "Vertex doesn't batch" — Vertex's other text-embedding-* models do.
+			expect(json.error?.message).toContain("gemini-embedding-001");
+		} finally {
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+		}
+	});
+
+	test("/v1/embeddings google-vertex packs base64 encoding_format", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-embeddings-vertex-b64",
+				token: "real-token-embeddings-vertex-b64",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-embeddings-vertex-b64",
+				token: "vertex-test-token",
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/embeddings", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-embeddings-vertex-b64",
+				},
+				body: JSON.stringify({
+					input: "pack me",
+					model: "google-vertex/gemini-embedding-001",
+					dimensions: 4,
+					encoding_format: "base64",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json.data).toHaveLength(1);
+			expect(typeof json.data[0].embedding).toBe("string");
+
+			const decoded = Buffer.from(json.data[0].embedding, "base64");
+			expect(decoded.byteLength).toBe(4 * 4);
+			const view = new DataView(
+				decoded.buffer,
+				decoded.byteOffset,
+				decoded.byteLength,
+			);
+			const floats: number[] = [];
+			for (let i = 0; i < 4; i++) {
+				floats.push(view.getFloat32(i * 4, true));
+			}
+			expect(floats.every((n) => Number.isFinite(n))).toBe(true);
+		} finally {
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+		}
+	});
+
+	test("/v1/embeddings google-vertex rejects token-id input", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-embeddings-vertex-tokenid",
+				token: "real-token-embeddings-vertex-tokenid",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-embeddings-vertex-tokenid",
+				token: "vertex-test-token",
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/embeddings", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-embeddings-vertex-tokenid",
+				},
+				body: JSON.stringify({
+					input: [123, 456, 789],
+					model: "google-vertex/gemini-embedding-001",
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_input");
+			expect(json.error?.message).toMatch(/token-ID/i);
+		} finally {
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+		}
+	});
+
+	test("/v1/embeddings google-vertex requires project id", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-embeddings-vertex-noproj",
+				token: "real-token-embeddings-vertex-noproj",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-embeddings-vertex-noproj",
+				token: "vertex-test-token",
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/embeddings", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-embeddings-vertex-noproj",
+				},
+				body: JSON.stringify({
+					input: "no project configured",
+					model: "google-vertex/gemini-embedding-001",
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			const json = await res.json();
+			expect(json.error?.code).toBe("missing_project_id");
+		} finally {
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+		}
+	});
+
+	test("/v1/embeddings google-vertex text-embedding-005 batches natively", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-embeddings-vertex-005",
+				token: "real-token-embeddings-vertex-005",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-embeddings-vertex-005",
+				token: "vertex-test-token",
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const inputs = ["first input", "second input", "third input"];
+			const res = await app.request("/v1/embeddings", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-embeddings-vertex-005",
+				},
+				body: JSON.stringify({
+					input: inputs,
+					model: "google-vertex/text-embedding-005",
+					dimensions: 768,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json).toHaveProperty("model", "google-vertex/text-embedding-005");
+			expect(json.data).toHaveLength(3);
+			expect(json.data[0]).toHaveProperty("index", 0);
+			expect(json.data[1]).toHaveProperty("index", 1);
+			expect(json.data[2]).toHaveProperty("index", 2);
+			expect(json.data[0].embedding).toHaveLength(768);
+			const expectedTokens = inputs.reduce(
+				(sum, text) => sum + Math.max(1, Math.floor(text.length / 5)),
+				0,
+			);
+			expect(json.usage.prompt_tokens).toBe(expectedTokens);
+		} finally {
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+		}
+	});
+
 	test("/v1/moderations forwards request id upstream", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-moderation-forwarded-request-id",
