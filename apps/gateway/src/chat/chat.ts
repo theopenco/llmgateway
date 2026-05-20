@@ -61,6 +61,7 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
+	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
 	type RoutingMetadata,
 } from "@llmgateway/actions";
@@ -141,6 +142,7 @@ import {
 	getAudioFormatsFromMessages,
 	messagesContainAudio,
 } from "./tools/messages-contain-audio.js";
+import { messagesContainDocuments } from "./tools/messages-contain-documents.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
@@ -362,6 +364,7 @@ function filterEligibleModelProviders(
 		hasImages: boolean;
 		hasAudio: boolean;
 		audioFormats?: string[];
+		hasDocuments: boolean;
 		maxTokens?: number;
 		reasoningEffort?: string;
 	},
@@ -417,6 +420,10 @@ function filterEligibleModelProviders(
 				googleProviderSupportsAudioFormat(provider.providerId, fmt),
 			)
 		) {
+			return false;
+		}
+
+		if (options.hasDocuments && provider.document !== true) {
 			return false;
 		}
 
@@ -1166,6 +1173,7 @@ chat.openapi(completions, async (c) => {
 	const audioFormats = hasAudio
 		? getAudioFormatsFromMessages(messages as BaseMessage[])
 		: [];
+	const hasDocuments = messagesContainDocuments(messages as BaseMessage[]);
 
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
@@ -1565,7 +1573,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Validate model capabilities (JSON output, reasoning, tools, web search)
+	// Validate model capabilities (JSON output, reasoning, tools, web search, documents)
 	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
 		response_format,
 		reasoning_effort,
@@ -1574,6 +1582,7 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		webSearchTool,
 		hasImages,
+		hasDocuments,
 	});
 
 	let usedProvider = requestedProvider;
@@ -1722,7 +1731,11 @@ chat.openapi(completions, async (c) => {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
-			} else if (!allowedAutoModels.includes(modelDef.id) && !hasAudio) {
+			} else if (
+				!allowedAutoModels.includes(modelDef.id) &&
+				!hasAudio &&
+				!hasDocuments
+			) {
 				continue;
 			} else if (
 				estimatedInputTokens > 10_000 &&
@@ -1844,6 +1857,10 @@ chat.openapi(completions, async (c) => {
 						googleProviderSupportsAudioFormat(provider.providerId, fmt),
 					)
 				) {
+					return false;
+				}
+
+				if (hasDocuments && provider.document !== true) {
 					return false;
 				}
 
@@ -2034,6 +2051,16 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 		}
+		if (hasDocuments) {
+			sameProviderMappings = sameProviderMappings.filter(
+				(p) => p.document === true,
+			);
+			if (sameProviderMappings.length === 0) {
+				throw new HTTPException(400, {
+					message: `Provider ${usedProvider} does not support document input for model ${modelInfo.id}.`,
+				});
+			}
+		}
 		const sameProviderRegionalMappings = sameProviderMappings.filter(
 			(p) => p.region,
 		);
@@ -2081,6 +2108,7 @@ chat.openapi(completions, async (c) => {
 					hasImages,
 					hasAudio,
 					audioFormats,
+					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -2400,6 +2428,7 @@ chat.openapi(completions, async (c) => {
 						hasImages,
 						hasAudio,
 						audioFormats,
+						hasDocuments,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 					},
@@ -2581,6 +2610,7 @@ chat.openapi(completions, async (c) => {
 					hasImages,
 					hasAudio,
 					audioFormats,
+					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -2786,6 +2816,7 @@ chat.openapi(completions, async (c) => {
 					hasImages,
 					hasAudio,
 					audioFormats,
+					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -5335,6 +5366,16 @@ chat.openapi(completions, async (c) => {
 								? extractAwsBedrockHttpError(res, rawErrorResponseText)
 								: rawErrorResponseText;
 
+						// If the upstream Google provider rejected the document MIME,
+						// surface a typed error event so streaming clients see the same
+						// clean shape as the non-streaming path does (via app.onError).
+						const documentErr = hasDocuments
+							? parseGoogleUpstreamDocumentError(
+									errorResponseText,
+									usedProvider,
+								)
+							: null;
+
 						// Determine the finish reason for error handling
 						const finishReason = getFinishReasonFromError(
 							res.status,
@@ -5594,7 +5635,18 @@ chat.openapi(completions, async (c) => {
 						} else {
 							// For client errors, return the original provider error response
 							let errorData;
-							if (finishReason === "client_error") {
+							if (documentErr) {
+								errorData = {
+									error: {
+										message: documentErr.message,
+										type: "invalid_request_error",
+										param: null,
+										code: "unsupported_document_format",
+										mimeType: documentErr.mimeType,
+										providerTarget: documentErr.providerTarget,
+									},
+								};
+							} else if (finishReason === "client_error") {
 								try {
 									errorData = JSON.parse(errorResponseText);
 								} catch {
@@ -8920,6 +8972,19 @@ chat.openapi(completions, async (c) => {
 					);
 				}
 				throw bodyError;
+			}
+
+			// If the upstream Google provider rejected the request because the
+			// document MIME isn't supported by that specific model, re-emit as a
+			// typed error so app.ts:onError returns a clean 400.
+			if (hasDocuments) {
+				const documentErr = parseGoogleUpstreamDocumentError(
+					errorResponseText,
+					usedProvider,
+				);
+				if (documentErr) {
+					throw documentErr;
+				}
 			}
 
 			// Determine the finish reason first
