@@ -12,6 +12,7 @@ import {
 	gte,
 	lte,
 	eq,
+	apiKey,
 	projectHourlyStats,
 	projectHourlyModelStats,
 	apiKeyHourlyStats,
@@ -26,6 +27,17 @@ export const activity = new OpenAPIHono<ServerTypes>();
 const modelUsageSchema = z.object({
 	id: z.string(),
 	provider: z.string(),
+	requestCount: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+});
+
+// Define the response schema for api-key-specific usage
+const apiKeyUsageSchema = z.object({
+	id: z.string(),
+	description: z.string(),
 	requestCount: z.number(),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
@@ -65,6 +77,7 @@ const dailyActivitySchema = z.object({
 	creditsDataStorageCost: z.number(),
 	apiKeysDataStorageCost: z.number(),
 	modelBreakdown: z.array(modelUsageSchema),
+	apiKeyBreakdown: z.array(apiKeyUsageSchema),
 });
 
 type ActivityRow = z.infer<typeof dailyActivitySchema>;
@@ -151,6 +164,7 @@ function buildEmptyActivityRow(date: string): ActivityRow {
 		creditsDataStorageCost: 0,
 		apiKeysDataStorageCost: 0,
 		modelBreakdown: [],
+		apiKeyBreakdown: [],
 	};
 }
 
@@ -561,6 +575,7 @@ activity.openapi(getActivity, async (c) => {
 				creditsDataStorageCost,
 				apiKeysDataStorageCost,
 				modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
+				apiKeyBreakdown: [],
 			};
 		});
 
@@ -777,6 +792,73 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
+	// Query api key breakdown from apiKeyHourlyStats table joined with apiKey
+	const apiKeyBreakdowns = await db
+		.select({
+			date: isHourly
+				? sql<string>`to_char(${apiKeyHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
+						"date",
+					)
+				: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+			apiKeyId: apiKeyHourlyStats.apiKeyId,
+			description: apiKey.description,
+			requestCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+					"requestCount",
+				),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"inputTokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"outputTokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"totalTokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+		})
+		.from(apiKeyHourlyStats)
+		.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
+		.where(
+			and(
+				inArray(apiKeyHourlyStats.projectId, projectIds),
+				gte(apiKeyHourlyStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(
+			isHourly
+				? sql`${apiKeyHourlyStats.hourTimestamp}, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`
+				: sql`DATE(${apiKeyHourlyStats.hourTimestamp}), ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`,
+		)
+		.orderBy(
+			isHourly
+				? sql`${apiKeyHourlyStats.hourTimestamp} ASC, ${apiKeyHourlyStats.apiKeyId} ASC`
+				: sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC, ${apiKeyHourlyStats.apiKeyId} ASC`,
+		);
+
+	const apiKeyBreakdownByDate = new Map<
+		string,
+		z.infer<typeof apiKeyUsageSchema>[]
+	>();
+	for (const breakdown of apiKeyBreakdowns) {
+		if (!apiKeyBreakdownByDate.has(breakdown.date)) {
+			apiKeyBreakdownByDate.set(breakdown.date, []);
+		}
+		apiKeyBreakdownByDate.get(breakdown.date)!.push({
+			id: breakdown.apiKeyId,
+			description: breakdown.description ?? "Deleted key",
+			requestCount: Number(breakdown.requestCount),
+			inputTokens: Number(breakdown.inputTokens),
+			outputTokens: Number(breakdown.outputTokens),
+			totalTokens: Number(breakdown.totalTokens),
+			cost: Number(breakdown.cost),
+		});
+	}
+
 	// Process hourly aggregates (summed to daily) and add calculated fields
 	const activityData = hourlyAggregates.map((day) => {
 		// Convert database strings to numbers
@@ -842,6 +924,7 @@ activity.openapi(getActivity, async (c) => {
 			creditsDataStorageCost,
 			apiKeysDataStorageCost,
 			modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
+			apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
 		};
 	});
 

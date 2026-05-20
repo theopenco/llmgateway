@@ -10,6 +10,16 @@ export interface ActivityModelUsage {
 	cost: number;
 }
 
+export interface ActivityApiKeyUsage {
+	id: string;
+	description: string;
+	requestCount: number;
+	inputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+	cost: number;
+}
+
 export interface DailyActivity {
 	date: string;
 	requestCount: number;
@@ -41,6 +51,7 @@ export interface DailyActivity {
 	creditsDataStorageCost: number;
 	apiKeysDataStorageCost: number;
 	modelBreakdown: ActivityModelUsage[];
+	apiKeyBreakdown: ActivityApiKeyUsage[];
 }
 
 export interface ActivityResponse {
@@ -80,6 +91,7 @@ export type ActivitT =
 				creditsDataStorageCost: number;
 				apiKeysDataStorageCost: number;
 				modelBreakdown: ActivityModelUsage[];
+				apiKeyBreakdown: ActivityApiKeyUsage[];
 			}[];
 	  }
 	| undefined;

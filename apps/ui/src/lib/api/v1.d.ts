@@ -2174,6 +2174,15 @@ export interface paths {
                                     totalTokens: number;
                                     cost: number;
                                 }[];
+                                apiKeyBreakdown: {
+                                    id: string;
+                                    description: string;
+                                    requestCount: number;
+                                    inputTokens: number;
+                                    outputTokens: number;
+                                    totalTokens: number;
+                                    cost: number;
+                                }[];
                             }[];
                             /** @enum {string} */
                             granularity?: "hourly" | "daily";
