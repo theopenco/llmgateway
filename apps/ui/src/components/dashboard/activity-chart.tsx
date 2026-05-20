@@ -265,11 +265,13 @@ export function ActivityChart({
 
 	// Build query params based on whether we're using timeRange or date range
 	const queryParams = useMemo(() => {
+		const breakdownParam = groupBy === "apiKey" ? { groupBy } : {};
 		if (timeRange) {
 			return {
 				timeRange,
 				...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				...(apiKeyId ? { apiKeyId } : {}),
+				...breakdownParam,
 			};
 		}
 		const { from, to } = getDateRangeFromParams(searchParams);
@@ -278,8 +280,9 @@ export function ActivityChart({
 			to: format(to, "yyyy-MM-dd"),
 			...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 			...(apiKeyId ? { apiKeyId } : {}),
+			...breakdownParam,
 		};
-	}, [timeRange, searchParams, selectedProject?.id, apiKeyId]);
+	}, [timeRange, searchParams, selectedProject?.id, apiKeyId, groupBy]);
 
 	const { data, isLoading, error } = api.useQuery(
 		"get",

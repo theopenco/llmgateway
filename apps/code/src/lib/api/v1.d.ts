@@ -2121,6 +2121,7 @@ export interface paths {
                     projectId?: string;
                     apiKeyId?: string;
                     timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
+                    groupBy?: "model" | "apiKey";
                 };
                 header?: never;
                 path?: never;
