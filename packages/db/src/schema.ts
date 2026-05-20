@@ -516,6 +516,8 @@ export const apiKeyIamRule = pgTable(
 				"deny_pricing",
 				"allow_providers",
 				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
 			],
 		}).notNull(),
 		ruleValue: json()
@@ -525,6 +527,7 @@ export const apiKeyIamRule = pgTable(
 				pricingType?: "free" | "paid";
 				maxInputPrice?: number;
 				maxOutputPrice?: number;
+				ipCidrs?: string[];
 			}>()
 			.notNull(),
 		status: text({
