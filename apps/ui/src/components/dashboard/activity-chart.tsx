@@ -311,11 +311,15 @@ export function ActivityChart({
 		return `${days} days`;
 	}, [timeRange, searchParams]);
 
+	const seriesNoun = groupBy === "apiKey" ? "API key" : "model";
+	const cardTitle =
+		groupBy === "apiKey" ? "API Key Usage Overview" : "Model Usage Overview";
+
 	if (!selectedProject) {
 		return (
 			<Card>
 				<CardHeader>
-					<CardTitle>Model Usage Overview</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
 						Please select a project to view activity data
 					</CardDescription>
@@ -333,9 +337,9 @@ export function ActivityChart({
 		return (
 			<Card>
 				<CardHeader>
-					<CardTitle>Model Usage Overview</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {periodLabel}
+						Stacked {seriesNoun} {breakdownField} over {periodLabel}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -351,9 +355,9 @@ export function ActivityChart({
 		return (
 			<Card>
 				<CardHeader>
-					<CardTitle>Model Usage Overview</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {periodLabel}
+						Stacked {seriesNoun} {breakdownField} over {periodLabel}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -369,9 +373,9 @@ export function ActivityChart({
 		return (
 			<Card>
 				<CardHeader>
-					<CardTitle>Model Usage Overview</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {periodLabel}
+						Stacked {seriesNoun} {breakdownField} over {periodLabel}
 						{selectedProject && (
 							<span className="block mt-1 text-sm">
 								Project: {selectedProject.name}
@@ -489,17 +493,12 @@ export function ActivityChart({
 		});
 	}
 	const getSeriesLabel = (id: string) => seriesLabelById.get(id) ?? id;
-	const seriesNoun = groupBy === "apiKey" ? "API key" : "model";
 
 	return (
 		<Card>
 			<CardHeader className="flex flex-col space-y-4 md:flex-row items-center justify-between pb-2">
 				<div>
-					<CardTitle>
-						{groupBy === "apiKey"
-							? "API Key Usage Overview"
-							: "Model Usage Overview"}
-					</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
 						Stacked {seriesNoun} {breakdownField} over {periodLabel}
 						{selectedProject && (
