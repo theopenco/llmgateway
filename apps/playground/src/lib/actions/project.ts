@@ -2,12 +2,9 @@
 
 import { cookies } from "next/headers";
 
-const COOKIE_NAME = "llmgateway-last-used-project";
+import { PLAYGROUND_KEY_COOKIE_NAMES } from "@/lib/constants";
 
-const PLAYGROUND_KEY_COOKIE_NAMES = [
-	"llmgateway_playground_key",
-	"__Host-llmgateway_playground_key",
-];
+const COOKIE_NAME = "llmgateway-last-used-project";
 
 /**
  * Server Action to set the last used project ID in cookies
