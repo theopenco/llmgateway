@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 
 import { ActivityChart } from "@/components/dashboard/activity-chart";
 import {
@@ -90,6 +91,15 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 
 	const apiKeyFilterDisabled = groupBy === "apiKey";
 	const effectiveApiKeyId = apiKeyFilterDisabled ? undefined : apiKeyId;
+
+	// Normalize stale URLs: groupBy=apiKey should never coexist with apiKeyId
+	useEffect(() => {
+		if (groupBy === "apiKey" && searchParams.has("apiKeyId")) {
+			const params = new URLSearchParams(searchParams);
+			params.delete("apiKeyId");
+			router.replace(`${buildUrl("model-usage")}?${params.toString()}`);
+		}
+	}, [groupBy, searchParams, router, buildUrl]);
 
 	return (
 		<div className="flex flex-col">
