@@ -17,36 +17,21 @@ function mockContext(headers: Record<string, string>): Context {
 }
 
 describe("getClientIpFromRequest", () => {
-	it("prefers CF-Connecting-IP when present", () => {
-		const c = mockContext({
-			"cf-connecting-ip": "203.0.113.7",
-			"x-forwarded-for": "198.51.100.1, 192.0.2.1",
-			"x-real-ip": "10.0.0.1",
-		});
-		expect(getClientIpFromRequest(c)).toBe("203.0.113.7");
-	});
-
-	it("falls back to the first hop of X-Forwarded-For", () => {
+	it("returns the first hop of X-Forwarded-For", () => {
 		const c = mockContext({
 			"x-forwarded-for": "198.51.100.1, 192.0.2.1",
-			"x-real-ip": "10.0.0.1",
 		});
 		expect(getClientIpFromRequest(c)).toBe("198.51.100.1");
 	});
 
-	it("trims whitespace from the X-Forwarded-For first hop", () => {
+	it("trims whitespace from the first hop", () => {
 		const c = mockContext({
 			"x-forwarded-for": "  198.51.100.5  , 192.0.2.1",
 		});
 		expect(getClientIpFromRequest(c)).toBe("198.51.100.5");
 	});
 
-	it("falls back to X-Real-IP when no other header is set", () => {
-		const c = mockContext({ "x-real-ip": "10.0.0.42" });
-		expect(getClientIpFromRequest(c)).toBe("10.0.0.42");
-	});
-
-	it("returns undefined when no header is set", () => {
+	it("returns undefined when X-Forwarded-For is absent", () => {
 		expect(getClientIpFromRequest(mockContext({}))).toBeUndefined();
 	});
 
@@ -55,8 +40,13 @@ describe("getClientIpFromRequest", () => {
 		expect(getClientIpFromRequest(c)).toBeUndefined();
 	});
 
-	it("handles IPv6 addresses in CF-Connecting-IP", () => {
-		const c = mockContext({ "cf-connecting-ip": "2001:db8::1" });
+	it("handles a single entry without a comma", () => {
+		const c = mockContext({ "x-forwarded-for": "203.0.113.7" });
+		expect(getClientIpFromRequest(c)).toBe("203.0.113.7");
+	});
+
+	it("handles IPv6 in X-Forwarded-For", () => {
+		const c = mockContext({ "x-forwarded-for": "2001:db8::1, 192.0.2.1" });
 		expect(getClientIpFromRequest(c)).toBe("2001:db8::1");
 	});
 });

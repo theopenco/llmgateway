@@ -6,20 +6,12 @@ import type { Context } from "hono";
 // ordering used elsewhere in the codebase (Cloudflare first, then the first
 // hop of X-Forwarded-For as set by the GCP load balancer, then X-Real-IP).
 export function getClientIpFromRequest(c: Context): string | undefined {
-	const cf = c.req.header("cf-connecting-ip");
-	if (cf) {
-		return cf.trim();
-	}
 	const xff = c.req.header("x-forwarded-for");
 	if (xff) {
 		const first = xff.split(",")[0]?.trim();
 		if (first) {
 			return first;
 		}
-	}
-	const real = c.req.header("x-real-ip");
-	if (real) {
-		return real.trim();
 	}
 	return undefined;
 }

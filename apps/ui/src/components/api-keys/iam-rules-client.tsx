@@ -449,10 +449,9 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 										/>
 										<p className="text-xs text-muted-foreground">
 											Comma or whitespace separated. IPv4 and IPv6 supported.
-											The gateway evaluates the client IP from{" "}
-											<code>CF-Connecting-IP</code>,{" "}
-											<code>X-Forwarded-For</code> (first hop), or{" "}
-											<code>X-Real-IP</code>.
+											The gateway reads the client IP from the first entry in{" "}
+											<code>X-Forwarded-For</code> (set by the GCP load
+											balancer).
 										</p>
 									</div>
 								)}
