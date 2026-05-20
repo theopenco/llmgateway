@@ -16,6 +16,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -95,6 +96,8 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 		() => extractOrgAndProjectFromPath(pathname),
 		[pathname],
 	);
+	const { selectedOrganization } = useDashboardNavigation();
+	const isEnterprise = selectedOrganization?.plan === "enterprise";
 
 	const [newRule, setNewRule] = useState<{
 		ruleType: IamRule["ruleType"];
@@ -372,16 +375,32 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 													Deny Pricing Constraints
 												</div>
 											</SelectItem>
-											<SelectItem value="allow_ip_cidrs">
+											<SelectItem
+												value="allow_ip_cidrs"
+												disabled={!isEnterprise}
+											>
 												<div className="flex items-center gap-2">
 													<Network className="h-4 w-4 text-blue-500" />
 													Allow IP Ranges (CIDR)
+													{!isEnterprise && (
+														<Badge variant="outline" className="text-[10px]">
+															Enterprise
+														</Badge>
+													)}
 												</div>
 											</SelectItem>
-											<SelectItem value="deny_ip_cidrs">
+											<SelectItem
+												value="deny_ip_cidrs"
+												disabled={!isEnterprise}
+											>
 												<div className="flex items-center gap-2">
 													<Network className="h-4 w-4 text-blue-500" />
 													Deny IP Ranges (CIDR)
+													{!isEnterprise && (
+														<Badge variant="outline" className="text-[10px]">
+															Enterprise
+														</Badge>
+													)}
 												</div>
 											</SelectItem>
 										</SelectContent>

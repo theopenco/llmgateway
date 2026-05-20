@@ -407,6 +407,23 @@ function isValidCidr(cidr: string): boolean {
 	}
 }
 
+export function isIpCidrRuleType(
+	ruleType?: z.infer<typeof iamRuleTypeEnum>,
+): boolean {
+	return ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs";
+}
+
+export function assertEnterpriseForIpCidrRule(
+	ruleType: z.infer<typeof iamRuleTypeEnum> | undefined,
+	plan: string | null | undefined,
+): void {
+	if (isIpCidrRuleType(ruleType) && plan !== "enterprise") {
+		throw new HTTPException(403, {
+			message: "IP address IAM rules require an enterprise plan",
+		});
+	}
+}
+
 export function validateIamRuleInput(input: {
 	ruleType?: z.infer<typeof iamRuleTypeEnum>;
 	ruleValue?: z.infer<typeof iamRuleValueSchema>;
@@ -1347,7 +1364,11 @@ keysApi.openapi(createIamRule, async (c) => {
 			},
 		},
 		with: {
-			project: true,
+			project: {
+				with: {
+					organization: true,
+				},
+			},
 		},
 	});
 
@@ -1375,6 +1396,11 @@ keysApi.openapi(createIamRule, async (c) => {
 			message: "You don't have permission to manage IAM rules for this API key",
 		});
 	}
+
+	assertEnterpriseForIpCidrRule(
+		ruleData.ruleType,
+		apiKey.project.organization?.plan,
+	);
 
 	// Create the IAM rule
 	const [rule] = await db
@@ -1578,7 +1604,11 @@ keysApi.openapi(updateIamRule, async (c) => {
 			},
 		},
 		with: {
-			project: true,
+			project: {
+				with: {
+					organization: true,
+				},
+			},
 		},
 	});
 
@@ -1624,6 +1654,12 @@ keysApi.openapi(updateIamRule, async (c) => {
 			ruleValue: updateData.ruleValue ?? existingRule.ruleValue,
 		});
 	}
+
+	const effectiveRuleType = updateData.ruleType ?? existingRule?.ruleType;
+	assertEnterpriseForIpCidrRule(
+		effectiveRuleType,
+		apiKey.project.organization?.plan,
+	);
 
 	// Update the IAM rule
 	const [updatedRule] = await db
