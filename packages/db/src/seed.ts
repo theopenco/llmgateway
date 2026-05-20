@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { randomInt as cryptoRandomInt, randomUUID } from "crypto";
 
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -45,18 +45,26 @@ async function bulkInsert<T extends Record<string, any>>(
 	}
 }
 
+// CSPRNG-backed uniform float in [0, 1). Seed data is not security-sensitive,
+// but routing all randomness through a secure source keeps CodeQL's
+// js/insecure-randomness query quiet without per-line suppressions.
+function secureRandom(): number {
+	const scale = 2 ** 47;
+	return cryptoRandomInt(0, scale) / scale;
+}
+
 function randomInt(min: number, max: number) {
-	return Math.floor(Math.random() * (max - min + 1)) + min;
+	return Math.floor(secureRandom() * (max - min + 1)) + min;
 }
 
 function randomFloat(min: number, max: number, decimals = 2) {
 	/* eslint-disable no-mixed-operators */
-	return Number((Math.random() * (max - min) + min).toFixed(decimals));
+	return Number((secureRandom() * (max - min) + min).toFixed(decimals));
 	/* eslint-enable no-mixed-operators */
 }
 
 function randomChoice<T>(arr: T[]): T {
-	return arr[Math.floor(Math.random() * arr.length)]!;
+	return arr[Math.floor(secureRandom() * arr.length)]!;
 }
 
 function daysAgo(days: number) {
@@ -169,7 +177,7 @@ const FINISH_REASONS = [
 
 function weightedRandomChoice<T extends { weight: number }>(arr: T[]): T {
 	const total = arr.reduce((sum, item) => sum + item.weight, 0);
-	let r = Math.random() * total;
+	let r = secureRandom() * total;
 	for (const item of arr) {
 		r -= item.weight;
 		if (r <= 0) {
@@ -568,16 +576,16 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 			const completionTokens = isError ? 0 : randomInt(10, 4000);
 			const totalTokens = promptTokens + completionTokens;
 			const cachedTokens =
-				Math.random() < 0.15 ? randomInt(5, promptTokens) : 0;
+				secureRandom() < 0.15 ? randomInt(5, promptTokens) : 0;
 			const isCached = cachedTokens > 0;
-			const isStreamed = Math.random() < 0.6;
+			const isStreamed = secureRandom() < 0.6;
 			const duration = isError ? randomInt(50, 500) : randomInt(200, 15000);
 			const timeToFirstToken =
 				isStreamed && !isError ? randomInt(50, Math.min(duration, 2000)) : null;
 			const inputCost = (promptTokens / 1000) * modelDef.inputPrice;
 			const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
 			const cost = inputCost + outputCost;
-			const discount = Math.random() < 0.1 ? randomFloat(0.05, 0.3) : 0;
+			const discount = secureRandom() < 0.1 ? randomFloat(0.05, 0.3) : 0;
 			const usedMode =
 				proj.mode === "hybrid"
 					? randomChoice(["api-keys", "credits"] as const)
@@ -669,9 +677,9 @@ function generateTransactions() {
 							: "0";
 			const creditAmount = isCredit || isRefund ? amount : undefined;
 			const status =
-				Math.random() < 0.85
+				secureRandom() < 0.85
 					? "completed"
-					: Math.random() < 0.5
+					: secureRandom() < 0.5
 						? "pending"
 						: "failed";
 			transactions.push({
@@ -905,11 +913,11 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 			const hourTs = hoursAgo(h);
 			hourTs.setMinutes(0, 0, 0);
 			for (const modelDef of modelsUsed) {
-				if (Math.random() < 0.3) {
+				if (secureRandom() < 0.3) {
 					continue;
 				}
 				const reqCount = randomInt(1, isHighVolume ? 30 : 10);
-				const errCount = Math.random() < 0.1 ? randomInt(1, 3) : 0;
+				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
 				/* eslint-disable no-mixed-operators */
@@ -999,11 +1007,11 @@ function generateProjectHourlySourceStats(projects: ProjectDef[]) {
 			const hourTs = hoursAgo(h);
 			hourTs.setMinutes(0, 0, 0);
 			for (const sourceDef of sourcesUsed) {
-				if (Math.random() < 0.35) {
+				if (secureRandom() < 0.35) {
 					continue;
 				}
 				const reqCount = randomInt(1, isHighVolume ? 25 : 8);
-				const errCount = Math.random() < 0.1 ? randomInt(1, 3) : 0;
+				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
 				const inputTok = reqCount * randomInt(200, 4000);
 				const outputTok = reqCount * randomInt(100, 2500);
 				const costPerReq = randomFloat(0.002, 0.06);
@@ -1084,7 +1092,7 @@ function generateSeedProviders() {
 		cachedCount: randomInt(50, 5000),
 		avgTimeToFirstToken: randomFloat(80, 2500, 1),
 		avgTimeToFirstReasoningToken:
-			Math.random() < 0.3 ? randomFloat(200, 5000, 1) : null,
+			secureRandom() < 0.3 ? randomFloat(200, 5000, 1) : null,
 		statsUpdatedAt: hoursAgo(randomInt(0, 6)),
 	}));
 }
@@ -1110,7 +1118,7 @@ function generateSeedModels() {
 		cachedCount: randomInt(20, 3000),
 		avgTimeToFirstToken: randomFloat(80, 3000, 1),
 		avgTimeToFirstReasoningToken:
-			Math.random() < 0.2 ? randomFloat(200, 6000, 1) : null,
+			secureRandom() < 0.2 ? randomFloat(200, 6000, 1) : null,
 		statsUpdatedAt: hoursAgo(randomInt(0, 6)),
 	}));
 }
@@ -1554,7 +1562,7 @@ async function seed() {
 	const devpassLogs: Array<Record<string, any>> = [];
 	let devpassRunningCost = 0;
 	for (let i = 0; i < DEVPASS_LOG_COUNT; i++) {
-		const r = Math.random() * DEVPASS_WEIGHT_TOTAL;
+		const r = secureRandom() * DEVPASS_WEIGHT_TOTAL;
 		let acc = 0;
 		const agent =
 			DEVPASS_AGENTS.find((a) => {
@@ -1580,8 +1588,8 @@ async function seed() {
 		const completionTokens = isError ? 0 : randomInt(60, 4500);
 		const totalTokens = promptTokens + completionTokens;
 		const cachedTokens =
-			Math.random() < 0.3 ? randomInt(50, promptTokens / 2) : 0;
-		const isStreamed = Math.random() < 0.85;
+			secureRandom() < 0.3 ? randomInt(50, promptTokens / 2) : 0;
+		const isStreamed = secureRandom() < 0.85;
 		const duration = isError ? randomInt(80, 600) : randomInt(450, 22000);
 		const inputCost = (promptTokens / 1000) * modelDef.inputPrice;
 		const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
@@ -1913,8 +1921,8 @@ async function seed() {
 			id: u.id,
 			name: u.name,
 			email: u.email,
-			emailVerified: Math.random() < 0.85,
-			onboardingCompleted: Math.random() < 0.7,
+			emailVerified: secureRandom() < 0.85,
+			onboardingCompleted: secureRandom() < 0.7,
 			createdAt: daysAgo(randomInt(10, 400)),
 		});
 		await upsert(tables.account, {
@@ -1937,7 +1945,7 @@ async function seed() {
 			retentionLevel:
 				org.plan === "enterprise"
 					? "retain"
-					: Math.random() < 0.5
+					: secureRandom() < 0.5
 						? "retain"
 						: "none",
 			status: org.status,
@@ -1975,7 +1983,7 @@ async function seed() {
 			name: proj.name,
 			organizationId: proj.orgId,
 			mode: proj.mode,
-			cachingEnabled: Math.random() < 0.3,
+			cachingEnabled: secureRandom() < 0.3,
 		});
 	}
 
@@ -2020,11 +2028,11 @@ async function seed() {
 		const hourTs = hoursAgo(h);
 		hourTs.setMinutes(0, 0, 0);
 		for (const sourceDef of AGENT_SOURCES) {
-			if (Math.random() < 0.45) {
+			if (secureRandom() < 0.45) {
 				continue;
 			}
 			const reqCount = randomInt(1, 12);
-			const errCount = Math.random() < 0.1 ? randomInt(1, 2) : 0;
+			const errCount = secureRandom() < 0.1 ? randomInt(1, 2) : 0;
 			const inputTok = reqCount * randomInt(200, 4000);
 			const outputTok = reqCount * randomInt(100, 2500);
 			const costVal = reqCount * randomFloat(0.002, 0.06);
