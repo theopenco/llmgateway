@@ -424,22 +424,57 @@ export const providers = [
 			optionsKey: "aws_bedrock_region",
 			defaultRegion: "global",
 			regions: [
+				// Cross-region inference profile groups (spread inference across the
+				// pool — AWS picks the actual region per request).
 				{ id: "global", label: "Global (default)" },
 				{ id: "us", label: "US" },
 				{ id: "eu", label: "EU" },
 				{ id: "apac", label: "Asia Pacific" },
+				// Specific AWS regions for data-residency requirements. Only models
+				// that support direct invocation in the chosen region will work —
+				// Claude 4+ requires an inference profile and will reject these.
+				{ id: "us-east-1", label: "US East (N. Virginia)" },
+				{ id: "us-east-2", label: "US East (Ohio)" },
+				{ id: "us-west-2", label: "US West (Oregon)" },
+				{ id: "eu-central-1", label: "EU (Frankfurt)" },
+				{ id: "eu-west-1", label: "EU (Ireland)" },
+				{ id: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
+				{ id: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
+				{ id: "ap-southeast-2", label: "Asia Pacific (Sydney)" },
 			],
 			endpointMap: {
 				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
 				us: "https://bedrock-runtime.us-east-1.amazonaws.com",
 				eu: "https://bedrock-runtime.eu-central-1.amazonaws.com",
 				apac: "https://bedrock-runtime.ap-northeast-1.amazonaws.com",
+				"us-east-1": "https://bedrock-runtime.us-east-1.amazonaws.com",
+				"us-east-2": "https://bedrock-runtime.us-east-2.amazonaws.com",
+				"us-west-2": "https://bedrock-runtime.us-west-2.amazonaws.com",
+				"eu-central-1": "https://bedrock-runtime.eu-central-1.amazonaws.com",
+				"eu-west-1": "https://bedrock-runtime.eu-west-1.amazonaws.com",
+				"ap-northeast-1":
+					"https://bedrock-runtime.ap-northeast-1.amazonaws.com",
+				"ap-southeast-1":
+					"https://bedrock-runtime.ap-southeast-1.amazonaws.com",
+				"ap-southeast-2":
+					"https://bedrock-runtime.ap-southeast-2.amazonaws.com",
 			},
 			modelPrefixMap: {
 				global: "global.",
 				us: "us.",
 				eu: "eu.",
 				apac: "apac.",
+				// Specific AWS regions invoke the bare model ID for true single-region
+				// residency. Empty string (not undefined) so it short-circuits the
+				// `aws_bedrock_region_prefix` env-var default of "global.".
+				"us-east-1": "",
+				"us-east-2": "",
+				"us-west-2": "",
+				"eu-central-1": "",
+				"eu-west-1": "",
+				"ap-northeast-1": "",
+				"ap-southeast-1": "",
+				"ap-southeast-2": "",
 			},
 		},
 		termsUrl: "https://aws.amazon.com/service-terms",

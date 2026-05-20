@@ -493,6 +493,48 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
+		it("routes to a specific AWS region with no inference profile prefix (data residency)", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-3-5-sonnet-20241022-v2:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us-east-2",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.us-east-2.amazonaws.com/model/anthropic.claude-3-5-sonnet-20241022-v2:0/converse",
+			);
+		});
+
+		it("routes to eu-west-1 with no prefix for EU data residency", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-3-5-sonnet-20241022-v2:0",
+				undefined,
+				true,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"eu-west-1",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.eu-west-1.amazonaws.com/model/anthropic.claude-3-5-sonnet-20241022-v2:0/converse-stream",
+			);
+		});
+
 		it("lets aws_bedrock_region_prefix provider-key option override the region-derived prefix", () => {
 			const endpoint = getProviderEndpoint(
 				"aws-bedrock",
