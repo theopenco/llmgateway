@@ -140,10 +140,17 @@ const HTML_ENTITIES: Record<string, string> = {
 function htmlToText(html: string): string {
 	return (
 		html
-			// Robustly drop <script>/<style> blocks, tolerating whitespace in the
-			// end tag (e.g. `</script >`) and avoiding lazy-match bypasses.
-			.replace(/<script\b[^<]*(?:(?!<\/script\s*>)<[^<]*)*<\/script\s*>/gi, " ")
-			.replace(/<style\b[^<]*(?:(?!<\/style\s*>)<[^<]*)*<\/style\s*>/gi, " ")
+			// Robustly drop <script>/<style> blocks. The end tag uses `[^>]*` so
+			// it also matches malformed closers like `</script\t\n bar>`, and the
+			// inner pattern avoids lazy-match bypasses.
+			.replace(
+				/<script\b[^<]*(?:(?!<\/script[^>]*>)<[^<]*)*<\/script[^>]*>/gi,
+				" ",
+			)
+			.replace(
+				/<style\b[^<]*(?:(?!<\/style[^>]*>)<[^<]*)*<\/style[^>]*>/gi,
+				" ",
+			)
 			.replace(/<[^>]+>/g, " ")
 			// Decode entities in a single pass so a decoded "&" can't be
 			// re-interpreted as the start of another entity (double-unescaping).
