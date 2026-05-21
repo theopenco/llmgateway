@@ -2205,6 +2205,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/activity/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    projectId: string;
+                    timeRange?: "7d" | "30d";
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregated usage grouped by source for a project */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            sources: {
+                                source: string;
+                                requestCount: number;
+                                inputTokens: number;
+                                outputTokens: number;
+                                totalTokens: number;
+                                cost: number;
+                                lastUsedAt: string | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/metrics": {
         parameters: {
             query?: never;

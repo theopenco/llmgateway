@@ -12,9 +12,11 @@ import {
 	gte,
 	lte,
 	eq,
+	desc,
 	apiKey,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 } from "@llmgateway/db";
@@ -944,5 +946,140 @@ activity.openapi(getActivity, async (c) => {
 	return c.json({
 		activity: paddedActivity,
 		...(timeRange ? { granularity } : {}),
+	});
+});
+
+// Response schema for per-source usage aggregation
+const sourceUsageSchema = z.object({
+	source: z.string(),
+	requestCount: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+	lastUsedAt: z.string().nullable(),
+});
+
+// Aggregated source usage for a single project, read from the per-project
+// hourly source rollup. Powers the agents dashboard. Limited to 7d/30d ranges.
+const getSourceActivity = createRoute({
+	method: "get",
+	path: "/sources",
+	request: {
+		query: z.object({
+			projectId: z.string(),
+			timeRange: z.enum(["7d", "30d"]).optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						sources: z.array(sourceUsageSchema),
+					}),
+				},
+			},
+			description: "Aggregated usage grouped by source for a project",
+		},
+	},
+});
+
+activity.openapi(getSourceActivity, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId, timeRange, from, to } = c.req.valid("query");
+
+	let startDate: Date;
+	let endDate: Date;
+	if (from && to) {
+		// Parse without a timezone suffix to match the sibling GET / handler.
+		startDate = new Date(from + "T00:00:00");
+		endDate = new Date(to + "T23:59:59.999");
+	} else {
+		endDate = new Date();
+		startDate = new Date();
+		startDate.setDate(startDate.getDate() - (timeRange === "30d" ? 30 : 7));
+	}
+
+	const organizationIds = await getUserOrganizationIds(user.id);
+
+	if (!organizationIds.length) {
+		return c.json({ sources: [] });
+	}
+
+	const project = await db.query.project.findFirst({
+		where: {
+			id: projectId,
+			organizationId: { in: organizationIds },
+			status: { ne: "deleted" },
+		},
+	});
+
+	if (!project) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+
+	const rows = await db
+		.select({
+			source: projectHourlySourceStats.source,
+			requestCount:
+				sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
+					"requestCount",
+				),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"inputTokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"outputTokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"totalTokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+				"cost",
+			),
+			lastUsedAt: sql<
+				string | null
+			>`to_char(MAX(${projectHourlySourceStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
+				"lastUsedAt",
+			),
+		})
+		.from(projectHourlySourceStats)
+		.where(
+			and(
+				eq(projectHourlySourceStats.projectId, projectId),
+				gte(projectHourlySourceStats.hourTimestamp, startDate),
+				lte(projectHourlySourceStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(projectHourlySourceStats.source)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`));
+
+	return c.json({
+		sources: rows.map((r) => ({
+			source: r.source,
+			requestCount: Number(r.requestCount),
+			inputTokens: Number(r.inputTokens),
+			outputTokens: Number(r.outputTokens),
+			totalTokens: Number(r.totalTokens),
+			cost: Number(r.cost),
+			lastUsedAt: r.lastUsedAt
+				? new Date(r.lastUsedAt + "Z").toISOString()
+				: null,
+		})),
 	});
 });

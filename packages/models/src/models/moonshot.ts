@@ -227,6 +227,7 @@ export const moonshotModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				deprecatedAt: new Date("2026-05-21"),
 			},
 			{
 				providerId: "nebius",

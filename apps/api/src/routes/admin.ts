@@ -28,6 +28,7 @@ import {
 	tables,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	projectHourlySourceStats,
 	globalModelStats,
 	globalSourceStats,
 	modelProviderMappingHistory,
@@ -9071,46 +9072,42 @@ admin.openapi(getDevpassUsage, async (c) => {
 		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
 		.limit(limit);
 
-	// Sources: no per-org source aggregator exists, so use the same
-	// cross-org day-bucketed table the /global-stats endpoint reads.
-	// Snap range to UTC day boundaries to match the bucket grain.
-	const sourceStart = new Date(
-		Date.UTC(
-			startDate.getUTCFullYear(),
-			startDate.getUTCMonth(),
-			startDate.getUTCDate(),
-		),
-	);
-	const sourceEnd = new Date(
-		Date.UTC(
-			endDate.getUTCFullYear(),
-			endDate.getUTCMonth(),
-			endDate.getUTCDate(),
-		),
+	// Sources: use the per-project hourly source aggregator so the breakdown
+	// is scoped to DevPass orgs (joins project -> organization), instead of the
+	// cross-org globalSourceStats table.
+	const projectSourceWhere = and(
+		gte(projectHourlySourceStats.hourTimestamp, startDate),
+		lte(projectHourlySourceStats.hourTimestamp, endDate),
+		devpassOrgFilter,
 	);
 
 	const sourceRows = await db
 		.select({
-			id: globalSourceStats.source,
+			id: projectHourlySourceStats.source,
 			requestCount:
-				sql<number>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
 					"request_count",
 				),
 			totalTokens:
-				sql<number>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${globalSourceStats.cost}), 0)`.as("cost"),
-		})
-		.from(globalSourceStats)
-		.where(
-			and(
-				gte(globalSourceStats.dayTimestamp, sourceStart),
-				lte(globalSourceStats.dayTimestamp, sourceEnd),
+			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+				"cost",
 			),
+		})
+		.from(projectHourlySourceStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlySourceStats.projectId, tables.project.id),
 		)
-		.groupBy(globalSourceStats.source)
-		.orderBy(desc(sql`COALESCE(SUM(${globalSourceStats.cost}), 0)`))
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(projectSourceWhere)
+		.groupBy(projectHourlySourceStats.source)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`))
 		.limit(limit);
 
 	const mapRow = (r: {

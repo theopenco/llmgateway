@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { randomInt as cryptoRandomInt, randomUUID } from "crypto";
 
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -45,18 +45,26 @@ async function bulkInsert<T extends Record<string, any>>(
 	}
 }
 
+// CSPRNG-backed uniform float in [0, 1). Seed data is not security-sensitive,
+// but routing all randomness through a secure source keeps CodeQL's
+// js/insecure-randomness query quiet without per-line suppressions.
+function secureRandom(): number {
+	const scale = 2 ** 47;
+	return cryptoRandomInt(0, scale) / scale;
+}
+
 function randomInt(min: number, max: number) {
-	return Math.floor(Math.random() * (max - min + 1)) + min;
+	return Math.floor(secureRandom() * (max - min + 1)) + min;
 }
 
 function randomFloat(min: number, max: number, decimals = 2) {
 	/* eslint-disable no-mixed-operators */
-	return Number((Math.random() * (max - min) + min).toFixed(decimals));
+	return Number((secureRandom() * (max - min) + min).toFixed(decimals));
 	/* eslint-enable no-mixed-operators */
 }
 
 function randomChoice<T>(arr: T[]): T {
-	return arr[Math.floor(Math.random() * arr.length)]!;
+	return arr[Math.floor(secureRandom() * arr.length)]!;
 }
 
 function daysAgo(days: number) {
@@ -169,7 +177,7 @@ const FINISH_REASONS = [
 
 function weightedRandomChoice<T extends { weight: number }>(arr: T[]): T {
 	const total = arr.reduce((sum, item) => sum + item.weight, 0);
-	let r = Math.random() * total;
+	let r = secureRandom() * total;
 	for (const item of arr) {
 		r -= item.weight;
 		if (r <= 0) {
@@ -568,16 +576,16 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 			const completionTokens = isError ? 0 : randomInt(10, 4000);
 			const totalTokens = promptTokens + completionTokens;
 			const cachedTokens =
-				Math.random() < 0.15 ? randomInt(5, promptTokens) : 0;
+				secureRandom() < 0.15 ? randomInt(5, promptTokens) : 0;
 			const isCached = cachedTokens > 0;
-			const isStreamed = Math.random() < 0.6;
+			const isStreamed = secureRandom() < 0.6;
 			const duration = isError ? randomInt(50, 500) : randomInt(200, 15000);
 			const timeToFirstToken =
 				isStreamed && !isError ? randomInt(50, Math.min(duration, 2000)) : null;
 			const inputCost = (promptTokens / 1000) * modelDef.inputPrice;
 			const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
 			const cost = inputCost + outputCost;
-			const discount = Math.random() < 0.1 ? randomFloat(0.05, 0.3) : 0;
+			const discount = secureRandom() < 0.1 ? randomFloat(0.05, 0.3) : 0;
 			const usedMode =
 				proj.mode === "hybrid"
 					? randomChoice(["api-keys", "credits"] as const)
@@ -669,9 +677,9 @@ function generateTransactions() {
 							: "0";
 			const creditAmount = isCredit || isRefund ? amount : undefined;
 			const status =
-				Math.random() < 0.85
+				secureRandom() < 0.85
 					? "completed"
-					: Math.random() < 0.5
+					: secureRandom() < 0.5
 						? "pending"
 						: "failed";
 			transactions.push({
@@ -905,11 +913,11 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 			const hourTs = hoursAgo(h);
 			hourTs.setMinutes(0, 0, 0);
 			for (const modelDef of modelsUsed) {
-				if (Math.random() < 0.3) {
+				if (secureRandom() < 0.3) {
 					continue;
 				}
 				const reqCount = randomInt(1, isHighVolume ? 30 : 10);
-				const errCount = Math.random() < 0.1 ? randomInt(1, 3) : 0;
+				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
 				/* eslint-disable no-mixed-operators */
@@ -970,6 +978,96 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 	return stats;
 }
 
+// Coding-agent sources recognized by the Agents dashboard, with relative weights.
+const AGENT_SOURCES: Array<{ source: string; weight: number }> = [
+	{ source: "claude.com/claude-code", weight: 0.35 },
+	{ source: "cursor", weight: 0.2 },
+	{ source: "cline", weight: 0.15 },
+	{ source: "codex", weight: 0.1 },
+	{ source: "opencode", weight: 0.1 },
+	{ source: "autohand", weight: 0.06 },
+	{ source: "n8n", weight: 0.04 },
+];
+
+function generateProjectHourlySourceStats(projects: ProjectDef[]) {
+	const stats = [];
+	let statIdx = 0;
+	for (const proj of projects) {
+		const org = EXTRA_ORGS.find((o) => o.id === proj.orgId);
+		const isHighVolume = org?.plan === "enterprise";
+		const isMedVolume = org?.plan === "pro";
+		const numHours = isHighVolume ? 168 : isMedVolume ? 72 : 24;
+		const sourcesUsed = isHighVolume
+			? AGENT_SOURCES.slice(0, 7)
+			: isMedVolume
+				? AGENT_SOURCES.slice(0, 5)
+				: AGENT_SOURCES.slice(0, 3);
+
+		for (let h = 0; h < numHours; h++) {
+			const hourTs = hoursAgo(h);
+			hourTs.setMinutes(0, 0, 0);
+			for (const sourceDef of sourcesUsed) {
+				if (secureRandom() < 0.35) {
+					continue;
+				}
+				const reqCount = randomInt(1, isHighVolume ? 25 : 8);
+				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
+				const inputTok = reqCount * randomInt(200, 4000);
+				const outputTok = reqCount * randomInt(100, 2500);
+				const costPerReq = randomFloat(0.002, 0.06);
+				const costVal = reqCount * costPerReq;
+
+				stats.push({
+					id: `phss-${statIdx}`,
+					projectId: proj.id,
+					hourTimestamp: hourTs,
+					source: sourceDef.source,
+					requestCount: reqCount,
+					errorCount: errCount,
+					cacheCount: randomInt(0, Math.floor(reqCount * 0.2)),
+					streamedCount: Math.floor(reqCount * 0.6),
+					nonStreamedCount: Math.floor(reqCount * 0.4),
+					completedCount: reqCount - errCount,
+					lengthLimitCount: 0,
+					contentFilterCount: 0,
+					toolCallsCount: randomInt(0, 2),
+					canceledCount: 0,
+					unknownFinishCount: 0,
+					clientErrorCount: 0,
+					gatewayErrorCount: 0,
+					upstreamErrorCount: errCount,
+					inputTokens: String(inputTok),
+					outputTokens: String(outputTok),
+					totalTokens: String(inputTok + outputTok),
+					reasoningTokens: "0",
+					cachedTokens: "0",
+					cacheWriteTokens: "0",
+					cost: Number(costVal.toFixed(6)),
+					inputCost: Number((costVal * 0.4).toFixed(6)),
+					outputCost: Number((costVal * 0.5).toFixed(6)),
+					requestCost: Number((costVal * 0.1).toFixed(6)),
+					dataStorageCost: 0,
+					discountSavings: 0,
+					imageInputCost: 0,
+					imageOutputCost: 0,
+					audioInputCost: 0,
+					videoOutputCost: 0,
+					cachedInputCost: 0,
+					cacheWriteInputCost: 0,
+					creditsRequestCount: Math.floor(reqCount * 0.6),
+					apiKeysRequestCount: Math.floor(reqCount * 0.4),
+					creditsCost: Number((costVal * 0.6).toFixed(6)),
+					apiKeysCost: Number((costVal * 0.4).toFixed(6)),
+					creditsDataStorageCost: 0,
+					apiKeysDataStorageCost: 0,
+				});
+				statIdx++;
+			}
+		}
+	}
+	return stats;
+}
+
 function minutesAgo(minutes: number) {
 	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - minutes * 60 * 1000);
@@ -994,7 +1092,7 @@ function generateSeedProviders() {
 		cachedCount: randomInt(50, 5000),
 		avgTimeToFirstToken: randomFloat(80, 2500, 1),
 		avgTimeToFirstReasoningToken:
-			Math.random() < 0.3 ? randomFloat(200, 5000, 1) : null,
+			secureRandom() < 0.3 ? randomFloat(200, 5000, 1) : null,
 		statsUpdatedAt: hoursAgo(randomInt(0, 6)),
 	}));
 }
@@ -1020,7 +1118,7 @@ function generateSeedModels() {
 		cachedCount: randomInt(20, 3000),
 		avgTimeToFirstToken: randomFloat(80, 3000, 1),
 		avgTimeToFirstReasoningToken:
-			Math.random() < 0.2 ? randomFloat(200, 6000, 1) : null,
+			secureRandom() < 0.2 ? randomFloat(200, 6000, 1) : null,
 		statsUpdatedAt: hoursAgo(randomInt(0, 6)),
 	}));
 }
@@ -1464,7 +1562,7 @@ async function seed() {
 	const devpassLogs: Array<Record<string, any>> = [];
 	let devpassRunningCost = 0;
 	for (let i = 0; i < DEVPASS_LOG_COUNT; i++) {
-		const r = Math.random() * DEVPASS_WEIGHT_TOTAL;
+		const r = secureRandom() * DEVPASS_WEIGHT_TOTAL;
 		let acc = 0;
 		const agent =
 			DEVPASS_AGENTS.find((a) => {
@@ -1490,8 +1588,8 @@ async function seed() {
 		const completionTokens = isError ? 0 : randomInt(60, 4500);
 		const totalTokens = promptTokens + completionTokens;
 		const cachedTokens =
-			Math.random() < 0.3 ? randomInt(50, promptTokens / 2) : 0;
-		const isStreamed = Math.random() < 0.85;
+			secureRandom() < 0.3 ? randomInt(50, promptTokens / 2) : 0;
+		const isStreamed = secureRandom() < 0.85;
 		const duration = isError ? randomInt(80, 600) : randomInt(450, 22000);
 		const inputCost = (promptTokens / 1000) * modelDef.inputPrice;
 		const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
@@ -1671,6 +1769,71 @@ async function seed() {
 	}
 	await bulkInsert(tables.projectHourlyModelStats, devpassHourlyModelStats);
 
+	// Split each hourly bucket across coding-agent sources so the Agents
+	// dashboard and the DevPass "Top coding agents" breakdown have data.
+	const devpassHourlySourceStats: Array<Record<string, any>> = [];
+	for (const bucket of devpassHourlyStats) {
+		const splits = DEVPASS_AGENTS.map((a) => a.weight * randomFloat(0.5, 1.5));
+		const splitTotal = splits.reduce((a, b) => a + b, 0);
+		const weights = splits.map((w) => w / splitTotal);
+		DEVPASS_AGENTS.forEach((agent, i) => {
+			const w = weights[i];
+			const reqs = Math.round(bucket.requestCount * w);
+			if (reqs === 0) {
+				return;
+			}
+			const inTok = Math.round(Number(bucket.inputTokens) * w);
+			const outTok = Math.round(Number(bucket.outputTokens) * w);
+			const streamed = Math.floor(bucket.streamedCount * w);
+			const errors = Math.floor(bucket.errorCount * w);
+			devpassHourlySourceStats.push({
+				id: `devpass-phss-${bucket.id}-${i}`,
+				projectId: "test-personal-project-id",
+				hourTimestamp: bucket.hourTimestamp,
+				source: agent.source,
+				requestCount: reqs,
+				errorCount: errors,
+				cacheCount: Math.floor(bucket.cacheCount * w),
+				streamedCount: streamed,
+				nonStreamedCount: Math.max(0, reqs - streamed),
+				completedCount: Math.max(0, reqs - errors),
+				lengthLimitCount: 0,
+				contentFilterCount: 0,
+				toolCallsCount: 0,
+				canceledCount: 0,
+				unknownFinishCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
+				inputTokens: String(inTok),
+				outputTokens: String(outTok),
+				totalTokens: String(inTok + outTok),
+				reasoningTokens: "0",
+				cachedTokens: String(Math.floor(Number(bucket.cachedTokens) * w)),
+				cacheWriteTokens: "0",
+				cost: Number((bucket.cost * w).toFixed(4)),
+				inputCost: Number((bucket.inputCost * w).toFixed(4)),
+				outputCost: Number((bucket.outputCost * w).toFixed(4)),
+				requestCost: Number((bucket.requestCost * w).toFixed(4)),
+				dataStorageCost: 0,
+				discountSavings: 0,
+				imageInputCost: 0,
+				imageOutputCost: 0,
+				audioInputCost: 0,
+				videoOutputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				creditsRequestCount: reqs,
+				apiKeysRequestCount: 0,
+				creditsCost: Number((bucket.cost * w).toFixed(4)),
+				apiKeysCost: 0,
+				creditsDataStorageCost: 0,
+				apiKeysDataStorageCost: 0,
+			});
+		});
+	}
+	await bulkInsert(tables.projectHourlySourceStats, devpassHourlySourceStats);
+
 	// Sync the personal org's used-credits to roughly match the seeded spend
 	// so the usage bar in the dashboard reflects this activity.
 	const usedCredits = Math.min(
@@ -1758,8 +1921,8 @@ async function seed() {
 			id: u.id,
 			name: u.name,
 			email: u.email,
-			emailVerified: Math.random() < 0.85,
-			onboardingCompleted: Math.random() < 0.7,
+			emailVerified: secureRandom() < 0.85,
+			onboardingCompleted: secureRandom() < 0.7,
 			createdAt: daysAgo(randomInt(10, 400)),
 		});
 		await upsert(tables.account, {
@@ -1782,7 +1945,7 @@ async function seed() {
 			retentionLevel:
 				org.plan === "enterprise"
 					? "retain"
-					: Math.random() < 0.5
+					: secureRandom() < 0.5
 						? "retain"
 						: "none",
 			status: org.status,
@@ -1820,7 +1983,7 @@ async function seed() {
 			name: proj.name,
 			organizationId: proj.orgId,
 			mode: proj.mode,
-			cachingEnabled: Math.random() < 0.3,
+			cachingEnabled: secureRandom() < 0.3,
 		});
 	}
 
@@ -1853,6 +2016,74 @@ async function seed() {
 
 	const hourlyModelStats = generateProjectHourlyModelStats(projects);
 	await bulkInsert(tables.projectHourlyModelStats, hourlyModelStats);
+
+	const hourlySourceStats = generateProjectHourlySourceStats(projects);
+	await bulkInsert(tables.projectHourlySourceStats, hourlySourceStats);
+
+	// Seed agent source stats for the default "Test Project" so the Agents
+	// dashboard the test user lands on shows activity out of the box.
+	const testProjectSourceStats: Array<Record<string, any>> = [];
+	let testSourceIdx = 0;
+	for (let h = 0; h < 30 * 24; h++) {
+		const hourTs = hoursAgo(h);
+		hourTs.setMinutes(0, 0, 0);
+		for (const sourceDef of AGENT_SOURCES) {
+			if (secureRandom() < 0.45) {
+				continue;
+			}
+			const reqCount = randomInt(1, 12);
+			const errCount = secureRandom() < 0.1 ? randomInt(1, 2) : 0;
+			const inputTok = reqCount * randomInt(200, 4000);
+			const outputTok = reqCount * randomInt(100, 2500);
+			const costVal = reqCount * randomFloat(0.002, 0.06);
+			testProjectSourceStats.push({
+				id: `test-phss-${testSourceIdx}`,
+				projectId: "test-project-id",
+				hourTimestamp: hourTs,
+				source: sourceDef.source,
+				requestCount: reqCount,
+				errorCount: errCount,
+				cacheCount: randomInt(0, Math.floor(reqCount * 0.2)),
+				streamedCount: Math.floor(reqCount * 0.6),
+				nonStreamedCount: Math.floor(reqCount * 0.4),
+				completedCount: reqCount - errCount,
+				lengthLimitCount: 0,
+				contentFilterCount: 0,
+				toolCallsCount: randomInt(0, 2),
+				canceledCount: 0,
+				unknownFinishCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: errCount,
+				inputTokens: String(inputTok),
+				outputTokens: String(outputTok),
+				totalTokens: String(inputTok + outputTok),
+				reasoningTokens: "0",
+				cachedTokens: "0",
+				cacheWriteTokens: "0",
+				cost: Number(costVal.toFixed(6)),
+				inputCost: Number((costVal * 0.4).toFixed(6)),
+				outputCost: Number((costVal * 0.5).toFixed(6)),
+				requestCost: Number((costVal * 0.1).toFixed(6)),
+				dataStorageCost: 0,
+				discountSavings: 0,
+				imageInputCost: 0,
+				imageOutputCost: 0,
+				audioInputCost: 0,
+				videoOutputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				creditsRequestCount: Math.floor(reqCount * 0.6),
+				apiKeysRequestCount: Math.floor(reqCount * 0.4),
+				creditsCost: Number((costVal * 0.6).toFixed(6)),
+				apiKeysCost: Number((costVal * 0.4).toFixed(6)),
+				creditsDataStorageCost: 0,
+				apiKeysDataStorageCost: 0,
+			});
+			testSourceIdx++;
+		}
+	}
+	await bulkInsert(tables.projectHourlySourceStats, testProjectSourceStats);
 
 	// Seed providers, models, and mappings
 	const seedProviders = generateSeedProviders();

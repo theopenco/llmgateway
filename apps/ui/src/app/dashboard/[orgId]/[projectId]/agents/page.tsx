@@ -1,57 +1,32 @@
-import { subDays } from "date-fns";
-
 import { AgentsView } from "@/components/activity/agents-view";
 import { fetchServerData } from "@/lib/server-api";
 
-import type { LogsData } from "@/types/activity";
-
-const AGENT_SOURCES = [
-	"claude.com/claude-code",
-	"opencode",
-	"open-code",
-	"cursor",
-	"autohand",
-	"soulforge",
-	"cline",
-	"codex",
-	"n8n",
-	"openclaw",
-];
+import type { SourceActivityData } from "@/types/activity";
 
 export default async function AgentsPage({
 	params,
 	searchParams,
 }: {
 	params: Promise<{ orgId: string; projectId: string }>;
-	searchParams?: Promise<{ from?: string; to?: string }>;
+	searchParams?: Promise<{ timeRange?: string }>;
 }) {
 	const { orgId, projectId } = await params;
 	const searchParamsData = await searchParams;
 
-	const parsedFrom = searchParamsData?.from
-		? new Date(searchParamsData.from + "T00:00:00")
-		: null;
-	const parsedTo = searchParamsData?.to
-		? new Date(searchParamsData.to + "T23:59:59.999")
-		: null;
-	const from =
-		parsedFrom && !isNaN(parsedFrom.getTime())
-			? parsedFrom
-			: subDays(new Date(), 6);
-	const to = parsedTo && !isNaN(parsedTo.getTime()) ? parsedTo : new Date();
+	const timeRange = searchParamsData?.timeRange === "30d" ? "30d" : "7d";
 
-	const initialData = await fetchServerData<LogsData>("GET", "/logs", {
-		params: {
-			query: {
-				orderBy: "createdAt_desc",
-				projectId,
-				limit: "100",
-				source: AGENT_SOURCES.join(","),
-				startDate: from.toISOString(),
-				endDate: to.toISOString(),
+	const initialData = await fetchServerData<SourceActivityData>(
+		"GET",
+		"/activity/sources",
+		{
+			params: {
+				query: {
+					projectId,
+					timeRange,
+				},
 			},
 		},
-	});
+	);
 
 	return (
 		<div className="flex flex-col">
