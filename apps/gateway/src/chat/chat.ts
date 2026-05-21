@@ -1045,6 +1045,28 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
+	if (
+		typeof rawBody === "object" &&
+		rawBody !== null &&
+		"n" in rawBody &&
+		rawBody.n !== null &&
+		rawBody.n !== undefined &&
+		rawBody.n !== 1
+	) {
+		return c.json(
+			{
+				error: {
+					message:
+						"The 'n' parameter is not supported with values other than 1. Only n=1 (or omitting n) is currently supported. To generate multiple completions, send parallel requests.",
+					type: "invalid_request_error",
+					param: "n",
+					code: "unsupported_parameter",
+				},
+			},
+			400,
+		);
+	}
+
 	// Validate against schema
 	const validationResult = completionsRequestSchema.safeParse(rawBody);
 	if (!validationResult.success) {

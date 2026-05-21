@@ -159,6 +159,17 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	stream: z.boolean().optional().default(false),
+	n: z
+		.number()
+		.int()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"Number of completions to generate for each prompt. Only n=1 is currently supported; values greater than 1 will return a 400 error.",
+			example: 1,
+		}),
 	prompt_cache_key: z
 		.string()
 		.nullable()

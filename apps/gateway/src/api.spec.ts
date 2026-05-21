@@ -2624,6 +2624,45 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 	});
 
+	test("/v1/chat/completions rejects n greater than 1", async () => {
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer fake`,
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				messages: [{ role: "user", content: "Hello!" }],
+				n: 5,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error?.code).toBe("unsupported_parameter");
+		expect(json.error?.param).toBe("n");
+	});
+
+	test("/v1/chat/completions accepts n equal to 1", async () => {
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer fake`,
+			},
+			body: JSON.stringify({
+				model: "invalid",
+				messages: [{ role: "user", content: "Hello!" }],
+				n: 1,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error?.code).not.toBe("unsupported_parameter");
+	});
+
 	test("/v1/chat/completions rejects embedding models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-chat-embed-reject",
