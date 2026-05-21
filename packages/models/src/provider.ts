@@ -95,10 +95,7 @@ interface VertexTokenTypeOptions {
 
 /**
  * Vertex AI accepts either an API key (sent as `?key=`) or an OAuth2 Bearer
- * token. Wire format differs per token, so we need to know which one the
- * caller provided. Resolution order: provider-key option → env var → "api-key"
- * (preserves existing behavior; OAuth users set LLM_GOOGLE_VERTEX_TOKEN_TYPE=oauth
- * or pick "OAuth" in the provider key dialog).
+ * token. Resolution order: provider-key option → env var → "api-key".
  */
 export function resolveVertexTokenType(
 	provider: "google-vertex" | "quartz",

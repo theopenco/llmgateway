@@ -22,26 +22,6 @@ function buildVertexCompatibleEndpoint(
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = modelName ?? "gemini-2.5-flash-lite";
-	const tokenType = resolveVertexTokenType(
-		provider,
-		providerKeyOptions,
-		configIndex,
-	);
-	const includeKeyQueryParam = token !== undefined && tokenType === "api-key";
-
-	if (model === "gemini-2.0-flash-lite" || model === "gemini-2.5-flash-lite") {
-		const baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
-		const queryParams = [];
-		if (includeKeyQueryParam) {
-			queryParams.push(`key=${token}`);
-		}
-		if (stream) {
-			queryParams.push("alt=sse");
-		}
-		return queryParams.length > 0
-			? `${baseEndpoint}?${queryParams.join("&")}`
-			: baseEndpoint;
-	}
 
 	const projectId =
 		providerKeyOptions?.google_vertex_project_id ??
@@ -56,9 +36,14 @@ function buildVertexCompatibleEndpoint(
 		);
 	}
 
+	const tokenType = resolveVertexTokenType(
+		provider,
+		providerKeyOptions,
+		configIndex,
+	);
 	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
 	const queryParams = [];
-	if (includeKeyQueryParam) {
+	if (token && tokenType === "api-key") {
 		queryParams.push(`key=${token}`);
 	}
 	if (stream) {
@@ -512,7 +497,7 @@ export function getProviderEndpoint(
 						true;
 
 					if (supportsResponsesApi) {
-						return `${url}/openai/v1/responses`;
+						return `${url}/openai/v1/responses?api-version=preview`;
 					}
 				}
 				return `${url}/openai/v1/chat/completions`;

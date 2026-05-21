@@ -8,15 +8,7 @@ export interface ProviderHeaderOptions {
 	 */
 	webSearchEnabled?: boolean;
 	requestId?: string;
-	/**
-	 * Provider key options used by Vertex-compatible providers to look up the
-	 * explicit token type configured on the provider key.
-	 */
 	providerKeyOptions?: ProviderKeyOptions;
-	/**
-	 * Index used to select the matching env-var slot when multiple comma-
-	 * separated values are configured. Mirrors `getProviderEndpoint`.
-	 */
 	configIndex?: number;
 }
 

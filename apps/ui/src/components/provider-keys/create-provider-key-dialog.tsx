@@ -217,12 +217,25 @@ export function CreateProviderKeyDialog({
 					void queryClient.invalidateQueries({ queryKey });
 					setOpen(false);
 				},
-				onError: () => {
+				onError: (error: unknown) => {
 					setIsValidating(false);
+					let description =
+						"Failed to validate the API key. Please check your key and region.";
+					if (typeof error === "object" && error !== null) {
+						const err = error as Record<string, unknown>;
+						const nested =
+							err.error && typeof err.error === "object"
+								? (err.error as Record<string, unknown>)
+								: err;
+						if (typeof nested.message === "string") {
+							description = nested.message;
+						}
+					} else if (error instanceof Error) {
+						description = error.message;
+					}
 					toast({
 						title: "Validation Failed",
-						description:
-							"Failed to validate the API key. Please check your key and region.",
+						description,
 						variant: "destructive",
 					});
 				},
@@ -466,20 +479,15 @@ export function CreateProviderKeyDialog({
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value="api-key">
-										API key (sent as ?key=)
-									</SelectItem>
-									<SelectItem value="oauth">
-										OAuth access token (sent as Authorization: Bearer)
-									</SelectItem>
+									<SelectItem value="api-key">API Key</SelectItem>
+									<SelectItem value="oauth">OAuth2 Bearer</SelectItem>
 								</SelectContent>
 							</Select>
 							<p className="text-sm text-muted-foreground">
-								Pick the kind of credential you pasted above. API keys are short
-								alphanumeric strings (often prefixed with <code>AIza</code>);
-								OAuth access tokens come from
-								<code> gcloud auth print-access-token</code> and look like{" "}
-								<code>ya29.…</code>.
+								Use <strong>API Key</strong> for Google API keys (sent as{" "}
+								<code>?key=</code>). Use <strong>OAuth2 Bearer</strong> for
+								service account access tokens (sent as{" "}
+								<code>Authorization: Bearer</code>).
 							</p>
 						</div>
 					)}

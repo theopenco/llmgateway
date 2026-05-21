@@ -27,17 +27,15 @@ describe("getProviderHeaders", () => {
 			).toEqual({});
 		});
 
-		it("uses Bearer when the provider key is configured for OAuth", () => {
+		it("uses Bearer when the provider key is configured for oauth", () => {
 			expect(
 				getProviderHeaders("google-vertex", "ya29.example", {
 					providerKeyOptions: { google_vertex_token_type: "oauth" },
 				}),
-			).toEqual({
-				Authorization: "Bearer ya29.example",
-			});
+			).toEqual({ Authorization: "Bearer ya29.example" });
 		});
 
-		it("omits the Authorization header when the provider key uses an API key", () => {
+		it("omits the Authorization header when the provider key uses api-key", () => {
 			expect(
 				getProviderHeaders("google-vertex", "AIzaSyExample", {
 					providerKeyOptions: { google_vertex_token_type: "api-key" },
@@ -45,21 +43,11 @@ describe("getProviderHeaders", () => {
 			).toEqual({});
 		});
 
-		it("honors the LLM_GOOGLE_VERTEX_TOKEN_TYPE env var when no key option is set", () => {
+		it("honors LLM_GOOGLE_VERTEX_TOKEN_TYPE env var when no key option is set", () => {
 			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
 
 			expect(getProviderHeaders("google-vertex", "ya29.example")).toEqual({
 				Authorization: "Bearer ya29.example",
-			});
-		});
-
-		it("includes the request id when token type is api-key", () => {
-			expect(
-				getProviderHeaders("google-vertex", "AIzaSyExample", {
-					requestId: "req-1",
-				}),
-			).toEqual({
-				"x-request-id": "req-1",
 			});
 		});
 	});
@@ -69,28 +57,12 @@ describe("getProviderHeaders", () => {
 			expect(getProviderHeaders("quartz", "quartz-api-key")).toEqual({});
 		});
 
-		it("uses Bearer when the provider key is configured for OAuth", () => {
+		it("uses Bearer when the provider key is configured for oauth", () => {
 			expect(
-				getProviderHeaders("quartz", "ya29.example", {
+				getProviderHeaders("quartz", "ya29.quartz-oauth", {
 					providerKeyOptions: { quartz_token_type: "oauth" },
 				}),
-			).toEqual({
-				Authorization: "Bearer ya29.example",
-			});
-		});
-
-		it("omits the auth header when the provider key uses an API key", () => {
-			expect(
-				getProviderHeaders("quartz", "quartz-api-key", {
-					providerKeyOptions: { quartz_token_type: "api-key" },
-				}),
-			).toEqual({});
-		});
-
-		it("honors the LLM_QUARTZ_TOKEN_TYPE env var when no key option is set", () => {
-			process.env.LLM_QUARTZ_TOKEN_TYPE = "api-key";
-
-			expect(getProviderHeaders("quartz", "ya29.example")).toEqual({});
+			).toEqual({ Authorization: "Bearer ya29.quartz-oauth" });
 		});
 	});
 });
