@@ -28,6 +28,10 @@
 		"./api-key-hash": {
 			"types": "./dist/api-key-hash.d.ts",
 			"import": "./dist/api-key-hash.js"
+		},
+		"./routing-config": {
+			"types": "./dist/routing-config.d.ts",
+			"import": "./dist/routing-config.js"
 		}
 	},
 	"module": "./dist/index.js",

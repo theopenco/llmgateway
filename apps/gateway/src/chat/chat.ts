@@ -48,6 +48,7 @@ import {
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
+import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
 	createCombinedSignal,
@@ -185,6 +186,7 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
@@ -296,6 +298,7 @@ function collapseProvidersToBestRegionPerProvider(
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
 		promptTokens?: number;
+		routingConfig?: ResolvedRoutingConfig;
 	},
 ): ProviderModelMapping[] {
 	const providersById = new Map<string, ProviderModelMapping[]>();
@@ -1459,6 +1462,11 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	const routingCfg = await getResolvedRoutingConfig(
+		project.id,
+		organization.plan,
+	);
+
 	const retryProjectContext = {
 		mode: project.mode,
 		organizationId: project.organizationId,
@@ -1899,6 +1907,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						routingConfig: routingCfg,
 					},
 				);
 
@@ -1909,6 +1918,7 @@ chat.openapi(completions, async (c) => {
 					metricsMap,
 					isStreaming: stream,
 					promptTokens: routingPromptTokens,
+					routingConfig: routingCfg,
 				},
 			);
 
@@ -2112,6 +2122,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -2297,6 +2308,7 @@ chat.openapi(completions, async (c) => {
 								metricsMap: allMetricsMap,
 								isStreaming: stream,
 								promptTokens: routingPromptTokens,
+								routingConfig: routingCfg,
 							},
 						);
 
@@ -2368,8 +2380,12 @@ chat.openapi(completions, async (c) => {
 			metricsKey(baseModelId, usedProvider, usedRegion),
 		);
 
-		// If we have metrics and uptime is below 90%, route to an alternative
-		if (metrics && metrics.uptime !== undefined && metrics.uptime < 90) {
+		// If we have metrics and uptime is below the configured threshold, route to an alternative
+		if (
+			metrics &&
+			metrics.uptime !== undefined &&
+			metrics.uptime < routingCfg.retry.lowUptimeFallbackThreshold
+		) {
 			const currentUptime = metrics.uptime;
 			// Get available providers for routing
 			const providerIds = modelInfo.providers
@@ -2450,6 +2466,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									routingConfig: routingCfg,
 								},
 							);
 
@@ -2479,6 +2496,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									routingConfig: routingCfg,
 								},
 							);
 
@@ -2663,6 +2681,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -2673,6 +2692,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						routingConfig: routingCfg,
 					},
 				);
 
@@ -2843,6 +2863,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -4783,6 +4804,7 @@ chat.openapi(completions, async (c) => {
 						// Create a combined signal for both timeout and cancellation
 						const fetchSignal = createStreamingCombinedSignal(
 							requestCanBeCanceled ? controller : undefined,
+							routingCfg,
 						);
 
 						res = await fetch(url, {
@@ -4839,6 +4861,7 @@ chat.openapi(completions, async (c) => {
 									failedProviderIds.size -
 									1,
 								usedProvider,
+								maxRetries: routingCfg.retry.maxRetries,
 							});
 							const willRetrySameProvider = sameProviderRetryContext !== null;
 							const willRetryRequest =
@@ -5171,6 +5194,7 @@ chat.openapi(completions, async (c) => {
 									failedProviderIds.size -
 									1,
 								usedProvider,
+								maxRetries: routingCfg.retry.maxRetries,
 							});
 							const willRetrySameProvider = sameProviderRetryContext !== null;
 							const willRetryRequest = willRetrySameProvider || willRetryFetch;
@@ -5403,6 +5427,7 @@ chat.openapi(completions, async (c) => {
 								failedProviderIds.size -
 								1,
 							usedProvider,
+							maxRetries: routingCfg.retry.maxRetries,
 						});
 						const willRetrySameProvider = sameProviderRetryContext !== null;
 						const willRetryRequest =
@@ -5709,6 +5734,7 @@ chat.openapi(completions, async (c) => {
 								failedProviderIds.size -
 								1,
 							usedProvider,
+							maxRetries: routingCfg.retry.maxRetries,
 						});
 						const willRetrySameProvider = sameProviderRetryContext !== null;
 						const willRetryRequest =
@@ -8448,8 +8474,12 @@ chat.openapi(completions, async (c) => {
 			const fetchSignal = forceImageStreamUpstream
 				? createStreamingCombinedSignal(
 						requestCanBeCanceled ? controller : undefined,
+						routingCfg,
 					)
-				: createCombinedSignal(requestCanBeCanceled ? controller : undefined);
+				: createCombinedSignal(
+						requestCanBeCanceled ? controller : undefined,
+						routingCfg,
+					);
 
 			res = await fetch(url, {
 				method: "POST",
@@ -8528,6 +8558,7 @@ chat.openapi(completions, async (c) => {
 					failedProviderIds.size -
 					1,
 				usedProvider,
+				maxRetries: routingCfg.retry.maxRetries,
 			});
 			const willRetrySameProvider = sameProviderRetryContext !== null;
 			const willRetryRequest =
@@ -8996,6 +9027,7 @@ chat.openapi(completions, async (c) => {
 					failedProviderIds.size -
 					1,
 				usedProvider,
+				maxRetries: routingCfg.retry.maxRetries,
 			});
 			const willRetrySameProvider = sameProviderRetryContext !== null;
 			const willRetryRequest =

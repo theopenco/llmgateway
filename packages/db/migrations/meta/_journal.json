@@ -953,6 +953,13 @@
       "when": 1779297680802,
       "tag": "1779297680_graceful_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "8",
+      "when": 1779389372618,
+      "tag": "1779389372_black_ghost_rider",
+      "breakpoints": true
     }
   ]
 }

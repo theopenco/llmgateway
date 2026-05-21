@@ -10878,6 +10878,335 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routing-config/config/{projectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Routing configuration row or null */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            projectId: string;
+                            enabled: boolean;
+                            weights: {
+                                price?: number;
+                                imagePrice?: number;
+                                uptime?: number;
+                                throughput?: number;
+                                latency?: number;
+                                cache?: number;
+                            } | null;
+                            thresholds: {
+                                cachePromptTokens?: number;
+                                uptimePenalty?: number;
+                                defaultUptime?: number;
+                                defaultLatency?: number;
+                                defaultThroughput?: number;
+                                explorationRate?: number;
+                            } | null;
+                            retry: {
+                                maxRetries?: number;
+                                lowUptimeFallbackThreshold?: number;
+                            } | null;
+                            timeouts: {
+                                gatewayMs?: number;
+                                streamingMs?: number;
+                                plainMs?: number;
+                            } | null;
+                            providerPriorities: {
+                                [key: string]: number;
+                            } | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        enabled?: boolean;
+                        weights?: {
+                            price?: number;
+                            imagePrice?: number;
+                            uptime?: number;
+                            throughput?: number;
+                            latency?: number;
+                            cache?: number;
+                        } | null;
+                        thresholds?: {
+                            cachePromptTokens?: number;
+                            uptimePenalty?: number;
+                            defaultUptime?: number;
+                            defaultLatency?: number;
+                            defaultThroughput?: number;
+                            explorationRate?: number;
+                        } | null;
+                        retry?: {
+                            maxRetries?: number;
+                            lowUptimeFallbackThreshold?: number;
+                        } | null;
+                        timeouts?: {
+                            gatewayMs?: number;
+                            streamingMs?: number;
+                            plainMs?: number;
+                        } | null;
+                        providerPriorities?: {
+                            [key: string]: number;
+                        } | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated routing configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            projectId: string;
+                            enabled: boolean;
+                            weights: {
+                                price?: number;
+                                imagePrice?: number;
+                                uptime?: number;
+                                throughput?: number;
+                                latency?: number;
+                                cache?: number;
+                            } | null;
+                            thresholds: {
+                                cachePromptTokens?: number;
+                                uptimePenalty?: number;
+                                defaultUptime?: number;
+                                defaultLatency?: number;
+                                defaultThroughput?: number;
+                                explorationRate?: number;
+                            } | null;
+                            retry: {
+                                maxRetries?: number;
+                                lowUptimeFallbackThreshold?: number;
+                            } | null;
+                            timeouts: {
+                                gatewayMs?: number;
+                                streamingMs?: number;
+                                plainMs?: number;
+                            } | null;
+                            providerPriorities: {
+                                [key: string]: number;
+                            } | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routing-config/config/{projectId}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Reset to defaults */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routing-config/config/{projectId}/resolved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Resolved routing configuration with defaults applied */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            weights: {
+                                price: number;
+                                imagePrice: number;
+                                uptime: number;
+                                throughput: number;
+                                latency: number;
+                                cache: number;
+                            };
+                            thresholds: {
+                                cachePromptTokens: number;
+                                uptimePenalty: number;
+                                defaultUptime: number;
+                                defaultLatency: number;
+                                defaultThroughput: number;
+                                explorationRate: number;
+                            };
+                            retry: {
+                                maxRetries: number;
+                                lowUptimeFallbackThreshold: number;
+                            };
+                            timeouts: {
+                                gatewayMs?: number;
+                                streamingMs?: number;
+                                plainMs?: number;
+                            };
+                            providerPriorities: {
+                                [key: string]: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routing-config/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default routing configuration values */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            weights: {
+                                price: number;
+                                imagePrice: number;
+                                uptime: number;
+                                throughput: number;
+                                latency: number;
+                                cache: number;
+                            };
+                            thresholds: {
+                                cachePromptTokens: number;
+                                uptimePenalty: number;
+                                defaultUptime: number;
+                                defaultLatency: number;
+                                defaultThroughput: number;
+                                explorationRate: number;
+                            };
+                            retry: {
+                                maxRetries: number;
+                                lowUptimeFallbackThreshold: number;
+                            };
+                            timeouts: {
+                                gatewayMs: number;
+                                streamingMs: number;
+                                plainMs: number;
+                            };
+                            providerPriorities: {
+                                [key: string]: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/video/{videoId}": {
         parameters: {
             query?: never;

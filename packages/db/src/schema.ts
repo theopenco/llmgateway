@@ -1722,6 +1722,62 @@ export const guardrailViolation = pgTable(
 	],
 );
 
+export interface RoutingWeightsConfig {
+	price?: number;
+	imagePrice?: number;
+	uptime?: number;
+	throughput?: number;
+	latency?: number;
+	cache?: number;
+}
+
+export interface RoutingThresholdsConfig {
+	cachePromptTokens?: number;
+	uptimePenalty?: number;
+	defaultUptime?: number;
+	defaultLatency?: number;
+	defaultThroughput?: number;
+	explorationRate?: number;
+}
+
+export interface RoutingRetryConfig {
+	maxRetries?: number;
+	lowUptimeFallbackThreshold?: number;
+}
+
+export interface RoutingTimeoutsConfig {
+	gatewayMs?: number;
+	streamingMs?: number;
+	plainMs?: number;
+}
+
+export type ProviderPriorityOverrides = Record<string, number>;
+
+export const routingConfig = pgTable(
+	"routing_config",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" })
+			.unique(),
+		enabled: boolean().default(true).notNull(),
+		weights: jsonb().$type<RoutingWeightsConfig>(),
+		thresholds: jsonb().$type<RoutingThresholdsConfig>(),
+		retry: jsonb().$type<RoutingRetryConfig>(),
+		timeouts: jsonb().$type<RoutingTimeoutsConfig>(),
+		providerPriorities: jsonb(
+			"provider_priorities",
+		).$type<ProviderPriorityOverrides>(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at")
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [index("routing_config_project_id_idx").on(table.projectId)],
+);
+
 // Discount - Admin-configurable discounts for providers/models
 // Can be global (organizationId = null) or org-specific
 export const discount = pgTable(

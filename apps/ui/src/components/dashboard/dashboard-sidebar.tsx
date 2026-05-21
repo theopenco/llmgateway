@@ -132,6 +132,10 @@ const PROJECT_SETTINGS = [
 		href: "settings/preferences",
 		label: "Preferences",
 	},
+	{
+		href: "settings/routing",
+		label: "Routing",
+	},
 ] as const;
 
 const ORGANIZATION_SETTINGS = [

@@ -1,0 +1,573 @@
+"use client";
+
+import { RotateCcw, Save } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+import { ContactSalesCard } from "@/app/dashboard/[orgId]/org/guardrails/contact-sales-card";
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useTeamMembers } from "@/hooks/useTeam";
+import { useUser } from "@/hooks/useUser";
+import { Badge } from "@/lib/components/badge";
+import { Button } from "@/lib/components/button";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/lib/components/card";
+import { Input } from "@/lib/components/input";
+import { Label } from "@/lib/components/label";
+import { Switch } from "@/lib/components/switch";
+import { useFetchClient } from "@/lib/fetch-client";
+
+type NumericFieldGroup = Record<string, number | undefined>;
+
+interface RoutingConfigState {
+	enabled: boolean;
+	weights: NumericFieldGroup;
+	thresholds: NumericFieldGroup;
+	retry: NumericFieldGroup;
+	timeouts: NumericFieldGroup;
+	providerPriorities: Record<string, number | undefined>;
+}
+
+interface DefaultsResponse {
+	weights: Record<string, number>;
+	thresholds: Record<string, number>;
+	retry: Record<string, number>;
+	timeouts: Record<string, number>;
+	providerPriorities: Record<string, number>;
+}
+
+const WEIGHT_FIELDS: { key: string; label: string; help: string }[] = [
+	{ key: "price", label: "Price", help: "Weight for cost-based ranking" },
+	{
+		key: "imagePrice",
+		label: "Image Price",
+		help: "Weight for image-generation models",
+	},
+	{ key: "uptime", label: "Uptime", help: "Weight for provider availability" },
+	{
+		key: "throughput",
+		label: "Throughput",
+		help: "Weight for tokens-per-second efficiency",
+	},
+	{
+		key: "latency",
+		label: "Latency",
+		help: "Weight for streaming response time",
+	},
+	{
+		key: "cache",
+		label: "Cache",
+		help: "Bonus for providers with prompt caching",
+	},
+];
+
+const THRESHOLD_FIELDS: { key: string; label: string; help: string }[] = [
+	{
+		key: "cachePromptTokens",
+		label: "Cache Prompt Tokens",
+		help: "Minimum prompt size to factor in prompt caching",
+	},
+	{
+		key: "uptimePenalty",
+		label: "Uptime Penalty Threshold (%)",
+		help: "Below this uptime, exponential penalty applies",
+	},
+	{
+		key: "defaultUptime",
+		label: "Default Uptime (%)",
+		help: "Assumed uptime when no metrics are available",
+	},
+	{
+		key: "defaultLatency",
+		label: "Default Latency (ms)",
+		help: "Assumed latency when no metrics are available",
+	},
+	{
+		key: "defaultThroughput",
+		label: "Default Throughput (tok/s)",
+		help: "Assumed throughput when no metrics are available",
+	},
+	{
+		key: "explorationRate",
+		label: "Exploration Rate",
+		help: "Fraction of requests routed to a random provider",
+	},
+];
+
+const RETRY_FIELDS: { key: string; label: string; help: string }[] = [
+	{
+		key: "maxRetries",
+		label: "Max Retries",
+		help: "Maximum cross-provider fallback attempts",
+	},
+	{
+		key: "lowUptimeFallbackThreshold",
+		label: "Low Uptime Fallback (%)",
+		help: "If requested provider is below this, reroute automatically",
+	},
+];
+
+const TIMEOUT_FIELDS: { key: string; label: string; help: string }[] = [
+	{
+		key: "gatewayMs",
+		label: "Gateway Timeout (ms)",
+		help: "Max end-to-end request time",
+	},
+	{
+		key: "streamingMs",
+		label: "Streaming Timeout (ms)",
+		help: "Max upstream time for streaming requests",
+	},
+	{
+		key: "plainMs",
+		label: "Plain Timeout (ms)",
+		help: "Max upstream time for non-streaming requests",
+	},
+];
+
+function emptyState(): RoutingConfigState {
+	return {
+		enabled: true,
+		weights: {},
+		thresholds: {},
+		retry: {},
+		timeouts: {},
+		providerPriorities: {},
+	};
+}
+
+function parseInput(value: string): number | undefined {
+	if (value.trim() === "") {
+		return undefined;
+	}
+	const n = Number(value);
+	return Number.isFinite(n) ? n : undefined;
+}
+
+function NumericFieldRow({
+	label,
+	help,
+	value,
+	defaultValue,
+	onChange,
+	step,
+}: {
+	label: string;
+	help: string;
+	value: number | undefined;
+	defaultValue: number | undefined;
+	onChange: (next: number | undefined) => void;
+	step?: string;
+}) {
+	return (
+		<div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
+			<div>
+				<Label className="text-sm font-medium">{label}</Label>
+				<p className="text-xs text-muted-foreground">{help}</p>
+			</div>
+			<div className="md:col-span-2 flex items-center gap-2">
+				<Input
+					type="number"
+					step={step ?? "any"}
+					value={value ?? ""}
+					placeholder={
+						defaultValue !== undefined ? `Default: ${defaultValue}` : ""
+					}
+					onChange={(e) => onChange(parseInput(e.target.value))}
+				/>
+				<Button
+					variant="ghost"
+					size="sm"
+					type="button"
+					onClick={() => onChange(undefined)}
+				>
+					Reset
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+export function RoutingConfigClient({ projectId }: { projectId: string }) {
+	const fetchClient = useFetchClient();
+	const { selectedOrganization } = useDashboardNavigation();
+	const { user } = useUser();
+	const { data: teamData } = useTeamMembers(selectedOrganization?.id ?? "");
+
+	const role = teamData?.members.find((m) => m.userId === user?.id)?.role;
+	const canManage =
+		selectedOrganization?.plan === "enterprise" &&
+		(role === "owner" || role === "admin");
+
+	const [state, setState] = useState<RoutingConfigState>(emptyState());
+	const [defaults, setDefaults] = useState<DefaultsResponse | null>(null);
+	const [isLoading, setIsLoading] = useState(true);
+	const [isSaving, setIsSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [success, setSuccess] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!canManage) {
+			setIsLoading(false);
+			return;
+		}
+		let cancelled = false;
+		void (async () => {
+			try {
+				const [defaultsRes, configRes] = await Promise.all([
+					fetchClient.GET("/routing-config/defaults", {}),
+					fetchClient.GET("/routing-config/config/{projectId}", {
+						params: { path: { projectId } },
+					}),
+				]);
+				if (cancelled) {
+					return;
+				}
+				if (defaultsRes.data) {
+					setDefaults(defaultsRes.data as DefaultsResponse);
+				}
+				const row = configRes.data as
+					| (RoutingConfigState & { id: string })
+					| null
+					| undefined;
+				if (row) {
+					setState({
+						enabled: row.enabled,
+						weights: row.weights ?? {},
+						thresholds: row.thresholds ?? {},
+						retry: row.retry ?? {},
+						timeouts: row.timeouts ?? {},
+						providerPriorities: row.providerPriorities ?? {},
+					});
+				}
+			} catch {
+				setError("Failed to load routing configuration");
+			} finally {
+				if (!cancelled) {
+					setIsLoading(false);
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [canManage, fetchClient, projectId]);
+
+	const providerIds = useMemo(() => {
+		if (!defaults) {
+			return [] as string[];
+		}
+		return Object.keys(defaults.providerPriorities).sort();
+	}, [defaults]);
+
+	if (!canManage) {
+		return <ContactSalesCard />;
+	}
+
+	const updateGroup = (
+		group: "weights" | "thresholds" | "retry" | "timeouts",
+		key: string,
+		value: number | undefined,
+	) => {
+		setState((prev) => {
+			const next: NumericFieldGroup = { ...prev[group] };
+			if (value === undefined) {
+				next[key] = undefined;
+			} else {
+				next[key] = value;
+			}
+			return { ...prev, [group]: next };
+		});
+	};
+
+	const updateProviderPriority = (
+		providerId: string,
+		value: number | undefined,
+	) => {
+		setState((prev) => {
+			const next: Record<string, number | undefined> = {
+				...prev.providerPriorities,
+			};
+			if (value === undefined) {
+				next[providerId] = undefined;
+			} else {
+				next[providerId] = value;
+			}
+			return { ...prev, providerPriorities: next };
+		});
+	};
+
+	const handleSave = async () => {
+		setIsSaving(true);
+		setError(null);
+		setSuccess(null);
+		const compact = <V,>(group: Record<string, V | undefined>) => {
+			const entries = Object.entries(group).filter(([, v]) => v !== undefined);
+			return entries.length
+				? (Object.fromEntries(entries) as Record<string, V>)
+				: null;
+		};
+		try {
+			const body = {
+				enabled: state.enabled,
+				weights: compact(state.weights),
+				thresholds: compact(state.thresholds),
+				retry: compact(state.retry),
+				timeouts: compact(state.timeouts),
+				providerPriorities: compact(state.providerPriorities),
+			};
+			await fetchClient.PUT("/routing-config/config/{projectId}", {
+				params: { path: { projectId } },
+				body: body as never,
+			});
+			setSuccess("Routing configuration saved");
+		} catch {
+			setError("Failed to save routing configuration");
+		} finally {
+			setIsSaving(false);
+		}
+	};
+
+	const handleResetAll = async () => {
+		setIsSaving(true);
+		setError(null);
+		setSuccess(null);
+		try {
+			await fetchClient.POST("/routing-config/config/{projectId}/reset", {
+				params: { path: { projectId } },
+			});
+			setState(emptyState());
+			setSuccess("Routing configuration reset to defaults");
+		} catch {
+			setError("Failed to reset routing configuration");
+		} finally {
+			setIsSaving(false);
+		}
+	};
+
+	if (isLoading) {
+		return (
+			<div className="flex flex-col">
+				<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
+					<div className="max-w-3xl mx-auto">Loading…</div>
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="flex flex-col">
+			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
+				<div className="max-w-4xl mx-auto space-y-6">
+					<div className="flex items-center justify-between flex-wrap gap-2">
+						<div>
+							<h2 className="text-2xl md:text-3xl font-bold tracking-tight">
+								Routing
+							</h2>
+							<p className="text-sm text-muted-foreground">
+								Tune provider selection weights, thresholds, retries, and
+								timeouts for this project.
+							</p>
+						</div>
+						<div className="flex items-center gap-2">
+							<Badge variant="outline">Enterprise</Badge>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleResetAll}
+								disabled={isSaving}
+							>
+								<RotateCcw className="h-4 w-4 mr-1" /> Reset all
+							</Button>
+							<Button size="sm" onClick={handleSave} disabled={isSaving}>
+								<Save className="h-4 w-4 mr-1" /> Save
+							</Button>
+						</div>
+					</div>
+
+					{error ? (
+						<Card className="border-destructive/40 bg-destructive/5">
+							<CardContent className="pt-4 text-sm text-destructive">
+								{error}
+							</CardContent>
+						</Card>
+					) : null}
+					{success ? (
+						<Card className="border-emerald-500/40 bg-emerald-500/5">
+							<CardContent className="pt-4 text-sm text-emerald-600">
+								{success}
+							</CardContent>
+						</Card>
+					) : null}
+
+					<Card>
+						<CardHeader className="flex flex-row items-center justify-between">
+							<div>
+								<CardTitle>Enabled</CardTitle>
+								<CardDescription>
+									When disabled, this project uses the default routing values.
+								</CardDescription>
+							</div>
+							<Switch
+								checked={state.enabled}
+								onCheckedChange={(v) =>
+									setState((prev) => ({ ...prev, enabled: Boolean(v) }))
+								}
+							/>
+						</CardHeader>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Scoring Weights</CardTitle>
+							<CardDescription>
+								Higher weights make a factor more influential in provider
+								selection.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							{WEIGHT_FIELDS.map((f) => (
+								<NumericFieldRow
+									key={f.key}
+									label={f.label}
+									help={f.help}
+									value={state.weights[f.key]}
+									defaultValue={defaults?.weights[f.key]}
+									onChange={(v) => updateGroup("weights", f.key, v)}
+								/>
+							))}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Thresholds</CardTitle>
+							<CardDescription>
+								Defaults and cutoffs used by the scoring algorithm.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							{THRESHOLD_FIELDS.map((f) => (
+								<NumericFieldRow
+									key={f.key}
+									label={f.label}
+									help={f.help}
+									value={state.thresholds[f.key]}
+									defaultValue={defaults?.thresholds[f.key]}
+									onChange={(v) => updateGroup("thresholds", f.key, v)}
+								/>
+							))}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Retry & Fallback</CardTitle>
+							<CardDescription>
+								Behavior when a provider fails or has low uptime.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							{RETRY_FIELDS.map((f) => (
+								<NumericFieldRow
+									key={f.key}
+									label={f.label}
+									help={f.help}
+									value={state.retry[f.key]}
+									defaultValue={defaults?.retry[f.key]}
+									onChange={(v) => updateGroup("retry", f.key, v)}
+								/>
+							))}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Timeouts</CardTitle>
+							<CardDescription>
+								Request and upstream timeouts in milliseconds.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							{TIMEOUT_FIELDS.map((f) => (
+								<NumericFieldRow
+									key={f.key}
+									label={f.label}
+									help={f.help}
+									value={state.timeouts[f.key]}
+									defaultValue={defaults?.timeouts[f.key]}
+									onChange={(v) => updateGroup("timeouts", f.key, v)}
+								/>
+							))}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Provider Priorities</CardTitle>
+							<CardDescription>
+								Per-provider routing weight from 0 to 1. Set to 0 to exclude a
+								provider from routing entirely.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-2">
+							{providerIds.map((providerId) => {
+								const defaultPriority =
+									defaults?.providerPriorities[providerId];
+								const value = state.providerPriorities[providerId];
+								const effective = value ?? defaultPriority ?? 1;
+								return (
+									<div
+										key={providerId}
+										className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center"
+									>
+										<div className="flex items-center gap-2">
+											<span className="font-mono text-sm">{providerId}</span>
+											{effective === 0 ? (
+												<Badge variant="destructive">Disabled</Badge>
+											) : null}
+										</div>
+										<div className="md:col-span-2 flex items-center gap-2">
+											<Input
+												type="number"
+												step="0.05"
+												min={0}
+												max={1}
+												value={value ?? ""}
+												placeholder={
+													defaultPriority !== undefined
+														? `Default: ${defaultPriority}`
+														: ""
+												}
+												onChange={(e) =>
+													updateProviderPriority(
+														providerId,
+														parseInput(e.target.value),
+													)
+												}
+											/>
+											<Button
+												variant="ghost"
+												size="sm"
+												type="button"
+												onClick={() =>
+													updateProviderPriority(providerId, undefined)
+												}
+											>
+												Reset
+											</Button>
+										</div>
+									</div>
+								);
+							})}
+						</CardContent>
+					</Card>
+				</div>
+			</div>
+		</div>
+	);
+}

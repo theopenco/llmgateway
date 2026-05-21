@@ -1081,4 +1081,55 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(result?.provider.providerId).toBe("deepseek");
 		});
 	});
+
+	describe("routing config overrides", () => {
+		it("excludes providers whose override priority is 0", async () => {
+			const { resolveRoutingConfig, buildProviderPriorityDefaults } =
+				await import("@llmgateway/shared/routing-config");
+
+			const model = models.find((m) => m.id === "gpt-4o-mini");
+			if (!model) {
+				throw new Error("Missing gpt-4o-mini fixture");
+			}
+			const providersWithOpenAi = (
+				model.providers as ProviderModelMapping[]
+			).filter((p) => p.providerId === "openai");
+			if (providersWithOpenAi.length === 0) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{ providerPriorities: { openai: 0 } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = getCheapestFromAvailableProviders(
+				providersWithOpenAi,
+				model,
+				{ routingConfig: overrides },
+			);
+
+			expect(result).toBe(null);
+		});
+
+		it("accepts custom thresholds without failing selection", async () => {
+			const { resolveRoutingConfig, buildProviderPriorityDefaults } =
+				await import("@llmgateway/shared/routing-config");
+
+			const model = models.find((m) => m.providers.length >= 2);
+			if (!model) {
+				return;
+			}
+			const available = (model.providers as ProviderModelMapping[]).slice(0, 2);
+
+			const overrides = resolveRoutingConfig(
+				{ thresholds: { defaultUptime: 50 } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = getCheapestFromAvailableProviders(available, model, {
+				routingConfig: overrides,
+				metricsMap: new Map(),
+			});
+			expect(result).not.toBeNull();
+		});
+	});
 });
