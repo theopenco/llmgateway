@@ -1385,17 +1385,55 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		return;
 	}
 
-	// Find the original transaction by stripePaymentIntentId
-	const originalTransaction = await db.query.transaction.findFirst({
+	// Stripe v18 removed `invoice` from the typed Charge surface, but the
+	// field is still present on the underlying object for invoice-driven
+	// charges (subscriptions). Fall back to it to locate dev_plan_start /
+	// subscription_start transactions that only stored the invoice id.
+	const chargeInvoice = (
+		charge as unknown as { invoice?: string | { id?: string } | null }
+	).invoice;
+	const invoiceId =
+		typeof chargeInvoice === "string" ? chargeInvoice : chargeInvoice?.id;
+
+	const refundableTypes: (
+		| "credit_topup"
+		| "dev_plan_start"
+		| "dev_plan_renewal"
+		| "dev_plan_upgrade"
+		| "subscription_start"
+	)[] = [
+		"credit_topup",
+		"dev_plan_start",
+		"dev_plan_renewal",
+		"dev_plan_upgrade",
+		"subscription_start",
+	];
+
+	// Find the original transaction by stripePaymentIntentId first (covers
+	// credit_topup, dev_plan_renewal, subscription_start via invoice). Fall
+	// back to stripeInvoiceId since dev_plan_start (initial DevPass checkout)
+	// only records the invoice id, not the payment intent.
+	let originalTransaction = await db.query.transaction.findFirst({
 		where: {
 			stripePaymentIntentId: { eq: payment_intent as string },
-			type: { eq: "credit_topup" },
+			type: { in: refundableTypes },
 		},
 	});
 
+	if (!originalTransaction && invoiceId) {
+		originalTransaction = await db.query.transaction.findFirst({
+			where: {
+				stripeInvoiceId: { eq: invoiceId },
+				type: { in: refundableTypes },
+			},
+		});
+	}
+
 	if (!originalTransaction) {
 		logger.error(
-			`Original transaction not found for payment intent: ${payment_intent}`,
+			`Original transaction not found for payment intent: ${payment_intent}${
+				invoiceId ? ` (invoice: ${invoiceId})` : ""
+			}`,
 		);
 		return;
 	}
@@ -1435,10 +1473,18 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		originalTransaction.creditAmount ?? "0",
 	);
 
+	// Only credit_topup purchases add to organization.credits, so only those
+	// refunds should deduct credits back. Dev plan and subscription refunds
+	// are recorded for revenue reporting only — the subscription cancel/end
+	// webhooks handle the plan state changes separately.
+	const isCreditTopup = originalTransaction.type === "credit_topup";
+
 	// Calculate proportional credit refund
 	const refundRatio =
 		originalAmount > 0 ? refundAmountInDollars / originalAmount : 0;
-	const creditRefundAmount = originalCreditAmount * refundRatio;
+	const creditRefundAmount = isCreditTopup
+		? originalCreditAmount * refundRatio
+		: 0;
 
 	// Check if refund already exists (prevent duplicates)
 	const existingRefund = await db.query.transaction.findFirst({
@@ -1470,13 +1516,16 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
 	});
 
-	// Deduct credits from organization (allow negative)
-	await db
-		.update(tables.organization)
-		.set({
-			credits: sql`${tables.organization.credits} - ${creditRefundAmount}`,
-		})
-		.where(eq(tables.organization.id, originalTransaction.organizationId));
+	// Deduct credits from organization (allow negative) — only for credit_topup
+	// refunds, since dev plan / subscription purchases don't add to credits.
+	if (isCreditTopup && creditRefundAmount !== 0) {
+		await db
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} - ${creditRefundAmount}`,
+			})
+			.where(eq(tables.organization.id, originalTransaction.organizationId));
+	}
 
 	// Track in PostHog
 	posthog.groupIdentify({
@@ -1503,8 +1552,9 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 	});
 
 	logger.info(
-		`Processed refund for organization ${originalTransaction.organizationId}: ` +
-			`refunded $${refundAmountInDollars} (${creditRefundAmount} credits deducted)`,
+		`Processed refund for organization ${originalTransaction.organizationId} ` +
+			`(${originalTransaction.type}): refunded $${refundAmountInDollars}` +
+			(isCreditTopup ? ` (${creditRefundAmount} credits deducted)` : ""),
 	);
 }
 
