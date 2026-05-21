@@ -571,6 +571,7 @@ export interface paths {
                                     content: string | null;
                                     images: string | null;
                                     audios?: string | null;
+                                    documents?: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
                                     metadata?: {
@@ -8863,6 +8864,7 @@ export interface paths {
                                     content: string | null;
                                     images: string | null;
                                     audios?: string | null;
+                                    documents?: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
                                     metadata?: {
