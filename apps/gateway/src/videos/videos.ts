@@ -24,6 +24,7 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	processImageUrl,
+	readProviderKey,
 	type RoutingMetadata,
 	type VideoPricingContext,
 } from "@llmgateway/actions";
@@ -1109,7 +1110,7 @@ async function resolveProviderContext(
 		const providerContext: ProviderContext = {
 			providerId,
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
@@ -1205,7 +1206,7 @@ async function resolveProviderContext(
 		const providerContext: ProviderContext = {
 			providerId,
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
@@ -2162,7 +2163,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		return {
 			providerId,
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			requestId: job.requestId,
 		};
 	}

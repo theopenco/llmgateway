@@ -117,8 +117,12 @@ describe("provider keys route", () => {
 		expect(json.providerKey.maskedToken).toBeDefined();
 		expect(json.providerKey.maskedToken).toContain("•");
 		expect(json.providerKey.token).toBeUndefined();
+		// Response must never expose the ciphertext column either.
+		expect(json.providerKey.tokenCiphertext).toBeUndefined();
+		expect(json.providerKey.tokenMasked).toBeUndefined();
 
-		// Verify the key was created in the database
+		// Verify the key was created in the database AND that the plaintext
+		// was never persisted — only the ciphertext + masked form should remain.
 		const providerKey = await db.query.providerKey.findFirst({
 			where: {
 				provider: {
@@ -128,6 +132,65 @@ describe("provider keys route", () => {
 		});
 		expect(providerKey).not.toBeNull();
 		expect(providerKey?.provider).toBe("inference.net");
+		expect(providerKey?.token).toBeNull();
+		expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v1:/);
+		expect(providerKey?.tokenMasked).toBeTruthy();
+		expect(providerKey?.tokenMasked).not.toBe("inference-test-token");
+	});
+
+	test("POST /keys/provider AAD binds ciphertext to row id + organization", async () => {
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				provider: "inference.net",
+				token: "aad-bound-token",
+				organizationId: "test-org-id",
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		const row = await db.query.providerKey.findFirst({
+			where: { provider: { eq: "inference.net" } },
+		});
+		expect(row?.tokenCiphertext).toMatch(/^llmgw:v1:/);
+
+		// Importing locally to avoid pulling crypto into the top of the spec file.
+		const { decryptProviderKey } = await import("@llmgateway/actions");
+
+		// Correct row id + org → decrypts.
+		expect(
+			decryptProviderKey(row!.tokenCiphertext!, row!.id, row!.organizationId),
+		).toBe("aad-bound-token");
+
+		// Tampered row id → throws (cross-row copy fails).
+		expect(() =>
+			decryptProviderKey(
+				row!.tokenCiphertext!,
+				"different-row-id",
+				row!.organizationId,
+			),
+		).toThrow();
+
+		// Tampered organization id → throws (cross-org copy fails).
+		expect(() =>
+			decryptProviderKey(row!.tokenCiphertext!, row!.id, "different-org"),
+		).toThrow();
+	});
+
+	test("provider_key CHECK constraint rejects rows with both token and tokenCiphertext", async () => {
+		await expect(
+			db.insert(tables.providerKey).values({
+				id: "test-bad-shape",
+				token: "plaintext-here",
+				tokenCiphertext: "llmgw:v1:should-not-coexist:::",
+				provider: "openai",
+				organizationId: "test-org-id",
+			}),
+		).rejects.toThrow();
 	});
 
 	test("POST /keys/provider rejects token with non-ASCII characters", async () => {

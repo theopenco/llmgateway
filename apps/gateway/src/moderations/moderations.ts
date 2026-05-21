@@ -22,7 +22,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders } from "@llmgateway/actions";
+import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -394,7 +394,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 					"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.",
 			});
 		}
-		usedToken = providerKey.token;
+		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
 		const envResult = getProviderEnv("openai", {
 			selectionScope: upstreamModel,
@@ -409,7 +409,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			upstreamModel,
 		);
 		if (providerKey) {
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 		} else {
 			const envResult = getProviderEnv("openai", {
 				selectionScope: upstreamModel,

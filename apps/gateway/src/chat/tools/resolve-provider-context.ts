@@ -11,6 +11,7 @@ import {
 	getProviderEndpoint,
 	getProviderHeaders,
 	prepareRequestBody,
+	readProviderKey,
 } from "@llmgateway/actions";
 import {
 	type BaseMessage,
@@ -230,7 +231,7 @@ export async function resolveProviderContext(
 			});
 		}
 
-		usedToken = providerKey.token;
+		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
 		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 		const envResult = getProviderEnv(usedProvider as Provider, {
@@ -258,7 +259,7 @@ export async function resolveProviderContext(
 		}
 
 		if (providerKey) {
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 		} else {
 			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 			const envResult = getProviderEnv(usedProvider as Provider, {

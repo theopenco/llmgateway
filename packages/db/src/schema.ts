@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
 	boolean,
+	check,
 	decimal,
 	index,
 	integer,
@@ -597,7 +598,13 @@ export const providerKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull(),
+		// Legacy plaintext column. New writes set this to NULL and populate
+		// tokenCiphertext + tokenMasked instead. Existing rows from before
+		// BYOK encryption was added still carry plaintext here and are read
+		// through the legacy branch of readProviderKey().
+		token: text(),
+		tokenCiphertext: text(),
+		tokenMasked: text(),
 		provider: text().notNull(),
 		name: text(), // Optional name for custom providers (lowercase a-z only)
 		baseUrl: text(), // Optional base URL for custom providers
@@ -612,6 +619,10 @@ export const providerKey = pgTable(
 	(table) => [
 		unique().on(table.organizationId, table.name),
 		index("provider_key_organization_id_idx").on(table.organizationId),
+		check(
+			"provider_key_token_xor",
+			sql`${table.token} IS NULL OR ${table.tokenCiphertext} IS NULL`,
+		),
 	],
 );
 

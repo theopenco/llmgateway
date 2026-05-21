@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 
+import { validateProviderKeyEncryptionKey } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { closeDatabase } from "@llmgateway/db";
 import {
@@ -24,6 +25,8 @@ const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 let sdk: NodeSDK | null = null;
 
 async function startServer() {
+	validateProviderKeyEncryptionKey();
+
 	// Initialize tracing for gateway service
 	try {
 		sdk = initializeInstrumentation({

@@ -45,6 +45,11 @@ auth:
   authSecret: "change-me-to-a-random-32-char-secret"
   # -- (required) HMAC secret for hashing API keys
   gatewayApiKeyHashSecret: "change-me-to-a-random-secret"
+  # -- (required) AES-256-GCM master key for BYOK encryption-at-rest. Must
+  # decode from base64 to exactly 32 bytes. All processes (gateway, api,
+  # worker) fail fast at startup if this is missing or malformed.
+  # Generate with: openssl rand -base64 32
+  providerKeyEncryptionKey: ""
   # -- Cookie domain for session cookies
   cookieDomain: ""
   # -- Comma-separated list of allowed CORS origins

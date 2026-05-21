@@ -8,8 +8,29 @@ describe("maskToken", () => {
 		expect(masked).toBe("123456789012••••••••");
 	});
 
-	it("handles tokens shorter than visible length", () => {
+	it("always masks the trailing characters for short tokens", () => {
+		// Short tokens previously leaked as plaintext because
+		// Math.max(len - visibleChars, 0) clamped maskedLength to 0.
+		// We now guarantee at least 4 trailing chars are bulleted.
 		const masked = maskToken("12345", 10);
-		expect(masked).toBe("12345");
+		expect(masked).not.toContain("12345");
+		expect(masked).toMatch(/•/);
+	});
+
+	it("masks the entire token when it is shorter than MIN_MASKED_CHARS", () => {
+		expect(maskToken("ab", 12)).toBe("••••");
+		expect(maskToken("abc", 12)).toBe("••••");
+		expect(maskToken("abcd", 12)).toBe("••••");
+	});
+
+	it("masks at least 4 chars even when token length exactly equals visibleChars", () => {
+		// Without the MIN_MASKED_CHARS floor, this would return plaintext.
+		const masked = maskToken("123456789012", 12);
+		expect(masked).not.toBe("123456789012");
+		expect(masked.endsWith("••••")).toBe(true);
+	});
+
+	it("returns empty string for empty input", () => {
+		expect(maskToken("", 12)).toBe("");
 	});
 });

@@ -5,9 +5,14 @@ import { z } from "zod";
 import { maskToken } from "@/lib/maskToken.js";
 import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
 
-import { validateProviderKey } from "@llmgateway/actions";
+import {
+	encryptProviderKey,
+	redactToken,
+	validateProviderKey,
+} from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { invalidateSwrByTables } from "@llmgateway/cache";
+import { db, eq, shortid, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { providers } from "@llmgateway/models";
 
@@ -45,6 +50,39 @@ const providerKeySchema = z.object({
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	organizationId: z.string(),
 });
+
+// Public response shape for provider key endpoints. Listed explicitly
+// (not via .omit) so that any future secret-bearing column added to
+// the provider_key table does not leak by default.
+const providerKeyPublicSchema = z.object({
+	id: z.string(),
+	createdAt: z.date(),
+	updatedAt: z.date(),
+	provider: z.string(),
+	name: z.string().nullable(),
+	baseUrl: z.string().nullable(),
+	options: providerKeySchema.shape.options,
+	status: providerKeySchema.shape.status,
+	organizationId: z.string(),
+	maskedToken: z.string(),
+});
+
+type ProviderKeyRow = typeof tables.providerKey.$inferSelect;
+
+function toPublicProviderKey(row: ProviderKeyRow) {
+	return {
+		id: row.id,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt,
+		provider: row.provider,
+		name: row.name,
+		baseUrl: row.baseUrl,
+		options: row.options,
+		status: row.status,
+		organizationId: row.organizationId,
+		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
+	};
+}
 
 // Schema for creating a new provider key
 const createProviderKeySchema = z.object({
@@ -109,12 +147,7 @@ const create = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						providerKey: providerKeySchema
-							.omit({ token: true })
-							.extend({
-								maskedToken: z.string(),
-							})
-							.openapi({}),
+						providerKey: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -224,14 +257,21 @@ keysProvider.openapi(create, async (c) => {
 		}
 	} catch (error) {
 		throw new HTTPException(500, {
-			message:
+			message: redactToken(
 				error instanceof Error ? error.message : "Failed to validate API key",
-			cause: error,
+				userToken,
+			),
 		});
 	}
 
 	if (validationResult.error) {
-		const errorMessage = validationResult.error ?? "Upstream server error";
+		// validateProviderKey already redacts but belt-and-suspenders: any
+		// future code path that populates validationResult.error must not be
+		// allowed to leak the plaintext token via logs or the 400 response body.
+		const errorMessage = redactToken(
+			validationResult.error ?? "Upstream server error",
+			userToken,
+		);
 		logger.warn("Provider key validation failed", {
 			provider,
 			model: validationResult.model ?? "unknown",
@@ -256,12 +296,24 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
-	// Use the user-provided token
-	// Create the provider key
+	// Encrypt the user-provided token at rest. Generate the id in application
+	// code so the AAD (which binds ciphertext to the row id + organization id)
+	// can be computed before the INSERT, keeping the write a single statement.
+	const providerKeyId = shortid();
+	const tokenCiphertext = encryptProviderKey(
+		userToken,
+		providerKeyId,
+		organizationId,
+	);
+	const tokenMasked = maskToken(userToken);
+
 	const [providerKey] = await db
 		.insert(tables.providerKey)
 		.values({
-			token: userToken,
+			id: providerKeyId,
+			token: null,
+			tokenCiphertext,
+			tokenMasked,
 			organizationId,
 			provider,
 			name,
@@ -269,6 +321,12 @@ keysProvider.openapi(create, async (c) => {
 			options,
 		})
 		.returning();
+
+	// Drizzle's onMutate hook only fires for queries that go through the
+	// cached db client (cdb). This route uses the uncached `db`, so we must
+	// invalidate the gateway's provider-key SWR mirrors explicitly to avoid
+	// stale plaintext-era reads.
+	await invalidateSwrByTables(["provider_key"]);
 
 	await logAuditEvent({
 		organizationId,
@@ -283,11 +341,7 @@ keysProvider.openapi(create, async (c) => {
 	});
 
 	return c.json({
-		providerKey: {
-			...providerKey,
-			maskedToken: maskToken(userToken),
-			token: undefined,
-		},
+		providerKey: toPublicProviderKey(providerKey),
 	});
 });
 
@@ -301,14 +355,7 @@ const list = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						providerKeys: z
-							.array(
-								providerKeySchema.omit({ token: true }).extend({
-									// Only return a masked version of the token
-									maskedToken: z.string(),
-								}),
-							)
-							.openapi({}),
+						providerKeys: z.array(providerKeyPublicSchema).openapi({}),
 					}),
 				},
 			},
@@ -342,11 +389,7 @@ keysProvider.openapi(list, async (c) => {
 	});
 
 	return c.json({
-		providerKeys: providerKeys.map((key) => ({
-			...key,
-			maskedToken: maskToken(key.token),
-			token: undefined,
-		})),
+		providerKeys: providerKeys.map(toPublicProviderKey),
 	});
 });
 
@@ -489,6 +532,8 @@ keysProvider.openapi(deleteKey, async (c) => {
 		})
 		.where(eq(tables.providerKey.id, id));
 
+	await invalidateSwrByTables(["provider_key"]);
+
 	await logAuditEvent({
 		organizationId: providerKey.organizationId,
 		userId: user.id,
@@ -527,12 +572,7 @@ const updateStatus = createRoute({
 				"application/json": {
 					schema: z.object({
 						message: z.string(),
-						providerKey: providerKeySchema
-							.omit({ token: true })
-							.extend({
-								maskedToken: z.string(),
-							})
-							.openapi({}),
+						providerKey: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -602,6 +642,8 @@ keysProvider.openapi(updateStatus, async (c) => {
 		.where(eq(tables.providerKey.id, id))
 		.returning();
 
+	await invalidateSwrByTables(["provider_key"]);
+
 	if (providerKey.status !== status) {
 		await logAuditEvent({
 			organizationId: providerKey.organizationId,
@@ -620,11 +662,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 
 	return c.json({
 		message: `Provider key status updated to ${status}`,
-		providerKey: {
-			...updatedProviderKey,
-			maskedToken: maskToken(updatedProviderKey.token),
-			token: undefined,
-		},
+		providerKey: toPublicProviderKey(updatedProviderKey),
 	});
 });
 

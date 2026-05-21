@@ -23,7 +23,7 @@ import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders } from "@llmgateway/actions";
+import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { models as modelDefinitions } from "@llmgateway/models";
@@ -536,7 +536,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				message: `No API key set for provider: ${providerId}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
 			});
 		}
-		usedToken = providerKey.token;
+		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
 		assertCreditsAvailableForEmbedding(
 			organization,
@@ -559,7 +559,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			upstreamModel,
 		);
 		if (providerKey) {
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 		} else {
 			assertCreditsAvailableForEmbedding(
 				organization,

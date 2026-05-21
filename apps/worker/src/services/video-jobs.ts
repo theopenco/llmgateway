@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 
 import { getStopSignal, isStopRequested } from "@/shutdown.js";
 
+import { readProviderKey } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
@@ -270,7 +271,7 @@ async function resolveVideoProviderContext(
 
 		return {
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 		};
 	}
 

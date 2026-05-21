@@ -61,7 +61,9 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
+	hasProviderKey,
 	prepareRequestBody,
+	readProviderKey,
 	type RoutingMetadata,
 } from "@llmgateway/actions";
 import {
@@ -3024,7 +3026,7 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		usedToken = providerKey.token;
+		usedToken = readProviderKey(providerKey);
 		trackedKeyHealthId = providerKey.id;
 		usedRegion ??= resolveRegionFromProviderKey(providerKey);
 		// Override with region-specific env var if the DB key doesn't match the requested region.
@@ -3123,7 +3125,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		if (providerKey) {
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 			trackedKeyHealthId = providerKey.id;
 			usedRegion ??= resolveRegionFromProviderKey(providerKey);
 			// Override with region-specific env var if the DB key doesn't match the requested region.
@@ -3220,7 +3222,7 @@ chat.openapi(completions, async (c) => {
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
 		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
-		(!providerKey || !providerKey.token)
+		!hasProviderKey(providerKey)
 	) {
 		await validateFreeModelUsage(
 			c,

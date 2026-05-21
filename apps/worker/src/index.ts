@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 
+import { validateProviderKeyEncryptionKey } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
 
 import { startWorker, stopWorker } from "./worker.js";
@@ -61,6 +62,15 @@ function isDirectExecution() {
 }
 
 if (isDirectExecution()) {
+	try {
+		validateProviderKeyEncryptionKey();
+	} catch (error) {
+		logger.error(
+			"Worker startup failed: provider key encryption misconfigured",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		process.exit(1);
+	}
 	logger.info("Starting worker application...");
 	startWorker().catch((error) => {
 		logger.error(
