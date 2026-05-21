@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discord Community
+    url: https://discord.gg/llmgateway
+    about: Ask questions, get help, and chat with the community.
+  - name: 📖 Documentation
+    url: https://docs.llmgateway.io
+    about: Browse the docs before opening an issue — your answer may already be here.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/theopenco/llmgateway/security/advisories/new
+    about: Please report security issues privately, not as a public issue.
