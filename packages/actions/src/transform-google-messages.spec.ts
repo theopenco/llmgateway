@@ -228,7 +228,7 @@ describe("transformGoogleMessages — document file blocks", () => {
 		);
 	});
 
-	it("normalizes a mixed-case mime to lowercase", async () => {
+	it("preserves a mixed-case mime verbatim", async () => {
 		const out = await transformGoogleMessages(
 			fileMessage("Application/PDF"),
 			false,
@@ -238,7 +238,7 @@ describe("transformGoogleMessages — document file blocks", () => {
 			"google-ai-studio",
 		);
 		const filePart = out[0].parts.find((p) => p.inline_data);
-		expect(filePart?.inline_data?.mime_type).toBe("application/pdf");
+		expect(filePart?.inline_data?.mime_type).toBe("Application/PDF");
 	});
 
 	it("throws a non-typed Error when file_data isn't a base64 data URL", async () => {

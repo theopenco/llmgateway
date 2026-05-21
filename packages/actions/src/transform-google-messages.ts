@@ -91,6 +91,19 @@ export class UnsupportedAudioFormatError extends Error {
 }
 
 /**
+ * Thrown when a `file` content block is structurally invalid for Google
+ * providers (e.g. missing `file_data`, or `file_data` that isn't a base64
+ * data URL). The gateway maps this to HTTP 400 so the client gets an
+ * actionable validation error instead of a generic 500.
+ */
+export class InvalidFileContentError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "InvalidFileContentError";
+	}
+}
+
+/**
  * Thrown when an upstream Google provider rejects the request because the
  * document MIME we passed isn't supported by that specific model. We don't
  * pre-validate the MIME on our side — Gemini's per-model support varies and
@@ -157,7 +170,7 @@ export function parseGoogleUpstreamDocumentError(
 /**
  * Parses a `data:<mime>;base64,<data>` URL into its parts. Returns null when
  * the value isn't a base64 data URL (e.g. plain base64, or a URL not yet
- * supported). Mime is lower-cased to make allowlist lookups case-insensitive.
+ * supported). MIME is preserved verbatim for upstream passthrough.
  */
 function parseFileDataUrl(
 	fileData: string,
@@ -166,7 +179,7 @@ function parseFileDataUrl(
 	if (!match) {
 		return null;
 	}
-	return { mimeType: match[1].toLowerCase(), data: match[2] };
+	return { mimeType: match[1], data: match[2] };
 }
 
 function resolveGoogleProviderTarget(
@@ -375,13 +388,13 @@ export async function transformGoogleMessages(
 					});
 				} else if (isFileContent(content)) {
 					if (!content.file.file_data) {
-						throw new Error(
+						throw new InvalidFileContentError(
 							"Google providers require base64 file_data on `file` content blocks; file_id references are not supported.",
 						);
 					}
 					const parsed = parseFileDataUrl(content.file.file_data);
 					if (!parsed) {
-						throw new Error(
+						throw new InvalidFileContentError(
 							"Invalid file_data: expected a base64-encoded data URL (e.g. 'data:application/pdf;base64,...').",
 						);
 					}

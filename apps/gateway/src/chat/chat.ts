@@ -2289,6 +2289,9 @@ chat.openapi(completions, async (c) => {
 					) {
 						return false;
 					}
+					if (hasDocuments && provider.document !== true) {
+						return false;
+					}
 					return true;
 				});
 

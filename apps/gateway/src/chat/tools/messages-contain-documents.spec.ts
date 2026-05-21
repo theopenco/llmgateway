@@ -57,13 +57,13 @@ describe("Gemini document capability flag", () => {
 	];
 
 	for (const id of expectedDocumentModelIds) {
-		const model = models.find((m) => m.id === id);
-		if (!model) {
-			continue;
-		}
-		const providers = model.providers as readonly ProviderModelMapping[];
-		const aiStudio = providers.find((p) => p.providerId === "google-ai-studio");
 		it(`marks google-ai-studio variant of ${id} as document: true`, () => {
+			const model = models.find((m) => m.id === id);
+			expect(model, `Expected model ${id} to exist`).toBeDefined();
+			const providers = model!.providers as readonly ProviderModelMapping[];
+			const aiStudio = providers.find(
+				(p) => p.providerId === "google-ai-studio",
+			);
 			expect(aiStudio).toBeDefined();
 			expect(aiStudio?.document).toBe(true);
 		});

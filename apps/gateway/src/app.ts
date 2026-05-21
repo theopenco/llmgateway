@@ -8,6 +8,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	InvalidFileContentError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 } from "@llmgateway/actions";
@@ -133,6 +134,18 @@ app.onError((error, c) => {
 		);
 	}
 
+	if (error instanceof InvalidFileContentError) {
+		logger.warn("Invalid file content", { message: error.message });
+		return c.json(
+			{
+				error: true,
+				status: 400,
+				message: error.message,
+			},
+			400,
+		);
+	}
+
 	if (error instanceof UnsupportedDocumentFormatError) {
 		logger.warn("Unsupported document format", {
 			message: error.message,
@@ -144,6 +157,8 @@ app.onError((error, c) => {
 				error: true,
 				status: 400,
 				message: error.message,
+				mimeType: error.mimeType,
+				providerTarget: error.providerTarget,
 			},
 			400,
 		);
