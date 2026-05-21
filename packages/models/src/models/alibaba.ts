@@ -1213,7 +1213,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				modelName: "qwen3.7-max",
-				discount: "0.2",
 				inputPrice: "2.5e-6",
 				outputPrice: "7.5e-6",
 				cachedInputPrice: "0.5e-6",
