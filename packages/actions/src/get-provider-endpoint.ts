@@ -19,6 +19,7 @@ function buildVertexCompatibleEndpoint(
 	stream: boolean | undefined,
 	configIndex: number | undefined,
 	providerKeyOptions?: ProviderKeyOptions,
+	skipEnvVars?: boolean,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = modelName ?? "gemini-2.5-flash-lite";
@@ -36,11 +37,11 @@ function buildVertexCompatibleEndpoint(
 		);
 	}
 
-	const tokenType = resolveVertexTokenType(
-		provider,
-		providerKeyOptions,
-		configIndex,
-	);
+	const tokenType = skipEnvVars
+		? provider === "google-vertex"
+			? (providerKeyOptions?.google_vertex_token_type ?? "api-key")
+			: (providerKeyOptions?.quartz_token_type ?? "api-key")
+		: resolveVertexTokenType(provider, providerKeyOptions, configIndex);
 	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
 	const queryParams = [];
 	if (token && tokenType === "api-key") {
@@ -367,6 +368,7 @@ export function getProviderEndpoint(
 				stream,
 				configIndex,
 				providerKeyOptions,
+				skipEnvVars,
 			);
 		case "vertex-openai": {
 			const projectId =
