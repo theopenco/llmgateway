@@ -1,0 +1,63 @@
+name: 🧠 Request a new model
+description: Ask us to add a new LLM model to the gateway.
+title: "[Model]: <provider>/<model-id>"
+labels: ["model request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping us grow the model catalog! Please check the [models page](https://llmgateway.io/models) first to make sure the model isn't already supported.
+  - type: input
+    id: model-name
+    attributes:
+      label: Model name
+      description: The human-readable name of the model.
+      placeholder: e.g. GPT-5 Mini
+    validations:
+      required: true
+  - type: input
+    id: model-id
+    attributes:
+      label: Model ID
+      description: The exact model identifier used by the provider's API.
+      placeholder: e.g. gpt-5-mini
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider
+      description: Which provider serves this model? It must already be supported by the gateway, or be requested separately.
+      placeholder: e.g. openai, anthropic, google-vertex
+    validations:
+      required: true
+  - type: input
+    id: docs-link
+    attributes:
+      label: Provider documentation link
+      description: Link to the provider's model/pricing documentation.
+      placeholder: https://...
+    validations:
+      required: true
+  - type: textarea
+    id: capabilities
+    attributes:
+      label: Capabilities & pricing
+      description: Share what you know — context window, max output, vision/tools/JSON support, input/output pricing, etc.
+      value: |
+        - Context window:
+        - Max output tokens:
+        - Input price (per token):
+        - Output price (per token):
+        - Vision: yes/no
+        - Tool / function calling: yes/no
+        - Structured / JSON output: yes/no
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else we should know about this model?
+    validations:
+      required: false
