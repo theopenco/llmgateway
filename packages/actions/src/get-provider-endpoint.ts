@@ -6,6 +6,7 @@ import {
 	type ProviderId,
 	getProviderEnvValue,
 	getProviderEnvConfig,
+	resolveVertexTokenType,
 } from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
@@ -35,9 +36,14 @@ function buildVertexCompatibleEndpoint(
 		);
 	}
 
+	const tokenType = resolveVertexTokenType(
+		provider,
+		providerKeyOptions,
+		configIndex,
+	);
 	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
 	const queryParams = [];
-	if (token) {
+	if (token && tokenType === "api-key") {
 		queryParams.push(`key=${token}`);
 	}
 	if (stream) {
