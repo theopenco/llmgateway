@@ -1133,6 +1133,7 @@ export const chatSupportConversation = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
+		clientId: text(),
 		name: text(),
 		email: text(),
 		ipAddress: text(),
@@ -1140,9 +1141,12 @@ export const chatSupportConversation = pgTable(
 		messageCount: integer().notNull().default(0),
 		escalatedAt: timestamp(),
 		archivedAt: timestamp(),
+		resolvedAt: timestamp(),
+		rating: integer(),
 	},
 	(table) => [
 		index("chat_support_conversation_created_at_idx").on(table.createdAt),
+		index("chat_support_conversation_client_id_idx").on(table.clientId),
 	],
 );
 
@@ -1159,6 +1163,9 @@ export const chatSupportMessage = pgTable(
 		}).notNull(),
 		content: text().notNull(),
 		sequence: integer().notNull(),
+		reaction: text({
+			enum: ["like", "dislike"],
+		}),
 	},
 	(table) => [
 		index("chat_support_message_conversation_id_idx").on(table.conversationId),
