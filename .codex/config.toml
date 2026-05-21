@@ -1,0 +1,9 @@
+[mcp_servers.figma-remote-mcp]
+url = "https://mcp.figma.com/mcp"
+
+[mcp_servers.playwright]
+args = [
+    "-y",
+    "@playwright/mcp@latest",
+]
+command = "npx"
