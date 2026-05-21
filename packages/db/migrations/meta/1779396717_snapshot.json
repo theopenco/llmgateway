@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "80fb3f1b-a989-4150-96c2-6b2722ce21d7",
+  "id": "7819ba3f-f7d2-45de-a5b7-7f5e5801d661",
   "prevId": "7630241e-2f3c-4d74-87ea-9349ebb5dae3",
   "ddl": [
     {
@@ -18157,6 +18157,20 @@
       "schema": "public",
       "table": "user",
       "entityType": "uniques"
+    },
+    {
+      "value": "\"rating\" IS NULL OR (\"rating\" >= 0 AND \"rating\" <= 5)",
+      "name": "chat_support_conversation_rating_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "chat_support_conversation"
+    },
+    {
+      "value": "\"reaction\" IS NULL OR \"reaction\" IN ('like', 'dislike')",
+      "name": "chat_support_message_reaction_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "chat_support_message"
     }
   ],
   "renames": []

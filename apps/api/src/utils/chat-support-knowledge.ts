@@ -127,19 +127,33 @@ export function isAllowedKnowledgeUrl(url: string): boolean {
 	}
 }
 
+const HTML_ENTITIES: Record<string, string> = {
+	"&nbsp;": " ",
+	"&amp;": "&",
+	"&lt;": "<",
+	"&gt;": ">",
+	"&quot;": '"',
+	"&#x27;": "'",
+	"&#39;": "'",
+};
+
 function htmlToText(html: string): string {
-	return html
-		.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-		.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-		.replace(/<[^>]+>/g, " ")
-		.replace(/&nbsp;/g, " ")
-		.replace(/&amp;/g, "&")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&#x27;/g, "'")
-		.replace(/\s+/g, " ")
-		.trim();
+	return (
+		html
+			// Robustly drop <script>/<style> blocks, tolerating whitespace in the
+			// end tag (e.g. `</script >`) and avoiding lazy-match bypasses.
+			.replace(/<script\b[^<]*(?:(?!<\/script\s*>)<[^<]*)*<\/script\s*>/gi, " ")
+			.replace(/<style\b[^<]*(?:(?!<\/style\s*>)<[^<]*)*<\/style\s*>/gi, " ")
+			.replace(/<[^>]+>/g, " ")
+			// Decode entities in a single pass so a decoded "&" can't be
+			// re-interpreted as the start of another entity (double-unescaping).
+			.replace(
+				/&(?:nbsp|amp|lt|gt|quot|#x27|#39);/g,
+				(match) => HTML_ENTITIES[match] ?? match,
+			)
+			.replace(/\s+/g, " ")
+			.trim()
+	);
 }
 
 export async function fetchKnowledgePage(url: string): Promise<string> {
