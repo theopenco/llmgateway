@@ -13,6 +13,10 @@ import { ImageHeader } from "@/components/playground/image-header";
 import { ImageSidebar } from "@/components/playground/image-sidebar";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import {
+	useImageHistory,
+	useSaveImageHistory,
+} from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
@@ -107,7 +111,11 @@ export default function ImagePageClient({
 		() => searchParams.get("compare") === "1",
 	);
 	const [prompt, setPrompt] = useState("");
-	const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
+	const [activeItems, setActiveItems] = useState<GalleryItem[]>([]);
+	const imageIdFromUrl = searchParams.get("id");
+	const [selectedItemId, setSelectedItemId] = useState<string | null>(
+		imageIdFromUrl,
+	);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
 
@@ -158,6 +166,68 @@ export default function ImagePageClient({
 	// Auth
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
+
+	// DB-persisted history
+	const { data: historyData } = useImageHistory(isAuthenticated);
+	const { mutate: saveImageHistory } = useSaveImageHistory();
+	const savedItemIdsRef = useRef<Set<string>>(new Set());
+
+	const galleryItems = useMemo<GalleryItem[]>(() => {
+		const historical: GalleryItem[] = (historyData?.items ?? []).map(
+			(item) => ({
+				id: item.id,
+				prompt: item.prompt,
+				timestamp: new Date(item.createdAt).getTime(),
+				inputImages: item.inputImages ?? undefined,
+				models: item.models.map((m) => ({ ...m, isLoading: false })),
+			}),
+		);
+		return [...activeItems, ...historical];
+	}, [activeItems, historyData]);
+
+	const displayItems = useMemo<GalleryItem[]>(() => {
+		if (activeItems.length > 0) {
+			return activeItems;
+		}
+		if (selectedItemId) {
+			const item = galleryItems.find((i) => i.id === selectedItemId);
+			return item ? [item] : [];
+		}
+		return [];
+	}, [activeItems, selectedItemId, galleryItems]);
+
+	// Auto-save completed active items to DB then remove from local state
+	useEffect(() => {
+		const done = activeItems.filter(
+			(item) =>
+				item.models.length > 0 &&
+				item.models.every((m) => !m.isLoading) &&
+				!savedItemIdsRef.current.has(item.id),
+		);
+		if (done.length === 0) {
+			return;
+		}
+		for (const item of done) {
+			savedItemIdsRef.current.add(item.id);
+			if (item.models.some((m) => m.images.length > 0)) {
+				saveImageHistory({
+					body: {
+						prompt: item.prompt,
+						inputImages: item.inputImages,
+						models: item.models.map((m) => ({
+							modelId: m.modelId,
+							modelName: m.modelName,
+							images: m.images,
+							error: m.error,
+						})),
+					},
+				});
+			}
+		}
+		setActiveItems((prev) =>
+			prev.filter((item) => !done.some((d) => d.id === item.id)),
+		);
+	}, [activeItems, saveImageHistory]);
 
 	const returnUrl = useMemo(() => {
 		const search = searchParams.toString();
@@ -228,6 +298,14 @@ export default function ImagePageClient({
 			setModelPreferenceCookie(IMAGE_MODEL_COOKIE, selectedModels.join(","));
 		}
 	}, [selectedModels]);
+
+	// Sync URL → state for back/forward navigation
+	useEffect(() => {
+		if (imageIdFromUrl !== selectedItemId) {
+			setSelectedItemId(imageIdFromUrl);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [imageIdFromUrl]);
 
 	// Reset image size/quality when the selected model changes and the current
 	// value isn't valid for the new model. Including the value itself in deps
@@ -317,9 +395,16 @@ export default function ImagePageClient({
 				})),
 			};
 
-			setGalleryItems((prev) => [placeholderItem, ...prev]);
+			setActiveItems((prev) => [placeholderItem, ...prev]);
+			setSelectedItemId(null);
 			setPrompt("");
 			setInputImages([]);
+			const genParams = new URLSearchParams(window.location.search);
+			genParams.delete("id");
+			const genQs = genParams.toString();
+			router.replace(genQs ? `${pathname}?${genQs}` : pathname, {
+				scroll: false,
+			});
 
 			// Build image config
 			const primaryModel = selectedModels[0] ?? "";
@@ -395,7 +480,7 @@ export default function ImagePageClient({
 							);
 						}
 
-						setGalleryItems((prev) =>
+						setActiveItems((prev) =>
 							prev.map((item) => {
 								if (item.id !== itemId) {
 									return item;
@@ -416,7 +501,12 @@ export default function ImagePageClient({
 							}),
 						);
 					} catch (error) {
-						setGalleryItems((prev) =>
+						const errorMessage =
+							error instanceof Error
+								? error.message
+								: "Image generation failed";
+						toast.error(errorMessage);
+						setActiveItems((prev) =>
 							prev.map((item) => {
 								if (item.id !== itemId) {
 									return item;
@@ -430,10 +520,7 @@ export default function ImagePageClient({
 										return {
 											...m,
 											isLoading: false,
-											error:
-												error instanceof Error
-													? error.message
-													: "Image generation failed",
+											error: errorMessage,
 										};
 									}),
 								};
@@ -462,6 +549,8 @@ export default function ImagePageClient({
 			inputImages,
 			posthog,
 			requiresImageInput,
+			pathname,
+			router,
 		],
 	);
 
@@ -509,19 +598,48 @@ export default function ImagePageClient({
 	);
 
 	const handleNewChat = useCallback(() => {
-		setGalleryItems([]);
+		setActiveItems([]);
+		setSelectedItemId(null);
 		setPrompt("");
 		setInputImages([]);
 		setIsGenerating(false);
 		pendingRef.current = 0;
-	}, []);
+		const params = new URLSearchParams(window.location.search);
+		params.delete("id");
+		const qs = params.toString();
+		router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+	}, [pathname, router]);
 
-	const handleItemClick = useCallback((itemId: string) => {
-		const element = document.getElementById(`gallery-${itemId}`);
-		if (element) {
-			element.scrollIntoView({ behavior: "smooth", block: "start" });
-		}
-	}, []);
+	const handleItemClick = useCallback(
+		(itemId: string) => {
+			setSelectedItemId(itemId);
+			const params = new URLSearchParams(window.location.search);
+			params.set("id", itemId);
+			router.push(`${pathname}?${params.toString()}`, { scroll: false });
+		},
+		[pathname, router],
+	);
+
+	const handleUseAsReference = useCallback(
+		(image: { base64: string; mediaType: string }) => {
+			handleNewChat();
+			setInputImages([
+				{
+					dataUrl: `data:${image.mediaType};base64,${image.base64}`,
+					mediaType: image.mediaType,
+				},
+			]);
+		},
+		[handleNewChat],
+	);
+
+	const handleInsertPrompt = useCallback(
+		(prompt: string) => {
+			handleNewChat();
+			setPrompt(prompt);
+		},
+		[handleNewChat],
+	);
 
 	// Low credits check
 	const isLowCredits = selectedOrganization
@@ -547,6 +665,7 @@ export default function ImagePageClient({
 						onRemoveModel={handleRemoveModel}
 						comparisonMode={comparisonMode}
 						onComparisonModeChange={handleComparisonModeChange}
+						hideCompare={displayItems.length > 0}
 					/>
 					{isLowCredits && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
@@ -586,9 +705,11 @@ export default function ImagePageClient({
 					<div className="flex-1 overflow-y-auto p-4">
 						<div className="max-w-6xl mx-auto">
 							<ImageGallery
-								items={galleryItems}
+								items={displayItems}
 								comparisonMode={comparisonMode}
 								onSuggestionClick={handleSuggestionClick}
+								onUseAsReference={handleUseAsReference}
+								onInsertPrompt={handleInsertPrompt}
 							/>
 						</div>
 					</div>

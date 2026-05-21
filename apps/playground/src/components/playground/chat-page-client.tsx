@@ -359,7 +359,7 @@ export default function ChatPageClient({
 	}, [skillIdFromUrl, skillsData]);
 
 	// Get chat ID from URL search params
-	const chatIdFromUrl = searchParams.get("chat");
+	const chatIdFromUrl = searchParams.get("id");
 	const [currentChatId, setCurrentChatId] = useState<string | null>(
 		chatIdFromUrl,
 	);
@@ -949,9 +949,6 @@ export default function ChatPageClient({
 		}
 
 		const ensureKey = async () => {
-			if (!selectedOrganization) {
-				return;
-			}
 			const projectId = selectedProject.id;
 			// Skip if we've already ensured the key for this project
 			if (ensuredProjectRef.current === projectId) {
@@ -1003,7 +1000,7 @@ export default function ChatPageClient({
 
 			// Update URL with new chat ID (without triggering navigation)
 			const params = new URLSearchParams(searchParams.toString());
-			params.set("chat", newChatId);
+			params.set("id", newChatId);
 			router.replace(`${pathname}?${params.toString()}`);
 
 			return newChatId;
@@ -1232,9 +1229,9 @@ export default function ChatPageClient({
 		setCurrentChatId(null);
 		chatIdRef.current = null;
 		setMessages([]);
-		// Remove chat param from URL
+		// Remove id param from URL
 		const params = new URLSearchParams(searchParams.toString());
-		params.delete("chat");
+		params.delete("id");
 		params.delete("view");
 		params.delete("shareOrgId");
 		params.delete("shareId");
@@ -1269,9 +1266,9 @@ export default function ChatPageClient({
 		try {
 			shouldClearMessagesRef.current = true;
 			setMessages([]);
-			// Remove chat param from URL
+			// Remove id param from URL
 			const params = new URLSearchParams(searchParams.toString());
-			params.delete("chat");
+			params.delete("id");
 			params.delete("view");
 			params.delete("shareOrgId");
 			params.delete("shareId");
@@ -1297,7 +1294,7 @@ export default function ChatPageClient({
 		shouldClearMessagesRef.current = true; // Request message clear on URL change
 		// Update URL with chat ID - this will trigger the useEffect to update state
 		const params = new URLSearchParams(searchParams.toString());
-		params.set("chat", chatId);
+		params.set("id", chatId);
 		params.delete("view");
 		params.delete("shareOrgId");
 		params.delete("shareId");
@@ -1340,7 +1337,7 @@ export default function ChatPageClient({
 			chatIdRef.current = newChatId;
 
 			const params = new URLSearchParams(searchParams.toString());
-			params.set("chat", newChatId);
+			params.set("id", newChatId);
 			params.delete("view");
 			params.delete("shareOrgId");
 			params.delete("shareId");

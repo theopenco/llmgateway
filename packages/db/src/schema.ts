@@ -2394,3 +2394,60 @@ export const skill = pgTable(
 	},
 	(table) => [index("skill_user_id_idx").on(table.userId)],
 );
+
+export const playgroundImageHistory = pgTable(
+	"playground_image_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		prompt: text().notNull(),
+		inputImages: jsonb().$type<{ dataUrl: string; mediaType: string }[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				images: { base64: string; mediaType: string }[];
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [index("playground_image_history_user_id_idx").on(table.userId)],
+);
+
+export const playgroundVideoHistory = pgTable(
+	"playground_video_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		prompt: text().notNull(),
+		frameInputs: jsonb().$type<{
+			start: { dataUrl: string; mediaType: string } | null;
+			end: { dataUrl: string; mediaType: string } | null;
+		}>(),
+		referenceImages: jsonb().$type<{ dataUrl: string; mediaType: string }[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				jobId: string | null;
+				videoUrl: string | null;
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [index("playground_video_history_user_id_idx").on(table.userId)],
+);
