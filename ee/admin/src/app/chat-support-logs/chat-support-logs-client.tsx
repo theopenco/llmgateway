@@ -328,11 +328,13 @@ export function ChatSupportLogsClient() {
 	const selectedConv = conversations.find((c) => c.id === selectedId);
 
 	return (
-		<div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden md:h-screen">
-			{/* Ratings & feedback stats bar */}
-			<div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-border/60 bg-card px-4 py-2.5">
+		<div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden md:h-[calc(100vh-1rem)]">
+			<div className="sticky top-0 z-20 flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-border/60 bg-card px-4 py-2.5">
 				<div className="flex items-center gap-1.5">
-					<Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+					<Star
+						aria-hidden="true"
+						className="h-4 w-4 fill-amber-400 text-amber-400"
+					/>
 					<span className="text-sm font-semibold text-foreground">
 						{typeof statsData?.averageRating === "number"
 							? statsData.averageRating.toFixed(1)
@@ -342,27 +344,30 @@ export function ChatSupportLogsClient() {
 				</div>
 				<div className="flex items-center gap-1.5">
 					<span className="text-sm font-semibold text-foreground">
-						{statsData?.totalRatings ?? 0}
+						{statsData ? statsData.totalRatings : "—"}
 					</span>
 					<span className="text-xs text-muted-foreground">total ratings</span>
 				</div>
 				<div className="flex items-center gap-1.5">
-					<CheckCircle2 className="h-4 w-4 text-emerald-500" />
+					<CheckCircle2
+						aria-hidden="true"
+						className="h-4 w-4 text-emerald-500"
+					/>
 					<span className="text-sm font-semibold text-foreground">
-						{statsData?.resolvedCount ?? 0}
+						{statsData ? statsData.resolvedCount : "—"}
 					</span>
 					<span className="text-xs text-muted-foreground">resolved</span>
 				</div>
-				<div className="flex items-center gap-1.5">
-					<ThumbsUp className="h-4 w-4 text-emerald-500" />
+				<div className="flex items-center gap-1.5" aria-label="Likes">
+					<ThumbsUp aria-hidden="true" className="h-4 w-4 text-emerald-500" />
 					<span className="text-sm font-semibold text-foreground">
-						{statsData?.likes ?? 0}
+						{statsData ? statsData.likes : "—"}
 					</span>
 				</div>
-				<div className="flex items-center gap-1.5">
-					<ThumbsDown className="h-4 w-4 text-rose-500" />
+				<div className="flex items-center gap-1.5" aria-label="Dislikes">
+					<ThumbsDown aria-hidden="true" className="h-4 w-4 text-rose-500" />
 					<span className="text-sm font-semibold text-foreground">
-						{statsData?.dislikes ?? 0}
+						{statsData ? statsData.dislikes : "—"}
 					</span>
 				</div>
 			</div>
@@ -544,9 +549,10 @@ export function ChatSupportLogsClient() {
 								<button
 									type="button"
 									onClick={() => setSelectedId(null)}
+									aria-label="Back to conversations"
 									className="mr-1 flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted md:hidden"
 								>
-									<ArrowLeft className="h-4 w-4" />
+									<ArrowLeft aria-hidden="true" className="h-4 w-4" />
 								</button>
 								<div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
 									{detail.name
@@ -756,7 +762,6 @@ export function ChatSupportLogsClient() {
 										</div>
 									)}
 
-									{/* Resolution status */}
 									{(detail?.resolvedAt ?? selectedConv?.resolvedAt) && (
 										<div className="mb-3 rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/20">
 											<div className="flex items-center gap-2">

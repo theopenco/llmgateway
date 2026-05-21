@@ -111,6 +111,29 @@ function getTextFromUIMessage(message: UIMessage): string {
 		.join("");
 }
 
+// Redis is a best-effort cache for clientId → conversationId. If it's
+// unavailable the request still completes via the DB-backed lookup, so these
+// helpers swallow failures instead of propagating them.
+async function safeRedisGet(key: string): Promise<string | null> {
+	try {
+		return await redisClient.get(key);
+	} catch (error) {
+		logger.error("Chat support Redis get failed", { error });
+		return null;
+	}
+}
+
+async function safeRedisSetConversation(
+	key: string,
+	value: string,
+): Promise<void> {
+	try {
+		await redisClient.set(key, value, "EX", CONVERSATION_TTL_SECONDS);
+	} catch (error) {
+		logger.error("Chat support Redis set failed", { error });
+	}
+}
+
 // Resolves the active (non-archived) conversation for a client. Archived
 // conversations are intentionally treated as gone so the visitor starts fresh.
 async function findActiveConversationId(
@@ -119,7 +142,7 @@ async function findActiveConversationId(
 	const redisKey = `chat_support_conv:${clientId}`;
 	const t = tables.chatSupportConversation;
 
-	const cachedId = await redisClient.get(redisKey);
+	const cachedId = await safeRedisGet(redisKey);
 	if (cachedId) {
 		const rows = await db
 			.select({ id: t.id, archivedAt: t.archivedAt })
@@ -140,7 +163,7 @@ async function findActiveConversationId(
 
 	const found = rows[0]?.id ?? null;
 	if (found) {
-		await redisClient.set(redisKey, found, "EX", CONVERSATION_TTL_SECONDS);
+		await safeRedisSetConversation(redisKey, found);
 	}
 	return found;
 }
@@ -159,11 +182,9 @@ async function createNewConversation(
 		.returning({ id: t.id });
 	const conversationId = conv!.id;
 
-	await redisClient.set(
+	await safeRedisSetConversation(
 		`chat_support_conv:${clientId}`,
 		conversationId,
-		"EX",
-		CONVERSATION_TTL_SECONDS,
 	);
 	return conversationId;
 }
@@ -199,22 +220,22 @@ async function getOrCreateConversation(
 	);
 }
 
-// Appends the latest user message and the assistant's reply to the persisted
-// conversation. Prior messages (including admin replies sent from the dashboard)
-// are already stored and are never rewritten, so the persisted sequence stays
-// contiguous regardless of what history the client echoes back.
-async function appendTurn(
+// Appends a single message at the next sequence. Persisting the user turn and
+// the assistant turn independently means a user's message is never lost when
+// the assistant fails or a human has taken the conversation over — prior
+// messages (including admin replies) are already stored and never rewritten, so
+// the sequence stays contiguous regardless of what history the client echoes.
+async function persistMessage(
 	conversationId: string,
-	messages: UIMessage[],
-	assistantContent: string,
+	role: "user" | "assistant",
+	content: string,
 ): Promise<void> {
+	if (!content) {
+		return;
+	}
 	try {
 		const t = tables.chatSupportConversation;
 		const mt = tables.chatSupportMessage;
-
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
 
 		await db.transaction(async (tx) => {
 			const [conv] = await tx
@@ -222,38 +243,16 @@ async function appendTurn(
 				.from(t)
 				.where(eq(t.id, conversationId))
 				.limit(1);
-			let sequence = conv?.messageCount ?? 0;
+			const sequence = conv?.messageCount ?? 0;
 
-			const rows: {
-				conversationId: string;
-				role: "user" | "assistant";
-				content: string;
-				sequence: number;
-			}[] = [];
-
-			if (lastUserMessage) {
-				rows.push({
-					conversationId,
-					role: "user",
-					content: getTextFromUIMessage(lastUserMessage),
-					sequence: sequence++,
-				});
-			}
-			rows.push({
-				conversationId,
-				role: "assistant",
-				content: assistantContent,
-				sequence: sequence++,
-			});
-
-			await tx.insert(mt).values(rows);
+			await tx.insert(mt).values({ conversationId, role, content, sequence });
 			await tx
 				.update(t)
-				.set({ messageCount: sequence, archivedAt: null })
+				.set({ messageCount: sequence + 1, archivedAt: null })
 				.where(eq(t.id, conversationId));
 		});
 	} catch (error) {
-		logger.error("Failed to persist chat support messages", { error });
+		logger.error("Failed to persist chat support message", { error });
 	}
 }
 
@@ -320,6 +319,17 @@ publicChatSupport.post("/", async (c) => {
 		},
 	});
 
+	// Persist the visitor's message up front so it is never lost if the assistant
+	// errors or a human has taken the conversation over.
+	const newUserMessage = [...messages].reverse().find((m) => m.role === "user");
+	if (newUserMessage) {
+		await persistMessage(
+			conversationId,
+			"user",
+			getTextFromUIMessage(newUserMessage),
+		);
+	}
+
 	const system = await buildSystemPrompt();
 
 	const result = streamText({
@@ -341,7 +351,7 @@ publicChatSupport.post("/", async (c) => {
 			}),
 		},
 		async onFinish({ text }) {
-			await appendTurn(conversationId, messages, text);
+			await persistMessage(conversationId, "assistant", text);
 		},
 	});
 
@@ -497,7 +507,7 @@ publicChatSupport.post("/reaction", async (c) => {
 	}
 
 	const mt = tables.chatSupportMessage;
-	await db
+	const updated = await db
 		.update(mt)
 		.set({ reaction })
 		.where(
@@ -506,7 +516,12 @@ publicChatSupport.post("/reaction", async (c) => {
 				eq(mt.sequence, sequence),
 				eq(mt.role, "assistant"),
 			),
-		);
+		)
+		.returning({ id: mt.id });
+
+	if (updated.length === 0) {
+		return c.json({ error: "Assistant message not found" }, 404);
+	}
 
 	return c.json({ success: true });
 });

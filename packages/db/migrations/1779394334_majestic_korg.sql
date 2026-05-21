@@ -1,0 +1,2 @@
+ALTER TABLE "chat_support_conversation" ADD CONSTRAINT "chat_support_conversation_rating_check" CHECK ("rating" IS NULL OR ("rating" >= 0 AND "rating" <= 5));--> statement-breakpoint
+ALTER TABLE "chat_support_message" ADD CONSTRAINT "chat_support_message_reaction_check" CHECK ("reaction" IS NULL OR "reaction" IN ('like', 'dislike'));

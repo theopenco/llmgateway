@@ -69,8 +69,13 @@ async function collectSitemapUrls(sitemapUrl: string): Promise<string[]> {
 		return locs;
 	}
 
+	// A sitemap index could reference arbitrary external URLs; only follow
+	// nested sitemaps on the allowlisted product hosts to avoid SSRF.
+	const nestedUrls = locs
+		.filter((loc) => isAllowedKnowledgeUrl(loc))
+		.slice(0, 20);
 	const nested = await Promise.all(
-		locs.slice(0, 20).map((nestedUrl) => fetchText(nestedUrl)),
+		nestedUrls.map((nestedUrl) => fetchText(nestedUrl)),
 	);
 	return nested.flatMap((nestedXml) =>
 		nestedXml ? extractLocs(nestedXml) : [],

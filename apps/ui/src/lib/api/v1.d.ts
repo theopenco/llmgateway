@@ -5178,7 +5178,8 @@ export interface paths {
                                 role: string;
                                 content: string;
                                 sequence: number;
-                                reaction: string | null;
+                                /** @enum {string|null} */
+                                reaction: "like" | "dislike" | null;
                             }[];
                         };
                     };

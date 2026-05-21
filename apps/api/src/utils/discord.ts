@@ -1,8 +1,6 @@
 import { logger } from "@llmgateway/logger";
 
 const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
-// Escalations are routed to the dedicated customer-support channel when a
-// separate webhook is configured, otherwise they fall back to the general one.
 const discordSupportWebhookUrl =
 	process.env.DISCORD_SUPPORT_NOTIFICATION_URL ??
 	process.env.DISCORD_NOTIFICATION_URL;

@@ -7150,7 +7150,7 @@ const chatSupportConversationSchema = z.object({
 	escalatedAt: z.string().nullable(),
 	archivedAt: z.string().nullable(),
 	resolvedAt: z.string().nullable(),
-	rating: z.number().nullable(),
+	rating: z.number().int().min(0).max(5).nullable(),
 	firstMessage: z.string().nullable(),
 });
 
@@ -7165,7 +7165,7 @@ const chatSupportMessageSchema = z.object({
 	role: z.string(),
 	content: z.string(),
 	sequence: z.number(),
-	reaction: z.string().nullable(),
+	reaction: z.enum(["like", "dislike"]).nullable(),
 });
 
 const chatSupportConversationDetailSchema = z.object({
@@ -7180,7 +7180,7 @@ const chatSupportConversationDetailSchema = z.object({
 	escalatedAt: z.string().nullable(),
 	archivedAt: z.string().nullable(),
 	resolvedAt: z.string().nullable(),
-	rating: z.number().nullable(),
+	rating: z.number().int().min(0).max(5).nullable(),
 	messages: z.array(chatSupportMessageSchema),
 });
 
@@ -7245,12 +7245,12 @@ admin.openapi(getChatSupportConversations, async (c) => {
 	const where = and(...conditions);
 
 	const firstMessageSubquery = db
-		.select({
+		.selectDistinctOn([mt.conversationId], {
 			conversationId: mt.conversationId,
 			content: mt.content,
 		})
 		.from(mt)
-		.where(and(eq(mt.role, "user"), eq(mt.sequence, 0)))
+		.orderBy(mt.conversationId, asc(mt.sequence))
 		.as("first_msg");
 
 	const [conversations, countResult] = await Promise.all([

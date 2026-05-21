@@ -137,6 +137,9 @@ export function ChatSupport() {
 				"/public/chat-support/conversation" as never,
 				{ params: { query: { clientId } } } as never,
 			);
+			if (res.error) {
+				throw new Error("Failed to load conversation");
+			}
 			return res.data as unknown as ConversationData;
 		},
 	});
@@ -619,7 +622,7 @@ export function ChatSupport() {
 										Conversation resolved. Thanks for your feedback!
 									</p>
 								</div>
-								{typeof convData?.rating === "number" && (
+								{(convData?.rating ?? 0) > 0 && (
 									<div className="mt-1 flex items-center gap-0.5">
 										{Array.from({ length: 5 }).map((_, i) => (
 											<Star
