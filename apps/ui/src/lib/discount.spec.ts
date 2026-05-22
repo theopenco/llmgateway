@@ -70,6 +70,33 @@ describe("model-detail discounts", () => {
 		);
 	});
 
+	it("matches a discount keyed by the provider model name", () => {
+		// The admin UI stores discounts keyed by the provider-specific model name
+		// (e.g. "qwen3.7-max") rather than the root model id ("qwen37-max").
+		const modelNames = [alibaba.modelName];
+		const byModelName: DiscountData = {
+			...fiftyPercentOff,
+			model: "qwen3.7-max",
+		};
+
+		expect(
+			getEffectiveProviderDiscount(
+				[byModelName],
+				"alibaba",
+				"qwen37-max",
+				modelNames,
+			),
+		).toBe("0.5");
+		expect(getBestDiscount([byModelName], "qwen37-max", modelNames)).toEqual(
+			byModelName,
+		);
+
+		// Without the model-name list it would not be found (the original bug).
+		expect(
+			getEffectiveProviderDiscount([byModelName], "alibaba", "qwen37-max"),
+		).toBeUndefined();
+	});
+
 	it("returns base prices when no discount is active", () => {
 		const discount = getEffectiveProviderDiscount([], "alibaba", "qwen37-max");
 		expect(discount).toBeUndefined();

@@ -91,6 +91,9 @@ export default async function ModelPage({ params }: PageProps) {
 	};
 
 	const allDiscounts = await fetchModelDiscounts(decodedName);
+	const modelNames = Array.from(
+		new Set(modelDef.providers.map((p) => p.modelName)),
+	);
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(
@@ -100,6 +103,7 @@ export default async function ModelPage({ params }: PageProps) {
 			allDiscounts,
 			provider.providerId,
 			decodedName,
+			modelNames,
 		);
 		return {
 			...provider,
@@ -108,7 +112,11 @@ export default async function ModelPage({ params }: PageProps) {
 			discount: globalDiscount ?? provider.discount,
 		};
 	});
-	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);
+	const currentModelDiscount = getBestDiscount(
+		allDiscounts,
+		decodedName,
+		modelNames,
+	);
 
 	const adaptedModel = adaptModel(modelDef, modelProviders);
 
