@@ -357,7 +357,7 @@ export default function VideoPageClient({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [videoIdFromUrl]);
 
-	const restoredItemsRef = useRef<Set<string>>(new Set());
+	const lastRestoredIdRef = useRef<string | null>(null);
 
 	// Restore compare mode and selected models when loading a history item on page load.
 	// Uses a ref to run only once per item ID so history re-fetches don't clobber
@@ -366,14 +366,14 @@ export default function VideoPageClient({
 		if (!selectedItemId || activeItems.length > 0) {
 			return;
 		}
-		if (restoredItemsRef.current.has(selectedItemId)) {
+		if (lastRestoredIdRef.current === selectedItemId) {
 			return;
 		}
 		const item = galleryItems.find((i) => i.id === selectedItemId);
 		if (!item) {
 			return;
 		}
-		restoredItemsRef.current.add(selectedItemId);
+		lastRestoredIdRef.current = selectedItemId;
 		const isCompare = item.models.length > 1;
 		setComparisonMode(isCompare);
 		setSelectedModels(item.models.map((m) => m.modelId));
@@ -770,7 +770,7 @@ export default function VideoPageClient({
 			if (activeItems.length === 0) {
 				const item = galleryItems.find((i) => i.id === itemId);
 				if (item) {
-					restoredItemsRef.current.add(itemId);
+					lastRestoredIdRef.current = itemId;
 					const isCompare = item.models.length > 1;
 					setComparisonMode(isCompare);
 					setSelectedModels(item.models.map((m) => m.modelId));

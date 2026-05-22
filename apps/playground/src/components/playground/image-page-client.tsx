@@ -657,27 +657,25 @@ export default function ImagePageClient({
 
 	const handleItemClick = useCallback(
 		(itemId: string) => {
-			setSelectedItemId(itemId);
-			// Don't overwrite model/compare state while a generation is in progress —
-			// the gallery still shows activeItems and the next run should use the
-			// current header selection, not the clicked history item's models.
-			if (activeItems.length === 0) {
-				const item = galleryItems.find((i) => i.id === itemId);
-				if (item) {
-					restoredItemsRef.current.add(itemId);
-					const isCompare = item.models.length > 1;
-					setComparisonMode(isCompare);
-					setSelectedModels(item.models.map((m) => m.modelId));
-				}
-				const params = new URLSearchParams(window.location.search);
-				params.set("id", itemId);
-				if (item && item.models.length > 1) {
-					params.set("compare", "1");
-				} else {
-					params.delete("compare");
-				}
-				router.push(`${pathname}?${params.toString()}`, { scroll: false });
+			if (activeItems.length > 0) {
+				return;
 			}
+			setSelectedItemId(itemId);
+			const item = galleryItems.find((i) => i.id === itemId);
+			if (item) {
+				restoredItemsRef.current.add(itemId);
+				const isCompare = item.models.length > 1;
+				setComparisonMode(isCompare);
+				setSelectedModels(item.models.map((m) => m.modelId));
+			}
+			const params = new URLSearchParams(window.location.search);
+			params.set("id", itemId);
+			if (item && item.models.length > 1) {
+				params.set("compare", "1");
+			} else {
+				params.delete("compare");
+			}
+			router.push(`${pathname}?${params.toString()}`, { scroll: false });
 		},
 		[activeItems, galleryItems, pathname, router],
 	);
