@@ -3,9 +3,6 @@ import dynamic from "next/dynamic";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
 const Features = dynamic(() => import("@/components/landing/features"));
-const Testimonials = dynamic(() =>
-	import("@/components/landing/testimonials").then((mod) => mod.Testimonials),
-);
 const Graph = dynamic(() =>
 	import("@/components/landing/graph").then((mod) => mod.Graph),
 );
@@ -30,7 +27,6 @@ export default function Home() {
 			<Features />
 			<Graph />
 			<CodeExample />
-			<Testimonials />
 			<Faq />
 			<EnterpriseCTA />
 			<CallToAction />
