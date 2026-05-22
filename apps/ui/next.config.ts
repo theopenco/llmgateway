@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
 	typedRoutes: true,
 	reactStrictMode: true,
 	reactCompiler: true,
+	transpilePackages: ["shiki"],
 	webpack: (config, { isServer }) => {
 		if (isServer) {
 			config.devtool = "source-map";
