@@ -34,6 +34,7 @@ import { createServerApiClient } from "@/lib/server-api";
 import { ApiKeysTable } from "./api-keys-table";
 import { GiftCreditsDialog } from "./gift-credits-dialog";
 import { OrgCostByModel } from "./org-cost-by-model";
+import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { SendEmailDialog } from "./send-email-dialog";
@@ -283,6 +284,8 @@ export default async function OrganizationPage({
 			<OrgMetricsSection orgId={orgId} />
 
 			<OrgCostByModel orgId={orgId} />
+
+			<OrgCostByModelTimeseries orgId={orgId} />
 
 			{projects.length > 0 && (
 				<section className="space-y-4">

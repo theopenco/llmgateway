@@ -2,7 +2,7 @@
 
 import { Chat, useChat } from "@ai-sdk/react";
 import { createCodePlugin } from "@streamdown/code";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport } from "ai";
 import {
 	MessageCircle,
@@ -11,6 +11,10 @@ import {
 	RotateCcw,
 	UserRound,
 	Loader2,
+	ThumbsUp,
+	ThumbsDown,
+	Star,
+	CheckCircle2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
@@ -45,16 +49,39 @@ const ESCALATION_THRESHOLD = 3;
 
 const CLIENT_ID_KEY = "chat_support_client_id";
 
+interface ConversationMessage {
+	id: string;
+	role: "user" | "assistant" | "admin";
+	content: string;
+	sequence: number;
+	reaction: "like" | "dislike" | null;
+}
+
+interface ConversationData {
+	conversationId: string | null;
+	messages: ConversationMessage[];
+	resolvedAt: string | null;
+	rating: number | null;
+	escalatedAt: string | null;
+}
+
+interface MessageMeta {
+	sequence?: number;
+	admin?: boolean;
+}
+
+// Persisted in localStorage so a visitor's conversation survives reloads and
+// new sessions — that's what lets them keep seeing admin replies over time.
 function getOrCreateClientId(): string {
 	if (typeof window === "undefined") {
 		return "";
 	}
-	const existing = sessionStorage.getItem(CLIENT_ID_KEY);
+	const existing = localStorage.getItem(CLIENT_ID_KEY);
 	if (existing) {
 		return existing;
 	}
 	const id = crypto.randomUUID();
-	sessionStorage.setItem(CLIENT_ID_KEY, id);
+	localStorage.setItem(CLIENT_ID_KEY, id);
 	return id;
 }
 
@@ -67,6 +94,7 @@ function getTextFromParts(message: UIMessage): string {
 
 export function ChatSupport() {
 	const fetchClient = useFetchClient();
+	const queryClient = useQueryClient();
 	const { user } = useUser();
 	const [isOpen, setIsOpen] = useState(false);
 	const [hasUnread, setHasUnread] = useState(false);
@@ -75,6 +103,11 @@ export function ChatSupport() {
 	const [userEmail, setUserEmail] = useState("");
 	const [hasIdentified, setHasIdentified] = useState(false);
 	const [escalated, setEscalated] = useState(false);
+	const [showRating, setShowRating] = useState(false);
+	const [hoverRating, setHoverRating] = useState(0);
+	const [reactionOverrides, setReactionOverrides] = useState<
+		Record<number, "like" | "dislike">
+	>({});
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const prevMessageCountRef = useRef(0);
@@ -89,7 +122,27 @@ export function ChatSupport() {
 	const isLoggedIn = mounted && !!user;
 	const effectiveName = isLoggedIn ? (user?.name ?? "") : userName;
 	const effectiveEmail = isLoggedIn ? (user?.email ?? "") : userEmail;
-	const isIdentified = isLoggedIn || hasIdentified;
+
+	const conversationQueryKey = useMemo(
+		() => ["chat-support-conversation", clientId],
+		[clientId],
+	);
+
+	const { data: convData } = useQuery<ConversationData>({
+		queryKey: conversationQueryKey,
+		enabled: !!clientId && isOpen,
+		refetchInterval: isOpen ? 8000 : false,
+		queryFn: async () => {
+			const res = await fetchClient.GET(
+				"/public/chat-support/conversation" as never,
+				{ params: { query: { clientId } } } as never,
+			);
+			if (res.error) {
+				throw new Error("Failed to load conversation");
+			}
+			return res.data as unknown as ConversationData;
+		},
+	});
 
 	const chat = useMemo(
 		() =>
@@ -108,9 +161,63 @@ export function ChatSupport() {
 
 	const { messages, sendMessage, status, setMessages, error } = useChat({
 		chat,
+		onFinish: () => {
+			void queryClient.invalidateQueries({ queryKey: conversationQueryKey });
+		},
 	});
 
 	const isLoading = status === "streaming" || status === "submitted";
+
+	// Adopt the persisted server history when it has content the client doesn't
+	// yet show — initial restore on open and admin replies that arrive via poll.
+	useEffect(() => {
+		if (!convData || status !== "ready") {
+			return;
+		}
+		const serverMessages = convData.messages;
+		if (serverMessages.length === 0) {
+			return;
+		}
+		// Re-seed from the server when it holds messages the client isn't showing
+		// (admin replies arriving via poll) or when the local copy hasn't yet been
+		// reconciled to carry server sequence metadata — required for reactions.
+		const allSeeded = messages.every(
+			(m) => (m.metadata as MessageMeta | undefined)?.sequence !== undefined,
+		);
+		if (
+			serverMessages.length > messages.length ||
+			(serverMessages.length === messages.length && !allSeeded)
+		) {
+			setMessages(
+				serverMessages.map((m) => ({
+					id: `srv-${m.sequence}`,
+					role: m.role === "user" ? "user" : "assistant",
+					parts: [{ type: "text", text: m.content }],
+					metadata: { sequence: m.sequence, admin: m.role === "admin" },
+				})),
+			);
+		}
+	}, [convData, status, messages, setMessages]);
+
+	useEffect(() => {
+		if (convData?.escalatedAt) {
+			setEscalated(true);
+		}
+	}, [convData?.escalatedAt]);
+
+	const reactionBySequence = useMemo(() => {
+		const map: Record<number, "like" | "dislike"> = {};
+		for (const m of convData?.messages ?? []) {
+			if (m.role === "assistant" && m.reaction) {
+				map[m.sequence] = m.reaction;
+			}
+		}
+		return map;
+	}, [convData?.messages]);
+
+	const isResolved = !!convData?.resolvedAt;
+	const hasConversation = (convData?.messages.length ?? 0) > 0;
+	const isIdentified = isLoggedIn || hasIdentified || hasConversation;
 
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -162,6 +269,7 @@ export function ChatSupport() {
 
 	const userMessageCount = messages.filter((m) => m.role === "user").length;
 	const showEscalation = !escalated && userMessageCount >= ESCALATION_THRESHOLD;
+	const canResolve = !isResolved && userMessageCount >= 1;
 
 	const escalateMutation = useMutation({
 		mutationFn: async () => {
@@ -189,9 +297,72 @@ export function ChatSupport() {
 		},
 	});
 
+	const reactionMutation = useMutation({
+		mutationFn: async (vars: {
+			sequence: number;
+			reaction: "like" | "dislike" | null;
+		}) => {
+			const res = await fetchClient.POST(
+				"/public/chat-support/reaction" as never,
+				{ body: { clientId, ...vars } } as never,
+			);
+			if (res.error) {
+				throw new Error("Reaction failed");
+			}
+			return res.data;
+		},
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: conversationQueryKey });
+		},
+	});
+
+	const resolveMutation = useMutation({
+		mutationFn: async (rating: number) => {
+			const res = await fetchClient.POST(
+				"/public/chat-support/resolve" as never,
+				{ body: { clientId, rating } } as never,
+			);
+			if (res.error) {
+				throw new Error("Resolve failed");
+			}
+			return res.data;
+		},
+		onSuccess: () => {
+			setShowRating(false);
+			void queryClient.invalidateQueries({ queryKey: conversationQueryKey });
+		},
+	});
+
+	const handleReact = (sequence: number, reaction: "like" | "dislike") => {
+		const current = reactionOverrides[sequence] ?? reactionBySequence[sequence];
+		const next = current === reaction ? null : reaction;
+		setReactionOverrides((prev) => {
+			const updated: Record<number, "like" | "dislike"> = {};
+			for (const [key, value] of Object.entries(prev)) {
+				if (Number(key) !== sequence) {
+					updated[Number(key)] = value;
+				}
+			}
+			if (next) {
+				updated[sequence] = next;
+			}
+			return updated;
+		});
+		reactionMutation.mutate({ sequence, reaction: next });
+	};
+
 	const handleReset = () => {
 		setMessages([]);
 		setEscalated(false);
+		setShowRating(false);
+		setReactionOverrides({});
+		// Rotate the client id so the next message opens a brand-new conversation.
+		// The previous one stays persisted for the support team to review.
+		const newId = crypto.randomUUID();
+		if (typeof window !== "undefined") {
+			localStorage.setItem(CLIENT_ID_KEY, newId);
+		}
+		setClientId(newId);
 		if (!isLoggedIn) {
 			setHasIdentified(false);
 			setUserName("");
@@ -262,7 +433,8 @@ export function ChatSupport() {
 							type="button"
 							onClick={handleReset}
 							className="flex size-9 items-center justify-center rounded-md text-primary-foreground/80 transition-colors hover:bg-primary-foreground/10 hover:text-primary-foreground"
-							aria-label="Reset conversation"
+							aria-label="Start a new conversation"
+							title="Start a new conversation"
 							style={{ touchAction: "manipulation" }}
 						>
 							<RotateCcw className="size-4" />
@@ -327,12 +499,18 @@ export function ChatSupport() {
 										</div>
 									</div>
 								)}
-								{messages.map((message) => {
+								{messages.map((message, index) => {
 									const content = getTextFromParts(message);
 									if (!content) {
 										return null;
 									}
-									const isAssistant = message.role === "assistant";
+									const meta = (message.metadata ?? {}) as MessageMeta;
+									const isAdmin = meta.admin === true;
+									const isAssistant = message.role === "assistant" && !isAdmin;
+									const sequence = meta.sequence ?? index;
+									const isPersisted = meta.sequence !== undefined;
+									const reaction =
+										reactionOverrides[sequence] ?? reactionBySequence[sequence];
 									const isLastAssistant =
 										isAssistant &&
 										message.id === messages[messages.length - 1]?.id;
@@ -340,16 +518,23 @@ export function ChatSupport() {
 										<div
 											key={message.id}
 											className={cn(
-												"flex",
-												isAssistant ? "justify-start" : "justify-end",
+												"flex flex-col gap-1",
+												message.role === "user" ? "items-end" : "items-start",
 											)}
 										>
+											{isAdmin && (
+												<span className="px-1 text-[11px] font-medium text-blue-600 dark:text-blue-400">
+													Support team
+												</span>
+											)}
 											<div
 												className={cn(
 													"max-w-[85%] overflow-hidden rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words",
-													isAssistant
-														? "bg-muted text-foreground"
-														: "bg-primary text-primary-foreground",
+													isAdmin
+														? "bg-blue-600 text-white dark:bg-blue-700"
+														: isAssistant
+															? "bg-muted text-foreground"
+															: "bg-primary text-primary-foreground",
 												)}
 											>
 												{isAssistant ? (
@@ -366,6 +551,38 @@ export function ChatSupport() {
 													content
 												)}
 											</div>
+											{isAssistant && isPersisted && (
+												<div className="flex items-center gap-1 px-1">
+													<button
+														type="button"
+														onClick={() => handleReact(sequence, "like")}
+														aria-label="Helpful"
+														className={cn(
+															"flex size-6 items-center justify-center rounded-md transition-colors hover:bg-muted",
+															reaction === "like"
+																? "text-emerald-600 dark:text-emerald-400"
+																: "text-muted-foreground",
+														)}
+														style={{ touchAction: "manipulation" }}
+													>
+														<ThumbsUp className="size-3.5" />
+													</button>
+													<button
+														type="button"
+														onClick={() => handleReact(sequence, "dislike")}
+														aria-label="Not helpful"
+														className={cn(
+															"flex size-6 items-center justify-center rounded-md transition-colors hover:bg-muted",
+															reaction === "dislike"
+																? "text-rose-600 dark:text-rose-400"
+																: "text-muted-foreground",
+														)}
+														style={{ touchAction: "manipulation" }}
+													>
+														<ThumbsDown className="size-3.5" />
+													</button>
+												</div>
+											)}
 										</div>
 									);
 								})}
@@ -397,31 +614,108 @@ export function ChatSupport() {
 							</div>
 						</div>
 
-						{showEscalation && (
-							<div className="shrink-0 border-t border-border bg-muted/50 px-4 py-2.5">
-								<p className="mb-1.5 text-xs text-muted-foreground">
-									Still need help?
+						{isResolved ? (
+							<div className="shrink-0 border-t border-border bg-emerald-50 px-4 py-2.5 dark:bg-emerald-950/30">
+								<div className="flex items-center gap-1.5">
+									<CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+									<p className="text-xs text-emerald-700 dark:text-emerald-400">
+										Conversation resolved. Thanks for your feedback!
+									</p>
+								</div>
+								{(convData?.rating ?? 0) > 0 && (
+									<div className="mt-1 flex items-center gap-0.5">
+										{Array.from({ length: 5 }).map((_, i) => (
+											<Star
+												key={i}
+												className={cn(
+													"size-3.5",
+													i < (convData.rating ?? 0)
+														? "fill-amber-400 text-amber-400"
+														: "fill-none text-muted-foreground/40",
+												)}
+											/>
+										))}
+									</div>
+								)}
+							</div>
+						) : showRating ? (
+							<div className="shrink-0 border-t border-border bg-muted/50 px-4 py-3">
+								<p className="mb-2 text-xs text-muted-foreground">
+									How would you rate this conversation?
 								</p>
+								<div className="flex items-center gap-1">
+									{Array.from({ length: 5 }).map((_, i) => {
+										const value = i + 1;
+										return (
+											<button
+												key={value}
+												type="button"
+												onMouseEnter={() => setHoverRating(value)}
+												onMouseLeave={() => setHoverRating(0)}
+												onClick={() => resolveMutation.mutate(value)}
+												disabled={resolveMutation.isPending}
+												aria-label={`${value} star${value > 1 ? "s" : ""}`}
+												className="flex size-8 items-center justify-center"
+												style={{ touchAction: "manipulation" }}
+											>
+												<Star
+													className={cn(
+														"size-6 transition-colors",
+														value <= hoverRating
+															? "fill-amber-400 text-amber-400"
+															: "fill-none text-muted-foreground/50",
+													)}
+												/>
+											</button>
+										);
+									})}
+								</div>
 								<button
 									type="button"
-									onClick={() => escalateMutation.mutate()}
-									disabled={escalateMutation.isPending}
-									className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-									style={{ touchAction: "manipulation" }}
+									onClick={() => resolveMutation.mutate(0)}
+									disabled={resolveMutation.isPending}
+									className="mt-2 text-xs text-muted-foreground underline hover:text-foreground"
 								>
-									{escalateMutation.isPending ? (
-										<Loader2 className="size-3.5 animate-spin" />
-									) : (
-										<UserRound className="size-3.5" />
-									)}
-									Talk to a human
+									Resolve without rating
 								</button>
 							</div>
+						) : (
+							(showEscalation || canResolve) && (
+								<div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-muted/50 px-4 py-2.5">
+									{showEscalation && (
+										<button
+											type="button"
+											onClick={() => escalateMutation.mutate()}
+											disabled={escalateMutation.isPending}
+											className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+											style={{ touchAction: "manipulation" }}
+										>
+											{escalateMutation.isPending ? (
+												<Loader2 className="size-3.5 animate-spin" />
+											) : (
+												<UserRound className="size-3.5" />
+											)}
+											Talk to a human
+										</button>
+									)}
+									{canResolve && (
+										<button
+											type="button"
+											onClick={() => setShowRating(true)}
+											className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+											style={{ touchAction: "manipulation" }}
+										>
+											<CheckCircle2 className="size-3.5" />
+											Resolve
+										</button>
+									)}
+								</div>
+							)
 						)}
-						{escalated && (
+						{escalated && !isResolved && (
 							<div className="shrink-0 border-t border-border bg-green-50 px-4 py-2.5 dark:bg-green-950/30">
 								<p className="text-xs text-green-700 dark:text-green-400">
-									We&apos;ve notified our team. We&apos;ll get back to you via
+									We&apos;ve notified our team. We&apos;ll reply here and via
 									email shortly.
 								</p>
 							</div>

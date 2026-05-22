@@ -6314,6 +6314,359 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	});
 });
 
+// --- Cost by model time-series endpoints ---
+
+const costByModelTimeseriesBucketSchema = z.object({
+	model: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	totalTokens: z.number(),
+});
+
+const costByModelTimeseriesPointSchema = z.object({
+	timestamp: z.string(),
+	entries: z.array(costByModelTimeseriesBucketSchema),
+});
+
+const costByModelTimeseriesResponseSchema = z.object({
+	window: tokenWindowSchema,
+	bucket: z.enum(["hour", "day"]),
+	models: z.array(z.string()),
+	data: z.array(costByModelTimeseriesPointSchema),
+});
+
+function getBucketUnitForWindow(window: string): "hour" | "day" {
+	if (
+		window === "1h" ||
+		window === "4h" ||
+		window === "12h" ||
+		window === "1d"
+	) {
+		return "hour";
+	}
+	return "day";
+}
+
+function formatBucketTimestamp(date: Date): string {
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}Z`;
+}
+
+function truncateToBucket(date: Date, unit: "hour" | "day"): Date {
+	const truncated = new Date(date);
+	truncated.setUTCMilliseconds(0);
+	truncated.setUTCSeconds(0);
+	truncated.setUTCMinutes(0);
+	if (unit === "day") {
+		truncated.setUTCHours(0);
+	}
+	return truncated;
+}
+
+function generateBucketTimestamps(
+	start: Date,
+	end: Date,
+	unit: "hour" | "day",
+): string[] {
+	const buckets: string[] = [];
+	const stepMs = unit === "hour" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+	const startBucket = truncateToBucket(start, unit);
+	const endBucket = truncateToBucket(end, unit);
+	for (let t = startBucket.getTime(); t <= endBucket.getTime(); t += stepMs) {
+		buckets.push(formatBucketTimestamp(new Date(t)));
+	}
+	return buckets;
+}
+
+const getOrgCostByModelTimeseries = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/cost-by-model-timeseries",
+	request: {
+		params: z.object({ orgId: z.string() }),
+		query: z.object({
+			window: tokenWindowSchema.default("7d").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: costByModelTimeseriesResponseSchema.openapi({}),
+				},
+			},
+			description: "Organization cost breakdown by model over time.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(getOrgCostByModelTimeseries, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "7d";
+	const startDate = getTokenWindowStartDate(window);
+	const bucketUnit = getBucketUnitForWindow(window);
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const projectIds = await db
+		.select({ id: tables.project.id })
+		.from(tables.project)
+		.where(eq(tables.project.organizationId, orgId));
+
+	const ids = projectIds.map((p) => p.id);
+
+	if (ids.length === 0) {
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			models: [],
+			data: [],
+		});
+	}
+
+	const topModelsRows = await db
+		.select({
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				inArray(projectHourlyModelStats.projectId, ids),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+			),
+		)
+		.groupBy(projectHourlyModelStats.usedModel)
+		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.limit(10);
+
+	const topModels = topModelsRows.map((r) => r.usedModel);
+
+	if (topModels.length === 0) {
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			models: [],
+			data: [],
+		});
+	}
+
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			requestCount:
+				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				inArray(projectHourlyModelStats.projectId, ids),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+				inArray(projectHourlyModelStats.usedModel, topModels),
+			),
+		)
+		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
+		.orderBy(asc(bucketExpr));
+
+	const bucketMap = new Map<
+		string,
+		Map<string, { cost: number; requestCount: number; totalTokens: number }>
+	>();
+
+	for (const row of rows) {
+		const ts = row.bucket;
+		const entry = bucketMap.get(ts) ?? new Map();
+		entry.set(row.usedModel, {
+			cost: Number(row.cost),
+			requestCount: Number(row.requestCount),
+			totalTokens: Number(row.totalTokens),
+		});
+		bucketMap.set(ts, entry);
+	}
+
+	const allBuckets = generateBucketTimestamps(
+		startDate,
+		new Date(),
+		bucketUnit,
+	);
+
+	const data = allBuckets.map((timestamp) => ({
+		timestamp,
+		entries: Array.from(bucketMap.get(timestamp)?.entries() ?? []).map(
+			([model, v]) => ({
+				model,
+				cost: v.cost,
+				requestCount: v.requestCount,
+				totalTokens: v.totalTokens,
+			}),
+		),
+	}));
+
+	return c.json({
+		window,
+		bucket: bucketUnit,
+		models: topModels,
+		data,
+	});
+});
+
+const getProjectCostByModelTimeseries = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/projects/{projectId}/cost-by-model-timeseries",
+	request: {
+		params: z.object({ orgId: z.string(), projectId: z.string() }),
+		query: z.object({
+			window: tokenWindowSchema.default("7d").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: costByModelTimeseriesResponseSchema.openapi({}),
+				},
+			},
+			description: "Project cost breakdown by model over time.",
+		},
+		404: {
+			description: "Project not found.",
+		},
+	},
+});
+
+admin.openapi(getProjectCostByModelTimeseries, async (c) => {
+	const { orgId, projectId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "7d";
+	const startDate = getTokenWindowStartDate(window);
+	const bucketUnit = getBucketUnitForWindow(window);
+
+	const project = await db.query.project.findFirst({
+		where: {
+			id: { eq: projectId },
+			organizationId: { eq: orgId },
+		},
+	});
+
+	if (!project) {
+		throw new HTTPException(404, { message: "Project not found" });
+	}
+
+	const topModelsRows = await db
+		.select({
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				eq(projectHourlyModelStats.projectId, projectId),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+			),
+		)
+		.groupBy(projectHourlyModelStats.usedModel)
+		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.limit(10);
+
+	const topModels = topModelsRows.map((r) => r.usedModel);
+
+	if (topModels.length === 0) {
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			models: [],
+			data: [],
+		});
+	}
+
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			requestCount:
+				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				eq(projectHourlyModelStats.projectId, projectId),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+				inArray(projectHourlyModelStats.usedModel, topModels),
+			),
+		)
+		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
+		.orderBy(asc(bucketExpr));
+
+	const bucketMap = new Map<
+		string,
+		Map<string, { cost: number; requestCount: number; totalTokens: number }>
+	>();
+
+	for (const row of rows) {
+		const ts = row.bucket;
+		const entry = bucketMap.get(ts) ?? new Map();
+		entry.set(row.usedModel, {
+			cost: Number(row.cost),
+			requestCount: Number(row.requestCount),
+			totalTokens: Number(row.totalTokens),
+		});
+		bucketMap.set(ts, entry);
+	}
+
+	const allBuckets = generateBucketTimestamps(
+		startDate,
+		new Date(),
+		bucketUnit,
+	);
+
+	const data = allBuckets.map((timestamp) => ({
+		timestamp,
+		entries: Array.from(bucketMap.get(timestamp)?.entries() ?? []).map(
+			([model, v]) => ({
+				model,
+				cost: v.cost,
+				requestCount: v.requestCount,
+				totalTokens: v.totalTokens,
+			}),
+		),
+	}));
+
+	return c.json({
+		window,
+		bucket: bucketUnit,
+		models: topModels,
+		data,
+	});
+});
+
 // --- Project Model-Provider Stats ---
 
 const projectModelProviderStatsEntrySchema = z.object({
@@ -7149,6 +7502,8 @@ const chatSupportConversationSchema = z.object({
 	messageCount: z.number(),
 	escalatedAt: z.string().nullable(),
 	archivedAt: z.string().nullable(),
+	resolvedAt: z.string().nullable(),
+	rating: z.number().int().min(0).max(5).nullable(),
 	firstMessage: z.string().nullable(),
 });
 
@@ -7163,6 +7518,7 @@ const chatSupportMessageSchema = z.object({
 	role: z.string(),
 	content: z.string(),
 	sequence: z.number(),
+	reaction: z.enum(["like", "dislike"]).nullable(),
 });
 
 const chatSupportConversationDetailSchema = z.object({
@@ -7176,7 +7532,18 @@ const chatSupportConversationDetailSchema = z.object({
 	messageCount: z.number(),
 	escalatedAt: z.string().nullable(),
 	archivedAt: z.string().nullable(),
+	resolvedAt: z.string().nullable(),
+	rating: z.number().int().min(0).max(5).nullable(),
 	messages: z.array(chatSupportMessageSchema),
+});
+
+const chatSupportStatsSchema = z.object({
+	totalRatings: z.number(),
+	averageRating: z.number().nullable(),
+	ratingDistribution: z.record(z.string(), z.number()),
+	resolvedCount: z.number(),
+	likes: z.number(),
+	dislikes: z.number(),
 });
 
 const getChatSupportConversations = createRoute({
@@ -7231,12 +7598,12 @@ admin.openapi(getChatSupportConversations, async (c) => {
 	const where = and(...conditions);
 
 	const firstMessageSubquery = db
-		.select({
+		.selectDistinctOn([mt.conversationId], {
 			conversationId: mt.conversationId,
 			content: mt.content,
 		})
 		.from(mt)
-		.where(and(eq(mt.role, "user"), eq(mt.sequence, 0)))
+		.orderBy(mt.conversationId, asc(mt.sequence))
 		.as("first_msg");
 
 	const [conversations, countResult] = await Promise.all([
@@ -7252,6 +7619,8 @@ admin.openapi(getChatSupportConversations, async (c) => {
 				messageCount: t.messageCount,
 				escalatedAt: t.escalatedAt,
 				archivedAt: t.archivedAt,
+				resolvedAt: t.resolvedAt,
+				rating: t.rating,
 				firstMessage: firstMessageSubquery.content,
 			})
 			.from(t)
@@ -7276,9 +7645,82 @@ admin.openapi(getChatSupportConversations, async (c) => {
 			updatedAt: conv.updatedAt.toISOString(),
 			escalatedAt: conv.escalatedAt?.toISOString() ?? null,
 			archivedAt: conv.archivedAt?.toISOString() ?? null,
+			resolvedAt: conv.resolvedAt?.toISOString() ?? null,
+			rating: conv.rating ?? null,
 			firstMessage: conv.firstMessage ?? null,
 		})),
 		total: Number(countResult[0]?.count ?? 0),
+	});
+});
+
+const getChatSupportStats = createRoute({
+	method: "get",
+	path: "/chat-support-logs/stats",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: chatSupportStatsSchema.openapi({}),
+				},
+			},
+			description: "Aggregate ratings and feedback across all conversations.",
+		},
+	},
+});
+
+admin.openapi(getChatSupportStats, async (c) => {
+	const t = tables.chatSupportConversation;
+	const mt = tables.chatSupportMessage;
+
+	const [ratingRows, reactionRows] = await Promise.all([
+		db
+			.select({ rating: t.rating, count: sql<number>`COUNT(*)`.as("count") })
+			.from(t)
+			.where(isNotNull(t.rating))
+			.groupBy(t.rating),
+		db
+			.select({
+				reaction: mt.reaction,
+				count: sql<number>`COUNT(*)`.as("count"),
+			})
+			.from(mt)
+			.where(isNotNull(mt.reaction))
+			.groupBy(mt.reaction),
+	]);
+
+	const ratingDistribution: Record<string, number> = {};
+	let totalRatings = 0;
+	let ratingSum = 0;
+	for (const row of ratingRows) {
+		const rating = row.rating ?? 0;
+		const count = Number(row.count);
+		ratingDistribution[String(rating)] = count;
+		totalRatings += count;
+		ratingSum += rating * count;
+	}
+
+	let likes = 0;
+	let dislikes = 0;
+	for (const row of reactionRows) {
+		if (row.reaction === "like") {
+			likes = Number(row.count);
+		} else if (row.reaction === "dislike") {
+			dislikes = Number(row.count);
+		}
+	}
+
+	const [resolvedResult] = await db
+		.select({ count: sql<number>`COUNT(*)`.as("count") })
+		.from(t)
+		.where(isNotNull(t.resolvedAt));
+
+	return c.json({
+		totalRatings,
+		averageRating: totalRatings > 0 ? ratingSum / totalRatings : null,
+		ratingDistribution,
+		resolvedCount: Number(resolvedResult?.count ?? 0),
+		likes,
+		dislikes,
 	});
 });
 
@@ -7363,6 +7805,8 @@ admin.openapi(getChatSupportConversation, async (c) => {
 			messageCount: t.messageCount,
 			escalatedAt: t.escalatedAt,
 			archivedAt: t.archivedAt,
+			resolvedAt: t.resolvedAt,
+			rating: t.rating,
 		})
 		.from(t)
 		.where(eq(t.id, id))
@@ -7380,6 +7824,7 @@ admin.openapi(getChatSupportConversation, async (c) => {
 			role: mt.role,
 			content: mt.content,
 			sequence: mt.sequence,
+			reaction: mt.reaction,
 		})
 		.from(mt)
 		.where(eq(mt.conversationId, id))
@@ -7391,6 +7836,8 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		updatedAt: conversation.updatedAt.toISOString(),
 		escalatedAt: conversation.escalatedAt?.toISOString() ?? null,
 		archivedAt: conversation.archivedAt?.toISOString() ?? null,
+		resolvedAt: conversation.resolvedAt?.toISOString() ?? null,
+		rating: conversation.rating ?? null,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),
