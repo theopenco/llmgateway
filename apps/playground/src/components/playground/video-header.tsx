@@ -96,20 +96,22 @@ export function VideoHeader({
 					</div>
 				)}
 			</div>
-			{!hideCompare && (
+			{(!hideCompare || comparisonMode) && (
 				<div className="ml-3 flex items-center gap-3">
 					<div className="hidden items-center gap-2 md:flex">
 						<Label
 							htmlFor="comparison-mode-vid"
 							className="text-muted-foreground text-xs"
 						>
-							Compare
+							Comparison Mode
 						</Label>
-						<Switch
-							id="comparison-mode-vid"
-							checked={comparisonMode}
-							onCheckedChange={onComparisonModeChange}
-						/>
+						{!hideCompare && (
+							<Switch
+								id="comparison-mode-vid"
+								checked={comparisonMode}
+								onCheckedChange={onComparisonModeChange}
+							/>
+						)}
 					</div>
 				</div>
 			)}

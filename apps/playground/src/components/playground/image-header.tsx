@@ -88,20 +88,22 @@ export function ImageHeader({
 					</div>
 				)}
 			</div>
-			{!hideCompare && (
+			{(!hideCompare || comparisonMode) && (
 				<div className="ml-3 flex items-center gap-3">
 					<div className="hidden items-center gap-2 md:flex">
 						<Label
 							htmlFor="comparison-mode-img"
 							className="text-muted-foreground text-xs"
 						>
-							Compare
+							Comparison Mode
 						</Label>
-						<Switch
-							id="comparison-mode-img"
-							checked={comparisonMode}
-							onCheckedChange={onComparisonModeChange}
-						/>
+						{!hideCompare && (
+							<Switch
+								id="comparison-mode-img"
+								checked={comparisonMode}
+								onCheckedChange={onComparisonModeChange}
+							/>
+						)}
 					</div>
 				</div>
 			)}

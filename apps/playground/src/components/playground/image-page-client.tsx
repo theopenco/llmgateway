@@ -336,6 +336,20 @@ export default function ImagePageClient({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [imageIdFromUrl]);
 
+	// Restore compare mode and selected models when loading a history item on page load
+	useEffect(() => {
+		if (!selectedItemId || activeItems.length > 0) {
+			return;
+		}
+		const item = galleryItems.find((i) => i.id === selectedItemId);
+		if (!item) {
+			return;
+		}
+		const isCompare = item.models.length > 1;
+		setComparisonMode(isCompare);
+		setSelectedModels(item.models.map((m) => m.modelId));
+	}, [selectedItemId, galleryItems]);
+
 	// Reset image size/quality when the selected model changes and the current
 	// value isn't valid for the new model. Including the value itself in deps
 	// would clobber the user's explicit selection on every re-render.
@@ -636,11 +650,22 @@ export default function ImagePageClient({
 	const handleItemClick = useCallback(
 		(itemId: string) => {
 			setSelectedItemId(itemId);
+			const item = galleryItems.find((i) => i.id === itemId);
+			if (item) {
+				const isCompare = item.models.length > 1;
+				setComparisonMode(isCompare);
+				setSelectedModels(item.models.map((m) => m.modelId));
+			}
 			const params = new URLSearchParams(window.location.search);
 			params.set("id", itemId);
+			if (item && item.models.length > 1) {
+				params.set("compare", "1");
+			} else {
+				params.delete("compare");
+			}
 			router.push(`${pathname}?${params.toString()}`, { scroll: false });
 		},
-		[pathname, router],
+		[galleryItems, pathname, router],
 	);
 
 	const handleUseAsReference = useCallback(
