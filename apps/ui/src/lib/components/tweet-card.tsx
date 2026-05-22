@@ -5,7 +5,7 @@ import {
 	type TweetProps,
 	type TwitterComponents,
 } from "react-tweet";
-import { fetchTweet, type Tweet } from "react-tweet/api";
+import { fetchTweet } from "react-tweet/api";
 
 import { cn } from "@/lib/utils";
 
@@ -239,11 +239,10 @@ export const MagicTweet = ({
 	className,
 	...props
 }: {
-	tweet: Tweet;
+	tweet: EnrichedTweet;
 	components?: TwitterComponents;
 	className?: string;
 }) => {
-	const enrichedTweet = enrichTweet(tweet);
 	return (
 		<div
 			className={cn(
@@ -252,8 +251,8 @@ export const MagicTweet = ({
 			)}
 			{...props}
 		>
-			<TweetHeader tweet={enrichedTweet} />
-			<TweetBody tweet={enrichedTweet} />
+			<TweetHeader tweet={tweet} />
+			<TweetBody tweet={tweet} />
 		</div>
 	);
 };
@@ -270,7 +269,7 @@ export const TweetCard = async ({
 }: TweetProps & {
 	className?: string;
 }) => {
-	let tweet: Tweet | undefined;
+	let enrichedTweet: EnrichedTweet | undefined;
 
 	if (!id) {
 		const NotFound = components?.TweetNotFound ?? TweetNotFound;
@@ -280,9 +279,14 @@ export const TweetCard = async ({
 	try {
 		const result = await fetchTweet(id);
 		if (result.tombstone || result.notFound || !result.data?.user) {
-			tweet = undefined;
+			enrichedTweet = undefined;
 		} else {
-			tweet = result.data;
+			// Enrich here, inside the guard: the Twitter syndication API
+			// occasionally returns a tweet whose entity shape react-tweet can't
+			// process, and enrichTweet throws ("c is not iterable"). Keeping it
+			// inside the try degrades a bad payload to TweetNotFound instead of
+			// crashing the server render of whatever page embeds the tweet.
+			enrichedTweet = enrichTweet(result.data);
 		}
 	} catch (err) {
 		if (onError) {
@@ -290,17 +294,17 @@ export const TweetCard = async ({
 		} else {
 			console.error("Failed to fetch tweet:", err);
 		}
-		tweet = undefined;
+		enrichedTweet = undefined;
 	}
 
-	if (!tweet) {
+	if (!enrichedTweet) {
 		const NotFound = components?.TweetNotFound ?? TweetNotFound;
 		return <NotFound {...props} />;
 	}
 
 	return (
 		<Suspense fallback={fallback}>
-			<MagicTweet tweet={tweet} {...props} />
+			<MagicTweet tweet={enrichedTweet} {...props} />
 		</Suspense>
 	);
 };
