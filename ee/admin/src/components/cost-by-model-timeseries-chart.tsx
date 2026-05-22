@@ -202,6 +202,7 @@ export function CostByModelTimeseriesChart({
 									}}
 								/>
 								<ChartTooltip
+									itemSorter={(item) => -Number(item.value ?? 0)}
 									content={
 										<ChartTooltipContent
 											labelFormatter={(value: string) =>
