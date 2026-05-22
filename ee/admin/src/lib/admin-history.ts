@@ -135,3 +135,18 @@ export async function getOrgCostByModelTimeseries(
 	);
 	return data ?? null;
 }
+
+export async function getProjectCostByModelTimeseries(
+	orgId: string,
+	projectId: string,
+	window: TokenWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/organizations/{orgId}/projects/{projectId}/cost-by-model-timeseries",
+		{
+			params: { path: { orgId, projectId }, query: { window } },
+		},
+	);
+	return data ?? null;
+}
