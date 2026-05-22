@@ -44,6 +44,12 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		userAgentPatterns: [/\bcline\b/i],
 	},
 	{
+		id: "kilo-code",
+		label: "Kilo Code",
+		xSourceValues: ["kilo-code", "kilo"],
+		userAgentPatterns: [/\bkilo[-_]?code\b/i, /^kilo\//i],
+	},
+	{
 		id: "cursor",
 		label: "Cursor",
 		xSourceValues: ["cursor"],

@@ -2230,7 +2230,7 @@ chat.openapi(completions, async (c) => {
 	const isDevPlanRestricted = Boolean(
 		organization?.isPersonal &&
 			organization.devPlan !== "none" &&
-			!organization.devPlanAllowAllModels,
+			process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
 	);
 	if (isDevPlanRestricted) {
 		if (!isRecognizedCodingAgent(source)) {
