@@ -202,32 +202,41 @@ export function CostByModelTimeseriesChart({
 									}}
 								/>
 								<ChartTooltip
-									itemSorter={(item) => -Number(item.value ?? 0)}
-									content={
-										<ChartTooltipContent
-											labelFormatter={(value: string) =>
-												format(
-													new Date(value),
-													bucket === "hour" ? "MMM d, HH:mm" : "MMM d, yyyy",
-												)
-											}
-											formatter={(value, name) => {
-												const label =
-													keyToModel.get(name as string) ?? String(name);
-												let formatted: string;
-												if (activeMetric === "cost") {
-													formatted = currencyFormatter.format(Number(value));
-												} else {
-													formatted = Number(value).toLocaleString();
+									content={(props) => {
+										const sortedPayload = [...(props.payload ?? [])]
+											.filter((item) => Number(item.value ?? 0) > 0)
+											.sort(
+												(a, b) => Number(b.value ?? 0) - Number(a.value ?? 0),
+											);
+										return (
+											<ChartTooltipContent
+												active={props.active}
+												label={props.label}
+												payload={sortedPayload}
+												labelFormatter={(value: string) =>
+													format(
+														new Date(value),
+														bucket === "hour" ? "MMM d, HH:mm" : "MMM d, yyyy",
+													)
 												}
-												return (
-													<span>
-														{label}: <strong>{formatted}</strong>
-													</span>
-												);
-											}}
-										/>
-									}
+												formatter={(value, name) => {
+													const label =
+														keyToModel.get(name as string) ?? String(name);
+													let formatted: string;
+													if (activeMetric === "cost") {
+														formatted = currencyFormatter.format(Number(value));
+													} else {
+														formatted = Number(value).toLocaleString();
+													}
+													return (
+														<span>
+															{label}: <strong>{formatted}</strong>
+														</span>
+													);
+												}}
+											/>
+										);
+									}}
 								/>
 								{data.models.map((model) => {
 									const key = sanitizeKey(model);
