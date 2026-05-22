@@ -18,11 +18,13 @@ const contextSizeTest = process.env.CONTEXT_SIZE_TEST === "true";
 
 const describeContextSize = contextSizeTest ? describe : describe.skip;
 
-// Approximate characters per token for synthetic English filler text.
-// Real tokenization varies by tokenizer; 4 chars/token is a conservative
-// average across the providers we test so the request stays under the
-// advertised context window after expansion.
-const CHARS_PER_TOKEN = 4;
+// Approximate characters per token for the natural-English filler below.
+// Empirically the Anthropic tokenizer hits ~2 chars/token on dense content
+// (alphabet/digit listings) and ~4 chars/token on plain prose. Using a
+// conservative 3 keeps the resulting prompt under the advertised window
+// across the providers we test even when their tokenizer is denser than
+// the OpenAI/Anthropic BPE average.
+const CHARS_PER_TOKEN = 3;
 
 // Fraction of the advertised context window to fill with input.
 const CONTEXT_FILL_RATIO = 0.7;
@@ -48,7 +50,7 @@ function buildFillerContent(targetTokens: number): string {
 	const targetChars = targetTokens * CHARS_PER_TOKEN;
 	// Use a varied sentence so providers don't trivially compress repeated tokens.
 	const sentence =
-		"The quick brown fox jumps over the lazy dog while reciting the alphabet ABCDEFGHIJKLMNOPQRSTUVWXYZ and counting 0123456789. ";
+		"The quick brown fox jumps over the lazy dog near the riverbank, while curious sparrows watched from the old oak tree branches above. ";
 	const repeats = Math.ceil(targetChars / sentence.length);
 	return sentence.repeat(repeats).slice(0, targetChars);
 }
@@ -96,10 +98,10 @@ describeContextSize("e2e context size", () => {
 			});
 
 			const json = await res.json();
-			if (logMode) {
+			if (logMode || res.status !== 200) {
 				console.log(
-					"context-size response:",
-					JSON.stringify({ ...json, choices: json?.choices }, null, 2),
+					`context-size response (status ${res.status}):`,
+					JSON.stringify(json, null, 2),
 				);
 			}
 
