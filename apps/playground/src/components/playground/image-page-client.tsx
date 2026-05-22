@@ -336,15 +336,23 @@ export default function ImagePageClient({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [imageIdFromUrl]);
 
-	// Restore compare mode and selected models when loading a history item on page load
+	const restoredItemsRef = useRef<Set<string>>(new Set());
+
+	// Restore compare mode and selected models when loading a history item on page load.
+	// Uses a ref to run only once per item ID so history re-fetches don't clobber
+	// manual model changes the user makes while viewing a history item.
 	useEffect(() => {
 		if (!selectedItemId || activeItems.length > 0) {
+			return;
+		}
+		if (restoredItemsRef.current.has(selectedItemId)) {
 			return;
 		}
 		const item = galleryItems.find((i) => i.id === selectedItemId);
 		if (!item) {
 			return;
 		}
+		restoredItemsRef.current.add(selectedItemId);
 		const isCompare = item.models.length > 1;
 		setComparisonMode(isCompare);
 		setSelectedModels(item.models.map((m) => m.modelId));
@@ -650,22 +658,28 @@ export default function ImagePageClient({
 	const handleItemClick = useCallback(
 		(itemId: string) => {
 			setSelectedItemId(itemId);
-			const item = galleryItems.find((i) => i.id === itemId);
-			if (item) {
-				const isCompare = item.models.length > 1;
-				setComparisonMode(isCompare);
-				setSelectedModels(item.models.map((m) => m.modelId));
+			// Don't overwrite model/compare state while a generation is in progress —
+			// the gallery still shows activeItems and the next run should use the
+			// current header selection, not the clicked history item's models.
+			if (activeItems.length === 0) {
+				const item = galleryItems.find((i) => i.id === itemId);
+				if (item) {
+					restoredItemsRef.current.add(itemId);
+					const isCompare = item.models.length > 1;
+					setComparisonMode(isCompare);
+					setSelectedModels(item.models.map((m) => m.modelId));
+				}
+				const params = new URLSearchParams(window.location.search);
+				params.set("id", itemId);
+				if (item && item.models.length > 1) {
+					params.set("compare", "1");
+				} else {
+					params.delete("compare");
+				}
+				router.push(`${pathname}?${params.toString()}`, { scroll: false });
 			}
-			const params = new URLSearchParams(window.location.search);
-			params.set("id", itemId);
-			if (item && item.models.length > 1) {
-				params.set("compare", "1");
-			} else {
-				params.delete("compare");
-			}
-			router.push(`${pathname}?${params.toString()}`, { scroll: false });
 		},
-		[galleryItems, pathname, router],
+		[activeItems, galleryItems, pathname, router],
 	);
 
 	const handleUseAsReference = useCallback(
