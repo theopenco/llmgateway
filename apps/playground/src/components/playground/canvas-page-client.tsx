@@ -18,6 +18,7 @@ import {
 	memo,
 	type RefObject,
 	useCallback,
+	useEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -59,10 +60,17 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUser } from "@/hooks/useUser";
 import { registry } from "@/lib/canvas/registry";
 import { emptySpec, templates } from "@/lib/canvas/templates";
+import {
+	CANVAS_MODEL_COOKIE,
+	getModelPreferenceCookie,
+	setModelPreferenceCookie,
+} from "@/lib/model-preferences";
+import { getErrorMessage } from "@/lib/utils";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Organization, Project } from "@/lib/types";
@@ -75,6 +83,7 @@ interface CanvasPageClientProps {
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
+	initialModelPreference?: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -93,6 +102,87 @@ function isRenderableSpec(value: unknown): value is Spec {
 		isRecord(elements) &&
 		Object.keys(elements).length > 0
 	);
+}
+
+const DEFAULT_CANVAS_MODEL = "anthropic/claude-sonnet-4-20250514";
+
+function CanvasSpecSkeleton() {
+	return (
+		<div className="flex h-full min-h-[280px] flex-col gap-3 p-4">
+			<Skeleton className="h-3 w-20 rounded-sm" />
+			<div className="space-y-2 pl-4">
+				<Skeleton className="h-3 w-32 rounded-sm" />
+				<Skeleton className="h-3 w-48 rounded-sm" />
+				<Skeleton className="h-3 w-28 rounded-sm" />
+			</div>
+			<Skeleton className="h-3 w-24 rounded-sm" />
+			<div className="space-y-2 pl-4">
+				<Skeleton className="h-3 w-56 rounded-sm" />
+				<Skeleton className="h-3 w-44 rounded-sm" />
+				<Skeleton className="h-3 w-64 rounded-sm" />
+				<Skeleton className="h-3 w-36 rounded-sm" />
+			</div>
+			<Skeleton className="h-3 w-28 rounded-sm" />
+			<div className="space-y-2 pl-4">
+				<Skeleton className="h-3 w-48 rounded-sm" />
+				<Skeleton className="h-3 w-72 rounded-sm" />
+				<Skeleton className="h-3 w-52 rounded-sm" />
+				<Skeleton className="h-3 w-60 rounded-sm" />
+			</div>
+			<Skeleton className="h-3 w-24 rounded-sm" />
+			<div className="space-y-2 pl-8">
+				<Skeleton className="h-3 w-44 rounded-sm" />
+				<Skeleton className="h-3 w-56 rounded-sm" />
+				<Skeleton className="h-3 w-36 rounded-sm" />
+			</div>
+			<Skeleton className="h-3 w-16 rounded-sm" />
+			<div className="space-y-2 pl-4">
+				<Skeleton className="h-3 w-64 rounded-sm" />
+				<Skeleton className="h-3 w-40 rounded-sm" />
+				<Skeleton className="h-3 w-72 rounded-sm" />
+			</div>
+			<Skeleton className="h-3 w-12 rounded-sm" />
+		</div>
+	);
+}
+
+function CanvasPreviewSkeleton() {
+	return (
+		<div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+			<Skeleton className="h-10 w-2/5" />
+			<Skeleton className="h-4 w-3/5" />
+			<div className="grid gap-4 sm:grid-cols-3">
+				<Skeleton className="h-28" />
+				<Skeleton className="h-28" />
+				<Skeleton className="h-28" />
+			</div>
+			<Skeleton className="h-52 w-full" />
+			<div className="grid gap-4 sm:grid-cols-2">
+				<Skeleton className="h-32" />
+				<Skeleton className="h-32" />
+			</div>
+		</div>
+	);
+}
+
+async function getResponseErrorMessage(response: Response): Promise<string> {
+	const fallback = `HTTP ${response.status}: ${response.statusText}`;
+	const text = await response.text().catch(() => "");
+
+	if (!text.trim()) {
+		return fallback;
+	}
+
+	try {
+		const payload: unknown = JSON.parse(text);
+		const message = getErrorMessage(payload);
+
+		return message === "An unknown error occurred" ? fallback : message;
+	} catch {
+		const message = getErrorMessage(text);
+
+		return message === "An unknown error occurred" ? fallback : message;
+	}
 }
 
 interface CanvasPromptInputProps {
@@ -151,10 +241,17 @@ export default function CanvasPageClient({
 	models,
 	providers,
 	selectedOrganization,
+	selectedProject,
+	initialModelPreference,
 }: CanvasPageClientProps) {
-	const [selectedModel, setSelectedModel] = useState<string>(
-		"anthropic/claude-sonnet-4-20250514",
-	);
+	const [selectedModel, setSelectedModel] = useState<string>(() => {
+		const stored =
+			getModelPreferenceCookie(CANVAS_MODEL_COOKIE) ?? initialModelPreference;
+		if (stored) {
+			return stored;
+		}
+		return DEFAULT_CANVAS_MODEL;
+	});
 
 	const [spec, setSpec] = useState<Spec>(emptySpec);
 	const [editorValue, setEditorValue] = useState(
@@ -166,6 +263,7 @@ export default function CanvasPageClient({
 	const [promptResetKey, setPromptResetKey] = useState(0);
 	const promptRef = useRef<HTMLTextAreaElement>(null);
 	const [isGenerating, setIsGenerating] = useState(false);
+	const [hasStreamingSpec, setHasStreamingSpec] = useState(false);
 	const [showEditor, setShowEditor] = useState(true);
 	const [previewExpanded, _setPreviewExpanded] = useState(false);
 	const [exporting, setExporting] = useState<"pdf" | "image" | null>(null);
@@ -176,7 +274,45 @@ export default function CanvasPageClient({
 
 	const { user, isLoading: isUserLoading } = useUser();
 	const pathname = usePathname();
-	const showAuthDialog = !isUserLoading && !user;
+	const isAuthenticated = !isUserLoading && !!user;
+	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
+	const ensuredProjectRef = useRef<string | null>(null);
+
+	useEffect(() => {
+		if (selectedModel) {
+			setModelPreferenceCookie(CANVAS_MODEL_COOKIE, selectedModel);
+		}
+	}, [selectedModel]);
+
+	useEffect(() => {
+		if (!isAuthenticated || !selectedProject) {
+			ensuredProjectRef.current = null;
+			return;
+		}
+
+		const ensureKey = async () => {
+			if (!selectedOrganization) {
+				return;
+			}
+			const projectId = selectedProject.id;
+			if (ensuredProjectRef.current === projectId) {
+				return;
+			}
+			try {
+				const response = await fetch("/api/ensure-playground-key", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ projectId }),
+				});
+				if (response.ok && selectedProject.id === projectId) {
+					ensuredProjectRef.current = projectId;
+				}
+			} catch {
+				// ignore for now
+			}
+		};
+		void ensureKey();
+	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
 	const handleEditorChange = useCallback(
 		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -236,6 +372,9 @@ export default function CanvasPageClient({
 
 			const controller = new AbortController();
 			setIsGenerating(true);
+			setParseError(null);
+			setSelectedTemplateName("");
+			setHasStreamingSpec(false);
 			abortRef.current = controller;
 
 			try {
@@ -250,7 +389,7 @@ export default function CanvasPageClient({
 				});
 
 				if (!response.ok) {
-					throw new Error(`Generation failed: ${response.statusText}`);
+					throw new Error(await getResponseErrorMessage(response));
 				}
 
 				const reader = response.body?.getReader();
@@ -260,6 +399,7 @@ export default function CanvasPageClient({
 
 				const decoder = new TextDecoder();
 				let specStreamBuffer = "";
+				let didResetForStream = false;
 
 				while (true) {
 					const { done, value } = await reader.read();
@@ -270,6 +410,13 @@ export default function CanvasPageClient({
 					specStreamBuffer += decoder.decode(value, { stream: true });
 
 					if (specStreamBuffer.trim()) {
+						if (!didResetForStream) {
+							setSpec(emptySpec);
+							didResetForStream = true;
+						}
+						setHasStreamingSpec(true);
+						setEditorValue(specStreamBuffer);
+
 						try {
 							const compiled = compileSpecStream(specStreamBuffer) as unknown;
 							if (isRenderableSpec(compiled)) {
@@ -287,6 +434,7 @@ export default function CanvasPageClient({
 						const compiled = compileSpecStream(specStreamBuffer) as unknown;
 						if (isRenderableSpec(compiled)) {
 							applySpec(compiled);
+							setHasStreamingSpec(true);
 							appliedFinalSpec = true;
 						}
 					} catch {
@@ -298,6 +446,7 @@ export default function CanvasPageClient({
 							const parsed = JSON.parse(specStreamBuffer) as unknown;
 							if (isRenderableSpec(parsed)) {
 								applySpec(parsed);
+								setHasStreamingSpec(true);
 							} else {
 								setParseError("Failed to parse AI response as a valid spec");
 							}
@@ -408,11 +557,13 @@ export default function CanvasPageClient({
 		() => JSON.stringify(spec.state ?? {}),
 		[spec.state],
 	);
+	const showGenerationLoading = isGenerating && !hasStreamingSpec;
 
 	const handleResetCanvas = useCallback(() => {
 		setSpec(emptySpec);
 		setEditorValue(JSON.stringify(emptySpec, null, 2));
 		setParseError(null);
+		setHasStreamingSpec(false);
 		setSelectedTemplateName("");
 		setPromptResetKey((key) => key + 1);
 		setShowResetDialog(false);
@@ -530,13 +681,20 @@ export default function CanvasPageClient({
 												</Button>
 											</div>
 										</div>
-										<textarea
-											value={editorValue}
-											onChange={handleEditorChange}
-											onKeyDown={handleEditorKeyDown}
-											spellCheck={false}
-											className="flex-1 resize-none bg-muted/30 p-4 font-mono text-xs leading-relaxed outline-none"
-										/>
+										{showGenerationLoading ? (
+											<CanvasSpecSkeleton />
+										) : (
+											<textarea
+												value={editorValue}
+												onChange={handleEditorChange}
+												onKeyDown={handleEditorKeyDown}
+												readOnly={isGenerating}
+												spellCheck={false}
+												className={`flex-1 resize-none bg-muted/30 p-4 font-mono text-xs leading-relaxed outline-none ${
+													isGenerating ? "cursor-wait select-none" : ""
+												}`}
+											/>
+										)}
 									</SheetContent>
 								</Sheet>
 							) : (
@@ -563,13 +721,20 @@ export default function CanvasPageClient({
 												</Button>
 											</div>
 										</div>
-										<textarea
-											value={editorValue}
-											onChange={handleEditorChange}
-											onKeyDown={handleEditorKeyDown}
-											spellCheck={false}
-											className="flex-1 resize-none bg-muted/30 p-4 font-mono text-xs leading-relaxed outline-none"
-										/>
+										{showGenerationLoading ? (
+											<CanvasSpecSkeleton />
+										) : (
+											<textarea
+												value={editorValue}
+												onChange={handleEditorChange}
+												onKeyDown={handleEditorKeyDown}
+												readOnly={isGenerating}
+												spellCheck={false}
+												className={`flex-1 resize-none bg-muted/30 p-4 font-mono text-xs leading-relaxed outline-none ${
+													isGenerating ? "cursor-wait select-none" : ""
+												}`}
+											/>
+										)}
 									</div>
 								)
 							)}
@@ -625,13 +790,17 @@ export default function CanvasPageClient({
 
 								{/* Rendered preview */}
 								<div ref={previewRef} className="flex-1 overflow-auto p-6">
-									<JSONUIProvider
-										key={specStateKey}
-										registry={registry}
-										initialState={spec.state ?? {}}
-									>
-										<Renderer spec={spec} registry={registry} />
-									</JSONUIProvider>
+									{showGenerationLoading ? (
+										<CanvasPreviewSkeleton />
+									) : (
+										<JSONUIProvider
+											key={specStateKey}
+											registry={registry}
+											initialState={spec.state ?? {}}
+										>
+											<Renderer spec={spec} registry={registry} />
+										</JSONUIProvider>
+									)}
 								</div>
 
 								{/* Prompt input */}

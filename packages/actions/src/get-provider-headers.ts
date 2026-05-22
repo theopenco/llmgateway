@@ -55,7 +55,6 @@ export function getProviderHeaders(
 				};
 			}
 			return requestIdHeader;
-		}
 		case "vertex-anthropic":
 			return {
 				...requestIdHeader,

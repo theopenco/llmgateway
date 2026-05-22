@@ -1,13 +1,7 @@
 import {
 	AlertTriangle,
-	ArrowDownToLine,
-	ArrowUpFromLine,
-	Banknote,
-	Building2,
 	CircleDollarSign,
 	PiggyBank,
-	ShieldCheck,
-	UserCheck,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -32,48 +26,67 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
 
-function MetricCard({
+type Accent = "green" | "blue" | "purple" | "red";
+
+const accentRing: Record<Accent, string> = {
+	green: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+	blue: "border-sky-500/30 bg-sky-500/10 text-sky-400",
+	purple: "border-violet-500/30 bg-violet-500/10 text-violet-400",
+	red: "border-red-500/30 bg-red-500/10 text-red-400",
+};
+
+function GroupedMetricCard({
 	label,
 	value,
 	subtitle,
 	icon,
 	accent,
+	stats,
 }: {
 	label: string;
 	value: string;
 	subtitle?: string;
-	icon?: React.ReactNode;
-	accent?: "green" | "blue" | "purple" | "red";
+	icon: React.ReactNode;
+	accent: Accent;
+	stats: { label: string; value: string }[];
 }) {
 	return (
-		<div className="bg-card text-card-foreground flex flex-col justify-between gap-3 rounded-xl border border-border/60 p-5 shadow-sm">
+		<div className="bg-card text-card-foreground flex flex-col gap-5 rounded-xl border border-border/60 p-5 shadow-sm">
 			<div className="flex items-start justify-between gap-3">
-				<div>
+				<div className="min-w-0">
 					<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 						{label}
 					</p>
-					<p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p>
+					<p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p>
 					{subtitle ? (
 						<p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
 					) : null}
 				</div>
-				{icon ? (
-					<div
-						className={cn(
-							"inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs",
-							accent === "green" &&
-								"border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-							accent === "blue" &&
-								"border-sky-500/30 bg-sky-500/10 text-sky-400",
-							accent === "purple" &&
-								"border-violet-500/30 bg-violet-500/10 text-violet-400",
-							accent === "red" &&
-								"border-red-500/30 bg-red-500/10 text-red-400",
-						)}
-					>
-						{icon}
+				<div
+					className={cn(
+						"inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs",
+						accentRing[accent],
+					)}
+				>
+					{icon}
+				</div>
+			</div>
+			<div
+				className={cn(
+					"grid gap-4 border-t border-border/50 pt-4",
+					stats.length === 3 ? "grid-cols-3" : "grid-cols-2",
+				)}
+			>
+				{stats.map((stat) => (
+					<div key={stat.label} className="min-w-0">
+						<p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/80">
+							{stat.label}
+						</p>
+						<p className="mt-1 truncate text-sm font-semibold tabular-nums">
+							{stat.value}
+						</p>
 					</div>
-				) : null}
+				))}
 			</div>
 		</div>
 	);
@@ -146,80 +159,96 @@ export default async function Page({
 				</div>
 			</header>
 
-			<section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-				<MetricCard
-					label="Total Sign Ups"
+			<section className="grid gap-4 lg:grid-cols-3">
+				<GroupedMetricCard
+					label="Audience"
 					value={numberFormatter.format(metrics.totalSignups)}
-					subtitle="All registered user accounts"
+					subtitle="Total sign-ups"
 					icon={<Users className="h-4 w-4" />}
 					accent="blue"
+					stats={[
+						{
+							label: "Verified",
+							value: numberFormatter.format(metrics.verifiedUsers),
+						},
+						{
+							label: "Paying",
+							value: numberFormatter.format(metrics.payingCustomers),
+						},
+						{
+							label: "Orgs",
+							value: numberFormatter.format(metrics.totalOrganizations),
+						},
+					]}
 				/>
-				<MetricCard
-					label="Verified Users"
-					value={numberFormatter.format(metrics.verifiedUsers)}
-					subtitle="Users with verified email addresses"
-					icon={<UserCheck className="h-4 w-4" />}
-					accent="green"
-				/>
-				<MetricCard
-					label="Paying Customers"
-					value={numberFormatter.format(metrics.payingCustomers)}
-					subtitle="Organizations with completed transactions"
-					icon={<ShieldCheck className="h-4 w-4" />}
-					accent="purple"
-				/>
-				<MetricCard
-					label="Total Revenue"
-					value={currencyFormatter.format(metrics.totalRevenue)}
-					subtitle="Money in (excl. Stripe fees & refunds)"
+				<GroupedMetricCard
+					label="Revenue"
+					value={currencyFormatter.format(
+						metrics.totalRevenue - metrics.totalRefunds,
+					)}
+					subtitle="Net (excl. Stripe fees & refunds)"
 					icon={<CircleDollarSign className="h-4 w-4" />}
 					accent="green"
+					stats={[
+						{
+							label: "Processed",
+							value: currencyFormatter.format(metrics.totalProcessed),
+						},
+						{
+							label: "Fees",
+							value: currencyFormatter.format(
+								Math.max(0, metrics.totalProcessed - metrics.totalRevenue),
+							),
+						},
+						{
+							label: "Refunds",
+							value: currencyFormatter.format(metrics.totalRefunds),
+						},
+					]}
 				/>
-				<MetricCard
-					label="Total Processed"
-					value={currencyFormatter.format(metrics.totalProcessed)}
-					subtitle="Stripe gross revenue (incl. fees)"
-					icon={<Banknote className="h-4 w-4" />}
-					accent="green"
-				/>
-				<MetricCard
-					label="Total Organizations"
-					value={numberFormatter.format(metrics.totalOrganizations)}
-					subtitle="All registered organizations"
-					icon={<Building2 className="h-4 w-4" />}
-					accent="blue"
-				/>
-				<MetricCard
-					label="Total Topped Up"
+				<GroupedMetricCard
+					label="Credit Flow"
 					value={currencyFormatter.format(metrics.totalToppedUp)}
 					subtitle="All-time credits purchased"
-					icon={<ArrowDownToLine className="h-4 w-4" />}
-					accent="green"
-				/>
-				<MetricCard
-					label="Total Spent"
-					value={currencyFormatter.format(metrics.totalSpent)}
-					subtitle="All-time usage costs"
-					icon={<ArrowUpFromLine className="h-4 w-4" />}
-					accent="purple"
-				/>
-				<MetricCard
-					label="Unused Credits"
-					value={currencyFormatter.format(metrics.unusedCredits)}
-					subtitle="Credits sitting unused across all orgs"
 					icon={<PiggyBank className="h-4 w-4" />}
-					accent="blue"
+					accent="purple"
+					stats={[
+						{
+							label: "Spent",
+							value: currencyFormatter.format(metrics.totalSpent),
+						},
+						{
+							label: "Unused",
+							value: currencyFormatter.format(metrics.unusedCredits),
+						},
+						{
+							label: "Gifted",
+							value: currencyFormatter.format(metrics.totalGiftedCredits),
+						},
+					]}
 				/>
-				{metrics.overage > 0 && (
-					<MetricCard
-						label="Overage"
-						value={currencyFormatter.format(metrics.overage)}
-						subtitle="Spending exceeding topped-up credits"
-						icon={<AlertTriangle className="h-4 w-4" />}
-						accent="red"
-					/>
-				)}
 			</section>
+
+			{metrics.overage > 0 && (
+				<div className="flex items-center justify-between gap-4 rounded-xl border border-red-500/30 bg-red-500/5 px-5 py-4">
+					<div className="flex items-center gap-3">
+						<div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-red-500/30 bg-red-500/10 text-red-400">
+							<AlertTriangle className="h-4 w-4" />
+						</div>
+						<div>
+							<p className="text-sm font-medium">
+								Overage:{" "}
+								<span className="font-semibold text-red-400 tabular-nums">
+									{currencyFormatter.format(metrics.overage)}
+								</span>
+							</p>
+							<p className="text-xs text-muted-foreground">
+								Spending exceeding topped-up credits.
+							</p>
+						</div>
+					</div>
+				</div>
+			)}
 
 			{timeseries ? (
 				<section className="grid gap-6 lg:grid-cols-2">

@@ -1,7 +1,17 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { and, db, desc, eq, gte, isNull, or, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	desc,
+	gte,
+	inArray,
+	isNull,
+	or,
+	tables,
+} from "@llmgateway/db";
+import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -42,6 +52,14 @@ const getModelDiscounts = createRoute({
 publicDiscounts.openapi(getModelDiscounts, async (c) => {
 	const { modelId } = c.req.param();
 
+	// Discounts may be keyed by the root model ID or by any of the model's
+	// provider-specific model names (the admin UI submits the latter), so match
+	// against all of them.
+	const modelDef = modelDefinitions.find((m) => m.id === modelId);
+	const modelValues = Array.from(
+		new Set([modelId, ...(modelDef?.providers.map((p) => p.modelName) ?? [])]),
+	);
+
 	const now = new Date();
 	const notExpired = or(
 		isNull(tables.discount.expiresAt),
@@ -54,7 +72,10 @@ publicDiscounts.openapi(getModelDiscounts, async (c) => {
 		.where(
 			and(
 				isNull(tables.discount.organizationId),
-				or(isNull(tables.discount.model), eq(tables.discount.model, modelId)),
+				or(
+					isNull(tables.discount.model),
+					inArray(tables.discount.model, modelValues),
+				),
 				notExpired,
 			),
 		)

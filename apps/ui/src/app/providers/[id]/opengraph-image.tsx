@@ -7,6 +7,7 @@ import {
 import {
 	AWSBedrockIconStatic,
 	getProviderIcon,
+	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
 } from "@llmgateway/shared/components";
 
@@ -58,7 +59,9 @@ export default async function ProviderOgImage({ params }: ImageProps) {
 				? MinimaxIconStatic
 				: provider.id === "aws-bedrock"
 					? AWSBedrockIconStatic
-					: getProviderIcon(provider.id);
+					: provider.id === "google-ai-studio"
+						? GoogleStudioAIIconStatic
+						: getProviderIcon(provider.id);
 
 		// Count how many models this provider offers
 		const supportedModels = modelDefinitions.filter((model) =>

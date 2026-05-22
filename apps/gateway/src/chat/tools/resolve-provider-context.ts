@@ -160,13 +160,15 @@ export function formatUsedModelForDisplay(
 	usedProvider: string,
 	baseModelName: string,
 	customProviderName?: string,
+	usedRegion?: string,
 ): string {
 	const usedModelProviderPrefix =
 		usedProvider === "custom" && customProviderName
 			? customProviderName
 			: usedProvider;
 
-	return `${usedModelProviderPrefix}/${baseModelName}`;
+	const base = `${usedModelProviderPrefix}/${baseModelName}`;
+	return usedRegion ? `${base}:${usedRegion}` : base;
 }
 
 /**
@@ -199,6 +201,7 @@ export async function resolveProviderContext(
 		usedProvider,
 		baseModelName,
 		options.customProviderName,
+		providerMapping.region,
 	);
 
 	// --- Token resolution ---

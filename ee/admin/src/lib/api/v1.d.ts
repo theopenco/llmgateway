@@ -652,6 +652,551 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/master/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List all non-deleted projects in the master key's organization. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            projects: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                name: string;
+                                organizationId: string;
+                                cachingEnabled: boolean;
+                                cacheDurationSeconds: number;
+                                /** @enum {string} */
+                                mode: "api-keys" | "credits" | "hybrid";
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        cachingEnabled?: boolean;
+                        cacheDurationSeconds?: number;
+                        /** @enum {string} */
+                        mode?: "api-keys" | "credits" | "hybrid";
+                    };
+                };
+            };
+            responses: {
+                /** @description Project created successfully via master key. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            project: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                name: string;
+                                organizationId: string;
+                                cachingEnabled: boolean;
+                                cacheDurationSeconds: number;
+                                /** @enum {string} */
+                                mode: "api-keys" | "credits" | "hybrid";
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/master/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        projectId: string;
+                        description: string;
+                        usageLimit?: string | null;
+                        periodUsageLimit?: string | null;
+                        periodUsageDurationValue?: number | null;
+                        /** @enum {string|null} */
+                        periodUsageDurationUnit?: "hour" | "day" | "week" | "month" | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Gateway API key created successfully via master key. The plain token is returned only once. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            apiKey: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                token: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                projectId: string;
+                                createdBy: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/master/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project deleted successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name?: string;
+                        cachingEnabled?: boolean;
+                        cacheDurationSeconds?: number;
+                        /** @enum {string} */
+                        mode?: "api-keys" | "credits" | "hybrid";
+                        /** @enum {string} */
+                        status?: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description Project updated successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            project: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                name: string;
+                                organizationId: string;
+                                cachingEnabled: boolean;
+                                cacheDurationSeconds: number;
+                                /** @enum {string} */
+                                mode: "api-keys" | "credits" | "hybrid";
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/v1/master/keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description API key deleted successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        description?: string;
+                        /** @enum {string} */
+                        status?: "active" | "inactive";
+                        usageLimit?: string | null;
+                        periodUsageLimit?: string | null;
+                        periodUsageDurationValue?: number | null;
+                        /** @enum {string|null} */
+                        periodUsageDurationUnit?: "hour" | "day" | "week" | "month" | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description API key updated successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            apiKey: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                projectId: string;
+                                createdBy: string;
+                                usageLimit: string | null;
+                                periodUsageLimit: string | null;
+                                periodUsageDurationValue: number | null;
+                                /** @enum {string|null} */
+                                periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/v1/master/keys/{id}/iam": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List IAM rules for an API key via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rules: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                apiKeyId: string;
+                                /** @enum {string} */
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
+                                ruleValue: {
+                                    models?: string[];
+                                    providers?: string[];
+                                    /** @enum {string} */
+                                    pricingType?: "free" | "paid";
+                                    maxInputPrice?: number;
+                                    maxOutputPrice?: number;
+                                    ipCidrs?: string[];
+                                };
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
+                        ruleValue: {
+                            models?: string[];
+                            providers?: string[];
+                            /** @enum {string} */
+                            pricingType?: "free" | "paid";
+                            maxInputPrice?: number;
+                            maxOutputPrice?: number;
+                            ipCidrs?: string[];
+                        };
+                        /**
+                         * @default active
+                         * @enum {string}
+                         */
+                        status?: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description IAM rule created successfully via master key. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rule: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                apiKeyId: string;
+                                /** @enum {string} */
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
+                                ruleValue: {
+                                    models?: string[];
+                                    providers?: string[];
+                                    /** @enum {string} */
+                                    pricingType?: "free" | "paid";
+                                    maxInputPrice?: number;
+                                    maxOutputPrice?: number;
+                                    ipCidrs?: string[];
+                                };
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/master/keys/{id}/iam/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description IAM rule deleted successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    ruleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
+                        ruleValue?: {
+                            models?: string[];
+                            providers?: string[];
+                            /** @enum {string} */
+                            pricingType?: "free" | "paid";
+                            maxInputPrice?: number;
+                            maxOutputPrice?: number;
+                            ipCidrs?: string[];
+                        };
+                        /** @enum {string} */
+                        status?: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description IAM rule updated successfully via master key. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rule: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                apiKeyId: string;
+                                /** @enum {string} */
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
+                                ruleValue: {
+                                    models?: string[];
+                                    providers?: string[];
+                                    /** @enum {string} */
+                                    pricingType?: "free" | "paid";
+                                    maxInputPrice?: number;
+                                    maxOutputPrice?: number;
+                                    ipCidrs?: string[];
+                                };
+                                /** @enum {string} */
+                                status: "active" | "inactive";
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/user/me": {
         parameters: {
             query?: never;
@@ -1581,6 +2126,7 @@ export interface paths {
                     projectId?: string;
                     apiKeyId?: string;
                     timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
+                    groupBy?: "model" | "apiKey";
                 };
                 header?: never;
                 path?: never;
@@ -1634,9 +2180,68 @@ export interface paths {
                                     totalTokens: number;
                                     cost: number;
                                 }[];
+                                apiKeyBreakdown: {
+                                    id: string;
+                                    description: string;
+                                    requestCount: number;
+                                    inputTokens: number;
+                                    outputTokens: number;
+                                    totalTokens: number;
+                                    cost: number;
+                                }[];
                             }[];
                             /** @enum {string} */
                             granularity?: "hourly" | "daily";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activity/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    projectId: string;
+                    timeRange?: "7d" | "30d";
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregated usage grouped by source for a project */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            sources: {
+                                source: string;
+                                requestCount: number;
+                                inputTokens: number;
+                                outputTokens: number;
+                                totalTokens: number;
+                                cost: number;
+                                lastUsedAt: string | null;
+                            }[];
                         };
                     };
                 };
@@ -1687,6 +2292,8 @@ export interface paths {
                             totalSpent: number;
                             unusedCredits: number;
                             overage: number;
+                            totalGiftedCredits: number;
+                            totalRefunds: number;
                         };
                     };
                 };
@@ -2148,10 +2755,85 @@ export interface paths {
                                 projectId: string;
                                 projectName: string;
                                 createdAt: string;
+                                iamRules: {
+                                    id: string;
+                                    createdAt: string;
+                                    updatedAt: string;
+                                    apiKeyId: string;
+                                    /** @enum {string} */
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
+                                    ruleValue: {
+                                        models?: string[];
+                                        providers?: string[];
+                                        /** @enum {string} */
+                                        pricingType?: "free" | "paid";
+                                        maxInputPrice?: number;
+                                        maxOutputPrice?: number;
+                                        ipCidrs?: string[];
+                                    };
+                                    /** @enum {string} */
+                                    status: "active" | "inactive";
+                                }[];
                             }[];
                             total: number;
                             limit: number;
                             offset: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/provider-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization provider keys. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providerKeys: {
+                                id: string;
+                                token: string;
+                                provider: string;
+                                name: string | null;
+                                baseUrl: string | null;
+                                status: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            total: number;
                         };
                     };
                 };
@@ -3754,6 +4436,7 @@ export interface paths {
                                 upstreamErrorsCount: number;
                                 cachedCount: number;
                                 avgTimeToFirstToken: number | null;
+                                totalCost: number;
                                 updatedAt: string;
                             }[];
                         };
@@ -3934,6 +4617,129 @@ export interface paths {
                     };
                 };
                 /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/cost-by-model-timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization cost breakdown by model over time. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            /** @enum {string} */
+                            bucket: "hour" | "day";
+                            models: string[];
+                            data: {
+                                timestamp: string;
+                                entries: {
+                                    model: string;
+                                    cost: number;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects/{projectId}/cost-by-model-timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project cost breakdown by model over time. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            /** @enum {string} */
+                            bucket: "hour" | "day";
+                            models: string[];
+                            data: {
+                                timestamp: string;
+                                entries: {
+                                    model: string;
+                                    cost: number;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Project not found. */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -4351,9 +5157,55 @@ export interface paths {
                                 messageCount: number;
                                 escalatedAt: string | null;
                                 archivedAt: string | null;
+                                resolvedAt: string | null;
+                                rating: number | null;
                                 firstMessage: string | null;
                             }[];
                             total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/chat-support-logs/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregate ratings and feedback across all conversations. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            totalRatings: number;
+                            averageRating: number | null;
+                            ratingDistribution: {
+                                [key: string]: number;
+                            };
+                            resolvedCount: number;
+                            likes: number;
+                            dislikes: number;
                         };
                     };
                 };
@@ -4441,12 +5293,16 @@ export interface paths {
                             messageCount: number;
                             escalatedAt: string | null;
                             archivedAt: string | null;
+                            resolvedAt: string | null;
+                            rating: number | null;
                             messages: {
                                 id: string;
                                 createdAt: string;
                                 role: string;
                                 content: string;
                                 sequence: number;
+                                /** @enum {string|null} */
+                                reaction: "like" | "dislike" | null;
                             }[];
                         };
                     };
@@ -4919,6 +5775,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/devpass/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description DevPass usage breakdown by model, provider, and source. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            models: {
+                                id: string;
+                                requestCount: number;
+                                totalTokens: number;
+                                cost: number;
+                            }[];
+                            providers: {
+                                id: string;
+                                requestCount: number;
+                                totalTokens: number;
+                                cost: number;
+                            }[];
+                            sources: {
+                                id: string;
+                                requestCount: number;
+                                totalTokens: number;
+                                cost: number;
+                            }[];
+                            range: {
+                                from: string;
+                                to: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/devpass/{orgId}": {
         parameters: {
             query?: never;
@@ -5066,7 +5984,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5074,6 +5992,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -5084,7 +6003,7 @@ export interface paths {
                                 currentCount: number;
                                 maxKeys: number;
                                 /** @enum {string} */
-                                plan: "free" | "pro";
+                                plan: "free" | "pro" | "enterprise";
                             };
                             /** @enum {string} */
                             userRole: "owner" | "admin" | "developer";
@@ -5150,7 +6069,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5158,6 +6077,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -5287,7 +6207,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5295,6 +6215,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -5400,7 +6321,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5408,6 +6329,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -5474,7 +6396,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -5482,6 +6404,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -5505,7 +6428,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue: {
                             models?: string[];
                             providers?: string[];
@@ -5513,6 +6436,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /**
                          * @default active
@@ -5537,7 +6461,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -5545,6 +6469,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -5611,7 +6536,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue?: {
                             models?: string[];
                             providers?: string[];
@@ -5619,6 +6544,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /**
                          * @default active
@@ -5643,7 +6569,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -5651,6 +6577,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -5973,6 +6900,196 @@ export interface paths {
                     content: {
                         "application/json": {
                             message: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/master-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    organizationId: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of master keys for the organization. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            masterKeys: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                maskedToken: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                lastUsedAt: string | null;
+                                organizationId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
+                            }[];
+                            planLimits: {
+                                currentCount: number;
+                                maxKeys: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        description: string;
+                        organizationId: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Master key created successfully. The plain token is included in the response and will not be retrievable again. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            masterKey: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                maskedToken: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                lastUsedAt: string | null;
+                                organizationId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
+                                token: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/master-keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Master key deleted successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "active" | "inactive";
+                    };
+                };
+            };
+            responses: {
+                /** @description Master key status updated successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            masterKey: {
+                                id: string;
+                                createdAt: string;
+                                updatedAt: string;
+                                maskedToken: string;
+                                description: string;
+                                /** @enum {string|null} */
+                                status: "active" | "inactive" | "deleted" | null;
+                                lastUsedAt: string | null;
+                                organizationId: string;
+                                createdBy: string;
+                                creator?: {
+                                    id: string;
+                                    name: string | null;
+                                    email: string;
+                                } | null;
+                            };
                         };
                     };
                 };
@@ -6305,6 +7422,430 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/playground/image-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of image generation history for the authenticated user */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                        inputImages?: {
+                            dataUrl: string;
+                            mediaType: string;
+                        }[];
+                        models: {
+                            modelId: string;
+                            modelName: string;
+                            images: {
+                                base64: string;
+                                mediaType: string;
+                            }[];
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Saved image history item */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/playground/image-history/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated image history item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/playground/video-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of video generation history for the authenticated user */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                        frameInputs?: {
+                            start: {
+                                dataUrl: string;
+                                mediaType: string;
+                            } | null;
+                            end: {
+                                dataUrl: string;
+                                mediaType: string;
+                            } | null;
+                        };
+                        referenceImages?: {
+                            dataUrl: string;
+                            mediaType: string;
+                        }[];
+                        models: {
+                            modelId: string;
+                            modelName: string;
+                            jobId: string | null;
+                            videoUrl: string | null;
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Saved video history item */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/playground/video-history/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated video history item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/orgs": {
@@ -8222,6 +9763,208 @@ export interface paths {
         };
         trace?: never;
     };
+    "/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of user's skills */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            skills: {
+                                id: string;
+                                name: string;
+                                description: string;
+                                instructions: string;
+                                enabled: boolean;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        description: string;
+                        instructions: string;
+                        /** @default true */
+                        enabled?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created skill */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            skill: {
+                                id: string;
+                                name: string;
+                                description: string;
+                                instructions: string;
+                                enabled: boolean;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Skill details */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            skill: {
+                                id: string;
+                                name: string;
+                                description: string;
+                                instructions: string;
+                                enabled: boolean;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Skill deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name?: string;
+                        description?: string;
+                        instructions?: string;
+                        enabled?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated skill */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            skill: {
+                                id: string;
+                                name: string;
+                                description: string;
+                                instructions: string;
+                                enabled: boolean;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/subscriptions/create-pro-subscription": {
         parameters: {
             query?: never;
@@ -8913,9 +10656,9 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.update_description" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
                                 /** @enum {string} */
-                                resourceType: "organization" | "project" | "team_member" | "api_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
+                                resourceType: "organization" | "project" | "team_member" | "api_key" | "master_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
                                 metadata?: unknown;
                                 user?: {

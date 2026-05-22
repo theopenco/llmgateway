@@ -178,7 +178,6 @@ team.openapi(addMember, async (c) => {
 		});
 	}
 
-	// Check max team size limit (5 members)
 	const currentMembers = await db.query.userOrganization.findMany({
 		where: {
 			organizationId: {
@@ -187,10 +186,12 @@ team.openapi(addMember, async (c) => {
 		},
 	});
 
-	if (currentMembers.length >= 5) {
+	const memberLimit =
+		userOrganization.organization?.plan === "enterprise" ? 100 : 5;
+
+	if (currentMembers.length >= memberLimit) {
 		throw new HTTPException(403, {
-			message:
-				"Your organization has reached the maximum of 5 team members. Contact us at contact@llmgateway.io to unlock more seats.",
+			message: `Your organization has reached the maximum of ${memberLimit} team members. Contact us at contact@llmgateway.io to unlock more seats.`,
 		});
 	}
 

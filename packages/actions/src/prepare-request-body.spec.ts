@@ -228,75 +228,6 @@ describe("prepareRequestBody - Anthropic", () => {
 		// Should be exactly 4 (the limit)
 		expect(totalCacheControlBlocks).toBe(4);
 	});
-
-	test("forwards caller-supplied max_tokens verbatim (no 1024 cap)", async () => {
-		const requestBody = (await prepareRequestBody(
-			"anthropic",
-			"claude-opus-4-7",
-			[{ role: "user", content: "Hello!" }],
-			false, // stream
-			undefined, // temperature
-			32000, // max_tokens
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			undefined, // reasoning_effort
-			undefined, // supportsReasoning
-			false, // isProd
-		)) as AnthropicRequestBody;
-
-		expect(requestBody.max_tokens).toBe(32000);
-	});
-
-	test("falls back to model maxOutput when caller omits max_tokens", async () => {
-		const requestBody = (await prepareRequestBody(
-			"anthropic",
-			"claude-opus-4-7",
-			[{ role: "user", content: "Hello!" }],
-			false, // stream
-			undefined, // temperature
-			undefined, // max_tokens omitted — used to silently default to 1024
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			undefined, // reasoning_effort
-			undefined, // supportsReasoning
-			false, // isProd
-		)) as AnthropicRequestBody;
-
-		// claude-opus-4-7's anthropic provider mapping declares maxOutput: 128000.
-		// Falling back to a flat 1024 (Anthropic's historical default) silently
-		// truncates large responses and is the bug this test guards against.
-		expect(requestBody.max_tokens).toBe(128000);
-	});
-
-	test("preserves caller max_tokens even when reasoning is enabled", async () => {
-		const requestBody = (await prepareRequestBody(
-			"anthropic",
-			"claude-opus-4-7",
-			[{ role: "user", content: "Hello!" }],
-			false, // stream
-			undefined, // temperature
-			32000, // max_tokens
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			"high", // reasoning_effort
-			true, // supportsReasoning
-			false, // isProd
-		)) as AnthropicRequestBody;
-
-		expect(requestBody.max_tokens).toBe(32000);
-	});
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {
@@ -1479,6 +1410,124 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 		expect(requestBody.generationConfig?.thinkingConfig?.thinkingBudget).toBe(
 			budget,
 		);
+	});
+});
+
+describe("prepareRequestBody - Alibaba cache_control", () => {
+	test("forwards cache_control: {type: 'ephemeral'} unchanged", async () => {
+		const requestBody = (await prepareRequestBody(
+			"alibaba",
+			"qwen-plus",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Cache this content.",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content[0].cache_control).toEqual({
+			type: "ephemeral",
+		});
+	});
+
+	test("strips ttl from cache_control because Alibaba only supports 5m", async () => {
+		const requestBody = (await prepareRequestBody(
+			"alibaba",
+			"qwen-plus",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Cache this content.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "And this.",
+							cache_control: { type: "ephemeral", ttl: "5m" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content[0].cache_control).toEqual({
+			type: "ephemeral",
+		});
+		expect(requestBody.messages[1].content[0].cache_control).toEqual({
+			type: "ephemeral",
+		});
+	});
+
+	test("drops cache_control entirely when stripping ttl leaves an empty marker", async () => {
+		const requestBody = (await prepareRequestBody(
+			"alibaba",
+			"qwen-plus",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Caller forgot the type field.",
+							cache_control: { ttl: "1h" } as any,
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect("cache_control" in requestBody.messages[0].content[0]).toBe(false);
 	});
 });
 

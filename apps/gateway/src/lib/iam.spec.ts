@@ -1194,3 +1194,163 @@ describe("validateModelAccess — edge cases", () => {
 		expect(result.allowed).toBe(true);
 	});
 });
+
+// ===========================
+// allow_ip_cidrs / deny_ip_cidrs
+// ===========================
+
+describe("validateModelAccess — IP CIDR rules", () => {
+	it("allow_ip_cidrs permits requests from IPv4 within the range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"192.0.2.42",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("allow_ip_cidrs denies requests from IPv4 outside the range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"198.51.100.1",
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("198.51.100.1");
+	});
+
+	it("allow_ip_cidrs permits IPv6 within the range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["2001:db8::/32"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"2001:db8::1",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("allow_ip_cidrs supports IPv4-mapped IPv6 client addresses", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"::ffff:192.0.2.42",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("allow_ip_cidrs denies when client IP is not available", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			undefined,
+		);
+
+		expect(result.allowed).toBe(false);
+	});
+
+	it("deny_ip_cidrs blocks requests from listed range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_ip_cidrs",
+				ruleValue: { ipCidrs: ["10.0.0.0/8", "2001:db8:bad::/48"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"10.1.2.3",
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("10.1.2.3");
+	});
+
+	it("deny_ip_cidrs allows requests from outside the listed ranges", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_ip_cidrs",
+				ruleValue: { ipCidrs: ["10.0.0.0/8"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"192.0.2.1",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("ignores malformed CIDR entries without throwing", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["not-a-cidr", "192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"192.0.2.5",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+});

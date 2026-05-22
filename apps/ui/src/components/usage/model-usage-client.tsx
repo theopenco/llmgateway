@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 
 import { ActivityChart } from "@/components/dashboard/activity-chart";
 import {
@@ -20,6 +21,8 @@ import { useApi } from "@/lib/fetch-client";
 interface ModelUsageClientProps {
 	projectId: string;
 }
+
+type GroupBy = "model" | "apiKey";
 
 export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	const router = useRouter();
@@ -46,7 +49,9 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	const apiKeys =
 		apiKeysData?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 
-	// Get apiKeyId and timeRange from URL
+	// Get groupBy, apiKeyId and timeRange from URL
+	const groupBy: GroupBy =
+		searchParams.get("groupBy") === "apiKey" ? "apiKey" : "model";
 	const apiKeyId = searchParams.get("apiKeyId") ?? undefined;
 	const timeRange = (searchParams.get("timeRange") as TimeRangeValue) ?? "24h";
 
@@ -72,14 +77,53 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 		router.push(`${buildUrl("model-usage")}?${params.toString()}`);
 	};
 
+	const updateGroupBy = (newGroupBy: GroupBy) => {
+		const params = new URLSearchParams(searchParams);
+		if (newGroupBy === "apiKey") {
+			params.set("groupBy", "apiKey");
+			// Clear api key filter when grouping by api key
+			params.delete("apiKeyId");
+		} else {
+			params.delete("groupBy");
+		}
+		router.push(`${buildUrl("model-usage")}?${params.toString()}`);
+	};
+
+	const apiKeyFilterDisabled = groupBy === "apiKey";
+	const effectiveApiKeyId = apiKeyFilterDisabled ? undefined : apiKeyId;
+
+	// Normalize stale URLs: groupBy=apiKey should never coexist with apiKeyId
+	useEffect(() => {
+		if (groupBy === "apiKey" && searchParams.has("apiKeyId")) {
+			const params = new URLSearchParams(searchParams);
+			params.delete("apiKeyId");
+			router.replace(`${buildUrl("model-usage")}?${params.toString()}`);
+		}
+	}, [groupBy, searchParams, router, buildUrl]);
+
 	return (
 		<div className="flex flex-col">
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-					<h2 className="text-3xl font-bold tracking-tight">Usage by model</h2>
+					<h2 className="text-3xl font-bold tracking-tight">
+						{groupBy === "apiKey" ? "Usage by API key" : "Usage by model"}
+					</h2>
 					<div className="flex items-center space-x-2">
 						<Select
-							value={apiKeyId ?? "all"}
+							value={groupBy}
+							onValueChange={(v) => updateGroupBy(v as GroupBy)}
+						>
+							<SelectTrigger size="sm" className="w-[180px]">
+								<SelectValue placeholder="Group by" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="model">Breakdown by model</SelectItem>
+								<SelectItem value="apiKey">Breakdown by API key</SelectItem>
+							</SelectContent>
+						</Select>
+						<Select
+							value={effectiveApiKeyId ?? "all"}
+							disabled={apiKeyFilterDisabled}
 							onValueChange={(value) =>
 								updateApiKeyIdInUrl(value === "all" ? undefined : value)
 							}
@@ -100,7 +144,11 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 					</div>
 				</div>
 				<div className="space-y-4">
-					<ActivityChart apiKeyId={apiKeyId} timeRange={timeRange} />
+					<ActivityChart
+						apiKeyId={effectiveApiKeyId}
+						timeRange={timeRange}
+						groupBy={groupBy}
+					/>
 				</div>
 			</div>
 		</div>

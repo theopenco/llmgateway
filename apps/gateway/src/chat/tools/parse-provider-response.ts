@@ -565,6 +565,17 @@ export function parseProviderResponse(
 					(promptTokens !== null && completionTokens !== null
 						? promptTokens + completionTokens + (reasoningTokens ?? 0)
 						: null);
+				// Alibaba uses Anthropic-style `cache_control: {type: "ephemeral"}` on
+				// the request, but reports usage in OpenAI shape with
+				// `cache_creation_input_tokens` nested under `prompt_tokens_details`.
+				// `prompt_tokens` already includes cache write/read tokens. Only a 5m
+				// TTL exists; write tokens bill at 1.25x.
+				const alibabaCacheCreation =
+					json.usage?.prompt_tokens_details?.cache_creation_input_tokens ?? 0;
+				if (alibabaCacheCreation > 0) {
+					cacheCreationTokens = alibabaCacheCreation;
+					cacheCreation5mTokens = alibabaCacheCreation;
+				}
 				if (json.choices?.[0]?.message?.images) {
 					images = json.choices[0].message.images;
 				}

@@ -1,237 +1,19 @@
 "use client";
 
-import {
-	ArrowDown,
-	ArrowLeft,
-	ArrowUp,
-	ArrowUpDown,
-	ChevronRight,
-	Coins,
-	Cpu,
-	Terminal,
-} from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronRight, Terminal } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useMemo } from "react";
 
 import { useApi } from "@/lib/fetch-client";
 
 import {
-	AnthropicIcon,
-	AutohandIcon,
-	ClineIcon,
-	CodexIcon,
-	CursorIcon,
-	N8nIcon,
-	OpenClawIcon,
-	OpenCodeIcon,
-	SoulForgeIcon,
-} from "@llmgateway/shared/components";
-
-import { AgentModelUsageChart } from "./AgentModelUsageChart";
-
-import type { paths } from "@/lib/api/v1";
-import type { ComponentType, SVGProps } from "react";
-
-type ApiLog =
-	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
-
-type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
-
-interface AgentDefinition {
-	id: string;
-	label: string;
-	icon: IconComponent;
-	sources: string[];
-	guideUrl: string;
-}
-
-const AGENTS: AgentDefinition[] = [
-	{
-		id: "claude-code",
-		label: "Claude Code",
-		icon: AnthropicIcon,
-		sources: ["claude.com/claude-code"],
-		guideUrl: "/guides/claude-code",
-	},
-	{
-		id: "opencode",
-		label: "OpenCode",
-		icon: OpenCodeIcon,
-		sources: ["opencode", "open-code"],
-		guideUrl: "/guides/opencode",
-	},
-	{
-		id: "cursor",
-		label: "Cursor",
-		icon: CursorIcon,
-		sources: ["cursor"],
-		guideUrl: "/guides/cursor",
-	},
-	{
-		id: "autohand",
-		label: "Autohand Code",
-		icon: AutohandIcon,
-		sources: ["autohand"],
-		guideUrl: "/guides/autohand",
-	},
-	{
-		id: "soulforge",
-		label: "SoulForge",
-		icon: SoulForgeIcon,
-		sources: ["soulforge"],
-		guideUrl: "/guides/soulforge",
-	},
-	{
-		id: "cline",
-		label: "Cline",
-		icon: ClineIcon,
-		sources: ["cline"],
-		guideUrl: "/guides/cline",
-	},
-	{
-		id: "codex",
-		label: "Codex CLI",
-		icon: CodexIcon,
-		sources: ["codex"],
-		guideUrl: "/guides/codex",
-	},
-	{
-		id: "n8n",
-		label: "n8n",
-		icon: N8nIcon,
-		sources: ["n8n"],
-		guideUrl: "/guides/n8n",
-	},
-	{
-		id: "openclaw",
-		label: "OpenClaw",
-		icon: OpenClawIcon,
-		sources: ["openclaw"],
-		guideUrl: "/guides/openclaw",
-	},
-];
-
-export const ALL_CODING_AGENT_SOURCES = AGENTS.flatMap((a) => a.sources);
-
-interface ModelUsage {
-	id: string;
-	provider: string;
-	requestCount: number;
-	promptTokens: number;
-	completionTokens: number;
-	totalTokens: number;
-	cost: number;
-}
-
-interface AgentStats {
-	agent: AgentDefinition;
-	requestCount: number;
-	totalCost: number;
-	totalTokens: number;
-	totalPromptTokens: number;
-	totalCompletionTokens: number;
-	lastActive: Date;
-	logs: ApiLog[];
-	modelBreakdown: ModelUsage[];
-}
-
-function formatTokens(count: number): string {
-	if (count >= 1_000_000) {
-		return `${(count / 1_000_000).toFixed(1)}M`;
-	}
-	if (count >= 1_000) {
-		return `${(count / 1_000).toFixed(1)}K`;
-	}
-	return count.toLocaleString();
-}
-
-function formatLastActive(date: Date): string {
-	const now = new Date();
-	const diff = now.getTime() - date.getTime();
-	const minutes = Math.floor(diff / (1000 * 60));
-	const hours = Math.floor(diff / (1000 * 60 * 60));
-	const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-	if (minutes < 1) {
-		return "Just now";
-	}
-	if (minutes < 60) {
-		return `${minutes}m ago`;
-	}
-	if (hours < 24) {
-		return `${hours}h ago`;
-	}
-	if (days < 7) {
-		return `${days}d ago`;
-	}
-	return date.toLocaleDateString();
-}
-
-function computeModelBreakdown(logs: ApiLog[]): ModelUsage[] {
-	const map = new Map<string, ModelUsage>();
-	for (const log of logs) {
-		const id = log.usedModel || log.requestedModel || "unknown";
-		const provider = log.usedProvider || log.requestedProvider || "—";
-		const key = `${provider}|${id}`;
-		let entry = map.get(key);
-		if (!entry) {
-			entry = {
-				id,
-				provider,
-				requestCount: 0,
-				promptTokens: 0,
-				completionTokens: 0,
-				totalTokens: 0,
-				cost: 0,
-			};
-			map.set(key, entry);
-		}
-		entry.requestCount += 1;
-		entry.promptTokens += Number(log.promptTokens ?? 0);
-		entry.completionTokens += Number(log.completionTokens ?? 0);
-		entry.totalTokens += Number(log.totalTokens ?? 0);
-		entry.cost += log.cost ?? 0;
-	}
-	return Array.from(map.values()).sort((a, b) => b.cost - a.cost);
-}
-
-function computeAgentStats(logs: ApiLog[]): AgentStats[] {
-	const stats: AgentStats[] = [];
-	for (const agent of AGENTS) {
-		const sources = agent.sources.map((s) => s.toLowerCase());
-		const agentLogs = logs.filter((log) => {
-			const src = String(log.source ?? "").toLowerCase();
-			return src.length > 0 && sources.includes(src);
-		});
-		if (agentLogs.length === 0) {
-			continue;
-		}
-		const sorted = [...agentLogs].sort(
-			(a, b) =>
-				new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-		);
-		stats.push({
-			agent,
-			requestCount: agentLogs.length,
-			totalCost: agentLogs.reduce((sum, log) => sum + (log.cost ?? 0), 0),
-			totalTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.totalTokens ?? 0),
-				0,
-			),
-			totalPromptTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.promptTokens ?? 0),
-				0,
-			),
-			totalCompletionTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.completionTokens ?? 0),
-				0,
-			),
-			lastActive: new Date(sorted[0].createdAt),
-			logs: agentLogs,
-			modelBreakdown: computeModelBreakdown(agentLogs),
-		});
-	}
-	return stats.sort((a, b) => b.totalCost - a.totalCost);
-}
+	AGENTS,
+	ALL_CODING_AGENT_SOURCES,
+	type AgentStats,
+	computeAgentStats,
+	formatLastActive,
+	formatTokens,
+} from "./coding-agents-shared";
 
 function AgentCard({
 	stats,
@@ -293,264 +75,6 @@ function AgentCard({
 	);
 }
 
-type ModelSortColumn =
-	| "id"
-	| "provider"
-	| "requestCount"
-	| "totalTokens"
-	| "cost";
-type SortDirection = "asc" | "desc";
-
-function ModelUsageBreakdown({ models }: { models: ModelUsage[] }) {
-	const [sortColumn, setSortColumn] = useState<ModelSortColumn>("cost");
-	const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-
-	const handleSort = (column: ModelSortColumn) => {
-		if (sortColumn === column) {
-			setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-		} else {
-			setSortColumn(column);
-			setSortDirection(
-				column === "id" || column === "provider" ? "asc" : "desc",
-			);
-		}
-	};
-
-	const sortIcon = (column: ModelSortColumn) => {
-		if (sortColumn !== column) {
-			return <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />;
-		}
-		return sortDirection === "asc" ? (
-			<ArrowUp className="ml-1 h-3 w-3" />
-		) : (
-			<ArrowDown className="ml-1 h-3 w-3" />
-		);
-	};
-
-	const sortedModels = useMemo(() => {
-		const copy = [...models];
-		copy.sort((a, b) => {
-			const aValue = a[sortColumn];
-			const bValue = b[sortColumn];
-			if (typeof aValue === "string" && typeof bValue === "string") {
-				return sortDirection === "asc"
-					? aValue.localeCompare(bValue)
-					: bValue.localeCompare(aValue);
-			}
-			return sortDirection === "asc"
-				? (aValue as number) - (bValue as number)
-				: (bValue as number) - (aValue as number);
-		});
-		return copy;
-	}, [models, sortColumn, sortDirection]);
-
-	const totalTokens = models.reduce((sum, m) => sum + m.totalTokens, 0);
-
-	return (
-		<div className="overflow-hidden rounded-xl border">
-			<div className="border-b bg-muted/30 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-				Model usage
-			</div>
-			{models.length === 0 ? (
-				<div className="px-4 py-6 text-center text-sm text-muted-foreground">
-					No model usage data.
-				</div>
-			) : (
-				<div className="overflow-x-auto">
-					<table className="w-full text-sm">
-						<thead>
-							<tr className="border-b bg-muted/10 text-xs text-muted-foreground">
-								<th className="px-4 py-2 text-left font-medium">
-									<button
-										type="button"
-										onClick={() => handleSort("id")}
-										className="inline-flex items-center hover:text-foreground"
-									>
-										Model
-										{sortIcon("id")}
-									</button>
-								</th>
-								<th className="px-4 py-2 text-left font-medium">
-									<button
-										type="button"
-										onClick={() => handleSort("provider")}
-										className="inline-flex items-center hover:text-foreground"
-									>
-										Provider
-										{sortIcon("provider")}
-									</button>
-								</th>
-								<th className="px-4 py-2 text-right font-medium">
-									<button
-										type="button"
-										onClick={() => handleSort("requestCount")}
-										className="inline-flex items-center hover:text-foreground"
-									>
-										Requests
-										{sortIcon("requestCount")}
-									</button>
-								</th>
-								<th className="px-4 py-2 text-right font-medium">
-									<button
-										type="button"
-										onClick={() => handleSort("totalTokens")}
-										className="inline-flex items-center hover:text-foreground"
-									>
-										Tokens
-										{sortIcon("totalTokens")}
-									</button>
-								</th>
-								<th className="px-4 py-2 text-right font-medium">
-									<button
-										type="button"
-										onClick={() => handleSort("cost")}
-										className="inline-flex items-center hover:text-foreground"
-									>
-										Cost
-										{sortIcon("cost")}
-									</button>
-								</th>
-								<th className="hidden w-[180px] px-4 py-2 text-left font-medium sm:table-cell">
-									Usage
-								</th>
-							</tr>
-						</thead>
-						<tbody className="divide-y">
-							{sortedModels.map((model) => {
-								const percentage =
-									totalTokens === 0
-										? 0
-										: Math.round((model.totalTokens / totalTokens) * 100);
-								return (
-									<tr key={`${model.provider}-${model.id}`}>
-										<td className="px-4 py-2.5 font-mono text-xs">
-											{model.id}
-										</td>
-										<td className="px-4 py-2.5 text-xs text-muted-foreground">
-											{model.provider}
-										</td>
-										<td className="px-4 py-2.5 text-right tabular-nums">
-											{model.requestCount.toLocaleString()}
-										</td>
-										<td className="px-4 py-2.5 text-right tabular-nums">
-											{formatTokens(model.totalTokens)}
-										</td>
-										<td className="px-4 py-2.5 text-right font-medium tabular-nums">
-											${model.cost.toFixed(4)}
-										</td>
-										<td className="hidden px-4 py-2.5 sm:table-cell">
-											<div className="flex items-center gap-2">
-												<div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-													<div
-														className="h-full bg-foreground/60"
-														style={{ width: `${percentage}%` }}
-													/>
-												</div>
-												<span className="w-9 text-right text-xs text-muted-foreground tabular-nums">
-													{percentage}%
-												</span>
-											</div>
-										</td>
-									</tr>
-								);
-							})}
-						</tbody>
-					</table>
-				</div>
-			)}
-		</div>
-	);
-}
-
-function AgentDetail({
-	stats,
-	onBack,
-	projectId,
-}: {
-	stats: AgentStats;
-	onBack: () => void;
-	projectId: string;
-}) {
-	const Icon = stats.agent.icon;
-	const recent = stats.logs
-		.slice()
-		.sort(
-			(a, b) =>
-				new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-		)
-		.slice(0, 20);
-
-	return (
-		<div className="space-y-4">
-			<button
-				type="button"
-				onClick={onBack}
-				className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-			>
-				<ArrowLeft className="h-4 w-4" />
-				All coding agents
-			</button>
-			<div className="flex items-center gap-4 rounded-xl border bg-card p-5">
-				<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted">
-					<Icon className="h-6 w-6" />
-				</div>
-				<div className="flex-1">
-					<h3 className="text-lg font-semibold tracking-tight">
-						{stats.agent.label}
-					</h3>
-					<div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-						<span>{stats.requestCount.toLocaleString()} requests</span>
-						<span className="text-border">·</span>
-						<span>${stats.totalCost.toFixed(2)} this period</span>
-						<span className="text-border">·</span>
-						<span>{formatTokens(stats.totalTokens)} tokens</span>
-					</div>
-				</div>
-			</div>
-			<AgentModelUsageChart projectId={projectId} />
-			<ModelUsageBreakdown models={stats.modelBreakdown} />
-			<div className="overflow-hidden rounded-xl border">
-				<div className="border-b bg-muted/30 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-					Recent requests
-				</div>
-				<div className="divide-y">
-					{recent.length === 0 ? (
-						<div className="px-4 py-6 text-center text-sm text-muted-foreground">
-							No requests yet.
-						</div>
-					) : (
-						recent.map((log) => (
-							<div
-								key={log.id}
-								className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
-							>
-								<div className="min-w-0 flex-1">
-									<p className="truncate font-mono text-xs text-muted-foreground">
-										{log.usedModel ?? log.requestedModel ?? "—"}
-									</p>
-									<p className="text-xs text-muted-foreground/70">
-										{new Date(log.createdAt).toLocaleString()}
-									</p>
-								</div>
-								<div className="flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
-									<span title="Tokens">
-										<Cpu className="mr-1 inline h-3 w-3" />
-										{Number(log.totalTokens ?? 0).toLocaleString()}
-									</span>
-									<span title="Cost" className="font-medium text-foreground">
-										<Coins className="mr-1 inline h-3 w-3" />$
-										{(log.cost ?? 0).toFixed(4)}
-									</span>
-								</div>
-							</div>
-						))
-					)}
-				</div>
-			</div>
-		</div>
-	);
-}
-
 function AgentsEmpty({ hadError = false }: { hadError?: boolean }) {
 	return (
 		<div className="rounded-xl border bg-card/50 p-8 text-center">
@@ -592,7 +116,7 @@ export default function CodingAgents({
 	orgId: string;
 	projectId: string | null;
 }) {
-	const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+	const router = useRouter();
 	const api = useApi();
 
 	const since = useMemo(() => {
@@ -627,9 +151,6 @@ export default function CodingAgents({
 
 	const allLogs = useMemo(() => data?.logs ?? [], [data]);
 	const agentStats = useMemo(() => computeAgentStats(allLogs), [allLogs]);
-	const selectedStats = selectedAgentId
-		? agentStats.find((s) => s.agent.id === selectedAgentId)
-		: null;
 
 	const totalCost = agentStats.reduce((sum, s) => sum + s.totalCost, 0);
 	const totalRequests = agentStats.reduce((sum, s) => sum + s.requestCount, 0);
@@ -643,7 +164,7 @@ export default function CodingAgents({
 						Per-tool usage, costs, and recent activity from the last 30 days.
 					</p>
 				</div>
-				{!selectedStats && agentStats.length > 0 && (
+				{agentStats.length > 0 && (
 					<div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
 						<span>{agentStats.length} active</span>
 						<span className="text-border">·</span>
@@ -664,12 +185,6 @@ export default function CodingAgents({
 						/>
 					))}
 				</div>
-			) : selectedStats && projectId ? (
-				<AgentDetail
-					stats={selectedStats}
-					onBack={() => setSelectedAgentId(null)}
-					projectId={projectId}
-				/>
 			) : agentStats.length === 0 ? (
 				<AgentsEmpty hadError={!!error} />
 			) : (
@@ -678,7 +193,9 @@ export default function CodingAgents({
 						<AgentCard
 							key={stats.agent.id}
 							stats={stats}
-							onClick={() => setSelectedAgentId(stats.agent.id)}
+							onClick={() =>
+								router.push(`/dashboard/agents/${stats.agent.id}` as never)
+							}
 						/>
 					))}
 				</div>

@@ -22,6 +22,7 @@ import {
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
 } from "@/lib/cached-queries.js";
+import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
 	providerSupportsCachedInput,
@@ -1111,6 +1112,21 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Detect whether the caller marked any content with `cache_control` for an
+	// explicit-cache flow. Providers with a split read rate (e.g., Alibaba: 10%
+	// explicit vs. 20% implicit) consume this flag in calculateCosts to bill
+	// cached read tokens at the right rate.
+	const explicitCacheUsed = messages.some(
+		(m) =>
+			Array.isArray(m.content) &&
+			m.content.some(
+				(part) =>
+					part &&
+					typeof part === "object" &&
+					(part as { cache_control?: unknown }).cache_control !== undefined,
+			),
+	);
+
 	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
@@ -1477,17 +1493,109 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
-			throw new HTTPException(400, {
-				message: "Request blocked by content policy",
-				cause: {
-					type: "guardrail_violation",
-					code: "content_policy_violation",
-					violations: guardrailResult.violations.map((v) => ({
-						rule: v.ruleName,
-						category: v.category,
-					})),
+			const blockedViolations = guardrailResult.violations.map((v) => ({
+				rule_id: v.ruleId,
+				rule_name: v.ruleName,
+				category: v.category,
+				action: v.action,
+			}));
+			const blockedCategories = [
+				...new Set(guardrailResult.violations.map((v) => v.category)),
+			];
+			const blockedRuleIds = guardrailResult.violations.map((v) => v.ruleId);
+			const errorMessage =
+				guardrailResult.violations.length === 1 && guardrailResult.violations[0]
+					? `Request blocked by content policy: ${guardrailResult.violations[0].ruleName} (rule ${guardrailResult.violations[0].ruleId}, category ${guardrailResult.violations[0].category})`
+					: `Request blocked by content policy: ${guardrailResult.violations.length} violations (categories: ${blockedCategories.join(", ")}; rules: ${blockedRuleIds.join(", ")})`;
+
+			// Surface the block in the activity feed as a client_error so users
+			// can see that the gateway rejected their request before any provider
+			// was contacted.
+			try {
+				await insertLogEntry({
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						"",
+						undefined,
+						"llmgateway",
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+					),
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: 400,
+						statusText: "Bad Request",
+						responseText: JSON.stringify({
+							message: errorMessage,
+							violations: blockedViolations,
+						}),
+						cause: "guardrail_violation",
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+
+			// Return the structured violation details directly. HTTPException's
+			// `cause` is dropped by the global error handler, so callers would
+			// otherwise only see the generic message.
+			return c.json(
+				{
+					error: {
+						message: errorMessage,
+						type: "guardrail_violation",
+						param: null,
+						code: "content_policy_violation",
+						violations: blockedViolations,
+					},
 				},
-			});
+				400,
+			);
 		}
 
 		// Apply redactions if any
@@ -1582,11 +1690,13 @@ chat.openapi(completions, async (c) => {
 	// only considers active providers. This prevents a deny rule from being bypassed
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
+	const clientIp = getClientIpFromRequest(c);
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
 		modelInfo.id,
 		requestedProvider,
 		modelInfo,
+		clientIp,
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
@@ -1725,6 +1835,7 @@ chat.openapi(completions, async (c) => {
 				modelDef.id,
 				undefined,
 				modelDef,
+				clientIp,
 			);
 			if (!candidateIam.allowed) {
 				continue;
@@ -1955,6 +2066,7 @@ chat.openapi(completions, async (c) => {
 			modelInfo.id,
 			undefined,
 			modelInfo,
+			clientIp,
 		);
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
@@ -2931,8 +3043,9 @@ chat.openapi(completions, async (c) => {
 	let usedModelMapping = usedModel; // Store the original provider model name
 	let usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
-		usedRegion ? `${baseModelName}:${usedRegion}` : baseModelName,
+		baseModelName,
 		customProviderName,
+		usedRegion,
 	); // Store in LLMGateway format
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
@@ -3549,8 +3662,9 @@ chat.openapi(completions, async (c) => {
 		if (usedRegion) {
 			usedModelFormatted = formatUsedModelForDisplay(
 				usedProvider,
-				`${baseModelName}:${usedRegion}`,
+				baseModelName,
 				customProviderName,
+				usedRegion,
 			);
 		}
 	} catch (error) {
@@ -3751,6 +3865,7 @@ chat.openapi(completions, async (c) => {
 						cacheWriteTokens,
 						cacheWrite1hTokens,
 						audioInputTokens,
+						explicitCacheUsed,
 					},
 				);
 
@@ -3923,6 +4038,7 @@ chat.openapi(completions, async (c) => {
 								?.ephemeral_1h_input_tokens ?? null,
 						audioInputTokens:
 							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
+						explicitCacheUsed,
 					},
 				);
 
@@ -4470,11 +4586,14 @@ chat.openapi(completions, async (c) => {
 				}> = [];
 				const streamStartTime = Date.now();
 
-				// SSE keepalive to prevent proxy/load balancer timeouts
-				// Sends SSE comments (ignored by clients) every 15 seconds to keep connection alive
+				// SSE keepalive to prevent proxy/load balancer timeouts.
+				// Sends a single-newline comment (no trailing blank line) so buggy
+				// SSE parsers (e.g. openai-python <=2.37.0, openai/openai-python#2722)
+				// don't dispatch an empty-data event from a `\n\n` sequence when
+				// last_event_id is already set.
 				const KEEPALIVE_INTERVAL_MS = 15000;
 				const keepaliveInterval = setInterval(() => {
-					stream.write(": ping\n\n").catch(() => {
+					stream.write(": ping\n").catch(() => {
 						// Stream likely closed, cleanup will happen via abort handler or finally
 					});
 				}, KEEPALIVE_INTERVAL_MS);
@@ -4557,7 +4676,7 @@ chat.openapi(completions, async (c) => {
 						image_config?.image_quality,
 						null,
 						null,
-						undefined,
+						{ explicitCacheUsed },
 						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -5563,7 +5682,12 @@ chat.openapi(completions, async (c) => {
 							await writeStreamingContentFilterResponse({
 								billingModel: usedModel,
 								billingProvider: usedProvider,
-								responseModel: `${usedProvider}/${baseModelName}`,
+								responseModel: formatUsedModelForDisplay(
+									usedProvider,
+									baseModelName,
+									customProviderName,
+									usedRegion,
+								),
 								metadata: {
 									requested_model: initialRequestedModel,
 									requested_provider: requestedProvider,
@@ -6387,6 +6511,7 @@ chat.openapi(completions, async (c) => {
 											cacheWrite1hTokens: cacheCreation1hTokens,
 											audioInputTokens,
 											cachedAudioInputTokens,
+											explicitCacheUsed,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -7700,6 +7825,7 @@ chat.openapi(completions, async (c) => {
 											cacheWrite1hTokens: cacheCreation1hTokens,
 											audioInputTokens,
 											cachedAudioInputTokens,
+											explicitCacheUsed,
 										},
 										finishReason === "content_filter",
 									);
@@ -7906,7 +8032,12 @@ chat.openapi(completions, async (c) => {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: Math.floor(Date.now() / 1000),
-									model: usedModel,
+									model: formatUsedModelForDisplay(
+										usedProvider,
+										baseModelName,
+										customProviderName,
+										usedRegion,
+									),
 									choices: [
 										{
 											index: 0,
@@ -8019,6 +8150,7 @@ chat.openapi(completions, async (c) => {
 										cacheWrite1hTokens: cacheCreation1hTokens,
 										audioInputTokens,
 										cachedAudioInputTokens,
+										explicitCacheUsed,
 									},
 									finishReason === "content_filter",
 								));
@@ -9192,7 +9324,12 @@ chat.openapi(completions, async (c) => {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						customProviderName,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -9490,7 +9627,12 @@ chat.openapi(completions, async (c) => {
 						id: `chatcmpl-${Date.now()}`,
 						object: "chat.completion",
 						created: Math.floor(Date.now() / 1000),
-						model: `${usedProvider}/${baseModelName}`,
+						model: formatUsedModelForDisplay(
+							usedProvider,
+							baseModelName,
+							customProviderName,
+							usedRegion,
+						),
 						choices: [
 							{
 								index: 0,
@@ -9807,6 +9949,7 @@ chat.openapi(completions, async (c) => {
 			cacheWrite1hTokens: cacheCreation1hTokens,
 			audioInputTokens,
 			cachedAudioInputTokens,
+			explicitCacheUsed,
 		},
 		finishReason === "content_filter",
 	);

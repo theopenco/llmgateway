@@ -6,6 +6,10 @@ import ChatPageClient from "@/components/playground/chat-page-client";
 import OrgPageClient from "@/components/playground/org-page-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import {
+	CHAT_MODEL_COOKIE,
+	decodeModelPreference,
+} from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Organization, Project } from "@/lib/types";
@@ -42,6 +46,10 @@ export async function renderPlaygroundShell({
 	const orgId = orgShareView?.organizationId ?? searchParams.orgId;
 	const { projectId } = searchParams;
 	let { model } = searchParams;
+	const cookieStore = await cookies();
+	const initialModelPreference = decodeModelPreference(
+		cookieStore.get(CHAT_MODEL_COOKIE)?.value,
+	);
 
 	if (hints === "search" && !model) {
 		model = "google-ai-studio/gemini-3-flash-preview";
@@ -115,7 +123,9 @@ export async function renderPlaygroundShell({
 	const selectedOrganization =
 		(orgId ? organizations.find((o) => o.id === orgId) : null) ?? null;
 
-	if (!initialProjectsData && selectedOrganization?.id) {
+	const projectOrg = selectedOrganization ?? organizations[0] ?? null;
+
+	if (!initialProjectsData && projectOrg?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
 				"GET",
@@ -123,7 +133,7 @@ export async function renderPlaygroundShell({
 				{
 					params: {
 						path: {
-							id: selectedOrganization.id,
+							id: projectOrg.id,
 						},
 					},
 				},
@@ -131,7 +141,7 @@ export async function renderPlaygroundShell({
 		} catch (error) {
 			console.warn(
 				"Failed to fetch projects for organization:",
-				selectedOrganization?.id,
+				projectOrg?.id,
 				error,
 			);
 		}
@@ -149,9 +159,8 @@ export async function renderPlaygroundShell({
 		if (projectId && !selectedProject && projectId.length > 0) {
 			notFound();
 		}
-	} else if (selectedOrganization?.id) {
-		const cookieStore = await cookies();
-		const cookieName = `llmgateway-last-used-project-${selectedOrganization.id}`;
+	} else if (projectOrg?.id) {
+		const cookieName = `llmgateway-last-used-project-${projectOrg.id}`;
 		const lastUsed = cookieStore.get(cookieName)?.value;
 		if (lastUsed) {
 			selectedProject = projects.find((p) => p.id === lastUsed) ?? null;
@@ -172,9 +181,9 @@ export async function renderPlaygroundShell({
 
 	return (
 		<>
-			{selectedOrganization?.id && selectedProject?.id ? (
+			{projectOrg?.id && selectedProject?.id ? (
 				<LastUsedProjectTracker
-					orgId={selectedOrganization.id}
+					orgId={projectOrg.id}
 					projectId={selectedProject.id}
 				/>
 			) : null}
@@ -191,6 +200,7 @@ export async function renderPlaygroundShell({
 				selectedProject={selectedProject}
 				initialPrompt={q}
 				enableWebSearch={hints === "search"}
+				initialModelPreference={initialModelPreference}
 			/>
 		</>
 	);
