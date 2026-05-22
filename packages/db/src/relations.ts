@@ -37,6 +37,14 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.skill.userId,
 		}),
+		imageHistory: r.many.playgroundImageHistory({
+			from: r.user.id,
+			to: r.playgroundImageHistory.userId,
+		}),
+		videoHistory: r.many.playgroundVideoHistory({
+			from: r.user.id,
+			to: r.playgroundVideoHistory.userId,
+		}),
 	},
 	organization: {
 		userOrganizations: r.many.userOrganization(),
@@ -304,6 +312,18 @@ export const relations = defineRelations(schema, (r) => ({
 	skill: {
 		user: r.one.user({
 			from: r.skill.userId,
+			to: r.user.id,
+		}),
+	},
+	playgroundImageHistory: {
+		user: r.one.user({
+			from: r.playgroundImageHistory.userId,
+			to: r.user.id,
+		}),
+	},
+	playgroundVideoHistory: {
+		user: r.one.user({
+			from: r.playgroundVideoHistory.userId,
 			to: r.user.id,
 		}),
 	},
