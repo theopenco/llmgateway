@@ -121,3 +121,32 @@ export async function getOrgCostByModel(orgId: string, window: TokenWindow) {
 	);
 	return data ?? null;
 }
+
+export async function getOrgCostByModelTimeseries(
+	orgId: string,
+	window: TokenWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/organizations/{orgId}/cost-by-model-timeseries",
+		{
+			params: { path: { orgId }, query: { window } },
+		},
+	);
+	return data ?? null;
+}
+
+export async function getProjectCostByModelTimeseries(
+	orgId: string,
+	projectId: string,
+	window: TokenWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/organizations/{orgId}/projects/{projectId}/cost-by-model-timeseries",
+		{
+			params: { path: { orgId, projectId }, query: { window } },
+		},
+	);
+	return data ?? null;
+}
