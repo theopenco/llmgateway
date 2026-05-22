@@ -7149,6 +7149,8 @@ const chatSupportConversationSchema = z.object({
 	messageCount: z.number(),
 	escalatedAt: z.string().nullable(),
 	archivedAt: z.string().nullable(),
+	resolvedAt: z.string().nullable(),
+	rating: z.number().int().min(0).max(5).nullable(),
 	firstMessage: z.string().nullable(),
 });
 
@@ -7163,6 +7165,7 @@ const chatSupportMessageSchema = z.object({
 	role: z.string(),
 	content: z.string(),
 	sequence: z.number(),
+	reaction: z.enum(["like", "dislike"]).nullable(),
 });
 
 const chatSupportConversationDetailSchema = z.object({
@@ -7176,7 +7179,18 @@ const chatSupportConversationDetailSchema = z.object({
 	messageCount: z.number(),
 	escalatedAt: z.string().nullable(),
 	archivedAt: z.string().nullable(),
+	resolvedAt: z.string().nullable(),
+	rating: z.number().int().min(0).max(5).nullable(),
 	messages: z.array(chatSupportMessageSchema),
+});
+
+const chatSupportStatsSchema = z.object({
+	totalRatings: z.number(),
+	averageRating: z.number().nullable(),
+	ratingDistribution: z.record(z.string(), z.number()),
+	resolvedCount: z.number(),
+	likes: z.number(),
+	dislikes: z.number(),
 });
 
 const getChatSupportConversations = createRoute({
@@ -7231,12 +7245,12 @@ admin.openapi(getChatSupportConversations, async (c) => {
 	const where = and(...conditions);
 
 	const firstMessageSubquery = db
-		.select({
+		.selectDistinctOn([mt.conversationId], {
 			conversationId: mt.conversationId,
 			content: mt.content,
 		})
 		.from(mt)
-		.where(and(eq(mt.role, "user"), eq(mt.sequence, 0)))
+		.orderBy(mt.conversationId, asc(mt.sequence))
 		.as("first_msg");
 
 	const [conversations, countResult] = await Promise.all([
@@ -7252,6 +7266,8 @@ admin.openapi(getChatSupportConversations, async (c) => {
 				messageCount: t.messageCount,
 				escalatedAt: t.escalatedAt,
 				archivedAt: t.archivedAt,
+				resolvedAt: t.resolvedAt,
+				rating: t.rating,
 				firstMessage: firstMessageSubquery.content,
 			})
 			.from(t)
@@ -7276,9 +7292,82 @@ admin.openapi(getChatSupportConversations, async (c) => {
 			updatedAt: conv.updatedAt.toISOString(),
 			escalatedAt: conv.escalatedAt?.toISOString() ?? null,
 			archivedAt: conv.archivedAt?.toISOString() ?? null,
+			resolvedAt: conv.resolvedAt?.toISOString() ?? null,
+			rating: conv.rating ?? null,
 			firstMessage: conv.firstMessage ?? null,
 		})),
 		total: Number(countResult[0]?.count ?? 0),
+	});
+});
+
+const getChatSupportStats = createRoute({
+	method: "get",
+	path: "/chat-support-logs/stats",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: chatSupportStatsSchema.openapi({}),
+				},
+			},
+			description: "Aggregate ratings and feedback across all conversations.",
+		},
+	},
+});
+
+admin.openapi(getChatSupportStats, async (c) => {
+	const t = tables.chatSupportConversation;
+	const mt = tables.chatSupportMessage;
+
+	const [ratingRows, reactionRows] = await Promise.all([
+		db
+			.select({ rating: t.rating, count: sql<number>`COUNT(*)`.as("count") })
+			.from(t)
+			.where(isNotNull(t.rating))
+			.groupBy(t.rating),
+		db
+			.select({
+				reaction: mt.reaction,
+				count: sql<number>`COUNT(*)`.as("count"),
+			})
+			.from(mt)
+			.where(isNotNull(mt.reaction))
+			.groupBy(mt.reaction),
+	]);
+
+	const ratingDistribution: Record<string, number> = {};
+	let totalRatings = 0;
+	let ratingSum = 0;
+	for (const row of ratingRows) {
+		const rating = row.rating ?? 0;
+		const count = Number(row.count);
+		ratingDistribution[String(rating)] = count;
+		totalRatings += count;
+		ratingSum += rating * count;
+	}
+
+	let likes = 0;
+	let dislikes = 0;
+	for (const row of reactionRows) {
+		if (row.reaction === "like") {
+			likes = Number(row.count);
+		} else if (row.reaction === "dislike") {
+			dislikes = Number(row.count);
+		}
+	}
+
+	const [resolvedResult] = await db
+		.select({ count: sql<number>`COUNT(*)`.as("count") })
+		.from(t)
+		.where(isNotNull(t.resolvedAt));
+
+	return c.json({
+		totalRatings,
+		averageRating: totalRatings > 0 ? ratingSum / totalRatings : null,
+		ratingDistribution,
+		resolvedCount: Number(resolvedResult?.count ?? 0),
+		likes,
+		dislikes,
 	});
 });
 
@@ -7363,6 +7452,8 @@ admin.openapi(getChatSupportConversation, async (c) => {
 			messageCount: t.messageCount,
 			escalatedAt: t.escalatedAt,
 			archivedAt: t.archivedAt,
+			resolvedAt: t.resolvedAt,
+			rating: t.rating,
 		})
 		.from(t)
 		.where(eq(t.id, id))
@@ -7380,6 +7471,7 @@ admin.openapi(getChatSupportConversation, async (c) => {
 			role: mt.role,
 			content: mt.content,
 			sequence: mt.sequence,
+			reaction: mt.reaction,
 		})
 		.from(mt)
 		.where(eq(mt.conversationId, id))
@@ -7391,6 +7483,8 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		updatedAt: conversation.updatedAt.toISOString(),
 		escalatedAt: conversation.escalatedAt?.toISOString() ?? null,
 		archivedAt: conversation.archivedAt?.toISOString() ?? null,
+		resolvedAt: conversation.resolvedAt?.toISOString() ?? null,
+		rating: conversation.rating ?? null,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),

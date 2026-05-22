@@ -5034,9 +5034,55 @@ export interface paths {
                                 messageCount: number;
                                 escalatedAt: string | null;
                                 archivedAt: string | null;
+                                resolvedAt: string | null;
+                                rating: number | null;
                                 firstMessage: string | null;
                             }[];
                             total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/chat-support-logs/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregate ratings and feedback across all conversations. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            totalRatings: number;
+                            averageRating: number | null;
+                            ratingDistribution: {
+                                [key: string]: number;
+                            };
+                            resolvedCount: number;
+                            likes: number;
+                            dislikes: number;
                         };
                     };
                 };
@@ -5124,12 +5170,16 @@ export interface paths {
                             messageCount: number;
                             escalatedAt: string | null;
                             archivedAt: string | null;
+                            resolvedAt: string | null;
+                            rating: number | null;
                             messages: {
                                 id: string;
                                 createdAt: string;
                                 role: string;
                                 content: string;
                                 sequence: number;
+                                /** @enum {string|null} */
+                                reaction: "like" | "dislike" | null;
                             }[];
                         };
                     };
