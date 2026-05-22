@@ -953,13 +953,6 @@
       "when": 1779297680802,
       "tag": "1779297680_graceful_kate_bishop",
       "breakpoints": true
-    },
-    {
-      "idx": 136,
-      "version": "8",
-      "when": 1779396717023,
-      "tag": "1779396717_first_sabra",
-      "breakpoints": true
     }
   ]
 }
