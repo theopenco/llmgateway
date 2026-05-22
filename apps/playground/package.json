@@ -8,8 +8,8 @@
 		".next"
 	],
 	"scripts": {
-		"build": "pnpm generate && tsc && next build --webpack && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/playground/.next/ && test -d public && cp -r public .next/standalone/apps/playground/",
-		"dev": "next dev --port 3003 --webpack",
+		"build": "pnpm generate && tsc && next build --turbopack && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/playground/.next/ && test -d public && cp -r public .next/standalone/apps/playground/",
+		"dev": "next dev --port 3003 --turbopack",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "eslint . && prettier --check .",
@@ -65,6 +65,7 @@
 		"embla-carousel-react": "8.6.0",
 		"html-to-image": "^1.11.13",
 		"jspdf": "^4.2.1",
+		"katex": "0.16.28",
 		"lucide-react": "0.548.0",
 		"motion": "12.23.24",
 		"nanoid": "5.1.6",
