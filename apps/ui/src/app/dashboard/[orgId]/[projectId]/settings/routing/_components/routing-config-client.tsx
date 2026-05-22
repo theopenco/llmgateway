@@ -3,7 +3,6 @@
 import { RotateCcw, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { ContactSalesCard } from "@/app/dashboard/[orgId]/org/guardrails/contact-sales-card";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -20,6 +19,8 @@ import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { Switch } from "@/lib/components/switch";
 import { useFetchClient } from "@/lib/fetch-client";
+
+import { RoutingContactSalesCard } from "./routing-contact-sales-card";
 
 type NumericFieldGroup = Record<string, number | undefined>;
 
@@ -131,7 +132,7 @@ const TIMEOUT_FIELDS: { key: string; label: string; help: string }[] = [
 
 function emptyState(): RoutingConfigState {
 	return {
-		enabled: true,
+		enabled: false,
 		weights: {},
 		thresholds: {},
 		retry: {},
@@ -265,7 +266,7 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 	}, [defaults]);
 
 	if (!canManage) {
-		return <ContactSalesCard />;
+		return <RoutingContactSalesCard />;
 	}
 
 	const updateGroup = (

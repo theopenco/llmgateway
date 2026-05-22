@@ -256,7 +256,7 @@ routingConfig.openapi(updateConfig, async (c) => {
 		.insert(tables.routingConfig)
 		.values({
 			projectId,
-			enabled: body.enabled ?? true,
+			enabled: body.enabled ?? false,
 			weights: (body.weights ?? null) as RoutingWeightsConfig | null,
 			thresholds: (body.thresholds ?? null) as RoutingThresholdsConfig | null,
 			retry: (body.retry ?? null) as RoutingRetryConfig | null,

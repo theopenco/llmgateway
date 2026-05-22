@@ -1777,7 +1777,7 @@ export const routingConfig = pgTable(
 			.notNull()
 			.references(() => project.id, { onDelete: "cascade" })
 			.unique(),
-		enabled: boolean().default(true).notNull(),
+		enabled: boolean().default(false).notNull(),
 		weights: jsonb().$type<RoutingWeightsConfig>(),
 		thresholds: jsonb().$type<RoutingThresholdsConfig>(),
 		retry: jsonb().$type<RoutingRetryConfig>(),
