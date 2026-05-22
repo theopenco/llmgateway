@@ -15,7 +15,7 @@ function isValidDiscount(discount?: string | null): boolean {
 	if (!discount) {
 		return false;
 	}
-	const n = parseFloat(discount);
+	const n = Number(discount);
 	return Number.isFinite(n) && n > 0 && n <= 1;
 }
 
@@ -79,7 +79,7 @@ export function getEffectiveProviderDiscount(
 }
 
 export function discountFraction(discount?: string | null): number {
-	return isValidDiscount(discount) ? parseFloat(discount!) : 0;
+	return isValidDiscount(discount) ? Number(discount) : 0;
 }
 
 export function applyDiscount(value: number, discount?: string | null): number {

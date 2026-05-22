@@ -78,7 +78,7 @@ describe("model-detail discounts", () => {
 		).toBeCloseTo(2.5);
 	});
 
-	it.each(["1.5", "-0.2", "abc"])(
+	it.each(["1.5", "-0.2", "abc", "0.5abc"])(
 		"ignores the invalid discount %s and keeps base prices",
 		(discountPercent) => {
 			const discounts: DiscountData[] = [
