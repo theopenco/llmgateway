@@ -4633,6 +4633,129 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/organizations/{orgId}/cost-by-model-timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization cost breakdown by model over time. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            /** @enum {string} */
+                            bucket: "hour" | "day";
+                            models: string[];
+                            data: {
+                                timestamp: string;
+                                entries: {
+                                    model: string;
+                                    cost: number;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects/{projectId}/cost-by-model-timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project cost breakdown by model over time. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            /** @enum {string} */
+                            bucket: "hour" | "day";
+                            models: string[];
+                            data: {
+                                timestamp: string;
+                                entries: {
+                                    model: string;
+                                    cost: number;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Project not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/organizations/{orgId}/projects/{projectId}/model-provider-stats": {
         parameters: {
             query?: never;
