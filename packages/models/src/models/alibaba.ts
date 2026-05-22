@@ -1225,6 +1225,8 @@ export const alibabaModels = [
 						inputPrice: "1.7232e-6",
 						outputPrice: "5.169e-6",
 						cachedInputPrice: "0.3446e-6",
+						cacheReadInputPrice: "0.17232e-6",
+						cacheWriteInputPrice: "2.154e-6",
 					},
 				],
 				requestPrice: "0",
