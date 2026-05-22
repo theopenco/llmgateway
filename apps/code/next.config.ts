@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,
+	experimental: {
+		serverSourceMaps: true,
+	},
 	typescript: {
 		ignoreBuildErrors: true,
 	},

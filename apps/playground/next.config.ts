@@ -18,6 +18,7 @@ const nextConfig: NextConfig = {
 			"@radix-ui/react-icons",
 			"date-fns",
 		],
+		serverSourceMaps: true,
 	},
 	serverExternalPackages: [
 		"@resvg/resvg-js",

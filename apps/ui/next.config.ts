@@ -13,6 +13,9 @@ const nextConfig: NextConfig = {
 	reactStrictMode: true,
 	reactCompiler: true,
 	transpilePackages: ["shiki"],
+	experimental: {
+		serverSourceMaps: true,
+	},
 	async redirects() {
 		return [
 			{
