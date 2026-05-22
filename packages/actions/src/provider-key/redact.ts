@@ -19,7 +19,7 @@ export function redactToken(
 	if (!text) {
 		return "";
 	}
-	if (!plaintextToken || plaintextToken.length < 4) {
+	if (!plaintextToken) {
 		return text;
 	}
 	const placeholder = "[REDACTED_TOKEN]";

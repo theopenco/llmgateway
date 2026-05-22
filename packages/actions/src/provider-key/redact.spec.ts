@@ -22,10 +22,15 @@ describe("redactToken", () => {
 		expect(redactToken(undefined, "sk-abc")).toBe("");
 	});
 
-	it("returns the text unchanged when token is empty / too short", () => {
+	it("returns the text unchanged when token is empty / missing", () => {
 		expect(redactToken("anything", "")).toBe("anything");
 		expect(redactToken("anything", null)).toBe("anything");
-		expect(redactToken("anything", "ab")).toBe("anything");
+	});
+
+	it("redacts short tokens too", () => {
+		expect(redactToken("key ab leaked", "ab")).toBe(
+			"key [REDACTED_TOKEN] leaked",
+		);
 	});
 
 	it("handles tokens with regex special characters", () => {
