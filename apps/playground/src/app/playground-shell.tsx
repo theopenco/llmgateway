@@ -181,9 +181,9 @@ export async function renderPlaygroundShell({
 
 	return (
 		<>
-			{selectedOrganization?.id && selectedProject?.id ? (
+			{projectOrg?.id && selectedProject?.id ? (
 				<LastUsedProjectTracker
-					orgId={selectedOrganization.id}
+					orgId={projectOrg.id}
 					projectId={selectedProject.id}
 				/>
 			) : null}

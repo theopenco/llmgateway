@@ -141,6 +141,7 @@ export default function VideoPageClient({
 	const { data: historyData } = useVideoHistory(isAuthenticated);
 	const { mutate: saveVideoHistory } = useSaveVideoHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
+	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
 
 	const galleryItems = useMemo<VideoGalleryItem[]>(() => {
 		const historical: VideoGalleryItem[] = (historyData?.items ?? []).map(
@@ -188,26 +189,54 @@ export default function VideoPageClient({
 		for (const item of done) {
 			savedItemIdsRef.current.add(item.id);
 			if (item.models.some((m) => m.videoUrl !== null)) {
-				saveVideoHistory({
-					body: {
-						prompt: item.prompt,
-						frameInputs: item.frameInputs,
-						referenceImages: item.referenceImages,
-						models: item.models.map((m) => ({
-							modelId: m.modelId,
-							modelName: m.modelName,
-							jobId: m.job?.id ?? null,
-							videoUrl: m.videoUrl,
-							error: m.error,
-						})),
+				saveVideoHistory(
+					{
+						body: {
+							prompt: item.prompt,
+							frameInputs: item.frameInputs,
+							referenceImages: item.referenceImages,
+							models: item.models.map((m) => ({
+								modelId: m.modelId,
+								modelName: m.modelName,
+								jobId: m.job?.id ?? null,
+								videoUrl: m.videoUrl,
+								error: m.error,
+							})),
+						},
 					},
-				});
+					{
+						onSuccess: (data) => {
+							const newId = data.item.id;
+							setSelectedItemId(newId);
+							const params = new URLSearchParams(window.location.search);
+							params.set("id", newId);
+							router.replace(`${pathname}?${params.toString()}`, {
+								scroll: false,
+							});
+							pendingSaveRef.current = { localId: item.id, dbId: newId };
+						},
+						onError: () => {
+							savedItemIdsRef.current.delete(item.id);
+						},
+					},
+				);
+			} else {
+				setActiveItems((prev) => prev.filter((i) => i.id !== item.id));
 			}
 		}
-		setActiveItems((prev) =>
-			prev.filter((item) => !done.some((d) => d.id === item.id)),
-		);
-	}, [activeItems, saveVideoHistory]);
+	}, [activeItems, saveVideoHistory, router, pathname]);
+
+	useEffect(() => {
+		const pending = pendingSaveRef.current;
+		if (!pending) {
+			return;
+		}
+		const found = historyData?.items.some((i) => i.id === pending.dbId);
+		if (found) {
+			setActiveItems((prev) => prev.filter((i) => i.id !== pending.localId));
+			pendingSaveRef.current = null;
+		}
+	}, [historyData]);
 
 	const canUseFrameInputs = useMemo(
 		() =>
@@ -516,12 +545,6 @@ export default function VideoPageClient({
 				end: null,
 			});
 			setReferenceImages([]);
-			const genParams = new URLSearchParams(window.location.search);
-			genParams.delete("id");
-			const genQs = genParams.toString();
-			router.replace(genQs ? `${pathname}?${genQs}` : pathname, {
-				scroll: false,
-			});
 
 			pendingRef.current = selectedModels.length;
 

@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
-import { db, tables, shortid, desc, eq } from "@llmgateway/db";
+import { db, tables, shortid, desc, eq, and } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -297,17 +297,19 @@ playground.openapi(deleteImageHistory, async (c) => {
 
 	const { id } = c.req.valid("param");
 
-	const row = await db.query.playgroundImageHistory.findFirst({
-		where: { id: { eq: id } },
-	});
+	const [deleted] = await db
+		.delete(tables.playgroundImageHistory)
+		.where(
+			and(
+				eq(tables.playgroundImageHistory.id, id),
+				eq(tables.playgroundImageHistory.userId, user.id),
+			),
+		)
+		.returning({ id: tables.playgroundImageHistory.id });
 
-	if (!row || row.userId !== user.id) {
+	if (!deleted) {
 		throw new HTTPException(404, { message: "Not found" });
 	}
-
-	await db
-		.delete(tables.playgroundImageHistory)
-		.where(eq(tables.playgroundImageHistory.id, id));
 
 	return c.json({ message: "Deleted" });
 });
@@ -348,19 +350,20 @@ playground.openapi(renameImageHistory, async (c) => {
 	const { id } = c.req.valid("param");
 	const { prompt } = c.req.valid("json");
 
-	const existing = await db.query.playgroundImageHistory.findFirst({
-		where: { id: { eq: id } },
-	});
-
-	if (!existing || existing.userId !== user.id) {
-		throw new HTTPException(404, { message: "Not found" });
-	}
-
 	const [row] = await db
 		.update(tables.playgroundImageHistory)
 		.set({ prompt })
-		.where(eq(tables.playgroundImageHistory.id, id))
+		.where(
+			and(
+				eq(tables.playgroundImageHistory.id, id),
+				eq(tables.playgroundImageHistory.userId, user.id),
+			),
+		)
 		.returning();
+
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
 
 	return c.json({
 		item: {
@@ -517,17 +520,19 @@ playground.openapi(deleteVideoHistory, async (c) => {
 
 	const { id } = c.req.valid("param");
 
-	const row = await db.query.playgroundVideoHistory.findFirst({
-		where: { id: { eq: id } },
-	});
+	const [deleted] = await db
+		.delete(tables.playgroundVideoHistory)
+		.where(
+			and(
+				eq(tables.playgroundVideoHistory.id, id),
+				eq(tables.playgroundVideoHistory.userId, user.id),
+			),
+		)
+		.returning({ id: tables.playgroundVideoHistory.id });
 
-	if (!row || row.userId !== user.id) {
+	if (!deleted) {
 		throw new HTTPException(404, { message: "Not found" });
 	}
-
-	await db
-		.delete(tables.playgroundVideoHistory)
-		.where(eq(tables.playgroundVideoHistory.id, id));
 
 	return c.json({ message: "Deleted" });
 });
@@ -568,19 +573,20 @@ playground.openapi(renameVideoHistory, async (c) => {
 	const { id } = c.req.valid("param");
 	const { prompt } = c.req.valid("json");
 
-	const existing = await db.query.playgroundVideoHistory.findFirst({
-		where: { id: { eq: id } },
-	});
-
-	if (!existing || existing.userId !== user.id) {
-		throw new HTTPException(404, { message: "Not found" });
-	}
-
 	const [row] = await db
 		.update(tables.playgroundVideoHistory)
 		.set({ prompt })
-		.where(eq(tables.playgroundVideoHistory.id, id))
+		.where(
+			and(
+				eq(tables.playgroundVideoHistory.id, id),
+				eq(tables.playgroundVideoHistory.userId, user.id),
+			),
+		)
 		.returning();
+
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
 
 	return c.json({
 		item: {
