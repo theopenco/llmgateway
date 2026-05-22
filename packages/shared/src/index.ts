@@ -1,6 +1,8 @@
 export {
 	CLAW_FORK_PATTERN,
 	CODING_AGENTS,
+	detectCodingAgentFromReferer,
+	detectCodingAgentFromTitle,
 	getSupportedAgentsList,
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,

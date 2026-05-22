@@ -137,6 +137,8 @@ import {
 	getProviderEnvValue,
 } from "@llmgateway/models";
 import {
+	detectCodingAgentFromReferer,
+	detectCodingAgentFromTitle,
 	getSupportedAgentsList,
 	isChatPlanModelAllowed,
 	isRecognizedCodingAgent,
@@ -1556,8 +1558,27 @@ chat.openapi(completions, async (c) => {
 		source = normalizeSourceToAgentId(source);
 	}
 
-	// If source is still unrecognized (e.g., a non-agent x-source was sent),
-	// fall back to UA detection so legitimate agents aren't blocked by devpass gate.
+	// If source is still unrecognized, try X-Title header
+	if (!source || !isRecognizedCodingAgent(source)) {
+		const fromTitle = detectCodingAgentFromTitle(
+			c.req.header("X-Title") ?? c.req.header("X-OpenRouter-Title"),
+		);
+		if (fromTitle) {
+			source = fromTitle;
+		}
+	}
+
+	// If still unrecognized, try HTTP-Referer pattern matching
+	if (!source || !isRecognizedCodingAgent(source)) {
+		const fromReferer = detectCodingAgentFromReferer(
+			c.req.header("HTTP-Referer"),
+		);
+		if (fromReferer) {
+			source = fromReferer;
+		}
+	}
+
+	// Final fallback: UA detection for unrecognized x-source values
 	if (source && !isRecognizedCodingAgent(source)) {
 		const detectedFromUa = detectCodingAgentFromUserAgent(userAgent);
 		if (detectedFromUa) {

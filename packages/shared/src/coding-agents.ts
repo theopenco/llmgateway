@@ -3,6 +3,8 @@ export interface CodingAgentDefinition {
 	label: string;
 	xSourceValues: string[];
 	userAgentPatterns: RegExp[];
+	titleValues?: string[];
+	refererPatterns?: RegExp[];
 }
 
 export const CODING_AGENTS: CodingAgentDefinition[] = [
@@ -16,7 +18,12 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		id: "codex",
 		label: "Codex CLI",
 		xSourceValues: ["codex"],
-		userAgentPatterns: [/^codex[-_]cli/i, /^codex_cli_rs\//i, /^codex\//i],
+		userAgentPatterns: [
+			/^codex[-_]cli/i,
+			/^codex_cli_rs\//i,
+			/^codex[-_]tui\//i,
+			/^codex\//i,
+		],
 	},
 	{
 		id: "opencode",
@@ -105,8 +112,20 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 	{
 		id: "hermes-agent",
 		label: "Hermes Agent",
-		xSourceValues: ["hermes-agent", "hermes"],
-		userAgentPatterns: [/^hermes[-_]agent\//i, /\bhermes[-_]agent\b/i],
+		xSourceValues: ["hermes-agent", "hermes", "hermes-agent.nousresearch.com"],
+		userAgentPatterns: [
+			/^hermes[-_]agent\//i,
+			/\bhermes[-_]agent\b/i,
+			/^HermesAgent\//i,
+		],
+		titleValues: ["hermes agent"],
+		refererPatterns: [/hermes-agent\.nousresearch\.com/i],
+	},
+	{
+		id: "openai-sdk",
+		label: "OpenAI SDK",
+		xSourceValues: ["openai-sdk"],
+		userAgentPatterns: [/^OpenAI\/Python/i, /^Is\/JS/i],
 	},
 ];
 
@@ -127,6 +146,35 @@ export function isRecognizedCodingAgent(source: string | undefined): boolean {
 		return true;
 	}
 	return CLAW_FORK_PATTERN.test(source);
+}
+
+export function detectCodingAgentFromTitle(
+	title: string | undefined,
+): string | undefined {
+	if (!title) {
+		return undefined;
+	}
+	const normalized = title.toLowerCase().trim();
+	for (const agent of CODING_AGENTS) {
+		if (agent.titleValues?.some((t) => normalized === t)) {
+			return agent.id;
+		}
+	}
+	return undefined;
+}
+
+export function detectCodingAgentFromReferer(
+	referer: string | undefined,
+): string | undefined {
+	if (!referer) {
+		return undefined;
+	}
+	for (const agent of CODING_AGENTS) {
+		if (agent.refererPatterns?.some((p) => p.test(referer))) {
+			return agent.id;
+		}
+	}
+	return undefined;
 }
 
 export function normalizeSourceToAgentId(source: string): string {
