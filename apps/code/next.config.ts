@@ -9,12 +9,6 @@ const nextConfig: NextConfig = {
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,
-	webpack: (config, { isServer }) => {
-		if (isServer) {
-			config.devtool = "source-map";
-		}
-		return config;
-	},
 	typescript: {
 		ignoreBuildErrors: true,
 	},
