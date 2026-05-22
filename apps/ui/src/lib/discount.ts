@@ -8,17 +8,29 @@ export interface DiscountData {
 	createdAt: string;
 }
 
+// Discounts are stored as a 0-1 fraction (e.g. "0.5" = 50% off). Values outside
+// (0, 1] are treated as invalid data and ignored to avoid negative or inflated
+// prices.
+function isValidDiscount(discount?: string | null): boolean {
+	if (!discount) {
+		return false;
+	}
+	const n = parseFloat(discount);
+	return Number.isFinite(n) && n > 0 && n <= 1;
+}
+
 export function getBestDiscount(
 	discounts: DiscountData[],
 	modelId: string,
 ): DiscountData | null {
+	const valid = discounts.filter((d) => isValidDiscount(d.discountPercent));
 	// Precedence: model-specific > fully global
-	const modelSpecific = discounts.find((d) => d.model === modelId);
+	const modelSpecific = valid.find((d) => d.model === modelId);
 	if (modelSpecific) {
 		return modelSpecific;
 	}
 
-	const fullyGlobal = discounts.find(
+	const fullyGlobal = valid.find(
 		(d) => d.provider === null && d.model === null,
 	);
 	if (fullyGlobal) {
@@ -33,29 +45,30 @@ export function getEffectiveProviderDiscount(
 	providerId: string,
 	modelId: string,
 ): string | undefined {
+	const valid = discounts.filter((d) => isValidDiscount(d.discountPercent));
 	// Precedence: provider+model > provider > model > fully global
-	const providerModel = discounts.find(
+	const providerModel = valid.find(
 		(d) => d.provider === providerId && d.model === modelId,
 	);
 	if (providerModel) {
 		return providerModel.discountPercent;
 	}
 
-	const providerOnly = discounts.find(
+	const providerOnly = valid.find(
 		(d) => d.provider === providerId && d.model === null,
 	);
 	if (providerOnly) {
 		return providerOnly.discountPercent;
 	}
 
-	const modelOnly = discounts.find(
+	const modelOnly = valid.find(
 		(d) => d.provider === null && d.model === modelId,
 	);
 	if (modelOnly) {
 		return modelOnly.discountPercent;
 	}
 
-	const fullyGlobal = discounts.find(
+	const fullyGlobal = valid.find(
 		(d) => d.provider === null && d.model === null,
 	);
 	if (fullyGlobal) {
@@ -65,13 +78,8 @@ export function getEffectiveProviderDiscount(
 	return undefined;
 }
 
-// Discounts are stored as a 0-1 fraction (e.g. "0.5" = 50% off).
 export function discountFraction(discount?: string | null): number {
-	if (!discount) {
-		return 0;
-	}
-	const n = parseFloat(discount);
-	return Number.isFinite(n) && n > 0 ? n : 0;
+	return isValidDiscount(discount) ? parseFloat(discount!) : 0;
 }
 
 export function applyDiscount(value: number, discount?: string | null): number {

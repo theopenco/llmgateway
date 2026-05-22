@@ -77,4 +77,25 @@ describe("model-detail discounts", () => {
 			applyDiscount(perMillion(alibaba.inputPrice)!, discount),
 		).toBeCloseTo(2.5);
 	});
+
+	it.each(["1.5", "-0.2", "abc"])(
+		"ignores the invalid discount %s and keeps base prices",
+		(discountPercent) => {
+			const discounts: DiscountData[] = [
+				{ ...fiftyPercentOff, discountPercent },
+			];
+
+			expect(
+				getEffectiveProviderDiscount(discounts, "alibaba", "qwen37-max"),
+			).toBeUndefined();
+			expect(getBestDiscount(discounts, "qwen37-max")).toBeNull();
+
+			expect(
+				applyDiscount(perMillion(alibaba.inputPrice)!, discountPercent),
+			).toBeCloseTo(2.5);
+			expect(
+				applyDiscount(Number(alibaba.webSearchPrice), discountPercent),
+			).toBeCloseTo(0.01);
+		},
+	);
 });

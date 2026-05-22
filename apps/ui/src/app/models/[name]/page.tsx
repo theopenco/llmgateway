@@ -47,8 +47,6 @@ interface PageProps {
 	params: Promise<{ name: string }>;
 }
 
-// Revalidate so admin-configured global discounts propagate to this
-// statically-generated page within a minute.
 export const revalidate = 60;
 
 export default async function ModelPage({ params }: PageProps) {
