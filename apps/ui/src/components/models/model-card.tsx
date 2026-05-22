@@ -938,20 +938,64 @@ export function ProviderSection({
 						{!isImageGen &&
 							activeMapping.requestPrice !== null &&
 							activeMapping.requestPrice !== undefined &&
-							parseFloat(activeMapping.requestPrice) > 0 && (
-								<span>
-									+ ${parseFloat(activeMapping.requestPrice).toFixed(3)}
-									<span className="text-muted-foreground/60"> per request</span>
-								</span>
-							)}
+							parseFloat(activeMapping.requestPrice) > 0 &&
+							(() => {
+								const original = parseFloat(activeMapping.requestPrice);
+								const discountNum = activeMapping.discount
+									? parseFloat(activeMapping.discount)
+									: 0;
+								return (
+									<span>
+										+{" "}
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground/60 mr-1">
+													${original.toFixed(3)}
+												</span>
+												<span className="text-green-600 font-semibold">
+													${(original * (1 - discountNum)).toFixed(3)}
+												</span>
+											</>
+										) : (
+											`$${original.toFixed(3)}`
+										)}
+										<span className="text-muted-foreground/60">
+											{" "}
+											per request
+										</span>
+									</span>
+								);
+							})()}
 						{activeMapping.webSearchPrice !== null &&
 							activeMapping.webSearchPrice !== undefined &&
-							parseFloat(activeMapping.webSearchPrice) > 0 && (
-								<span>
-									+ ${parseFloat(activeMapping.webSearchPrice).toFixed(3)}
-									<span className="text-muted-foreground/60"> per search</span>
-								</span>
-							)}
+							parseFloat(activeMapping.webSearchPrice) > 0 &&
+							(() => {
+								const original = parseFloat(activeMapping.webSearchPrice);
+								const discountNum = activeMapping.discount
+									? parseFloat(activeMapping.discount)
+									: 0;
+								return (
+									<span>
+										+{" "}
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground/60 mr-1">
+													${original.toFixed(3)}
+												</span>
+												<span className="text-green-600 font-semibold">
+													${(original * (1 - discountNum)).toFixed(3)}
+												</span>
+											</>
+										) : (
+											`$${original.toFixed(3)}`
+										)}
+										<span className="text-muted-foreground/60">
+											{" "}
+											per search
+										</span>
+									</span>
+								);
+							})()}
 					</div>
 				) : null}
 

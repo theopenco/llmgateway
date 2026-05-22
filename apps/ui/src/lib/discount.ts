@@ -1,0 +1,90 @@
+export interface DiscountData {
+	id: string;
+	provider: string | null;
+	model: string | null;
+	discountPercent: string;
+	reason: string | null;
+	expiresAt: string | null;
+	createdAt: string;
+}
+
+export function getBestDiscount(
+	discounts: DiscountData[],
+	modelId: string,
+): DiscountData | null {
+	// Precedence: model-specific > fully global
+	const modelSpecific = discounts.find((d) => d.model === modelId);
+	if (modelSpecific) {
+		return modelSpecific;
+	}
+
+	const fullyGlobal = discounts.find(
+		(d) => d.provider === null && d.model === null,
+	);
+	if (fullyGlobal) {
+		return fullyGlobal;
+	}
+
+	return null;
+}
+
+export function getEffectiveProviderDiscount(
+	discounts: DiscountData[],
+	providerId: string,
+	modelId: string,
+): string | undefined {
+	// Precedence: provider+model > provider > model > fully global
+	const providerModel = discounts.find(
+		(d) => d.provider === providerId && d.model === modelId,
+	);
+	if (providerModel) {
+		return providerModel.discountPercent;
+	}
+
+	const providerOnly = discounts.find(
+		(d) => d.provider === providerId && d.model === null,
+	);
+	if (providerOnly) {
+		return providerOnly.discountPercent;
+	}
+
+	const modelOnly = discounts.find(
+		(d) => d.provider === null && d.model === modelId,
+	);
+	if (modelOnly) {
+		return modelOnly.discountPercent;
+	}
+
+	const fullyGlobal = discounts.find(
+		(d) => d.provider === null && d.model === null,
+	);
+	if (fullyGlobal) {
+		return fullyGlobal.discountPercent;
+	}
+
+	return undefined;
+}
+
+// Discounts are stored as a 0-1 fraction (e.g. "0.5" = 50% off).
+export function discountFraction(discount?: string | null): number {
+	if (!discount) {
+		return 0;
+	}
+	const n = parseFloat(discount);
+	return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function applyDiscount(value: number, discount?: string | null): number {
+	return value * (1 - discountFraction(discount));
+}
+
+// Converts a per-token price (e.g. "2.5e-6") to a per-million-token price.
+export function perMillion(
+	price: string | number | null | undefined,
+): number | null {
+	if (price === null || price === undefined || price === "") {
+		return null;
+	}
+	const n = typeof price === "number" ? price : parseFloat(price);
+	return Number.isFinite(n) ? n * 1e6 : null;
+}

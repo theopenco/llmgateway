@@ -2,15 +2,9 @@ import { Percent } from "lucide-react";
 
 import { Countdown } from "@/components/countdown";
 
-export interface DiscountData {
-	id: string;
-	provider: string | null;
-	model: string | null;
-	discountPercent: string;
-	reason: string | null;
-	expiresAt: string | null;
-	createdAt: string;
-}
+import type { DiscountData } from "@/lib/discount";
+
+export type { DiscountData };
 
 interface GlobalDiscountBannerProps {
 	discount: DiscountData | null;
