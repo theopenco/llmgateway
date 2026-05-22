@@ -7,6 +7,7 @@ import {
 } from "react-tweet";
 import { fetchTweet, type Tweet } from "react-tweet/api";
 
+import { ErrorBoundary } from "@/lib/components/error-boundary";
 import { cn } from "@/lib/utils";
 
 interface TwitterIconProps {
@@ -283,30 +284,24 @@ export const MagicTweet = ({
 	);
 };
 
-/**
- * TweetCard (Server Side Only)
- */
-export const TweetCard = async ({
+const TweetCardInner = async ({
 	id,
 	components,
-	fallback = <TweetSkeleton />,
 	onError,
 	...props
 }: TweetProps & {
 	className?: string;
 }) => {
-	let tweet: Tweet | undefined;
+	const NotFound = components?.TweetNotFound ?? TweetNotFound;
 
 	if (!id) {
-		const NotFound = components?.TweetNotFound ?? TweetNotFound;
 		return <NotFound {...props} />;
 	}
 
+	let tweet: Tweet | undefined;
 	try {
 		const result = await fetchTweet(id);
-		if (result.tombstone || result.notFound || !result.data?.user) {
-			tweet = undefined;
-		} else {
+		if (!result.tombstone && !result.notFound && result.data?.user) {
 			tweet = normalizeTweetEntities(result.data);
 		}
 	} catch (err) {
@@ -315,17 +310,33 @@ export const TweetCard = async ({
 		} else {
 			console.error("Failed to fetch tweet:", err);
 		}
-		tweet = undefined;
 	}
 
 	if (!tweet) {
-		const NotFound = components?.TweetNotFound ?? TweetNotFound;
 		return <NotFound {...props} />;
 	}
 
+	return <MagicTweet tweet={tweet} {...props} />;
+};
+
+/**
+ * TweetCard (Server Side Only)
+ *
+ * Wraps the async inner component in an ErrorBoundary so a failed tweet
+ * fetch or render falls back to TweetNotFound instead of crashing the page.
+ */
+export const TweetCard = ({
+	fallback = <TweetSkeleton />,
+	...props
+}: TweetProps & {
+	className?: string;
+}) => {
+	const NotFound = props.components?.TweetNotFound ?? TweetNotFound;
 	return (
-		<Suspense fallback={fallback}>
-			<MagicTweet tweet={tweet} {...props} />
-		</Suspense>
+		<ErrorBoundary fallback={<NotFound className={props.className} />}>
+			<Suspense fallback={fallback}>
+				<TweetCardInner {...props} />
+			</Suspense>
+		</ErrorBoundary>
 	);
 };
