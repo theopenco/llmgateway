@@ -1493,15 +1493,90 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
+			const blockedViolations = guardrailResult.violations.map((v) => ({
+				rule: v.ruleName,
+				category: v.category,
+			}));
+
+			// Surface the block in the activity feed as a client_error so users
+			// can see that the gateway rejected their request before any provider
+			// was contacted.
+			try {
+				await insertLogEntry({
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						"",
+						undefined,
+						"llmgateway",
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+					),
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: 400,
+						statusText: "Bad Request",
+						responseText: JSON.stringify({
+							message: "Request blocked by content policy",
+							violations: blockedViolations,
+						}),
+						cause: "guardrail_violation",
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+
 			throw new HTTPException(400, {
 				message: "Request blocked by content policy",
 				cause: {
 					type: "guardrail_violation",
 					code: "content_policy_violation",
-					violations: guardrailResult.violations.map((v) => ({
-						rule: v.ruleName,
-						category: v.category,
-					})),
+					violations: blockedViolations,
 				},
 			});
 		}
