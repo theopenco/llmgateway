@@ -6347,6 +6347,37 @@ function getBucketUnitForWindow(window: string): "hour" | "day" {
 	return "day";
 }
 
+function formatBucketTimestamp(date: Date): string {
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}Z`;
+}
+
+function truncateToBucket(date: Date, unit: "hour" | "day"): Date {
+	const truncated = new Date(date);
+	truncated.setUTCMilliseconds(0);
+	truncated.setUTCSeconds(0);
+	truncated.setUTCMinutes(0);
+	if (unit === "day") {
+		truncated.setUTCHours(0);
+	}
+	return truncated;
+}
+
+function generateBucketTimestamps(
+	start: Date,
+	end: Date,
+	unit: "hour" | "day",
+): string[] {
+	const buckets: string[] = [];
+	const stepMs = unit === "hour" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+	const startBucket = truncateToBucket(start, unit);
+	const endBucket = truncateToBucket(end, unit);
+	for (let t = startBucket.getTime(); t <= endBucket.getTime(); t += stepMs) {
+		buckets.push(formatBucketTimestamp(new Date(t)));
+	}
+	return buckets;
+}
+
 const getOrgCostByModelTimeseries = createRoute({
 	method: "get",
 	path: "/organizations/{orgId}/cost-by-model-timeseries",
@@ -6472,17 +6503,23 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 		bucketMap.set(ts, entry);
 	}
 
-	const data = Array.from(bucketMap.entries())
-		.sort(([a], [b]) => a.localeCompare(b))
-		.map(([timestamp, models]) => ({
-			timestamp,
-			entries: Array.from(models.entries()).map(([model, v]) => ({
+	const allBuckets = generateBucketTimestamps(
+		startDate,
+		new Date(),
+		bucketUnit,
+	);
+
+	const data = allBuckets.map((timestamp) => ({
+		timestamp,
+		entries: Array.from(bucketMap.get(timestamp)?.entries() ?? []).map(
+			([model, v]) => ({
 				model,
 				cost: v.cost,
 				requestCount: v.requestCount,
 				totalTokens: v.totalTokens,
-			})),
-		}));
+			}),
+		),
+	}));
 
 	return c.json({
 		window,
