@@ -6429,7 +6429,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 		});
 	}
 
-	const bucketExpr = sql<string>`to_char(date_trunc(${bucketUnit}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 
 	const rows = await db
 		.select({
