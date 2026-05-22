@@ -30,6 +30,9 @@ export function Header() {
 						<Link href="/coding-models">Models</Link>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
+						<Link href="/guides">Guides</Link>
+					</Button>
+					<Button variant="ghost" size="sm" asChild>
 						<Link href="/pricing">Pricing</Link>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
@@ -70,6 +73,13 @@ export function Header() {
 						onClick={() => setMenuOpen(false)}
 					>
 						Models
+					</Link>
+					<Link
+						href="/guides"
+						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+						onClick={() => setMenuOpen(false)}
+					>
+						Guides
 					</Link>
 					<Link
 						href="/pricing"

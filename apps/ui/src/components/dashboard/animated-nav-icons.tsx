@@ -148,6 +148,30 @@ export function AnimatedSettings({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// KeySquare — key body jiggles, square head pulses
+export function AnimatedKeySquare({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<motion.path
+				d="M12.4 2.7c.9-.9 2.5-.9 3.4 0l5.5 5.5c.9.9.9 2.5 0 3.4l-3.7 3.7c-.9.9-2.5.9-3.4 0L8.7 9.8c-.9-.9-.9-2.5 0-3.4z"
+				initial={false}
+				animate={isHovered ? { scale: [1, 1.12, 1] } : { scale: 1 }}
+				transition={{ duration: 0.4, ease: "easeInOut" }}
+				style={{ transformOrigin: "15px 8px" }}
+			/>
+			<motion.g
+				initial={false}
+				animate={isHovered ? { rotate: [0, -6, 4, -2, 0] } : { rotate: 0 }}
+				transition={{ duration: 0.5, ease: "easeInOut" }}
+				style={{ transformOrigin: "12px 12px" }}
+			>
+				<path d="m14 7 3 3" />
+				<path d="m9.4 10.6-6.814 6.814A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814" />
+			</motion.g>
+		</svg>
+	);
+}
+
 // KeyRound — key body jiggles, dot pulses
 export function AnimatedKeyRound({ isHovered }: AnimatedIconProps) {
 	return (

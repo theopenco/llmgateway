@@ -12,9 +12,13 @@ import { getErrorMessage } from "@/lib/utils";
 
 interface ForkChatButtonProps {
 	shareId: string;
+	contained?: boolean;
 }
 
-export function ForkChatButton({ shareId }: ForkChatButtonProps) {
+export function ForkChatButton({
+	shareId,
+	contained = false,
+}: ForkChatButtonProps) {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -74,7 +78,13 @@ export function ForkChatButton({ shareId }: ForkChatButtonProps) {
 				: "Fork chat";
 
 	return (
-		<div className="pointer-events-none fixed inset-x-0 bottom-6 z-20 flex justify-center px-4">
+		<div
+			className={
+				contained
+					? "pointer-events-none sticky bottom-6 z-20 flex justify-center px-4 pb-6"
+					: "pointer-events-none fixed inset-x-0 bottom-6 z-20 flex justify-center px-4"
+			}
+		>
 			<Button
 				type="button"
 				size="lg"

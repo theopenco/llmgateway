@@ -37,6 +37,24 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps Vertex Anthropic finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("end_turn", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("stop_sequence", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("max_tokens", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_use", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("refusal", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
 	it("maps Google AI Studio finish reasons correctly (original Google format)", () => {
 		expect(getUnifiedFinishReason("STOP", "google-ai-studio")).toBe(
 			UnifiedFinishReason.COMPLETED,

@@ -22,11 +22,16 @@ import {
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
 } from "@/lib/cached-queries.js";
+import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import {
+	getGcpAccessToken,
+	getVertexAnthropicProjectId,
+} from "@/lib/gcp-token.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
@@ -49,6 +54,7 @@ import {
 	createStreamingCombinedSignal,
 	isTimeoutError,
 } from "@/lib/timeout-config.js";
+import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -179,6 +185,11 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+
+const _derivedProjectId = getVertexAnthropicProjectId();
+if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
+	process.env.LLM_VERTEX_ANTHROPIC_PROJECT = _derivedProjectId;
+}
 
 /**
  * Filter expanded region entries to only those with available API keys.
@@ -590,7 +601,12 @@ function usesGoogleQueryToken(provider: string): boolean {
 }
 
 function isGoogleCompatibleProvider(provider: string): boolean {
-	return usesGoogleQueryToken(provider);
+	return (
+		provider === "google-ai-studio" ||
+		provider === "glacier" ||
+		provider === "google-vertex" ||
+		provider === "quartz"
+	);
 }
 
 // Pre-compiled regex pattern to avoid recompilation per request
@@ -1096,6 +1112,21 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Detect whether the caller marked any content with `cache_control` for an
+	// explicit-cache flow. Providers with a split read rate (e.g., Alibaba: 10%
+	// explicit vs. 20% implicit) consume this flag in calculateCosts to bill
+	// cached read tokens at the right rate.
+	const explicitCacheUsed = messages.some(
+		(m) =>
+			Array.isArray(m.content) &&
+			m.content.some(
+				(part) =>
+					part &&
+					typeof part === "object" &&
+					(part as { cache_control?: unknown }).cache_control !== undefined,
+			),
+	);
+
 	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
@@ -1462,17 +1493,109 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
-			throw new HTTPException(400, {
-				message: "Request blocked by content policy",
-				cause: {
-					type: "guardrail_violation",
-					code: "content_policy_violation",
-					violations: guardrailResult.violations.map((v) => ({
-						rule: v.ruleName,
-						category: v.category,
-					})),
+			const blockedViolations = guardrailResult.violations.map((v) => ({
+				rule_id: v.ruleId,
+				rule_name: v.ruleName,
+				category: v.category,
+				action: v.action,
+			}));
+			const blockedCategories = [
+				...new Set(guardrailResult.violations.map((v) => v.category)),
+			];
+			const blockedRuleIds = guardrailResult.violations.map((v) => v.ruleId);
+			const errorMessage =
+				guardrailResult.violations.length === 1 && guardrailResult.violations[0]
+					? `Request blocked by content policy: ${guardrailResult.violations[0].ruleName} (rule ${guardrailResult.violations[0].ruleId}, category ${guardrailResult.violations[0].category})`
+					: `Request blocked by content policy: ${guardrailResult.violations.length} violations (categories: ${blockedCategories.join(", ")}; rules: ${blockedRuleIds.join(", ")})`;
+
+			// Surface the block in the activity feed as a client_error so users
+			// can see that the gateway rejected their request before any provider
+			// was contacted.
+			try {
+				await insertLogEntry({
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						"",
+						undefined,
+						"llmgateway",
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+					),
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: 400,
+						statusText: "Bad Request",
+						responseText: JSON.stringify({
+							message: errorMessage,
+							violations: blockedViolations,
+						}),
+						cause: "guardrail_violation",
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+
+			// Return the structured violation details directly. HTTPException's
+			// `cause` is dropped by the global error handler, so callers would
+			// otherwise only see the generic message.
+			return c.json(
+				{
+					error: {
+						message: errorMessage,
+						type: "guardrail_violation",
+						param: null,
+						code: "content_policy_violation",
+						violations: blockedViolations,
+					},
 				},
-			});
+				400,
+			);
 		}
 
 		// Apply redactions if any
@@ -1567,11 +1690,13 @@ chat.openapi(completions, async (c) => {
 	// only considers active providers. This prevents a deny rule from being bypassed
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
+	const clientIp = getClientIpFromRequest(c);
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
 		modelInfo.id,
 		requestedProvider,
 		modelInfo,
+		clientIp,
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
@@ -1710,6 +1835,7 @@ chat.openapi(completions, async (c) => {
 				modelDef.id,
 				undefined,
 				modelDef,
+				clientIp,
 			);
 			if (!candidateIam.allowed) {
 				continue;
@@ -1940,6 +2066,7 @@ chat.openapi(completions, async (c) => {
 			modelInfo.id,
 			undefined,
 			modelInfo,
+			clientIp,
 		);
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
@@ -2916,8 +3043,9 @@ chat.openapi(completions, async (c) => {
 	let usedModelMapping = usedModel; // Store the original provider model name
 	let usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
-		usedRegion ? `${baseModelName}:${usedRegion}` : baseModelName,
+		baseModelName,
 		customProviderName,
+		usedRegion,
 	); // Store in LLMGateway format
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
@@ -3180,6 +3308,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	if (usedProvider === "vertex-anthropic") {
+		const gcpToken = await getGcpAccessToken();
+		if (gcpToken) {
+			usedToken = gcpToken;
+		}
+	}
+
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
 		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
@@ -3305,6 +3440,20 @@ chat.openapi(completions, async (c) => {
 
 	usedApiKeyHash = getApiKeyFingerprint(usedToken);
 	routingMetadata = withUsedApiKeyHash(routingMetadata, usedApiKeyHash);
+
+	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
+	// derived from the configured service account JSON. The SA JSON is the
+	// long-lived credential (kept in usedApiKeyHash above for health tracking)
+	// while the short-lived access token is what travels in the Authorization
+	// header — so swap usedToken here so downstream header builders just work.
+	// Read the env var directly to bypass round-robin comma-splitting (an SA
+	// JSON value contains commas and would otherwise be truncated).
+	if (usedProvider === "vertex-openai") {
+		const fullSaJson = providerKey
+			? usedToken
+			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
+		usedToken = await getVertexOpenAIAccessToken(fullSaJson);
+	}
 
 	const contentFilterBlocked =
 		contentFilterMode === "enabled" &&
@@ -3513,8 +3662,9 @@ chat.openapi(completions, async (c) => {
 		if (usedRegion) {
 			usedModelFormatted = formatUsedModelForDisplay(
 				usedProvider,
-				`${baseModelName}:${usedRegion}`,
+				baseModelName,
 				customProviderName,
+				usedRegion,
 			);
 		}
 	} catch (error) {
@@ -3715,6 +3865,7 @@ chat.openapi(completions, async (c) => {
 						cacheWriteTokens,
 						cacheWrite1hTokens,
 						audioInputTokens,
+						explicitCacheUsed,
 					},
 				);
 
@@ -3887,6 +4038,7 @@ chat.openapi(completions, async (c) => {
 								?.ephemeral_1h_input_tokens ?? null,
 						audioInputTokens:
 							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
+						explicitCacheUsed,
 					},
 				);
 
@@ -4086,7 +4238,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Anthropic does not allow temperature and top_p to be set simultaneously
-	if (usedProvider === "anthropic") {
+	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -4434,11 +4586,14 @@ chat.openapi(completions, async (c) => {
 				}> = [];
 				const streamStartTime = Date.now();
 
-				// SSE keepalive to prevent proxy/load balancer timeouts
-				// Sends SSE comments (ignored by clients) every 15 seconds to keep connection alive
+				// SSE keepalive to prevent proxy/load balancer timeouts.
+				// Sends a single-newline comment (no trailing blank line) so buggy
+				// SSE parsers (e.g. openai-python <=2.37.0, openai/openai-python#2722)
+				// don't dispatch an empty-data event from a `\n\n` sequence when
+				// last_event_id is already set.
 				const KEEPALIVE_INTERVAL_MS = 15000;
 				const keepaliveInterval = setInterval(() => {
-					stream.write(": ping\n\n").catch(() => {
+					stream.write(": ping\n").catch(() => {
 						// Stream likely closed, cleanup will happen via abort handler or finally
 					});
 				}, KEEPALIVE_INTERVAL_MS);
@@ -4521,7 +4676,7 @@ chat.openapi(completions, async (c) => {
 						image_config?.image_quality,
 						null,
 						null,
-						undefined,
+						{ explicitCacheUsed },
 						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -5525,7 +5680,12 @@ chat.openapi(completions, async (c) => {
 							await writeStreamingContentFilterResponse({
 								billingModel: usedModel,
 								billingProvider: usedProvider,
-								responseModel: `${usedProvider}/${baseModelName}`,
+								responseModel: formatUsedModelForDisplay(
+									usedProvider,
+									baseModelName,
+									customProviderName,
+									usedRegion,
+								),
 								metadata: {
 									requested_model: initialRequestedModel,
 									requested_provider: requestedProvider,
@@ -5950,7 +6110,8 @@ chat.openapi(completions, async (c) => {
 				const shouldBufferForHealing =
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
-						(usedProvider === "anthropic" &&
+						((usedProvider === "anthropic" ||
+							usedProvider === "vertex-anthropic") &&
 							response_format?.type === "json_object") ||
 						(usedProvider === "aws-bedrock" &&
 							response_format?.type === "json_object") ||
@@ -6348,6 +6509,7 @@ chat.openapi(completions, async (c) => {
 											cacheWrite1hTokens: cacheCreation1hTokens,
 											audioInputTokens,
 											cachedAudioInputTokens,
+											explicitCacheUsed,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -6760,7 +6922,11 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// For Anthropic, if we have partial usage data, complete it
-								if (usedProvider === "anthropic" && transformedData.usage) {
+								if (
+									(usedProvider === "anthropic" ||
+										usedProvider === "vertex-anthropic") &&
+									transformedData.usage
+								) {
 									const usage = transformedData.usage;
 									if (
 										usage.output_tokens !== undefined &&
@@ -6830,7 +6996,10 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
 								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
-								if (usedProvider === "anthropic") {
+								if (
+									usedProvider === "anthropic" ||
+									usedProvider === "vertex-anthropic"
+								) {
 									const toolCalls =
 										transformedData.choices?.[0]?.delta?.tool_calls;
 									if (toolCalls && toolCalls.length > 0) {
@@ -6957,7 +7126,8 @@ chat.openapi(completions, async (c) => {
 								// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 								const contentChunk = extractContent(
 									isGoogleCompatibleProvider(usedProvider) ||
-										usedProvider === "anthropic"
+										usedProvider === "anthropic" ||
+										usedProvider === "vertex-anthropic"
 										? data
 										: transformedData,
 									usedProvider,
@@ -6988,7 +7158,10 @@ chat.openapi(completions, async (c) => {
 
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
-								if (usedProvider === "anthropic") {
+								if (
+									usedProvider === "anthropic" ||
+									usedProvider === "vertex-anthropic"
+								) {
 									// For Anthropic, count web_search_tool_result blocks
 									if (
 										data.type === "content_block_start" &&
@@ -7029,7 +7202,8 @@ chat.openapi(completions, async (c) => {
 								// use raw data. For others, use transformed OpenAI format.
 								const reasoningContentChunk = extractReasoning(
 									isGoogleCompatibleProvider(usedProvider) ||
-										usedProvider === "anthropic"
+										usedProvider === "anthropic" ||
+										usedProvider === "vertex-anthropic"
 										? data
 										: transformedData,
 									usedProvider,
@@ -7057,7 +7231,8 @@ chat.openapi(completions, async (c) => {
 
 										// For Anthropic content_block_delta events, match by content block index
 										if (
-											usedProvider === "anthropic" &&
+											(usedProvider === "anthropic" ||
+												usedProvider === "vertex-anthropic") &&
 											newCall._contentBlockIndex !== undefined
 										) {
 											existingCall =
@@ -7102,6 +7277,7 @@ chat.openapi(completions, async (c) => {
 										}
 										break;
 									case "anthropic":
+									case "vertex-anthropic":
 										if (
 											data.type === "message_delta" &&
 											data.delta?.stop_reason
@@ -7647,6 +7823,7 @@ chat.openapi(completions, async (c) => {
 											cacheWrite1hTokens: cacheCreation1hTokens,
 											audioInputTokens,
 											cachedAudioInputTokens,
+											explicitCacheUsed,
 										},
 										finishReason === "content_filter",
 									);
@@ -7853,7 +8030,12 @@ chat.openapi(completions, async (c) => {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: Math.floor(Date.now() / 1000),
-									model: usedModel,
+									model: formatUsedModelForDisplay(
+										usedProvider,
+										baseModelName,
+										customProviderName,
+										usedRegion,
+									),
 									choices: [
 										{
 											index: 0,
@@ -7966,6 +8148,7 @@ chat.openapi(completions, async (c) => {
 										cacheWrite1hTokens: cacheCreation1hTokens,
 										audioInputTokens,
 										cachedAudioInputTokens,
+										explicitCacheUsed,
 									},
 									finishReason === "content_filter",
 								));
@@ -9137,7 +9320,12 @@ chat.openapi(completions, async (c) => {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						customProviderName,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -9435,7 +9623,12 @@ chat.openapi(completions, async (c) => {
 						id: `chatcmpl-${Date.now()}`,
 						object: "chat.completion",
 						created: Math.floor(Date.now() / 1000),
-						model: `${usedProvider}/${baseModelName}`,
+						model: formatUsedModelForDisplay(
+							usedProvider,
+							baseModelName,
+							customProviderName,
+							usedRegion,
+						),
 						choices: [
 							{
 								index: 0,
@@ -9652,7 +9845,7 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
-			(usedProvider === "anthropic" &&
+			((usedProvider === "anthropic" || usedProvider === "vertex-anthropic") &&
 				response_format?.type === "json_object") ||
 			(usedProvider === "aws-bedrock" &&
 				response_format?.type === "json_object") ||
@@ -9752,6 +9945,7 @@ chat.openapi(completions, async (c) => {
 			cacheWrite1hTokens: cacheCreation1hTokens,
 			audioInputTokens,
 			cachedAudioInputTokens,
+			explicitCacheUsed,
 		},
 		finishReason === "content_filter",
 	);

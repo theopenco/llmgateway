@@ -972,11 +972,17 @@ export async function prepareRequestBody(
 	// Strip Anthropic-style cache_control markers from text content parts when
 	// the resolved provider doesn't natively understand them. The Anthropic and
 	// AWS Bedrock branches below transform/forward cache_control on their own;
-	// every other provider receives the raw `processedMessages` and would
-	// otherwise pass an unknown field through to OpenAI/Google/etc., risking a
-	// 400 from strict providers and confusing logs from lenient ones.
+	// Alibaba accepts `cache_control: {type: "ephemeral"}` on its OpenAI-compatible
+	// surface but supports only a fixed 5-minute TTL, so any Anthropic-style
+	// `ttl: "1h"` must be normalized away before forwarding. Every other provider
+	// receives the raw `processedMessages` and would otherwise pass an unknown
+	// field through to OpenAI/Google/etc., risking a 400 from strict providers
+	// and confusing logs from lenient ones.
 	const providerHandlesCacheControl =
-		usedProvider === "anthropic" || usedProvider === "aws-bedrock";
+		usedProvider === "anthropic" ||
+		usedProvider === "vertex-anthropic" ||
+		usedProvider === "aws-bedrock" ||
+		usedProvider === "alibaba";
 	if (!providerHandlesCacheControl) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
@@ -994,6 +1000,47 @@ export async function prepareRequestBody(
 					mutated = true;
 					const { cache_control: _ignored, ...rest } = asRecord;
 					return rest as unknown as typeof part;
+				}
+				return part;
+			});
+			return mutated ? { ...m, content: newContent } : m;
+		});
+	} else if (usedProvider === "alibaba") {
+		// Alibaba's cache_control accepts only `{type: "ephemeral"}` (5m fixed).
+		// Drop the `ttl` field if present so Anthropic-style requests don't trip
+		// the upstream's strict validation.
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const newContent = m.content.map((part) => {
+				const asRecord = part as unknown as Record<string, unknown>;
+				const cc = asRecord?.cache_control as
+					| Record<string, unknown>
+					| undefined;
+				if (
+					asRecord &&
+					typeof asRecord === "object" &&
+					asRecord.type === "text" &&
+					cc &&
+					typeof cc === "object" &&
+					"ttl" in cc
+				) {
+					mutated = true;
+					const { ttl: _ttl, ...ccRest } = cc;
+					// If stripping `ttl` leaves an empty/malformed marker (e.g. the
+					// caller passed only `{ttl: "1h"}` with no `type`), drop the
+					// `cache_control` field entirely rather than forwarding `{}`,
+					// which Alibaba would either ignore or reject as malformed.
+					if (Object.keys(ccRest).length === 0 || !("type" in asRecord)) {
+						const { cache_control: _omit, ...rest } = asRecord;
+						return rest as unknown as typeof part;
+					}
+					return {
+						...asRecord,
+						cache_control: ccRest,
+					} as unknown as typeof part;
 				}
 				return part;
 			});
@@ -1396,7 +1443,8 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
@@ -1426,8 +1474,20 @@ export async function prepareRequestBody(
 				}
 			};
 			const thinkingBudget = getThinkingBudget(reasoning_effort);
-			const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
-			requestBody.max_tokens = max_tokens ?? minMaxTokens;
+			// Anthropic's Messages API requires max_tokens to be set. When the
+			// caller didn't specify one, fall back to the model's full advertised
+			// maxOutput (e.g. 128000 for Opus 4.7) rather than Anthropic's
+			// historical 1024 default — that default silently truncates large
+			// responses and mid-emission tool calls, breaking agent loops.
+			const anthropicProviderMapping = modelDef?.providers.find(
+				(p) => p.providerId === usedProvider,
+			) as ProviderModelMapping | undefined;
+			const modelMaxOutput = anthropicProviderMapping?.maxOutput;
+			const fallbackMaxTokens = Math.max(
+				modelMaxOutput ?? 4096,
+				thinkingBudget + 1000,
+			);
+			requestBody.max_tokens = max_tokens ?? fallbackMaxTokens;
 
 			// Extract system messages for Anthropic's system field (required for prompt caching)
 			const systemMessages = processedMessages.filter(
@@ -1662,28 +1722,31 @@ export async function prepareRequestBody(
 				requestBody.output_config.effort = effort;
 			}
 
-			// Handle response_format for Anthropic - transform to output_format
-			// Anthropic uses output_format with type: "json_schema" and a schema object
 			if (response_format) {
 				if (
 					response_format.type === "json_schema" &&
 					response_format.json_schema
 				) {
-					// Ensure schema has additionalProperties: false as required by Anthropic
 					const schema = {
 						...response_format.json_schema.schema,
 						additionalProperties: false,
 					} as Record<string, unknown>;
-					requestBody.output_format = {
-						type: "json_schema",
-						schema,
+					requestBody.output_config = {
+						format: {
+							type: "json_schema",
+							schema,
+						},
 					};
 				} else if (response_format.type === "json_object") {
 					// For json_object, we cannot use structured outputs directly
-					// as Anthropic requires a specific schema. Instead, we skip output_format
+					// as Anthropic requires a specific schema. Instead, we skip output_config
 					// and rely on system prompt instructions for JSON output.
-					// Note: The model capability (jsonOutput) should ensure the prompt guides JSON output.
 				}
+			}
+
+			if (usedProvider === "vertex-anthropic") {
+				requestBody.anthropic_version = "vertex-2023-10-16";
+				delete requestBody.model;
 			}
 			break;
 		}
@@ -2078,13 +2141,21 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
-					// Ensure max_tokens is sufficient for thinking + response
-					const minMaxTokens = Math.max(1024, thinkingBudget + 1000);
-					if (
-						!inferenceConfig.maxTokens ||
-						inferenceConfig.maxTokens < minMaxTokens
-					) {
-						inferenceConfig.maxTokens = max_tokens ?? minMaxTokens;
+					// When the caller didn't supply max_tokens, fall back to the
+					// model's full advertised maxOutput rather than a flat 1024
+					// (Anthropic's historical default that silently truncates
+					// large responses and mid-emission tool calls). When the
+					// caller did supply one, leave it alone but ensure it leaves
+					// room for the thinking budget plus a minimum response.
+					const bedrockModelMaxOutput = bedrockProviderMapping?.maxOutput;
+					const reasoningFloor = thinkingBudget + 1000;
+					if (inferenceConfig.maxTokens === undefined) {
+						inferenceConfig.maxTokens =
+							max_tokens ??
+							Math.max(bedrockModelMaxOutput ?? reasoningFloor, reasoningFloor);
+					}
+					if (inferenceConfig.maxTokens < reasoningFloor) {
+						inferenceConfig.maxTokens = reasoningFloor;
 					}
 				}
 				// Anthropic requires temperature to be exactly 1 when thinking is enabled
@@ -2217,7 +2288,6 @@ export async function prepareRequestBody(
 					includeThoughts: true,
 				};
 
-				// Use reasoning_max_tokens if provided, otherwise map reasoning_effort to thinking_budget
 				if (reasoning_max_tokens !== undefined) {
 					// Google's thinkingBudget: just use the provided value directly
 					// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
@@ -2415,6 +2485,18 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			// Vertex's OpenAI-compatible chat completions endpoint requires the
+			// model field to be partner-prefixed, e.g. "xai/grok-4.20-reasoning".
+			// Derive the prefix from the model family so we don't have to encode
+			// it per-mapping.
+			if (
+				usedProvider === "vertex-openai" &&
+				!usedModel.includes("/") &&
+				modelDef?.family
+			) {
+				requestBody.model = `${modelDef.family}/${usedModel}`;
 			}
 
 			// Add optional parameters if they are provided

@@ -22,20 +22,6 @@ function buildVertexCompatibleEndpoint(
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = modelName ?? "gemini-2.5-flash-lite";
 
-	if (model === "gemini-2.0-flash-lite" || model === "gemini-2.5-flash-lite") {
-		const baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
-		const queryParams = [];
-		if (token) {
-			queryParams.push(`key=${token}`);
-		}
-		if (stream) {
-			queryParams.push("alt=sse");
-		}
-		return queryParams.length > 0
-			? `${baseEndpoint}?${queryParams.join("&")}`
-			: baseEndpoint;
-	}
-
 	const projectId =
 		providerKeyOptions?.google_vertex_project_id ??
 		getProviderEnvValue(provider, "project", configIndex);
@@ -162,6 +148,33 @@ export function getProviderEndpoint(
 						"https://aiplatform.googleapis.com",
 					) ?? "https://aiplatform.googleapis.com";
 				break;
+			case "vertex-openai":
+				url =
+					envValueOrDefault(
+						"vertex-openai",
+						"baseUrl",
+						"https://aiplatform.googleapis.com",
+					) ?? "https://aiplatform.googleapis.com";
+				break;
+			case "vertex-anthropic": {
+				const vaDefaultRegion =
+					providerKeyOptions?.vertex_anthropic_region ??
+					getProviderEnvValue(
+						"vertex-anthropic",
+						"region",
+						configIndex,
+						"global",
+					) ??
+					"global";
+				const vaDefaultHost =
+					vaDefaultRegion === "global"
+						? "https://aiplatform.googleapis.com"
+						: `https://${vaDefaultRegion}-aiplatform.googleapis.com`;
+				url =
+					envValueOrDefault("vertex-anthropic", "baseUrl", vaDefaultHost) ??
+					vaDefaultHost;
+				break;
+			}
 			case "quartz":
 				url = skipEnvVars
 					? undefined
@@ -285,6 +298,9 @@ export function getProviderEndpoint(
 			case "embercloud":
 				url = "https://api.embercloud.ai";
 				break;
+			case "deepinfra":
+				url = "https://api.deepinfra.com/v1/openai";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -346,6 +362,55 @@ export function getProviderEndpoint(
 				configIndex,
 				providerKeyOptions,
 			);
+		case "vertex-openai": {
+			const projectId =
+				providerKeyOptions?.vertex_openai_project_id ??
+				getProviderEnvValue("vertex-openai", "project", configIndex);
+			if (!projectId) {
+				const providerEnv = getProviderEnvConfig("vertex-openai");
+				throw new Error(
+					`${providerEnv?.required.project ?? "LLM_VERTEX_OPENAI_PROJECT"} environment variable is required for vertex-openai model "${modelName}"`,
+				);
+			}
+			const vertexRegion =
+				getProviderEnvValue("vertex-openai", "region", configIndex, "global") ??
+				"global";
+			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
+		}
+		case "vertex-anthropic": {
+			let vaProjectId: string | undefined =
+				process.env.LLM_VERTEX_ANTHROPIC_PROJECT;
+			if (!vaProjectId) {
+				const saJson = process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
+				if (saJson) {
+					try {
+						const sa = JSON.parse(saJson) as { project_id?: string };
+						vaProjectId = sa.project_id;
+					} catch {
+						// ignore parse errors; error thrown below
+					}
+				}
+			}
+			const vaRegion =
+				providerKeyOptions?.vertex_anthropic_region ??
+				getProviderEnvValue(
+					"vertex-anthropic",
+					"region",
+					configIndex,
+					"global",
+				) ??
+				"global";
+
+			if (!vaProjectId) {
+				throw new Error(
+					"vertex-anthropic provider requires LLM_VERTEX_ANTHROPIC_PROJECT or a valid LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON with project_id",
+				);
+			}
+
+			const vaModel = modelName ?? "claude-sonnet-4-6";
+			const vaEndpoint = stream ? "streamRawPredict" : "rawPredict";
+			return `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
+		}
 		case "perplexity":
 			return `${url}/chat/completions`;
 		case "novita":
@@ -426,7 +491,7 @@ export function getProviderEndpoint(
 						true;
 
 					if (supportsResponsesApi) {
-						return `${url}/openai/v1/responses`;
+						return `${url}/openai/v1/responses?api-version=preview`;
 					}
 				}
 				return `${url}/openai/v1/chat/completions`;
@@ -486,6 +551,8 @@ export function getProviderEndpoint(
 				return `${url}/v1/images/generations`;
 			}
 			return `${url}/v1/chat/completions`;
+		case "deepinfra":
+			return `${url}/chat/completions`;
 		case "inference.net":
 		case "llmgateway":
 		case "groq":

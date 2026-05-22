@@ -20,6 +20,12 @@ const nextConfig: NextConfig = {
 			"date-fns",
 		],
 	},
+	serverExternalPackages: [
+		"@resvg/resvg-js",
+		"@react-pdf/renderer",
+		"@json-render/react-pdf",
+		"@json-render/image",
+	],
 	webpack: (config, { isServer }) => {
 		if (isServer) {
 			config.devtool = "source-map";

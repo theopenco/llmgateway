@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/models": "workspace:*",
+		"@llmgateway/shared": "workspace:*",
 		"nanoid": "5.1.5",
 		"openai": "4.104.0",
 		"resend": "4.5.1",

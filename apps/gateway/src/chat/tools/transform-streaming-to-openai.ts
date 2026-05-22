@@ -88,7 +88,8 @@ export function transformStreamingToOpenai(
 	};
 
 	switch (usedProvider) {
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			const usage = data.message?.usage ?? data.usage;
 			if (data.type === "message_start") {
 				transformedData = {
@@ -1306,6 +1307,7 @@ export function transformStreamingToOpenai(
 		case "embercloud":
 		case "xiaomi":
 		case "azure-ai-foundry":
+		case "vertex-openai":
 		case "llmgateway": {
 			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
 			// chunk on some models — empty id/object/choices, no usage. Drop it

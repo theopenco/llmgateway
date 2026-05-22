@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
 	boolean,
+	check,
 	decimal,
 	index,
 	integer,
@@ -516,6 +517,8 @@ export const apiKeyIamRule = pgTable(
 				"deny_pricing",
 				"allow_providers",
 				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
 			],
 		}).notNull(),
 		ruleValue: json()
@@ -525,6 +528,7 @@ export const apiKeyIamRule = pgTable(
 				pricingType?: "free" | "paid";
 				maxInputPrice?: number;
 				maxOutputPrice?: number;
+				ipCidrs?: string[];
 			}>()
 			.notNull(),
 		status: text({
@@ -543,6 +547,36 @@ export const apiKeyIamRule = pgTable(
 	],
 );
 
+export const masterKey = pgTable(
+	"master_key",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		tokenHash: text().notNull().unique(),
+		maskedToken: text().notNull(),
+		description: text().notNull(),
+		status: text({
+			enum: ["active", "inactive", "deleted"],
+		}).default("active"),
+		lastUsedAt: timestamp(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		createdBy: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		index("master_key_organization_id_idx").on(table.organizationId),
+		index("master_key_token_hash_idx").on(table.tokenHash),
+		index("master_key_created_by_idx").on(table.createdBy),
+	],
+);
+
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
 	azure_resource?: string;
@@ -554,6 +588,8 @@ export interface ProviderKeyOptions {
 	azure_ai_foundry_api_version?: string;
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
 	google_vertex_project_id?: string;
+	vertex_openai_project_id?: string;
+	vertex_anthropic_region?: string;
 }
 
 export const providerKey = pgTable(
@@ -1018,6 +1054,7 @@ export const chat = pgTable(
 			enum: ["active", "archived", "deleted"],
 		}).default("active"),
 		webSearch: boolean().default(false),
+		pinned: boolean().notNull().default(false),
 	},
 	(table) => [index("chat_user_id_idx").on(table.userId)],
 );
@@ -1035,6 +1072,9 @@ export const chatShare = pgTable(
 		chatId: text()
 			.notNull()
 			.references(() => chat.id, { onDelete: "cascade" }),
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
@@ -1043,10 +1083,18 @@ export const chatShare = pgTable(
 		messages: jsonb().notNull(),
 	},
 	(table) => [
-		uniqueIndex("chat_share_active_chat_id_unique")
+		uniqueIndex("chat_share_active_chat_id_public_unique")
 			.on(table.chatId)
-			.where(sql`${table.deletedAt} IS NULL`),
+			.where(
+				sql`${table.deletedAt} IS NULL AND ${table.organizationId} IS NULL`,
+			),
+		uniqueIndex("chat_share_active_chat_id_org_unique")
+			.on(table.chatId, table.organizationId)
+			.where(
+				sql`${table.deletedAt} IS NULL AND ${table.organizationId} IS NOT NULL`,
+			),
 		index("chat_share_chat_id_idx").on(table.chatId),
+		index("chat_share_organization_id_idx").on(table.organizationId),
 		index("chat_share_deleted_at_idx").on(table.deletedAt),
 	],
 );
@@ -1086,6 +1134,7 @@ export const chatSupportConversation = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
+		clientId: text(),
 		name: text(),
 		email: text(),
 		ipAddress: text(),
@@ -1093,9 +1142,16 @@ export const chatSupportConversation = pgTable(
 		messageCount: integer().notNull().default(0),
 		escalatedAt: timestamp(),
 		archivedAt: timestamp(),
+		resolvedAt: timestamp(),
+		rating: integer(),
 	},
 	(table) => [
 		index("chat_support_conversation_created_at_idx").on(table.createdAt),
+		index("chat_support_conversation_client_id_idx").on(table.clientId),
+		check(
+			"chat_support_conversation_rating_check",
+			sql`${table.rating} IS NULL OR (${table.rating} >= 0 AND ${table.rating} <= 5)`,
+		),
 	],
 );
 
@@ -1112,9 +1168,16 @@ export const chatSupportMessage = pgTable(
 		}).notNull(),
 		content: text().notNull(),
 		sequence: integer().notNull(),
+		reaction: text({
+			enum: ["like", "dislike"],
+		}),
 	},
 	(table) => [
 		index("chat_support_message_conversation_id_idx").on(table.conversationId),
+		check(
+			"chat_support_message_reaction_check",
+			sql`${table.reaction} IS NULL OR ${table.reaction} IN ('like', 'dislike')`,
+		),
 	],
 );
 
@@ -1430,10 +1493,15 @@ export const auditLogActions = [
 	"api_key.create",
 	"api_key.update_status",
 	"api_key.update_limit",
+	"api_key.update_description",
 	"api_key.delete",
 	"api_key.iam_rule.create",
 	"api_key.iam_rule.update",
 	"api_key.iam_rule.delete",
+	// Master Key
+	"master_key.create",
+	"master_key.update_status",
+	"master_key.delete",
 	// Provider Key
 	"provider_key.create",
 	"provider_key.update",
@@ -1465,6 +1533,7 @@ export const auditLogResourceTypes = [
 	"project",
 	"team_member",
 	"api_key",
+	"master_key",
 	"iam_rule",
 	"provider_key",
 	"subscription",
@@ -1906,6 +1975,87 @@ export const projectHourlyModelStats = pgTable(
 	],
 );
 
+// Project hourly source statistics — per-project aggregation by the x-source
+// header (e.g. coding agents). Mirrors projectHourlyModelStats but keyed by
+// source. NULL log.source rows are stored under the literal 'unknown' so the
+// unique constraint and onConflictDoUpdate target stay valid.
+export const projectHourlySourceStats = pgTable(
+	"project_hourly_source_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		source: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per project-hour-source
+		unique().on(table.projectId, table.hourTimestamp, table.source),
+		// Index for dashboard queries (project + time range)
+		index("project_hourly_source_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("project_hourly_source_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+		// Index for admin source detail queries (aggregation by source)
+		index("project_hourly_source_stats_source_hour_timestamp_idx").on(
+			table.source,
+			table.hourTimestamp,
+		),
+	],
+);
+
 // API key hourly statistics aggregation - for per-key breakdown queries
 export const apiKeyHourlyStats = pgTable(
 	"api_key_hourly_stats",
@@ -2224,3 +2374,23 @@ export const globalAggregationState = pgTable("global_aggregation_state", {
 		.defaultNow()
 		.$onUpdate(() => new Date()),
 });
+
+export const skill = pgTable(
+	"skill",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text().notNull(),
+		instructions: text().notNull(),
+		enabled: boolean().notNull().default(true),
+	},
+	(table) => [index("skill_user_id_idx").on(table.userId)],
+);

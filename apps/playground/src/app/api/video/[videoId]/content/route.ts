@@ -5,6 +5,7 @@ import {
 	getGatewayErrorMessage,
 	readGatewayResponseBody,
 } from "@/app/api/video/utils";
+import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +23,8 @@ export async function GET(
 
 	const cookieStore = await cookies();
 	const apiKey =
-		cookieStore.get("llmgateway_playground_key")?.value ??
-		cookieStore.get("__Host-llmgateway_playground_key")?.value;
+		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value ??
+		cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value;
 
 	if (!apiKey) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });

@@ -28,11 +28,17 @@ import {
 	useUpdateMessage,
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
+import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
+import {
+	CHAT_MODEL_COOKIE,
+	getModelPreferenceCookie,
+	setModelPreferenceCookie,
+} from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -217,6 +223,7 @@ interface ChatPageClientProps {
 	selectedProject: Project | null;
 	initialPrompt?: string;
 	enableWebSearch?: boolean;
+	initialModelPreference?: string | null;
 }
 
 function parseModelSelectorValue(value: string): {
@@ -259,13 +266,14 @@ export default function ChatPageClient({
 	selectedProject,
 	initialPrompt,
 	enableWebSearch = false,
+	initialModelPreference,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
-
+	const skillIdFromUrl = searchParams.get("skillId");
 	const mapped = useMemo(
 		() => mapModels(models, providers),
 		[models, providers],
@@ -277,11 +285,15 @@ export default function ChatPageClient({
 		if (modelFromUrl) {
 			return modelFromUrl;
 		}
-		// Default to "auto" model which auto-selects the best provider
+		const stored =
+			getModelPreferenceCookie(CHAT_MODEL_COOKIE) ?? initialModelPreference;
+		if (stored) {
+			return stored;
+		}
 		return "auto";
 	};
 
-	const [selectedModel, setSelectedModel] = useState(getInitialModel());
+	const [selectedModel, setSelectedModel] = useState(() => getInitialModel());
 	const [reasoningEffort, setReasoningEffort] = useState<
 		"" | "minimal" | "low" | "medium" | "high"
 	>("");
@@ -313,6 +325,7 @@ export default function ChatPageClient({
 	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
+	const [activeSkills, setActiveSkills] = useState<Skill[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [finishReason, setFinishReason] = useState<string | null>(null);
@@ -328,6 +341,22 @@ export default function ChatPageClient({
 		toggleServer: toggleMcpServer,
 		getEnabledServers: getEnabledMcpServers,
 	} = useMcpServers();
+
+	// Skills
+	const { data: skillsData } = useSkills();
+	const skillInitializedRef = useRef(false);
+	useEffect(() => {
+		if (!skillIdFromUrl || !skillsData?.skills || skillInitializedRef.current) {
+			return;
+		}
+		const found = (skillsData.skills as Skill[]).find(
+			(s) => s.id === skillIdFromUrl,
+		);
+		if (found) {
+			skillInitializedRef.current = true;
+			setActiveSkills([found]);
+		}
+	}, [skillIdFromUrl, skillsData]);
 
 	// Get chat ID from URL search params
 	const chatIdFromUrl = searchParams.get("chat");
@@ -683,6 +712,14 @@ export default function ChatPageClient({
 						? { mcp_servers: enabledMcpServers }
 						: {}),
 					...(isTemporaryChat ? { temporary_chat: true } : {}),
+					...(activeSkills.length > 0
+						? {
+								skill_instructions: activeSkills
+									.filter((s) => s.enabled)
+									.map((s) => s.instructions)
+									.join("\n\n"),
+							}
+						: {}),
 				},
 			};
 		},
@@ -700,6 +737,7 @@ export default function ChatPageClient({
 			supportsWebSearch,
 			getEnabledMcpServers,
 			isTemporaryChat,
+			activeSkills,
 		],
 	);
 
@@ -914,17 +952,20 @@ export default function ChatPageClient({
 			if (!selectedOrganization) {
 				return;
 			}
+			const projectId = selectedProject.id;
 			// Skip if we've already ensured the key for this project
-			if (ensuredProjectRef.current === selectedProject.id) {
+			if (ensuredProjectRef.current === projectId) {
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
+				const response = await fetch("/api/ensure-playground-key", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
+					body: JSON.stringify({ projectId }),
 				});
-				ensuredProjectRef.current = selectedProject.id;
+				if (response.ok && selectedProject.id === projectId) {
+					ensuredProjectRef.current = projectId;
+				}
 			} catch {
 				// ignore for now
 			}
@@ -1194,9 +1235,13 @@ export default function ChatPageClient({
 		// Remove chat param from URL
 		const params = new URLSearchParams(searchParams.toString());
 		params.delete("chat");
+		params.delete("view");
+		params.delete("shareOrgId");
+		params.delete("shareId");
+		const targetPathname = pathname;
 		const newUrl = params.toString()
-			? `${pathname}?${params.toString()}`
-			: pathname;
+			? `${targetPathname}?${params.toString()}`
+			: targetPathname;
 		router.push(newUrl);
 	};
 
@@ -1227,9 +1272,13 @@ export default function ChatPageClient({
 			// Remove chat param from URL
 			const params = new URLSearchParams(searchParams.toString());
 			params.delete("chat");
+			params.delete("view");
+			params.delete("shareOrgId");
+			params.delete("shareId");
+			const targetPathname = pathname;
 			const newUrl = params.toString()
-				? `${pathname}?${params.toString()}`
-				: pathname;
+				? `${targetPathname}?${params.toString()}`
+				: targetPathname;
 			router.push(newUrl);
 			// Clear comparison windows as well
 			setComparisonResetToken((token) => token + 1);
@@ -1249,7 +1298,15 @@ export default function ChatPageClient({
 		// Update URL with chat ID - this will trigger the useEffect to update state
 		const params = new URLSearchParams(searchParams.toString());
 		params.set("chat", chatId);
-		router.push(`${pathname}?${params.toString()}`);
+		params.delete("view");
+		params.delete("shareOrgId");
+		params.delete("shareId");
+		const targetPathname = pathname;
+		router.push(
+			params.toString()
+				? `${targetPathname}?${params.toString()}`
+				: targetPathname,
+		);
 	};
 
 	const handleForkChat = useCallback(async () => {
@@ -1284,7 +1341,15 @@ export default function ChatPageClient({
 
 			const params = new URLSearchParams(searchParams.toString());
 			params.set("chat", newChatId);
-			router.push(`${pathname}?${params.toString()}`);
+			params.delete("view");
+			params.delete("shareOrgId");
+			params.delete("shareId");
+			const targetPathname = pathname;
+			router.push(
+				params.toString()
+					? `${targetPathname}?${params.toString()}`
+					: targetPathname,
+			);
 			sidebarRef.current?.scrollToTop();
 			toast.success("Chat forked");
 		} catch {}
@@ -1299,18 +1364,23 @@ export default function ChatPageClient({
 		status,
 	]);
 
-	// keep URL in sync with selected model
-	useEffect(() => {
-		// Read current URL params directly to avoid stale searchParams closure
-		const currentParams = new URLSearchParams(window.location.search);
-		if (selectedModel) {
-			currentParams.set("model", selectedModel);
-		} else {
-			currentParams.delete("model");
-		}
-		const qs = currentParams.toString();
-		router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
-	}, [selectedModel, pathname, router]);
+	const handleSelectModel = useCallback(
+		(model: string) => {
+			setSelectedModel(model);
+			if (model) {
+				setModelPreferenceCookie(CHAT_MODEL_COOKIE, model);
+			}
+			const currentParams = new URLSearchParams(window.location.search);
+			if (model) {
+				currentParams.set("model", model);
+			} else {
+				currentParams.delete("model");
+			}
+			const qs = currentParams.toString();
+			router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+		},
+		[pathname, router],
+	);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;
@@ -1350,29 +1420,15 @@ export default function ChatPageClient({
 	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
 		if (org?.id) {
-			params.set("orgId", org.id);
-		} else {
-			params.delete("orgId");
+			router.push(`/org/${org.id}`);
+			return;
 		}
-		// Clear projectId to avoid 404 when switching orgs (server will pick first/last-used)
-		params.delete("projectId");
-		// Always keep model param
-		if (!params.get("model")) {
-			params.set("model", selectedModel);
-		}
-		router.push(params.toString() ? `/?${params.toString()}` : "/");
+		router.push("/");
 	};
 
 	const handleOrganizationCreated = (org: Organization) => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
-		params.set("orgId", org.id);
-		params.delete("projectId");
-		if (!params.get("model")) {
-			params.set("model", selectedModel);
-		}
-		router.push(params.toString() ? `/?${params.toString()}` : "/");
+		router.push(`/org/${org.id}`);
 	};
 
 	const handleSelectProject = (project: Project | null) => {
@@ -1428,7 +1484,7 @@ export default function ChatPageClient({
 							models={models}
 							providers={providers}
 							selectedModel={selectedModel}
-							setSelectedModel={setSelectedModel}
+							setSelectedModel={handleSelectModel}
 							comparisonEnabled={comparisonEnabled}
 							onComparisonEnabledChange={(enabled) => {
 								setComparisonEnabled(enabled);
@@ -1448,12 +1504,20 @@ export default function ChatPageClient({
 							onToggleMcpServer={toggleMcpServer}
 							isTemporaryChat={isTemporaryChat}
 							onToggleTemporaryChat={handleToggleTemporaryChat}
+							showTemporaryChatSwitcher={!currentChatId}
 							isTemporaryChatToggleDisabled={
 								isLoading || status === "submitted" || status === "streaming"
 							}
 							hasTemporaryMessages={hasTemporaryMessages}
 							currentChatId={currentChatId}
+							isShareChatDisabled={
+								isChatLoading ||
+								status === "submitted" ||
+								status === "streaming"
+							}
 							shareId={currentChatData?.chat?.shareId ?? null}
+							orgShares={currentChatData?.chat?.orgShares ?? []}
+							organizations={organizations}
 							chatTitle={currentChatData?.chat?.title ?? null}
 							previewPrompt={getFirstUserMessageText(messages)}
 						/>
@@ -1539,7 +1603,7 @@ export default function ChatPageClient({
 												models={models}
 												providers={providers}
 												value={selectedModel}
-												onValueChange={setSelectedModel}
+												onValueChange={handleSelectModel}
 												placeholder="Select a model..."
 											/>
 										</div>
@@ -1581,6 +1645,19 @@ export default function ChatPageClient({
 											setWebSearchEnabled={setWebSearchEnabled}
 											supportsWebSearch={supportsWebSearch}
 											webSearchEnabled={webSearchEnabled}
+											activeSkills={activeSkills}
+											onSelectSkill={(skill) =>
+												setActiveSkills((prev) =>
+													prev.some((s) => s.id === skill.id)
+														? prev
+														: [...prev, skill],
+												)
+											}
+											onRemoveSkill={(id) =>
+												setActiveSkills((prev) =>
+													prev.filter((s) => s.id !== id),
+												)
+											}
 										/>
 									</div>
 								</div>
@@ -1623,6 +1700,17 @@ export default function ChatPageClient({
 										isTemporaryChat={isTemporaryChat}
 										forkChat={!isTemporaryChat ? handleForkChat : undefined}
 										isForkingChat={forkChat.isPending}
+										activeSkills={activeSkills}
+										onSelectSkill={(skill) =>
+											setActiveSkills((prev) =>
+												prev.some((s) => s.id === skill.id)
+													? prev
+													: [...prev, skill],
+											)
+										}
+										onRemoveSkill={(id) =>
+											setActiveSkills((prev) => prev.filter((s) => s.id !== id))
+										}
 									/>
 								</div>
 							)}
@@ -1658,7 +1746,6 @@ export default function ChatPageClient({
 		</SidebarProvider>
 	);
 }
-
 interface ExtraChatPanelProps {
 	panelIndex: number;
 	models: ApiModel[];

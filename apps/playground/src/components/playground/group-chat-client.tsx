@@ -6,7 +6,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useState, useRef } from "react";
 
-import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatSidebar } from "@/components/playground/chat-sidebar";
@@ -110,16 +109,19 @@ export default function GroupChatClient({
 			if (!selectedOrganization) {
 				return;
 			}
-			if (ensuredProjectRef.current === selectedProject.id) {
+			const projectId = selectedProject.id;
+			if (ensuredProjectRef.current === projectId) {
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
+				const response = await fetch("/api/ensure-playground-key", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
+					body: JSON.stringify({ projectId }),
 				});
-				ensuredProjectRef.current = selectedProject.id;
+				if (response.ok && selectedProject.id === projectId) {
+					ensuredProjectRef.current = projectId;
+				}
 			} catch {
 				// ignore for now
 			}
@@ -419,21 +421,6 @@ export default function GroupChatClient({
 									Group Chat
 								</h1>
 							</div>
-						</div>
-						<div className="flex items-center gap-3 ml-3">
-							<ThemeToggle />
-							<a
-								href={
-									process.env.NODE_ENV === "development"
-										? "http://localhost:3002/dashboard"
-										: "https://llmgateway.io/dashboard"
-								}
-								target="_blank"
-								rel="noopener noreferrer"
-								className="hidden sm:inline"
-							>
-								<span className="text-nowrap">Dashboard</span>
-							</a>
 						</div>
 					</header>
 

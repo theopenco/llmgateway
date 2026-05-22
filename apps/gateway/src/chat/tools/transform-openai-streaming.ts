@@ -28,9 +28,21 @@ function normalizeUsage(usage: any): any {
 		normalizedUsage.reasoning_tokens = usage.reasoning_tokens;
 	}
 
-	// Preserve prompt_tokens_details if present
+	// Preserve prompt_tokens_details if present. Alibaba's explicit-cache field
+	// `cache_creation_input_tokens` is nested under prompt_tokens_details; rename
+	// it to `cache_write_tokens` / `cache_creation_tokens` so downstream
+	// Anthropic-style consumers pick it up.
 	if (usage.prompt_tokens_details) {
-		normalizedUsage.prompt_tokens_details = usage.prompt_tokens_details;
+		const existing = usage.prompt_tokens_details;
+		const cacheCreation = existing.cache_creation_input_tokens;
+		normalizedUsage.prompt_tokens_details = {
+			...existing,
+			...(cacheCreation !== undefined &&
+				cacheCreation > 0 && {
+					cache_write_tokens: cacheCreation,
+					cache_creation_tokens: cacheCreation,
+				}),
+		};
 	}
 
 	// Note: We intentionally don't pass through completion_tokens_details

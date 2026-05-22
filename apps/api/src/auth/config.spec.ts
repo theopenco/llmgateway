@@ -169,6 +169,57 @@ describe("API auth hooks functionality", () => {
 		// In self-hosted mode, email should be automatically verified
 		expect(user?.emailVerified).toBe(true);
 	});
+
+	test("should infer name from email when name is not provided", async () => {
+		const suffix = Date.now();
+		const email = `john.doe+${suffix}@example.com`;
+		const password = "Password123!";
+
+		const signUpResponse = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": `192.168.20.${Math.floor(Math.random() * 255)}`,
+				},
+				body: JSON.stringify({ email, password }),
+			}),
+		);
+
+		expect(signUpResponse.status).toBe(200);
+
+		const user = await db.query.user.findFirst({
+			where: { email: { eq: email } },
+		});
+
+		expect(user).not.toBeNull();
+		expect(user?.name).toBe("John Doe");
+	});
+
+	test("should preserve a provided name on signup", async () => {
+		const email = `someone-${Date.now()}@example.com`;
+		const password = "Password123!";
+
+		const signUpResponse = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": `192.168.21.${Math.floor(Math.random() * 255)}`,
+				},
+				body: JSON.stringify({ email, password, name: "Alice Wonder" }),
+			}),
+		);
+
+		expect(signUpResponse.status).toBe(200);
+
+		const user = await db.query.user.findFirst({
+			where: { email: { eq: email } },
+		});
+
+		expect(user).not.toBeNull();
+		expect(user?.name).toBe("Alice Wonder");
+	});
 });
 
 describe("Auth rate limiting", () => {

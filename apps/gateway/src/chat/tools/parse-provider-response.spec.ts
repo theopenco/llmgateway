@@ -376,6 +376,77 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("alibaba cache creation tokens", () => {
+		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 1500,
+					completion_tokens: 200,
+					total_tokens: 1700,
+					prompt_tokens_details: {
+						cache_creation_input_tokens: 1000,
+						cached_tokens: 0,
+					},
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen-plus", json);
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(1000);
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("leaves cache creation fields null when prompt_tokens_details is absent", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen-plus", json);
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+		});
+
+		it("ignores a stray top-level cache_creation_input_tokens (wrong shape)", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+					cache_creation_input_tokens: 999,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen-plus", json);
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+		});
+	});
+
 	describe("minimax reasoning extraction", () => {
 		it("extracts reasoning from reasoning_details", () => {
 			const json = {

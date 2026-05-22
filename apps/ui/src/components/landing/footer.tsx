@@ -5,7 +5,6 @@ import Link from "next/link";
 
 import Newsletter from "@/components/landing/newsletter";
 import { useAppConfig } from "@/lib/config";
-import Logo from "@/lib/icons/Logo";
 import { XIcon } from "@/lib/icons/XIcon";
 
 import { providers as providerDefinitions } from "@llmgateway/models";
@@ -25,42 +24,48 @@ export default function Footer() {
 				<Newsletter />
 
 				<div className="flex flex-col md:flex-row md:justify-between md:items-start">
-					<div className="mb-6 md:mb-0">
-						<div className="flex items-center space-x-2">
-							<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
-							<span className="font-display text-lg font-bold tracking-tight text-foreground">
-								LLM Gateway
-							</span>
-						</div>
-						<div className="flex items-center space-x-4 mt-4">
+					<div className="mb-8 md:mb-0 md:w-48 md:shrink-0">
+						<div className="flex items-center gap-2">
 							<a
 								href={config.githubUrl}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="text-muted-foreground hover:text-foreground transition-colors"
+								className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/40 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
 								aria-label="GitHub"
 							>
-								<GithubIcon className="h-5 w-5" />
+								<GithubIcon className="h-4 w-4" />
 							</a>
 							<a
 								href={config.twitterUrl}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="text-muted-foreground hover:text-foreground transition-colors"
+								className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/40 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
 								aria-label="X"
 							>
-								<XIcon className="h-5 w-5" />
+								<XIcon className="h-4 w-4" />
 							</a>
 							<a
 								href={config.discordUrl}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="text-muted-foreground hover:text-foreground transition-colors"
+								className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/40 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
 								aria-label="Discord"
 							>
-								<DiscordLogoIcon className="h-5 w-5" />
+								<DiscordLogoIcon className="h-4 w-4" />
 							</a>
 						</div>
+						<a
+							href="https://status.llmgateway.io/"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="mt-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+						>
+							<span className="relative flex h-2 w-2">
+								<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+								<span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+							</span>
+							All systems operational
+						</a>
 					</div>
 
 					<div className="w-full md:w-auto grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8 text-muted-foreground">
@@ -203,7 +208,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href={"/integrations" as any}
+										href="/integrations"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch
 									>
@@ -212,7 +217,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href={"/guides" as any}
+										href="/guides"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch
 									>
@@ -221,7 +226,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href={"/brand" as any}
+										href="/brand"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch
 									>
@@ -311,7 +316,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href={"/compare/litellm" as any}
+										href="/compare/litellm"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
@@ -428,18 +433,6 @@ export default function Footer() {
 						&copy; {new Date().getFullYear()} LLM Gateway. All rights reserved.
 					</p>
 					<div className="flex items-center gap-6">
-						<a
-							href="https://status.llmgateway.io/"
-							target="_blank"
-							rel="noopener noreferrer"
-							className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-						>
-							<span className="relative flex h-2.5 w-2.5">
-								<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-								<span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
-							</span>
-							All systems operational
-						</a>
 						<Link
 							href="/legal/privacy"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"

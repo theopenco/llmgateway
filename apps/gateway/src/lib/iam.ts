@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
 import { findActiveIamRules } from "@/lib/cached-queries.js";
+import { anyCidrMatches } from "@/lib/client-ip.js";
 
 import {
 	models,
@@ -16,13 +17,16 @@ export interface IamRule {
 		| "allow_pricing"
 		| "deny_pricing"
 		| "allow_providers"
-		| "deny_providers";
+		| "deny_providers"
+		| "allow_ip_cidrs"
+		| "deny_ip_cidrs";
 	ruleValue: {
 		models?: string[];
 		providers?: string[];
 		pricingType?: "free" | "paid";
 		maxInputPrice?: number;
 		maxOutputPrice?: number;
+		ipCidrs?: string[];
 	};
 	status: "active" | "inactive";
 }
@@ -38,6 +42,7 @@ export async function validateModelAccess(
 	requestedModel: string,
 	requestedProvider?: string,
 	activeModelInfo?: ModelDefinition,
+	clientIp?: string,
 ): Promise<IamValidationResult> {
 	// Get all active IAM rules for this API key (using cacheable select builder)
 	const iamRules = await findActiveIamRules(apiKeyId);
@@ -71,6 +76,7 @@ export async function validateModelAccess(
 			modelDef,
 			requestedProvider,
 			allowedProviders,
+			clientIp,
 		);
 		if (!result.allowed) {
 			return {
@@ -108,6 +114,7 @@ async function evaluateRule(
 	modelDef: ModelDefinition,
 	requestedProvider: string | undefined,
 	currentAllowedProviders: Set<ProviderId>,
+	clientIp: string | undefined,
 ): Promise<RuleEvaluationResult> {
 	const { ruleType, ruleValue } = rule;
 
@@ -263,6 +270,38 @@ async function evaluateRule(
 						reason: "Paid models are not allowed",
 					};
 				}
+			}
+			break;
+
+		case "allow_ip_cidrs":
+			if (ruleValue.ipCidrs && ruleValue.ipCidrs.length > 0) {
+				if (!clientIp) {
+					return {
+						allowed: false,
+						reason:
+							"Client IP could not be determined but an IP allow-list rule is configured",
+					};
+				}
+				if (!anyCidrMatches(clientIp, ruleValue.ipCidrs)) {
+					return {
+						allowed: false,
+						reason: `Client IP ${clientIp} is not in the allowed CIDR ranges`,
+					};
+				}
+			}
+			break;
+
+		case "deny_ip_cidrs":
+			if (
+				ruleValue.ipCidrs &&
+				ruleValue.ipCidrs.length > 0 &&
+				clientIp &&
+				anyCidrMatches(clientIp, ruleValue.ipCidrs)
+			) {
+				return {
+					allowed: false,
+					reason: `Client IP ${clientIp} is in the denied CIDR ranges`,
+				};
 			}
 			break;
 	}

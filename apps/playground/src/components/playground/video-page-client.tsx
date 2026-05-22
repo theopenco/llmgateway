@@ -15,6 +15,11 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
+import {
+	getModelPreferenceCookie,
+	setModelPreferenceCookie,
+	VIDEO_MODEL_COOKIE,
+} from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import {
 	getNormalizedVideoRequestSelection,
@@ -52,6 +57,7 @@ interface VideoPageClientProps {
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
+	initialModelPreference?: string | null;
 }
 
 export default function VideoPageClient({
@@ -61,6 +67,7 @@ export default function VideoPageClient({
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
+	initialModelPreference,
 }: VideoPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
@@ -92,6 +99,14 @@ export default function VideoPageClient({
 		const modelParam = searchParams.get("model");
 		if (modelParam) {
 			const models = modelParam.split(",").filter(Boolean);
+			if (models.length > 0) {
+				return models;
+			}
+		}
+		const stored =
+			getModelPreferenceCookie(VIDEO_MODEL_COOKIE) ?? initialModelPreference;
+		if (stored) {
+			const models = stored.split(",").filter(Boolean);
 			if (models.length > 0) {
 				return models;
 			}
@@ -233,16 +248,19 @@ export default function VideoPageClient({
 			if (!selectedOrganization) {
 				return;
 			}
-			if (ensuredProjectRef.current === selectedProject.id) {
+			const projectId = selectedProject.id;
+			if (ensuredProjectRef.current === projectId) {
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
+				const response = await fetch("/api/ensure-playground-key", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
+					body: JSON.stringify({ projectId }),
 				});
-				ensuredProjectRef.current = selectedProject.id;
+				if (response.ok && selectedProject.id === projectId) {
+					ensuredProjectRef.current = projectId;
+				}
 			} catch {
 				// ignore
 			}
@@ -355,6 +373,12 @@ export default function VideoPageClient({
 			router.replace(nextUrl, { scroll: false });
 		}
 	}, [comparisonMode, pathname, router, selectedModels]);
+
+	useEffect(() => {
+		if (selectedModels.length > 0) {
+			setModelPreferenceCookie(VIDEO_MODEL_COOKIE, selectedModels.join(","));
+		}
+	}, [selectedModels]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {

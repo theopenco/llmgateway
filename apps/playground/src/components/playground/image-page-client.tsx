@@ -16,6 +16,11 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
+import {
+	getModelPreferenceCookie,
+	IMAGE_MODEL_COOKIE,
+	setModelPreferenceCookie,
+} from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -29,6 +34,7 @@ interface ImagePageClientProps {
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
+	initialModelPreference?: string | null;
 }
 
 export default function ImagePageClient({
@@ -38,6 +44,7 @@ export default function ImagePageClient({
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
+	initialModelPreference,
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
@@ -76,11 +83,19 @@ export default function ImagePageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	// State — initialize from URL params
+	// State — initialize from URL params, then cookie, then default
 	const [selectedModels, setSelectedModels] = useState<string[]>(() => {
 		const modelParam = searchParams.get("model");
 		if (modelParam) {
 			const models = modelParam.split(",").filter(Boolean);
+			if (models.length > 0) {
+				return models;
+			}
+		}
+		const stored =
+			getModelPreferenceCookie(IMAGE_MODEL_COOKIE) ?? initialModelPreference;
+		if (stored) {
+			const models = stored.split(",").filter(Boolean);
 			if (models.length > 0) {
 				return models;
 			}
@@ -161,16 +176,19 @@ export default function ImagePageClient({
 			if (!selectedOrganization) {
 				return;
 			}
-			if (ensuredProjectRef.current === selectedProject.id) {
+			const projectId = selectedProject.id;
+			if (ensuredProjectRef.current === projectId) {
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
+				const response = await fetch("/api/ensure-playground-key", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
+					body: JSON.stringify({ projectId }),
 				});
-				ensuredProjectRef.current = selectedProject.id;
+				if (response.ok && selectedProject.id === projectId) {
+					ensuredProjectRef.current = projectId;
+				}
 			} catch {
 				// ignore
 			}
@@ -204,6 +222,12 @@ export default function ImagePageClient({
 			router.replace(nextUrl, { scroll: false });
 		}
 	}, [comparisonMode, pathname, router, selectedModels]);
+
+	useEffect(() => {
+		if (selectedModels.length > 0) {
+			setModelPreferenceCookie(IMAGE_MODEL_COOKIE, selectedModels.join(","));
+		}
+	}, [selectedModels]);
 
 	// Reset image size/quality when the selected model changes and the current
 	// value isn't valid for the new model. Including the value itself in deps

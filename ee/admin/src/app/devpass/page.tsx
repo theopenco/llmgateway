@@ -17,6 +17,7 @@ import { Suspense } from "react";
 
 import { DateRangePicker } from "@/components/date-range-picker";
 import { DevpassTimeseriesChart } from "@/components/devpass-timeseries-chart";
+import { DevpassUsage } from "@/components/devpass-usage";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -554,6 +555,8 @@ export default async function DevpassPage({
 			</section>
 
 			<DevpassTimeseriesChart from={from} to={to} />
+
+			<DevpassUsage from={from} to={to} />
 
 			<form
 				action={handleSearch}
