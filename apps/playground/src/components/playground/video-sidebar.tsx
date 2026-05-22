@@ -62,6 +62,7 @@ interface VideoSidebarProps {
 	onNewChat: () => void;
 	onItemClick: (itemId: string) => void;
 	selectedOrganization: Organization | null;
+	currentItemId?: string | null;
 	className?: string;
 }
 
@@ -76,6 +77,7 @@ const ROW_HEIGHT_ITEM = 60;
 
 interface VideoHistoryRowProps {
 	rows: VideoHistoryRow[];
+	currentItemId?: string | null;
 	editingId: string | null;
 	editPrompt: string;
 	pendingFocusId: string | null;
@@ -201,6 +203,7 @@ function VideoHistoryRowComponent({
 	index,
 	style,
 	rows,
+	currentItemId,
 	editingId,
 	editPrompt,
 	pendingFocusId,
@@ -234,6 +237,7 @@ function VideoHistoryRowComponent({
 
 	const { item } = row;
 	const isEditing = editingId === item.id;
+	const isActive = currentItemId === item.id;
 	const isSaved = item.models.every((m) => !m.isLoading);
 
 	return (
@@ -256,6 +260,7 @@ function VideoHistoryRowComponent({
 					) : (
 						<SidebarMenuButton
 							onClick={() => onItemClick(item.id)}
+							isActive={isActive}
 							className="h-full! w-full justify-start group relative pr-2 !transition-none group-hover/video-row:pr-9"
 							type="button"
 						>
@@ -355,6 +360,7 @@ export function VideoSidebar({
 	onNewChat,
 	onItemClick,
 	selectedOrganization: _selectedOrganization,
+	currentItemId,
 	className,
 }: VideoSidebarProps) {
 	const listContainerRef = useRef<HTMLDivElement | null>(null);
@@ -484,6 +490,7 @@ export function VideoSidebar({
 	const rowProps = useMemo<VideoHistoryRowProps>(
 		() => ({
 			rows: historyRows,
+			currentItemId,
 			editingId,
 			editPrompt,
 			pendingFocusId,
@@ -497,6 +504,7 @@ export function VideoSidebar({
 		}),
 		[
 			historyRows,
+			currentItemId,
 			editingId,
 			editPrompt,
 			pendingFocusId,

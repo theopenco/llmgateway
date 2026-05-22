@@ -62,6 +62,7 @@ interface ImageSidebarProps {
 	onNewChat: () => void;
 	onItemClick: (itemId: string) => void;
 	selectedOrganization: Organization | null;
+	currentItemId?: string | null;
 	className?: string;
 }
 
@@ -76,6 +77,7 @@ const ROW_HEIGHT_ITEM = 60;
 
 interface ImageHistoryRowProps {
 	rows: ImageHistoryRow[];
+	currentItemId?: string | null;
 	editingId: string | null;
 	editPrompt: string;
 	pendingFocusId: string | null;
@@ -167,6 +169,7 @@ function ImageHistoryRowComponent({
 	index,
 	style,
 	rows,
+	currentItemId,
 	editingId,
 	editPrompt,
 	pendingFocusId,
@@ -200,6 +203,7 @@ function ImageHistoryRowComponent({
 
 	const { item } = row;
 	const isEditing = editingId === item.id;
+	const isActive = currentItemId === item.id;
 	const isSaved = item.models.every((m) => !m.isLoading);
 	const firstImage = item.models[0]?.images[0];
 	const thumbnailSrc = firstImage
@@ -226,6 +230,7 @@ function ImageHistoryRowComponent({
 					) : (
 						<SidebarMenuButton
 							onClick={() => onItemClick(item.id)}
+							isActive={isActive}
 							className="h-full! w-full justify-start group relative pr-2 !transition-none group-hover/image-row:pr-9"
 							type="button"
 						>
@@ -331,6 +336,7 @@ export function ImageSidebar({
 	onNewChat,
 	onItemClick,
 	selectedOrganization: _selectedOrganization,
+	currentItemId,
 	className,
 }: ImageSidebarProps) {
 	const listContainerRef = useRef<HTMLDivElement | null>(null);
@@ -460,6 +466,7 @@ export function ImageSidebar({
 	const rowProps = useMemo<ImageHistoryRowProps>(
 		() => ({
 			rows: historyRows,
+			currentItemId,
 			editingId,
 			editPrompt,
 			pendingFocusId,
@@ -473,6 +480,7 @@ export function ImageSidebar({
 		}),
 		[
 			historyRows,
+			currentItemId,
 			editingId,
 			editPrompt,
 			pendingFocusId,

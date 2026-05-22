@@ -654,6 +654,7 @@ export default function ImagePageClient({
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
 					selectedOrganization={selectedOrganization}
+					currentItemId={selectedItemId}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
 					<ImageHeader
