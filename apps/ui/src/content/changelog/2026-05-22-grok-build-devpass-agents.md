@@ -2,8 +2,13 @@
 id: "49"
 slug: "grok-build-devpass-agents"
 date: "2026-05-22"
-title: "Grok Build 0.1, Image Quality & Video + DevPass works with 20+ coding agents"
-summary: "xAI's new coding model Grok Build 0.1 lands in the gateway alongside Grok Imagine Image Quality and Video generation. DevPass now supports 20+ coding agents including Grok Build, Hermes, Kilo Code, and more."
+title: "Grok Build 0.1 + DevPass works with 20+ coding agents"
+summary: "xAI's new coding model Grok Build 0.1 lands in the gateway. DevPass now supports 20+ coding agents including Grok Build, Hermes, Kilo Code, and more."
+image:
+  src: "/changelog/grok-build-devpass-agents.png"
+  alt: "Grok Build 0.1 and DevPass now supports 20+ coding agents"
+  width: 1024
+  height: 1024
 ---
 
 ## Grok Build 0.1
@@ -17,21 +22,6 @@ xai/grok-build-0-1    # $1/M input, $2/M output — 256K context
 Grok Build 0.1 powers xAI's [Grok Build CLI](https://x.ai) and is optimized for interactive coding agents, tool use, and multi-step development tasks. It supports text and image inputs with structured outputs and reasoning.
 
 **[Try Grok Build in the Playground →](https://llmgateway.io/playground)**
-
----
-
-## Grok Imagine Image Quality & Video
-
-Two new generation models from xAI:
-
-```bash
-xai/grok-imagine-image-quality   # $0.05/image — photorealistic, text rendering
-xai/grok-imagine-video           # $0.05/sec — 1-15s, up to 1080p
-```
-
-**Image Quality** produces photorealistic outputs at 1K or 2K resolution with accurate text rendering inside images — ideal for posters, packaging, and social graphics. Supports image-to-image editing.
-
-**Imagine Video** generates 1–15 second videos at 480p or 720p from text prompts, still images, or reference images. Seven aspect ratios supported.
 
 ---
 
