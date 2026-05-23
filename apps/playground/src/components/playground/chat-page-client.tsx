@@ -508,30 +508,31 @@ export default function ChatPageClient({
 				const toolParts = message.parts.filter(isToolPart);
 				let metadata = parsePlaygroundMessageMetadata(message.metadata);
 
+				// Enrich metadata with log data (discount, logId, etc.) before saving.
+				// Race against a 2s timeout so a slow /logs response never blocks persistence.
 				if (metadata?.requestId) {
 					try {
-						let log:
-							| {
-									id: string;
-									organizationId: string;
-									projectId: string;
-									discount?: number | null;
-							  }
-							| undefined;
-						for (let attempt = 0; attempt < 3; attempt++) {
-							if (attempt > 0) {
-								await new Promise<void>((r) => setTimeout(r, 500));
+						const timeout = new Promise<undefined>((r) =>
+							setTimeout(() => r(undefined), 2000),
+						);
+						const fetchLog = (async () => {
+							for (let attempt = 0; attempt < 3; attempt++) {
+								if (attempt > 0) {
+									await new Promise<void>((r) => setTimeout(r, 500));
+								}
+								const logResponse = await fetchClient.GET("/logs", {
+									params: {
+										query: { requestId: metadata.requestId, limit: "1" },
+									},
+								});
+								const found = logResponse.data?.logs?.[0];
+								if (found) {
+									return found;
+								}
 							}
-							const logResponse = await fetchClient.GET("/logs", {
-								params: {
-									query: { requestId: metadata.requestId, limit: "1" },
-								},
-							});
-							log = logResponse.data?.logs?.[0];
-							if (log) {
-								break;
-							}
-						}
+							return undefined;
+						})();
+						const log = await Promise.race([fetchLog, timeout]);
 						if (log) {
 							metadata = {
 								...metadata,
@@ -544,7 +545,7 @@ export default function ChatPageClient({
 							};
 						}
 					} catch {
-						// silently ignore — message is saved without discount enrichment
+						// silently ignore — message is saved without enrichment
 					}
 				}
 

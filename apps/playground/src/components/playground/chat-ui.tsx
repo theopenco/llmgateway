@@ -534,15 +534,21 @@ function MessageMetadataPopover({
 								<span className="flex items-center justify-end gap-1 font-mono text-emerald-500">
 									<TrendingDown className="h-3 w-3" />
 									{(discount * 100).toFixed(0)}% off
-									{logId && organizationId && projectId && (
-										<a
-											href={`${process.env.NODE_ENV === "development" ? "http://localhost:3002" : "https://llmgateway.io"}/dashboard/${organizationId}/${projectId}/activity/${logId}`}
-											target="_blank"
-											rel="noopener noreferrer"
-										>
-											<ExternalLinkIcon className="h-3 w-3 text-muted-foreground" />
-										</a>
-									)}
+								</span>
+							</div>
+						)}
+						{logId && organizationId && projectId && (
+							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+								<span className="text-muted-foreground">Activity log</span>
+								<span className="flex items-center justify-end">
+									<a
+										href={`${process.env.NODE_ENV === "development" ? "http://localhost:3002" : "https://llmgateway.io"}/dashboard/${organizationId}/${projectId}/activity/${logId}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-muted-foreground hover:text-foreground"
+									>
+										<ExternalLinkIcon className="h-3 w-3" />
+									</a>
 								</span>
 							</div>
 						)}
