@@ -397,15 +397,6 @@ function MessageMetadataPopover({
 	const [open, setOpen] = useState(false);
 	const api = useApi();
 
-	useEffect(() => {
-		if (open) {
-			console.log(
-				"[MessageMetadataPopover] metadata.requestId:",
-				metadata.requestId,
-			);
-		}
-	}, [open, metadata.requestId]);
-
 	// Fallback A: message has requestId but enrichment didn't persist logId yet.
 	const needsRequestIdFallback =
 		open && !!metadata.requestId && !metadata.logId;
@@ -477,15 +468,6 @@ function MessageMetadataPopover({
 		: undefined;
 
 	const fallbackLog = requestIdLogData?.logs?.[0] ?? matchedOldLog;
-
-	useEffect(() => {
-		if (open && fallbackLog) {
-			console.log(
-				"[MessageMetadataPopover] fallbackLog.requestId:",
-				fallbackLog.requestId,
-			);
-		}
-	}, [open, fallbackLog]);
 
 	const isLogLoading =
 		(needsRequestIdFallback && isRequestIdLoading) ||
