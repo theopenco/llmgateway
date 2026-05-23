@@ -957,6 +957,7 @@ export default function ChatPageClient({
 					role: msg.role,
 					content: msg.content ?? "",
 					metadata: parsePlaygroundMessageMetadata(msg.metadata),
+					createdAt: new Date(msg.createdAt),
 					parts,
 				};
 			}),
@@ -1697,6 +1698,8 @@ export default function ChatPageClient({
 													prev.filter((s) => s.id !== id),
 												)
 											}
+											organizationId={selectedProject?.organizationId}
+											projectId={selectedProject?.id}
 										/>
 									</div>
 								</div>
@@ -1750,6 +1753,8 @@ export default function ChatPageClient({
 										onRemoveSkill={(id) =>
 											setActiveSkills((prev) => prev.filter((s) => s.id !== id))
 										}
+										organizationId={selectedProject?.organizationId}
+										projectId={selectedProject?.id}
 									/>
 								</div>
 							)}
