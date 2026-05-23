@@ -1655,6 +1655,7 @@ export interface paths {
                     limit?: string;
                     customHeaderKey?: string;
                     customHeaderValue?: string;
+                    requestId?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1817,6 +1818,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2071,6 +2073,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {

@@ -30,6 +30,7 @@ import {
 import { useMcpServers } from "@/hooks/useMcpServers";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
+import { useFetchClient } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
@@ -505,7 +506,47 @@ export default function ChatPageClient({
 
 				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
 				const toolParts = message.parts.filter(isToolPart);
-				const metadata = parsePlaygroundMessageMetadata(message.metadata);
+				let metadata = parsePlaygroundMessageMetadata(message.metadata);
+
+				if (metadata?.requestId) {
+					try {
+						let log:
+							| {
+									id: string;
+									organizationId: string;
+									projectId: string;
+									discount?: number | null;
+							  }
+							| undefined;
+						for (let attempt = 0; attempt < 3; attempt++) {
+							if (attempt > 0) {
+								await new Promise<void>((r) => setTimeout(r, 500));
+							}
+							const logResponse = await fetchClient.GET("/logs", {
+								params: {
+									query: { requestId: metadata.requestId, limit: "1" },
+								},
+							});
+							log = logResponse.data?.logs?.[0];
+							if (log) {
+								break;
+							}
+						}
+						if (log) {
+							metadata = {
+								...metadata,
+								...(log.discount !== null && log.discount !== undefined
+									? { discount: log.discount }
+									: {}),
+								logId: log.id,
+								organizationId: log.organizationId,
+								projectId: log.projectId,
+							};
+						}
+					} catch {
+						// silently ignore — message is saved without discount enrichment
+					}
+				}
 
 				const bodyToSave = {
 					role: "assistant" as const,
@@ -785,6 +826,7 @@ export default function ChatPageClient({
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
+	const fetchClient = useFetchClient();
 	const updateMessage = useUpdateMessage();
 	const deleteChat = useDeleteChat();
 	const forkChat = useForkChat();

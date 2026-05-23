@@ -11,6 +11,7 @@ import {
 	ExternalLinkIcon,
 	PlusIcon,
 	ScrollTextIcon,
+	TrendingDown,
 	Undo2,
 	XIcon,
 } from "lucide-react";
@@ -88,6 +89,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
@@ -95,6 +97,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSkills, type Skill } from "@/hooks/useSkills";
+import { useApi } from "@/lib/fetch-client";
 import {
 	heroSuggestionGroups,
 	sampleSuggestions,
@@ -383,6 +386,30 @@ function MessageMetadataPopover({
 }: {
 	metadata: PlaygroundMessageMetadata;
 }) {
+	const [open, setOpen] = useState(false);
+	const api = useApi();
+
+	// Fall back to a log query only for messages saved before discount enrichment
+	// was added (they have requestId but no discount/logId in metadata).
+	const needsFallback = open && !!metadata.requestId && !metadata.logId;
+	const { data: logData, isLoading: isLogLoading } = api.useQuery(
+		"get",
+		"/logs",
+		{
+			params: {
+				query: { requestId: metadata.requestId, limit: "1" },
+			},
+		},
+		{
+			enabled: needsFallback,
+		},
+	);
+
+	const discount = metadata.discount ?? logData?.logs?.[0]?.discount;
+	const logId = metadata.logId ?? logData?.logs?.[0]?.id;
+	const organizationId =
+		metadata.organizationId ?? logData?.logs?.[0]?.organizationId;
+	const projectId = metadata.projectId ?? logData?.logs?.[0]?.projectId;
 	const usage = metadata.usage;
 	const rows = [
 		["Total cost", formatCost(usage?.totalCost)],
@@ -393,7 +420,7 @@ function MessageMetadataPopover({
 	] as const;
 
 	return (
-		<Popover>
+		<Popover open={open} onOpenChange={setOpen}>
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<PopoverTrigger asChild>
@@ -427,6 +454,30 @@ function MessageMetadataPopover({
 								</span>
 							</div>
 						))}
+						{needsFallback && isLogLoading && (
+							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+								<Skeleton className="h-3 w-12" />
+								<Skeleton className="ml-auto h-3 w-16" />
+							</div>
+						)}
+						{discount !== null && discount !== undefined && discount > 0 && (
+							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+								<span className="text-muted-foreground">Discount</span>
+								<span className="flex items-center justify-end gap-1 font-mono text-emerald-500">
+									<TrendingDown className="h-3 w-3" />
+									{(discount * 100).toFixed(0)}% off
+									{logId && organizationId && projectId && (
+										<a
+											href={`${process.env.NODE_ENV === "development" ? "http://localhost:3002" : "https://llmgateway.io"}/dashboard/${organizationId}/${projectId}/activity/${logId}`}
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											<ExternalLinkIcon className="h-3 w-3 text-muted-foreground" />
+										</a>
+									)}
+								</span>
+							</div>
+						)}
 					</div>
 				</div>
 			</PopoverContent>
