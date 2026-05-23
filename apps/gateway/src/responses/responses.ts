@@ -1,5 +1,4 @@
-import { promisify } from "node:util";
-import { zstdDecompress } from "node:zlib";
+import { brotliDecompress } from "node:zlib";
 
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -38,7 +37,14 @@ import { storeResponse, getStoredResponse } from "./tools/response-state.js";
 import type { ServerTypes } from "@/vars.js";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
-const zstdDecompressAsync = promisify(zstdDecompress);
+const decompressAsync = (data: Buffer): Promise<Buffer> => {
+	return new Promise((resolve, reject) => {
+		brotliDecompress(data, (err, result) => {
+			if (err) reject(err);
+			else resolve(result);
+		});
+	});
+};
 
 export const responses = new Hono<ServerTypes>();
 
@@ -105,9 +111,9 @@ responses.post("/", async (c) => {
 	let rawBody: unknown;
 	try {
 		const contentEncoding = c.req.header("content-encoding");
-		if (contentEncoding === "zstd") {
+		if (contentEncoding === "br") {
 			const compressed = await c.req.arrayBuffer();
-			const decompressed = await zstdDecompressAsync(Buffer.from(compressed));
+			const decompressed = await decompressAsync(Buffer.from(compressed));
 			rawBody = JSON.parse(decompressed.toString("utf8"));
 		} else {
 			rawBody = await c.req.json();
@@ -534,9 +540,9 @@ responses.post("/compact", async (c) => {
 	let rawBody: unknown;
 	try {
 		const contentEncoding = c.req.header("content-encoding");
-		if (contentEncoding === "zstd") {
+		if (contentEncoding === "br") {
 			const compressed = await c.req.arrayBuffer();
-			const decompressed = await zstdDecompressAsync(Buffer.from(compressed));
+			const decompressed = await decompressAsync(Buffer.from(compressed));
 			rawBody = JSON.parse(decompressed.toString("utf8"));
 		} else {
 			rawBody = await c.req.json();
