@@ -40,8 +40,11 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 const decompressAsync = (data: Buffer): Promise<Buffer> => {
 	return new Promise((resolve, reject) => {
 		brotliDecompress(data, (err, result) => {
-			if (err) reject(err);
-			else resolve(result);
+			if (err) {
+				reject(err);
+			} else {
+				resolve(result);
+			}
 		});
 	});
 };
