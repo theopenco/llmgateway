@@ -37,6 +37,7 @@ function getPricingForTokenCount(
 	baseInputPrice: string,
 	baseOutputPrice: string,
 	baseCachedInputPrice: string | undefined,
+	baseCacheReadInputPrice: string | undefined,
 	baseCacheWriteInputPrice: string | undefined,
 	baseCacheWriteInputPrice1h: string | undefined,
 	promptTokens: number,
@@ -44,6 +45,7 @@ function getPricingForTokenCount(
 	inputPrice: string;
 	outputPrice: string;
 	cachedInputPrice: string | undefined;
+	cacheReadInputPrice: string | undefined;
 	cacheWriteInputPrice: string | undefined;
 	cacheWriteInputPrice1h: string | undefined;
 	tierName: string | undefined;
@@ -53,6 +55,7 @@ function getPricingForTokenCount(
 			inputPrice: baseInputPrice,
 			outputPrice: baseOutputPrice,
 			cachedInputPrice: baseCachedInputPrice,
+			cacheReadInputPrice: baseCacheReadInputPrice,
 			cacheWriteInputPrice: baseCacheWriteInputPrice,
 			cacheWriteInputPrice1h: baseCacheWriteInputPrice1h,
 			tierName: undefined,
@@ -66,6 +69,8 @@ function getPricingForTokenCount(
 				inputPrice: tier.inputPrice,
 				outputPrice: tier.outputPrice,
 				cachedInputPrice: tier.cachedInputPrice ?? baseCachedInputPrice,
+				cacheReadInputPrice:
+					tier.cacheReadInputPrice ?? baseCacheReadInputPrice,
 				cacheWriteInputPrice:
 					tier.cacheWriteInputPrice ?? baseCacheWriteInputPrice,
 				cacheWriteInputPrice1h:
@@ -81,6 +86,8 @@ function getPricingForTokenCount(
 		inputPrice: lastTier.inputPrice,
 		outputPrice: lastTier.outputPrice,
 		cachedInputPrice: lastTier.cachedInputPrice ?? baseCachedInputPrice,
+		cacheReadInputPrice:
+			lastTier.cacheReadInputPrice ?? baseCacheReadInputPrice,
 		cacheWriteInputPrice:
 			lastTier.cacheWriteInputPrice ?? baseCacheWriteInputPrice,
 		cacheWriteInputPrice1h:
@@ -122,6 +129,13 @@ export async function calculateCosts(
 		cacheWrite1hTokens?: number | null;
 		audioInputTokens?: number | null;
 		cachedAudioInputTokens?: number | null;
+		/**
+		 * True when the upstream request used Anthropic-style `cache_control`
+		 * markers, signalling an explicit-cache flow. Providers with a separate
+		 * `cacheReadInputPrice` (e.g., Alibaba Qwen at 10% vs. 20% implicit) use
+		 * that rate for cached read tokens when this flag is set.
+		 */
+		explicitCacheUsed?: boolean;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -129,6 +143,7 @@ export async function calculateCosts(
 	const cacheWrite1hTokens = options?.cacheWrite1hTokens ?? null;
 	const audioInputTokens = options?.audioInputTokens ?? null;
 	const cachedAudioInputTokens = options?.cachedAudioInputTokens ?? null;
+	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
 
 	// Find the model info - try both base model name and provider model name
 	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
@@ -299,6 +314,7 @@ export async function calculateCosts(
 		providerInfo.inputPrice ?? "0",
 		providerInfo.outputPrice ?? "0",
 		providerInfo.cachedInputPrice,
+		providerInfo.cacheReadInputPrice,
 		providerInfo.cacheWriteInputPrice,
 		providerInfo.cacheWriteInputPrice1h,
 		calculatedPromptTokens,
@@ -306,9 +322,14 @@ export async function calculateCosts(
 
 	const inputPrice = new Decimal(pricing.inputPrice);
 	const outputPrice = new Decimal(pricing.outputPrice);
-	const cachedInputPrice = new Decimal(
-		pricing.cachedInputPrice ?? pricing.inputPrice,
-	);
+	// When the request used `cache_control`, prefer the provider's
+	// explicit-cache read rate if defined. Falls back to `cachedInputPrice`
+	// (and ultimately to `inputPrice`) for providers without a split rate.
+	const resolvedCachedInputPriceStr =
+		explicitCacheUsed && pricing.cacheReadInputPrice !== undefined
+			? pricing.cacheReadInputPrice
+			: (pricing.cachedInputPrice ?? pricing.inputPrice);
+	const cachedInputPrice = new Decimal(resolvedCachedInputPriceStr);
 	const cacheWriteInputPrice =
 		pricing.cacheWriteInputPrice !== undefined
 			? new Decimal(pricing.cacheWriteInputPrice)

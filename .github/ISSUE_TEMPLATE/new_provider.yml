@@ -1,0 +1,62 @@
+name: 🔌 Request a new provider
+description: Ask us to integrate a new LLM provider into the gateway.
+title: "[Provider]: <provider-name>"
+labels: ["provider request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Please confirm the provider isn't already supported on the [providers page](https://llmgateway.io/providers) before opening this issue.
+  - type: input
+    id: provider-name
+    attributes:
+      label: Provider name
+      placeholder: e.g. Mistral AI
+    validations:
+      required: true
+  - type: input
+    id: website
+    attributes:
+      label: Provider website
+      placeholder: https://...
+    validations:
+      required: true
+  - type: input
+    id: api-docs
+    attributes:
+      label: API documentation link
+      description: Link to the provider's API reference, especially the chat/completions endpoint.
+      placeholder: https://...
+    validations:
+      required: true
+  - type: dropdown
+    id: api-compat
+    attributes:
+      label: API compatibility
+      description: Does the provider offer an OpenAI-compatible API?
+      options:
+        - "OpenAI-compatible"
+        - "Anthropic-compatible"
+        - "Custom / proprietary API"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: features
+    attributes:
+      label: Supported features
+      description: What does this provider support?
+      value: |
+        - Streaming: yes/no
+        - Tool / function calling: yes/no
+        - Vision: yes/no
+        - Notable models you'd want available:
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else we should know (regions, auth quirks, pricing model, etc.)?
+    validations:
+      required: false

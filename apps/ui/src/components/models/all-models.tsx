@@ -99,6 +99,8 @@ interface AllModelsProps {
 		| "text"
 		| "text-to-image"
 		| "image-to-image"
+		| "video"
+		| "embedding"
 		| "web-search"
 		| "vision"
 		| "reasoning"
@@ -521,7 +523,11 @@ function applyCategoryFilter(
 ): boolean {
 	switch (categoryFilter) {
 		case "text":
-			return !model.output?.includes("image");
+			return (
+				!model.output?.includes("image") &&
+				!model.output?.includes("video") &&
+				!model.output?.includes("embedding")
+			);
 		case "text-to-image":
 			return model.output?.includes("image") === true;
 		case "image-to-image":
@@ -529,6 +535,10 @@ function applyCategoryFilter(
 				model.output?.includes("image") === true &&
 				providerDetails.some((p) => p.provider.vision)
 			);
+		case "video":
+			return model.output?.includes("video") === true;
+		case "embedding":
+			return model.output?.includes("embedding") === true;
 		case "web-search":
 			return providerDetails.some((p) => p.provider.webSearch);
 		case "vision":

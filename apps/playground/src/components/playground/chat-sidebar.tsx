@@ -11,6 +11,8 @@ import {
 	Loader2,
 	ImagePlus,
 	Film,
+	Pin,
+	PinOff,
 	Users,
 	ChevronUp,
 	LogOut,
@@ -107,9 +109,9 @@ type ChatHistoryRow =
 	| { type: "chat"; key: string; chat: Chat }
 	| { type: "spacer"; key: string };
 
-const ROW_HEIGHT_HEADER = 32;
-const ROW_HEIGHT_SPACER = 16;
-const ROW_HEIGHT_CHAT = 60;
+const ROW_HEIGHT_HEADER = 28;
+const ROW_HEIGHT_SPACER = 6;
+const ROW_HEIGHT_CHAT = 52;
 
 interface ChatHistoryRowProps {
 	rows: ChatHistoryRow[];
@@ -118,11 +120,13 @@ interface ChatHistoryRowProps {
 	editTitle: string;
 	pendingFocusChatId: string | null;
 	isPageLoading: boolean;
+	isMobile: boolean;
 	onChatSelect?: (chatId: string) => void;
 	onEditTitleChange: (value: string) => void;
 	onSaveTitle: (chatId: string) => void;
 	onCancelEdit: () => void;
 	onDeleteChat: (chatId: string) => void;
+	onTogglePin: (chat: Chat) => void;
 	onStartEdit: (chat: Chat) => void;
 	onEditFocused: () => void;
 }
@@ -209,11 +213,13 @@ function ChatHistoryRowComponent({
 	editTitle,
 	pendingFocusChatId,
 	isPageLoading,
+	isMobile,
 	onChatSelect,
 	onEditTitleChange,
 	onSaveTitle,
 	onCancelEdit,
 	onDeleteChat,
+	onTogglePin,
 	onStartEdit,
 	onEditFocused,
 }: RowComponentProps<ChatHistoryRowProps>) {
@@ -239,14 +245,15 @@ function ChatHistoryRowComponent({
 
 	const { chat } = row;
 	const isEditing = editingId === chat.id;
+	const isActive = currentChatId === chat.id;
+	const isActionFocusable = isActive && isMobile ? undefined : -1;
 
 	return (
 		<div {...ariaAttributes} style={style}>
 			<div className="relative h-full px-2 pb-1">
-				<div className="relative h-full">
+				<div className="group/chat-row relative h-full">
 					{isEditing ? (
-						<div className="flex h-full w-full items-center gap-3 rounded-md px-2 pr-8 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
-							<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+						<div className="flex h-full w-full items-center rounded-md px-2 pr-8 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
 							<EditChatTitleInput
 								chatId={chat.id}
 								value={editTitle}
@@ -259,13 +266,15 @@ function ChatHistoryRowComponent({
 						</div>
 					) : (
 						<SidebarMenuButton
-							isActive={currentChatId === chat.id}
+							isActive={isActive}
 							onClick={() => onChatSelect?.(chat.id)}
-							className="h-full! w-full justify-start gap-3 group relative pr-8"
+							className={[
+								"h-full! w-full justify-start group relative pr-2 !transition-none group-hover/chat-row:pr-[4.5rem]",
+								isActive ? "max-md:pr-[4.5rem]" : "",
+							].join(" ")}
 							type="button"
 							disabled={isPageLoading}
 						>
-							<MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
 							<div className="flex-1 min-w-0">
 								<div className="truncate text-sm font-medium mb-0.5">
 									{chat.title}
@@ -276,21 +285,64 @@ function ChatHistoryRowComponent({
 							</div>
 						</SidebarMenuButton>
 					)}
-					{currentChatId === chat.id && !isEditing && (
-						<div className="absolute right-0 top-1/2 -translate-y-1/2">
+					{!isEditing && (
+						<div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+							<button
+								type="button"
+								aria-label={chat.pinned ? "Unpin chat" : "Pin chat"}
+								title={chat.pinned ? "Unpin chat" : "Pin chat"}
+								tabIndex={isActionFocusable}
+								onClick={(e) => {
+									e.stopPropagation();
+									onTogglePin(chat);
+								}}
+								className={[
+									"flex h-7 w-7 items-center justify-center rounded-md text-sidebar-foreground outline-hidden transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+									"pointer-events-none opacity-0 group-hover/chat-row:pointer-events-auto group-hover/chat-row:opacity-100",
+									isActive
+										? "max-md:pointer-events-auto max-md:opacity-100"
+										: "",
+								].join(" ")}
+							>
+								{chat.pinned ? (
+									<PinOff className="h-3.5 w-3.5" />
+								) : (
+									<Pin className="h-3.5 w-3.5" />
+								)}
+							</button>
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
 									<SidebarMenuAction
 										type="button"
+										tabIndex={isActionFocusable}
 										onClick={(e) => {
 											e.stopPropagation();
 										}}
-										className="static h-7 w-7 cursor-pointer"
+										className={[
+											"pointer-events-none static hidden h-7 w-7 cursor-pointer opacity-0 group-hover/chat-row:flex group-hover/chat-row:pointer-events-auto group-hover/chat-row:opacity-100 data-[state=open]:flex data-[state=open]:pointer-events-auto data-[state=open]:opacity-100",
+											isActive
+												? "max-md:flex max-md:pointer-events-auto max-md:opacity-100"
+												: "",
+										].join(" ")}
 									>
 										<MoreVerticalIcon className="h-3.5 w-3.5" />
 									</SidebarMenuAction>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end" className="w-48">
+									<DropdownMenuItem
+										onClick={(e) => {
+											e.stopPropagation();
+											onTogglePin(chat);
+										}}
+										className="flex items-center gap-2"
+									>
+										{chat.pinned ? (
+											<PinOff className="h-4 w-4" />
+										) : (
+											<Pin className="h-4 w-4" />
+										)}
+										{chat.pinned ? "Unpin" : "Pin"}
+									</DropdownMenuItem>
 									<DropdownMenuItem
 										onClick={(e) => {
 											e.stopPropagation();
@@ -393,7 +445,7 @@ export const ChatSidebar = function ChatSidebar({
 	const router = useRouter();
 	const pathname = usePathname();
 	const posthog = usePostHog();
-	const { state: sidebarState, isMobile } = useSidebar();
+	const { state: sidebarState, isMobile, setOpenMobile } = useSidebar();
 	const showOrganizationSwitcher = pathname === "/";
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
@@ -518,19 +570,50 @@ export const ChatSidebar = function ChatSidebar({
 		[deleteChat, currentChatId, clearMessages, onChatSelect],
 	);
 
+	const handleChatSelect = useCallback(
+		(chatId: string) => {
+			onChatSelect?.(chatId);
+
+			if (isMobile) {
+				setOpenMobile(false);
+			}
+		},
+		[isMobile, onChatSelect, setOpenMobile],
+	);
+
+	const handleTogglePin = useCallback(
+		(chat: Chat) => {
+			updateChat.mutate({
+				params: {
+					path: { id: chat.id },
+				},
+				body: { pinned: !chat.pinned },
+			});
+		},
+		[updateChat],
+	);
+
 	const onEditFocused = useCallback(() => {
 		setPendingFocusChatId(null);
 	}, []);
 
-	const chatGroups = useMemo(
+	const sortedChats = useMemo(
 		() =>
-			groupChatsByDate(
-				[...chats].sort(
-					(a, b) =>
-						new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-				),
+			[...chats].sort(
+				(a, b) =>
+					new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
 			),
 		[chats],
+	);
+
+	const pinnedChats = useMemo(
+		() => sortedChats.filter((chat) => chat.pinned),
+		[sortedChats],
+	);
+
+	const chatGroups = useMemo(
+		() => groupChatsByDate(sortedChats.filter((chat) => !chat.pinned)),
+		[sortedChats],
 	);
 
 	const historyRows = useMemo<ChatHistoryRow[]>(() => {
@@ -541,6 +624,18 @@ export const ChatSidebar = function ChatSidebar({
 			{ title: "Older", chats: chatGroups.older },
 		];
 		const rows: ChatHistoryRow[] = [];
+
+		if (pinnedChats.length > 0) {
+			rows.push({ type: "header", key: "header-pinned", title: "Pinned" });
+
+			pinnedChats.forEach((chat) => {
+				rows.push({ type: "chat", key: `chat-${chat.id}`, chat });
+			});
+
+			if (groups.some((group) => group.chats.length > 0)) {
+				rows.push({ type: "spacer", key: "spacer-pinned" });
+			}
+		}
 
 		groups.forEach(({ title, chats: groupedChats }, groupIndex) => {
 			if (groupedChats.length === 0) {
@@ -563,7 +658,7 @@ export const ChatSidebar = function ChatSidebar({
 		});
 
 		return rows;
-	}, [chatGroups]);
+	}, [chatGroups, pinnedChats]);
 
 	const rowProps = useMemo<ChatHistoryRowProps>(
 		() => ({
@@ -573,11 +668,13 @@ export const ChatSidebar = function ChatSidebar({
 			editTitle,
 			pendingFocusChatId,
 			isPageLoading,
-			onChatSelect,
+			isMobile,
+			onChatSelect: handleChatSelect,
 			onEditTitleChange: setEditTitle,
 			onSaveTitle: saveTitle,
 			onCancelEdit: cancelEditTitle,
 			onDeleteChat: handleDeleteChat,
+			onTogglePin: handleTogglePin,
 			onStartEdit: handleEditTitle,
 			onEditFocused,
 		}),
@@ -588,10 +685,12 @@ export const ChatSidebar = function ChatSidebar({
 			editTitle,
 			pendingFocusChatId,
 			isPageLoading,
-			onChatSelect,
+			isMobile,
+			handleChatSelect,
 			saveTitle,
 			cancelEditTitle,
 			handleDeleteChat,
+			handleTogglePin,
 			handleEditTitle,
 			onEditFocused,
 		],
@@ -912,7 +1011,7 @@ export const ChatSidebar = function ChatSidebar({
 				open={isSearchOpen}
 				onOpenChange={setIsSearchOpen}
 				onNewChat={onNewChat}
-				onChatSelect={onChatSelect}
+				onChatSelect={handleChatSelect}
 			/>
 		</Sidebar>
 	);

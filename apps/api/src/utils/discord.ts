@@ -1,6 +1,9 @@
 import { logger } from "@llmgateway/logger";
 
 const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
+const discordSupportWebhookUrl =
+	process.env.DISCORD_SUPPORT_NOTIFICATION_URL ??
+	process.env.DISCORD_NOTIFICATION_URL;
 
 interface DiscordEmbed {
 	title: string;
@@ -21,8 +24,9 @@ interface DiscordWebhookPayload {
 
 async function sendDiscordNotification(
 	payload: DiscordWebhookPayload,
+	webhookUrl: string | undefined = discordWebhookUrl,
 ): Promise<void> {
-	if (!discordWebhookUrl) {
+	if (!webhookUrl) {
 		logger.debug(
 			"DISCORD_NOTIFICATION_URL not configured, skipping notification",
 		);
@@ -30,7 +34,7 @@ async function sendDiscordNotification(
 	}
 
 	try {
-		const response = await fetch(discordWebhookUrl, {
+		const response = await fetch(webhookUrl, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -194,6 +198,55 @@ export async function notifyDevPlanCancelled(
 			},
 		],
 	});
+}
+
+export async function notifyChatSupportEscalation(args: {
+	name?: string;
+	email?: string;
+	conversationId: string;
+	ipAddress?: string;
+	lastMessage?: string;
+}): Promise<void> {
+	const { name, email, conversationId, ipAddress, lastMessage } = args;
+	const truncatedMessage =
+		lastMessage && lastMessage.length > 1000
+			? `${lastMessage.slice(0, 1000)}…`
+			: lastMessage;
+
+	await sendDiscordNotification(
+		{
+			content: "🚨 A chat support conversation was escalated to a human.",
+			embeds: [
+				{
+					title: "Chat Support Escalation",
+					color: 0xf59e0b, // Amber
+					fields: [
+						{ name: "Name", value: name || "Not provided", inline: true },
+						{ name: "Email", value: email || "Not provided", inline: true },
+						{
+							name: "Conversation ID",
+							value: conversationId,
+							inline: false,
+						},
+						...(ipAddress
+							? [{ name: "IP Address", value: ipAddress, inline: true }]
+							: []),
+						...(truncatedMessage
+							? [
+									{
+										name: "Last message",
+										value: truncatedMessage,
+										inline: false,
+									},
+								]
+							: []),
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		discordSupportWebhookUrl,
+	);
 }
 
 export async function notifyDevPlanRenewed(

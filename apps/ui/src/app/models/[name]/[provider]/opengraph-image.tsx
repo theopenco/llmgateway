@@ -1,5 +1,7 @@
 import { ImageResponse } from "next/og";
 
+import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
+import { fetchModelDiscounts } from "@/lib/fetch-models";
 import Logo from "@/lib/icons/Logo";
 import { formatContextSize } from "@/lib/utils";
 
@@ -12,6 +14,7 @@ import {
 import {
 	AWSBedrockIconStatic,
 	getProviderIcon,
+	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
 } from "@llmgateway/shared/components";
 
@@ -20,6 +23,7 @@ export const size = {
 	height: 630,
 };
 export const contentType = "image/png";
+export const revalidate = 60;
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
@@ -27,6 +31,7 @@ interface ImageProps {
 
 function getEffectivePricePerMillion(
 	mapping: ProviderModelMapping | undefined,
+	discount: number,
 ) {
 	if (
 		!mapping?.inputPrice &&
@@ -41,7 +46,6 @@ function getEffectivePricePerMillion(
 			return undefined;
 		}
 		const base = Number(price) * 1e6;
-		const discount = Number(mapping?.discount ?? "0");
 		if (!discount) {
 			return { original: base, discounted: base };
 		}
@@ -104,9 +108,25 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 				? MinimaxIconStatic
 				: selectedMapping.providerId === "aws-bedrock"
 					? AWSBedrockIconStatic
-					: getProviderIcon(selectedMapping.providerId)
+					: selectedMapping.providerId === "google-ai-studio"
+						? GoogleStudioAIIconStatic
+						: getProviderIcon(selectedMapping.providerId)
 			: null;
-		const pricing = getEffectivePricePerMillion(selectedMapping);
+		const discounts = await fetchModelDiscounts(decodedName);
+		const modelNames = Array.from(
+			new Set(model.providers.map((p) => p.modelName)),
+		);
+		const effectiveDiscount = selectedMapping
+			? (getEffectiveProviderDiscount(
+					discounts,
+					selectedMapping.providerId,
+					decodedName,
+					modelNames,
+				) ?? selectedMapping.discount)
+			: undefined;
+		const discountNum = discountFraction(effectiveDiscount);
+
+		const pricing = getEffectivePricePerMillion(selectedMapping, discountNum);
 		const requestPrice =
 			selectedMapping?.requestPrice !== undefined
 				? Number(selectedMapping.requestPrice)
@@ -119,10 +139,6 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					]),
 				)
 			: undefined;
-		const discountNum =
-			selectedMapping?.discount !== undefined
-				? Number(selectedMapping.discount)
-				: undefined;
 		const isVideoGen = selectedMapping?.videoGenerations === true;
 		const isImageGen = selectedMapping?.imageGenerations === true;
 		const hasTokenPricing =
@@ -140,7 +156,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						? AWSBedrockIconStatic
 						: providerId === "minimax"
 							? MinimaxIconStatic
-							: getProviderIcon(providerId);
+							: providerId === "google-ai-studio"
+								? GoogleStudioAIIconStatic
+								: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,

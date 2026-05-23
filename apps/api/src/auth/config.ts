@@ -8,6 +8,7 @@ import { Redis } from "ioredis";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
+import { resolveSignupName } from "@/utils/infer-name.js";
 
 import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -719,6 +720,16 @@ The LLM Gateway Team`.trim();
 						}
 					}
 
+					// Apply name fallback for email/password signup before user creation
+					if (ctx.path.startsWith("/sign-up/email")) {
+						const body = ctx.body as
+							| { email?: string; name?: string | null }
+							| undefined;
+						if (body?.email) {
+							body.name = resolveSignupName(body.name, body.email);
+						}
+					}
+
 					// Check and record rate limit for ALL signup attempts (skip in development)
 					if (
 						ctx.path.startsWith("/sign-up") &&
@@ -821,8 +832,20 @@ The LLM Gateway Team`.trim();
 
 					const dbUser = await db.query.user.findFirst({
 						where: { id: { eq: userId } },
-						columns: { status: true },
+						columns: { status: true, name: true, email: true },
 					});
+
+					if (dbUser && !dbUser.name?.trim() && dbUser.email) {
+						const inferredName = resolveSignupName(null, dbUser.email);
+						if (inferredName) {
+							await db
+								.update(tables.user)
+								.set({ name: inferredName })
+								.where(eq(tables.user.id, userId));
+							newSession.user.name = inferredName;
+						}
+					}
+
 					if (dbUser?.status === "deactivated") {
 						await db
 							.delete(tables.session)

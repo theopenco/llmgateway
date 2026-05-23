@@ -173,15 +173,13 @@ function ApiKeySection({
 				</p>
 			)}
 			<div className="flex items-center gap-4 text-xs text-muted-foreground">
-				<a
-					href={`${uiUrl}/guides`}
-					target="_blank"
-					rel="noopener noreferrer"
+				<Link
+					href="/guides"
 					className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
 				>
 					Setup guides
 					<ArrowRight className="h-3 w-3" />
-				</a>
+				</Link>
 				<a
 					href={`${uiUrl}/models?coding=true`}
 					target="_blank"

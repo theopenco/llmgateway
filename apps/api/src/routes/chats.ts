@@ -31,6 +31,7 @@ const chatSchema = z.object({
 	model: z.string(),
 	status: z.enum(["active", "archived", "deleted"]),
 	webSearch: z.boolean(),
+	pinned: z.boolean(),
 	shareId: z.string().nullable(),
 	sharedAt: z.string().datetime().nullable(),
 	orgShares: z.array(z.object({ id: z.string(), organizationId: z.string() })),
@@ -116,6 +117,7 @@ const createChatSchema = z.object({
 const updateChatSchema = z.object({
 	title: z.string().min(1).max(200).optional(),
 	status: z.enum(["active", "archived"]).optional(),
+	pinned: z.boolean().optional(),
 });
 
 const forkChatResponseSchema = z.object({
@@ -222,6 +224,7 @@ chats.openapi(listChats, async (c) => {
 			model: tables.chat.model,
 			status: tables.chat.status,
 			webSearch: tables.chat.webSearch,
+			pinned: tables.chat.pinned,
 			shareId: tables.chatShare.id,
 			sharedAt: tables.chatShare.createdAt,
 			orgShares: sql<Array<{ id: string; organizationId: string }>>`COALESCE(
@@ -260,6 +263,7 @@ chats.openapi(listChats, async (c) => {
 			tables.chat.model,
 			tables.chat.status,
 			tables.chat.webSearch,
+			tables.chat.pinned,
 			tables.chatShare.id,
 			tables.chatShare.createdAt,
 			tables.chat.createdAt,
@@ -273,6 +277,7 @@ chats.openapi(listChats, async (c) => {
 		model: chat.model,
 		status: chat.status as "active" | "archived" | "deleted",
 		webSearch: chat.webSearch ?? false,
+		pinned: chat.pinned,
 		shareId: chat.shareId,
 		sharedAt: chat.sharedAt?.toISOString() ?? null,
 		orgShares: chat.orgShares ?? [],
@@ -350,6 +355,7 @@ chats.openapi(searchChats, async (c) => {
 				model: tables.chat.model,
 				status: tables.chat.status,
 				webSearch: tables.chat.webSearch,
+				pinned: tables.chat.pinned,
 				shareId: tables.chatShare.id,
 				sharedAt: tables.chatShare.createdAt,
 				orgShares: sql<Array<{ id: string; organizationId: string }>>`COALESCE(
@@ -386,6 +392,7 @@ chats.openapi(searchChats, async (c) => {
 				tables.chat.model,
 				tables.chat.status,
 				tables.chat.webSearch,
+				tables.chat.pinned,
 				tables.chatShare.id,
 				tables.chatShare.createdAt,
 				tables.chat.createdAt,
@@ -406,6 +413,7 @@ chats.openapi(searchChats, async (c) => {
 		model: chat.model,
 		status: chat.status as "active" | "archived" | "deleted",
 		webSearch: chat.webSearch ?? false,
+		pinned: chat.pinned,
 		shareId: chat.shareId,
 		sharedAt: chat.sharedAt?.toISOString() ?? null,
 		orgShares: chat.orgShares ?? [],
@@ -502,6 +510,7 @@ chats.openapi(createChat, async (c) => {
 				model: newChat.model,
 				status: newChat.status as "active" | "archived" | "deleted",
 				webSearch: newChat.webSearch ?? false,
+				pinned: newChat.pinned,
 				shareId: null,
 				sharedAt: null,
 				orgShares: [],
@@ -564,6 +573,7 @@ chats.openapi(getChat, async (c) => {
 			model: tables.chat.model,
 			status: tables.chat.status,
 			webSearch: tables.chat.webSearch,
+			pinned: tables.chat.pinned,
 			createdAt: tables.chat.createdAt,
 			updatedAt: tables.chat.updatedAt,
 			shareId: tables.chatShare.id,
@@ -618,6 +628,7 @@ chats.openapi(getChat, async (c) => {
 				model: chat.model,
 				status: chat.status as "active" | "archived" | "deleted",
 				webSearch: chat.webSearch ?? false,
+				pinned: chat.pinned,
 				shareId: chat.shareId,
 				sharedAt: chat.sharedAt?.toISOString() ?? null,
 				orgShares: chat.orgShares ?? [],
@@ -691,12 +702,21 @@ chats.openapi(updateChat, async (c) => {
 		throw new HTTPException(404, { message: "Chat not found" });
 	}
 
+	const isPinOnlyUpdate =
+		body.pinned !== undefined &&
+		body.title === undefined &&
+		body.status === undefined;
+
+	const updateValues = isPinOnlyUpdate
+		? body
+		: {
+				...body,
+				updatedAt: new Date(),
+			};
+
 	const [updatedChat] = await db
 		.update(tables.chat)
-		.set({
-			...body,
-			updatedAt: new Date(),
-		})
+		.set(updateValues)
 		.where(eq(tables.chat.id, id))
 		.returning();
 
@@ -740,6 +760,7 @@ chats.openapi(updateChat, async (c) => {
 			model: updatedChat.model,
 			status: updatedChat.status as "active" | "archived" | "deleted",
 			webSearch: updatedChat.webSearch ?? false,
+			pinned: updatedChat.pinned,
 			shareId: activeShare?.id ?? null,
 			sharedAt: activeShare?.createdAt.toISOString() ?? null,
 			orgShares: activeOrgShares.filter(

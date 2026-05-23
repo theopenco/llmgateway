@@ -90,10 +90,19 @@ export default function CodingModelsPage() {
 
 				<section className="py-16 px-4">
 					<div className="container mx-auto max-w-6xl">
-						<h2 className="text-2xl font-bold text-center mb-8">
+						<h2 className="text-2xl font-bold text-center mb-2">
 							Featured Coding Models
 						</h2>
-						<CodingModelsShowcase uiUrl={config.uiUrl} showCTA />
+						<p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto">
+							We default to cheap frontier open-weight models — flagship is one
+							tab away when you need it.
+						</p>
+						<CodingModelsShowcase
+							uiUrl={config.uiUrl}
+							showCTA
+							showTabs
+							defaultView="cheap"
+						/>
 					</div>
 				</section>
 

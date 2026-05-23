@@ -2,6 +2,8 @@ import { cache } from "react";
 
 import { getConfig } from "./config-server";
 
+import type { DiscountData } from "./discount";
+
 export interface ApiProvider {
 	id: string;
 	createdAt: string;
@@ -89,6 +91,27 @@ export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 		return [];
 	}
 });
+
+export const fetchModelDiscounts = cache(
+	async (modelId: string): Promise<DiscountData[]> => {
+		const config = getConfig();
+		try {
+			const response = await fetch(
+				`${config.apiBackendUrl}/public/discounts/model/${encodeURIComponent(modelId)}`,
+				{ next: { revalidate: 60 } },
+			);
+			if (!response.ok) {
+				console.error("Failed to fetch discounts:", response.statusText);
+				return [];
+			}
+			const data = await response.json();
+			return data.discounts ?? [];
+		} catch (error) {
+			console.error("Error fetching discounts:", error);
+			return [];
+		}
+	},
+);
 
 export const fetchProviders = cache(async (): Promise<ApiProvider[]> => {
 	const config = getConfig();

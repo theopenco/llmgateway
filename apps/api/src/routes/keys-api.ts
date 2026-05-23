@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import ipaddr from "ipaddr.js";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
@@ -23,15 +24,23 @@ import type { ServerTypes } from "@/vars.js";
 
 export const keysApi = new OpenAPIHono<ServerTypes>();
 
+export const PLAYGROUND_API_KEY_DESCRIPTION = "Auto-generated playground key";
+
+export function isPlaygroundApiKey(apiKey: {
+	description: string | null;
+}): boolean {
+	return apiKey.description === PLAYGROUND_API_KEY_DESCRIPTION;
+}
+
 type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
-type ApiKeyLimitConfig = Pick<
+export type ApiKeyLimitConfig = Pick<
 	ApiKeyRecord,
 	| "usageLimit"
 	| "periodUsageLimit"
 	| "periodUsageDurationValue"
 	| "periodUsageDurationUnit"
 >;
-type PartialApiKeyLimitConfig = Partial<ApiKeyLimitConfig>;
+export type PartialApiKeyLimitConfig = Partial<ApiKeyLimitConfig>;
 type ApiKeyResponseRecord = ApiKeyRecord & {
 	creator?: {
 		id: string;
@@ -49,13 +58,16 @@ type ApiKeyResponseRecord = ApiKeyRecord & {
 			| "allow_pricing"
 			| "deny_pricing"
 			| "allow_providers"
-			| "deny_providers";
+			| "deny_providers"
+			| "allow_ip_cidrs"
+			| "deny_ip_cidrs";
 		ruleValue: {
 			models?: string[];
 			providers?: string[];
 			pricingType?: "free" | "paid";
 			maxInputPrice?: number;
 			maxOutputPrice?: number;
+			ipCidrs?: string[];
 		};
 		status: "active" | "inactive";
 	}>;
@@ -183,7 +195,7 @@ function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
 	};
 }
 
-function hasPeriodConfigChanged(
+export function hasPeriodConfigChanged(
 	apiKey: ApiKeyRecord,
 	config: {
 		periodUsageLimit: string | null;
@@ -198,7 +210,7 @@ function hasPeriodConfigChanged(
 	);
 }
 
-function buildApiKeyLimitAuditChanges(
+export function buildApiKeyLimitAuditChanges(
 	previous: ApiKeyLimitConfig,
 	next: ApiKeyLimitConfig,
 ) {
@@ -235,7 +247,7 @@ function buildApiKeyLimitAuditChanges(
 	return changes;
 }
 
-function mergeApiKeyLimitConfig(
+export function mergeApiKeyLimitConfig(
 	current: ApiKeyLimitConfig,
 	update: PartialApiKeyLimitConfig,
 ): ApiKeyLimitConfig {
@@ -257,7 +269,7 @@ function mergeApiKeyLimitConfig(
 	};
 }
 
-function parseApiKeyPeriodConfig(config: ApiKeyLimitConfig) {
+export function parseApiKeyPeriodConfig(config: ApiKeyLimitConfig) {
 	const parsedConfig = apiKeyPeriodConfigSchema.safeParse({
 		periodUsageLimit: config.periodUsageLimit,
 		periodUsageDurationValue: config.periodUsageDurationValue,
@@ -313,6 +325,8 @@ const apiKeySchema = z.object({
 					"deny_pricing",
 					"allow_providers",
 					"deny_providers",
+					"allow_ip_cidrs",
+					"deny_ip_cidrs",
 				]),
 				ruleValue: z.object({
 					models: z.array(z.string()).optional(),
@@ -320,6 +334,7 @@ const apiKeySchema = z.object({
 					pricingType: z.enum(["free", "paid"]).optional(),
 					maxInputPrice: z.number().optional(),
 					maxOutputPrice: z.number().optional(),
+					ipCidrs: z.array(z.string()).optional(),
 				}),
 				status: z.enum(["active", "inactive"]),
 			}),
@@ -363,48 +378,93 @@ const updateApiKeyUsageLimitSchema = z
 	})
 	.strict();
 
-// Schema for IAM rule
-const iamRuleSchema = z.object({
+export const iamRuleTypeEnum = z.enum([
+	"allow_models",
+	"deny_models",
+	"allow_pricing",
+	"deny_pricing",
+	"allow_providers",
+	"deny_providers",
+	"allow_ip_cidrs",
+	"deny_ip_cidrs",
+]);
+
+export const iamRuleValueSchema = z.object({
+	models: z.array(z.string()).optional(),
+	providers: z.array(z.string()).optional(),
+	pricingType: z.enum(["free", "paid"]).optional(),
+	maxInputPrice: z.number().optional(),
+	maxOutputPrice: z.number().optional(),
+	ipCidrs: z.array(z.string()).optional(),
+});
+
+function isValidCidr(cidr: string): boolean {
+	try {
+		const parsed = ipaddr.parseCIDR(cidr);
+		return Array.isArray(parsed) && parsed.length === 2;
+	} catch {
+		return false;
+	}
+}
+
+export function isIpCidrRuleType(
+	ruleType?: z.infer<typeof iamRuleTypeEnum>,
+): boolean {
+	return ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs";
+}
+
+export function assertEnterpriseForIpCidrRule(
+	ruleType: z.infer<typeof iamRuleTypeEnum> | undefined,
+	plan: string | null | undefined,
+): void {
+	if (isIpCidrRuleType(ruleType) && plan !== "enterprise") {
+		throw new HTTPException(403, {
+			message: "IP address IAM rules require an enterprise plan",
+		});
+	}
+}
+
+export function validateIamRuleInput(input: {
+	ruleType?: z.infer<typeof iamRuleTypeEnum>;
+	ruleValue?: z.infer<typeof iamRuleValueSchema>;
+}): void {
+	const { ruleType, ruleValue } = input;
+	if (!ruleType || !ruleValue) {
+		return;
+	}
+	if (ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs") {
+		const cidrs = ruleValue.ipCidrs;
+		if (!cidrs || cidrs.length === 0) {
+			throw new HTTPException(400, {
+				message: `ruleValue.ipCidrs is required for ruleType ${ruleType}`,
+			});
+		}
+		for (const cidr of cidrs) {
+			if (!isValidCidr(cidr)) {
+				throw new HTTPException(400, {
+					message: `Invalid CIDR: ${cidr}. Expected IPv4 (e.g. 192.0.2.0/24) or IPv6 (e.g. 2001:db8::/32).`,
+				});
+			}
+		}
+	}
+}
+
+export const iamRuleStatusEnum = z.enum(["active", "inactive"]);
+
+export const iamRuleSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	apiKeyId: z.string(),
-	ruleType: z.enum([
-		"allow_models",
-		"deny_models",
-		"allow_pricing",
-		"deny_pricing",
-		"allow_providers",
-		"deny_providers",
-	]),
-	ruleValue: z.object({
-		models: z.array(z.string()).optional(),
-		providers: z.array(z.string()).optional(),
-		pricingType: z.enum(["free", "paid"]).optional(),
-		maxInputPrice: z.number().optional(),
-		maxOutputPrice: z.number().optional(),
-	}),
-	status: z.enum(["active", "inactive"]),
+	ruleType: iamRuleTypeEnum,
+	ruleValue: iamRuleValueSchema,
+	status: iamRuleStatusEnum,
 });
 
-// Schema for creating/updating IAM rules
-const createIamRuleSchema = z.object({
-	ruleType: z.enum([
-		"allow_models",
-		"deny_models",
-		"allow_pricing",
-		"deny_pricing",
-		"allow_providers",
-		"deny_providers",
-	]),
-	ruleValue: z.object({
-		models: z.array(z.string()).optional(),
-		providers: z.array(z.string()).optional(),
-		pricingType: z.enum(["free", "paid"]).optional(),
-		maxInputPrice: z.number().optional(),
-		maxOutputPrice: z.number().optional(),
-	}),
-	status: z.enum(["active", "inactive"]).default("active"),
+export const createIamRuleSchema = z.object({
+	ruleType: iamRuleTypeEnum,
+	ruleValue: iamRuleValueSchema,
+	status: iamRuleStatusEnum.default("active"),
 });
 
 // Create a new API key
@@ -439,48 +499,47 @@ const create = createRoute({
 	},
 });
 
-keysApi.openapi(create, async (c) => {
-	const user = c.get("user");
-	if (!user) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
+export interface CreateApiKeyInput {
+	description: string;
+	usageLimit?: string | null;
+	periodUsageLimit?: string | null;
+	periodUsageDurationValue?: number | null;
+	periodUsageDurationUnit?: ApiKeyPeriodDurationUnit | null;
+}
 
+export async function createApiKeyForProject(
+	projectId: string,
+	userId: string,
+	input: CreateApiKeyInput,
+	options: { skipAccessCheck?: boolean } = {},
+) {
 	const {
 		description,
-		projectId,
 		usageLimit,
 		periodUsageLimit,
 		periodUsageDurationValue,
 		periodUsageDurationUnit,
-	} = c.req.valid("json");
+	} = input;
 
-	// Check if user has access to the project
-	const projectIds = await getUserProjectIds(user.id);
+	if (!options.skipAccessCheck) {
+		const projectIds = await getUserProjectIds(userId);
 
-	if (!projectIds.length) {
-		throw new HTTPException(400, {
-			message: "No organizations found for user",
-		});
+		if (!projectIds.length) {
+			throw new HTTPException(400, {
+				message: "No organizations found for user",
+			});
+		}
+
+		if (!projectIds.includes(projectId)) {
+			throw new HTTPException(403, {
+				message: "You don't have access to this project",
+			});
+		}
 	}
 
-	if (!projectIds.includes(projectId)) {
-		throw new HTTPException(403, {
-			message: "You don't have access to this project",
-		});
-	}
-
-	// Get the organization for the project to check plan limits
 	const project = await db.query.project.findFirst({
-		where: {
-			id: {
-				eq: projectId,
-			},
-		},
-		with: {
-			organization: true,
-		},
+		where: { id: { eq: projectId } },
+		with: { organization: true },
 	});
 
 	if (!project?.organization) {
@@ -489,20 +548,14 @@ keysApi.openapi(create, async (c) => {
 		});
 	}
 
-	// Count existing active API keys for this project
 	const existingApiKeys = await db.query.apiKey.findMany({
 		where: {
-			projectId: {
-				eq: projectId,
-			},
-			status: {
-				ne: "deleted",
-			},
+			projectId: { eq: projectId },
+			status: { ne: "deleted" },
 		},
 	});
 
-	// Check API key limit
-	const maxApiKeys = 20;
+	const maxApiKeys = project.organization.plan === "enterprise" ? 500 : 20;
 
 	if (existingApiKeys.length >= maxApiKeys) {
 		throw new HTTPException(400, {
@@ -510,12 +563,10 @@ keysApi.openapi(create, async (c) => {
 		});
 	}
 
-	// Generate a token with a prefix for better identification
 	const prefix =
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
 	const token = prefix + shortid(40);
 
-	// Create the API key
 	const [apiKey] = await db
 		.insert(tables.apiKey)
 		.values({
@@ -526,13 +577,13 @@ keysApi.openapi(create, async (c) => {
 			periodUsageLimit,
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
-			createdBy: user.id,
+			createdBy: userId,
 		})
 		.returning();
 
 	await logAuditEvent({
 		organizationId: project.organization.id,
-		userId: user.id,
+		userId,
 		action: "api_key.create",
 		resourceType: "api_key",
 		resourceId: apiKey.id,
@@ -546,10 +597,29 @@ keysApi.openapi(create, async (c) => {
 		},
 	});
 
+	return { apiKey, token };
+}
+
+keysApi.openapi(create, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId, ...rest } = c.req.valid("json");
+
+	const { apiKey, token } = await createApiKeyForProject(
+		projectId,
+		user.id,
+		rest,
+	);
+
 	return c.json({
 		apiKey: serializeApiKey({
 			...apiKey,
-			token, // Include the token in the response
+			token,
 		}),
 	});
 });
@@ -578,7 +648,7 @@ const list = createRoute({
 							.object({
 								currentCount: z.number(),
 								maxKeys: z.number(),
-								plan: z.enum(["free", "pro"]),
+								plan: z.enum(["free", "pro", "enterprise"]),
 							})
 							.optional(),
 						userRole: z.enum(["owner", "admin", "developer"]),
@@ -685,7 +755,7 @@ keysApi.openapi(list, async (c) => {
 	// Get organization plan info if projectId is specified
 	let currentCount = 0;
 	let maxKeys = 0;
-	let plan: "free" | "pro" = "free";
+	let plan: "free" | "pro" | "enterprise" = "free";
 
 	if (projectId) {
 		const project = await db.query.project.findFirst({
@@ -700,8 +770,8 @@ keysApi.openapi(list, async (c) => {
 		});
 
 		if (project?.organization) {
-			plan = project.organization.plan as "free" | "pro";
-			maxKeys = plan === "pro" ? 20 : 5;
+			plan = project.organization.plan as "free" | "pro" | "enterprise";
+			maxKeys = plan === "enterprise" ? 500 : plan === "pro" ? 20 : 5;
 			currentCount = apiKeys.filter((key) => key.status !== "deleted").length;
 		}
 	}
@@ -827,7 +897,7 @@ keysApi.openapi(deleteKey, async (c) => {
 	}
 
 	// Prevent deletion of the auto-generated playground key
-	if (apiKey.description === "Auto-generated playground key") {
+	if (isPlaygroundApiKey(apiKey)) {
 		throw new HTTPException(403, {
 			message:
 				"Cannot delete the playground API key. This key is required for the playground to function.",
@@ -988,10 +1058,7 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	// Prevent deactivation of the auto-generated playground key
-	if (
-		apiKey.description === "Auto-generated playground key" &&
-		status === "inactive"
-	) {
+	if (isPlaygroundApiKey(apiKey) && status === "inactive") {
 		throw new HTTPException(403, {
 			message:
 				"Cannot deactivate the playground API key. This key is required for the playground to function.",
@@ -1263,6 +1330,8 @@ keysApi.openapi(createIamRule, async (c) => {
 	const { id } = c.req.param();
 	const ruleData = c.req.valid("json");
 
+	validateIamRuleInput(ruleData);
+
 	// Verify user has access to the API key
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -1295,7 +1364,11 @@ keysApi.openapi(createIamRule, async (c) => {
 			},
 		},
 		with: {
-			project: true,
+			project: {
+				with: {
+					organization: true,
+				},
+			},
 		},
 	});
 
@@ -1323,6 +1396,11 @@ keysApi.openapi(createIamRule, async (c) => {
 			message: "You don't have permission to manage IAM rules for this API key",
 		});
 	}
+
+	assertEnterpriseForIpCidrRule(
+		ruleData.ruleType,
+		apiKey.project.organization?.plan,
+	);
 
 	// Create the IAM rule
 	const [rule] = await db
@@ -1488,6 +1566,12 @@ keysApi.openapi(updateIamRule, async (c) => {
 	const { id, ruleId } = c.req.param();
 	const updateData = c.req.valid("json");
 
+	// We may not yet know the existing ruleType for partial updates; the
+	// validator pulls it from the patch and runs only when both fields are
+	// present. For pure ruleValue changes we re-validate after loading the
+	// existing rule below.
+	validateIamRuleInput(updateData);
+
 	// Verify user has access to the API key and rule
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -1520,7 +1604,11 @@ keysApi.openapi(updateIamRule, async (c) => {
 			},
 		},
 		with: {
-			project: true,
+			project: {
+				with: {
+					organization: true,
+				},
+			},
 		},
 	});
 
@@ -1557,6 +1645,21 @@ keysApi.openapi(updateIamRule, async (c) => {
 			},
 		},
 	});
+
+	// Re-validate using the effective ruleType + ruleValue after merging
+	// with the existing rule, so partial updates can't bypass CIDR checks.
+	if (existingRule && (updateData.ruleType || updateData.ruleValue)) {
+		validateIamRuleInput({
+			ruleType: updateData.ruleType ?? existingRule.ruleType,
+			ruleValue: updateData.ruleValue ?? existingRule.ruleValue,
+		});
+	}
+
+	const effectiveRuleType = updateData.ruleType ?? existingRule?.ruleType;
+	assertEnterpriseForIpCidrRule(
+		effectiveRuleType,
+		apiKey.project.organization?.plan,
+	);
 
 	// Update the IAM rule
 	const [updatedRule] = await db

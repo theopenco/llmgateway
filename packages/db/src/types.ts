@@ -96,7 +96,9 @@ export type ApiKeyIamRule = Omit<ApiKeyIamRuleBase, "status" | "ruleType"> & {
 		| "allow_pricing"
 		| "deny_pricing"
 		| "allow_providers"
-		| "deny_providers";
+		| "deny_providers"
+		| "allow_ip_cidrs"
+		| "deny_ip_cidrs";
 	status: "active" | "inactive";
 };
 

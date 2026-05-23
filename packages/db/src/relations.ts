@@ -21,6 +21,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.apiKey.createdBy,
 		}),
+		createdMasterKeys: r.many.masterKey({
+			from: r.user.id,
+			to: r.masterKey.createdBy,
+		}),
 		auditLogs: r.many.auditLog({
 			from: r.user.id,
 			to: r.auditLog.userId,
@@ -29,11 +33,27 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.userFavoriteModel.userId,
 		}),
+		skills: r.many.skill({
+			from: r.user.id,
+			to: r.skill.userId,
+		}),
+		imageHistory: r.many.playgroundImageHistory({
+			from: r.user.id,
+			to: r.playgroundImageHistory.userId,
+		}),
+		videoHistory: r.many.playgroundVideoHistory({
+			from: r.user.id,
+			to: r.playgroundVideoHistory.userId,
+		}),
 	},
 	organization: {
 		userOrganizations: r.many.userOrganization(),
 		projects: r.many.project(),
 		providerKeys: r.many.providerKey(),
+		masterKeys: r.many.masterKey({
+			from: r.organization.id,
+			to: r.masterKey.organizationId,
+		}),
 		videoJobs: r.many.videoJob({
 			from: r.organization.id,
 			to: r.videoJob.organizationId,
@@ -127,6 +147,16 @@ export const relations = defineRelations(schema, (r) => ({
 		apiKey: r.one.apiKey({
 			from: r.apiKeyIamRule.apiKeyId,
 			to: r.apiKey.id,
+		}),
+	},
+	masterKey: {
+		organization: r.one.organization({
+			from: r.masterKey.organizationId,
+			to: r.organization.id,
+		}),
+		creator: r.one.user({
+			from: r.masterKey.createdBy,
+			to: r.user.id,
 		}),
 	},
 	providerKey: {
@@ -277,6 +307,24 @@ export const relations = defineRelations(schema, (r) => ({
 		organization: r.one.organization({
 			from: r.paymentFailure.organizationId,
 			to: r.organization.id,
+		}),
+	},
+	skill: {
+		user: r.one.user({
+			from: r.skill.userId,
+			to: r.user.id,
+		}),
+	},
+	playgroundImageHistory: {
+		user: r.one.user({
+			from: r.playgroundImageHistory.userId,
+			to: r.user.id,
+		}),
+	},
+	playgroundVideoHistory: {
+		user: r.one.user({
+			from: r.playgroundVideoHistory.userId,
+			to: r.user.id,
 		}),
 	},
 }));

@@ -22,8 +22,8 @@ interface ProviderScore<T extends AvailableModelProvider> {
 // With ratio-based scoring, throughput/latency differences are naturally amplified
 // (e.g., 6x faster = score of 5.0), so these weights are kept low to avoid
 // dominating price and uptime. Price/uptime differences are typically smaller ratios.
-const PRICE_WEIGHT = 0.3;
-const IMAGE_PRICE_WEIGHT = 0.5; // Higher weight for image generation models
+const PRICE_WEIGHT = 0.6;
+const IMAGE_PRICE_WEIGHT = 1.0; // Higher weight for image generation models
 const UPTIME_WEIGHT = 0.5;
 const THROUGHPUT_WEIGHT = 0.05;
 const LATENCY_WEIGHT = 0.025;
