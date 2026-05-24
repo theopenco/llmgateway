@@ -6,16 +6,19 @@ import { invalidateSwrByTables } from "@llmgateway/cache";
 import { db, eq, getTableName, tables } from "@llmgateway/db";
 import {
 	buildProviderPriorityDefaults,
+	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
 	resolveRoutingConfig,
+	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
 } from "@llmgateway/shared/routing-config";
 
 import type { ServerTypes } from "@/vars.js";
 import type {
 	ProviderPriorityOverrides,
+	RoutingHistoryConfig,
 	RoutingRetryConfig,
 	RoutingThresholdsConfig,
 	RoutingTimeoutsConfig,
@@ -114,6 +117,22 @@ const timeoutsSchema = z
 	})
 	.strict();
 
+const historySchema = z
+	.object({
+		windowMinutes: z
+			.number()
+			.int()
+			.min(1)
+			.max(ROUTING_HISTORY_MAX_WINDOW_MINUTES)
+			.optional(),
+		tier1Minutes: z.number().int().min(0).optional(),
+		tier2Minutes: z.number().int().min(0).optional(),
+		tier1Weight: z.number().min(0).optional(),
+		tier2Weight: z.number().min(0).optional(),
+		tier3Weight: z.number().min(0).optional(),
+	})
+	.strict();
+
 const providerPrioritiesSchema = z.record(z.string(), z.number().min(0).max(1));
 
 const routingConfigRowSchema = z.object({
@@ -124,6 +143,7 @@ const routingConfigRowSchema = z.object({
 	thresholds: thresholdsSchema.nullable(),
 	retry: retrySchema.nullable(),
 	timeouts: timeoutsSchema.nullable(),
+	history: historySchema.nullable(),
 	providerPriorities: providerPrioritiesSchema.nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
@@ -135,6 +155,7 @@ const updateBodySchema = z.object({
 	thresholds: thresholdsSchema.nullable().optional(),
 	retry: retrySchema.nullable().optional(),
 	timeouts: timeoutsSchema.nullable().optional(),
+	history: historySchema.nullable().optional(),
 	providerPriorities: providerPrioritiesSchema.nullable().optional(),
 });
 
@@ -163,6 +184,14 @@ const resolvedConfigSchema = z.object({
 		gatewayMs: z.number().optional(),
 		streamingMs: z.number().optional(),
 		plainMs: z.number().optional(),
+	}),
+	history: z.object({
+		windowMinutes: z.number(),
+		tier1Minutes: z.number(),
+		tier2Minutes: z.number(),
+		tier1Weight: z.number(),
+		tier2Weight: z.number(),
+		tier3Weight: z.number(),
 	}),
 	providerPriorities: z.record(z.string(), z.number()),
 });
@@ -249,6 +278,10 @@ routingConfig.openapi(updateConfig, async (c) => {
 					body.timeouts === undefined
 						? existing.timeouts
 						: (body.timeouts as RoutingTimeoutsConfig | null),
+				history:
+					body.history === undefined
+						? existing.history
+						: (body.history as RoutingHistoryConfig | null),
 				providerPriorities:
 					body.providerPriorities === undefined
 						? existing.providerPriorities
@@ -269,6 +302,7 @@ routingConfig.openapi(updateConfig, async (c) => {
 			thresholds: (body.thresholds ?? null) as RoutingThresholdsConfig | null,
 			retry: (body.retry ?? null) as RoutingRetryConfig | null,
 			timeouts: (body.timeouts ?? null) as RoutingTimeoutsConfig | null,
+			history: (body.history ?? null) as RoutingHistoryConfig | null,
 			providerPriorities: (body.providerPriorities ??
 				null) as ProviderPriorityOverrides | null,
 		})
@@ -342,6 +376,7 @@ routingConfig.openapi(getResolved, async (c) => {
 					thresholds: row.thresholds ?? null,
 					retry: row.retry ?? null,
 					timeouts: row.timeouts ?? null,
+					history: row.history ?? null,
 					providerPriorities: row.providerPriorities ?? null,
 				}
 			: null,
@@ -384,6 +419,14 @@ const getDefaults = createRoute({
 							streamingMs: z.number(),
 							plainMs: z.number(),
 						}),
+						history: z.object({
+							windowMinutes: z.number(),
+							tier1Minutes: z.number(),
+							tier2Minutes: z.number(),
+							tier1Weight: z.number(),
+							tier2Weight: z.number(),
+							tier3Weight: z.number(),
+						}),
 						providerPriorities: z.record(z.string(), z.number()),
 					}),
 				},
@@ -399,6 +442,7 @@ routingConfig.openapi(getDefaults, async (c) => {
 		thresholds: DEFAULT_ROUTING_THRESHOLDS,
 		retry: DEFAULT_ROUTING_RETRY,
 		timeouts: DEFAULT_ROUTING_TIMEOUTS,
+		history: DEFAULT_ROUTING_HISTORY,
 		providerPriorities: buildProviderPriorityDefaults(),
 	});
 });

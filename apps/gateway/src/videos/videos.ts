@@ -18,6 +18,7 @@ import {
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { validateModelAccess } from "@/lib/iam.js";
+import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 
@@ -34,7 +35,6 @@ import {
 	and,
 	db,
 	eq,
-	getProviderMetricsForCombinations,
 	metricsKey,
 	sql,
 	shortid,
@@ -1468,8 +1468,10 @@ async function resolveVideoExecution(
 			providerId: provider.providerId,
 			region: provider.region,
 		}));
-		const metricsMap =
-			await getProviderMetricsForCombinations(metricsCombinations);
+		const metricsMap = await getProviderMetricsForRouting(
+			metricsCombinations,
+			routingCfg,
+		);
 
 		const requestedMapping = requestedProvider
 			? configuredEligibleMappings.find(

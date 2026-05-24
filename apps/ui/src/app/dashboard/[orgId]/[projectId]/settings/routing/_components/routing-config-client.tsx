@@ -30,6 +30,7 @@ interface RoutingConfigState {
 	thresholds: NumericFieldGroup;
 	retry: NumericFieldGroup;
 	timeouts: NumericFieldGroup;
+	history: NumericFieldGroup;
 	providerPriorities: Record<string, number | undefined>;
 }
 
@@ -38,6 +39,7 @@ interface DefaultsResponse {
 	thresholds: Record<string, number>;
 	retry: Record<string, number>;
 	timeouts: Record<string, number>;
+	history: Record<string, number>;
 	providerPriorities: Record<string, number>;
 }
 
@@ -130,6 +132,39 @@ const TIMEOUT_FIELDS: { key: string; label: string; help: string }[] = [
 	},
 ];
 
+const HISTORY_FIELDS: { key: string; label: string; help: string }[] = [
+	{
+		key: "windowMinutes",
+		label: "Window (minutes)",
+		help: "How many minutes of provider metrics to include (max 120)",
+	},
+	{
+		key: "tier1Minutes",
+		label: "Tier 1 Boundary (minutes)",
+		help: "Minutes ago where the highest weight tier ends",
+	},
+	{
+		key: "tier2Minutes",
+		label: "Tier 2 Boundary (minutes)",
+		help: "Minutes ago where the medium weight tier ends",
+	},
+	{
+		key: "tier1Weight",
+		label: "Tier 1 Weight",
+		help: "Weight applied to the most-recent tier",
+	},
+	{
+		key: "tier2Weight",
+		label: "Tier 2 Weight",
+		help: "Weight applied to the medium-recency tier",
+	},
+	{
+		key: "tier3Weight",
+		label: "Tier 3 Weight",
+		help: "Weight applied to the oldest tier within the window",
+	},
+];
+
 function emptyState(): RoutingConfigState {
 	return {
 		enabled: false,
@@ -137,6 +172,7 @@ function emptyState(): RoutingConfigState {
 		thresholds: {},
 		retry: {},
 		timeouts: {},
+		history: {},
 		providerPriorities: {},
 	};
 }
@@ -242,6 +278,7 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 						thresholds: row.thresholds ?? {},
 						retry: row.retry ?? {},
 						timeouts: row.timeouts ?? {},
+						history: row.history ?? {},
 						providerPriorities: row.providerPriorities ?? {},
 					});
 				}
@@ -270,7 +307,7 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 	}
 
 	const updateGroup = (
-		group: "weights" | "thresholds" | "retry" | "timeouts",
+		group: "weights" | "thresholds" | "retry" | "timeouts" | "history",
 		key: string,
 		value: number | undefined,
 	) => {
@@ -319,6 +356,7 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 				thresholds: compact(state.thresholds),
 				retry: compact(state.retry),
 				timeouts: compact(state.timeouts),
+				history: compact(state.history),
 				providerPriorities: compact(state.providerPriorities),
 			};
 			await fetchClient.PUT("/routing-config/config/{projectId}", {
@@ -502,6 +540,31 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 									value={state.timeouts[f.key]}
 									defaultValue={defaults?.timeouts[f.key]}
 									onChange={(v) => updateGroup("timeouts", f.key, v)}
+								/>
+							))}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Metrics History Window</CardTitle>
+							<CardDescription>
+								How many minutes of provider metrics are considered when
+								scoring, and how recent minutes are weighted relative to older
+								ones. Non-default values run a per-project aggregation against
+								the 1-minute history table instead of the worker-rolled-up
+								global values.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							{HISTORY_FIELDS.map((f) => (
+								<NumericFieldRow
+									key={f.key}
+									label={f.label}
+									help={f.help}
+									value={state.history[f.key]}
+									defaultValue={defaults?.history?.[f.key]}
+									onChange={(v) => updateGroup("history", f.key, v)}
 								/>
 							))}
 						</CardContent>

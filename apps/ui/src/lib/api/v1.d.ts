@@ -11528,6 +11528,14 @@ export interface paths {
                                 streamingMs?: number;
                                 plainMs?: number;
                             } | null;
+                            history: {
+                                windowMinutes?: number;
+                                tier1Minutes?: number;
+                                tier2Minutes?: number;
+                                tier1Weight?: number;
+                                tier2Weight?: number;
+                                tier3Weight?: number;
+                            } | null;
                             providerPriorities: {
                                 [key: string]: number;
                             } | null;
@@ -11576,6 +11584,14 @@ export interface paths {
                             streamingMs?: number;
                             plainMs?: number;
                         } | null;
+                        history?: {
+                            windowMinutes?: number;
+                            tier1Minutes?: number;
+                            tier2Minutes?: number;
+                            tier1Weight?: number;
+                            tier2Weight?: number;
+                            tier3Weight?: number;
+                        } | null;
                         providerPriorities?: {
                             [key: string]: number;
                         } | null;
@@ -11617,6 +11633,14 @@ export interface paths {
                                 gatewayMs?: number;
                                 streamingMs?: number;
                                 plainMs?: number;
+                            } | null;
+                            history: {
+                                windowMinutes?: number;
+                                tier1Minutes?: number;
+                                tier2Minutes?: number;
+                                tier1Weight?: number;
+                                tier2Weight?: number;
+                                tier3Weight?: number;
                             } | null;
                             providerPriorities: {
                                 [key: string]: number;
@@ -11724,6 +11748,14 @@ export interface paths {
                                 streamingMs?: number;
                                 plainMs?: number;
                             };
+                            history: {
+                                windowMinutes: number;
+                                tier1Minutes: number;
+                                tier2Minutes: number;
+                                tier1Weight: number;
+                                tier2Weight: number;
+                                tier3Weight: number;
+                            };
                             providerPriorities: {
                                 [key: string]: number;
                             };
@@ -11787,6 +11819,14 @@ export interface paths {
                                 gatewayMs: number;
                                 streamingMs: number;
                                 plainMs: number;
+                            };
+                            history: {
+                                windowMinutes: number;
+                                tier1Minutes: number;
+                                tier2Minutes: number;
+                                tier1Weight: number;
+                                tier2Weight: number;
+                                tier3Weight: number;
                             };
                             providerPriorities: {
                                 [key: string]: number;

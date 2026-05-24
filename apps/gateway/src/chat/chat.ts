@@ -39,6 +39,7 @@ import {
 	isContentFilterFinishReason,
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
+import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
@@ -75,7 +76,6 @@ import {
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	getProviderMetricsForCombinations,
 	type InferSelectModel,
 	isCachingEnabled,
 	metricsKey,
@@ -1989,8 +1989,10 @@ chat.openapi(completions, async (c) => {
 				providerId: p.providerId,
 				region: p.region,
 			}));
-			const metricsMap =
-				await getProviderMetricsForCombinations(metricsCombinations);
+			const metricsMap = await getProviderMetricsForRouting(
+				metricsCombinations,
+				routingCfg,
+			);
 			providerAgnosticSelectedProviders =
 				collapseProvidersToBestRegionPerProvider(
 					selectedProviders,
@@ -2202,8 +2204,10 @@ chat.openapi(completions, async (c) => {
 						providerId: provider.providerId,
 						region: provider.region,
 					}));
-					const metricsMap =
-						await getProviderMetricsForCombinations(metricsCombinations);
+					const metricsMap = await getProviderMetricsForRouting(
+						metricsCombinations,
+						routingCfg,
+					);
 					const bestRegionResult = getCheapestFromAvailableProviders(
 						eligibleMappings,
 						modelInfo as ModelDefinition & {
@@ -2390,8 +2394,10 @@ chat.openapi(completions, async (c) => {
 							providerId: p.providerId,
 							region: p.region,
 						}));
-						const allMetricsMap =
-							await getProviderMetricsForCombinations(metricsCombinations);
+						const allMetricsMap = await getProviderMetricsForRouting(
+							metricsCombinations,
+							routingCfg,
+						);
 
 						const cheapestResult = getCheapestFromAvailableProviders(
 							candidatesForRouting,
@@ -2460,13 +2466,16 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 
 		// Fetch uptime metrics for the requested provider
-		const metricsMap = await getProviderMetricsForCombinations([
-			{
-				modelId: baseModelId,
-				providerId: usedProvider,
-				region: usedRegion,
-			},
-		]);
+		const metricsMap = await getProviderMetricsForRouting(
+			[
+				{
+					modelId: baseModelId,
+					providerId: usedProvider,
+					region: usedRegion,
+				},
+			],
+			routingCfg,
+		);
 
 		const metrics = metricsMap.get(
 			metricsKey(baseModelId, usedProvider, usedRegion),
@@ -2548,8 +2557,10 @@ chat.openapi(completions, async (c) => {
 							providerId: p.providerId,
 							region: p.region,
 						}));
-						const allMetricsMap =
-							await getProviderMetricsForCombinations(metricsCombinations);
+						const allMetricsMap = await getProviderMetricsForRouting(
+							metricsCombinations,
+							routingCfg,
+						);
 						const providerAgnosticCandidates =
 							collapseProvidersToBestRegionPerProvider(
 								uptimeFallbackCandidates,
@@ -2763,8 +2774,10 @@ chat.openapi(completions, async (c) => {
 					providerId: provider.providerId,
 					region: provider.region,
 				}));
-				const metricsMap =
-					await getProviderMetricsForCombinations(metricsCombinations);
+				const metricsMap = await getProviderMetricsForRouting(
+					metricsCombinations,
+					routingCfg,
+				);
 				const providerAgnosticCandidates =
 					collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
@@ -2938,7 +2951,10 @@ chat.openapi(completions, async (c) => {
 				providerId: provider.providerId,
 				region: provider.region,
 			}));
-			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
+			metricsMap = await getProviderMetricsForRouting(
+				metricsCombinations,
+				routingCfg,
+			);
 		}
 
 		const weightedScores =

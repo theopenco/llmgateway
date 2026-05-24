@@ -1767,6 +1767,15 @@ export interface RoutingTimeoutsConfig {
 	plainMs?: number;
 }
 
+export interface RoutingHistoryConfig {
+	windowMinutes?: number;
+	tier1Minutes?: number;
+	tier2Minutes?: number;
+	tier1Weight?: number;
+	tier2Weight?: number;
+	tier3Weight?: number;
+}
+
 export type ProviderPriorityOverrides = Record<string, number>;
 
 export const routingConfig = pgTable(
@@ -1782,6 +1791,7 @@ export const routingConfig = pgTable(
 		thresholds: jsonb().$type<RoutingThresholdsConfig>(),
 		retry: jsonb().$type<RoutingRetryConfig>(),
 		timeouts: jsonb().$type<RoutingTimeoutsConfig>(),
+		history: jsonb().$type<RoutingHistoryConfig>(),
 		providerPriorities: jsonb(
 			"provider_priorities",
 		).$type<ProviderPriorityOverrides>(),

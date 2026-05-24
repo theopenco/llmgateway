@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_WEIGHTS,
 	buildProviderPriorityDefaults,
+	historyMatchesDefaults,
 	resolveRoutingConfig,
+	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
+	routingHistoryCacheKey,
 } from "./routing-config.js";
 
 describe("resolveRoutingConfig", () => {
@@ -19,7 +23,50 @@ describe("resolveRoutingConfig", () => {
 		// Timeouts intentionally stay empty so that the per-call helpers can
 		// fall back through env vars and DEFAULT_ROUTING_TIMEOUTS.
 		expect(resolved.timeouts).toEqual({});
+		expect(resolved.history).toEqual(DEFAULT_ROUTING_HISTORY);
+		expect(historyMatchesDefaults(resolved.history)).toBe(true);
 		expect(resolved.providerPriorities).toEqual(providerDefaults);
+	});
+
+	it("clamps history overrides to safe bounds", () => {
+		const resolved = resolveRoutingConfig(
+			{
+				history: {
+					windowMinutes: 999, // above max
+					tier1Minutes: -2, // below 0
+					tier2Minutes: 0, // promoted to tier1Minutes
+					tier1Weight: -5, // clamped to 0
+					tier2Weight: 7,
+					tier3Weight: 2,
+				},
+			},
+			providerDefaults,
+		);
+		expect(resolved.history.windowMinutes).toBe(
+			ROUTING_HISTORY_MAX_WINDOW_MINUTES,
+		);
+		expect(resolved.history.tier1Minutes).toBe(0);
+		expect(resolved.history.tier2Minutes).toBe(0);
+		expect(resolved.history.tier1Weight).toBe(0);
+		expect(resolved.history.tier2Weight).toBe(7);
+		expect(resolved.history.tier3Weight).toBe(2);
+		expect(historyMatchesDefaults(resolved.history)).toBe(false);
+	});
+
+	it("routingHistoryCacheKey changes when any history field changes", () => {
+		const base = resolveRoutingConfig(null, providerDefaults).history;
+		const baseKey = routingHistoryCacheKey(base);
+		const bumpedWindow = routingHistoryCacheKey({
+			...base,
+			windowMinutes: base.windowMinutes + 1,
+		});
+		const bumpedWeight = routingHistoryCacheKey({
+			...base,
+			tier1Weight: base.tier1Weight + 1,
+		});
+		expect(bumpedWindow).not.toBe(baseKey);
+		expect(bumpedWeight).not.toBe(baseKey);
+		expect(bumpedWindow).not.toBe(bumpedWeight);
 	});
 
 	it("only carries timeout overrides for positive numeric values", () => {

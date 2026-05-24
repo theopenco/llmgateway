@@ -1,0 +1,1 @@
+ALTER TABLE "routing_config" ADD COLUMN "history" jsonb;

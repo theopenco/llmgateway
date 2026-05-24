@@ -4,6 +4,7 @@ import {
 	eq,
 	getTableName,
 	routingConfig,
+	type RoutingHistoryConfig,
 	type RoutingRetryConfig,
 	type RoutingThresholdsConfig,
 	type RoutingTimeoutsConfig,
@@ -25,6 +26,7 @@ interface StoredRoutingOverrides {
 	thresholds: RoutingThresholdsConfig | null;
 	retry: RoutingRetryConfig | null;
 	timeouts: RoutingTimeoutsConfig | null;
+	history: RoutingHistoryConfig | null;
 	providerPriorities: ProviderPriorityOverrides | null;
 }
 
@@ -56,6 +58,7 @@ export async function getResolvedRoutingConfig(
 				thresholds: row.thresholds ?? null,
 				retry: row.retry ?? null,
 				timeouts: row.timeouts ?? null,
+				history: row.history ?? null,
 				providerPriorities: row.providerPriorities ?? null,
 			};
 		},

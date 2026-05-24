@@ -29,6 +29,15 @@ export interface RoutingTimeoutsConfig {
 	plainMs?: number;
 }
 
+export interface RoutingHistoryConfig {
+	windowMinutes?: number;
+	tier1Minutes?: number;
+	tier2Minutes?: number;
+	tier1Weight?: number;
+	tier2Weight?: number;
+	tier3Weight?: number;
+}
+
 export type ProviderPriorityOverrides = Record<string, number>;
 
 export interface RoutingConfigOverrides {
@@ -37,6 +46,7 @@ export interface RoutingConfigOverrides {
 	thresholds?: RoutingThresholdsConfig | null;
 	retry?: RoutingRetryConfig | null;
 	timeouts?: RoutingTimeoutsConfig | null;
+	history?: RoutingHistoryConfig | null;
 	providerPriorities?: ProviderPriorityOverrides | null;
 }
 
@@ -51,6 +61,7 @@ export interface ResolvedRoutingConfig {
 	 * empty object means "no project override".
 	 */
 	timeouts: RoutingTimeoutsConfig;
+	history: Required<RoutingHistoryConfig>;
 	providerPriorities: ProviderPriorityOverrides;
 }
 
@@ -83,6 +94,21 @@ export const DEFAULT_ROUTING_TIMEOUTS: Required<RoutingTimeoutsConfig> = {
 	plainMs: 180_000,
 };
 
+/**
+ * Defaults mirror apps/worker/src/services/stats-calculator.ts so projects
+ * that don't override anything see identical behavior to the global rollup.
+ */
+export const DEFAULT_ROUTING_HISTORY: Required<RoutingHistoryConfig> = {
+	windowMinutes: 60,
+	tier1Minutes: 1,
+	tier2Minutes: 5,
+	tier1Weight: 10,
+	tier2Weight: 3,
+	tier3Weight: 1,
+};
+
+export const ROUTING_HISTORY_MAX_WINDOW_MINUTES = 120;
+
 export function buildProviderPriorityDefaults(): ProviderPriorityOverrides {
 	const result: ProviderPriorityOverrides = {};
 	for (const provider of providers as ReadonlyArray<{
@@ -92,6 +118,56 @@ export function buildProviderPriorityDefaults(): ProviderPriorityOverrides {
 		result[provider.id] = provider.priority ?? 1;
 	}
 	return result;
+}
+
+function clampHistory(
+	cfg: Required<RoutingHistoryConfig>,
+): Required<RoutingHistoryConfig> {
+	const windowMinutes = Math.max(
+		1,
+		Math.min(ROUTING_HISTORY_MAX_WINDOW_MINUTES, Math.floor(cfg.windowMinutes)),
+	);
+	const tier1Minutes = Math.max(0, Math.floor(cfg.tier1Minutes));
+	const tier2Minutes = Math.max(tier1Minutes, Math.floor(cfg.tier2Minutes));
+	return {
+		windowMinutes,
+		tier1Minutes,
+		tier2Minutes,
+		tier1Weight: Math.max(0, cfg.tier1Weight),
+		tier2Weight: Math.max(0, cfg.tier2Weight),
+		tier3Weight: Math.max(0, cfg.tier3Weight),
+	};
+}
+
+/**
+ * Returns true if the resolved history config matches the built-in defaults.
+ * Callers use this to skip per-project re-aggregation and read the cheap
+ * globally-rolled-up routingUptime/Latency/Throughput columns instead.
+ */
+export function historyMatchesDefaults(
+	cfg: Required<RoutingHistoryConfig>,
+): boolean {
+	return (
+		cfg.windowMinutes === DEFAULT_ROUTING_HISTORY.windowMinutes &&
+		cfg.tier1Minutes === DEFAULT_ROUTING_HISTORY.tier1Minutes &&
+		cfg.tier2Minutes === DEFAULT_ROUTING_HISTORY.tier2Minutes &&
+		cfg.tier1Weight === DEFAULT_ROUTING_HISTORY.tier1Weight &&
+		cfg.tier2Weight === DEFAULT_ROUTING_HISTORY.tier2Weight &&
+		cfg.tier3Weight === DEFAULT_ROUTING_HISTORY.tier3Weight
+	);
+}
+
+export function routingHistoryCacheKey(
+	cfg: Required<RoutingHistoryConfig>,
+): string {
+	return [
+		cfg.windowMinutes,
+		cfg.tier1Minutes,
+		cfg.tier2Minutes,
+		cfg.tier1Weight,
+		cfg.tier2Weight,
+		cfg.tier3Weight,
+	].join(":");
 }
 
 function mergeGroup<T extends Record<string, number | boolean>>(
@@ -148,6 +224,9 @@ export function resolveRoutingConfig(
 		),
 		retry: mergeGroup(DEFAULT_ROUTING_RETRY, effectiveOverrides?.retry),
 		timeouts: timeoutOverrides,
+		history: clampHistory(
+			mergeGroup(DEFAULT_ROUTING_HISTORY, effectiveOverrides?.history),
+		),
 		providerPriorities,
 	};
 }
