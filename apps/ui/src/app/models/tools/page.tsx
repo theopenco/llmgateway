@@ -5,7 +5,7 @@ import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 export const metadata = {
-	title: "Tool-Calling Models - AI Models with Function Calling | LLM Gateway",
+	title: "Tool-Calling Models - AI Models with Function Calling",
 	description:
 		"Browse and compare AI models with tool and function calling support. Build agentic applications with models that can call APIs and execute functions.",
 	openGraph: {

@@ -5,18 +5,18 @@ import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 export const metadata = {
-	title: "Discounted Models - AI Models on Sale",
+	title: "Embedding Models - AI Text Embeddings",
 	description:
-		"Browse and compare AI models with active discounts. Save on API costs with discounted pricing from multiple providers.",
+		"Browse and compare AI embedding models for semantic search, RAG, and similarity. Generate vector embeddings with multiple providers.",
 	openGraph: {
-		title: "Discounted Models - AI Models on Sale",
+		title: "Embedding Models - AI Text Embeddings",
 		description:
-			"Browse and compare AI models with active discounts. Save on API costs with discounted pricing.",
+			"Browse and compare AI embedding models for semantic search, RAG, and similarity with multiple providers.",
 		type: "website",
 	},
 };
 
-export default async function DiscountedModelsPage() {
+export default async function EmbeddingModelsPage() {
 	const [models, providers] = await Promise.all([
 		fetchModels(),
 		fetchProviders(),
@@ -27,9 +27,9 @@ export default async function DiscountedModelsPage() {
 			<AllModels
 				models={models}
 				providers={providers}
-				title="Discounted Models"
-				description="Models with active discounts — save on API costs"
-				categoryFilter="discounted"
+				title="Embedding Models"
+				description="Models that generate vector embeddings from text"
+				categoryFilter="embedding"
 			>
 				<HeroRSC navbarOnly sticky={false} />
 			</AllModels>

@@ -1,7 +1,7 @@
 CREATE TABLE "routing_config" (
 	"id" text PRIMARY KEY,
 	"project_id" text NOT NULL UNIQUE,
-	"enabled" boolean DEFAULT true NOT NULL,
+	"enabled" boolean DEFAULT false NOT NULL,
 	"weights" jsonb,
 	"thresholds" jsonb,
 	"retry" jsonb,

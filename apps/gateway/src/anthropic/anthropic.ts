@@ -601,6 +601,83 @@ anthropic.openapi(messages, async (c) => {
 				let currentTextBlockIndex: number | null = null;
 				const toolCallBlockIndex = new Map<number, number>();
 				let currentEventType: string | null = null;
+				let stopReason: string | null = null;
+				let contentBlockStopsSent = false;
+				let messageDeltaSent = false;
+
+				const extractUsage = (chunk: any) => {
+					if (!chunk?.usage) {
+						return;
+					}
+					const promptDetails = chunk.usage.prompt_tokens_details ?? {};
+					const cacheRead: number = promptDetails.cached_tokens ?? 0;
+					const cacheCreation: number =
+						promptDetails.cache_write_tokens ??
+						promptDetails.cache_creation_tokens ??
+						0;
+					const totalPrompt: number = chunk.usage.prompt_tokens ?? 0;
+					const nonCachedInput = Math.max(
+						0,
+						totalPrompt - cacheRead - cacheCreation,
+					);
+					const breakdown = promptDetails.cache_creation as
+						| {
+								ephemeral_5m_input_tokens?: number;
+								ephemeral_1h_input_tokens?: number;
+						  }
+						| undefined;
+					usage = {
+						input_tokens: nonCachedInput,
+						output_tokens: chunk.usage.completion_tokens ?? 0,
+						// Match Anthropic's API and always emit both fields
+						// (set to 0 when inapplicable).
+						cache_creation_input_tokens: cacheCreation,
+						cache_read_input_tokens: cacheRead,
+						...(breakdown &&
+							cacheCreation > 0 && {
+								cache_creation: {
+									ephemeral_5m_input_tokens:
+										breakdown.ephemeral_5m_input_tokens ?? 0,
+									ephemeral_1h_input_tokens:
+										breakdown.ephemeral_1h_input_tokens ?? 0,
+								},
+							}),
+					};
+				};
+
+				const sendContentBlockStops = async () => {
+					if (contentBlockStopsSent) {
+						return;
+					}
+					contentBlockStopsSent = true;
+					for (let i = 0; i < contentBlocks.length; i++) {
+						await stream.writeSSE({
+							data: JSON.stringify({
+								type: "content_block_stop",
+								index: i,
+							}),
+							event: "content_block_stop",
+						});
+					}
+				};
+
+				const sendMessageDelta = async () => {
+					if (messageDeltaSent || stopReason === null) {
+						return;
+					}
+					messageDeltaSent = true;
+					await stream.writeSSE({
+						data: JSON.stringify({
+							type: "message_delta",
+							delta: {
+								stop_reason: stopReason,
+								stop_sequence: null,
+							},
+							usage: usage,
+						}),
+						event: "message_delta",
+					});
+				};
 
 				try {
 					while (true) {
@@ -631,6 +708,8 @@ anthropic.openapi(messages, async (c) => {
 							if (line.startsWith("data: ")) {
 								const data = line.slice(6).trim();
 								if (data === "[DONE]") {
+									await sendContentBlockStops();
+									await sendMessageDelta();
 									// Send final Anthropic streaming event
 									await stream.writeSSE({
 										data: JSON.stringify({
@@ -703,6 +782,12 @@ anthropic.openapi(messages, async (c) => {
 										event: "message_start",
 									});
 								}
+
+								// Extract usage from any chunk that carries it. The
+								// upstream chat completions endpoint emits usage in a
+								// separate final chunk (no finish_reason), so we must not
+								// gate this on choices/delta/finish_reason.
+								extractUsage(chunk);
 
 								const choice = chunk.choices?.[0];
 								if (!choice) {
@@ -820,73 +905,27 @@ anthropic.openapi(messages, async (c) => {
 									}
 								}
 
-								// Handle finish_reason
+								// Capture the stop reason and flush content_block_stops,
+								// but defer message_delta until the final usage chunk
+								// (or stream end) so usage is included.
 								if (choice.finish_reason) {
-									// Send content_block_stop events
-									for (let i = 0; i < contentBlocks.length; i++) {
-										await stream.writeSSE({
-											data: JSON.stringify({
-												type: "content_block_stop",
-												index: i,
-											}),
-											event: "content_block_stop",
-										});
-									}
-
-									// Update usage if available
-									if (chunk.usage) {
-										const promptDetails =
-											chunk.usage.prompt_tokens_details ?? {};
-										const cacheRead: number = promptDetails.cached_tokens ?? 0;
-										const cacheCreation: number =
-											promptDetails.cache_write_tokens ??
-											promptDetails.cache_creation_tokens ??
-											0;
-										const totalPrompt: number = chunk.usage.prompt_tokens ?? 0;
-										const nonCachedInput = Math.max(
-											0,
-											totalPrompt - cacheRead - cacheCreation,
-										);
-										const breakdown = promptDetails.cache_creation as
-											| {
-													ephemeral_5m_input_tokens?: number;
-													ephemeral_1h_input_tokens?: number;
-											  }
-											| undefined;
-										usage = {
-											input_tokens: nonCachedInput,
-											output_tokens: chunk.usage.completion_tokens ?? 0,
-											// Match Anthropic's API and always emit both fields
-											// (set to 0 when inapplicable).
-											cache_creation_input_tokens: cacheCreation,
-											cache_read_input_tokens: cacheRead,
-											...(breakdown &&
-												cacheCreation > 0 && {
-													cache_creation: {
-														ephemeral_5m_input_tokens:
-															breakdown.ephemeral_5m_input_tokens ?? 0,
-														ephemeral_1h_input_tokens:
-															breakdown.ephemeral_1h_input_tokens ?? 0,
-													},
-												}),
-										};
-									}
-
-									// Send message_delta with usage
-									await stream.writeSSE({
-										data: JSON.stringify({
-											type: "message_delta",
-											delta: {
-												stop_reason: determineStopReason(choice.finish_reason),
-												stop_sequence: null,
-											},
-											usage: usage,
-										}),
-										event: "message_delta",
-									});
+									stopReason = determineStopReason(choice.finish_reason);
+									await sendContentBlockStops();
 								}
 							}
 						}
+					}
+
+					// Stream ended without an explicit [DONE]. Emit any deferred
+					// terminator events so downstream clients see a well-formed
+					// Anthropic stream.
+					await sendContentBlockStops();
+					await sendMessageDelta();
+					if (stopReason !== null) {
+						await stream.writeSSE({
+							data: JSON.stringify({ type: "message_stop" }),
+							event: "message_stop",
+						});
 					}
 				} catch (error) {
 					throw new HTTPException(500, {
