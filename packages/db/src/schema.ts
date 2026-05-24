@@ -18,6 +18,7 @@ import { customAlphabet } from "nanoid";
 
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
 export const UnifiedFinishReason = {
@@ -1055,6 +1056,10 @@ export const chat = pgTable(
 		}).default("active"),
 		webSearch: boolean().default(false),
 		pinned: boolean().notNull().default(false),
+		comparisonEnabled: boolean().notNull().default(false),
+		parentChatId: text().references((): AnyPgColumn => chat.id, {
+			onDelete: "cascade",
+		}),
 	},
 	(table) => [index("chat_user_id_idx").on(table.userId)],
 );
