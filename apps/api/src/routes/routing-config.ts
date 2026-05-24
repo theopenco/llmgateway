@@ -2,7 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { invalidateSwrByTables } from "@llmgateway/cache";
+import { db, eq, getTableName, tables } from "@llmgateway/db";
 import {
 	buildProviderPriorityDefaults,
 	DEFAULT_ROUTING_RETRY,
@@ -22,6 +23,12 @@ import type {
 } from "@llmgateway/db";
 
 export const routingConfig = new OpenAPIHono<ServerTypes>();
+
+const routingConfigTableName = getTableName(tables.routingConfig);
+
+async function invalidateRoutingConfigCache(): Promise<void> {
+	await invalidateSwrByTables([routingConfigTableName]);
+}
 
 async function checkProjectEnterpriseAccess(
 	userId: string,
@@ -249,6 +256,7 @@ routingConfig.openapi(updateConfig, async (c) => {
 			})
 			.where(eq(tables.routingConfig.id, existing.id))
 			.returning();
+		await invalidateRoutingConfigCache();
 		return c.json(updated);
 	}
 
@@ -266,6 +274,7 @@ routingConfig.openapi(updateConfig, async (c) => {
 		})
 		.returning();
 
+	await invalidateRoutingConfigCache();
 	return c.json(created);
 });
 
@@ -295,6 +304,7 @@ routingConfig.openapi(resetConfig, async (c) => {
 		.delete(tables.routingConfig)
 		.where(eq(tables.routingConfig.projectId, projectId));
 
+	await invalidateRoutingConfigCache();
 	return c.json({ ok: true });
 });
 
