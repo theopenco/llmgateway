@@ -1,5 +1,6 @@
 {
 	"title": "Caching",
 	"icon": "Zap",
-	"pages": ["[Overview](index)", "provider-cache-control", "gateway-caching"]
+	"defaultOpen": true,
+	"pages": ["provider-cache-control", "gateway-caching"]
 }
