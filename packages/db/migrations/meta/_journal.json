@@ -981,6 +981,13 @@
       "when": 1779636288379,
       "tag": "1779636288_slim_miss_america",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "8",
+      "when": 1779638376455,
+      "tag": "1779638376_good_weapon_omega",
+      "breakpoints": true
     }
   ]
 }

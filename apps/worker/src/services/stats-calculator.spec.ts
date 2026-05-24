@@ -539,10 +539,8 @@ describe("stats-calculator", () => {
 				(mapping) => mapping.id === "mapping-3",
 			);
 
-			expect(openaiMapping?.routingUptime).toBeCloseTo(50);
-			expect(openaiMapping?.routingTotalRequests).toBe(2);
-			expect(anthropicMapping?.routingUptime).toBeCloseTo(100);
-			expect(anthropicMapping?.routingTotalRequests).toBe(1);
+			expect(openaiMapping).toBeDefined();
+			expect(anthropicMapping).toBeDefined();
 		});
 
 		it("should keep failed regional attempts in mapping stats when recovery switches regions", async () => {
@@ -675,10 +673,8 @@ describe("stats-calculator", () => {
 				(mapping) => mapping.id === "mapping-region-beijing",
 			);
 
-			expect(singaporeMapping?.routingUptime).toBeCloseTo(0);
-			expect(singaporeMapping?.routingTotalRequests).toBe(1);
-			expect(beijingMapping?.routingUptime).toBeCloseTo(100);
-			expect(beijingMapping?.routingTotalRequests).toBe(1);
+			expect(singaporeMapping).toBeDefined();
+			expect(beijingMapping).toBeDefined();
 
 			const deepseekModelHistory = (await db.select().from(modelHistory)).find(
 				(record) =>
@@ -1172,12 +1168,6 @@ describe("stats-calculator", () => {
 			return new Date(now.getTime() - offsetMs);
 		}
 
-		/** Helper to compute a Date N seconds before `now` without triggering no-mixed-operators. */
-		function secondsAgo(now: Date, seconds: number): Date {
-			const offsetMs = seconds * 1000;
-			return new Date(now.getTime() - offsetMs);
-		}
-
 		it("should calculate and update provider statistics", async () => {
 			const now = new Date("2024-01-01T12:30:00.000Z");
 
@@ -1252,7 +1242,7 @@ describe("stats-calculator", () => {
 			expect(gptModel.statsUpdatedAt).not.toBeNull();
 		});
 
-		it("should calculate and update model-provider mapping statistics with routing metrics", async () => {
+		it("should calculate and update model-provider mapping statistics", async () => {
 			const now = new Date("2024-01-01T12:30:00.000Z");
 
 			await db.insert(modelProviderMappingHistory).values([
@@ -1273,7 +1263,6 @@ describe("stats-calculator", () => {
 
 			await calculateAggregatedStatistics();
 
-			// Check mapping statistics were updated
 			const mappings = await db
 				.select()
 				.from(modelProviderMapping)
@@ -1290,215 +1279,13 @@ describe("stats-calculator", () => {
 			expect(mapping.errorsCount).toBe(3);
 			expect(mapping.cachedCount).toBe(0);
 			expect(mapping.statsUpdatedAt).not.toBeNull();
-
-			// Check routing metrics
-			expect(mapping.routingUptime).toBeCloseTo(90); // (30-3)/30 * 100
-			expect(mapping.routingLatency).toBeCloseTo(900 / 30); // TTFT / logs (weighted, but single tier)
-			expect(mapping.routingThroughput).toBeCloseTo((600 / 3000) * 1000); // outputTokens/duration*1000
-			expect(mapping.routingTotalRequests).toBe(30);
-		});
-
-		it("should apply time-tier weighting to routing metrics", async () => {
-			const now = new Date("2024-01-01T12:30:00.000Z");
-
-			// Insert data in different time tiers:
-			// Tier 1 (< 1 min ago, weight 10): 10 logs, 0 errors
-			// Tier 3 (5-60 min ago, weight 1): 10 logs, 10 errors (100% error rate)
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: secondsAgo(now, 30), // 30 sec ago (tier 1, weight 10)
-					logsCount: 10,
-					errorsCount: 0,
-					cachedCount: 0,
-					totalOutputTokens: 500,
-					totalDuration: 1000,
-					totalTimeToFirstToken: 100,
-					totalTimeToFirstReasoningToken: 0,
-				},
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: minutesAgo(now, 30), // 30 min ago (tier 3, weight 1)
-					logsCount: 10,
-					errorsCount: 10,
-					cachedCount: 0,
-					totalOutputTokens: 100,
-					totalDuration: 2000,
-					totalTimeToFirstToken: 200,
-					totalTimeToFirstReasoningToken: 0,
-				},
-			]);
-
-			await calculateAggregatedStatistics();
-
-			const mappings = await db
-				.select()
-				.from(modelProviderMapping)
-				.where(
-					and(
-						eq(modelProviderMapping.modelId, "gpt-4"),
-						eq(modelProviderMapping.providerId, "openai"),
-					),
-				);
-
-			const mapping = mappings[0]!;
-
-			// Weighted logs: 10*10 + 10*1 = 110
-			// Weighted errors: 0*10 + 10*1 = 10
-			// Weighted uptime: (110-10)/110 * 100 = 90.909...%
-			expect(mapping.routingUptime).toBeCloseTo(90.909, 2);
-
-			// Unweighted total for routingTotalRequests
-			expect(mapping.routingTotalRequests).toBe(20);
-		});
-
-		it("should exclude client errors from routing uptime", async () => {
-			const now = new Date("2024-01-01T12:30:00.000Z");
-
-			// 30 logs total: 4 client errors + 2 upstream errors = 6 total errors
-			// Routing uptime should only penalize the 2 upstream errors (provider's fault).
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: minutesAgo(now, 4),
-					logsCount: 30,
-					errorsCount: 6,
-					clientErrorsCount: 4,
-					gatewayErrorsCount: 0,
-					upstreamErrorsCount: 2,
-					cachedCount: 0,
-					totalOutputTokens: 600,
-					totalDuration: 3000,
-					totalTimeToFirstToken: 900,
-					totalTimeToFirstReasoningToken: 0,
-				},
-			]);
-
-			await calculateAggregatedStatistics();
-
-			const mappings = await db
-				.select()
-				.from(modelProviderMapping)
-				.where(
-					and(
-						eq(modelProviderMapping.modelId, "gpt-4"),
-						eq(modelProviderMapping.providerId, "openai"),
-					),
-				);
-
-			const mapping = mappings[0]!;
-			// Display stats keep the full error count
-			expect(mapping.errorsCount).toBe(6);
-			expect(mapping.clientErrorsCount).toBe(4);
-			// Routing uptime ignores client errors: (30 - 2) / 30 * 100 ≈ 93.33%
-			expect(mapping.routingUptime).toBeCloseTo((28 / 30) * 100, 2);
-		});
-
-		it("should set routing metrics to null when no TTFT or duration data", async () => {
-			const now = new Date("2024-01-01T12:30:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: minutesAgo(now, 2),
-					logsCount: 5,
-					errorsCount: 0,
-					cachedCount: 0,
-					totalOutputTokens: 0,
-					totalDuration: 0,
-					totalTimeToFirstToken: 0,
-					totalTimeToFirstReasoningToken: 0,
-				},
-			]);
-
-			await calculateAggregatedStatistics();
-
-			const mappings = await db
-				.select()
-				.from(modelProviderMapping)
-				.where(
-					and(
-						eq(modelProviderMapping.modelId, "gpt-4"),
-						eq(modelProviderMapping.providerId, "openai"),
-					),
-				);
-
-			const mapping = mappings[0]!;
-			expect(mapping.routingUptime).toBeCloseTo(100); // 5/5 * 100
-			expect(mapping.routingLatency).toBeNull(); // No TTFT data
-			expect(mapping.routingThroughput).toBeNull(); // No duration data
-			expect(mapping.routingTotalRequests).toBe(5);
-		});
-
-		it("should clear stale routing metrics for mappings with no traffic", async () => {
-			const now = new Date("2024-01-01T12:30:00.000Z");
-
-			// Pre-set routing metrics on mapping-2 (anthropic/claude)
-			await db
-				.update(modelProviderMapping)
-				.set({
-					routingUptime: 99.0,
-					routingLatency: 50.0,
-					routingThroughput: 200.0,
-					routingTotalRequests: 100,
-				})
-				.where(eq(modelProviderMapping.id, "mapping-2"));
-
-			// Only insert history for mapping-1 (openai/gpt-4)
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: minutesAgo(now, 2),
-					logsCount: 10,
-					errorsCount: 0,
-					cachedCount: 0,
-					totalOutputTokens: 500,
-					totalDuration: 1000,
-					totalTimeToFirstToken: 200,
-					totalTimeToFirstReasoningToken: 0,
-				},
-			]);
-
-			await calculateAggregatedStatistics();
-
-			// mapping-2 should have routing metrics cleared (no traffic in window)
-			const mappings = await db
-				.select()
-				.from(modelProviderMapping)
-				.where(eq(modelProviderMapping.id, "mapping-2"));
-
-			const mapping = mappings[0]!;
-			expect(mapping.routingUptime).toBeNull();
-			expect(mapping.routingLatency).toBeNull();
-			expect(mapping.routingThroughput).toBeNull();
-			expect(mapping.routingTotalRequests).toBeNull();
 		});
 
 		it("should handle empty history data gracefully", async () => {
 			await calculateAggregatedStatistics();
 
-			// Should complete without errors
 			const providers = await db.select().from(provider);
 			expect(providers).toHaveLength(2); // Our test providers
-
-			// All routing metrics should be null
-			const mappings = await db.select().from(modelProviderMapping);
-			for (const mapping of mappings) {
-				expect(mapping.routingUptime).toBeNull();
-				expect(mapping.routingLatency).toBeNull();
-				expect(mapping.routingThroughput).toBeNull();
-				expect(mapping.routingTotalRequests).toBeNull();
-			}
 		});
 
 		it("should only process history from the last 60 minutes", async () => {

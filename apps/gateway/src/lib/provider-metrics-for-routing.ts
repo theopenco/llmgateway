@@ -1,18 +1,19 @@
 import {
-	getProviderMetricsForCombinations,
 	getProviderMetricsFromHistory,
 	type ProviderMetrics,
 } from "@llmgateway/db";
 import {
-	historyMatchesDefaults,
+	DEFAULT_ROUTING_HISTORY,
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
 
 /**
  * Returns the metrics map for the candidate (model, provider, region)
- * combinations using the project's history overrides when they differ
- * from the defaults; otherwise falls through to the SWR-cached global
- * roll-up that the worker maintains.
+ * combinations using the project's history window + tier weights when
+ * configured; otherwise the built-in defaults. Either way this runs the
+ * same on-demand weighted aggregation against
+ * model_provider_mapping_history, cached in SWR by (history-config-hash,
+ * model-set) for resilience and to keep concurrent requests cheap.
  */
 export async function getProviderMetricsForRouting(
 	combinations: Array<{
@@ -22,8 +23,6 @@ export async function getProviderMetricsForRouting(
 	}>,
 	cfg?: ResolvedRoutingConfig,
 ): Promise<Map<string, ProviderMetrics>> {
-	if (cfg && !historyMatchesDefaults(cfg.history)) {
-		return await getProviderMetricsFromHistory(combinations, cfg.history);
-	}
-	return await getProviderMetricsForCombinations(combinations);
+	const history = cfg?.history ?? DEFAULT_ROUTING_HISTORY;
+	return await getProviderMetricsFromHistory(combinations, history);
 }

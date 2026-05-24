@@ -64,12 +64,11 @@ function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 const HISTORY_SWR_TTL_SECONDS = 30;
 
 /**
- * Same shape as getProviderMetricsForCombinations but computes weighted
- * aggregates from model_provider_mapping_history on the fly using the
- * project's tier weights instead of the worker-rolled-up global values.
- * Cached in SWR keyed by (modelIds, weightsHash) so concurrent requests
- * with the same model set + history config share one DB hit, and so the
- * gateway stays warm if Postgres falls over.
+ * Routing metrics for the candidate (model, provider, region) combinations.
+ * Runs a weighted aggregation against model_provider_mapping_history with
+ * the supplied tier weights. SWR-cached by (history-config-hash, modelIds)
+ * so concurrent requests with the same model set + history config share
+ * one DB hit, and so the gateway stays warm if Postgres falls over.
  */
 export async function getProviderMetricsFromHistory(
 	combinations: Array<{
@@ -109,7 +108,10 @@ export async function getProviderMetricsFromHistory(
 			const tier2Boundary = new Date(now - tier2Ms);
 
 			const ts = modelProviderMappingHistory.minuteTimestamp;
-			const weightExpr = sql<number>`case when ${ts} >= ${tier1Boundary} then ${history.tier1Weight} when ${ts} >= ${tier2Boundary} then ${history.tier2Weight} else ${history.tier3Weight} end`;
+			const tier1Weight = sql.raw(String(history.tier1Weight));
+			const tier2Weight = sql.raw(String(history.tier2Weight));
+			const tier3Weight = sql.raw(String(history.tier3Weight));
+			const weightExpr = sql<number>`case when ${ts} >= ${tier1Boundary} then ${tier1Weight} when ${ts} >= ${tier2Boundary} then ${tier2Weight} else ${tier3Weight} end`;
 
 			const result = await cdb
 				.select({

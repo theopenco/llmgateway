@@ -1348,10 +1348,6 @@ export const modelProviderMapping = pgTable(
 		cachedCount: integer().notNull().default(0),
 		avgTimeToFirstToken: real(),
 		avgTimeToFirstReasoningToken: real(),
-		routingUptime: real(),
-		routingLatency: real(),
-		routingThroughput: real(),
-		routingTotalRequests: integer(),
 		statsUpdatedAt: timestamp(),
 	},
 	(table) => [
