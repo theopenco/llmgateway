@@ -338,6 +338,76 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 	});
 });
 
+describe("prepareRequestBody - reasoning_effort none", () => {
+	async function prepare(options: {
+		provider: Parameters<typeof prepareRequestBody>[0];
+		model: string;
+		useResponsesApi?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			options.provider,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"none", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			options.useResponsesApi ?? false,
+		)) as any;
+	}
+
+	test("forwards none to OpenAI chat completions", async () => {
+		const requestBody = await prepare({ provider: "openai", model: "gpt-5.5" });
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
+	test("forwards none to OpenAI Responses API", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.5",
+			useResponsesApi: true,
+		});
+		expect(requestBody.reasoning.effort).toBe("none");
+	});
+
+	test("disables thinking for Google on none", async () => {
+		const requestBody = await prepare({
+			provider: "google-ai-studio",
+			model: "gemini-2.5-pro",
+		});
+		expect(requestBody.generationConfig.thinkingConfig.includeThoughts).toBe(
+			false,
+		);
+		expect(
+			requestBody.generationConfig.thinkingConfig.thinkingBudget,
+		).toBeUndefined();
+	});
+
+	test("normalizes none to off for Anthropic (thinking not enabled)", async () => {
+		const requestBody = (await prepare({
+			provider: "anthropic",
+			model: "claude-sonnet-4-20250514",
+		})) as AnthropicRequestBody;
+		expect(requestBody.thinking).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - Google AI Studio", () => {
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(

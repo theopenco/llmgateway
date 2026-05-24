@@ -236,7 +236,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	stream_options?: {
 		include_usage: boolean;
 	};
-	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 	extra_body?: Record<string, unknown>;
 }
 
@@ -264,7 +264,7 @@ export interface OpenAIResponsesRequestBody {
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	reasoning: {
-		effort: "minimal" | "low" | "medium" | "high" | "xhigh";
+		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 		summary: "detailed";
 	};
 	tools?: Array<{
@@ -397,7 +397,7 @@ export type RequestBodyPreparer = (
 	response_format?: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 	maxImageSizeMB?: number,

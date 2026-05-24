@@ -429,7 +429,12 @@ function filterEligibleModelProviders(
 			return false;
 		}
 
-		if (options.reasoningEffort !== undefined) {
+		// "none" means "no reasoning", so it doesn't require a reasoning-capable
+		// provider. Let it fall through so non-reasoning variants stay eligible.
+		if (
+			options.reasoningEffort !== undefined &&
+			options.reasoningEffort !== "none"
+		) {
 			return provider.reasoning === true;
 		}
 
@@ -1150,16 +1155,12 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
-	// Use reasoning.effort if provided, otherwise use top-level reasoning_effort
-	// Map "none" to undefined for internal processing
-	let reasoning_effort = (() => {
-		const effort =
-			reasoning_object_effort ?? validationResult.data.reasoning_effort;
-		if (effort === "none") {
-			return undefined;
-		}
-		return effort;
-	})();
+	// Use reasoning.effort if provided, otherwise use top-level reasoning_effort.
+	// "none" is preserved and forwarded to OpenAI (its newer reasoning models
+	// accept it); for other providers it is normalized to "off" downstream in
+	// prepareRequestBody.
+	let reasoning_effort =
+		reasoning_object_effort ?? validationResult.data.reasoning_effort;
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
@@ -1881,8 +1882,14 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
-				// Check reasoning capability if reasoning_effort is specified
-				if (reasoning_effort !== undefined && provider.reasoning !== true) {
+				// Check reasoning capability if reasoning_effort is specified.
+				// "none" means "no reasoning", so it doesn't require a
+				// reasoning-capable provider.
+				if (
+					reasoning_effort !== undefined &&
+					reasoning_effort !== "none" &&
+					provider.reasoning !== true
+				) {
 					return false;
 				}
 

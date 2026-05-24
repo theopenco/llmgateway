@@ -220,12 +220,13 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	reasoning_effort: z
-		.enum(["minimal", "low", "medium", "high", "xhigh"])
+		.enum(["none", "minimal", "low", "medium", "high", "xhigh"])
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
-			description: "Controls the reasoning effort for reasoning-capable models",
+			description:
+				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning.",
 			example: "medium",
 		}),
 	reasoning: z
