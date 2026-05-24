@@ -164,7 +164,6 @@ import {
 	type RoutingAttempt,
 	getErrorType,
 	isRetryableErrorType,
-	MAX_RETRIES,
 	providerRetryKey,
 	selectNextProvider,
 	shouldRetryAlternateKey,
@@ -4813,7 +4812,7 @@ chat.openapi(completions, async (c) => {
 				const finalLogId = logIdOverride ?? shortid();
 				for (
 					let retryAttempt = 0;
-					retryAttempt <= MAX_RETRIES;
+					retryAttempt <= routingCfg.retry.maxRetries;
 					retryAttempt++
 				) {
 					const perAttemptStartTime = Date.now();
@@ -8478,7 +8477,11 @@ chat.openapi(completions, async (c) => {
 	let res: Response | undefined;
 	let duration = 0;
 	const finalLogId = logIdOverride ?? shortid();
-	for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
+	for (
+		let retryAttempt = 0;
+		retryAttempt <= routingCfg.retry.maxRetries;
+		retryAttempt++
+	) {
 		const perAttemptStartTime = Date.now();
 
 		// Type guard: narrow variables that TypeScript widens due to loop reassignment
