@@ -11772,7 +11772,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/routing-config/defaults": {
+    "/routing-config/config/{projectId}/defaults": {
         parameters: {
             query?: never;
             header?: never;
@@ -11783,7 +11783,9 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    projectId: string;
+                };
                 cookie?: never;
             };
             requestBody?: never;
