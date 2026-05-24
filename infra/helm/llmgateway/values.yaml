@@ -124,9 +124,9 @@ gateway:
       cpu: 200m
       memory: 256Mi
   config:
-    gatewayTimeoutMs: 300000
-    aiStreamingTimeoutMs: 240000
-    aiTimeoutMs: 180000
+    gatewayTimeoutMs: 1500000
+    aiStreamingTimeoutMs: 1200000
+    aiTimeoutMs: 600000
     keepAliveTimeoutS: 620
     shutdownGracePeriodMs: 120000
     healthCheckSkipDatabase: ""
