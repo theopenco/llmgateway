@@ -47,14 +47,14 @@ importers:
         specifier: ^13.1.5
         version: 13.1.5(semantic-release@24.2.9(typescript@5.9.2))
       '@steebchen/commitlint-config':
-        specifier: ^1.6.1
-        version: 1.6.1
+        specifier: ^1.7.0
+        version: 1.7.0
       '@steebchen/eslint-config':
         specifier: ^1.11.1
         version: 1.11.1(@typescript-eslint/eslint-plugin@8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3))
       '@steebchen/lint-base':
         specifier: 1.1.0
-        version: 1.1.0(@steebchen/commitlint-config@1.6.1)(@steebchen/prettier-config@1.5.0(prettier@3.6.2))(@typescript-eslint/eslint-plugin@8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))(husky@9.1.7)(lint-staged@16.4.0)(prettier@3.6.2)(sort-package-json@3.4.0)(typescript@5.9.2)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3))
+        version: 1.1.0(@steebchen/commitlint-config@1.7.0)(@steebchen/prettier-config@1.5.0(prettier@3.6.2))(@typescript-eslint/eslint-plugin@8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))(husky@9.1.7)(lint-staged@16.4.0)(prettier@3.6.2)(sort-package-json@3.4.0)(typescript@5.9.2)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3))
       '@steebchen/prettier-config':
         specifier: ^1.5.0
         version: 1.5.0(prettier@3.6.2)
@@ -840,10 +840,10 @@ importers:
         version: 1.6.9(@better-auth/core@1.6.9(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.0)(better-call@1.3.5(zod@3.25.75))(jose@6.1.3)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.0)(@better-fetch/fetch@1.1.21)(better-auth@1.6.9(@opentelemetry/api@1.9.0)(next@16.2.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(pg@8.16.3)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.9.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3)))(better-call@1.3.5(zod@3.25.75))(nanostores@1.2.0)
       '@content-collections/core':
         specifier: 0.15.0
-        version: 0.15.0(typescript@5.9.2)
+        version: 0.15.0(typescript@5.9.3)
       '@content-collections/next':
         specifier: 0.2.11
-        version: 0.2.11(@content-collections/core@0.15.0(typescript@5.9.2))(next@16.2.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
+        version: 0.2.11(@content-collections/core@0.15.0(typescript@5.9.3))(next@16.2.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
       '@hookform/resolvers':
         specifier: 5.2.2
         version: 5.2.2(react-hook-form@7.65.0(react@19.2.6))(zod@3.25.75)
@@ -1063,7 +1063,7 @@ importers:
         version: 10.4.21(postcss@8.5.10)
       openapi-typescript:
         specifier: 7.10.1
-        version: 7.10.1(typescript@5.9.2)
+        version: 7.10.1(typescript@5.9.3)
       postcss:
         specifier: ^8.5.10
         version: 8.5.10
@@ -1581,9 +1581,6 @@ importers:
 
 packages:
 
-  '@abinnovision/commitlint-config@2.2.3':
-    resolution: {integrity: sha512-l9NbGnST9FOGTT054CJ68SKmW/o29ePS6JPYhBfc6GcTPAAoQIijmLoOzaoBzp+M9wrWYwfQRL/0YW91wNWMNw==}
-
   '@abinnovision/eslint-config-base@3.0.2':
     resolution: {integrity: sha512-HYFyKm8uqCEE1RP8aln4HD7OjV+1/Snx1XY46Ub3dKg2hpn9r1QSkLrSOp+vMY1JKCAWRO99tBep51NTyFiIZA==}
     peerDependencies:
@@ -1989,10 +1986,6 @@ packages:
   '@commitlint/top-level@21.0.1':
     resolution: {integrity: sha512-4esUYqzY7K0FCgcJ/1xWEZekV7Ch4yZT1+xjEb7KzqbJ05XEkxHVsTfC8ADKNNtlCE2pj98KEbPGZWw9WwEnVw==}
     engines: {node: '>=22.12.0'}
-
-  '@commitlint/types@19.8.1':
-    resolution: {integrity: sha512-/yCrWGCoA1SVKOks25EGadP9Pnj0oAIHGpl2wH2M2Y46dPM2ueb8wyCVOD7O3WCTkaJ0IkKvzhl1JY7+uCT2Dw==}
-    engines: {node: '>=v18'}
 
   '@commitlint/types@20.5.0':
     resolution: {integrity: sha512-ZJoS8oSq2CAZEpc/YI9SulLrdiIyXeHb/OGqGrkUP6Q7YV+0ouNAa7GjqRdXeQPncHQIDz/jbCTlHScvYvO/gA==}
@@ -4746,8 +4739,8 @@ packages:
   '@standard-schema/utils@0.3.0':
     resolution: {integrity: sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==}
 
-  '@steebchen/commitlint-config@1.6.1':
-    resolution: {integrity: sha512-1cDMXYIXRiisNGbndhRVkCGZofcta/ZcK7nnnUn3wSMJfkqDnRbrK4tKQPHkwRIGlqXMNknZMXZqDWL+L13DVg==}
+  '@steebchen/commitlint-config@1.7.0':
+    resolution: {integrity: sha512-uikpcjEc207aiqLi0PMruFtQn/EobkRU0XO6L3ZpHHqo1xpXBO2Gs3TtFi/k9NIXQyPll1m48SCYPVgnz00W/g==}
 
   '@steebchen/eslint-config@1.11.1':
     resolution: {integrity: sha512-qqYGrtw3QxhPBRg/w6UqDBXtrEUNsc8Tz2whsLLiFrAqkRKtQTvbeEM3Xw+GRTeLymb6FoXp22WJE8xcaBjYDQ==}
@@ -4968,9 +4961,6 @@ packages:
 
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
-
-  '@types/conventional-commits-parser@5.0.1':
-    resolution: {integrity: sha512-7uz5EHdzz2TqoMfV7ee61Egf5y6NkcO4FB/1iCCQnbeiI1F3xzv3vK5dBCXUCLQgGYS+mUeigK1iKQzvED+QnQ==}
 
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
@@ -6085,11 +6075,6 @@ packages:
   conventional-commits-filter@5.0.0:
     resolution: {integrity: sha512-tQMagCOC59EVgNZcC5zl7XqO30Wki9i9J3acbUvkaosCT6JX3EeFwJD7Qqp4MCikRnzS18WXV3BLIQ66ytu6+Q==}
     engines: {node: '>=18'}
-
-  conventional-commits-parser@6.2.1:
-    resolution: {integrity: sha512-20pyHgnO40rvfI0NGF/xiEoFMkXDtkF8FwHvk5BokoFoCuTQRI8vrNCNFWUOfuolKJMm1tPCHc8GgYEtr1XRNA==}
-    engines: {node: '>=18'}
-    hasBin: true
 
   conventional-commits-parser@6.4.0:
     resolution: {integrity: sha512-tvRg7FIBNlyPzjdG8wWRlPHQJJHI7DylhtRGeU9Lq+JuoPh5BKpPRX83ZdLrvXuOSu5Eo/e7SzOQhU4Hd2Miuw==}
@@ -11515,10 +11500,6 @@ packages:
 
 snapshots:
 
-  '@abinnovision/commitlint-config@2.2.3':
-    dependencies:
-      '@commitlint/config-conventional': 20.4.2
-
   '@abinnovision/eslint-config-base@3.0.2(@typescript-eslint/eslint-plugin@8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3))':
     dependencies:
       '@eslint/js': 9.39.2
@@ -12229,11 +12210,6 @@ snapshots:
     dependencies:
       escalade: 3.2.0
 
-  '@commitlint/types@19.8.1':
-    dependencies:
-      '@types/conventional-commits-parser': 5.0.1
-      chalk: 5.6.0
-
   '@commitlint/types@20.5.0':
     dependencies:
       conventional-commits-parser: 6.4.0
@@ -12244,7 +12220,7 @@ snapshots:
       conventional-commits-parser: 6.4.0
       picocolors: 1.1.1
 
-  '@content-collections/core@0.15.0(typescript@5.9.2)':
+  '@content-collections/core@0.15.0(typescript@5.9.3)':
     dependencies:
       '@standard-schema/spec': 1.1.0
       camelcase: 8.0.0
@@ -12256,17 +12232,17 @@ snapshots:
       pluralize: 8.0.0
       serialize-javascript: 7.0.5
       tinyglobby: 0.2.15
-      typescript: 5.9.2
+      typescript: 5.9.3
       yaml: 2.8.1
 
-  '@content-collections/integrations@0.5.0(@content-collections/core@0.15.0(typescript@5.9.2))':
+  '@content-collections/integrations@0.5.0(@content-collections/core@0.15.0(typescript@5.9.3))':
     dependencies:
-      '@content-collections/core': 0.15.0(typescript@5.9.2)
+      '@content-collections/core': 0.15.0(typescript@5.9.3)
 
-  '@content-collections/next@0.2.11(@content-collections/core@0.15.0(typescript@5.9.2))(next@16.2.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))':
+  '@content-collections/next@0.2.11(@content-collections/core@0.15.0(typescript@5.9.3))(next@16.2.6(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))':
     dependencies:
-      '@content-collections/core': 0.15.0(typescript@5.9.2)
-      '@content-collections/integrations': 0.5.0(@content-collections/core@0.15.0(typescript@5.9.2))
+      '@content-collections/core': 0.15.0(typescript@5.9.3)
+      '@content-collections/integrations': 0.5.0(@content-collections/core@0.15.0(typescript@5.9.3))
       next: 16.2.6(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
 
   '@conventional-changelog/git-client@2.7.0(conventional-commits-filter@5.0.0)(conventional-commits-parser@6.4.0)':
@@ -15020,7 +14996,7 @@ snapshots:
       conventional-changelog-angular: 8.1.0
       conventional-changelog-writer: 8.2.0
       conventional-commits-filter: 5.0.0
-      conventional-commits-parser: 6.2.1
+      conventional-commits-parser: 6.4.0
       debug: 4.4.3(supports-color@5.5.0)
       import-from-esm: 2.0.0
       lodash-es: 4.18.1
@@ -15106,7 +15082,7 @@ snapshots:
       conventional-changelog-angular: 8.1.0
       conventional-changelog-writer: 8.2.0
       conventional-commits-filter: 5.0.0
-      conventional-commits-parser: 6.2.1
+      conventional-commits-parser: 6.4.0
       debug: 4.4.3(supports-color@5.5.0)
       get-stream: 7.0.1
       import-from-esm: 2.0.0
@@ -15233,10 +15209,10 @@ snapshots:
 
   '@standard-schema/utils@0.3.0': {}
 
-  '@steebchen/commitlint-config@1.6.1':
+  '@steebchen/commitlint-config@1.7.0':
     dependencies:
-      '@abinnovision/commitlint-config': 2.2.3
-      '@commitlint/types': 19.8.1
+      '@commitlint/config-conventional': 20.4.2
+      '@commitlint/types': 20.5.0
 
   '@steebchen/eslint-config@1.11.1(@typescript-eslint/eslint-plugin@8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3))':
     dependencies:
@@ -15252,10 +15228,10 @@ snapshots:
       - typescript
       - vitest
 
-  '@steebchen/lint-base@1.1.0(@steebchen/commitlint-config@1.6.1)(@steebchen/prettier-config@1.5.0(prettier@3.6.2))(@typescript-eslint/eslint-plugin@8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))(husky@9.1.7)(lint-staged@16.4.0)(prettier@3.6.2)(sort-package-json@3.4.0)(typescript@5.9.2)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3))':
+  '@steebchen/lint-base@1.1.0(@steebchen/commitlint-config@1.7.0)(@steebchen/prettier-config@1.5.0(prettier@3.6.2))(@typescript-eslint/eslint-plugin@8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))(husky@9.1.7)(lint-staged@16.4.0)(prettier@3.6.2)(sort-package-json@3.4.0)(typescript@5.9.2)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3))':
     dependencies:
       '@abinnovision/eslint-config-base': 3.0.2(@typescript-eslint/eslint-plugin@8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3))
-      '@steebchen/commitlint-config': 1.6.1
+      '@steebchen/commitlint-config': 1.7.0
       '@steebchen/eslint-config': 1.11.1(@typescript-eslint/eslint-plugin@8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint-import-resolver-typescript@4.4.4)(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2)(vitest@4.0.5(@types/debug@4.1.12)(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.3))
       '@steebchen/prettier-config': 1.5.0(prettier@3.6.2)
       eslint: 9.38.0(jiti@2.6.1)
@@ -15465,10 +15441,6 @@ snapshots:
     dependencies:
       '@types/node': 25.3.0
 
-  '@types/conventional-commits-parser@5.0.1':
-    dependencies:
-      '@types/node': 25.3.0
-
   '@types/d3-array@3.2.2': {}
 
   '@types/d3-axis@3.0.6':
@@ -15624,7 +15596,7 @@ snapshots:
 
   '@types/mssql@9.1.8(@azure/core-client@1.10.1)':
     dependencies:
-      '@types/node': 25.9.1
+      '@types/node': 25.3.0
       tarn: 3.0.2
       tedious: 19.2.1(@azure/core-client@1.10.1)
     transitivePeerDependencies:
@@ -15651,6 +15623,7 @@ snapshots:
   '@types/node@25.9.1':
     dependencies:
       undici-types: 7.24.6
+    optional: true
 
   '@types/normalize-package-data@2.4.4': {}
 
@@ -15695,7 +15668,7 @@ snapshots:
 
   '@types/readable-stream@4.0.23':
     dependencies:
-      '@types/node': 25.9.1
+      '@types/node': 25.3.0
 
   '@types/request@2.48.13':
     dependencies:
@@ -16759,10 +16732,6 @@ snapshots:
       semver: 7.7.4
 
   conventional-commits-filter@5.0.0: {}
-
-  conventional-commits-parser@6.2.1:
-    dependencies:
-      meow: 13.2.0
 
   conventional-commits-parser@6.4.0:
     dependencies:
@@ -20527,16 +20496,6 @@ snapshots:
 
   openapi-typescript-helpers@0.0.15: {}
 
-  openapi-typescript@7.10.1(typescript@5.9.2):
-    dependencies:
-      '@redocly/openapi-core': 1.34.5(supports-color@10.2.2)
-      ansi-colors: 4.1.3
-      change-case: 5.4.4
-      parse-json: 8.3.0
-      supports-color: 10.2.2
-      typescript: 5.9.2
-      yargs-parser: 21.1.1
-
   openapi-typescript@7.10.1(typescript@5.9.3):
     dependencies:
       '@redocly/openapi-core': 1.34.5(supports-color@10.2.2)
@@ -22255,7 +22214,7 @@ snapshots:
       '@azure/identity': 4.13.1
       '@azure/keyvault-keys': 4.10.0(@azure/core-client@1.10.1)
       '@js-joda/core': 5.7.0
-      '@types/node': 25.9.1
+      '@types/node': 25.3.0
       bl: 6.1.6
       iconv-lite: 0.6.3
       js-md4: 0.3.2
@@ -22271,7 +22230,7 @@ snapshots:
       '@azure/identity': 4.13.1
       '@azure/keyvault-keys': 4.10.0(@azure/core-client@1.10.1)
       '@js-joda/core': 5.7.0
-      '@types/node': 25.9.1
+      '@types/node': 25.3.0
       bl: 6.1.6
       iconv-lite: 0.7.2
       js-md4: 0.3.2
@@ -22579,7 +22538,8 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici-types@7.24.6: {}
+  undici-types@7.24.6:
+    optional: true
 
   undici@6.25.0: {}
 
