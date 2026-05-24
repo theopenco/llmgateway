@@ -240,5 +240,7 @@ export function getDefaultRoutingConfig(): ResolvedRoutingConfig {
 			buildProviderPriorityDefaults(),
 		);
 	}
-	return cachedDefaults;
+	// Return a defensive deep clone so callers cannot mutate the cached
+	// constants and accidentally poison subsequent routing decisions.
+	return structuredClone(cachedDefaults);
 }
