@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "97362963-3e31-49d1-b9d4-a3d89580e676",
+  "id": "41837c72-3e2d-48a2-8c11-3229e4fd012b",
   "prevId": "2ff592d4-cd89-44a4-a5e6-2d75691fb61f",
   "ddl": [
     {
@@ -8269,58 +8269,6 @@
       "table": "model_provider_mapping"
     },
     {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "routing_uptime",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "routing_latency",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "routing_throughput",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "routing_total_requests",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": false,
@@ -12969,6 +12917,19 @@
       "generated": null,
       "identity": null,
       "name": "timeouts",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_config"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "history",
       "entityType": "columns",
       "schema": "public",
       "table": "routing_config"
