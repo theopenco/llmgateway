@@ -1131,5 +1131,73 @@ describe("getCheapestFromAvailableProviders", () => {
 			});
 			expect(result).not.toBeNull();
 		});
+
+		it("falls back to price-only selection when every scoring weight is zero", async () => {
+			const {
+				resolveRoutingConfig,
+				buildProviderPriorityDefaults,
+				metricsKey,
+			} = await import("@llmgateway/shared/routing-config").then(
+				async (mod) => {
+					const dbMod = await import("@llmgateway/db");
+					return { ...mod, metricsKey: dbMod.metricsKey };
+				},
+			);
+
+			const model = models.find((m) => m.id === "gpt-4o-mini");
+			if (!model) {
+				throw new Error("Missing gpt-4o-mini fixture");
+			}
+			const available = (model.providers as ProviderModelMapping[]).filter(
+				(p) => p.providerId === "openai",
+			);
+			if (available.length === 0) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{
+					weights: {
+						price: 0,
+						imagePrice: 0,
+						uptime: 0,
+						throughput: 0,
+						latency: 0,
+						cache: 0,
+					},
+				},
+				buildProviderPriorityDefaults(),
+			);
+
+			// Provide a non-empty metrics map so we follow the weighted-score
+			// branch rather than the empty-map shortcut.
+			const metricsMap = new Map([
+				[
+					metricsKey(model.id, available[0].providerId, available[0].region),
+					{
+						providerId: available[0].providerId,
+						modelId: model.id,
+						uptime: 99,
+						averageLatency: 100,
+						throughput: 100,
+						totalRequests: 50,
+					},
+				],
+			]);
+
+			expect(() =>
+				getCheapestFromAvailableProviders(available, model, {
+					routingConfig: overrides,
+					metricsMap,
+				}),
+			).not.toThrow();
+
+			const result = getCheapestFromAvailableProviders(available, model, {
+				routingConfig: overrides,
+				metricsMap,
+			});
+			expect(result).not.toBeNull();
+			expect(result?.metadata.selectionReason).toBe("price-only-no-metrics");
+		});
 	});
 });

@@ -402,6 +402,26 @@ export function getCheapestFromAvailableProviders<
 		);
 	}
 
+	// If the project zeroed out every scoring weight, the weighted-score path
+	// would divide by zero. Fall back to price-only selection (still honoring
+	// per-provider priority overrides and the priority-0 disable).
+	const effectiveLatencyWeight = isStreaming ? weights.latency : 0;
+	const effectiveCacheWeight = cacheSupportRelevant ? weights.cache : 0;
+	const totalWeight =
+		effectivePriceWeight +
+		weights.uptime +
+		weights.throughput +
+		effectiveLatencyWeight +
+		effectiveCacheWeight;
+	if (totalWeight <= 0) {
+		return selectByPriceOnly(
+			stableProviders,
+			modelWithPricing,
+			videoPricing,
+			cfg,
+		);
+	}
+
 	// Calculate scores for each provider
 	const providerScores: ProviderScore<T>[] = [];
 
@@ -503,13 +523,9 @@ export function getCheapestFromAvailableProviders<
 		// When not streaming, latency weight is redistributed to other factors
 		// Image generation models use a higher price weight, and cache weight is
 		// dropped for short prompts where caching has no measurable effect.
-		const effectiveLatencyWeight = isStreaming ? weights.latency : 0;
-		const effectiveCacheWeight = cacheSupportRelevant ? weights.cache : 0;
-		const weightSum = new Decimal(effectivePriceWeight)
-			.plus(weights.uptime)
-			.plus(weights.throughput)
-			.plus(effectiveLatencyWeight)
-			.plus(effectiveCacheWeight);
+		// totalWeight is guaranteed > 0 above (zero-total falls back to
+		// price-only selection earlier in this function).
+		const weightSum = new Decimal(totalWeight);
 		const baseScore = new Decimal(effectivePriceWeight)
 			.div(weightSum)
 			.times(priceScore)
