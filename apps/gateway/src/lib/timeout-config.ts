@@ -24,9 +24,11 @@ export function getGatewayTimeoutMs(cfg?: RoutingCfg): number {
 	if (ovr !== undefined) {
 		return ovr;
 	}
-	return (
-		Number(process.env.GATEWAY_TIMEOUT_MS) || DEFAULT_ROUTING_TIMEOUTS.gatewayMs
-	);
+	const envValue = Number(process.env.GATEWAY_TIMEOUT_MS);
+	if (envValue > 0) {
+		return envValue;
+	}
+	return DEFAULT_ROUTING_TIMEOUTS.gatewayMs;
 }
 
 export function getStreamingTimeoutMs(cfg?: RoutingCfg): number {
