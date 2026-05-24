@@ -1,5 +1,5 @@
 {
 	"title": "Caching",
 	"icon": "Zap",
-	"pages": ["index", "provider-cache-control", "gateway-caching"]
+	"pages": ["[Overview](index)", "provider-cache-control", "gateway-caching"]
 }
