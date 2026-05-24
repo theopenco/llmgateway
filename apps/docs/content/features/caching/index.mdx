@@ -18,7 +18,7 @@ This is the type of caching that powers efficient chat-based and assistant-based
 
 You see it in your usage as `prompt_tokens_details.cached_tokens`. For most providers it works automatically; some (notably Anthropic) also let you mark blocks explicitly with `cache_control` and choose a longer TTL.
 
-→ **[Read the Provider Cache Control docs](/features/provider-cache-control)**
+→ **[Read the Provider Cache Control docs](/features/caching/provider-cache-control)**
 
 ## Gateway Caching
 
@@ -26,17 +26,17 @@ LLM Gateway performs the caching. When a request is **byte-identical** to a prev
 
 This is most useful for deterministic API workloads — classification, batch jobs, FAQ lookups, retries — rather than free-form chat, because chat prompts almost always differ on the latest turn.
 
-→ **[Read the Gateway Caching docs](/features/gateway-caching)**
+→ **[Read the Gateway Caching docs](/features/caching/gateway-caching)**
 
 ## Which one do I want?
 
-| If you…                                                         | Use                                                                                   |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Build a chat app, assistant, or coding tool                     | [Provider Cache Control](/features/provider-cache-control)                            |
-| Send long system prompts or growing conversation history        | [Provider Cache Control](/features/provider-cache-control)                            |
-| Want longer cache lifetimes than the provider default           | [Provider Cache Control](/features/provider-cache-control) (explicit `cache_control`) |
-| Send the exact same request many times (batches, retries, FAQs) | [Gateway Caching](/features/gateway-caching)                                          |
-| Want $0 on repeated calls instead of a discount                 | [Gateway Caching](/features/gateway-caching)                                          |
+| If you…                                                         | Use                                                                                           |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Build a chat app, assistant, or coding tool                     | [Provider Cache Control](/features/caching/provider-cache-control)                            |
+| Send long system prompts or growing conversation history        | [Provider Cache Control](/features/caching/provider-cache-control)                            |
+| Want longer cache lifetimes than the provider default           | [Provider Cache Control](/features/caching/provider-cache-control) (explicit `cache_control`) |
+| Send the exact same request many times (batches, retries, FAQs) | [Gateway Caching](/features/caching/gateway-caching)                                          |
+| Want $0 on repeated calls instead of a discount                 | [Gateway Caching](/features/caching/gateway-caching)                                          |
 
 <Callout type="info">
 	The two are not mutually exclusive. A coding tool can rely on provider caching
