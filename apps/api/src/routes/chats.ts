@@ -114,7 +114,7 @@ const createChatSchema = z.object({
 	model: z.string().min(1),
 	webSearch: z.boolean().optional().default(false),
 	comparisonEnabled: z.boolean().optional().default(false),
-	parentChatId: z.string().optional(),
+	parentChatId: z.string().trim().min(1).optional(),
 });
 
 const updateChatSchema = z.object({
@@ -499,6 +499,7 @@ chats.openapi(createChat, async (c) => {
 			where: {
 				id: { eq: body.parentChatId },
 				userId: { eq: user.id },
+				status: { eq: "active" },
 			},
 		});
 		if (!parentChat) {
