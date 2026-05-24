@@ -14,7 +14,7 @@ This is the behavior you see surfaced as `cached_tokens` in your usage payloads,
 
 <Callout type="info">
 	Looking for $0 on repeated calls instead of a discount on the cached portion?
-	That is [Gateway Caching](/features/gateway-caching), which serves
+	That is [Gateway Caching](/features/caching/gateway-caching), which serves
 	byte-identical requests entirely from LLM Gateway without hitting the
 	provider. It is a better fit for deterministic API workloads than for chat.
 	See the [Caching Overview](/features/caching) for a side-by-side comparison.
@@ -122,7 +122,7 @@ For providers that publish a separate explicit-cache read rate (for example, Ali
 
 ## Related
 
-- [Gateway Caching](/features/gateway-caching) — serve byte-identical requests entirely from LLM Gateway at $0 cost
+- [Gateway Caching](/features/caching/gateway-caching) — serve byte-identical requests entirely from LLM Gateway at $0 cost
 - [Caching Overview](/features/caching) — side-by-side comparison of provider caching vs. gateway caching
 - [Cost Breakdown](/features/cost-breakdown) — full reference for the usage and cost fields on every response
 - [Smart Routing](/features/routing) — how cache support influences provider selection for large prompts
