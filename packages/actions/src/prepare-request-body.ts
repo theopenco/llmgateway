@@ -679,7 +679,7 @@ export async function prepareRequestBody(
 	response_format: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
 	supportsReasoning?: boolean,
 	isProd = false,
 	maxImageSizeMB = 20,
@@ -701,6 +701,18 @@ export async function prepareRequestBody(
 	prompt_cache_retention?: PromptCacheRetention,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
+
+	// `none` reasoning effort is an OpenAI-specific value: its newer reasoning
+	// models (gpt-5.4 and later) accept it to turn reasoning off. Every other
+	// provider treats the absence of reasoning_effort as "off", so normalize
+	// `none` away for them to avoid forwarding an unsupported enum value.
+	if (
+		reasoning_effort === "none" &&
+		usedProvider !== "openai" &&
+		usedProvider !== "azure"
+	) {
+		reasoning_effort = undefined;
+	}
 
 	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
 	if (
