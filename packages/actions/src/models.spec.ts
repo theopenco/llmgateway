@@ -8,6 +8,10 @@ import {
 	type BaseMessage,
 	type OpenAIRequestBody,
 } from "@llmgateway/models";
+import {
+	buildProviderPriorityDefaults,
+	resolveRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -1083,10 +1087,7 @@ describe("getCheapestFromAvailableProviders", () => {
 	});
 
 	describe("routing config overrides", () => {
-		it("excludes providers whose override priority is 0", async () => {
-			const { resolveRoutingConfig, buildProviderPriorityDefaults } =
-				await import("@llmgateway/shared/routing-config");
-
+		it("excludes providers whose override priority is 0", () => {
 			const model = models.find((m) => m.id === "gpt-4o-mini");
 			if (!model) {
 				throw new Error("Missing gpt-4o-mini fixture");
@@ -1111,10 +1112,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(result).toBe(null);
 		});
 
-		it("accepts custom thresholds without failing selection", async () => {
-			const { resolveRoutingConfig, buildProviderPriorityDefaults } =
-				await import("@llmgateway/shared/routing-config");
-
+		it("accepts custom thresholds without failing selection", () => {
 			const model = models.find((m) => m.providers.length >= 2);
 			if (!model) {
 				return;
@@ -1132,18 +1130,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(result).not.toBeNull();
 		});
 
-		it("falls back to price-only selection when every scoring weight is zero", async () => {
-			const {
-				resolveRoutingConfig,
-				buildProviderPriorityDefaults,
-				metricsKey,
-			} = await import("@llmgateway/shared/routing-config").then(
-				async (mod) => {
-					const dbMod = await import("@llmgateway/db");
-					return { ...mod, metricsKey: dbMod.metricsKey };
-				},
-			);
-
+		it("falls back to price-only selection when every scoring weight is zero", () => {
 			const model = models.find((m) => m.id === "gpt-4o-mini");
 			if (!model) {
 				throw new Error("Missing gpt-4o-mini fixture");
