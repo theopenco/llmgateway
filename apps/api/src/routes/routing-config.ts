@@ -253,63 +253,70 @@ routingConfig.openapi(updateConfig, async (c) => {
 	await checkProjectEnterpriseAccess(user.id, projectId);
 	const body = c.req.valid("json");
 
-	const existing = await db.query.routingConfig.findFirst({
-		where: { projectId: { eq: projectId } },
-	});
-
-	if (existing) {
-		const [updated] = await db
-			.update(tables.routingConfig)
-			.set({
-				enabled: body.enabled ?? existing.enabled,
-				weights:
-					body.weights === undefined
-						? existing.weights
-						: (body.weights as RoutingWeightsConfig | null),
-				thresholds:
-					body.thresholds === undefined
-						? existing.thresholds
-						: (body.thresholds as RoutingThresholdsConfig | null),
-				retry:
-					body.retry === undefined
-						? existing.retry
-						: (body.retry as RoutingRetryConfig | null),
-				timeouts:
-					body.timeouts === undefined
-						? existing.timeouts
-						: (body.timeouts as RoutingTimeoutsConfig | null),
-				history:
-					body.history === undefined
-						? existing.history
-						: (body.history as RoutingHistoryConfig | null),
-				providerPriorities:
-					body.providerPriorities === undefined
-						? existing.providerPriorities
-						: (body.providerPriorities as ProviderPriorityOverrides | null),
-			})
-			.where(eq(tables.routingConfig.id, existing.id))
-			.returning();
-		await invalidateRoutingConfigCache();
-		return c.json(updated);
+	// Build the conflict-update payload so that fields omitted from the body
+	// preserve their existing values (matching the previous read-then-write
+	// semantics). Atomic upsert avoids the unique-violation race on concurrent
+	// PUTs that would otherwise both insert.
+	const conflictSet: Record<string, unknown> = {};
+	if (body.enabled !== undefined) {
+		conflictSet.enabled = body.enabled;
+	}
+	if (body.weights !== undefined) {
+		conflictSet.weights = body.weights as RoutingWeightsConfig | null;
+	}
+	if (body.thresholds !== undefined) {
+		conflictSet.thresholds = body.thresholds as RoutingThresholdsConfig | null;
+	}
+	if (body.retry !== undefined) {
+		conflictSet.retry = body.retry as RoutingRetryConfig | null;
+	}
+	if (body.timeouts !== undefined) {
+		conflictSet.timeouts = body.timeouts as RoutingTimeoutsConfig | null;
+	}
+	if (body.history !== undefined) {
+		conflictSet.history = body.history as RoutingHistoryConfig | null;
+	}
+	if (body.providerPriorities !== undefined) {
+		conflictSet.providerPriorities =
+			body.providerPriorities as ProviderPriorityOverrides | null;
 	}
 
-	const [created] = await db
-		.insert(tables.routingConfig)
-		.values({
-			projectId,
-			enabled: body.enabled ?? false,
-			weights: (body.weights ?? null) as RoutingWeightsConfig | null,
-			thresholds: (body.thresholds ?? null) as RoutingThresholdsConfig | null,
-			retry: (body.retry ?? null) as RoutingRetryConfig | null,
-			timeouts: (body.timeouts ?? null) as RoutingTimeoutsConfig | null,
-			history: (body.history ?? null) as RoutingHistoryConfig | null,
-			providerPriorities: (body.providerPriorities ??
-				null) as ProviderPriorityOverrides | null,
-		})
-		.returning();
+	const insertValues = {
+		projectId,
+		enabled: body.enabled ?? false,
+		weights: (body.weights ?? null) as RoutingWeightsConfig | null,
+		thresholds: (body.thresholds ?? null) as RoutingThresholdsConfig | null,
+		retry: (body.retry ?? null) as RoutingRetryConfig | null,
+		timeouts: (body.timeouts ?? null) as RoutingTimeoutsConfig | null,
+		history: (body.history ?? null) as RoutingHistoryConfig | null,
+		providerPriorities: (body.providerPriorities ??
+			null) as ProviderPriorityOverrides | null,
+	};
+
+	const builder = db.insert(tables.routingConfig).values(insertValues);
+	const [row] =
+		Object.keys(conflictSet).length === 0
+			? await builder
+					.onConflictDoNothing({ target: tables.routingConfig.projectId })
+					.returning()
+			: await builder
+					.onConflictDoUpdate({
+						target: tables.routingConfig.projectId,
+						set: conflictSet,
+					})
+					.returning();
+
+	// When the body had no overrides AND a row already exists,
+	// onConflictDoNothing skips and .returning() yields no rows. Fall back to
+	// the current row so the response shape stays the same.
+	const result =
+		row ??
+		(await db.query.routingConfig.findFirst({
+			where: { projectId: { eq: projectId } },
+		}));
 
 	await invalidateRoutingConfigCache();
-	return c.json(created);
+	return c.json(result);
 });
 
 const resetConfig = createRoute({
