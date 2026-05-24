@@ -34,6 +34,7 @@ const modelUsageSchema = z.object({
 	outputTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	cachedInputCost: z.number(),
 });
 
 // Define the response schema for api-key-specific usage
@@ -473,6 +474,10 @@ activity.openapi(getActivity, async (c) => {
 				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
 					"cost",
 				),
+				cachedInputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cachedInputCost}), 0)`.as(
+						"cachedInputCost",
+					),
 			})
 			.from(apiKeyHourlyModelStats)
 			.where(
@@ -510,6 +515,7 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: Number(breakdown.outputTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				cachedInputCost: Number(breakdown.cachedInputCost),
 			});
 		}
 
@@ -763,6 +769,10 @@ activity.openapi(getActivity, async (c) => {
 				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
 					"cost",
 				),
+				cachedInputCost:
+					sql<number>`COALESCE(SUM(${projectHourlyModelStats.cachedInputCost}), 0)`.as(
+						"cachedInputCost",
+					),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -795,6 +805,7 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: Number(breakdown.outputTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				cachedInputCost: Number(breakdown.cachedInputCost),
 			});
 		}
 	}

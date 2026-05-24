@@ -2179,6 +2179,7 @@ export interface paths {
                                     outputTokens: number;
                                     totalTokens: number;
                                     cost: number;
+                                    cachedInputCost: number;
                                 }[];
                                 apiKeyBreakdown: {
                                     id: string;

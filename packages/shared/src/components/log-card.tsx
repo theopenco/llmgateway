@@ -474,6 +474,16 @@ export function LogCard({
 									Retried
 								</Badge>
 							)}
+							{(log.cached ||
+								(log.cachedTokens && Number(log.cachedTokens) > 0)) && (
+								<Badge
+									variant="outline"
+									className="gap-1 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30"
+								>
+									<Zap className="h-3 w-3" />
+									{log.cached ? "Cached" : "Partially cached"}
+								</Badge>
+							)}
 							<Badge
 								variant={
 									log.hasError

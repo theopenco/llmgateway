@@ -8,6 +8,7 @@ export interface ActivityModelUsage {
 	outputTokens: number;
 	totalTokens: number;
 	cost: number;
+	cachedInputCost: number;
 }
 
 export interface ActivityApiKeyUsage {
