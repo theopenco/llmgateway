@@ -1,1 +1,0 @@
-ALTER TABLE "chat" ADD COLUMN "comparison_enabled" boolean DEFAULT false NOT NULL;

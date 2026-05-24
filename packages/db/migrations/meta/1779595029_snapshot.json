@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f386eb21-a28b-4a0e-9761-7525ec9c7074",
+  "id": "c08b5b50-d6eb-43bd-abee-eca4168286de",
   "prevId": "2ff592d4-cd89-44a4-a5e6-2d75691fb61f",
   "ddl": [
     {
@@ -2474,6 +2474,19 @@
       "generated": null,
       "identity": null,
       "name": "comparison_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "chat"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "parent_chat_id",
       "entityType": "columns",
       "schema": "public",
       "table": "chat"
@@ -16986,6 +16999,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "chat_user_id_user_id_fk",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "chat"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "parent_chat_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "chat",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "chat_parent_chat_id_chat_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "chat"
