@@ -1218,6 +1218,17 @@ export const alibabaModels = [
 				cachedInputPrice: "0.5e-6",
 				cacheReadInputPrice: "0.25e-6",
 				cacheWriteInputPrice: "3.125e-6",
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "cn-beijing",
+						inputPrice: "1.7232e-6",
+						outputPrice: "5.169e-6",
+						cachedInputPrice: "0.3446e-6",
+						cacheReadInputPrice: "0.17232e-6",
+						cacheWriteInputPrice: "2.154e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 65536,
