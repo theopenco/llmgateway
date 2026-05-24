@@ -1,6 +1,6 @@
 ---
-title: Caching
-description: Reduce costs and latency by caching identical requests.
+title: Gateway Caching
+description: Reduce costs and latency by caching identical requests at the gateway.
 icon: Zap
 ---
 
@@ -8,7 +8,12 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Caching
 
-LLM Gateway provides intelligent response caching that can significantly reduce your API costs and response latency. When caching is enabled, identical requests are served from cache instead of making redundant calls to LLM providers.
+There are two types of caching in LLM Gateway, and they solve different problems:
+
+- **Provider / model caching** is performed on the model side. The provider charges a reduced rate for the portion of your prompt that hits its prompt cache (the `cached_tokens` you see in usage). New input tokens and output tokens are still billed at full price. This is what powers efficient chat-based and assistant-based interactions, including chat apps and coding tools where a long system prompt or conversation history is reused across turns. See [Provider Cache Control](/features/provider-cache-control).
+- **Gateway caching** (this page) helps when the _entire_ request is identical to a previous one. Repeated identical calls cost **$0** because no provider request is made at all. It is most useful for API workloads with deterministic inputs — classification, batch jobs, FAQ lookups, retries — rather than free-form chat.
+
+The rest of this page covers gateway caching. If you are looking to reduce the cost of long, partially-shared prompts in chat or coding tools, read [Provider Cache Control](/features/provider-cache-control) instead.
 
 ## How It Works
 
@@ -192,6 +197,7 @@ Caching may not be suitable for:
 - Highly personalized responses
 - Time-sensitive information
 - Creative tasks requiring variety
+- Chat or coding tools where prompts overlap but are not byte-identical — use [Provider Cache Control](/features/provider-cache-control) instead
 
 ## Pricing
 
