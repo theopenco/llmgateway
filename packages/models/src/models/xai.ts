@@ -802,4 +802,47 @@ export const xaiModels = [
 			},
 		],
 	},
+	{
+		id: "grok-build-0-1",
+		name: "Grok Build 0.1",
+		description:
+			"xAI's fast coding model for agentic software engineering workflows.",
+		family: "xai",
+		releasedAt: new Date("2026-05-20"),
+		providers: [
+			{
+				providerId: "xai",
+				contentFilterPrice: 0.05,
+				modelName: "grok-build-0.1",
+				inputPrice: "1.0e-6",
+				outputPrice: "2.0e-6",
+				pricingTiers: [
+					{
+						name: "Up to 200K",
+						upToTokens: 200000,
+						inputPrice: "1.0e-6",
+						outputPrice: "2.0e-6",
+						cachedInputPrice: "0.2e-6",
+					},
+					{
+						name: "Over 200K",
+						upToTokens: Infinity,
+						inputPrice: "2.0e-6",
+						outputPrice: "4.0e-6",
+						cachedInputPrice: "0.4e-6",
+					},
+				],
+				cachedInputPrice: "0.2e-6",
+				requestPrice: "0",
+				contextSize: 256000,
+				maxOutput: 256000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				reasoning: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
