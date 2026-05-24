@@ -76,7 +76,7 @@ jobs:
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -90,7 +90,7 @@ jobs:
 
       - name: Build and conditionally push by digest
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.1.0
         with:
           context: .
           file: infra/split.dockerfile
@@ -141,7 +141,7 @@ jobs:
           merge-multiple: true
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -210,7 +210,7 @@ jobs:
 
       - name: Login to GitHub Container Registry (for non-PR builds)
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -267,7 +267,7 @@ jobs:
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -281,7 +281,7 @@ jobs:
 
       - name: Build and conditionally push by digest
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.1.0
         with:
           context: .
           file: infra/unified.dockerfile
@@ -328,7 +328,7 @@ jobs:
           merge-multiple: true
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -380,14 +380,14 @@ jobs:
 
       - name: Login to GitHub Container Registry (for non-PR builds)
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build unified Docker image for testing
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.1.0
         with:
           context: .
           file: infra/unified.dockerfile

@@ -1493,17 +1493,109 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
-			throw new HTTPException(400, {
-				message: "Request blocked by content policy",
-				cause: {
-					type: "guardrail_violation",
-					code: "content_policy_violation",
-					violations: guardrailResult.violations.map((v) => ({
-						rule: v.ruleName,
-						category: v.category,
-					})),
+			const blockedViolations = guardrailResult.violations.map((v) => ({
+				rule_id: v.ruleId,
+				rule_name: v.ruleName,
+				category: v.category,
+				action: v.action,
+			}));
+			const blockedCategories = [
+				...new Set(guardrailResult.violations.map((v) => v.category)),
+			];
+			const blockedRuleIds = guardrailResult.violations.map((v) => v.ruleId);
+			const errorMessage =
+				guardrailResult.violations.length === 1 && guardrailResult.violations[0]
+					? `Request blocked by content policy: ${guardrailResult.violations[0].ruleName} (rule ${guardrailResult.violations[0].ruleId}, category ${guardrailResult.violations[0].category})`
+					: `Request blocked by content policy: ${guardrailResult.violations.length} violations (categories: ${blockedCategories.join(", ")}; rules: ${blockedRuleIds.join(", ")})`;
+
+			// Surface the block in the activity feed as a client_error so users
+			// can see that the gateway rejected their request before any provider
+			// was contacted.
+			try {
+				await insertLogEntry({
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						"",
+						undefined,
+						"llmgateway",
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+					),
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: 400,
+						statusText: "Bad Request",
+						responseText: JSON.stringify({
+							message: errorMessage,
+							violations: blockedViolations,
+						}),
+						cause: "guardrail_violation",
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+
+			// Return the structured violation details directly. HTTPException's
+			// `cause` is dropped by the global error handler, so callers would
+			// otherwise only see the generic message.
+			return c.json(
+				{
+					error: {
+						message: errorMessage,
+						type: "guardrail_violation",
+						param: null,
+						code: "content_policy_violation",
+						violations: blockedViolations,
+					},
 				},
-			});
+				400,
+			);
 		}
 
 		// Apply redactions if any

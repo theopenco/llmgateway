@@ -6,6 +6,7 @@ import {
 	Archive,
 	ArchiveRestore,
 	ArrowLeft,
+	CheckCircle2,
 	Clock,
 	Globe,
 	Mail,
@@ -13,6 +14,9 @@ import {
 	Monitor,
 	Search,
 	Send,
+	Star,
+	ThumbsDown,
+	ThumbsUp,
 	Trash2,
 	User,
 } from "lucide-react";
@@ -117,6 +121,30 @@ function parseDevice(userAgent: string): string {
 	return `${browser} on ${os}`;
 }
 
+function StarRating({
+	rating,
+	className,
+}: {
+	rating: number;
+	className?: string;
+}) {
+	return (
+		<span className={cn("inline-flex items-center gap-0.5", className)}>
+			{Array.from({ length: 5 }).map((_, i) => (
+				<Star
+					key={i}
+					className={cn(
+						"h-3.5 w-3.5",
+						i < rating
+							? "fill-amber-400 text-amber-400"
+							: "fill-none text-muted-foreground/40",
+					)}
+				/>
+			))}
+		</span>
+	);
+}
+
 export function ChatSupportLogsClient() {
 	const $api = useApi();
 	const queryClient = useQueryClient();
@@ -128,6 +156,11 @@ export function ChatSupportLogsClient() {
 	const [showArchived, setShowArchived] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const replyInputRef = useRef<HTMLTextAreaElement>(null);
+
+	const { data: statsData } = $api.useQuery(
+		"get",
+		"/admin/chat-support-logs/stats",
+	);
 
 	const { data: readStatusData } = $api.useQuery(
 		"get",
@@ -295,537 +328,636 @@ export function ChatSupportLogsClient() {
 	const selectedConv = conversations.find((c) => c.id === selectedId);
 
 	return (
-		<div className="flex h-[calc(100vh-3.5rem)] overflow-hidden md:h-screen">
-			{/* Left panel — Conversation list */}
-			<div
-				className={cn(
-					"flex min-h-0 flex-col border-r border-border/60 bg-card",
-					selectedId ? "hidden md:flex md:w-80" : "w-full md:w-80",
-				)}
-			>
-				{/* Search header */}
-				<div className="border-b border-border/60 px-4 py-3">
-					<div className="mb-3 flex items-center justify-between">
-						<h2 className="text-sm font-semibold tracking-tight text-foreground">
-							Conversations
-						</h2>
-						<button
-							type="button"
-							onClick={() => {
-								setShowArchived((v) => !v);
-								setSelectedId(null);
-							}}
-							className={cn(
-								"flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
-								showArchived
-									? "bg-primary text-primary-foreground"
-									: "text-muted-foreground hover:text-foreground",
-							)}
-						>
-							<Archive className="h-3 w-3" />
-							Archived
-						</button>
-					</div>
-					<div className="relative">
-						<Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-						<input
-							type="text"
-							value={search}
-							onChange={(e) => setSearch(e.target.value)}
-							placeholder="Search messages..."
-							className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-						/>
-					</div>
+		<div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden md:h-[calc(100vh-1rem)]">
+			<div className="sticky top-0 z-20 flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-border/60 bg-card px-4 py-2.5">
+				<div className="flex items-center gap-1.5">
+					<Star
+						aria-hidden="true"
+						className="h-4 w-4 fill-amber-400 text-amber-400"
+					/>
+					<span className="text-sm font-semibold text-foreground">
+						{typeof statsData?.averageRating === "number"
+							? statsData.averageRating.toFixed(1)
+							: "—"}
+					</span>
+					<span className="text-xs text-muted-foreground">avg rating</span>
 				</div>
+				<div className="flex items-center gap-1.5">
+					<span className="text-sm font-semibold text-foreground">
+						{statsData ? statsData.totalRatings : "—"}
+					</span>
+					<span className="text-xs text-muted-foreground">total ratings</span>
+				</div>
+				<div className="flex items-center gap-1.5">
+					<CheckCircle2
+						aria-hidden="true"
+						className="h-4 w-4 text-emerald-500"
+					/>
+					<span className="text-sm font-semibold text-foreground">
+						{statsData ? statsData.resolvedCount : "—"}
+					</span>
+					<span className="text-xs text-muted-foreground">resolved</span>
+				</div>
+				<div className="flex items-center gap-1.5" aria-label="Likes">
+					<ThumbsUp aria-hidden="true" className="h-4 w-4 text-emerald-500" />
+					<span className="text-sm font-semibold text-foreground">
+						{statsData ? statsData.likes : "—"}
+					</span>
+				</div>
+				<div className="flex items-center gap-1.5" aria-label="Dislikes">
+					<ThumbsDown aria-hidden="true" className="h-4 w-4 text-rose-500" />
+					<span className="text-sm font-semibold text-foreground">
+						{statsData ? statsData.dislikes : "—"}
+					</span>
+				</div>
+			</div>
 
-				{/* Conversation list */}
-				<ScrollArea className="flex-1 overflow-hidden">
-					{listLoading ? (
-						<div className="flex flex-col gap-1 p-2">
-							{Array.from({ length: 8 }).map((_, i) => (
-								<div
-									key={`skeleton-${i}`}
-									className="flex flex-col gap-2 rounded-lg px-3 py-3"
-								>
-									<div className="h-3.5 w-24 animate-pulse rounded bg-muted" />
-									<div className="h-3 w-full animate-pulse rounded bg-muted" />
-								</div>
-							))}
+			<div className="flex min-h-0 flex-1 overflow-hidden">
+				{/* Left panel — Conversation list */}
+				<div
+					className={cn(
+						"flex min-h-0 flex-col border-r border-border/60 bg-card",
+						selectedId ? "hidden md:flex md:w-80" : "w-full md:w-80",
+					)}
+				>
+					{/* Search header */}
+					<div className="border-b border-border/60 px-4 py-3">
+						<div className="mb-3 flex items-center justify-between">
+							<h2 className="text-sm font-semibold tracking-tight text-foreground">
+								Conversations
+							</h2>
+							<button
+								type="button"
+								onClick={() => {
+									setShowArchived((v) => !v);
+									setSelectedId(null);
+								}}
+								className={cn(
+									"flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
+									showArchived
+										? "bg-primary text-primary-foreground"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+							>
+								<Archive className="h-3 w-3" />
+								Archived
+							</button>
 						</div>
-					) : conversations.length === 0 ? (
-						<div className="flex flex-col items-center justify-center gap-2 px-4 py-12">
-							<MessageCircle className="h-8 w-8 text-muted-foreground/40" />
-							<p className="text-xs text-muted-foreground">
-								No conversations found
-							</p>
+						<div className="relative">
+							<Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+							<input
+								type="text"
+								value={search}
+								onChange={(e) => setSearch(e.target.value)}
+								placeholder="Search messages..."
+								className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+							/>
 						</div>
-					) : (
-						<div className="flex flex-col gap-0.5 p-1.5">
-							{conversations.map((conv) => (
-								<button
-									key={conv.id}
-									type="button"
-									onClick={() => handleSelectConversation(conv.id)}
-									className={cn(
-										"group flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
-										selectedId === conv.id
-											? "bg-primary/8 ring-1 ring-primary/20"
-											: "hover:bg-muted/60",
-									)}
-								>
-									<div className="relative">
-										<div
-											className={cn(
-												"mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium",
-												selectedId === conv.id
-													? "bg-primary text-primary-foreground"
-													: "bg-muted text-muted-foreground",
-											)}
-										>
-											{conv.name
-												? conv.name
-														.split(" ")
-														.map((w) => w[0])
-														.join("")
-														.slice(0, 2)
-														.toUpperCase()
-												: "?"}
-										</div>
-										{conv.escalatedAt && (
-											<span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-amber-500">
-												<AlertTriangle className="h-2 w-2 text-white" />
-											</span>
-										)}
-										{(readMap[conv.id] ?? 0) < conv.messageCount && (
-											<span className="absolute -left-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-blue-500" />
-										)}
+					</div>
+
+					{/* Conversation list */}
+					<ScrollArea className="flex-1 overflow-hidden">
+						{listLoading ? (
+							<div className="flex flex-col gap-1 p-2">
+								{Array.from({ length: 8 }).map((_, i) => (
+									<div
+										key={`skeleton-${i}`}
+										className="flex flex-col gap-2 rounded-lg px-3 py-3"
+									>
+										<div className="h-3.5 w-24 animate-pulse rounded bg-muted" />
+										<div className="h-3 w-full animate-pulse rounded bg-muted" />
 									</div>
-									<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-										<div className="flex items-center justify-between gap-2">
-											<span
+								))}
+							</div>
+						) : conversations.length === 0 ? (
+							<div className="flex flex-col items-center justify-center gap-2 px-4 py-12">
+								<MessageCircle className="h-8 w-8 text-muted-foreground/40" />
+								<p className="text-xs text-muted-foreground">
+									No conversations found
+								</p>
+							</div>
+						) : (
+							<div className="flex flex-col gap-0.5 p-1.5">
+								{conversations.map((conv) => (
+									<button
+										key={conv.id}
+										type="button"
+										onClick={() => handleSelectConversation(conv.id)}
+										className={cn(
+											"group flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
+											selectedId === conv.id
+												? "bg-primary/8 ring-1 ring-primary/20"
+												: "hover:bg-muted/60",
+										)}
+									>
+										<div className="relative">
+											<div
 												className={cn(
-													"truncate text-sm font-medium",
+													"mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium",
 													selectedId === conv.id
-														? "text-primary"
-														: "text-foreground",
+														? "bg-primary text-primary-foreground"
+														: "bg-muted text-muted-foreground",
 												)}
 											>
-												{conv.name ?? "Anonymous"}
-											</span>
-											<span className="shrink-0 text-[11px] text-muted-foreground">
-												{timeAgo(conv.createdAt)}
-											</span>
-										</div>
-										<p className="truncate text-xs text-muted-foreground">
-											{conv.firstMessage ?? "No messages yet"}
-										</p>
-									</div>
-								</button>
-							))}
-						</div>
-					)}
-				</ScrollArea>
-
-				{/* Footer count */}
-				<div className="border-t border-border/60 px-4 py-2">
-					<p className="text-[11px] text-muted-foreground">
-						{listData?.total ?? 0} total conversations
-					</p>
-				</div>
-			</div>
-
-			{/* Middle panel — Chat thread */}
-			<div
-				className={cn(
-					"flex min-w-0 flex-1 flex-col overflow-hidden bg-background",
-					!selectedId && "hidden md:flex",
-				)}
-			>
-				{!selectedId ? (
-					<div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
-						<MessageCircle className="h-12 w-12 opacity-20" />
-						<p className="text-sm">Select a conversation to view</p>
-					</div>
-				) : detailLoading ? (
-					<div className="flex flex-1 flex-col gap-4 p-6">
-						{Array.from({ length: 5 }).map((_, i) => (
-							<div
-								key={`msg-skeleton-${i}`}
-								className={cn(
-									"flex",
-									i % 2 === 0 ? "justify-start" : "justify-end",
-								)}
-							>
-								<div
-									className={cn(
-										"animate-pulse rounded-2xl bg-muted",
-										i % 2 === 0 ? "h-16 w-64" : "h-10 w-48",
-									)}
-								/>
-							</div>
-						))}
-					</div>
-				) : detail ? (
-					<>
-						{/* Chat header */}
-						<div className="flex items-center gap-3 border-b border-border/60 px-6 py-3">
-							<button
-								type="button"
-								onClick={() => setSelectedId(null)}
-								className="mr-1 flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted md:hidden"
-							>
-								<ArrowLeft className="h-4 w-4" />
-							</button>
-							<div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
-								{detail.name
-									? detail.name
-											.split(" ")
-											.map((w) => w[0])
-											.join("")
-											.slice(0, 2)
-											.toUpperCase()
-									: "?"}
-							</div>
-							<div className="min-w-0 flex-1">
-								<p className="truncate text-sm font-medium text-foreground">
-									{detail.name ?? "Anonymous"}
-								</p>
-								<p className="text-xs text-muted-foreground">
-									{detail.messageCount} messages
-								</p>
-							</div>
-							{detail.escalatedAt && (
-								<div className="flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-									<AlertTriangle className="h-3 w-3" />
-									<span className="text-xs font-medium">Escalated</span>
-								</div>
-							)}
-							<button
-								type="button"
-								onClick={() => setDeleteDialogOpen(true)}
-								className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive xl:hidden"
-							>
-								<Trash2 className="h-4 w-4" />
-								<span className="sr-only">Delete conversation</span>
-							</button>
-						</div>
-
-						{/* Messages */}
-						<ScrollArea className="min-h-0 flex-1">
-							<div className="flex flex-col gap-4 px-6 py-4">
-								{detail.messages.map((message) => {
-									const isUser = message.role === "user";
-									const isAdmin = message.role === "admin";
-									const isAssistant = message.role === "assistant";
-									return (
-										<div
-											key={message.id}
-											className={cn(
-												"flex",
-												isUser ? "justify-start" : "justify-end",
+												{conv.name
+													? conv.name
+															.split(" ")
+															.map((w) => w[0])
+															.join("")
+															.slice(0, 2)
+															.toUpperCase()
+													: "?"}
+											</div>
+											{conv.escalatedAt && (
+												<span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-amber-500">
+													<AlertTriangle className="h-2 w-2 text-white" />
+												</span>
 											)}
-										>
-											<div className="flex max-w-[70%] flex-col gap-1">
-												{isAdmin && (
-													<span className="pr-1 text-right text-[11px] font-medium text-blue-600 dark:text-blue-400">
-														Admin
-													</span>
-												)}
-												{isUser && (
-													<span className="pl-1 text-[11px] font-medium text-muted-foreground">
-														Visitor
-													</span>
-												)}
-												{isAssistant && (
-													<span className="pr-1 text-right text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-														Bot
-													</span>
-												)}
-												<div
-													className={cn(
-														"rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-														isAssistant &&
-															"rounded-bl-md bg-muted/70 text-foreground",
-														isUser && "rounded-bl-md bg-muted text-foreground",
-														isAdmin &&
-															"rounded-br-md bg-blue-600 text-white dark:bg-blue-700",
-													)}
-												>
-													<p className="whitespace-pre-wrap">
-														{message.content}
-													</p>
-												</div>
+											{(readMap[conv.id] ?? 0) < conv.messageCount && (
+												<span className="absolute -left-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-blue-500" />
+											)}
+										</div>
+										<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+											<div className="flex items-center justify-between gap-2">
 												<span
 													className={cn(
-														"text-[11px] text-muted-foreground",
-														isUser ? "pl-1" : "pr-1 text-right",
+														"truncate text-sm font-medium",
+														selectedId === conv.id
+															? "text-primary"
+															: "text-foreground",
 													)}
 												>
-													{formatMessageTime(message.createdAt)}
+													{conv.name ?? "Anonymous"}
+												</span>
+												<span className="shrink-0 text-[11px] text-muted-foreground">
+													{timeAgo(conv.createdAt)}
 												</span>
 											</div>
+											<p className="truncate text-xs text-muted-foreground">
+												{conv.firstMessage ?? "No messages yet"}
+											</p>
 										</div>
-									);
-								})}
-								{detail.messages.length === 0 && (
-									<div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
-										<p className="text-sm">No messages in this conversation</p>
+									</button>
+								))}
+							</div>
+						)}
+					</ScrollArea>
+
+					{/* Footer count */}
+					<div className="border-t border-border/60 px-4 py-2">
+						<p className="text-[11px] text-muted-foreground">
+							{listData?.total ?? 0} total conversations
+						</p>
+					</div>
+				</div>
+
+				{/* Middle panel — Chat thread */}
+				<div
+					className={cn(
+						"flex min-w-0 flex-1 flex-col overflow-hidden bg-background",
+						!selectedId && "hidden md:flex",
+					)}
+				>
+					{!selectedId ? (
+						<div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+							<MessageCircle className="h-12 w-12 opacity-20" />
+							<p className="text-sm">Select a conversation to view</p>
+						</div>
+					) : detailLoading ? (
+						<div className="flex flex-1 flex-col gap-4 p-6">
+							{Array.from({ length: 5 }).map((_, i) => (
+								<div
+									key={`msg-skeleton-${i}`}
+									className={cn(
+										"flex",
+										i % 2 === 0 ? "justify-start" : "justify-end",
+									)}
+								>
+									<div
+										className={cn(
+											"animate-pulse rounded-2xl bg-muted",
+											i % 2 === 0 ? "h-16 w-64" : "h-10 w-48",
+										)}
+									/>
+								</div>
+							))}
+						</div>
+					) : detail ? (
+						<>
+							{/* Chat header */}
+							<div className="flex items-center gap-3 border-b border-border/60 px-6 py-3">
+								<button
+									type="button"
+									onClick={() => setSelectedId(null)}
+									aria-label="Back to conversations"
+									className="mr-1 flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted md:hidden"
+								>
+									<ArrowLeft aria-hidden="true" className="h-4 w-4" />
+								</button>
+								<div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
+									{detail.name
+										? detail.name
+												.split(" ")
+												.map((w) => w[0])
+												.join("")
+												.slice(0, 2)
+												.toUpperCase()
+										: "?"}
+								</div>
+								<div className="min-w-0 flex-1">
+									<p className="truncate text-sm font-medium text-foreground">
+										{detail.name ?? "Anonymous"}
+									</p>
+									<p className="text-xs text-muted-foreground">
+										{detail.messageCount} messages
+									</p>
+								</div>
+								{detail.resolvedAt && (
+									<div className="flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+										<CheckCircle2 className="h-3 w-3" />
+										<span className="text-xs font-medium">Resolved</span>
+										{detail.rating !== null && (
+											<StarRating rating={detail.rating} className="ml-0.5" />
+										)}
 									</div>
 								)}
-								<div ref={messagesEndRef} />
-							</div>
-						</ScrollArea>
-
-						{/* Reply input */}
-						<div className="border-t border-border/60 px-4 py-3">
-							<form
-								onSubmit={handleReplySubmit}
-								className="flex items-end gap-2"
-							>
-								<textarea
-									ref={replyInputRef}
-									value={replyText}
-									onChange={(e) => setReplyText(e.target.value)}
-									onKeyDown={handleReplyKeyDown}
-									placeholder={
-										detail.email
-											? "Reply (will also be sent via email)..."
-											: "Reply..."
-									}
-									rows={1}
-									className="field-sizing-content max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
-								/>
+								{detail.escalatedAt && (
+									<div className="flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+										<AlertTriangle className="h-3 w-3" />
+										<span className="text-xs font-medium">Escalated</span>
+									</div>
+								)}
 								<button
-									type="submit"
-									disabled={!replyText.trim() || replyMutation.isPending}
-									className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+									type="button"
+									onClick={() => setDeleteDialogOpen(true)}
+									className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive xl:hidden"
 								>
-									<Send className="h-4 w-4" />
-									<span className="sr-only">Send reply</span>
+									<Trash2 className="h-4 w-4" />
+									<span className="sr-only">Delete conversation</span>
 								</button>
-							</form>
-							{replyMutation.isError && (
-								<p className="mt-1.5 text-xs text-destructive">
-									Failed to send reply. Please try again.
-								</p>
-							)}
-						</div>
-					</>
-				) : null}
-			</div>
-
-			{/* Right panel — User details */}
-			<div className="hidden w-72 shrink-0 flex-col border-l border-border/60 bg-card xl:flex">
-				{(selectedConv ?? detail) ? (
-					<>
-						{/* User profile header */}
-						<div className="flex flex-col items-center gap-3 border-b border-border/60 px-6 py-6">
-							<div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-lg font-semibold text-primary">
-								{(detail?.name ?? selectedConv?.name)
-									? (detail?.name ?? selectedConv?.name ?? "")
-											.split(" ")
-											.map((w) => w[0])
-											.join("")
-											.slice(0, 2)
-											.toUpperCase()
-									: "?"}
 							</div>
-							<div className="text-center">
-								<p className="text-sm font-semibold text-foreground">
-									{detail?.name ?? selectedConv?.name ?? "Anonymous"}
-								</p>
-								{(detail?.email ?? selectedConv?.email) && (
-									<p className="mt-0.5 text-xs text-muted-foreground">
-										{detail?.email ?? selectedConv?.email}
+
+							{/* Messages */}
+							<ScrollArea className="min-h-0 flex-1">
+								<div className="flex flex-col gap-4 px-6 py-4">
+									{detail.messages.map((message) => {
+										const isUser = message.role === "user";
+										const isAdmin = message.role === "admin";
+										const isAssistant = message.role === "assistant";
+										return (
+											<div
+												key={message.id}
+												className={cn(
+													"flex",
+													isUser ? "justify-start" : "justify-end",
+												)}
+											>
+												<div className="flex max-w-[70%] flex-col gap-1">
+													{isAdmin && (
+														<span className="pr-1 text-right text-[11px] font-medium text-blue-600 dark:text-blue-400">
+															Admin
+														</span>
+													)}
+													{isUser && (
+														<span className="pl-1 text-[11px] font-medium text-muted-foreground">
+															Visitor
+														</span>
+													)}
+													{isAssistant && (
+														<span className="pr-1 text-right text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+															Bot
+														</span>
+													)}
+													<div
+														className={cn(
+															"rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+															isAssistant &&
+																"rounded-bl-md bg-muted/70 text-foreground",
+															isUser &&
+																"rounded-bl-md bg-muted text-foreground",
+															isAdmin &&
+																"rounded-br-md bg-blue-600 text-white dark:bg-blue-700",
+														)}
+													>
+														<p className="whitespace-pre-wrap">
+															{message.content}
+														</p>
+													</div>
+													<div
+														className={cn(
+															"flex items-center gap-2",
+															isUser ? "pl-1" : "justify-end pr-1",
+														)}
+													>
+														{isAssistant && message.reaction === "like" && (
+															<ThumbsUp className="h-3 w-3 text-emerald-500" />
+														)}
+														{isAssistant && message.reaction === "dislike" && (
+															<ThumbsDown className="h-3 w-3 text-rose-500" />
+														)}
+														<span className="text-[11px] text-muted-foreground">
+															{formatMessageTime(message.createdAt)}
+														</span>
+													</div>
+												</div>
+											</div>
+										);
+									})}
+									{detail.messages.length === 0 && (
+										<div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
+											<p className="text-sm">
+												No messages in this conversation
+											</p>
+										</div>
+									)}
+									<div ref={messagesEndRef} />
+								</div>
+							</ScrollArea>
+
+							{/* Reply input */}
+							<div className="border-t border-border/60 px-4 py-3">
+								<form
+									onSubmit={handleReplySubmit}
+									className="flex items-end gap-2"
+								>
+									<textarea
+										ref={replyInputRef}
+										value={replyText}
+										onChange={(e) => setReplyText(e.target.value)}
+										onKeyDown={handleReplyKeyDown}
+										placeholder={
+											detail.email
+												? "Reply (will also be sent via email)..."
+												: "Reply..."
+										}
+										rows={1}
+										className="field-sizing-content max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
+									/>
+									<button
+										type="submit"
+										disabled={!replyText.trim() || replyMutation.isPending}
+										className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+									>
+										<Send className="h-4 w-4" />
+										<span className="sr-only">Send reply</span>
+									</button>
+								</form>
+								{replyMutation.isError && (
+									<p className="mt-1.5 text-xs text-destructive">
+										Failed to send reply. Please try again.
 									</p>
 								)}
 							</div>
-						</div>
+						</>
+					) : null}
+				</div>
 
-						{/* Details sections */}
-						<ScrollArea className="flex-1">
-							<div className="flex flex-col gap-0.5 p-4">
-								{/* Escalation status */}
-								{(detail?.escalatedAt ?? selectedConv?.escalatedAt) && (
-									<div className="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
-										<div className="flex items-center gap-2">
-											<AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-											<span className="text-xs font-semibold text-amber-800 dark:text-amber-400">
-												Escalated
-											</span>
-										</div>
-										<p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
-											{formatFullDate(
-												detail?.escalatedAt ?? selectedConv?.escalatedAt ?? "",
-											)}
+				{/* Right panel — User details */}
+				<div className="hidden w-72 shrink-0 flex-col border-l border-border/60 bg-card xl:flex">
+					{(selectedConv ?? detail) ? (
+						<>
+							{/* User profile header */}
+							<div className="flex flex-col items-center gap-3 border-b border-border/60 px-6 py-6">
+								<div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-lg font-semibold text-primary">
+									{(detail?.name ?? selectedConv?.name)
+										? (detail?.name ?? selectedConv?.name ?? "")
+												.split(" ")
+												.map((w) => w[0])
+												.join("")
+												.slice(0, 2)
+												.toUpperCase()
+										: "?"}
+								</div>
+								<div className="text-center">
+									<p className="text-sm font-semibold text-foreground">
+										{detail?.name ?? selectedConv?.name ?? "Anonymous"}
+									</p>
+									{(detail?.email ?? selectedConv?.email) && (
+										<p className="mt-0.5 text-xs text-muted-foreground">
+											{detail?.email ?? selectedConv?.email}
 										</p>
-									</div>
-								)}
-
-								{/* Main information */}
-								<div className="mb-2">
-									<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-										Contact Details
-									</h3>
-									<div className="flex flex-col gap-3">
-										<div className="flex items-start gap-3">
-											<User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-											<div className="min-w-0">
-												<p className="text-xs font-medium text-muted-foreground">
-													Name
-												</p>
-												<p className="text-sm text-foreground">
-													{detail?.name ?? selectedConv?.name ?? "Not provided"}
-												</p>
-											</div>
-										</div>
-										<div className="flex items-start gap-3">
-											<Mail className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-											<div className="min-w-0">
-												<p className="text-xs font-medium text-muted-foreground">
-													Email
-												</p>
-												<p className="break-all text-sm text-foreground">
-													{detail?.email ??
-														selectedConv?.email ??
-														"Not provided"}
-												</p>
-											</div>
-										</div>
-									</div>
+									)}
 								</div>
+							</div>
 
-								<div className="my-2 h-px bg-border/60" />
-
-								{/* Session information */}
-								<div className="mb-2">
-									<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-										Session Info
-									</h3>
-									<div className="flex flex-col gap-3">
-										<div className="flex items-start gap-3">
-											<Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-											<div className="min-w-0">
-												<p className="text-xs font-medium text-muted-foreground">
-													Started
-												</p>
-												<p className="text-sm text-foreground">
-													{formatFullDate(
-														detail?.createdAt ?? selectedConv?.createdAt ?? "",
-													)}
-												</p>
+							{/* Details sections */}
+							<ScrollArea className="flex-1">
+								<div className="flex flex-col gap-0.5 p-4">
+									{/* Escalation status */}
+									{(detail?.escalatedAt ?? selectedConv?.escalatedAt) && (
+										<div className="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
+											<div className="flex items-center gap-2">
+												<AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+												<span className="text-xs font-semibold text-amber-800 dark:text-amber-400">
+													Escalated
+												</span>
 											</div>
+											<p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
+												{formatFullDate(
+													detail?.escalatedAt ??
+														selectedConv?.escalatedAt ??
+														"",
+												)}
+											</p>
 										</div>
-										<div className="flex items-start gap-3">
-											<MessageCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-											<div className="min-w-0">
-												<p className="text-xs font-medium text-muted-foreground">
-													Messages
-												</p>
-												<p className="text-sm text-foreground">
-													{detail?.messageCount ??
-														selectedConv?.messageCount ??
-														0}
-												</p>
+									)}
+
+									{(detail?.resolvedAt ?? selectedConv?.resolvedAt) && (
+										<div className="mb-3 rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/20">
+											<div className="flex items-center gap-2">
+												<CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+												<span className="text-xs font-semibold text-emerald-800 dark:text-emerald-400">
+													Resolved by visitor
+												</span>
 											</div>
+											{(detail?.rating ?? selectedConv?.rating ?? null) !==
+												null && (
+												<div className="mt-1.5 flex items-center gap-2">
+													<StarRating
+														rating={detail?.rating ?? selectedConv?.rating ?? 0}
+													/>
+													<span className="text-xs text-emerald-700 dark:text-emerald-500">
+														{detail?.rating ?? selectedConv?.rating}/5
+													</span>
+												</div>
+											)}
+											<p className="mt-1 text-xs text-emerald-700 dark:text-emerald-500">
+												{formatFullDate(
+													detail?.resolvedAt ?? selectedConv?.resolvedAt ?? "",
+												)}
+											</p>
 										</div>
-									</div>
-								</div>
+									)}
 
-								<div className="my-2 h-px bg-border/60" />
-
-								{/* Visitor device */}
-								<div className="mb-2">
-									<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-										Visitor Device
-									</h3>
-									<div className="flex flex-col gap-3">
-										{(detail?.userAgent ?? selectedConv?.userAgent) && (
+									{/* Main information */}
+									<div className="mb-2">
+										<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+											Contact Details
+										</h3>
+										<div className="flex flex-col gap-3">
 											<div className="flex items-start gap-3">
-												<Monitor className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+												<User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
 												<div className="min-w-0">
 													<p className="text-xs font-medium text-muted-foreground">
-														Device
+														Name
 													</p>
 													<p className="text-sm text-foreground">
-														{parseDevice(
-															detail?.userAgent ??
-																selectedConv?.userAgent ??
+														{detail?.name ??
+															selectedConv?.name ??
+															"Not provided"}
+													</p>
+												</div>
+											</div>
+											<div className="flex items-start gap-3">
+												<Mail className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+												<div className="min-w-0">
+													<p className="text-xs font-medium text-muted-foreground">
+														Email
+													</p>
+													<p className="break-all text-sm text-foreground">
+														{detail?.email ??
+															selectedConv?.email ??
+															"Not provided"}
+													</p>
+												</div>
+											</div>
+										</div>
+									</div>
+
+									<div className="my-2 h-px bg-border/60" />
+
+									{/* Session information */}
+									<div className="mb-2">
+										<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+											Session Info
+										</h3>
+										<div className="flex flex-col gap-3">
+											<div className="flex items-start gap-3">
+												<Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+												<div className="min-w-0">
+													<p className="text-xs font-medium text-muted-foreground">
+														Started
+													</p>
+													<p className="text-sm text-foreground">
+														{formatFullDate(
+															detail?.createdAt ??
+																selectedConv?.createdAt ??
 																"",
 														)}
 													</p>
 												</div>
 											</div>
-										)}
-										<div className="flex items-start gap-3">
-											<Globe className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-											<div className="min-w-0">
-												<p className="text-xs font-medium text-muted-foreground">
-													IP Address
-												</p>
-												<p className="text-sm text-foreground">
-													{detail?.ipAddress ??
-														selectedConv?.ipAddress ??
-														"Unknown"}
-												</p>
+											<div className="flex items-start gap-3">
+												<MessageCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+												<div className="min-w-0">
+													<p className="text-xs font-medium text-muted-foreground">
+														Messages
+													</p>
+													<p className="text-sm text-foreground">
+														{detail?.messageCount ??
+															selectedConv?.messageCount ??
+															0}
+													</p>
+												</div>
+											</div>
+										</div>
+									</div>
+
+									<div className="my-2 h-px bg-border/60" />
+
+									{/* Visitor device */}
+									<div className="mb-2">
+										<h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+											Visitor Device
+										</h3>
+										<div className="flex flex-col gap-3">
+											{(detail?.userAgent ?? selectedConv?.userAgent) && (
+												<div className="flex items-start gap-3">
+													<Monitor className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+													<div className="min-w-0">
+														<p className="text-xs font-medium text-muted-foreground">
+															Device
+														</p>
+														<p className="text-sm text-foreground">
+															{parseDevice(
+																detail?.userAgent ??
+																	selectedConv?.userAgent ??
+																	"",
+															)}
+														</p>
+													</div>
+												</div>
+											)}
+											<div className="flex items-start gap-3">
+												<Globe className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+												<div className="min-w-0">
+													<p className="text-xs font-medium text-muted-foreground">
+														IP Address
+													</p>
+													<p className="text-sm text-foreground">
+														{detail?.ipAddress ??
+															selectedConv?.ipAddress ??
+															"Unknown"}
+													</p>
+												</div>
 											</div>
 										</div>
 									</div>
 								</div>
-							</div>
-						</ScrollArea>
+							</ScrollArea>
 
-						{/* Delete conversation */}
-						<div className="border-t border-border/60 p-4">
-							<Button
-								variant="outline"
-								size="sm"
-								className="w-full"
-								disabled={archiveMutation.isPending}
-								onClick={() => {
-									if (selectedId) {
-										archiveMutation.mutate({
-											params: { path: { id: selectedId } },
-											body: {
-												archived: !(
-													detail?.archivedAt ?? selectedConv?.archivedAt
-												),
-											},
-										});
-									}
-								}}
-							>
-								{(detail?.archivedAt ?? selectedConv?.archivedAt) ? (
-									<>
-										<ArchiveRestore className="mr-2 h-3.5 w-3.5" />
-										Unarchive
-									</>
-								) : (
-									<>
-										<Archive className="mr-2 h-3.5 w-3.5" />
-										Archive
-									</>
-								)}
-							</Button>
-							<Button
-								variant="destructive"
-								size="sm"
-								className="w-full"
-								onClick={() => setDeleteDialogOpen(true)}
-							>
-								<Trash2 className="mr-2 h-3.5 w-3.5" />
-								Delete Conversation
-							</Button>
+							{/* Delete conversation */}
+							<div className="border-t border-border/60 p-4">
+								<Button
+									variant="outline"
+									size="sm"
+									className="w-full"
+									disabled={archiveMutation.isPending}
+									onClick={() => {
+										if (selectedId) {
+											archiveMutation.mutate({
+												params: { path: { id: selectedId } },
+												body: {
+													archived: !(
+														detail?.archivedAt ?? selectedConv?.archivedAt
+													),
+												},
+											});
+										}
+									}}
+								>
+									{(detail?.archivedAt ?? selectedConv?.archivedAt) ? (
+										<>
+											<ArchiveRestore className="mr-2 h-3.5 w-3.5" />
+											Unarchive
+										</>
+									) : (
+										<>
+											<Archive className="mr-2 h-3.5 w-3.5" />
+											Archive
+										</>
+									)}
+								</Button>
+								<Button
+									variant="destructive"
+									size="sm"
+									className="w-full"
+									onClick={() => setDeleteDialogOpen(true)}
+								>
+									<Trash2 className="mr-2 h-3.5 w-3.5" />
+									Delete Conversation
+								</Button>
+							</div>
+						</>
+					) : (
+						<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-muted-foreground">
+							<User className="h-8 w-8 opacity-20" />
+							<p className="text-center text-xs">
+								Select a conversation to view visitor details
+							</p>
 						</div>
-					</>
-				) : (
-					<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-muted-foreground">
-						<User className="h-8 w-8 opacity-20" />
-						<p className="text-center text-xs">
-							Select a conversation to view visitor details
-						</p>
-					</div>
-				)}
+					)}
+				</div>
 			</div>
 
 			{/* Delete confirmation dialog */}

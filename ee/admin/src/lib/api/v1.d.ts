@@ -4633,6 +4633,129 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/organizations/{orgId}/cost-by-model-timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization cost breakdown by model over time. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            /** @enum {string} */
+                            bucket: "hour" | "day";
+                            models: string[];
+                            data: {
+                                timestamp: string;
+                                entries: {
+                                    model: string;
+                                    cost: number;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects/{projectId}/cost-by-model-timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project cost breakdown by model over time. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            /** @enum {string} */
+                            bucket: "hour" | "day";
+                            models: string[];
+                            data: {
+                                timestamp: string;
+                                entries: {
+                                    model: string;
+                                    cost: number;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Project not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/organizations/{orgId}/projects/{projectId}/model-provider-stats": {
         parameters: {
             query?: never;
@@ -5034,9 +5157,55 @@ export interface paths {
                                 messageCount: number;
                                 escalatedAt: string | null;
                                 archivedAt: string | null;
+                                resolvedAt: string | null;
+                                rating: number | null;
                                 firstMessage: string | null;
                             }[];
                             total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/chat-support-logs/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregate ratings and feedback across all conversations. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            totalRatings: number;
+                            averageRating: number | null;
+                            ratingDistribution: {
+                                [key: string]: number;
+                            };
+                            resolvedCount: number;
+                            likes: number;
+                            dislikes: number;
                         };
                     };
                 };
@@ -5124,12 +5293,16 @@ export interface paths {
                             messageCount: number;
                             escalatedAt: string | null;
                             archivedAt: string | null;
+                            resolvedAt: string | null;
+                            rating: number | null;
                             messages: {
                                 id: string;
                                 createdAt: string;
                                 role: string;
                                 content: string;
                                 sequence: number;
+                                /** @enum {string|null} */
+                                reaction: "like" | "dislike" | null;
                             }[];
                         };
                     };
@@ -7257,6 +7430,430 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/playground/image-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of image generation history for the authenticated user */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                        inputImages?: {
+                            dataUrl: string;
+                            mediaType: string;
+                        }[];
+                        models: {
+                            modelId: string;
+                            modelName: string;
+                            images: {
+                                base64: string;
+                                mediaType: string;
+                            }[];
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Saved image history item */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/playground/image-history/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated image history item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/playground/video-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of video generation history for the authenticated user */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                        frameInputs?: {
+                            start: {
+                                dataUrl: string;
+                                mediaType: string;
+                            } | null;
+                            end: {
+                                dataUrl: string;
+                                mediaType: string;
+                            } | null;
+                        };
+                        referenceImages?: {
+                            dataUrl: string;
+                            mediaType: string;
+                        }[];
+                        models: {
+                            modelId: string;
+                            modelName: string;
+                            jobId: string | null;
+                            videoUrl: string | null;
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Saved video history item */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/playground/video-history/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated video history item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/orgs": {

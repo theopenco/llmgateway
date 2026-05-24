@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
 	boolean,
+	check,
 	decimal,
 	index,
 	integer,
@@ -1146,6 +1147,7 @@ export const chatSupportConversation = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
+		clientId: text(),
 		name: text(),
 		email: text(),
 		ipAddress: text(),
@@ -1153,9 +1155,16 @@ export const chatSupportConversation = pgTable(
 		messageCount: integer().notNull().default(0),
 		escalatedAt: timestamp(),
 		archivedAt: timestamp(),
+		resolvedAt: timestamp(),
+		rating: integer(),
 	},
 	(table) => [
 		index("chat_support_conversation_created_at_idx").on(table.createdAt),
+		index("chat_support_conversation_client_id_idx").on(table.clientId),
+		check(
+			"chat_support_conversation_rating_check",
+			sql`${table.rating} IS NULL OR (${table.rating} >= 0 AND ${table.rating} <= 5)`,
+		),
 	],
 );
 
@@ -1172,9 +1181,16 @@ export const chatSupportMessage = pgTable(
 		}).notNull(),
 		content: text().notNull(),
 		sequence: integer().notNull(),
+		reaction: text({
+			enum: ["like", "dislike"],
+		}),
 	},
 	(table) => [
 		index("chat_support_message_conversation_id_idx").on(table.conversationId),
+		check(
+			"chat_support_message_reaction_check",
+			sql`${table.reaction} IS NULL OR ${table.reaction} IN ('like', 'dislike')`,
+		),
 	],
 );
 
@@ -2390,4 +2406,61 @@ export const skill = pgTable(
 		enabled: boolean().notNull().default(true),
 	},
 	(table) => [index("skill_user_id_idx").on(table.userId)],
+);
+
+export const playgroundImageHistory = pgTable(
+	"playground_image_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		prompt: text().notNull(),
+		inputImages: jsonb().$type<{ dataUrl: string; mediaType: string }[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				images: { base64: string; mediaType: string }[];
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [index("playground_image_history_user_id_idx").on(table.userId)],
+);
+
+export const playgroundVideoHistory = pgTable(
+	"playground_video_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		prompt: text().notNull(),
+		frameInputs: jsonb().$type<{
+			start: { dataUrl: string; mediaType: string } | null;
+			end: { dataUrl: string; mediaType: string } | null;
+		}>(),
+		referenceImages: jsonb().$type<{ dataUrl: string; mediaType: string }[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				jobId: string | null;
+				videoUrl: string | null;
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [index("playground_video_history_user_id_idx").on(table.userId)],
 );

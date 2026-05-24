@@ -100,6 +100,8 @@ export type HistoryDataPoint = HistoryResponse["data"][number];
 // Cost by model
 export type CostByModelResponse =
 	GetJsonResponse<"/admin/metrics/cost-by-model">;
+export type CostByModelTimeseriesResponse =
+	GetJsonResponse<"/admin/organizations/{orgId}/cost-by-model-timeseries">;
 
 // Model-Provider Mappings
 export type ModelProviderMappingsResponse =

@@ -1,0 +1,128 @@
+---
+title: Provider Cache Control
+description: Use provider-side prompt caching to reduce the cost of long, reused prompts in chat and coding tools.
+icon: Database
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Provider Cache Control
+
+Most modern LLM providers offer **prompt caching**: when a request reuses a long prefix from a previous request (for example, a multi-thousand-token system prompt or a growing conversation history), the provider stores that prefix and serves it back at a steep discount on subsequent calls. Only the cached portion is discounted — new input tokens and all output tokens are still billed at the normal rate.
+
+This is the behavior you see surfaced as `cached_tokens` in your usage payloads, and it is what makes chat apps, assistants, and coding tools (Cursor, Cline, Claude Code, etc.) economically viable on long contexts.
+
+<Callout type="info">
+	Looking for $0 on repeated calls instead of a discount on the cached portion?
+	That is [Gateway Caching](/features/gateway-caching), which serves
+	byte-identical requests entirely from LLM Gateway without hitting the
+	provider. It is a better fit for deterministic API workloads than for chat.
+	See the [Caching Overview](/features/caching) for a side-by-side comparison.
+</Callout>
+
+## Automatic caching
+
+For most users, prompt caching just works — you do not need to change your request payloads.
+
+Providers including OpenAI, Anthropic (when prompts cross the provider's minimum size), Google, DeepSeek, xAI, and Alibaba inspect incoming requests for shared prefixes and cache them automatically. LLM Gateway forwards the provider's cache metadata back to you in the response, and bills the cached portion at the model's `cached_input` rate.
+
+To take advantage of automatic caching:
+
+- Put stable content (system prompt, instructions, tool definitions, long documents) at the **start** of your messages
+- Keep the variable portion (the latest user turn) at the **end**
+- Reuse the same prefix across requests — even minor changes invalidate the cache
+
+You can confirm the cache is working by inspecting `usage.prompt_tokens_details.cached_tokens` on the response. See [Cost Breakdown](/features/cost-breakdown) for the full list of usage fields.
+
+```json
+{
+	"usage": {
+		"prompt_tokens": 8200,
+		"completion_tokens": 150,
+		"prompt_tokens_details": {
+			"cached_tokens": 8000
+		},
+		"cost_details": {
+			"input_cost": 0.0006,
+			"cached_input_cost": 0.0008
+		}
+	}
+}
+```
+
+In this example, 8,000 of the 8,200 prompt tokens were served from the provider's cache and billed at the cached rate.
+
+### Pricing and routing
+
+Cached input tokens are billed at the model's published `cached_input` price (typically 10–25% of the regular input price, depending on the provider and model). Output tokens and any non-cached input tokens are billed at the normal rate.
+
+When the [Smart Routing](/features/routing) algorithm selects a provider for a large prompt (≥ 5,000 estimated tokens), it gives extra weight to providers that advertise cache support, since caching can substantially reduce the cost of repeated large prompts.
+
+## Explicit caching with `cache_control`
+
+Some providers — most notably **Anthropic** — also support _explicit_ cache control, where you mark specific content blocks as cacheable using a `cache_control` field. This gives you precise control over what gets cached and lets you opt into longer cache lifetimes than the default.
+
+Explicit caching is provider-specific. Supported providers and TTLs at the time of writing:
+
+| Provider             | Models                         | Supported TTLs       |
+| -------------------- | ------------------------------ | -------------------- |
+| Anthropic (Claude)   | All Claude models              | `5m` (default), `1h` |
+| AWS Bedrock (Claude) | All Claude models              | `5m` (default), `1h` |
+| Alibaba (Qwen)       | Qwen models with cache support | Provider-defined     |
+
+To mark content as cacheable, send the message content as an array of blocks and add a `cache_control` field to the block you want to cache:
+
+```json
+{
+	"model": "claude-haiku-4-5",
+	"messages": [
+		{
+			"role": "system",
+			"content": [
+				{
+					"type": "text",
+					"text": "You are a helpful assistant. <long instructions...>",
+					"cache_control": { "type": "ephemeral", "ttl": "1h" }
+				}
+			]
+		},
+		{
+			"role": "user",
+			"content": "What is the capital of France?"
+		}
+	]
+}
+```
+
+Use `ttl: "5m"` (the default if omitted) for short-lived caches that match a single user's session, and `ttl: "1h"` when the same prefix will be reused over a longer window (for example, a coding agent that keeps the same project context warm across many requests).
+
+<Callout type="warning">
+	Cache writes are billed at a premium (typically 1.25x for 5m and 2x for 1h on
+	Anthropic) the first time a cached block is created. After that, cache reads
+	cost roughly 10% of the regular input price. The break-even point is usually
+	one or two reuses — explicit caching is worth it whenever a marked block will
+	be sent more than once within its TTL.
+</Callout>
+
+Anthropic returns a per-TTL breakdown of cache writes when you mix `5m` and `1h` blocks:
+
+```json
+{
+	"usage": {
+		"cache_creation": {
+			"ephemeral_5m_input_tokens": 0,
+			"ephemeral_1h_input_tokens": 8000
+		},
+		"cache_read_input_tokens": 0
+	}
+}
+```
+
+For providers that publish a separate explicit-cache read rate (for example, Alibaba Qwen charges 10% for explicit cache reads vs. 20% for automatic cache reads), LLM Gateway detects the `cache_control` markers on your request and applies the explicit rate automatically.
+
+## Related
+
+- [Gateway Caching](/features/gateway-caching) — serve byte-identical requests entirely from LLM Gateway at $0 cost
+- [Caching Overview](/features/caching) — side-by-side comparison of provider caching vs. gateway caching
+- [Cost Breakdown](/features/cost-breakdown) — full reference for the usage and cost fields on every response
+- [Smart Routing](/features/routing) — how cache support influences provider selection for large prompts

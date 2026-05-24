@@ -1,6 +1,6 @@
 ---
 title: Caching
-description: Reduce costs and latency by caching identical requests.
+description: Overview of the two types of caching available in LLM Gateway.
 icon: Zap
 ---
 
@@ -8,198 +8,38 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Caching
 
-LLM Gateway provides intelligent response caching that can significantly reduce your API costs and response latency. When caching is enabled, identical requests are served from cache instead of making redundant calls to LLM providers.
+LLM Gateway supports **two distinct kinds of caching**, and they solve different problems. Pick the one that matches your workload — they can also be used together.
 
-## How It Works
+## Provider / Model Caching
 
-When you make an API request:
+The provider performs the caching. When your request reuses a long prefix from a previous call (a system prompt, conversation history, tool definitions, a long document), the model serves that prefix from its prompt cache and bills it at a reduced rate. New input tokens and **all output tokens are still billed at the normal rate** — only the cached portion is discounted.
 
-1. LLM Gateway generates a cache key based on the request parameters
-2. If a matching cached response exists, it's returned immediately
-3. If no cache exists, the request is forwarded to the provider
-4. The response is cached for future identical requests
+This is the type of caching that powers efficient chat-based and assistant-based interactions, including chat apps and coding tools (Cursor, Cline, Claude Code, etc.) where the same context is reused turn after turn.
 
-This means repeated identical requests are served instantly from cache without incurring additional provider costs.
+You see it in your usage as `prompt_tokens_details.cached_tokens`. For most providers it works automatically; some (notably Anthropic) also let you mark blocks explicitly with `cache_control` and choose a longer TTL.
 
-## Cost Savings
+→ **[Read the Provider Cache Control docs](/features/provider-cache-control)**
 
-Caching can dramatically reduce costs for applications with repetitive requests:
+## Gateway Caching
 
-| Scenario                    | Without Caching | With Caching | Savings |
-| --------------------------- | --------------- | ------------ | ------- |
-| 1,000 identical requests    | $10.00          | $0.01        | 99.9%   |
-| 50% duplicate rate          | $10.00          | $5.00        | 50%     |
-| Retry after transient error | $0.02           | $0.01        | 50%     |
+LLM Gateway performs the caching. When a request is **byte-identical** to a previous one (same model, same messages, same parameters), the response is served from the gateway's cache without any provider call. Repeated identical calls cost **$0**.
 
-<Callout type="info">
-	Cached responses are free from provider costs. You only pay for the initial
-	request that populates the cache.
-</Callout>
+This is most useful for deterministic API workloads — classification, batch jobs, FAQ lookups, retries — rather than free-form chat, because chat prompts almost always differ on the latest turn.
 
-## Requirements
+→ **[Read the Gateway Caching docs](/features/gateway-caching)**
 
-<Callout type="info">
-	Caching is **free** and **independent** of [Data
-	Retention](/features/data-retention). Cached responses live in a short-lived
-	cache (TTL-bound, typically seconds to minutes) and are not stored as
-	long-term request data — you do not need to enable data retention to use
-	caching.
-</Callout>
+## Which one do I want?
 
-To use caching:
-
-1. Enable **Caching** in your project settings under Preferences
-2. Configure the cache duration (TTL) as needed
-3. Make requests as normal—caching is automatic
-
-## Cache Key Generation
-
-The cache key is generated from these request parameters:
-
-- Model identifier
-- Messages array (roles and content)
-- Temperature
-- Max tokens
-- Top P
-- Tools/functions
-- Tool choice
-- Response format
-- System prompt
-- Other model-specific parameters
+| If you…                                                         | Use                                                                                   |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Build a chat app, assistant, or coding tool                     | [Provider Cache Control](/features/provider-cache-control)                            |
+| Send long system prompts or growing conversation history        | [Provider Cache Control](/features/provider-cache-control)                            |
+| Want longer cache lifetimes than the provider default           | [Provider Cache Control](/features/provider-cache-control) (explicit `cache_control`) |
+| Send the exact same request many times (batches, retries, FAQs) | [Gateway Caching](/features/gateway-caching)                                          |
+| Want $0 on repeated calls instead of a discount                 | [Gateway Caching](/features/gateway-caching)                                          |
 
 <Callout type="info">
-	Requests with different parameter values, even slight variations, will not
-	share cache entries.
-</Callout>
-
-## Cache Behavior
-
-### Cache Hits
-
-When a cache hit occurs:
-
-- Response is returned immediately (sub-millisecond latency)
-- No provider API call is made
-- No inference costs are incurred
-
-### Cache Misses
-
-When a cache miss occurs:
-
-- Request is forwarded to the LLM provider
-- Response is stored in cache
-- Normal inference costs apply
-- Future identical requests will hit the cache
-
-## Streaming and Caching
-
-Caching works with both streaming and non-streaming requests:
-
-- **Non-streaming**: Full response is cached and returned
-- **Streaming**: The complete response is reconstructed from cache and streamed back
-
-## Cache TTL (Time-to-Live)
-
-Cache duration is configurable per project in your project settings. You can set the cache TTL from 10 seconds up to 1 year (31,536,000 seconds).
-
-The default cache duration is 60 seconds. Adjust this based on your use case—longer durations work well for static content, while shorter durations are better for frequently changing data.
-
-## Identifying Cached Responses
-
-Cached responses show zero or minimal token usage since no inference occurred:
-
-```json
-{
-	"usage": {
-		"prompt_tokens": 0,
-		"completion_tokens": 0,
-		"total_tokens": 0,
-		"cost": 0,
-		"cost_details": {
-			"total_cost": 0,
-			"input_cost": 0,
-			"output_cost": 0
-		}
-	}
-}
-```
-
-## Use Cases
-
-### Development and Testing
-
-During development, you often send the same prompts repeatedly:
-
-```typescript
-// This prompt will only incur costs once
-const response = await client.chat.completions.create({
-	model: "gpt-4o",
-	messages: [{ role: "user", content: "Explain quantum computing" }],
-});
-```
-
-### Chatbots with Common Questions
-
-FAQ-style interactions often have repeated questions:
-
-```typescript
-// Common questions are served from cache
-const faqs = [
-	"What are your business hours?",
-	"How do I reset my password?",
-	"What is your return policy?",
-];
-```
-
-### Batch Processing
-
-Processing large datasets with potentially duplicate items:
-
-```typescript
-// Duplicate items in batch are served from cache
-for (const item of items) {
-	const response = await client.chat.completions.create({
-		model: "gpt-4o",
-		messages: [{ role: "user", content: `Classify: ${item}` }],
-	});
-}
-```
-
-## Best Practices
-
-### Maximize Cache Hits
-
-- Use consistent prompt formatting
-- Normalize input data before sending
-- Use deterministic parameters (temperature: 0)
-- Avoid including timestamps or random values in prompts
-
-### Appropriate Use Cases
-
-Caching is most effective for:
-
-- Static knowledge queries
-- Classification tasks
-- FAQ responses
-- Development/testing
-- Retry scenarios
-
-### When to Avoid Caching
-
-Caching may not be suitable for:
-
-- Real-time data requirements
-- Highly personalized responses
-- Time-sensitive information
-- Creative tasks requiring variety
-
-## Pricing
-
-Caching is **completely free**. Cached responses are held in a short-lived
-in-memory cache (bounded by your configured TTL) and do not incur storage
-charges. Storage costs only apply if you separately enable [Data
-Retention](/features/data-retention) for full request/response payloads.
-
-<Callout type="success">
-	Caching reduces both inference cost and latency at no additional charge.
+	The two are not mutually exclusive. A coding tool can rely on provider caching
+	for its long system prompt **and** enable gateway caching so that
+	deterministic tool calls (e.g., file lookups) cost nothing on retry.
 </Callout>

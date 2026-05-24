@@ -5,7 +5,7 @@ import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 export const metadata = {
-	title: "Image-to-Image Models - AI Image Editing | LLM Gateway",
+	title: "Image-to-Image Models - AI Image Editing",
 	description:
 		"Browse and compare AI models that accept images as input and generate new images. Perfect for image editing, style transfer, and visual transformation.",
 	openGraph: {
