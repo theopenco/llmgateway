@@ -386,11 +386,14 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		expect(requestBody.reasoning.effort).toBe("none");
 	});
 
-	test("normalizes none to off for Google (no thinkingBudget)", async () => {
+	test("disables thinking for Google on none", async () => {
 		const requestBody = await prepare({
 			provider: "google-ai-studio",
 			model: "gemini-2.5-pro",
 		});
+		expect(requestBody.generationConfig.thinkingConfig.includeThoughts).toBe(
+			false,
+		);
 		expect(
 			requestBody.generationConfig.thinkingConfig.thinkingBudget,
 		).toBeUndefined();

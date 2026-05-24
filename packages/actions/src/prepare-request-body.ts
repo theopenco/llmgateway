@@ -702,15 +702,20 @@ export async function prepareRequestBody(
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 
-	// `none` reasoning effort is an OpenAI-specific value: its newer reasoning
-	// models (gpt-5.4 and later) accept it to turn reasoning off. Every other
-	// provider treats the absence of reasoning_effort as "off", so normalize
-	// `none` away for them to avoid forwarding an unsupported enum value.
-	if (
-		reasoning_effort === "none" &&
-		usedProvider !== "openai" &&
-		usedProvider !== "azure"
-	) {
+	// `none` reasoning effort is handled natively by a few providers:
+	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
+	// off), and Google reasons by default so it must explicitly disable thinking
+	// when asked. Every other provider treats the absence of reasoning_effort as
+	// "off" already, so normalize `none` away for them to avoid forwarding an
+	// unsupported enum value.
+	const handlesNoneNatively =
+		usedProvider === "openai" ||
+		usedProvider === "azure" ||
+		usedProvider === "google-ai-studio" ||
+		usedProvider === "glacier" ||
+		usedProvider === "google-vertex" ||
+		usedProvider === "quartz";
+	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
 	}
 
@@ -2296,33 +2301,42 @@ export async function prepareRequestBody(
 
 			// Enable thinking/reasoning content exposure for Google models that support reasoning
 			if (supportsReasoning) {
-				requestBody.generationConfig.thinkingConfig = {
-					includeThoughts: true,
-				};
-
-				if (reasoning_max_tokens !== undefined) {
-					// Google's thinkingBudget: just use the provided value directly
-					// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
-					requestBody.generationConfig.thinkingConfig.thinkingBudget =
-						reasoning_max_tokens;
-				} else if (reasoning_effort !== undefined) {
-					const getThinkingBudget = (effort: string) => {
-						switch (effort) {
-							case "minimal":
-								return 512; // Minimum supported by most models
-							case "low":
-								return 2048;
-							case "high":
-								return 24576;
-							case "xhigh":
-								return 65536;
-							case "medium":
-							default:
-								return 8192; // Balanced default
-						}
+				if (reasoning_effort === "none") {
+					// Google reasons by default, so `none` must explicitly turn
+					// thinking off (mirrors Anthropic dropping thinking when reasoning
+					// is disabled). Leave thinkingBudget unset.
+					requestBody.generationConfig.thinkingConfig = {
+						includeThoughts: false,
 					};
-					requestBody.generationConfig.thinkingConfig.thinkingBudget =
-						getThinkingBudget(reasoning_effort);
+				} else {
+					requestBody.generationConfig.thinkingConfig = {
+						includeThoughts: true,
+					};
+
+					if (reasoning_max_tokens !== undefined) {
+						// Google's thinkingBudget: just use the provided value directly
+						// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
+						requestBody.generationConfig.thinkingConfig.thinkingBudget =
+							reasoning_max_tokens;
+					} else if (reasoning_effort !== undefined) {
+						const getThinkingBudget = (effort: string) => {
+							switch (effort) {
+								case "minimal":
+									return 512; // Minimum supported by most models
+								case "low":
+									return 2048;
+								case "high":
+									return 24576;
+								case "xhigh":
+									return 65536;
+								case "medium":
+								default:
+									return 8192; // Balanced default
+							}
+						};
+						requestBody.generationConfig.thinkingConfig.thinkingBudget =
+							getThinkingBudget(reasoning_effort);
+					}
 				}
 			}
 
