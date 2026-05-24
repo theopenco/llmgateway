@@ -256,7 +256,9 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 		void (async () => {
 			try {
 				const [defaultsRes, configRes] = await Promise.all([
-					fetchClient.GET("/routing-config/defaults", {}),
+					fetchClient.GET("/routing-config/config/{projectId}/defaults", {
+						params: { path: { projectId } },
+					}),
 					fetchClient.GET("/routing-config/config/{projectId}", {
 						params: { path: { projectId } },
 					}),

@@ -388,7 +388,8 @@ routingConfig.openapi(getResolved, async (c) => {
 
 const getDefaults = createRoute({
 	method: "get",
-	path: "/defaults",
+	path: "/config/{projectId}/defaults",
+	request: { params: z.object({ projectId: z.string() }) },
 	responses: {
 		200: {
 			content: {
@@ -437,6 +438,13 @@ const getDefaults = createRoute({
 });
 
 routingConfig.openapi(getDefaults, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	const { projectId } = c.req.param();
+	await checkProjectEnterpriseAccess(user.id, projectId);
+
 	return c.json({
 		weights: DEFAULT_ROUTING_WEIGHTS,
 		thresholds: DEFAULT_ROUTING_THRESHOLDS,
