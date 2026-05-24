@@ -429,7 +429,12 @@ function filterEligibleModelProviders(
 			return false;
 		}
 
-		if (options.reasoningEffort !== undefined) {
+		// "none" means "no reasoning", so it doesn't require a reasoning-capable
+		// provider. Let it fall through so non-reasoning variants stay eligible.
+		if (
+			options.reasoningEffort !== undefined &&
+			options.reasoningEffort !== "none"
+		) {
 			return provider.reasoning === true;
 		}
 
