@@ -1222,12 +1222,11 @@ admin.openapi(getGlobalStats, async (c) => {
 				)
 			: breakdownRows.map((row) => {
 					const isModel = "usedModel" in row;
-					const key = isModel
-						? `${row.usedProvider}/${row.usedModel}`
-						: row.source;
-					const label = isModel
-						? `${row.usedProvider}/${row.usedModel}`
-						: row.source;
+					const modelLabel = isModel
+						? formatProviderModelLabel(row.usedProvider, row.usedModel)
+						: null;
+					const key = isModel ? modelLabel! : row.source;
+					const label = isModel ? modelLabel! : row.source;
 					return {
 						key,
 						label,
@@ -1255,12 +1254,27 @@ admin.openapi(getGlobalStats, async (c) => {
 	});
 });
 
+function stripProviderPrefix(providerId: string, modelName: string): string {
+	const prefix = `${providerId}/`;
+	return modelName.startsWith(prefix)
+		? modelName.slice(prefix.length)
+		: modelName;
+}
+
+function formatProviderModelLabel(
+	providerId: string,
+	modelName: string,
+): string {
+	return `${providerId}/${stripProviderPrefix(providerId, modelName)}`;
+}
+
 const canonicalModelIdCache = new Map<string, string | null>();
 function lookupCanonicalModelId(
 	providerId: string,
 	modelName: string,
 ): string | null {
-	const cacheKey = `${providerId}/${modelName}`;
+	const bareModelName = stripProviderPrefix(providerId, modelName);
+	const cacheKey = `${providerId}/${bareModelName}`;
 	if (canonicalModelIdCache.has(cacheKey)) {
 		return canonicalModelIdCache.get(cacheKey) ?? null;
 	}
@@ -1268,7 +1282,7 @@ function lookupCanonicalModelId(
 	for (const m of models) {
 		if (
 			m.providers.some(
-				(p) => p.providerId === providerId && p.modelName === modelName,
+				(p) => p.providerId === providerId && p.modelName === bareModelName,
 			)
 		) {
 			canonical = m.id;
@@ -1302,8 +1316,10 @@ function aggregateModelRowsByCanonicalId(
 	>();
 	for (const row of rows) {
 		const canonical = lookupCanonicalModelId(row.usedProvider, row.usedModel);
-		const key = canonical ?? `${row.usedProvider}/${row.usedModel}`;
-		const label = canonical ?? row.usedModel;
+		const bareModel = stripProviderPrefix(row.usedProvider, row.usedModel);
+		const key =
+			canonical ?? formatProviderModelLabel(row.usedProvider, row.usedModel);
+		const label = canonical ?? bareModel;
 		const existing = aggregated.get(key);
 		if (existing) {
 			existing.requestCount += Number(row.requestCount);
