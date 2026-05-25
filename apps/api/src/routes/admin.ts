@@ -2425,30 +2425,21 @@ admin.openapi(getProjectLogs, async (c) => {
 // Get valid provider IDs as a Set for O(1) lookup
 const validProviderIds = new Set<string>(providers.map((p) => p.id));
 
-// Build a map of provider -> Set of valid model names for that provider
-// This includes both root model IDs and provider-specific modelNames
+// Build a map of provider -> Set of valid root model IDs served by that provider.
+// Only root model IDs are accepted as discount/rate-limit targets — the
+// provider-specific modelName is reserved for upstream requests only.
 const providerModelMappings = new Map<string, Set<string>>();
 for (const model of models) {
 	for (const mapping of model.providers) {
 		if (!providerModelMappings.has(mapping.providerId)) {
 			providerModelMappings.set(mapping.providerId, new Set<string>());
 		}
-		const modelSet = providerModelMappings.get(mapping.providerId)!;
-		// Add the provider-specific model name
-		modelSet.add(mapping.modelName);
-		// Also add the root model ID for backwards compatibility
-		modelSet.add(model.id);
+		providerModelMappings.get(mapping.providerId)!.add(model.id);
 	}
 }
 
-// Get all valid model names (union of all provider model names + root IDs)
-const validModelIds = new Set<string>();
-for (const model of models) {
-	validModelIds.add(model.id);
-	for (const mapping of model.providers) {
-		validModelIds.add(mapping.modelName);
-	}
-}
+// All valid root model IDs.
+const validModelIds = new Set<string>(models.map((m) => m.id));
 
 const discountSchema = z.object({
 	id: z.string(),
@@ -2659,7 +2650,6 @@ const getAvailableProvidersAndModels = createRoute({
 									providerId: z.string(),
 									providerName: z.string(),
 									modelId: z.string(),
-									modelName: z.string(),
 									rootModelId: z.string(),
 									rootModelName: z.string(),
 									family: z.string(),
@@ -2934,12 +2924,14 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
-	// Build mappings from all models and their providers
+	// Build mappings from all models and their providers. modelId is always the
+	// root model id — the provider-specific modelName is only used for upstream
+	// requests and must never be exposed in the discount selector or stored as a
+	// discount target.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
 		modelId: string;
-		modelName: string;
 		rootModelId: string;
 		rootModelName: string;
 		family: string;
@@ -2952,9 +2944,8 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 				mappings.push({
 					providerId: mapping.providerId,
 					providerName: provider.name,
-					modelId: mapping.modelName, // The provider-specific model name
-					modelName: mapping.modelName,
-					rootModelId: model.id, // The root model ID
+					modelId: model.id,
+					rootModelId: model.id,
 					rootModelName: (model as { name?: string }).name ?? model.id,
 					family: model.family,
 				});

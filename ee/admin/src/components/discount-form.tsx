@@ -64,13 +64,12 @@ export function DiscountForm({
 		return mappings.filter((m) => m.providerId === provider);
 	}, [provider, mappings]);
 
-	// Get unique models for the filtered mappings (deduplicate by modelId)
+	// Get unique models for the filtered mappings (deduplicate by root modelId)
 	const availableModels = useMemo(() => {
 		const uniqueModels = new Map<
 			string,
 			{
 				modelId: string;
-				modelName: string;
 				rootModelName: string;
 				family: string;
 			}
@@ -79,7 +78,6 @@ export function DiscountForm({
 			if (!uniqueModels.has(mapping.modelId)) {
 				uniqueModels.set(mapping.modelId, {
 					modelId: mapping.modelId,
-					modelName: mapping.modelName,
 					rootModelName: mapping.rootModelName,
 					family: mapping.family,
 				});

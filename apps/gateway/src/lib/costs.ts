@@ -343,15 +343,14 @@ export async function calculateCosts(
 			: cacheWriteInputPrice;
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
-	// Get effective discount (checks org-specific, global, then hardcoded)
-	// Pass both the root model ID and the provider-specific model name for matching
+	// Get effective discount (checks org-specific, global, then hardcoded).
+	// Discounts are keyed by the root model ID only.
 	const hardcodedDiscount = providerInfo.discount ?? "0";
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
 		model,
 		hardcodedDiscount,
-		providerInfo.modelName, // Provider-specific model name for discount matching
 	);
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
