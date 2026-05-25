@@ -8,11 +8,17 @@
  */
 
 /**
- * Gets the gateway request timeout - the maximum time a request can take end-to-end.
+ * Gets the gateway request budget used to derive the default streaming timeout cap.
+ * The streaming default is capped at 80% of this value so we still have headroom
+ * to surface upstream timeouts as proper errors before the overall budget elapses.
  * Default: 25 minutes (1500000ms)
  */
 export function getGatewayTimeoutMs(): number {
-	return Number(process.env.GATEWAY_TIMEOUT_MS) || 1500000;
+	const envValue = Number(process.env.GATEWAY_TIMEOUT_MS);
+	if (envValue > 0) {
+		return envValue;
+	}
+	return 1500000;
 }
 
 /**
@@ -85,7 +91,7 @@ export function createStreamingCombinedSignal(
 
 /**
  * Combines a plain (non-streaming) timeout signal with an optional cancellation signal.
- * Uses the shorter timeout (default 3min) for non-streaming requests.
+ * Uses the shorter timeout (default 10min) for non-streaming requests.
  */
 export function createCombinedSignal(
 	cancellationController?: AbortController,

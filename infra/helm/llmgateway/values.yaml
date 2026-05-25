@@ -128,7 +128,7 @@ gateway:
     aiStreamingTimeoutMs: 1200000
     aiTimeoutMs: 600000
     keepAliveTimeoutS: 620
-    shutdownGracePeriodMs: 120000
+    shutdownGracePeriodMs: 1200000
     healthCheckSkipDatabase: ""
     healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
