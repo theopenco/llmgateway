@@ -344,12 +344,13 @@ export async function calculateCosts(
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
 	// Get effective discount (checks org-specific, global, then hardcoded).
-	// Discounts are keyed by the root model ID only.
+	// Discounts are keyed by the root model ID only — `model` may be a
+	// provider-specific alias, so use the resolved root id from modelInfo.
 	const hardcodedDiscount = providerInfo.discount ?? "0";
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
-		model,
+		modelInfo.id,
 		hardcodedDiscount,
 	);
 	const discount = effectiveDiscountResult.discount;
