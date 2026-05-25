@@ -2753,8 +2753,7 @@ const getAvailableProvidersAndModels = createRoute({
 									providerId: z.string(),
 									providerName: z.string(),
 									modelId: z.string(),
-									rootModelId: z.string(),
-									rootModelName: z.string(),
+									modelName: z.string(),
 									family: z.string(),
 								}),
 							),
@@ -3027,16 +3026,14 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
-	// Build mappings from all models and their providers. modelId is always the
-	// root model id — the provider-specific modelName is only used for upstream
-	// requests and must never be exposed in the discount selector or stored as a
-	// discount target.
+	// modelId is the canonical root model id — the provider-specific upstream
+	// modelName is never exposed here or stored as a discount target. modelName
+	// in this response is the root model's human-readable display name.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
 		modelId: string;
-		rootModelId: string;
-		rootModelName: string;
+		modelName: string;
 		family: string;
 	}> = [];
 
@@ -3048,8 +3045,7 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 					providerId: mapping.providerId,
 					providerName: provider.name,
 					modelId: model.id,
-					rootModelId: model.id,
-					rootModelName: (model as { name?: string }).name ?? model.id,
+					modelName: (model as { name?: string }).name ?? model.id,
 					family: model.family,
 				});
 			}
@@ -3460,8 +3456,7 @@ const getAvailableRateLimitOptions = createRoute({
 									providerId: z.string(),
 									providerName: z.string(),
 									modelId: z.string(),
-									rootModelId: z.string(),
-									rootModelName: z.string(),
+									modelName: z.string(),
 									family: z.string(),
 								}),
 							),
@@ -3476,15 +3471,15 @@ const getAvailableRateLimitOptions = createRoute({
 });
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
-	// Rate limits are always keyed by the root model id — the provider-specific
-	// modelName is reserved for upstream requests and must never be exposed in
-	// the rate-limit selector or stored as a rate-limit target.
+	// modelId is the canonical root model id — the provider-specific upstream
+	// modelName is never exposed here or stored as a rate-limit target.
+	// modelName in this response is the root model's human-readable display
+	// name.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
 		modelId: string;
-		rootModelId: string;
-		rootModelName: string;
+		modelName: string;
 		family: string;
 	}> = [];
 
@@ -3496,8 +3491,7 @@ admin.openapi(getAvailableRateLimitOptions, async (c) => {
 					providerId: mapping.providerId,
 					providerName: provider.name,
 					modelId: model.id,
-					rootModelId: model.id,
-					rootModelName: (model as { name?: string }).name ?? model.id,
+					modelName: (model as { name?: string }).name ?? model.id,
 					family: model.family,
 				});
 			}
