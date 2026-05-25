@@ -9026,10 +9026,12 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const [countRow] = await countSelect.where(whereClause);
 	const total = Number(countRow?.count ?? 0);
 
-	// KPI strip — always over the full active subscriber base, unfiltered.
-	// Matches Stripe's "active" filter, which includes cancel-at-period-end
-	// subscriptions until the period actually ends. The `cancelledPending`
-	// count below breaks out how many of these are flagged to cancel.
+	// KPI strip — counts committed subscribers only, excluding cancel-at-period-end.
+	// Once a subscription is flagged to cancel, Stripe still bills it until the
+	// period ends, but it should NOT count toward committed MRR / active subs in
+	// the dashboard — it's already churned in intent. The `cancelledPending`
+	// count below breaks out the to-be-churned subs as a separate KPI so admins
+	// can still see impending churn.
 	const activeRows = await db
 		.select({
 			tier: tables.organization.devPlan,
@@ -9039,6 +9041,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.where(
 			and(
 				ne(tables.organization.devPlan, "none"),
+				eq(tables.organization.devPlanCancelled, false),
 				or(
 					isNull(tables.organization.devPlanExpiresAt),
 					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
