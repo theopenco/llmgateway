@@ -20,6 +20,7 @@ interface ChatHeaderProps {
 	setSelectedModel: (model: string) => void;
 	comparisonEnabled: boolean;
 	onComparisonEnabledChange: (enabled: boolean) => void;
+	hideCompare?: boolean;
 	showGlobalModelSelector: boolean;
 	// MCP servers props
 	mcpServers: McpServer[];
@@ -51,6 +52,7 @@ export const ChatHeader = ({
 	setSelectedModel,
 	comparisonEnabled,
 	onComparisonEnabledChange,
+	hideCompare = false,
 	showGlobalModelSelector,
 	mcpServers,
 	onAddMcpServer,
@@ -115,21 +117,29 @@ export const ChatHeader = ({
 						onToggleServer={onToggleMcpServer}
 					/>
 				</TooltipProvider>
-				{isTemporaryChat ? null : (
+				{isTemporaryChat ? null : !hideCompare || comparisonEnabled ? (
 					<div className="hidden items-center gap-2 md:flex">
-						<Label
-							htmlFor="comparison-mode"
-							className="text-muted-foreground text-xs"
-						>
-							Comparison mode
-						</Label>
-						<Switch
-							id="comparison-mode"
-							checked={comparisonEnabled}
-							onCheckedChange={onComparisonEnabledChange}
-						/>
+						{hideCompare ? (
+							<span className="text-muted-foreground text-xs">
+								Comparison mode
+							</span>
+						) : (
+							<>
+								<Label
+									htmlFor="comparison-mode"
+									className="text-muted-foreground text-xs"
+								>
+									Comparison mode
+								</Label>
+								<Switch
+									id="comparison-mode"
+									checked={comparisonEnabled}
+									onCheckedChange={onComparisonEnabledChange}
+								/>
+							</>
+						)}
 					</div>
-				)}
+				) : null}
 			</div>
 		</header>
 	);

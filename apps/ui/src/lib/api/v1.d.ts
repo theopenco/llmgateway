@@ -1655,6 +1655,7 @@ export interface paths {
                     limit?: string;
                     customHeaderKey?: string;
                     customHeaderValue?: string;
+                    requestId?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1817,6 +1818,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2071,6 +2073,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2372,6 +2375,7 @@ export interface paths {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d";
                     groupBy?: "model" | "source";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path?: never;
@@ -2390,6 +2394,8 @@ export interface paths {
                             range: "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             groupBy: "model" | "source";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             totals: {
                                 requestCount: number;
                                 errorCount: number;
@@ -3459,7 +3465,6 @@ export interface paths {
                                 providerId: string;
                                 providerName: string;
                                 modelId: string;
-                                modelName: string;
                                 rootModelId: string;
                                 rootModelName: string;
                                 family: string;
@@ -8990,6 +8995,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9023,6 +9029,9 @@ export interface paths {
                         model: string;
                         /** @default false */
                         webSearch?: boolean;
+                        /** @default false */
+                        comparisonEnabled?: boolean;
+                        parentChatId?: string;
                     };
                 };
             };
@@ -9042,6 +9051,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9112,6 +9122,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9172,6 +9183,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9201,6 +9213,7 @@ export interface paths {
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
+                            comparisonChatIds: string[];
                         };
                     };
                 };
@@ -9280,6 +9293,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;

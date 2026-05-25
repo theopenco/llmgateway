@@ -83,7 +83,14 @@ export interface ProviderContextOptions {
 	response_format: OpenAIRequestBody["response_format"];
 	tools: OpenAIToolInput[] | undefined;
 	tool_choice: ToolChoiceType | undefined;
-	reasoning_effort: "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+	reasoning_effort:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| undefined;
 	reasoning_max_tokens: number | undefined;
 	prompt_cache_key: string | undefined;
 	prompt_cache_retention: PromptCacheRetention | undefined;
