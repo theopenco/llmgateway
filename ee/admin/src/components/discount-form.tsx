@@ -64,14 +64,13 @@ export function DiscountForm({
 		return mappings.filter((m) => m.providerId === provider);
 	}, [provider, mappings]);
 
-	// Get unique models for the filtered mappings (deduplicate by modelId)
+	// Get unique models for the filtered mappings (deduplicate by root modelId)
 	const availableModels = useMemo(() => {
 		const uniqueModels = new Map<
 			string,
 			{
 				modelId: string;
 				modelName: string;
-				rootModelName: string;
 				family: string;
 			}
 		>();
@@ -80,13 +79,12 @@ export function DiscountForm({
 				uniqueModels.set(mapping.modelId, {
 					modelId: mapping.modelId,
 					modelName: mapping.modelName,
-					rootModelName: mapping.rootModelName,
 					family: mapping.family,
 				});
 			}
 		}
 		return Array.from(uniqueModels.values()).sort((a, b) =>
-			a.rootModelName.localeCompare(b.rootModelName),
+			a.modelName.localeCompare(b.modelName),
 		);
 	}, [filteredMappings]);
 
@@ -208,7 +206,7 @@ export function DiscountForm({
 							<SelectTrigger className="w-full">
 								<SelectValue>
 									{selectedModel
-										? `${selectedModel.rootModelName} (${selectedModel.modelId})`
+										? `${selectedModel.modelName} (${selectedModel.modelId})`
 										: "All Models"}
 								</SelectValue>
 							</SelectTrigger>
@@ -217,7 +215,7 @@ export function DiscountForm({
 								{availableModels.map((m) => (
 									<SelectItem key={m.modelId} value={m.modelId}>
 										<span className="truncate">
-											{m.rootModelName}{" "}
+											{m.modelName}{" "}
 											<span className="text-muted-foreground">
 												({m.modelId})
 											</span>

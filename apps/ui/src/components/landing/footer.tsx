@@ -360,6 +360,24 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/models/video"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Video Generation
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/embeddings"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Embeddings
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/models/vision"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
