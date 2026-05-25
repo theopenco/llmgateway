@@ -241,6 +241,33 @@ describe("transformGoogleMessages — document file blocks", () => {
 		expect(filePart?.inline_data?.mime_type).toBe("Application/PDF");
 	});
 
+	it("accepts RFC 2397 MIME parameters and strips them", async () => {
+		const out = await transformGoogleMessages(
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "file",
+							file: {
+								filename: "doc",
+								file_data: "data:text/plain;charset=utf-8;base64,SGVsbG8=",
+							},
+						},
+					],
+				},
+			],
+			false,
+			20,
+			null,
+			undefined,
+			"google-ai-studio",
+		);
+		const filePart = out[0].parts.find((p) => p.inline_data);
+		expect(filePart?.inline_data?.mime_type).toBe("text/plain");
+		expect(filePart?.inline_data?.data).toBe("SGVsbG8=");
+	});
+
 	it("throws a non-typed Error when file_data isn't a base64 data URL", async () => {
 		await expect(
 			transformGoogleMessages(

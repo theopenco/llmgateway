@@ -168,18 +168,21 @@ export function parseGoogleUpstreamDocumentError(
 }
 
 /**
- * Parses a `data:<mime>;base64,<data>` URL into its parts. Returns null when
- * the value isn't a base64 data URL (e.g. plain base64, or a URL not yet
- * supported). MIME is preserved verbatim for upstream passthrough.
+ * Parses a `data:<mime>[;param=value]*;base64,<data>` URL into its parts.
+ * Returns null when the value isn't a base64 data URL. Optional RFC 2397
+ * MIME parameters (e.g. `;charset=utf-8`) are accepted but stripped, since
+ * Google's `inline_data.mime_type` expects a bare type/subtype.
  */
 function parseFileDataUrl(
 	fileData: string,
 ): { mimeType: string; data: string } | null {
-	const match = fileData.match(/^data:([^;,]+);base64,(.*)$/i);
+	const match = fileData.match(
+		/^data:([^;,]+)((?:;[^;,]+=[^;,]*)*);base64,(.*)$/i,
+	);
 	if (!match) {
 		return null;
 	}
-	return { mimeType: match[1], data: match[2] };
+	return { mimeType: match[1], data: match[3] };
 }
 
 function resolveGoogleProviderTarget(
