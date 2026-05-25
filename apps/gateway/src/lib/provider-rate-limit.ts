@@ -159,7 +159,6 @@ async function getProviderRateLimitStates(
 	organizationId: string,
 	provider: string,
 	model: string,
-	providerModelName?: string,
 ): Promise<{
 	keys: Record<ProviderRateLimitWindow, string>;
 	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>;
@@ -168,7 +167,6 @@ async function getProviderRateLimitStates(
 		organizationId,
 		provider,
 		model,
-		providerModelName,
 	);
 	const now = Date.now();
 
@@ -212,14 +210,12 @@ export async function peekProviderRateLimit(
 	organizationId: string,
 	provider: string,
 	model: string,
-	providerModelName?: string,
 ): Promise<ProviderRateLimitResult> {
 	try {
 		const { limits } = await getProviderRateLimitStates(
 			organizationId,
 			provider,
 			model,
-			providerModelName,
 		);
 		const blockedBy = (
 			Object.entries(limits) as Array<
@@ -251,7 +247,6 @@ export async function filterRateLimitedProviders(
 	candidates: Array<{
 		providerId: string;
 		model: string;
-		providerModelName?: string;
 	}>,
 ): Promise<Set<string>> {
 	const results = await Promise.all(
@@ -261,7 +256,6 @@ export async function filterRateLimitedProviders(
 				organizationId,
 				candidate.providerId,
 				candidate.model,
-				candidate.providerModelName,
 			)),
 		})),
 	);
@@ -275,12 +269,13 @@ export async function filterRateLimitedProviders(
 
 /**
  * Pick fallback candidates that are not at their RPM/RPD cap.
- * Dedupes peeks by providerId+modelName since region-expanded variants share
- * the same rate-limit window. Falls open to the original candidates if every
- * one is capped, so callers always get a non-empty list when input was non-empty.
+ * Dedupes peeks by providerId since rate limits are keyed by org+provider+root
+ * model id, so region-expanded variants share the same window. Falls open to
+ * the original candidates if every one is capped, so callers always get a
+ * non-empty list when input was non-empty.
  */
 export async function pickNonRateLimitedCandidates<
-	T extends { providerId: string; modelName: string },
+	T extends { providerId: string },
 >(organizationId: string, baseModelId: string, candidates: T[]): Promise<T[]> {
 	if (candidates.length === 0) {
 		return candidates;
@@ -289,11 +284,10 @@ export async function pickNonRateLimitedCandidates<
 	const uniquePeekCandidates = Array.from(
 		new Map(
 			candidates.map((p) => [
-				`${p.providerId}:${p.modelName}`,
+				p.providerId,
 				{
 					providerId: p.providerId,
 					model: baseModelId,
-					providerModelName: p.modelName,
 				},
 			]),
 		).values(),
@@ -319,14 +313,12 @@ export async function checkProviderRateLimit(
 	organizationId: string,
 	provider: string,
 	model: string,
-	providerModelName?: string,
 ): Promise<ProviderRateLimitResult> {
 	try {
 		const { keys, limits } = await getProviderRateLimitStates(
 			organizationId,
 			provider,
 			model,
-			providerModelName,
 		);
 		const blockedBy = (
 			Object.entries(limits) as Array<
@@ -343,7 +335,6 @@ export async function checkProviderRateLimit(
 				organizationId,
 				provider,
 				model,
-				providerModelName,
 				blockedBy,
 				limits,
 				retryAfter,
@@ -391,7 +382,6 @@ export async function checkProviderRateLimit(
 			organizationId,
 			provider,
 			model,
-			providerModelName,
 			limits: updatedLimits,
 		});
 

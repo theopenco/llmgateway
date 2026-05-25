@@ -19,23 +19,16 @@ function isValidDiscount(discount?: string | null): boolean {
 	return Number.isFinite(n) && n > 0 && n <= 1;
 }
 
-// A discount can be keyed by the root model ID or by any of the model's
-// provider-specific model names (the admin UI submits the latter).
-function makeModelMatcher(modelId: string, modelNames: string[]) {
-	return (discountModel: string | null): boolean =>
-		discountModel !== null &&
-		(discountModel === modelId || modelNames.includes(discountModel));
-}
-
+// Discounts are always keyed by the root model id — the provider-specific
+// modelName is reserved for upstream requests and is never persisted as a
+// discount target.
 export function getBestDiscount(
 	discounts: DiscountData[],
 	modelId: string,
-	modelNames: string[] = [],
 ): DiscountData | null {
 	const valid = discounts.filter((d) => isValidDiscount(d.discountPercent));
-	const modelMatches = makeModelMatcher(modelId, modelNames);
 	// Precedence: model-specific > fully global
-	const modelSpecific = valid.find((d) => modelMatches(d.model));
+	const modelSpecific = valid.find((d) => d.model === modelId);
 	if (modelSpecific) {
 		return modelSpecific;
 	}
@@ -54,13 +47,11 @@ export function getEffectiveProviderDiscount(
 	discounts: DiscountData[],
 	providerId: string,
 	modelId: string,
-	modelNames: string[] = [],
 ): string | undefined {
 	const valid = discounts.filter((d) => isValidDiscount(d.discountPercent));
-	const modelMatches = makeModelMatcher(modelId, modelNames);
 	// Precedence: provider+model > provider > model > fully global
 	const providerModel = valid.find(
-		(d) => d.provider === providerId && modelMatches(d.model),
+		(d) => d.provider === providerId && d.model === modelId,
 	);
 	if (providerModel) {
 		return providerModel.discountPercent;
@@ -74,7 +65,7 @@ export function getEffectiveProviderDiscount(
 	}
 
 	const modelOnly = valid.find(
-		(d) => d.provider === null && modelMatches(d.model),
+		(d) => d.provider === null && d.model === modelId,
 	);
 	if (modelOnly) {
 		return modelOnly.discountPercent;

@@ -72,7 +72,6 @@ export function RateLimitForm({
 			string,
 			{
 				modelId: string;
-				modelName: string;
 				rootModelName: string;
 				family: string;
 			}
@@ -81,7 +80,6 @@ export function RateLimitForm({
 			if (!uniqueModels.has(mapping.modelId)) {
 				uniqueModels.set(mapping.modelId, {
 					modelId: mapping.modelId,
-					modelName: mapping.modelName,
 					rootModelName: mapping.rootModelName,
 					family: mapping.family,
 				});

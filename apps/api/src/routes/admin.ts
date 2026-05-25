@@ -3460,7 +3460,6 @@ const getAvailableRateLimitOptions = createRoute({
 									providerId: z.string(),
 									providerName: z.string(),
 									modelId: z.string(),
-									modelName: z.string(),
 									rootModelId: z.string(),
 									rootModelName: z.string(),
 									family: z.string(),
@@ -3477,12 +3476,13 @@ const getAvailableRateLimitOptions = createRoute({
 });
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
-	// Build mappings from all models and their providers
+	// Rate limits are always keyed by the root model id — the provider-specific
+	// modelName is reserved for upstream requests and must never be exposed in
+	// the rate-limit selector or stored as a rate-limit target.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
 		modelId: string;
-		modelName: string;
 		rootModelId: string;
 		rootModelName: string;
 		family: string;
@@ -3496,7 +3496,6 @@ admin.openapi(getAvailableRateLimitOptions, async (c) => {
 					providerId: mapping.providerId,
 					providerName: provider.name,
 					modelId: model.id,
-					modelName: mapping.modelName,
 					rootModelId: model.id,
 					rootModelName: (model as { name?: string }).name ?? model.id,
 					family: model.family,

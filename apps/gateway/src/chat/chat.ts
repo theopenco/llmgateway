@@ -2279,7 +2279,6 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedProvider,
 			baseModelId,
-			usedModel,
 		);
 
 		if (rateLimitPeek.rateLimited) {
@@ -3342,7 +3341,6 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedProvider,
 			modelInfo.id,
-			usedModel,
 		);
 
 		const providerRateLimitEntries = Object.entries(
@@ -4819,7 +4817,6 @@ chat.openapi(completions, async (c) => {
 							project.organizationId,
 							nextProvider.providerId,
 							modelInfo.id,
-							nextProvider.modelName,
 						);
 						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
@@ -8477,7 +8474,6 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				nextProvider.providerId,
 				modelInfo.id,
-				nextProvider.modelName,
 			);
 			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(
