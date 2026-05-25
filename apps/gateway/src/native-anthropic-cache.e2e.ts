@@ -667,4 +667,79 @@ describe("e2e native /v1/messages cache", getConcurrentTestOptions(), () => {
 			}
 		},
 	);
+
+	// Streaming /v1/messages must surface non-zero usage tokens in the final
+	// message_delta event. The upstream /v1/chat/completions endpoint emits
+	// `finish_reason` and the `usage` payload in *separate* chunks (the usage
+	// chunk has finish_reason: null). Before the fix, the Anthropic translator
+	// only read usage when it saw finish_reason, so message_delta carried
+	// zeros for input_tokens/output_tokens. Run for each provider since the
+	// chunk ordering depends on the upstream.
+	const streamingUsageBody = (model: string) => ({
+		model,
+		max_tokens: 50,
+		stream: true,
+		messages: [{ role: "user" as const, content: "What is 2+2?" }],
+	});
+
+	const assertStreamingUsage = async (model: string, label: string) => {
+		const requestId = generateTestRequestId();
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-request-id": requestId,
+				"anthropic-version": "2023-06-01",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify(streamingUsageBody(model)),
+		});
+		expect(res.status).toBe(200);
+
+		const chunks = await readSseChunks(res.body);
+		const messageDelta = chunks.find((c) => c?.type === "message_delta");
+		const messageStop = chunks.find((c) => c?.type === "message_stop");
+		const messageDeltaCount = chunks.filter(
+			(c) => c?.type === "message_delta",
+		).length;
+
+		if (logMode) {
+			console.log(
+				label,
+				requestId,
+				"message_delta usage",
+				JSON.stringify(messageDelta?.usage),
+				"count",
+				messageDeltaCount,
+			);
+		}
+
+		expect(messageDelta, "missing message_delta event").toBeDefined();
+		expect(messageStop, "missing message_stop event").toBeDefined();
+		expect(messageDeltaCount).toBe(1);
+		expect(messageDelta.usage.input_tokens).toBeGreaterThan(0);
+		expect(messageDelta.usage.output_tokens).toBeGreaterThan(0);
+	};
+
+	(hasAnthropicKey ? test : test.skip)(
+		"streaming /v1/messages surfaces non-zero usage tokens for anthropic",
+		getTestOptions(),
+		async () => {
+			await assertStreamingUsage(
+				"anthropic/claude-haiku-4-5",
+				"streaming /v1/messages anthropic usage",
+			);
+		},
+	);
+
+	(hasBedrockKey ? test : test.skip)(
+		"streaming /v1/messages surfaces non-zero usage tokens for bedrock",
+		getTestOptions(),
+		async () => {
+			await assertStreamingUsage(
+				"aws-bedrock/claude-haiku-4-5",
+				"streaming /v1/messages bedrock usage",
+			);
+		},
+	);
 });

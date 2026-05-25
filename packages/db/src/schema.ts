@@ -18,6 +18,7 @@ import { customAlphabet } from "nanoid";
 
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
 export const UnifiedFinishReason = {
@@ -1055,6 +1056,10 @@ export const chat = pgTable(
 		}).default("active"),
 		webSearch: boolean().default(false),
 		pinned: boolean().notNull().default(false),
+		comparisonEnabled: boolean().notNull().default(false),
+		parentChatId: text().references((): AnyPgColumn => chat.id, {
+			onDelete: "cascade",
+		}),
 	},
 	(table) => [index("chat_user_id_idx").on(table.userId)],
 );
@@ -2394,4 +2399,61 @@ export const skill = pgTable(
 		enabled: boolean().notNull().default(true),
 	},
 	(table) => [index("skill_user_id_idx").on(table.userId)],
+);
+
+export const playgroundImageHistory = pgTable(
+	"playground_image_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		prompt: text().notNull(),
+		inputImages: jsonb().$type<{ dataUrl: string; mediaType: string }[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				images: { base64: string; mediaType: string }[];
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [index("playground_image_history_user_id_idx").on(table.userId)],
+);
+
+export const playgroundVideoHistory = pgTable(
+	"playground_video_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		prompt: text().notNull(),
+		frameInputs: jsonb().$type<{
+			start: { dataUrl: string; mediaType: string } | null;
+			end: { dataUrl: string; mediaType: string } | null;
+		}>(),
+		referenceImages: jsonb().$type<{ dataUrl: string; mediaType: string }[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				jobId: string | null;
+				videoUrl: string | null;
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [index("playground_video_history_user_id_idx").on(table.userId)],
 );

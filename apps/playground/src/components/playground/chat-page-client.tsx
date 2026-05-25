@@ -30,6 +30,7 @@ import {
 import { useMcpServers } from "@/hooks/useMcpServers";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
+import { useFetchClient } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
@@ -283,7 +284,7 @@ export default function ChatPageClient({
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
 		if (modelFromUrl) {
-			return modelFromUrl;
+			return modelFromUrl.split(",")[0] ?? "auto";
 		}
 		const stored =
 			getModelPreferenceCookie(CHAT_MODEL_COOKIE) ?? initialModelPreference;
@@ -359,7 +360,7 @@ export default function ChatPageClient({
 	}, [skillIdFromUrl, skillsData]);
 
 	// Get chat ID from URL search params
-	const chatIdFromUrl = searchParams.get("chat");
+	const chatIdFromUrl = searchParams.get("id");
 	const [currentChatId, setCurrentChatId] = useState<string | null>(
 		chatIdFromUrl,
 	);
@@ -368,6 +369,10 @@ export default function ChatPageClient({
 	// originating chat even if the user navigates to another chat mid-stream.
 	const streamingChatIdRef = useRef<string | null>(null);
 	const isNewChatRef = useRef(false);
+	// Set to true only when code explicitly clears away from a chat (New Chat,
+	// delete, 404 recovery). Lets the model-sync effect distinguish "we just
+	// cleared a chat" from "we are navigating to a chat from blank state".
+	const clearingChatRef = useRef(false);
 	const errorOccurredRef = useRef(false);
 	const isSendingRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
@@ -399,6 +404,7 @@ export default function ChatPageClient({
 						});
 						// Reset state
 						setCurrentChatId(null);
+						clearingChatRef.current = true;
 						chatIdRef.current = null;
 						setMessages([]);
 						isNewChatRef.current = false;
@@ -505,7 +511,48 @@ export default function ChatPageClient({
 
 				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
 				const toolParts = message.parts.filter(isToolPart);
-				const metadata = parsePlaygroundMessageMetadata(message.metadata);
+				let metadata = parsePlaygroundMessageMetadata(message.metadata);
+
+				// Enrich metadata with log data (discount, logId, etc.) before saving.
+				// Race against a 2s timeout so a slow /logs response never blocks persistence.
+				if (metadata?.requestId) {
+					try {
+						const timeout = new Promise<undefined>((r) =>
+							setTimeout(() => r(undefined), 2000),
+						);
+						const fetchLog = (async () => {
+							for (let attempt = 0; attempt < 3; attempt++) {
+								if (attempt > 0) {
+									await new Promise<void>((r) => setTimeout(r, 500));
+								}
+								const logResponse = await fetchClient.GET("/logs", {
+									params: {
+										query: { requestId: metadata.requestId, limit: "1" },
+									},
+								});
+								const found = logResponse.data?.logs?.[0];
+								if (found) {
+									return found;
+								}
+							}
+							return undefined;
+						})();
+						const log = await Promise.race([fetchLog, timeout]);
+						if (log) {
+							metadata = {
+								...metadata,
+								...(log.discount !== null && log.discount !== undefined
+									? { discount: log.discount }
+									: {}),
+								logId: log.id,
+								organizationId: log.organizationId,
+								projectId: log.projectId,
+							};
+						}
+					} catch {
+						// silently ignore — message is saved without enrichment
+					}
+				}
 
 				const bodyToSave = {
 					role: "assistant" as const,
@@ -527,6 +574,7 @@ export default function ChatPageClient({
 						error?.status === 404 &&
 						error?.message?.includes("Chat not found")
 					) {
+						clearingChatRef.current = true;
 						chatIdRef.current = null;
 						setCurrentChatId(null);
 						setMessages([]);
@@ -788,8 +836,25 @@ export default function ChatPageClient({
 	);
 
 	// Additional comparison chat windows (primary + up to two comparison panels)
-	const [comparisonEnabled, setComparisonEnabled] = useState(false);
-	const [extraPanelIds, setExtraPanelIds] = useState<number[]>([]);
+	const [comparisonEnabled, setComparisonEnabled] = useState(
+		() => searchParams.get("compare") === "1",
+	);
+	const [extraPanelModels, setExtraPanelModels] = useState<string[]>(() => {
+		const modelParam = searchParams.get("model");
+		if (modelParam && searchParams.get("compare") === "1") {
+			return modelParam.split(",").slice(1).filter(Boolean);
+		}
+		return [];
+	});
+	const [extraPanelIds, setExtraPanelIds] = useState<number[]>(() => {
+		const modelParam = searchParams.get("model");
+		if (modelParam && searchParams.get("compare") === "1") {
+			const extras = modelParam.split(",").slice(1).filter(Boolean);
+			return extras.map((_, i) => i + 1);
+		}
+		return [];
+	});
+	const [comparisonChatIds, setComparisonChatIds] = useState<string[]>([]);
 	const [syncInput, setSyncInput] = useState(true);
 	const [syncedText, setSyncedText] = useState(initialPrompt ?? "");
 	const extraSubmitRefs = useRef<
@@ -802,8 +867,10 @@ export default function ChatPageClient({
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
+	const fetchClient = useFetchClient();
 	const updateMessage = useUpdateMessage();
 	const deleteChat = useDeleteChat();
+	const deleteComparisonChat = useDeleteChat({ silent: true });
 	const forkChat = useForkChat();
 	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
 		currentChatId ?? "",
@@ -850,6 +917,23 @@ export default function ChatPageClient({
 
 		if (currentChatData.chat?.webSearch !== undefined) {
 			setWebSearchEnabled(currentChatData.chat.webSearch);
+		}
+
+		if (currentChatData.chat?.comparisonEnabled !== undefined) {
+			setComparisonEnabled(currentChatData.chat.comparisonEnabled);
+		}
+
+		const childIds = (currentChatData as any).comparisonChatIds as
+			| string[]
+			| undefined;
+		if (childIds && childIds.length > 0) {
+			setComparisonChatIds(childIds);
+			setExtraPanelIds(childIds.map((_, i) => i + 1));
+			setExtraPanelModels([]);
+		} else {
+			setComparisonChatIds([]);
+			setExtraPanelIds([]);
+			setExtraPanelModels([]);
 		}
 
 		const filteredMessages = currentChatData.messages.filter(
@@ -953,6 +1037,7 @@ export default function ChatPageClient({
 					role: msg.role,
 					content: msg.content ?? "",
 					metadata: parsePlaygroundMessageMetadata(msg.metadata),
+					createdAt: new Date(msg.createdAt),
 					parts,
 				};
 			}),
@@ -987,9 +1072,6 @@ export default function ChatPageClient({
 		}
 
 		const ensureKey = async () => {
-			if (!selectedOrganization) {
-				return;
-			}
 			const projectId = selectedProject.id;
 			// Skip if we've already ensured the key for this project
 			if (ensuredProjectRef.current === projectId) {
@@ -1026,6 +1108,7 @@ export default function ChatPageClient({
 					title,
 					model: selectedModel,
 					webSearch: webSearchEnabled,
+					comparisonEnabled,
 				},
 			});
 			const newChatId = chatData.chat.id;
@@ -1041,7 +1124,7 @@ export default function ChatPageClient({
 
 			// Update URL with new chat ID (without triggering navigation)
 			const params = new URLSearchParams(searchParams.toString());
-			params.set("chat", newChatId);
+			params.set("id", newChatId);
 			router.replace(`${pathname}?${params.toString()}`);
 
 			return newChatId;
@@ -1133,6 +1216,7 @@ export default function ChatPageClient({
 		} catch (error: any) {
 			// If chat not found, it means the chat was deleted or is stale
 			if (error?.status === 404 && error?.message?.includes("Chat not found")) {
+				clearingChatRef.current = true;
 				chatIdRef.current = null;
 				setCurrentChatId(null);
 				setMessages([]);
@@ -1185,6 +1269,7 @@ export default function ChatPageClient({
 						params: { path: { id: chatIdRef.current } },
 					});
 					setCurrentChatId(null);
+					clearingChatRef.current = true;
 					chatIdRef.current = null;
 					setMessages([]);
 					isNewChatRef.current = false;
@@ -1200,22 +1285,37 @@ export default function ChatPageClient({
 
 		// When sync is enabled and comparison windows are open, mirror the
 		// submitted prompt into each extra window as a separate user message.
+		// Fire without awaiting so the primary panel can start streaming in
+		// parallel rather than waiting for all extra panels to finish first.
 		if (syncInput) {
 			const submitFns = Object.values(extraSubmitRefs.current);
-			const results = await Promise.allSettled(
-				submitFns.map((submit) => submit(content)),
+			void Promise.allSettled(submitFns.map((submit) => submit(content))).then(
+				(results) => {
+					for (const result of results) {
+						if (result.status === "rejected") {
+							// Don't surface comparison errors as hard failures;
+							// capture as telemetry instead of logging to console.
+							posthog.capture("playground_mirror_prompt_failure", {
+								reason: String(result.reason),
+							});
+						}
+					}
+				},
 			);
-			for (const result of results) {
-				if (result.status === "rejected") {
-					// Don't surface comparison errors as hard failures;
-					// capture as telemetry instead of logging to console.
-					posthog.capture("playground_mirror_prompt_failure", {
-						reason: String(result.reason),
-					});
-				}
-			}
 		}
 		return savedUserMessage;
+	};
+
+	const handleSyncedSubmitFromExtraPanel = async (content: string) => {
+		const savedMessage = await handleUserMessage(content);
+		if (!savedMessage) {
+			return;
+		}
+		const parts: any[] = [{ type: "text", text: content }];
+		void sendMessageWithHeaders(
+			{ id: savedMessage.id, role: "user", parts },
+			{ body: { model: selectedModel } },
+		);
 	};
 
 	const handleEditUserMessage = async (message: UIMessage, content: string) => {
@@ -1281,11 +1381,12 @@ export default function ChatPageClient({
 		setFinishReason(null);
 		shouldClearMessagesRef.current = true;
 		setCurrentChatId(null);
+		clearingChatRef.current = true;
 		chatIdRef.current = null;
 		setMessages([]);
-		// Remove chat param from URL
+		// Remove id param from URL
 		const params = new URLSearchParams(searchParams.toString());
-		params.delete("chat");
+		params.delete("id");
 		params.delete("view");
 		params.delete("shareOrgId");
 		params.delete("shareId");
@@ -1306,6 +1407,7 @@ export default function ChatPageClient({
 		}
 		setComparisonEnabled(false);
 		setExtraPanelIds([]);
+		setExtraPanelModels([]);
 		setComparisonResetToken((token) => token + 1);
 		extraSubmitRefs.current = {};
 		clearMessages();
@@ -1319,21 +1421,32 @@ export default function ChatPageClient({
 		setFinishReason(null);
 		try {
 			shouldClearMessagesRef.current = true;
+			clearingChatRef.current = true;
+			chatIdRef.current = null;
 			setMessages([]);
-			// Remove chat param from URL
+			// Remove id and comparison params from URL
 			const params = new URLSearchParams(searchParams.toString());
-			params.delete("chat");
+			params.delete("id");
 			params.delete("view");
 			params.delete("shareOrgId");
 			params.delete("shareId");
+			params.delete("compare");
+			// Reset model param to primary model only
+			if (selectedModel) {
+				params.set("model", selectedModel);
+			}
 			const targetPathname = pathname;
 			const newUrl = params.toString()
 				? `${targetPathname}?${params.toString()}`
 				: targetPathname;
 			router.push(newUrl);
 			// Clear comparison windows as well
+			setComparisonEnabled(false);
+			setExtraPanelIds([]);
+			setExtraPanelModels([]);
 			setComparisonResetToken((token) => token + 1);
 			extraSubmitRefs.current = {};
+			setComparisonChatIds([]);
 		} catch {
 			setError("Failed to create new chat. Please try again.");
 		} finally {
@@ -1348,7 +1461,7 @@ export default function ChatPageClient({
 		shouldClearMessagesRef.current = true; // Request message clear on URL change
 		// Update URL with chat ID - this will trigger the useEffect to update state
 		const params = new URLSearchParams(searchParams.toString());
-		params.set("chat", chatId);
+		params.set("id", chatId);
 		params.delete("view");
 		params.delete("shareOrgId");
 		params.delete("shareId");
@@ -1391,7 +1504,7 @@ export default function ChatPageClient({
 			chatIdRef.current = newChatId;
 
 			const params = new URLSearchParams(searchParams.toString());
-			params.set("chat", newChatId);
+			params.set("id", newChatId);
 			params.delete("view");
 			params.delete("shareOrgId");
 			params.delete("shareId");
@@ -1422,16 +1535,68 @@ export default function ChatPageClient({
 				setModelPreferenceCookie(CHAT_MODEL_COOKIE, model);
 			}
 			const currentParams = new URLSearchParams(window.location.search);
+			const allModels =
+				comparisonEnabled && extraPanelModels.length > 0
+					? [model, ...extraPanelModels]
+					: [model];
 			if (model) {
-				currentParams.set("model", model);
+				currentParams.set("model", allModels.join(","));
 			} else {
 				currentParams.delete("model");
 			}
 			const qs = currentParams.toString();
 			router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
 		},
-		[pathname, router],
+		[pathname, router, comparisonEnabled, extraPanelModels],
 	);
+
+	const handleExtraPanelModelChange = useCallback(
+		(index: number, model: string) => {
+			setExtraPanelModels((prev) => {
+				const next = [...prev];
+				next[index] = model;
+				return next;
+			});
+		},
+		[],
+	);
+
+	// Keep URL model param in sync with all comparison models
+	useEffect(() => {
+		const currentParams = new URLSearchParams(window.location.search);
+		// clearingChatRef is set alongside chatIdRef.current = null only when code
+		// explicitly clears away from a chat. Guard here so we don't strip a newly
+		// selected chat's id when navigating from blank state (chatIdRef also null).
+		if (!chatIdRef.current && clearingChatRef.current) {
+			currentParams.delete("id");
+			clearingChatRef.current = false;
+		}
+		if (comparisonEnabled && extraPanelIds.length > 0) {
+			const allModels = [selectedModel, ...extraPanelModels];
+			currentParams.set("model", allModels.join(","));
+			currentParams.set("compare", "1");
+		} else {
+			if (selectedModel) {
+				currentParams.set("model", selectedModel);
+			} else {
+				currentParams.delete("model");
+			}
+			currentParams.delete("compare");
+		}
+		const qs = currentParams.toString();
+		const nextUrl = `${pathname}${qs ? `?${qs}` : ""}`;
+		const currentUrl = `${window.location.pathname}${window.location.search}`;
+		if (nextUrl !== currentUrl) {
+			router.replace(nextUrl, { scroll: false });
+		}
+	}, [
+		comparisonEnabled,
+		extraPanelIds.length,
+		selectedModel,
+		extraPanelModels,
+		pathname,
+		router,
+	]);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;
@@ -1517,7 +1682,6 @@ export default function ChatPageClient({
 						onNewChat={handleNewChat}
 						onChatSelect={handleChatSelect}
 						currentChatId={currentChatId ?? undefined}
-						clearMessages={clearMessages}
 						isLoading={isLoading}
 						organizations={organizations}
 						selectedOrganization={selectedOrganization}
@@ -1537,10 +1701,12 @@ export default function ChatPageClient({
 							selectedModel={selectedModel}
 							setSelectedModel={handleSelectModel}
 							comparisonEnabled={comparisonEnabled}
+							hideCompare={messages.length > 0}
 							onComparisonEnabledChange={(enabled) => {
 								setComparisonEnabled(enabled);
 								if (!enabled) {
 									setExtraPanelIds([]);
+									setExtraPanelModels([]);
 									setComparisonResetToken((token) => token + 1);
 									extraSubmitRefs.current = {};
 								}
@@ -1602,7 +1768,9 @@ export default function ChatPageClient({
 									<Button
 										size="sm"
 										variant="ghost"
-										onClick={() =>
+										onClick={() => {
+											const removedChatId =
+												comparisonChatIds[comparisonChatIds.length - 1];
 											setExtraPanelIds((prev) => {
 												if (prev.length === 0) {
 													return prev;
@@ -1613,8 +1781,15 @@ export default function ChatPageClient({
 													extraSubmitRefs.current;
 												extraSubmitRefs.current = rest;
 												return next;
-											})
-										}
+											});
+											setComparisonChatIds((prev) => prev.slice(0, -1));
+											setExtraPanelModels((prev) => prev.slice(0, -1));
+											if (removedChatId) {
+												deleteComparisonChat.mutate({
+													params: { path: { id: removedChatId } },
+												});
+											}
+										}}
 									>
 										Remove window
 									</Button>
@@ -1687,7 +1862,6 @@ export default function ChatPageClient({
 											imageCount={imageCount}
 											setImageCount={setImageCount}
 											onUserMessage={handleUserMessage}
-											onEditUserMessage={handleEditUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
 											finishReason={finishReason}
@@ -1710,6 +1884,8 @@ export default function ChatPageClient({
 													prev.filter((s) => s.id !== id),
 												)
 											}
+											organizationId={selectedProject?.organizationId}
+											projectId={selectedProject?.id}
 										/>
 									</div>
 								</div>
@@ -1764,13 +1940,15 @@ export default function ChatPageClient({
 										onRemoveSkill={(id) =>
 											setActiveSkills((prev) => prev.filter((s) => s.id !== id))
 										}
+										organizationId={selectedProject?.organizationId}
+										projectId={selectedProject?.id}
 									/>
 								</div>
 							)}
 							{comparisonEnabled
 								? extraPanelIds.map((panelId, index) => (
 										<div
-											key={panelId}
+											key={comparisonChatIds[index] ?? panelId}
 											className="hidden md:flex flex-col h-full min-h-0"
 										>
 											<ExtraChatPanel
@@ -1778,14 +1956,30 @@ export default function ChatPageClient({
 												models={models}
 												providers={providers}
 												availableModels={availableModels}
-												initialModel={selectedModel}
+												initialModel={extraPanelModels[index] ?? selectedModel}
 												syncInput={syncInput}
 												syncedText={syncedText}
 												setSyncedText={setSyncedText}
 												onRegisterExternalSubmit={(fn) => {
 													extraSubmitRefs.current[panelId] = fn;
 												}}
+												onSyncedSubmitFromPanel={
+													handleSyncedSubmitFromExtraPanel
+												}
+												syncedActiveSkills={
+													syncInput ? activeSkills : undefined
+												}
+												setSyncedActiveSkills={
+													syncInput ? setActiveSkills : undefined
+												}
+												onModelChange={(model) =>
+													handleExtraPanelModelChange(index, model)
+												}
 												resetToken={comparisonResetToken}
+												primaryChatId={currentChatId}
+												primaryChatIdRef={chatIdRef}
+												initialChatId={comparisonChatIds[index] ?? null}
+												isParentLoading={isChatLoading}
 											/>
 										</div>
 									))
@@ -1811,7 +2005,15 @@ interface ExtraChatPanelProps {
 	onRegisterExternalSubmit: (
 		submit: (content: string) => Promise<void> | void,
 	) => void;
+	onModelChange?: (model: string) => void;
 	resetToken: number;
+	primaryChatId: string | null;
+	primaryChatIdRef: React.RefObject<string | null>;
+	initialChatId?: string | null;
+	isParentLoading?: boolean;
+	onSyncedSubmitFromPanel?: (content: string) => Promise<void>;
+	syncedActiveSkills?: Skill[];
+	setSyncedActiveSkills?: (skills: Skill[]) => void;
 }
 
 function ExtraChatPanel({
@@ -1824,9 +2026,29 @@ function ExtraChatPanel({
 	syncedText,
 	setSyncedText,
 	onRegisterExternalSubmit,
+	onModelChange,
 	resetToken,
+	primaryChatId,
+	primaryChatIdRef,
+	initialChatId = null,
+	isParentLoading = false,
+	onSyncedSubmitFromPanel,
+	syncedActiveSkills,
+	setSyncedActiveSkills,
 }: ExtraChatPanelProps) {
 	const [selectedModel, setSelectedModel] = useState(initialModel);
+	const handleModelChange = useCallback(
+		(model: string) => {
+			setSelectedModel(model);
+			onModelChange?.(model);
+		},
+		[onModelChange],
+	);
+	const [comparisonChatId, setComparisonChatId] = useState<string | null>(
+		initialChatId,
+	);
+	const comparisonChatIdRef = useRef<string | null>(initialChatId);
+	const loadedComparisonChatIdRef = useRef<string | null>(null);
 	const [reasoningEffort, setReasoningEffort] = useState<
 		"" | "minimal" | "low" | "medium" | "high"
 	>("");
@@ -1858,14 +2080,117 @@ function ExtraChatPanel({
 	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+	const [activeSkills, setActiveSkills] = useState<Skill[]>([]);
 	const [text, setText] = useState("");
 
-	const { messages, sendMessage, status, stop, regenerate } = useChat({
-		onError: async (e) => {
-			const msg = getErrorMessage(e);
-			toast.error(msg);
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	const createChat = useCreateChat({ silent: true });
+	const addMessage = useAddMessage();
+	const forkChatMutation = useForkChat();
+	const { data: comparisonChatData } = useDataChat(comparisonChatId ?? "");
+
+	const ensureComparisonChat = useCallback(
+		async (content: string): Promise<string> => {
+			if (comparisonChatIdRef.current) {
+				return comparisonChatIdRef.current;
+			}
+			const parentId = primaryChatIdRef.current ?? primaryChatId;
+			if (!parentId) {
+				throw new Error(
+					"Cannot create comparison chat before the primary chat exists",
+				);
+			}
+			const title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
+			const data = await createChat.mutateAsync({
+				body: {
+					title,
+					model: selectedModel,
+					parentChatId: parentId,
+				},
+			});
+			const id = data.chat.id;
+			setComparisonChatId(id);
+			comparisonChatIdRef.current = id;
+			return id;
 		},
-	});
+		[createChat, selectedModel, primaryChatId],
+	);
+
+	const { messages, setMessages, sendMessage, status, stop, regenerate } =
+		useChat({
+			onError: async (e) => {
+				const msg = getErrorMessage(e);
+				toast.error(msg);
+			},
+			onFinish: async ({ message }) => {
+				const chatId = comparisonChatIdRef.current;
+				if (!chatId) {
+					return;
+				}
+
+				const textContent = message.parts
+					.filter((p) => p.type === "text")
+					.map((p) => p.text)
+					.join("");
+
+				const reasoningContent = message.parts
+					.filter((p) => p.type === "reasoning")
+					.map((p) => p.text)
+					.join("");
+
+				const toolParts = message.parts.filter(isToolPart);
+				const metadata = parsePlaygroundMessageMetadata(message.metadata);
+
+				const bodyToSave = {
+					role: "assistant" as const,
+					content: textContent || undefined,
+					reasoning: reasoningContent || undefined,
+					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					...(metadata ? { metadata } : {}),
+				};
+
+				try {
+					await addMessage.mutateAsync({
+						params: { path: { id: chatId } },
+						body: bodyToSave,
+					});
+				} catch (error) {
+					toast.error(
+						`Failed to save comparison response: ${getErrorMessage(error)}`,
+					);
+				}
+			},
+		});
+
+	const handleForkComparisonChat = useCallback(async () => {
+		if (
+			forkChatMutation.isPending ||
+			!comparisonChatId ||
+			status === "submitted" ||
+			status === "streaming"
+		) {
+			return;
+		}
+		try {
+			const data = await forkChatMutation.mutateAsync({
+				params: { path: { id: comparisonChatId } },
+			});
+			const params = new URLSearchParams(searchParams.toString());
+			params.set("id", data.chat.id);
+			params.delete("compare");
+			router.push(`${pathname}?${params.toString()}`);
+			toast.success("Chat forked");
+		} catch {}
+	}, [
+		forkChatMutation,
+		comparisonChatId,
+		status,
+		router,
+		pathname,
+		searchParams,
+	]);
 
 	const supportsImages = useMemo(() => {
 		if (!selectedModel) {
@@ -1970,6 +2295,9 @@ function ExtraChatPanel({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
+	const effectiveSkills =
+		syncInput && syncedActiveSkills ? syncedActiveSkills : activeSkills;
+
 	const buildRequestOptions = useCallback(
 		(hasImageAttachments: boolean, options?: any) => {
 			// Only use image gen when the model supports it AND user didn't attach images for vision
@@ -2032,6 +2360,14 @@ function ExtraChatPanel({
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
+					...(effectiveSkills.length > 0
+						? {
+								skill_instructions: effectiveSkills
+									.filter((s) => s.enabled)
+									.map((s) => s.instructions)
+									.join("\n\n"),
+							}
+						: {}),
 				},
 			};
 		},
@@ -2047,6 +2383,7 @@ function ExtraChatPanel({
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
+			effectiveSkills,
 		],
 	);
 
@@ -2086,15 +2423,104 @@ function ExtraChatPanel({
 		setText(value);
 	};
 
-	// When the primary chat is reset (New Chat), clear this panel's messages
-	// and local input as well.
+	const handlePanelUserMessage = useCallback(
+		async (content: string): Promise<{ id: string } | undefined> => {
+			if (syncInput && onSyncedSubmitFromPanel) {
+				await onSyncedSubmitFromPanel(content);
+				return undefined;
+			}
+			const trimmed = content.trim();
+			if (!trimmed) {
+				return undefined;
+			}
+			try {
+				const chatId = await ensureComparisonChat(trimmed);
+				const savedMessage = await addMessage.mutateAsync({
+					params: { path: { id: chatId } },
+					body: { role: "user", content: trimmed },
+				});
+				return savedMessage.message;
+			} catch {
+				return undefined;
+			}
+		},
+		[syncInput, onSyncedSubmitFromPanel, ensureComparisonChat, addMessage],
+	);
+
+	// When the primary chat is reset (New Chat), clear this panel's messages,
+	// input, and chatId so it starts fresh.
 	useEffect(() => {
 		if (!resetToken) {
 			return;
 		}
 		setText("");
 		setSyncedText("");
-	}, [resetToken, setSyncedText]);
+		setMessages([]);
+		setComparisonChatId(null);
+		comparisonChatIdRef.current = null;
+		loadedComparisonChatIdRef.current = null;
+	}, [resetToken, setSyncedText, setMessages]);
+
+	// Load historical messages when restoring a comparison panel from history.
+	// Skip for fresh chats (no initialChatId) — those get messages from streaming
+	// and calling setMessages here would overwrite streamed messages that carry metadata.
+	useEffect(() => {
+		if (
+			!initialChatId ||
+			!comparisonChatData?.messages ||
+			!comparisonChatId ||
+			loadedComparisonChatIdRef.current === comparisonChatId
+		) {
+			return;
+		}
+		loadedComparisonChatIdRef.current = comparisonChatId;
+
+		if (comparisonChatData.chat.model) {
+			setSelectedModel(comparisonChatData.chat.model);
+			onModelChange?.(comparisonChatData.chat.model);
+		}
+
+		const filteredMessages = comparisonChatData.messages.filter(
+			(msg, index, arr) =>
+				msg.role !== "assistant" || arr[index + 1]?.role !== "assistant",
+		);
+		setMessages(
+			filteredMessages.map((msg) => {
+				const parts: any[] = [];
+				if (msg.content) {
+					parts.push({ type: "text", text: msg.content });
+				}
+				if ((msg as any).reasoning) {
+					parts.push({ type: "reasoning", text: (msg as any).reasoning });
+				}
+				if ((msg as any).tools) {
+					try {
+						const parsedTools = JSON.parse((msg as any).tools);
+						if (Array.isArray(parsedTools)) {
+							parts.push(...parsedTools.map((t: any) => ({ ...t })));
+						}
+					} catch {
+						// ignore malformed tools
+					}
+				}
+				const metadata = parsePlaygroundMessageMetadata((msg as any).metadata);
+				return {
+					id: msg.id,
+					role: msg.role,
+					content: msg.content ?? "",
+					parts,
+					...(metadata ? { metadata } : {}),
+				};
+			}),
+		);
+	}, [
+		initialChatId,
+		comparisonChatId,
+		comparisonChatData,
+		setMessages,
+		setSelectedModel,
+		onModelChange,
+	]);
 
 	// Allow the parent to trigger a user message in this panel when
 	// syncInput is enabled and the primary window is submitted.
@@ -2109,11 +2535,18 @@ function ExtraChatPanel({
 				return;
 			}
 
+			const chatId = await ensureComparisonChat(trimmed);
+
+			const savedMessage = await addMessage.mutateAsync({
+				params: { path: { id: chatId } },
+				body: { role: "user", content: trimmed },
+			});
+
 			const parts: any[] = [{ type: "text", text: trimmed }];
 
 			await sendMessageWithHeaders(
 				{
-					id: crypto.randomUUID(),
+					id: savedMessage.message.id,
 					role: "user",
 					parts,
 				},
@@ -2126,7 +2559,13 @@ function ExtraChatPanel({
 		};
 
 		onRegisterExternalSubmit(submitFromPrimary);
-	}, [onRegisterExternalSubmit, sendMessageWithHeaders, selectedModel]);
+	}, [
+		onRegisterExternalSubmit,
+		sendMessageWithHeaders,
+		selectedModel,
+		ensureComparisonChat,
+		addMessage,
+	]);
 
 	return (
 		<div className="flex flex-col h-full min-h-0 rounded-lg border bg-background">
@@ -2139,7 +2578,7 @@ function ExtraChatPanel({
 						models={models}
 						providers={providers}
 						value={selectedModel}
-						onValueChange={setSelectedModel}
+						onValueChange={handleModelChange}
 						placeholder="Select a model..."
 					/>
 				</div>
@@ -2174,8 +2613,38 @@ function ExtraChatPanel({
 					supportsWebSearch={supportsWebSearch}
 					webSearchEnabled={webSearchEnabled}
 					setWebSearchEnabled={setWebSearchEnabled}
-					isLoading={false}
+					onUserMessage={handlePanelUserMessage}
+					forkChat={
+						comparisonChatId && status === "ready"
+							? handleForkComparisonChat
+							: undefined
+					}
+					isForkingChat={forkChatMutation.isPending}
+					isLoading={isParentLoading && messages.length === 0}
 					error={null}
+					activeSkills={
+						syncInput && syncedActiveSkills ? syncedActiveSkills : activeSkills
+					}
+					onSelectSkill={(skill) => {
+						if (syncInput && setSyncedActiveSkills && syncedActiveSkills) {
+							if (!syncedActiveSkills.some((s) => s.id === skill.id)) {
+								setSyncedActiveSkills([...syncedActiveSkills, skill]);
+							}
+						} else {
+							setActiveSkills((prev) =>
+								prev.some((s) => s.id === skill.id) ? prev : [...prev, skill],
+							);
+						}
+					}}
+					onRemoveSkill={(id) => {
+						if (syncInput && setSyncedActiveSkills && syncedActiveSkills) {
+							setSyncedActiveSkills(
+								syncedActiveSkills.filter((s) => s.id !== id),
+							);
+						} else {
+							setActiveSkills((prev) => prev.filter((s) => s.id !== id));
+						}
+					}}
 				/>
 			</div>
 		</div>

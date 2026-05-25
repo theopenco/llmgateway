@@ -203,7 +203,7 @@ export function validateModelCapabilities(
 		);
 
 		if (!reasoningMaxTokens) {
-			logger.error(
+			logger.warn(
 				`reasoning.max_tokens specified for model that doesn't support it: ${requestedModel}`,
 				{
 					requestedModel,

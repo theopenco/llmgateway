@@ -1,5 +1,10 @@
 export interface PlaygroundMessageMetadata extends Record<string, unknown> {
 	usedModel?: string;
+	requestId?: string;
+	discount?: number;
+	logId?: string;
+	organizationId?: string;
+	projectId?: string;
 	usage?: {
 		inputTokens?: number;
 		cachedInputTokens?: number;
@@ -18,7 +23,7 @@ export function readNumber(value: unknown): number | undefined {
 		: undefined;
 }
 
-function readString(value: unknown): string | undefined {
+export function readString(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
@@ -41,6 +46,11 @@ export function parsePlaygroundMessageMetadata(
 
 	const metadata: PlaygroundMessageMetadata = {
 		usedModel: readString(value.usedModel),
+		requestId: readString(value.requestId),
+		discount: readNumber(value.discount),
+		logId: readString(value.logId),
+		organizationId: readString(value.organizationId),
+		projectId: readString(value.projectId),
 		...(usage &&
 		Object.values(usage).some((usageItem) => usageItem !== undefined)
 			? { usage }

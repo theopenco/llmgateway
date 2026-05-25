@@ -1,9 +1,16 @@
 "use client";
 
-import { Download, AlertCircle, ImageIcon } from "lucide-react";
+import {
+	Download,
+	AlertCircle,
+	ImageIcon,
+	ImagePlus,
+	CornerDownLeft,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { memo, useEffect, useState } from "react";
 
+import { Actions, Action } from "@/components/ai-elements/actions";
 import { Image } from "@/components/ai-elements/image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +27,9 @@ import type { GalleryItem } from "@/lib/image-gen";
 interface ImageGalleryProps {
 	items: GalleryItem[];
 	comparisonMode: boolean;
+	onSuggestionClick?: (prompt: string) => void;
+	onUseAsReference?: (image: { base64: string; mediaType: string }) => void;
+	onInsertPrompt?: (prompt: string) => void;
 }
 
 const GalleryImage = memo(
@@ -153,11 +163,21 @@ function InputImageThumbnails({
 	);
 }
 
-function SingleModeItem({ item }: { item: GalleryItem }) {
+function SingleModeItem({
+	item,
+	onUseAsReference,
+	onInsertPrompt,
+}: {
+	item: GalleryItem;
+	onUseAsReference?: (image: { base64: string; mediaType: string }) => void;
+	onInsertPrompt?: (prompt: string) => void;
+}) {
 	const model = item.models[0];
 	if (!model) {
 		return null;
 	}
+
+	const firstImage = model.images[0];
 
 	return (
 		<div className="space-y-2">
@@ -195,11 +215,41 @@ function SingleModeItem({ item }: { item: GalleryItem }) {
 					{model.isLoading && <Skeleton className="h-64 rounded-lg" />}
 				</div>
 			)}
+			{(firstImage || onInsertPrompt) && (
+				<Actions>
+					{firstImage && onUseAsReference && (
+						<Action
+							tooltip="Use as image reference"
+							onClick={() => onUseAsReference(firstImage)}
+						>
+							<ImagePlus className="h-4 w-4" />
+						</Action>
+					)}
+					{onInsertPrompt && (
+						<Action
+							tooltip="Insert prompt"
+							onClick={() => onInsertPrompt(item.prompt)}
+						>
+							<CornerDownLeft className="h-4 w-4" />
+						</Action>
+					)}
+				</Actions>
+			)}
 		</div>
 	);
 }
 
-function ComparisonModeItem({ item }: { item: GalleryItem }) {
+function ComparisonModeItem({
+	item,
+	onUseAsReference,
+	onInsertPrompt,
+}: {
+	item: GalleryItem;
+	onUseAsReference?: (image: { base64: string; mediaType: string }) => void;
+	onInsertPrompt?: (prompt: string) => void;
+}) {
+	const firstImage = item.models[0]?.images[0];
+
 	return (
 		<div className="space-y-2">
 			<div className="flex items-center gap-2">
@@ -254,6 +304,26 @@ function ComparisonModeItem({ item }: { item: GalleryItem }) {
 					</div>
 				))}
 			</div>
+			{(firstImage || onInsertPrompt) && (
+				<Actions>
+					{firstImage && onUseAsReference && (
+						<Action
+							tooltip="Use as image reference"
+							onClick={() => onUseAsReference(firstImage)}
+						>
+							<ImagePlus className="h-4 w-4" />
+						</Action>
+					)}
+					{onInsertPrompt && (
+						<Action
+							tooltip="Insert prompt"
+							onClick={() => onInsertPrompt(item.prompt)}
+						>
+							<CornerDownLeft className="h-4 w-4" />
+						</Action>
+					)}
+				</Actions>
+			)}
 		</div>
 	);
 }
@@ -262,7 +332,9 @@ export function ImageGallery({
 	items,
 	comparisonMode,
 	onSuggestionClick,
-}: ImageGalleryProps & { onSuggestionClick?: (prompt: string) => void }) {
+	onUseAsReference,
+	onInsertPrompt,
+}: ImageGalleryProps) {
 	if (items.length === 0) {
 		return <EmptyState onSuggestionClick={onSuggestionClick} />;
 	}
@@ -272,9 +344,17 @@ export function ImageGallery({
 			{items.map((item) => (
 				<div key={item.id} id={`gallery-${item.id}`}>
 					{comparisonMode ? (
-						<ComparisonModeItem item={item} />
+						<ComparisonModeItem
+							item={item}
+							onUseAsReference={onUseAsReference}
+							onInsertPrompt={onInsertPrompt}
+						/>
 					) : (
-						<SingleModeItem item={item} />
+						<SingleModeItem
+							item={item}
+							onUseAsReference={onUseAsReference}
+							onInsertPrompt={onInsertPrompt}
+						/>
 					)}
 				</div>
 			))}

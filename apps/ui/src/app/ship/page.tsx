@@ -6,7 +6,7 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Ship an AI App in 10 Minutes | LLM Gateway",
+	title: "Ship an AI App in 10 Minutes",
 	description:
 		"Clone a production-ready AI template, connect to 300+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
 	openGraph: {

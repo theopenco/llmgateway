@@ -1656,6 +1656,7 @@ export interface paths {
                     limit?: string;
                     customHeaderKey?: string;
                     customHeaderValue?: string;
+                    requestId?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1818,6 +1819,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2072,6 +2074,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -7425,6 +7428,430 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/playground/image-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of image generation history for the authenticated user */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                        inputImages?: {
+                            dataUrl: string;
+                            mediaType: string;
+                        }[];
+                        models: {
+                            modelId: string;
+                            modelName: string;
+                            images: {
+                                base64: string;
+                                mediaType: string;
+                            }[];
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Saved image history item */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/playground/image-history/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated image history item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/playground/video-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of video generation history for the authenticated user */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                        frameInputs?: {
+                            start: {
+                                dataUrl: string;
+                                mediaType: string;
+                            } | null;
+                            end: {
+                                dataUrl: string;
+                                mediaType: string;
+                            } | null;
+                        };
+                        referenceImages?: {
+                            dataUrl: string;
+                            mediaType: string;
+                        }[];
+                        models: {
+                            modelId: string;
+                            modelName: string;
+                            jobId: string | null;
+                            videoUrl: string | null;
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Saved video history item */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/playground/video-history/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated video history item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/orgs": {
         parameters: {
             query?: never;
@@ -8567,6 +8994,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -8600,6 +9028,9 @@ export interface paths {
                         model: string;
                         /** @default false */
                         webSearch?: boolean;
+                        /** @default false */
+                        comparisonEnabled?: boolean;
+                        parentChatId?: string;
                     };
                 };
             };
@@ -8619,6 +9050,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -8689,6 +9121,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -8749,6 +9182,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -8779,6 +9213,7 @@ export interface paths {
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
+                            comparisonChatIds: string[];
                         };
                     };
                 };
@@ -8858,6 +9293,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;

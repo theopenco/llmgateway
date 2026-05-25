@@ -23,6 +23,20 @@ const nextConfig: NextConfig = {
 			},
 		];
 	},
+	redirects() {
+		return [
+			{
+				source: "/features/gateway-caching",
+				destination: "/features/caching/gateway-caching",
+				permanent: true,
+			},
+			{
+				source: "/features/provider-cache-control",
+				destination: "/features/caching/provider-cache-control",
+				permanent: true,
+			},
+		];
+	},
 };
 
 export default withMDX(nextConfig);
