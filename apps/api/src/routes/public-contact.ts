@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { redisClient } from "@/auth/config.js";
+import { notifyEnterpriseContact } from "@/utils/discord.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -376,5 +377,15 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 			error: err,
 		});
 	}
+
+	await notifyEnterpriseContact({
+		name: validatedData.name,
+		email: validatedData.email,
+		country: validatedData.country,
+		size: validatedData.size,
+		message: validatedData.message,
+		ipAddress,
+	});
+
 	return c.json({ success: true, message: "Email sent successfully" }, 200);
 });

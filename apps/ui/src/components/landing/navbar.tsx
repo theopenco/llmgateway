@@ -10,9 +10,7 @@ import {
 	Menu,
 	MessagesSquare,
 	Network,
-	Puzzle,
 	Server,
-	ShieldCheck,
 	Sparkles,
 	Wrench,
 	X,
@@ -98,7 +96,7 @@ export const Navbar = ({
 }) => {
 	const config = useAppConfig();
 
-	const featuresLinks: Array<{
+	const productsLinks: Array<{
 		title: string;
 		href: string;
 		description: string;
@@ -116,13 +114,14 @@ export const Navbar = ({
 				"hover:from-violet-500/20 hover:to-purple-600/30 hover:shadow-violet-500/10 group-hover/product:text-violet-500 dark:group-hover/product:text-violet-400",
 		},
 		{
-			title: "Observability",
-			href: "/features/performance-monitoring",
+			title: "DevPass",
+			href: "https://devpass.llmgateway.io",
 			description:
-				"Monitor usage, costs, and latency with real-time analytics dashboards.",
-			icon: Activity,
+				"Fixed-price monthly plans for Claude Code, Cursor, and every coding tool.",
+			icon: Code,
 			gradient:
-				"hover:from-emerald-500/20 hover:to-teal-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
+				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
+			external: true,
 		},
 		{
 			title: "Chat Playground",
@@ -135,41 +134,13 @@ export const Navbar = ({
 			external: true,
 		},
 		{
-			title: "Guardrails",
-			href: "/features/guardrails",
+			title: "Observability",
+			href: "/features/performance-monitoring",
 			description:
-				"Protect your AI with content moderation and safety filters.",
-			icon: ShieldCheck,
+				"Monitor usage, costs, and latency with real-time analytics dashboards.",
+			icon: Activity,
 			gradient:
-				"hover:from-amber-500/20 hover:to-orange-600/30 hover:shadow-amber-500/10 group-hover/product:text-amber-500 dark:group-hover/product:text-amber-400",
-		},
-		{
-			title: "Integrations",
-			href: "/guides",
-			description:
-				"Connect seamlessly with popular frameworks, SDKs, and tools.",
-			icon: Puzzle,
-			gradient:
-				"hover:from-pink-500/20 hover:to-rose-600/30 hover:shadow-pink-500/10 group-hover/product:text-pink-500 dark:group-hover/product:text-pink-400",
-		},
-		{
-			title: "DevPass",
-			href: "https://devpass.llmgateway.io",
-			description:
-				"Fixed-price monthly plans for Claude Code, Cursor, and every coding tool.",
-			icon: Code,
-			gradient:
-				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
-			external: true,
-		},
-		{
-			title: "Reliability",
-			href: "/reliability",
-			description:
-				"Automatic failover and 99.9999% effective uptime across providers.",
-			icon: ShieldCheck,
-			gradient:
-				"hover:from-emerald-500/20 hover:to-green-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
+				"hover:from-emerald-500/20 hover:to-teal-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
 		},
 	];
 
@@ -188,6 +159,24 @@ export const Navbar = ({
 			title: "Changelog",
 			href: "/changelog",
 			description: "What's new in LLM Gateway across releases.",
+		},
+		{
+			title: "Integrations",
+			href: "/guides",
+			description:
+				"Connect seamlessly with popular frameworks, SDKs, and tools.",
+		},
+		{
+			title: "Reliability",
+			href: "/reliability",
+			description:
+				"Automatic failover and 99.9999% effective uptime across providers.",
+		},
+		{
+			title: "Guardrails",
+			href: "/features/guardrails",
+			description:
+				"Protect your AI with content moderation and safety filters.",
 		},
 		{
 			title: "Providers",
@@ -288,8 +277,8 @@ export const Navbar = ({
 
 	const mobileSections = [
 		{
-			label: "Features",
-			items: featuresLinks.map((i) => ({
+			label: "Products",
+			items: productsLinks.map((i) => ({
 				name: i.title,
 				href: i.href,
 				external: i.external,
@@ -372,14 +361,14 @@ export const Navbar = ({
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
 								<NavigationMenuList className="flex gap-1 text-sm">
-									{/* Features dropdown */}
+									{/* Products dropdown */}
 									<NavigationMenuItem>
 										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
-											Features
+											Products
 										</NavigationMenuTrigger>
 										<NavigationMenuContent>
 											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[520px] lg:w-[580px]">
-												{featuresLinks.map((product) => {
+												{productsLinks.map((product) => {
 													const IconComponent = product.icon;
 													const linkClassName = cn(
 														"group/product flex items-start gap-3 select-none rounded-lg p-3 no-underline outline-none transition-all duration-300 bg-linear-to-br from-transparent to-transparent",

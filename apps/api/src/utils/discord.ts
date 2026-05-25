@@ -4,6 +4,9 @@ const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
 const discordSupportWebhookUrl =
 	process.env.DISCORD_SUPPORT_NOTIFICATION_URL ??
 	process.env.DISCORD_NOTIFICATION_URL;
+const discordEnterpriseWebhookUrl =
+	process.env.DISCORD_ENTERPRISE_NOTIFICATION_URL ??
+	process.env.DISCORD_NOTIFICATION_URL;
 
 interface DiscordEmbed {
 	title: string;
@@ -246,6 +249,43 @@ export async function notifyChatSupportEscalation(args: {
 			],
 		},
 		discordSupportWebhookUrl,
+	);
+}
+
+export async function notifyEnterpriseContact(args: {
+	name: string;
+	email: string;
+	country: string;
+	size: string;
+	message: string;
+	ipAddress?: string | null;
+}): Promise<void> {
+	const { name, email, country, size, message, ipAddress } = args;
+	const truncatedMessage =
+		message.length > 1000 ? `${message.slice(0, 1000)}…` : message;
+
+	await sendDiscordNotification(
+		{
+			content: "📨 New enterprise contact request.",
+			embeds: [
+				{
+					title: "Enterprise Contact Request",
+					color: 0x2563eb, // Blue
+					fields: [
+						{ name: "Name", value: name, inline: true },
+						{ name: "Email", value: email, inline: true },
+						{ name: "Country", value: country, inline: true },
+						{ name: "Company Size", value: size, inline: true },
+						...(ipAddress
+							? [{ name: "IP Address", value: ipAddress, inline: true }]
+							: []),
+						{ name: "Message", value: truncatedMessage, inline: false },
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		discordEnterpriseWebhookUrl,
 	);
 }
 
