@@ -32,10 +32,13 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { models } from "@llmgateway/models";
+
 import type { ChartConfig } from "@/components/ui/chart";
 
 type Range = "7d" | "30d" | "90d" | "365d";
 type GroupBy = "model" | "source";
+type ModelView = "mapping" | "canonical";
 
 const RANGE_OPTIONS: { value: Range; label: string }[] = [
 	{ value: "7d", label: "Last 7 days" },
@@ -47,6 +50,15 @@ const RANGE_OPTIONS: { value: Range; label: string }[] = [
 const GROUP_OPTIONS: { value: GroupBy; label: string; icon: typeof Cpu }[] = [
 	{ value: "model", label: "By model", icon: Cpu },
 	{ value: "source", label: "By x-source", icon: Layers },
+];
+
+const MODEL_VIEW_OPTIONS: {
+	value: ModelView;
+	label: string;
+	icon: typeof Cpu;
+}[] = [
+	{ value: "mapping", label: "Mappings", icon: Layers },
+	{ value: "canonical", label: "Canonical", icon: Cpu },
 ];
 
 // Distinct, color-blind-friendly hues. Repeat for >12 series.
@@ -104,6 +116,7 @@ const VALID_METRICS: TimeseriesMetric[] = [
 	"cost",
 	"totalTokens",
 ];
+const VALID_MODEL_VIEWS: ModelView[] = ["mapping", "canonical"];
 
 function parseRange(value: string | null): Range {
 	return VALID_RANGES.includes(value as Range) ? (value as Range) : "30d";
@@ -117,6 +130,44 @@ function parseMetric(value: string | null): TimeseriesMetric {
 	return VALID_METRICS.includes(value as TimeseriesMetric)
 		? (value as TimeseriesMetric)
 		: "cost";
+}
+
+function parseModelView(value: string | null): ModelView {
+	return VALID_MODEL_VIEWS.includes(value as ModelView)
+		? (value as ModelView)
+		: "mapping";
+}
+
+const mappingToCanonicalCache = new Map<string, string>();
+function findCanonicalModelId(
+	providerId: string,
+	modelName: string,
+): string | null {
+	const cacheKey = `${providerId}/${modelName}`;
+	const cached = mappingToCanonicalCache.get(cacheKey);
+	if (cached !== undefined) {
+		return cached || null;
+	}
+	for (const m of models) {
+		if (
+			m.providers.some(
+				(p) => p.providerId === providerId && p.modelName === modelName,
+			)
+		) {
+			mappingToCanonicalCache.set(cacheKey, m.id);
+			return m.id;
+		}
+	}
+	// Fall back to a provider-agnostic match on modelName so renames/typos still
+	// collapse into the most plausible canonical id.
+	for (const m of models) {
+		if (m.providers.some((p) => p.modelName === modelName)) {
+			mappingToCanonicalCache.set(cacheKey, m.id);
+			return m.id;
+		}
+	}
+	mappingToCanonicalCache.set(cacheKey, "");
+	return null;
 }
 
 function StatCard({
@@ -199,6 +250,7 @@ export function GlobalStatsClient() {
 	const range = parseRange(searchParams.get("range"));
 	const groupBy = parseGroupBy(searchParams.get("groupBy"));
 	const chartMetric = parseMetric(searchParams.get("metric"));
+	const modelView = parseModelView(searchParams.get("modelView"));
 
 	const updateParam = useCallback(
 		(key: string, value: string) => {
@@ -221,6 +273,10 @@ export function GlobalStatsClient() {
 		(value: TimeseriesMetric) => updateParam("metric", value),
 		[updateParam],
 	);
+	const setModelView = useCallback(
+		(value: ModelView) => updateParam("modelView", value),
+		[updateParam],
+	);
 
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
@@ -233,7 +289,40 @@ export function GlobalStatsClient() {
 
 	const totals = data?.totals;
 	const timeseries = data?.timeseries ?? [];
-	const breakdown = data?.breakdown ?? [];
+	const rawBreakdown = data?.breakdown ?? [];
+
+	const breakdown = useMemo(() => {
+		if (groupBy !== "model" || modelView !== "canonical") {
+			return rawBreakdown;
+		}
+		const aggregated = new Map<string, (typeof rawBreakdown)[number]>();
+		for (const item of rawBreakdown) {
+			const [providerId, ...rest] = item.key.split("/");
+			const modelName = rest.join("/");
+			const canonical = findCanonicalModelId(providerId, modelName);
+			const key = canonical ?? item.key;
+			const label = canonical ?? item.label;
+			const existing = aggregated.get(key);
+			if (existing) {
+				existing.requestCount += item.requestCount;
+				existing.errorCount += item.errorCount;
+				existing.cacheCount += item.cacheCount;
+				existing.inputTokens += item.inputTokens;
+				existing.cachedTokens += item.cachedTokens;
+				existing.outputTokens += item.outputTokens;
+				existing.totalTokens += item.totalTokens;
+				existing.cost += item.cost;
+				existing.inputCost += item.inputCost;
+				existing.cachedInputCost += item.cachedInputCost;
+				existing.outputCost += item.outputCost;
+			} else {
+				aggregated.set(key, { ...item, key, label });
+			}
+		}
+		return Array.from(aggregated.values()).sort(
+			(a, b) => b.requestCount - a.requestCount,
+		);
+	}, [rawBreakdown, groupBy, modelView]);
 
 	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
@@ -359,7 +448,7 @@ export function GlobalStatsClient() {
 				/>
 				<StatCard
 					label={groupBy === "model" ? "Distinct models" : "Distinct sources"}
-					value={numberFormatter.format(breakdown.length)}
+					value={numberFormatter.format(rawBreakdown.length)}
 					subtitle={
 						totals
 							? `Errors: ${numberFormatter.format(totals.errorCount)} · Cached: ${numberFormatter.format(totals.cacheCount)}`
@@ -475,20 +564,41 @@ export function GlobalStatsClient() {
 								: `All ${breakdown.length} ${groupBy === "model" ? "models" : "sources"} in the ${range} window.`}
 						</CardDescription>
 					</div>
-					<div className="flex items-center gap-1">
-						{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
-							(m) => (
-								<Button
-									key={m}
-									variant={chartMetric === m ? "default" : "outline"}
-									size="sm"
-									className="h-7 px-3 text-xs"
-									onClick={() => setChartMetric(m)}
-								>
-									{timeseriesChartConfig[m].label as string}
-								</Button>
-							),
-						)}
+					<div className="flex flex-wrap items-center gap-3">
+						{groupBy === "model" ? (
+							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
+								{MODEL_VIEW_OPTIONS.map((opt) => {
+									const Icon = opt.icon;
+									return (
+										<Button
+											key={opt.value}
+											variant={modelView === opt.value ? "default" : "ghost"}
+											size="sm"
+											className="h-7 gap-1.5 px-3 text-xs"
+											onClick={() => setModelView(opt.value)}
+										>
+											<Icon className="h-3.5 w-3.5" />
+											{opt.label}
+										</Button>
+									);
+								})}
+							</div>
+						) : null}
+						<div className="flex items-center gap-1">
+							{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
+								(m) => (
+									<Button
+										key={m}
+										variant={chartMetric === m ? "default" : "outline"}
+										size="sm"
+										className="h-7 px-3 text-xs"
+										onClick={() => setChartMetric(m)}
+									>
+										{timeseriesChartConfig[m].label as string}
+									</Button>
+								),
+							)}
+						</div>
 					</div>
 				</CardHeader>
 				<CardContent className="grid gap-6 p-4 sm:p-6 lg:grid-cols-2">
