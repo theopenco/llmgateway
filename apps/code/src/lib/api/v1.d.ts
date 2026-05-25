@@ -5703,6 +5703,8 @@ export interface paths {
                                 startsThisMonth: number;
                                 endsThisMonth: number;
                                 netNewThisMonth: number;
+                                refundsThisMonth: number;
+                                refundedAmountThisMonth: number;
                                 weightedAvgUtilization: number;
                                 totalRealCostCycle: number;
                                 totalMrrCycle: number;

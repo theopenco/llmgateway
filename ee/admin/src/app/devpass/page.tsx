@@ -5,6 +5,7 @@ import {
 	ArrowUpDown,
 	ChevronLeft,
 	ChevronRight,
+	RotateCcw,
 	Search,
 	TrendingDown,
 	TrendingUp,
@@ -454,7 +455,7 @@ export default async function DevpassPage({
 				</Suspense>
 			</header>
 
-			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
 						<Users className="h-3.5 w-3.5" />
@@ -501,6 +502,26 @@ export default async function DevpassPage({
 							{kpis.netNewThisMonth}
 						</span>{" "}
 						({kpis.startsThisMonth} starts / {kpis.endsThisMonth} ends)
+					</div>
+				</div>
+				<div className="rounded-lg border border-border/60 bg-card p-4">
+					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+						<RotateCcw className="h-3.5 w-3.5" />
+						Refunds this month
+					</div>
+					<div
+						className={cn(
+							"mt-2 text-2xl font-semibold tabular-nums",
+							kpis.refundedAmountThisMonth > 0
+								? "text-rose-600 dark:text-rose-400"
+								: "",
+						)}
+					>
+						{currencyFormatter.format(kpis.refundedAmountThisMonth)}
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{kpis.refundsThisMonth} refund
+						{kpis.refundsThisMonth === 1 ? "" : "s"} processed
 					</div>
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">
