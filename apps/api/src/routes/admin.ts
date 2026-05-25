@@ -1265,7 +1265,9 @@ function formatProviderModelLabel(
 	providerId: string,
 	modelName: string,
 ): string {
-	return `${providerId}/${stripProviderPrefix(providerId, modelName)}`;
+	return modelName.startsWith(`${providerId}/`)
+		? modelName
+		: `${providerId}/${modelName}`;
 }
 
 const canonicalModelIdCache = new Map<string, string | null>();
