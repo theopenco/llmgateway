@@ -446,8 +446,14 @@ export function GlobalStatsClient() {
 									axisLine={false}
 									tickMargin={8}
 									minTickGap={32}
-									tickFormatter={(value: string) => {
+									tickFormatter={(value) => {
+										if (typeof value !== "string" || !value) {
+											return "";
+										}
 										const date = parseISO(value);
+										if (Number.isNaN(date.getTime())) {
+											return value;
+										}
 										return format(date, "MMM d");
 									}}
 								/>
@@ -461,8 +467,14 @@ export function GlobalStatsClient() {
 									content={
 										<ChartTooltipContent
 											className="w-[180px]"
-											labelFormatter={(value: string) => {
+											labelFormatter={(value) => {
+												if (typeof value !== "string" || !value) {
+													return "";
+												}
 												const date = parseISO(value);
+												if (Number.isNaN(date.getTime())) {
+													return value;
+												}
 												return format(date, "MMM d, yyyy");
 											}}
 											formatter={(value) =>
