@@ -16,12 +16,6 @@ import { useCallback, useMemo, useState } from "react";
 import { ModelSelector } from "@/components/models/playground-model-selector";
 import { Button } from "@/lib/components/button";
 import { Card } from "@/lib/components/card";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/lib/components/dropdown-menu";
 import { Input } from "@/lib/components/input";
 import { XIcon } from "@/lib/icons/XIcon";
 
@@ -742,42 +736,54 @@ function ResultsPanel({
 				</Card>
 			</div>
 
-			{/* Share button */}
-			<div className="flex justify-end">
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button variant="outline" size="sm" className="gap-2">
-							<Share2 className="h-4 w-4" />
-							Share Results
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						<DropdownMenuItem onClick={handleCopy} className="cursor-pointer">
-							{copied ? (
-								<Check className="h-4 w-4 mr-2 text-green-500" />
-							) : (
-								<Copy className="h-4 w-4 mr-2" />
-							)}
-							{copied ? "Copied!" : "Copy to clipboard"}
-						</DropdownMenuItem>
-						<DropdownMenuItem asChild className="cursor-pointer">
-							<a href={xShareUrl} target="_blank" rel="noopener noreferrer">
-								<XIcon className="h-4 w-4 mr-2" />
-								Share on X
-							</a>
-						</DropdownMenuItem>
-						<DropdownMenuItem asChild className="cursor-pointer">
-							<a
-								href={linkedinShareUrl}
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								<Linkedin className="h-4 w-4 mr-2" />
-								Share on LinkedIn
-							</a>
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+			{/* Share bar */}
+			<div className="flex flex-col gap-4 rounded-xl border border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-blue-600/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+				<div className="flex items-start gap-3">
+					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400">
+						<Share2 className="h-4 w-4" />
+					</div>
+					<div>
+						<p className="text-sm font-semibold">
+							{savings > 0
+								? `Share your ${savingsPercent}% savings`
+								: "Share these results"}
+						</p>
+						<p className="text-xs text-muted-foreground">
+							Send this breakdown to your team or post it in one click.
+						</p>
+					</div>
+				</div>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button
+						onClick={handleCopy}
+						variant={copied ? "outline" : "default"}
+						size="sm"
+						className="gap-2"
+					>
+						{copied ? (
+							<Check className="h-4 w-4 text-green-500" />
+						) : (
+							<Copy className="h-4 w-4" />
+						)}
+						{copied ? "Copied!" : "Copy link"}
+					</Button>
+					<Button variant="outline" size="sm" className="gap-2" asChild>
+						<a href={xShareUrl} target="_blank" rel="noopener noreferrer">
+							<XIcon className="h-4 w-4" />
+							Post on X
+						</a>
+					</Button>
+					<Button variant="outline" size="sm" className="gap-2" asChild>
+						<a
+							href={linkedinShareUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							<Linkedin className="h-4 w-4" />
+							LinkedIn
+						</a>
+					</Button>
+				</div>
 			</div>
 
 			{/* Breakdown table */}
