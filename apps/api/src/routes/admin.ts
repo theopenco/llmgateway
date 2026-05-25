@@ -981,6 +981,7 @@ admin.openapi(getTimeseries, async (c) => {
 
 const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d"]);
 const globalStatsGroupBySchema = z.enum(["model", "source"]);
+const globalStatsModelViewSchema = z.enum(["mapping", "canonical"]);
 
 const globalStatsMetricsSchema = z.object({
 	requestCount: z.number(),
@@ -1012,6 +1013,7 @@ const globalStatsBreakdownItemSchema = globalStatsMetricsSchema
 const globalStatsResponseSchema = z.object({
 	range: globalStatsRangeSchema,
 	groupBy: globalStatsGroupBySchema,
+	modelView: globalStatsModelViewSchema,
 	totals: globalStatsMetricsSchema,
 	timeseries: z.array(globalStatsTimeseriesPointSchema),
 	breakdown: z.array(globalStatsBreakdownItemSchema),
@@ -1024,6 +1026,7 @@ const getGlobalStats = createRoute({
 		query: z.object({
 			range: globalStatsRangeSchema.default("30d").optional(),
 			groupBy: globalStatsGroupBySchema.default("model").optional(),
+			modelView: globalStatsModelViewSchema.default("mapping").optional(),
 		}),
 	},
 	responses: {
@@ -1042,6 +1045,7 @@ admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
 	const range = query.range ?? "30d";
 	const groupBy = query.groupBy ?? "model";
+	const modelView = query.modelView ?? "mapping";
 
 	const rangeDays: Record<typeof range, number> = {
 		"7d": 7,
@@ -1207,11 +1211,112 @@ admin.openapi(getGlobalStats, async (c) => {
 					.orderBy(desc(metricSums.requestCount));
 
 	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
-		breakdownRows.map((row) => {
-			const isModel = "usedModel" in row;
-			const key = isModel ? `${row.usedProvider}/${row.usedModel}` : row.source;
-			const label = isModel ? row.usedModel : row.source;
-			return {
+		groupBy === "model" && modelView === "canonical"
+			? aggregateModelRowsByCanonicalId(
+					breakdownRows as Array<
+						(typeof breakdownRows)[number] & {
+							usedModel: string;
+							usedProvider: string;
+						}
+					>,
+				)
+			: breakdownRows.map((row) => {
+					const isModel = "usedModel" in row;
+					const key = isModel
+						? `${row.usedProvider}/${row.usedModel}`
+						: row.source;
+					const label = isModel ? row.usedModel : row.source;
+					return {
+						key,
+						label,
+						requestCount: Number(row.requestCount),
+						errorCount: Number(row.errorCount),
+						cacheCount: Number(row.cacheCount),
+						inputTokens: Number(row.inputTokens),
+						cachedTokens: Number(row.cachedTokens),
+						outputTokens: Number(row.outputTokens),
+						totalTokens: Number(row.totalTokens),
+						cost: Number(row.cost),
+						inputCost: Number(row.inputCost),
+						cachedInputCost: Number(row.cachedInputCost),
+						outputCost: Number(row.outputCost),
+					};
+				});
+
+	return c.json({
+		range,
+		groupBy,
+		modelView,
+		totals,
+		timeseries,
+		breakdown,
+	});
+});
+
+const canonicalModelIdCache = new Map<string, string | null>();
+function lookupCanonicalModelId(
+	providerId: string,
+	modelName: string,
+): string | null {
+	const cacheKey = `${providerId}/${modelName}`;
+	if (canonicalModelIdCache.has(cacheKey)) {
+		return canonicalModelIdCache.get(cacheKey) ?? null;
+	}
+	let canonical: string | null = null;
+	for (const m of models) {
+		if (
+			m.providers.some(
+				(p) => p.providerId === providerId && p.modelName === modelName,
+			)
+		) {
+			canonical = m.id;
+			break;
+		}
+	}
+	canonicalModelIdCache.set(cacheKey, canonical);
+	return canonical;
+}
+
+function aggregateModelRowsByCanonicalId(
+	rows: Array<{
+		usedProvider: string;
+		usedModel: string;
+		requestCount: number;
+		errorCount: number;
+		cacheCount: number;
+		inputTokens: number;
+		cachedTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+		cost: number;
+		inputCost: number;
+		cachedInputCost: number;
+		outputCost: number;
+	}>,
+): z.infer<typeof globalStatsBreakdownItemSchema>[] {
+	const aggregated = new Map<
+		string,
+		z.infer<typeof globalStatsBreakdownItemSchema>
+	>();
+	for (const row of rows) {
+		const canonical = lookupCanonicalModelId(row.usedProvider, row.usedModel);
+		const key = canonical ?? `${row.usedProvider}/${row.usedModel}`;
+		const label = canonical ?? row.usedModel;
+		const existing = aggregated.get(key);
+		if (existing) {
+			existing.requestCount += Number(row.requestCount);
+			existing.errorCount += Number(row.errorCount);
+			existing.cacheCount += Number(row.cacheCount);
+			existing.inputTokens += Number(row.inputTokens);
+			existing.cachedTokens += Number(row.cachedTokens);
+			existing.outputTokens += Number(row.outputTokens);
+			existing.totalTokens += Number(row.totalTokens);
+			existing.cost += Number(row.cost);
+			existing.inputCost += Number(row.inputCost);
+			existing.cachedInputCost += Number(row.cachedInputCost);
+			existing.outputCost += Number(row.outputCost);
+		} else {
+			aggregated.set(key, {
 				key,
 				label,
 				requestCount: Number(row.requestCount),
@@ -1225,17 +1330,13 @@ admin.openapi(getGlobalStats, async (c) => {
 				inputCost: Number(row.inputCost),
 				cachedInputCost: Number(row.cachedInputCost),
 				outputCost: Number(row.outputCost),
-			};
-		});
-
-	return c.json({
-		range,
-		groupBy,
-		totals,
-		timeseries,
-		breakdown,
-	});
-});
+			});
+		}
+	}
+	return Array.from(aggregated.values()).sort(
+		(a, b) => b.requestCount - a.requestCount,
+	);
+}
 
 admin.openapi(getOrganizations, async (c) => {
 	const query = c.req.valid("query");

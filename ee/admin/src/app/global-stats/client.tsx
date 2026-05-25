@@ -32,8 +32,6 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { models } from "@llmgateway/models";
-
 import type { ChartConfig } from "@/components/ui/chart";
 
 type Range = "7d" | "30d" | "90d" | "365d";
@@ -136,30 +134,6 @@ function parseModelView(value: string | null): ModelView {
 	return VALID_MODEL_VIEWS.includes(value as ModelView)
 		? (value as ModelView)
 		: "mapping";
-}
-
-const mappingToCanonicalCache = new Map<string, string>();
-function findCanonicalModelId(
-	providerId: string,
-	modelName: string,
-): string | null {
-	const cacheKey = `${providerId}/${modelName}`;
-	const cached = mappingToCanonicalCache.get(cacheKey);
-	if (cached !== undefined) {
-		return cached || null;
-	}
-	for (const m of models) {
-		if (
-			m.providers.some(
-				(p) => p.providerId === providerId && p.modelName === modelName,
-			)
-		) {
-			mappingToCanonicalCache.set(cacheKey, m.id);
-			return m.id;
-		}
-	}
-	mappingToCanonicalCache.set(cacheKey, "");
-	return null;
 }
 
 function StatCard({
@@ -275,46 +249,13 @@ export function GlobalStatsClient() {
 		"get",
 		"/admin/global-stats",
 		{
-			params: { query: { range, groupBy } },
+			params: { query: { range, groupBy, modelView } },
 		},
 	);
 
 	const totals = data?.totals;
 	const timeseries = data?.timeseries ?? [];
-	const rawBreakdown = data?.breakdown ?? [];
-
-	const breakdown = useMemo(() => {
-		if (groupBy !== "model" || modelView !== "canonical") {
-			return rawBreakdown;
-		}
-		const aggregated = new Map<string, (typeof rawBreakdown)[number]>();
-		for (const item of rawBreakdown) {
-			const [providerId, ...rest] = item.key.split("/");
-			const modelName = rest.join("/");
-			const canonical = findCanonicalModelId(providerId, modelName);
-			const key = canonical ?? item.key;
-			const label = canonical ?? item.label;
-			const existing = aggregated.get(key);
-			if (existing) {
-				existing.requestCount += item.requestCount;
-				existing.errorCount += item.errorCount;
-				existing.cacheCount += item.cacheCount;
-				existing.inputTokens += item.inputTokens;
-				existing.cachedTokens += item.cachedTokens;
-				existing.outputTokens += item.outputTokens;
-				existing.totalTokens += item.totalTokens;
-				existing.cost += item.cost;
-				existing.inputCost += item.inputCost;
-				existing.cachedInputCost += item.cachedInputCost;
-				existing.outputCost += item.outputCost;
-			} else {
-				aggregated.set(key, { ...item, key, label });
-			}
-		}
-		return Array.from(aggregated.values()).sort(
-			(a, b) => b.requestCount - a.requestCount,
-		);
-	}, [rawBreakdown, groupBy, modelView]);
+	const breakdown = data?.breakdown ?? [];
 
 	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
@@ -440,7 +381,7 @@ export function GlobalStatsClient() {
 				/>
 				<StatCard
 					label={groupBy === "model" ? "Distinct models" : "Distinct sources"}
-					value={numberFormatter.format(rawBreakdown.length)}
+					value={numberFormatter.format(breakdown.length)}
 					subtitle={
 						totals
 							? `Errors: ${numberFormatter.format(totals.errorCount)} · Cached: ${numberFormatter.format(totals.cacheCount)}`
