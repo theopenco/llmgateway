@@ -11,7 +11,7 @@ export const xiaomiModels = [
 		providers: [
 			{
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2.5-pro",
+				externalId: "mimo-v2.5-pro",
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.087e-6",
@@ -36,7 +36,7 @@ export const xiaomiModels = [
 		providers: [
 			{
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2-pro",
+				externalId: "mimo-v2-pro",
 				inputPrice: "1e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.2e-6",
@@ -61,7 +61,7 @@ export const xiaomiModels = [
 		providers: [
 			{
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2.5",
+				externalId: "mimo-v2.5",
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.028e-6",
@@ -86,7 +86,7 @@ export const xiaomiModels = [
 		providers: [
 			{
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2-omni",
+				externalId: "mimo-v2-omni",
 				inputPrice: "0.4e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.08e-6",
@@ -111,7 +111,7 @@ export const xiaomiModels = [
 		providers: [
 			{
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2-flash",
+				externalId: "mimo-v2-flash",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				cachedInputPrice: "0.02e-6",

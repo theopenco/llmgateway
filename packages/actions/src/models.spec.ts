@@ -96,7 +96,7 @@ describe("Models", () => {
 						!hasImagePricing(p as ProviderModelMapping) &&
 						!isEmbeddingProvider(p as ProviderModelMapping),
 				);
-				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.modelName} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
+				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.externalId} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
 			});
 			throw new Error(
 				`Models with zero pricing must have free: true:\n${errorDetails.join("\n")}`,
@@ -381,7 +381,7 @@ describe("getCheapestModelForProvider", () => {
 				model.providers.some(
 					(p) =>
 						p.providerId === "openai" &&
-						p.modelName === cheapestModel &&
+						p.externalId === cheapestModel &&
 						p.inputPrice !== undefined &&
 						p.outputPrice !== undefined,
 				),
@@ -397,14 +397,14 @@ describe("getCheapestModelForProvider", () => {
 		if (cheapestModel) {
 			const modelWithProvider = models.find((model) =>
 				model.providers.some(
-					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+					(p) => p.providerId === "openai" && p.externalId === cheapestModel,
 				),
 			);
 
 			if (modelWithProvider) {
 				// Check if any provider mapping has a deprecatedAt date
 				const providerMapping = modelWithProvider.providers.find(
-					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+					(p) => p.providerId === "openai" && p.externalId === cheapestModel,
 				) as ProviderModelMapping | undefined;
 				if (providerMapping?.deprecatedAt) {
 					// If the provider mapping has a deprecatedAt date, it should be in the future
@@ -511,7 +511,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				expect(cheapestProvider).toBeDefined();
 				expect(cheapestProvider?.provider).toMatchObject({
 					providerId: expect.any(String),
-					modelName: expect.any(String),
+					externalId: expect.any(String),
 				});
 			}
 		}
@@ -859,7 +859,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					[
 						{
 							providerId: "openai",
-							modelName: "gpt-4o-mini",
+							externalId: "gpt-4o-mini",
 						},
 					],
 					testModel,
@@ -895,7 +895,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					[
 						{
 							providerId: "openai",
-							modelName: "gpt-4o-mini",
+							externalId: "gpt-4o-mini",
 						},
 					],
 					testModel,
@@ -971,7 +971,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			providers: [
 				{
 					providerId: "openai" as const,
-					modelName: "cache-test",
+					externalId: "cache-test",
 					inputPrice: "1.0e-6",
 					outputPrice: "2.0e-6",
 					cachedInputPrice: "0.1e-6",
@@ -979,7 +979,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				},
 				{
 					providerId: "deepseek" as const,
-					modelName: "cache-test",
+					externalId: "cache-test",
 					inputPrice: "1.0e-6",
 					outputPrice: "2.0e-6",
 					streaming: true as const,
@@ -1056,7 +1056,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				providers: [
 					{
 						providerId: "openai" as const,
-						modelName: "cache-test",
+						externalId: "cache-test",
 						inputPrice: "10.0e-6",
 						outputPrice: "20.0e-6",
 						cachedInputPrice: "1.0e-6",
@@ -1064,7 +1064,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					},
 					{
 						providerId: "deepseek" as const,
-						modelName: "cache-test",
+						externalId: "cache-test",
 						inputPrice: "1.0e-6",
 						outputPrice: "2.0e-6",
 						streaming: true as const,

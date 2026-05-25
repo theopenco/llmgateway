@@ -351,7 +351,7 @@ export const testModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
+				model: `${provider.providerId}/${provider.region ? provider.externalId : model.id}`,
 				providers: [provider],
 				originalModel: model.id, // Keep track of the original model for reference
 			});
@@ -435,7 +435,7 @@ export const providerModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
+				model: `${provider.providerId}/${provider.region ? provider.externalId : model.id}`,
 				provider,
 				originalModel: model.id, // Keep track of the original model for reference
 			});

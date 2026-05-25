@@ -64,7 +64,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					createdAt: new Date().toISOString(),
 					modelId: def.id,
 					providerId: map.providerId,
-					modelName: map.modelName,
+					externalId: map.externalId,
 					inputPrice: map.inputPrice?.toString() ?? null,
 					outputPrice: map.outputPrice?.toString() ?? null,
 					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,

@@ -155,7 +155,7 @@ export async function calculateCosts(
 	if (!modelInfo) {
 		modelInfo = models.find((m) =>
 			m.providers.some(
-				(p) => p.modelName === model || p.modelName === baseModel,
+				(p) => p.externalId === model || p.externalId === baseModel,
 			),
 		) as ModelDefinition;
 	}
@@ -274,10 +274,10 @@ export async function calculateCosts(
 	);
 	const providerInfo =
 		expandedProviders.find(
-			(p) => p.providerId === provider && p.modelName === model,
+			(p) => p.providerId === provider && p.externalId === model,
 		) ??
 		expandedProviders.find(
-			(p) => p.providerId === provider && p.modelName === baseModel,
+			(p) => p.providerId === provider && p.externalId === baseModel,
 		) ??
 		expandedProviders.find((p) => p.providerId === provider);
 

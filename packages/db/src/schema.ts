@@ -1308,7 +1308,7 @@ export const modelProviderMapping = pgTable(
 		providerId: text()
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
-		modelName: text().notNull(),
+		externalId: text().notNull(),
 		region: text(),
 		inputPrice: decimal(),
 		outputPrice: decimal(),

@@ -172,7 +172,7 @@ function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
 		(p) =>
 			p.providerId === candidate.providerId &&
 			p.region === candidate.region &&
-			p.modelName === candidate.modelName,
+			p.externalId === candidate.externalId,
 	);
 	if (exactMatch) {
 		return exactMatch;

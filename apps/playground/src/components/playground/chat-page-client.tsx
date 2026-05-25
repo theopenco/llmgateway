@@ -253,7 +253,7 @@ function getSelectedMapping(
 		model.mappings.find(
 			(mapping) =>
 				mapping.providerId === providerId &&
-				mapping.modelName === providerModelName,
+				mapping.externalId === providerModelName,
 		) ?? model.mappings.find((mapping) => mapping.providerId === providerId)
 	);
 }

@@ -26,7 +26,7 @@ import {
 	providers,
 	type ToolChoiceType,
 	type WebSearchTool,
-	stripRegionFromModelName,
+	stripRegionFromExternalId,
 } from "@llmgateway/models";
 
 import { getProviderEnv } from "./get-provider-env.js";
@@ -186,7 +186,7 @@ export function formatUsedModelForDisplay(
  * Used by the retry loop to quickly set up a new provider context on fallback.
  */
 export async function resolveProviderContext(
-	providerMapping: { providerId: string; modelName: string; region?: string },
+	providerMapping: { providerId: string; externalId: string; region?: string },
 	project: ProjectInfo,
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
@@ -194,11 +194,11 @@ export async function resolveProviderContext(
 	options: ProviderContextOptions,
 ): Promise<ProviderContext> {
 	const usedProvider = providerMapping.providerId as Provider;
-	const usedModel = providerMapping.modelName;
+	const usedModel = providerMapping.externalId;
 	// Strip :region suffix for the actual upstream API call. The
 	// per-provider-key azure_deployment_name override is applied below once
 	// providerKey is resolved.
-	const strippedModelName = stripRegionFromModelName(
+	const strippedModelName = stripRegionFromExternalId(
 		usedModel,
 		providerMapping.region,
 	);
@@ -291,7 +291,7 @@ export async function resolveProviderContext(
 	const providerMappingForSelected = modelInfo.providers.find(
 		(p) =>
 			p.providerId === usedProvider &&
-			p.modelName === usedModel &&
+			p.externalId === usedModel &&
 			p.region === usedRegion,
 	);
 

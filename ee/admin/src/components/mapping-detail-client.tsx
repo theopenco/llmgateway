@@ -85,7 +85,9 @@ export function MappingDetailClient({
 
 	const ProviderIcon = getProviderIcon(providerId);
 	const displayName =
-		mapping.modelName !== mapping.modelId ? mapping.modelName : mapping.modelId;
+		mapping.externalId !== mapping.modelId
+			? mapping.externalId
+			: mapping.modelId;
 
 	return (
 		<>

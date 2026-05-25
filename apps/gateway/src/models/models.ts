@@ -31,7 +31,7 @@ const modelSchema = z.object({
 	providers: z.array(
 		z.object({
 			providerId: z.string(),
-			modelName: z.string(),
+			externalId: z.string(),
 			supportedVideoSizes: z.array(z.string()).optional(),
 			supportsVideoAudio: z.boolean().optional(),
 			supportsVideoWithoutAudio: z.boolean().optional(),
@@ -204,7 +204,7 @@ modelsApi.openapi(listModels, async (c) => {
 
 					return {
 						providerId: provider.providerId,
-						modelName: provider.modelName,
+						externalId: provider.externalId,
 						supportedVideoSizes: provider.supportedVideoSizes,
 						supportsVideoAudio: provider.supportsVideoAudio,
 						supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,

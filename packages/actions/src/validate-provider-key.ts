@@ -94,14 +94,14 @@ function getValidationModel(
 
 			return [
 				{
-					modelName: providerMapping.modelName,
+					externalId: providerMapping.externalId,
 					price: discountedAveragePrice,
 				},
 			];
 		})
 		.sort((a, b) => a.price - b.price);
 
-	return providerModels[0]?.modelName ?? null;
+	return providerModels[0]?.externalId ?? null;
 }
 
 /**
@@ -158,7 +158,7 @@ export async function validateProviderKey(
 		// For Azure with custom validation model, we might not find it in our models list
 		const modelDef = models.find((m) =>
 			m.providers.some(
-				(p) => p.providerId === provider && p.modelName === validationModel,
+				(p) => p.providerId === provider && p.externalId === validationModel,
 			),
 		);
 		const modelId = modelDef?.id;
@@ -202,7 +202,7 @@ export async function validateProviderKey(
 
 		// Check if max_tokens is supported
 		const providerMapping = modelDef?.providers.find(
-			(p) => p.providerId === provider && p.modelName === validationModel,
+			(p) => p.providerId === provider && p.externalId === validationModel,
 		);
 		const supportedParameters = (
 			providerMapping as ProviderModelMapping | undefined

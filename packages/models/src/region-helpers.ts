@@ -1,18 +1,18 @@
 import type { ProviderModelMapping } from "./models.js";
 
 /**
- * Strips the `:region` suffix from a model name that was expanded by expandProviderRegions.
+ * Strips the `:region` suffix from an externalId that was expanded by expandProviderRegions.
  * e.g., "deepseek-v3.2:singapore" → "deepseek-v3.2"
- * If the model name has no region suffix, returns it unchanged.
+ * If the externalId has no region suffix, returns it unchanged.
  */
-export function stripRegionFromModelName(
-	modelName: string,
+export function stripRegionFromExternalId(
+	externalId: string,
 	region?: string,
 ): string {
-	if (region && modelName.endsWith(`:${region}`)) {
-		return modelName.slice(0, -(region.length + 1));
+	if (region && externalId.endsWith(`:${region}`)) {
+		return externalId.slice(0, -(region.length + 1));
 	}
-	return modelName;
+	return externalId;
 }
 
 /**
@@ -37,10 +37,10 @@ export function expandProviderRegions(
 		...base,
 		...overrides,
 		region: id,
-		// Append :region to modelName so each region has a unique model identifier
-		// for routing and display. The gateway strips this suffix before sending
-		// the request to the upstream provider API.
-		modelName: `${base.modelName}:${id}`,
+		// Append :region to externalId so each region has a unique upstream
+		// identifier for routing and display. The gateway strips this suffix
+		// before sending the request to the upstream provider API.
+		externalId: `${base.externalId}:${id}`,
 	}));
 
 	return [base, ...regionEntries];

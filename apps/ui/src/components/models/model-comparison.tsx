@@ -410,7 +410,7 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 		<div className="flex flex-col gap-3">
 			{providers.map((provider) => (
 				<div
-					key={`${provider.providerId}-${provider.modelName}`}
+					key={`${provider.providerId}-${provider.externalId}`}
 					className="space-y-1"
 				>
 					<div className="flex items-center gap-2 text-base">
@@ -425,7 +425,7 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 						</span>
 					</div>
 					<div className="text-sm text-muted-foreground">
-						API: {provider.providerId}/{provider.modelName}
+						API: {provider.providerId}/{provider.externalId}
 					</div>
 					<StabilityBadge stability={provider.stability} />
 				</div>

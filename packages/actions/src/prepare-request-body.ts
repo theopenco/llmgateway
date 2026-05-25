@@ -999,12 +999,12 @@ export async function prepareRequestBody(
 	}
 
 	// Check if the model supports system role
-	// Look up by model ID first, then fall back to provider modelName
+	// Look up by model ID first, then fall back to provider externalId
 	const modelDef = models.find(
 		(m) =>
 			m.id === usedModel ||
 			m.providers.some(
-				(p) => p.modelName === usedModel && p.providerId === usedProvider,
+				(p) => p.externalId === usedModel && p.providerId === usedProvider,
 			),
 	);
 	const supportsSystemRole =
@@ -1147,7 +1147,7 @@ export async function prepareRequestBody(
 	let resolvedToolChoice = tool_choice;
 	if (tool_choice) {
 		const mapping = modelDef?.providers.find(
-			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+			(p) => p.externalId === usedModel && p.providerId === usedProvider,
 		) as ProviderModelMapping | undefined;
 		const supported = mapping?.supportedParameters;
 		const supportsToolChoice =
@@ -1165,7 +1165,7 @@ export async function prepareRequestBody(
 
 	if (forcesToolUse && usedProvider === "alibaba") {
 		const providerMapping = modelDef?.providers.find(
-			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+			(p) => p.externalId === usedModel && p.providerId === usedProvider,
 		);
 		const isExplicitThinkingModel =
 			providerMapping &&
@@ -1187,7 +1187,7 @@ export async function prepareRequestBody(
 
 	if (forcesToolUse && usedProvider === "moonshot") {
 		const providerMapping = modelDef?.providers.find(
-			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+			(p) => p.externalId === usedModel && p.providerId === usedProvider,
 		);
 		const isReasoningModel =
 			providerMapping &&
@@ -2580,11 +2580,11 @@ export async function prepareRequestBody(
 				// Check if the model supports reasoning_effort parameter
 				const modelDef = models.find((m) =>
 					m.providers.some(
-						(p) => p.providerId === usedProvider && p.modelName === usedModel,
+						(p) => p.providerId === usedProvider && p.externalId === usedModel,
 					),
 				);
 				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === usedProvider && p.modelName === usedModel,
+					(p) => p.providerId === usedProvider && p.externalId === usedModel,
 				) as ProviderModelMapping | undefined;
 				const supported = providerMapping?.supportedParameters;
 				if (

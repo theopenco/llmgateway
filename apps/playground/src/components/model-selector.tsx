@@ -682,8 +682,8 @@ function ModelEntryRowComponent({
 	}
 
 	const ProviderIcon = provider ? getProviderIcon(provider.id) : null;
-	const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
-	const providerModelValue = `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
+	const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.externalId}`;
+	const providerModelValue = `${mapping!.providerId}/${mapping!.region ? mapping!.externalId : model.id}`;
 	const disabled = isOptionDisabled?.(providerModelValue) ?? false;
 	const disabledReason = getOptionDisabledReason?.(providerModelValue);
 	const isUnstable = isModelUnstable(mapping!, model);
@@ -869,8 +869,8 @@ export function ModelSelector({
 		? selectedModelIdRaw.split(":")[0]
 		: selectedModelIdRaw;
 	// First try root model id, then fall back to finding a model whose mapping
-	// modelName matches the raw value (needed for regional models where the URL
-	// encodes the provider-specific modelName rather than the root model id).
+	// externalId matches the raw value (needed for regional models where the URL
+	// encodes the provider-specific externalId rather than the root model id).
 	const selectedModel =
 		models.find((m) => m.id === selectedModelId) ??
 		(selectedProviderId
@@ -878,7 +878,7 @@ export function ModelSelector({
 					m.mappings.some(
 						(mp) =>
 							mp.providerId === selectedProviderId &&
-							mp.modelName === selectedModelIdRaw,
+							mp.externalId === selectedModelIdRaw,
 					),
 				)
 			: undefined);
@@ -892,7 +892,7 @@ export function ModelSelector({
 		selectedModel?.mappings.find(
 			(p) =>
 				p.providerId === selectedProviderId &&
-				p.modelName === selectedModelIdRaw,
+				p.externalId === selectedModelIdRaw,
 		) ??
 		(!hasRegionInValue
 			? selectedModel?.mappings.find(
@@ -902,7 +902,7 @@ export function ModelSelector({
 		selectedModel?.mappings.find((p) => p.providerId === selectedProviderId);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
-			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
+			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.externalId}`
 			: selectedModel
 				? selectedModel.id
 				: "";
@@ -1090,7 +1090,7 @@ export function ModelSelector({
 					return isFavorite(e.model.id);
 				}
 				const mappingId = e.mapping
-					? `${e.mapping.providerId}/${e.mapping.region ? e.mapping.modelName : e.model.id}`
+					? `${e.mapping.providerId}/${e.mapping.region ? e.mapping.externalId : e.model.id}`
 					: null;
 				return mappingId !== null && isFavorite(mappingId);
 			});
@@ -1182,7 +1182,7 @@ export function ModelSelector({
 		}
 
 		// Prefer provider-specific entry when a provider is selected
-		// Match on modelName to distinguish regional variants
+		// Match on externalId to distinguish regional variants
 		let entry =
 			selectedProviderId &&
 			allEntries.find(
@@ -1191,7 +1191,7 @@ export function ModelSelector({
 					e.model.id === selectedModel.id &&
 					e.mapping?.providerId === selectedProviderId &&
 					(!selectedMapping ||
-						e.mapping?.modelName === selectedMapping.modelName),
+						e.mapping?.externalId === selectedMapping.externalId),
 			);
 
 		// Fallback to root entry for the selected model
@@ -1255,7 +1255,7 @@ export function ModelSelector({
 				const { model, mapping, isRoot } = entry;
 				const value = isRoot
 					? model.id
-					: `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
+					: `${mapping!.providerId}/${mapping!.region ? mapping!.externalId : model.id}`;
 				const disabled = isRoot
 					? (isOptionDisabled?.(model.id) ?? false)
 					: (isOptionDisabled?.(value) ?? false);

@@ -4434,7 +4434,7 @@ export interface paths {
                             };
                             models: {
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 mappingId: string;
                                 region: string | null;
                                 status: string;
@@ -4492,7 +4492,7 @@ export interface paths {
                             mapping: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 providerId: string;
                                 providerName: string;
                                 region: string | null;
@@ -4866,7 +4866,7 @@ export interface paths {
                             mappings: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 providerId: string;
                                 providerName: string;
@@ -11656,7 +11656,7 @@ export interface operations {
                                 createdAt: string | null;
                                 modelId: string;
                                 providerId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;

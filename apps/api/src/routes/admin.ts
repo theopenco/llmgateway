@@ -2598,7 +2598,7 @@ const validProviderIds = new Set<string>(providers.map((p) => p.id));
 
 // Build a map of provider -> Set of valid root model IDs served by that provider.
 // Only root model IDs are accepted as discount/rate-limit targets — the
-// provider-specific modelName is reserved for upstream requests only.
+// provider-specific externalId is reserved for upstream requests only.
 const providerModelMappings = new Map<string, Set<string>>();
 for (const model of models) {
 	for (const mapping of model.providers) {
@@ -3095,7 +3095,7 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
 	// modelId is the canonical root model id — the provider-specific upstream
-	// modelName is never exposed here or stored as a discount target. modelName
+	// externalId is never exposed here or stored as a discount target. modelName
 	// in this response is the root model's human-readable display name.
 	const mappings: Array<{
 		providerId: string;
@@ -3540,7 +3540,7 @@ const getAvailableRateLimitOptions = createRoute({
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
 	// modelId is the canonical root model id — the provider-specific upstream
-	// modelName is never exposed here or stored as a rate-limit target.
+	// externalId is never exposed here or stored as a rate-limit target.
 	// modelName in this response is the root model's human-readable display
 	// name.
 	const mappings: Array<{
@@ -5817,7 +5817,7 @@ admin.openapi(getMappingHistory, async (c) => {
 // Provider detail – aggregated stats + per-model breakdown for the window
 const providerModelStatsSchema = z.object({
 	modelId: z.string(),
-	modelName: z.string(),
+	externalId: z.string(),
 	mappingId: z.string(),
 	region: z.string().nullable(),
 	status: z.string(),
@@ -5891,7 +5891,7 @@ admin.openapi(getProviderDetail, async (c) => {
 			.select({
 				id: tables.modelProviderMapping.id,
 				modelId: tables.modelProviderMapping.modelId,
-				modelName: tables.modelProviderMapping.modelName,
+				externalId: tables.modelProviderMapping.externalId,
 				region: tables.modelProviderMapping.region,
 				status: tables.modelProviderMapping.status,
 				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
@@ -5956,7 +5956,7 @@ admin.openapi(getProviderDetail, async (c) => {
 		const avgTtft = nonCached > 0 ? totalTtft / nonCached : null;
 		return {
 			modelId: m.modelId,
-			modelName: m.modelName,
+			externalId: m.externalId,
 			mappingId: m.id,
 			region: m.region,
 			status: m.status,
@@ -6032,7 +6032,7 @@ const mappingDetailSchema = z.object({
 	mapping: z.object({
 		id: z.string(),
 		modelId: z.string(),
-		modelName: z.string(),
+		externalId: z.string(),
 		providerId: z.string(),
 		providerName: z.string(),
 		region: z.string().nullable(),
@@ -6096,7 +6096,7 @@ admin.openapi(getMappingDetail, async (c) => {
 		.select({
 			id: tables.modelProviderMapping.id,
 			modelId: tables.modelProviderMapping.modelId,
-			modelName: tables.modelProviderMapping.modelName,
+			externalId: tables.modelProviderMapping.externalId,
 			providerId: tables.modelProviderMapping.providerId,
 			providerName: tables.provider.name,
 			region: tables.modelProviderMapping.region,
@@ -6210,7 +6210,7 @@ admin.openapi(getMappingDetail, async (c) => {
 		mapping: {
 			id: m.id,
 			modelId: m.modelId,
-			modelName: m.modelName,
+			externalId: m.externalId,
 			providerId: m.providerId,
 			providerName: m.providerName,
 			region: m.region,
@@ -6979,7 +6979,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 const modelProviderMappingEntrySchema = z.object({
 	id: z.string(),
 	modelId: z.string(),
-	modelName: z.string(),
+	externalId: z.string(),
 	region: z.string().nullable(),
 	providerId: z.string(),
 	providerName: z.string(),
@@ -7208,7 +7208,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 			.select({
 				id: tables.modelProviderMapping.id,
 				modelId: tables.modelProviderMapping.modelId,
-				modelName: tables.modelProviderMapping.modelName,
+				externalId: tables.modelProviderMapping.externalId,
 				region: tables.modelProviderMapping.region,
 				providerId: tables.modelProviderMapping.providerId,
 				providerName: tables.provider.name,
@@ -7259,7 +7259,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		mappings: rows.map((r) => ({
 			id: r.id,
 			modelId: r.modelId,
-			modelName: r.modelName,
+			externalId: r.externalId,
 			region: r.region,
 			providerId: r.providerId,
 			providerName: r.providerName,

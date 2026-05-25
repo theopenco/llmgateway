@@ -115,7 +115,7 @@ import {
 	expandAllProviderRegions,
 	getProviderDefinition,
 	getRegionSpecificEnvVarName,
-	stripRegionFromModelName,
+	stripRegionFromExternalId,
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
@@ -2052,7 +2052,7 @@ chat.openapi(completions, async (c) => {
 
 			if (cheapestResult) {
 				usedProvider = cheapestResult.provider.providerId;
-				usedModel = cheapestResult.provider.modelName;
+				usedModel = cheapestResult.provider.externalId;
 				usedRegion = cheapestResult.provider.region;
 				routingMetadata = {
 					...cheapestResult.metadata,
@@ -2061,7 +2061,7 @@ chat.openapi(completions, async (c) => {
 			} else {
 				// Fallback to first available provider if price comparison fails
 				usedProvider = selectedProviders[0].providerId;
-				usedModel = selectedProviders[0].modelName;
+				usedModel = selectedProviders[0].externalId;
 			}
 		} else {
 			if (free_models_only) {
@@ -2205,7 +2205,7 @@ chat.openapi(completions, async (c) => {
 				const providerKey = await findProviderKey(
 					project.organizationId,
 					usedProvider,
-					modelInfo.id || stripRegionFromModelName(usedModel, usedRegion),
+					modelInfo.id || stripRegionFromExternalId(usedModel, usedRegion),
 				);
 				lockedRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -2267,11 +2267,11 @@ chat.openapi(completions, async (c) => {
 					selectedMapping = bestRegionResult?.provider ?? eligibleMappings[0];
 				}
 
-				usedModel = selectedMapping.modelName;
+				usedModel = selectedMapping.externalId;
 				usedRegion = selectedMapping.region;
 			}
 		} else if (sameProviderMappings.length === 1) {
-			usedModel = sameProviderMappings[0].modelName;
+			usedModel = sameProviderMappings[0].externalId;
 			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
 		}
 
@@ -2281,7 +2281,7 @@ chat.openapi(completions, async (c) => {
 			) as ProviderModelMapping | undefined;
 			if (firstRegionalMatch) {
 				usedRegion = firstRegionalMatch.region;
-				usedModel = firstRegionalMatch.modelName;
+				usedModel = firstRegionalMatch.externalId;
 			}
 		}
 	}
@@ -2468,7 +2468,7 @@ chat.openapi(completions, async (c) => {
 
 						if (cheapestResult) {
 							usedProvider = cheapestResult.provider.providerId;
-							usedModel = cheapestResult.provider.modelName;
+							usedModel = cheapestResult.provider.externalId;
 							usedRegion = cheapestResult.provider.region;
 							routingMetadata = {
 								...cheapestResult.metadata,
@@ -2655,7 +2655,7 @@ chat.openapi(completions, async (c) => {
 
 							if (cheapestResult) {
 								usedProvider = cheapestResult.provider.providerId;
-								usedModel = cheapestResult.provider.modelName;
+								usedModel = cheapestResult.provider.externalId;
 								usedRegion = cheapestResult.provider.region;
 								routingMetadata = {
 									...cheapestResult.metadata,
@@ -2690,7 +2690,7 @@ chat.openapi(completions, async (c) => {
 
 		if (iamFilteredModelProviders.length === 1) {
 			usedProvider = iamFilteredModelProviders[0].providerId;
-			usedModel = iamFilteredModelProviders[0].modelName;
+			usedModel = iamFilteredModelProviders[0].externalId;
 			usedRegion = iamFilteredModelProviders[0].region;
 		} else {
 			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
@@ -2774,7 +2774,7 @@ chat.openapi(completions, async (c) => {
 				contentFilterPreferredProviders.map((p) => ({
 					providerId: p.providerId,
 					model: (modelInfo as ModelDefinition).id,
-					providerModelName: p.modelName,
+					providerExternalId: p.externalId,
 				})),
 			);
 			const nonRateLimitedProviders = contentFilterPreferredProviders.filter(
@@ -2870,7 +2870,8 @@ chat.openapi(completions, async (c) => {
 					}
 
 					usedProvider = selectedProvider.providerId;
-					usedModel = selectedProvider.modelName;
+					usedInternalModel = modelWithPricing.id;
+					usedExternalId = selectedProvider.externalId;
 					usedRegion = selectedProvider.region;
 					routingMetadata = addContentFilterRoutingMetadata(
 						{
@@ -2911,12 +2912,12 @@ chat.openapi(completions, async (c) => {
 					}
 				} else {
 					usedProvider = routingCandidates[0].providerId;
-					usedModel = routingCandidates[0].modelName;
+					usedModel = routingCandidates[0].externalId;
 					usedRegion = routingCandidates[0].region;
 				}
 			} else {
 				usedProvider = contentFilterPreferredProviders[0].providerId;
-				usedModel = contentFilterPreferredProviders[0].modelName;
+				usedModel = contentFilterPreferredProviders[0].externalId;
 				usedRegion = contentFilterPreferredProviders[0].region;
 			}
 		}
@@ -2956,7 +2957,7 @@ chat.openapi(completions, async (c) => {
 				const providerKey = await findProviderKey(
 					project.organizationId,
 					requestedProvider,
-					modelInfo.id || stripRegionFromModelName(usedModel, usedRegion),
+					modelInfo.id || stripRegionFromExternalId(usedModel, usedRegion),
 				);
 				explicitDirectRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -2995,11 +2996,11 @@ chat.openapi(completions, async (c) => {
 				const selectedDirectProvider =
 					routingMetadataProviders.find(
 						(provider) =>
-							provider.modelName === usedModel &&
+							provider.externalId === usedModel &&
 							provider.region === usedRegion,
 					) ??
 					routingMetadataProviders.find(
-						(provider) => provider.modelName === usedModel,
+						(provider) => provider.externalId === usedModel,
 					);
 
 				routingMetadataProviders = selectedDirectProvider
@@ -3082,7 +3083,7 @@ chat.openapi(completions, async (c) => {
 	let finalModelInfo: ModelDefinition | undefined;
 	usedRegion ??= (
 		modelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.modelName === usedModel,
+			(p) => p.providerId === usedProvider && p.externalId === usedModel,
 		) as ProviderModelMapping | undefined
 	)?.region;
 
@@ -3093,7 +3094,7 @@ chat.openapi(completions, async (c) => {
 			providers: [
 				{
 					providerId: "custom" as const,
-					modelName: usedModel,
+					externalId: usedModel,
 					inputPrice: "0",
 					outputPrice: "0",
 					contextSize: 8192,
@@ -3104,12 +3105,12 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	} else {
-		const baseUsedModel = stripRegionFromModelName(usedModel, usedRegion);
+		const baseUsedModel = stripRegionFromExternalId(usedModel, usedRegion);
 		const rawFinalModelInfo =
 			models.find(
 				(m) =>
 					(m.id === baseUsedModel ||
-						m.providers.some((p) => p.modelName === baseUsedModel)) &&
+						m.providers.some((p) => p.externalId === baseUsedModel)) &&
 					m.providers.some((p) => p.providerId === usedProvider),
 			) ??
 			models.find(
@@ -3117,7 +3118,7 @@ chat.openapi(completions, async (c) => {
 					m.id === baseUsedModel ||
 					m.providers.some(
 						(p) =>
-							p.modelName === baseUsedModel && p.providerId === usedProvider,
+							p.externalId === baseUsedModel && p.providerId === usedProvider,
 					),
 			);
 		if (rawFinalModelInfo) {
@@ -3131,13 +3132,13 @@ chat.openapi(completions, async (c) => {
 	// Use the canonical model ID from finalModelInfo (looked up after routing)
 	// Fall back to usedModel (raw provider model name) for custom providers
 	let baseModelName =
-		finalModelInfo?.id ?? stripRegionFromModelName(usedModel, usedRegion);
+		finalModelInfo?.id ?? stripRegionFromExternalId(usedModel, usedRegion);
 
 	// Check if this is an image generation model
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
 		(p) =>
 			p.providerId === usedProvider &&
-			p.modelName === usedModel &&
+			p.externalId === usedModel &&
 			p.region === usedRegion,
 	);
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
@@ -3705,7 +3706,7 @@ chat.openapi(completions, async (c) => {
 	const selectedProviderMapping = modelInfo.providers.find(
 		(p) =>
 			p.providerId === usedProvider &&
-			p.modelName === usedModel &&
+			p.externalId === usedModel &&
 			p.region === usedRegion,
 	);
 	let supportsReasoning = selectedProviderMapping?.reasoning === true;
@@ -3720,7 +3721,7 @@ chat.openapi(completions, async (c) => {
 
 	// Strip :region suffix, then apply azure_deployment_name override if set
 	// so users can target deployments whose names differ from the registry.
-	const strippedModelName = stripRegionFromModelName(usedModel, usedRegion);
+	const strippedModelName = stripRegionFromExternalId(usedModel, usedRegion);
 	const azureDeploymentName =
 		usedProvider === "azure"
 			? providerKey?.options?.azure_deployment_name
@@ -4230,7 +4231,7 @@ chat.openapi(completions, async (c) => {
 		const providerMapping = finalModelInfo.providers.find(
 			(p) =>
 				p.providerId === usedProvider &&
-				p.modelName === usedModel &&
+				p.externalId === usedModel &&
 				p.region === usedRegion,
 		);
 
@@ -4286,7 +4287,7 @@ chat.openapi(completions, async (c) => {
 		const providerMapping = finalModelInfo.providers.find(
 			(p) =>
 				p.providerId === usedProvider &&
-				p.modelName === usedModel &&
+				p.externalId === usedModel &&
 				p.region === usedRegion,
 		);
 
@@ -4314,7 +4315,7 @@ chat.openapi(completions, async (c) => {
 		const providerMapping = finalModelInfo.providers.find(
 			(p) =>
 				p.providerId === usedProvider &&
-				p.modelName === usedModel &&
+				p.externalId === usedModel &&
 				p.region === usedRegion,
 		);
 		const supported = providerMapping?.supportedParameters;
@@ -4515,7 +4516,7 @@ chat.openapi(completions, async (c) => {
 		const providerMapping = finalModelInfo.providers.find(
 			(p) =>
 				p.providerId === usedProvider &&
-				p.modelName === usedModel &&
+				p.externalId === usedModel &&
 				p.region === usedRegion,
 		);
 		if (
@@ -4600,7 +4601,7 @@ chat.openapi(completions, async (c) => {
 	async function resolveProviderContextForRetry(
 		providerMapping: {
 			providerId: string;
-			modelName: string;
+			externalId: string;
 			region?: string;
 		},
 		streamValue: boolean,
@@ -4722,7 +4723,7 @@ chat.openapi(completions, async (c) => {
 			const nextContext = await resolveProviderContextForRetry(
 				{
 					providerId: usedProvider,
-					modelName: usedModel,
+					externalId: usedModel,
 					region: usedRegion,
 				},
 				streamValue,

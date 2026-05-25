@@ -12,7 +12,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-3-7-sonnet-latest",
+				externalId: "claude-3-7-sonnet-latest",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -34,7 +34,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-3-7-sonnet-20250219-v1:0",
+				externalId: "anthropic.claude-3-7-sonnet-20250219-v1:0",
 				deprecatedAt: new Date("2025-10-28"),
 				deactivatedAt: new Date("2026-04-28"),
 				inputPrice: "3.0e-6",
@@ -65,7 +65,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-3-5-haiku-20241022",
+				externalId: "claude-3-5-haiku-20241022",
 				inputPrice: "0.8e-6",
 				outputPrice: "4.0e-6",
 				cachedInputPrice: "0.08e-6",
@@ -97,7 +97,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-3-7-sonnet-20250219",
+				externalId: "claude-3-7-sonnet-20250219",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -128,7 +128,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-3-5-sonnet-20241022",
+				externalId: "claude-3-5-sonnet-20241022",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -149,7 +149,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+				externalId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
 				deprecatedAt: new Date("2025-10-28"),
 				deactivatedAt: new Date("2026-04-28"),
 				inputPrice: "3.0e-6",
@@ -177,7 +177,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-2.1",
+				externalId: "claude-2.1",
 				inputPrice: "8.0e-6",
 				outputPrice: "24.0e-6",
 				requestPrice: "0",
@@ -201,7 +201,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-sonnet-4-20250514",
+				externalId: "claude-sonnet-4-20250514",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -223,7 +223,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-sonnet-4-20250514-v1:0",
+				externalId: "anthropic.claude-sonnet-4-20250514-v1:0",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -253,7 +253,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-sonnet-4-5",
+				externalId: "claude-sonnet-4-5",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -275,7 +275,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+				externalId: "anthropic.claude-sonnet-4-5-20250929-v1:0",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -296,7 +296,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "vertex-anthropic",
-				modelName: "claude-sonnet-4-5",
+				externalId: "claude-sonnet-4-5",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -324,7 +324,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-sonnet-4-5-20250929",
+				externalId: "claude-sonnet-4-5-20250929",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -346,7 +346,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+				externalId: "anthropic.claude-sonnet-4-5-20250929-v1:0",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -376,7 +376,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-sonnet-4-6",
+				externalId: "claude-sonnet-4-6",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -397,7 +397,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-sonnet-4-6",
+				externalId: "anthropic.claude-sonnet-4-6",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -419,7 +419,7 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "google-vertex",
 				stability: "unstable" as const,
-				modelName: "claude-sonnet-4-6",
+				externalId: "claude-sonnet-4-6",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -436,7 +436,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "vertex-anthropic",
-				modelName: "claude-sonnet-4-6",
+				externalId: "claude-sonnet-4-6",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -463,7 +463,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-haiku-4-5",
+				externalId: "claude-haiku-4-5",
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -483,7 +483,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-haiku-4-5-20251001-v1:0",
+				externalId: "anthropic.claude-haiku-4-5-20251001-v1:0",
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -502,7 +502,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "vertex-anthropic",
-				modelName: "claude-haiku-4-5",
+				externalId: "claude-haiku-4-5",
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -528,7 +528,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-haiku-4-5-20251001",
+				externalId: "claude-haiku-4-5-20251001",
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -548,7 +548,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-haiku-4-5-20251001-v1:0",
+				externalId: "anthropic.claude-haiku-4-5-20251001-v1:0",
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -578,7 +578,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-opus-4-20250514",
+				externalId: "claude-opus-4-20250514",
 				inputPrice: "15.0e-6",
 				outputPrice: "75.0e-6",
 				cachedInputPrice: "1.5e-6",
@@ -600,7 +600,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-opus-4-20250514-v1:0",
+				externalId: "anthropic.claude-opus-4-20250514-v1:0",
 				inputPrice: "15.0e-6",
 				outputPrice: "75.0e-6",
 				cachedInputPrice: "1.5e-6",
@@ -629,7 +629,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-opus-4-1-20250805",
+				externalId: "claude-opus-4-1-20250805",
 				inputPrice: "15.0e-6",
 				outputPrice: "75.0e-6",
 				cachedInputPrice: "1.5e-6",
@@ -651,7 +651,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-opus-4-1-20250805-v1:0",
+				externalId: "anthropic.claude-opus-4-1-20250805-v1:0",
 				inputPrice: "15.0e-6",
 				outputPrice: "75.0e-6",
 				cachedInputPrice: "1.5e-6",
@@ -680,7 +680,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-3-5-sonnet-20240620",
+				externalId: "claude-3-5-sonnet-20240620",
 				deactivatedAt: new Date("2025-10-28"),
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
@@ -708,7 +708,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-3-5-sonnet-latest",
+				externalId: "claude-3-5-sonnet-latest",
 				deactivatedAt: new Date("2025-10-28"),
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
@@ -737,7 +737,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-3-5-haiku-latest",
+				externalId: "claude-3-5-haiku-latest",
 				inputPrice: "0.8e-6",
 				outputPrice: "4.0e-6",
 				cachedInputPrice: "0.08e-6",
@@ -758,7 +758,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-3-5-haiku-20241022-v1:0",
+				externalId: "anthropic.claude-3-5-haiku-20241022-v1:0",
 				deprecatedAt: new Date("2025-10-28"),
 				deactivatedAt: new Date("2026-04-28"),
 				inputPrice: "0.8e-6",
@@ -787,7 +787,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-3-opus-20240229",
+				externalId: "claude-3-opus-20240229",
 				inputPrice: "15.0e-6",
 				outputPrice: "75.0e-6",
 				cachedInputPrice: "1.5e-6",
@@ -813,7 +813,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-3-haiku-20240307",
+				externalId: "claude-3-haiku-20240307",
 				inputPrice: "0.25e-6",
 				outputPrice: "1.25e-6",
 				cachedInputPrice: "0.03e-6",
@@ -841,7 +841,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-3-haiku-20240307",
+				externalId: "claude-3-haiku-20240307",
 				inputPrice: "0.25e-6",
 				outputPrice: "1.25e-6",
 				cachedInputPrice: "0.03e-6",
@@ -870,7 +870,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-opus-4-5-20251101",
+				externalId: "claude-opus-4-5-20251101",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -893,7 +893,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-opus-4-5-20251101-v1:0",
+				externalId: "anthropic.claude-opus-4-5-20251101-v1:0",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -915,7 +915,7 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "google-vertex",
 				stability: "unstable" as const,
-				modelName: "claude-opus-4-5@20251101",
+				externalId: "claude-opus-4-5@20251101",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -933,7 +933,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "vertex-anthropic",
-				modelName: "claude-opus-4-5",
+				externalId: "claude-opus-4-5",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -962,7 +962,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "anthropic",
-				modelName: "claude-opus-4-6",
+				externalId: "claude-opus-4-6",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1005,7 +1005,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-opus-4-6-v1",
+				externalId: "anthropic.claude-opus-4-6-v1",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1026,7 +1026,7 @@ export const anthropicModels = [
 			{
 				test: "skip",
 				providerId: "vertex-anthropic",
-				modelName: "claude-opus-4-6",
+				externalId: "claude-opus-4-6",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1054,7 +1054,7 @@ export const anthropicModels = [
 		providers: [
 			{
 				providerId: "anthropic",
-				modelName: "claude-opus-4-7",
+				externalId: "claude-opus-4-7",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1099,7 +1099,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "aws-bedrock",
-				modelName: "anthropic.claude-opus-4-7",
+				externalId: "anthropic.claude-opus-4-7",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1119,7 +1119,7 @@ export const anthropicModels = [
 			},
 			{
 				providerId: "vertex-anthropic",
-				modelName: "claude-opus-4-7",
+				externalId: "claude-opus-4-7",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",

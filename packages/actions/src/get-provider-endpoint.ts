@@ -13,14 +13,14 @@ import type { ProviderKeyOptions } from "@llmgateway/db";
 function buildVertexCompatibleEndpoint(
 	provider: "google-vertex" | "quartz",
 	url: string,
-	modelName: string | undefined,
+	externalId: string | undefined,
 	token: string | undefined,
 	stream: boolean | undefined,
 	configIndex: number | undefined,
 	providerKeyOptions?: ProviderKeyOptions,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
-	const model = modelName ?? "gemini-2.5-flash-lite";
+	const model = externalId ?? "gemini-2.5-flash-lite";
 
 	const projectId =
 		providerKeyOptions?.google_vertex_project_id ??
@@ -65,7 +65,7 @@ export function getProviderEndpoint(
 	region?: string,
 	skipEnvVars?: boolean,
 ): string {
-	let modelName = model;
+	let externalId = model;
 	if (model && model !== "custom") {
 		const modelInfo = models.find((m) => m.id === model);
 		if (modelInfo) {
@@ -73,7 +73,7 @@ export function getProviderEndpoint(
 				(p) => p.providerId === provider,
 			);
 			if (providerMapping) {
-				modelName = providerMapping.modelName;
+				externalId = providerMapping.externalId;
 			}
 		}
 	}
@@ -321,8 +321,8 @@ export function getProviderEndpoint(
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = modelName
-				? `${url}/v1beta/models/${modelName}:${endpoint}`
+			const baseEndpoint = externalId
+				? `${url}/v1beta/models/${externalId}:${endpoint}`
 				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
 			const queryParams = [];
 			if (token) {
@@ -337,8 +337,8 @@ export function getProviderEndpoint(
 		}
 		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = modelName
-				? `${url}/v1beta/models/${modelName}:${endpoint}`
+			const baseEndpoint = externalId
+				? `${url}/v1beta/models/${externalId}:${endpoint}`
 				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
 			const queryParams = [];
 			if (token) {
@@ -356,7 +356,7 @@ export function getProviderEndpoint(
 			return buildVertexCompatibleEndpoint(
 				provider,
 				url,
-				modelName,
+				externalId,
 				token,
 				stream,
 				configIndex,
@@ -369,7 +369,7 @@ export function getProviderEndpoint(
 			if (!projectId) {
 				const providerEnv = getProviderEnvConfig("vertex-openai");
 				throw new Error(
-					`${providerEnv?.required.project ?? "LLM_VERTEX_OPENAI_PROJECT"} environment variable is required for vertex-openai model "${modelName}"`,
+					`${providerEnv?.required.project ?? "LLM_VERTEX_OPENAI_PROJECT"} environment variable is required for vertex-openai model "${externalId}"`,
 				);
 			}
 			const vertexRegion =
@@ -407,7 +407,7 @@ export function getProviderEndpoint(
 				);
 			}
 
-			const vaModel = modelName ?? "claude-sonnet-4-6";
+			const vaModel = externalId ?? "claude-sonnet-4-6";
 			const vaEndpoint = stream ? "streamRawPredict" : "rawPredict";
 			return `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
 		}
@@ -427,7 +427,7 @@ export function getProviderEndpoint(
 				"global.";
 
 			const endpoint = stream ? "converse-stream" : "converse";
-			return `${url}/model/${prefix}${modelName}/${endpoint}`;
+			return `${url}/model/${prefix}${externalId}/${endpoint}`;
 		}
 		case "azure": {
 			const deploymentType =
@@ -458,9 +458,9 @@ export function getProviderEndpoint(
 						providerKeyOptions?.azure_api_version ??
 						getProviderEnvValue("azure", "apiVersion", configIndex) ??
 						"2025-04-01-preview";
-					return `${url}/openai/deployments/${modelName}/images/generations?api-version=${imageApiVersion}`;
+					return `${url}/openai/deployments/${externalId}/images/generations?api-version=${imageApiVersion}`;
 				}
-				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
+				return `${url}/openai/deployments/${externalId}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
 				if (imageGenerations) {
@@ -480,7 +480,7 @@ export function getProviderEndpoint(
 						(m) =>
 							m.id === model ||
 							m.providers.some(
-								(p) => p.modelName === model && p.providerId === "azure",
+								(p) => p.externalId === model && p.providerId === "azure",
 							),
 					);
 					const providerMapping = modelDef?.providers.find(
@@ -515,12 +515,12 @@ export function getProviderEndpoint(
 			}
 			// Use responses endpoint for models that support responses API
 			if (model) {
-				// Look up by model ID first, then fall back to provider modelName
+				// Look up by model ID first, then fall back to provider externalId
 				const modelDef = models.find(
 					(m) =>
 						m.id === model ||
 						m.providers.some(
-							(p) => p.modelName === model && p.providerId === "openai",
+							(p) => p.externalId === model && p.providerId === "openai",
 						),
 				);
 				const providerMapping = modelDef?.providers.find(
