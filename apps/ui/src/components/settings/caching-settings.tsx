@@ -31,6 +31,7 @@ const cachingFormSchema = z.object({
 			31536000,
 			"Cache duration must not exceed 31,536,000 seconds (1 year)",
 		),
+	providerCacheControlEnabled: z.boolean(),
 });
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
@@ -58,6 +59,8 @@ export function CachingSettings({
 				initialData.preferences.preferences.cachingEnabled ?? false,
 			cacheDurationSeconds:
 				initialData.preferences.preferences.cacheDurationSeconds ?? 60,
+			providerCacheControlEnabled:
+				initialData.preferences.preferences.providerCacheControlEnabled ?? true,
 		},
 	});
 
@@ -81,6 +84,7 @@ export function CachingSettings({
 				body: {
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
+					providerCacheControlEnabled: data.providerCacheControlEnabled,
 				},
 			});
 
@@ -155,6 +159,42 @@ export function CachingSettings({
 									effect.
 								</FormDescription>
 								<FormMessage />
+							</FormItem>
+						)}
+					/>
+
+					<Separator />
+
+					<div>
+						<h4 className="text-base font-medium">Provider Cache Writes</h4>
+						<p className="text-muted-foreground text-sm">
+							Anthropic and AWS Bedrock (Claude) only
+						</p>
+					</div>
+
+					<FormField
+						control={form.control}
+						name="providerCacheControlEnabled"
+						render={({ field }) => (
+							<FormItem className="flex flex-row items-start space-x-3 space-y-0">
+								<FormControl>
+									<Switch
+										checked={field.value}
+										onCheckedChange={field.onChange}
+									/>
+								</FormControl>
+								<div className="space-y-1 leading-none">
+									<FormLabel>Auto-mark long prompts as cacheable</FormLabel>
+									<FormDescription>
+										When enabled, the gateway automatically marks long system
+										and user prompts so the provider can cache them across
+										requests. Cache writes are billed at 1.25× (5m) or 2× (1h)
+										the input price; reads are 0.1×. Disable this if you send
+										long prompts sporadically — you&apos;ll pay the write
+										premium without benefiting from cache reads. Note: changing
+										this setting may take up to 5 minutes to take effect.
+									</FormDescription>
+								</div>
 							</FormItem>
 						)}
 					/>

@@ -683,6 +683,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -707,6 +708,7 @@ export interface paths {
                         name: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -728,6 +730,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -854,6 +857,7 @@ export interface paths {
                         name?: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                         /** @enum {string} */
@@ -877,6 +881,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7135,6 +7140,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7210,6 +7216,7 @@ export interface paths {
                         name?: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -7232,6 +7239,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7289,6 +7297,7 @@ export interface paths {
                         organizationId: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -7310,6 +7319,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -8014,6 +8024,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */

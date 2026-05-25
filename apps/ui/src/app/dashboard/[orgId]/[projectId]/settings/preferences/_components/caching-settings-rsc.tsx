@@ -49,6 +49,7 @@ export const CachingSettingsRsc = async ({
 			preferences: {
 				cachingEnabled: project.cachingEnabled,
 				cacheDurationSeconds: project.cacheDurationSeconds,
+				providerCacheControlEnabled: project.providerCacheControlEnabled,
 			},
 		},
 	};

@@ -122,6 +122,7 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	providerCacheControlEnabled: z.boolean(),
 	mode: projectModeEnum,
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 });
@@ -130,6 +131,7 @@ const createProjectBody = z.object({
 	name: z.string().min(1).max(255),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+	providerCacheControlEnabled: z.boolean().optional(),
 	mode: projectModeEnum.optional(),
 });
 
@@ -313,6 +315,7 @@ const updateProjectBody = z
 		name: z.string().min(1).max(255).optional(),
 		cachingEnabled: z.boolean().optional(),
 		cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+		providerCacheControlEnabled: z.boolean().optional(),
 		mode: projectModeEnum.optional(),
 		status: z.enum(["active", "inactive"]).optional(),
 	})

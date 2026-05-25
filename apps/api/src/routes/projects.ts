@@ -20,6 +20,7 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 });
@@ -29,6 +30,7 @@ const createProjectSchema = z.object({
 	organizationId: z.string().min(1),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 });
 
@@ -36,6 +38,7 @@ const updateProjectSchema = z.object({
 	name: z.string().min(1).max(255).optional(),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
+	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 });
 
@@ -154,8 +157,13 @@ projects.openapi(updateProject, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { name, cachingEnabled, cacheDurationSeconds, mode } =
-		c.req.valid("json");
+	const {
+		name,
+		cachingEnabled,
+		cacheDurationSeconds,
+		providerCacheControlEnabled,
+		mode,
+	} = c.req.valid("json");
 
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -201,6 +209,10 @@ projects.openapi(updateProject, async (c) => {
 		updateData.cacheDurationSeconds = cacheDurationSeconds;
 	}
 
+	if (providerCacheControlEnabled !== undefined) {
+		updateData.providerCacheControlEnabled = providerCacheControlEnabled;
+	}
+
 	if (mode !== undefined) {
 		updateData.mode = mode;
 	}
@@ -232,6 +244,15 @@ projects.openapi(updateProject, async (c) => {
 		changes.cacheDurationSeconds = {
 			old: project.cacheDurationSeconds,
 			new: cacheDurationSeconds,
+		};
+	}
+	if (
+		providerCacheControlEnabled !== undefined &&
+		providerCacheControlEnabled !== project.providerCacheControlEnabled
+	) {
+		changes.providerCacheControlEnabled = {
+			old: project.providerCacheControlEnabled,
+			new: providerCacheControlEnabled,
 		};
 	}
 	if (mode !== undefined && mode !== project.mode) {
@@ -305,6 +326,7 @@ export interface CreateProjectInput {
 	name: string;
 	cachingEnabled?: boolean;
 	cacheDurationSeconds?: number;
+	providerCacheControlEnabled?: boolean;
 	mode?: "api-keys" | "credits" | "hybrid";
 }
 
@@ -318,6 +340,7 @@ export async function createProjectForOrg(
 		name,
 		cachingEnabled = false,
 		cacheDurationSeconds = 60,
+		providerCacheControlEnabled = true,
 		mode = "hybrid",
 	} = input;
 
@@ -372,6 +395,7 @@ export async function createProjectForOrg(
 			organizationId,
 			cachingEnabled,
 			cacheDurationSeconds,
+			providerCacheControlEnabled,
 			mode,
 		})
 		.returning();

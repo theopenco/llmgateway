@@ -16,6 +16,7 @@ import { processImageUrl } from "./process-image-url.js";
  * Transforms Anthropic messages
  * @param initialCacheControlCount - Number of cache_control blocks already used (e.g., from system messages)
  * @param minCacheableChars - Minimum number of characters for a text block to be cacheable (defaults to 4096, i.e., ~1024 tokens)
+ * @param providerCacheControlEnabled - When false, suppress the gateway's auto-injection of cache_control markers. Caller-supplied markers still pass through.
  */
 export async function transformAnthropicMessages(
 	messages: BaseMessage[],
@@ -26,12 +27,15 @@ export async function transformAnthropicMessages(
 	userPlan: "free" | "pro" | "enterprise" | null = null,
 	initialCacheControlCount = 0,
 	minCacheableChars = 1024 * 4,
+	providerCacheControlEnabled = true,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
 	// Determine if we should apply cache_control for long prompts
-	// Apply for anthropic provider only
-	const shouldApplyCacheControl = provider === "anthropic";
+	// Apply for anthropic provider only, and only when the project hasn't
+	// opted out of auto-injection.
+	const shouldApplyCacheControl =
+		provider === "anthropic" && providerCacheControlEnabled;
 
 	// Track cache_control usage to limit to maximum of 4 blocks total (including system messages)
 	let cacheControlCount = initialCacheControlCount;

@@ -3695,8 +3695,11 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Check if caching is enabled for this project
-	const { enabled: cachingEnabled, duration: cacheDuration } =
-		await isCachingEnabled(project.id);
+	const {
+		enabled: cachingEnabled,
+		duration: cacheDuration,
+		providerCacheControlEnabled,
+	} = await isCachingEnabled(project.id);
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
@@ -4319,6 +4322,7 @@ chat.openapi(completions, async (c) => {
 		useResponsesApi,
 		prompt_cache_key,
 		prompt_cache_retention,
+		providerCacheControlEnabled,
 	);
 
 	if (forceImageStreamUpstream) {
