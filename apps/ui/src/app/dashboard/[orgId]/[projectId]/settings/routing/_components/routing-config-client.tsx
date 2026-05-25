@@ -553,9 +553,7 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 							<CardDescription>
 								How many minutes of provider metrics are considered when
 								scoring, and how recent minutes are weighted relative to older
-								ones. Non-default values run a per-project aggregation against
-								the 1-minute history table instead of the worker-rolled-up
-								global values.
+								ones.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-4">
