@@ -4,9 +4,6 @@ const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
 const discordSupportWebhookUrl =
 	process.env.DISCORD_SUPPORT_NOTIFICATION_URL ??
 	process.env.DISCORD_NOTIFICATION_URL;
-const discordEnterpriseWebhookUrl =
-	process.env.DISCORD_ENTERPRISE_NOTIFICATION_URL ??
-	process.env.DISCORD_NOTIFICATION_URL;
 
 interface DiscordEmbed {
 	title: string;
@@ -285,7 +282,8 @@ export async function notifyEnterpriseContact(args: {
 				},
 			],
 		},
-		discordEnterpriseWebhookUrl,
+		process.env.DISCORD_ENTERPRISE_NOTIFICATION_URL ??
+			process.env.DISCORD_NOTIFICATION_URL,
 	);
 }
 

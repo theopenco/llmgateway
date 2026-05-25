@@ -378,13 +378,21 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 		});
 	}
 
-	await notifyEnterpriseContact({
+	// Fire-and-forget: don't block the response on the Discord webhook.
+	// notifyEnterpriseContact already logs its own failures; the extra catch
+	// guards against an unexpected rejection becoming an unhandled rejection.
+	void notifyEnterpriseContact({
 		name: validatedData.name,
 		email: validatedData.email,
 		country: validatedData.country,
 		size: validatedData.size,
 		message: validatedData.message,
 		ipAddress,
+	}).catch((err) => {
+		logger.error(
+			"Failed to send enterprise Discord notification",
+			err instanceof Error ? err : new Error(String(err)),
+		);
 	});
 
 	return c.json({ success: true, message: "Email sent successfully" }, 200);
