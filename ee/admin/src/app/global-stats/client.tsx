@@ -158,14 +158,6 @@ function findCanonicalModelId(
 			return m.id;
 		}
 	}
-	// Fall back to a provider-agnostic match on modelName so renames/typos still
-	// collapse into the most plausible canonical id.
-	for (const m of models) {
-		if (m.providers.some((p) => p.modelName === modelName)) {
-			mappingToCanonicalCache.set(cacheKey, m.id);
-			return m.id;
-		}
-	}
 	mappingToCanonicalCache.set(cacheKey, "");
 	return null;
 }
