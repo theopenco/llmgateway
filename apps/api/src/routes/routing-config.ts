@@ -109,11 +109,29 @@ const retrySchema = z
 	})
 	.strict();
 
+// The built-in defaults are also the infra ceiling — upstream proxies /
+// load balancers enforce these as hard caps, so a project override only
+// makes sense as a *shorter* timeout.
 const timeoutsSchema = z
 	.object({
-		gatewayMs: z.number().int().min(1000).optional(),
-		streamingMs: z.number().int().min(1000).optional(),
-		plainMs: z.number().int().min(1000).optional(),
+		gatewayMs: z
+			.number()
+			.int()
+			.min(1000)
+			.max(DEFAULT_ROUTING_TIMEOUTS.gatewayMs)
+			.optional(),
+		streamingMs: z
+			.number()
+			.int()
+			.min(1000)
+			.max(DEFAULT_ROUTING_TIMEOUTS.streamingMs)
+			.optional(),
+		plainMs: z
+			.number()
+			.int()
+			.min(1000)
+			.max(DEFAULT_ROUTING_TIMEOUTS.plainMs)
+			.optional(),
 	})
 	.strict();
 

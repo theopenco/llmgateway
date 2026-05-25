@@ -85,6 +85,22 @@ describe("resolveRoutingConfig", () => {
 		expect(resolved.timeouts.plainMs).toBeUndefined();
 	});
 
+	it("clamps timeout overrides down to the infra ceiling", () => {
+		const resolved = resolveRoutingConfig(
+			{
+				timeouts: {
+					gatewayMs: 999_999_999, // > default ceiling
+					streamingMs: 999_999_999,
+					plainMs: 999_999_999,
+				},
+			},
+			providerDefaults,
+		);
+		expect(resolved.timeouts.gatewayMs).toBe(300_000);
+		expect(resolved.timeouts.streamingMs).toBe(240_000);
+		expect(resolved.timeouts.plainMs).toBe(180_000);
+	});
+
 	it("shallow-merges weights override over defaults", () => {
 		const resolved = resolveRoutingConfig(
 			{ weights: { price: 0.9, uptime: 0.1 } },

@@ -118,17 +118,17 @@ const TIMEOUT_FIELDS: { key: string; label: string; help: string }[] = [
 	{
 		key: "gatewayMs",
 		label: "Gateway Timeout (ms)",
-		help: "Max end-to-end request time",
+		help: "Max end-to-end request time. Must be ≤ the infra default.",
 	},
 	{
 		key: "streamingMs",
 		label: "Streaming Timeout (ms)",
-		help: "Max upstream time for streaming requests",
+		help: "Max upstream time for streaming requests. Must be ≤ the infra default.",
 	},
 	{
 		key: "plainMs",
 		label: "Plain Timeout (ms)",
-		help: "Max upstream time for non-streaming requests",
+		help: "Max upstream time for non-streaming requests. Must be ≤ the infra default.",
 	},
 ];
 
@@ -192,6 +192,8 @@ function NumericFieldRow({
 	defaultValue,
 	onChange,
 	step,
+	min,
+	max,
 }: {
 	label: string;
 	help: string;
@@ -199,31 +201,48 @@ function NumericFieldRow({
 	defaultValue: number | undefined;
 	onChange: (next: number | undefined) => void;
 	step?: string;
+	min?: number;
+	max?: number;
 }) {
+	const exceedsMax = max !== undefined && value !== undefined && value > max;
+	const belowMin = min !== undefined && value !== undefined && value < min;
 	return (
 		<div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
 			<div>
 				<Label className="text-sm font-medium">{label}</Label>
 				<p className="text-xs text-muted-foreground">{help}</p>
 			</div>
-			<div className="md:col-span-2 flex items-center gap-2">
-				<Input
-					type="number"
-					step={step ?? "any"}
-					value={value ?? ""}
-					placeholder={
-						defaultValue !== undefined ? `Default: ${defaultValue}` : ""
-					}
-					onChange={(e) => onChange(parseInput(e.target.value))}
-				/>
-				<Button
-					variant="ghost"
-					size="sm"
-					type="button"
-					onClick={() => onChange(undefined)}
-				>
-					Reset
-				</Button>
+			<div className="md:col-span-2 flex flex-col gap-1">
+				<div className="flex items-center gap-2">
+					<Input
+						type="number"
+						step={step ?? "any"}
+						min={min}
+						max={max}
+						value={value ?? ""}
+						placeholder={
+							defaultValue !== undefined ? `Default: ${defaultValue}` : ""
+						}
+						onChange={(e) => onChange(parseInput(e.target.value))}
+						aria-invalid={exceedsMax || belowMin}
+					/>
+					<Button
+						variant="ghost"
+						size="sm"
+						type="button"
+						onClick={() => onChange(undefined)}
+					>
+						Reset
+					</Button>
+				</div>
+				{exceedsMax ? (
+					<p className="text-xs text-destructive">
+						Must be ≤ {max} (infra ceiling).
+					</p>
+				) : null}
+				{belowMin ? (
+					<p className="text-xs text-destructive">Must be ≥ {min}.</p>
+				) : null}
 			</div>
 		</div>
 	);
@@ -342,9 +361,22 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 	};
 
 	const handleSave = async () => {
-		setIsSaving(true);
 		setError(null);
 		setSuccess(null);
+		// Block save when any timeout exceeds the infra ceiling. The API
+		// rejects this too, but failing client-side keeps the error message
+		// specific to the field instead of a generic 400.
+		if (defaults) {
+			for (const f of TIMEOUT_FIELDS) {
+				const v = state.timeouts[f.key];
+				const ceiling = defaults.timeouts[f.key];
+				if (v !== undefined && ceiling !== undefined && v > ceiling) {
+					setError(`${f.label} must be ≤ ${ceiling} (infra ceiling).`);
+					return;
+				}
+			}
+		}
+		setIsSaving(true);
 		const compact = <V,>(group: Record<string, V | undefined>) => {
 			const entries = Object.entries(group).filter(([, v]) => v !== undefined);
 			return entries.length
@@ -530,7 +562,9 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 						<CardHeader>
 							<CardTitle>Timeouts</CardTitle>
 							<CardDescription>
-								Request and upstream timeouts in milliseconds.
+								Request and upstream timeouts in milliseconds. The infra layer
+								enforces the shown defaults as hard ceilings — overrides may
+								only shorten timeouts, not extend them.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-4">
@@ -541,6 +575,8 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 									help={f.help}
 									value={state.timeouts[f.key]}
 									defaultValue={defaults?.timeouts[f.key]}
+									max={defaults?.timeouts[f.key]}
+									min={1000}
 									onChange={(v) => updateGroup("timeouts", f.key, v)}
 								/>
 							))}

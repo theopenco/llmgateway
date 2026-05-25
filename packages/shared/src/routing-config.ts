@@ -205,6 +205,9 @@ export function resolveRoutingConfig(
 			}
 		}
 	}
+	// The defaults are the infra ceiling — clamp any override down so a
+	// stale or hand-edited DB row can never request a longer timeout than
+	// the infra layer will allow.
 	const timeoutOverrides: RoutingTimeoutsConfig = {};
 	if (effectiveOverrides?.timeouts) {
 		for (const [key, value] of Object.entries(effectiveOverrides.timeouts) as [
@@ -212,7 +215,8 @@ export function resolveRoutingConfig(
 			number | undefined,
 		][]) {
 			if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-				timeoutOverrides[key] = value;
+				const ceiling = DEFAULT_ROUTING_TIMEOUTS[key];
+				timeoutOverrides[key] = Math.min(value, ceiling);
 			}
 		}
 	}
