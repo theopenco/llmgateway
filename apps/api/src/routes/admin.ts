@@ -1225,7 +1225,9 @@ admin.openapi(getGlobalStats, async (c) => {
 					const key = isModel
 						? `${row.usedProvider}/${row.usedModel}`
 						: row.source;
-					const label = isModel ? row.usedModel : row.source;
+					const label = isModel
+						? `${row.usedProvider}/${row.usedModel}`
+						: row.source;
 					return {
 						key,
 						label,
