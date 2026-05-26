@@ -323,6 +323,15 @@ export default function Footer() {
 										LiteLLM
 									</Link>
 								</li>
+								<li>
+									<Link
+										href="/compare/portkey"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Portkey
+									</Link>
+								</li>
 							</ul>
 						</div>
 
