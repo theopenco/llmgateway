@@ -1,0 +1,137 @@
+---
+title: Document Reading
+description: Learn how to send PDFs and other document data to document-capable models.
+icon: FileText
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Document Reading
+
+LLMGateway supports sending documents (PDFs and other file types) to document-capable models using OpenAI's `file` content block format. The gateway forwards the document to the underlying provider so the model can read and reason over its contents.
+
+## Document-Capable Models
+
+Document input is currently supported on Google Gemini models via Google AI Studio. You can find document-capable models on the [models page with the document filter](https://llmgateway.io/models?filters=1&document=true).
+
+## Sending a Document
+
+Add a `file` content block to a user message. The `file_data` field must be a base64-encoded data URL that includes the document's MIME type.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Summarize this document."
+          },
+          {
+            "type": "file",
+            "file": {
+              "filename": "report.pdf",
+              "file_data": "data:application/pdf;base64,JVBERi0xLjQKJ..."
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+### Content Block Fields
+
+- **`type`**: must be `"file"`.
+- **`file.filename`** _(optional)_: original filename, shown in the playground and forwarded for context.
+- **`file.file_data`**: base64-encoded data URL of the form `data:<mime-type>;base64,<data>`.
+
+<Callout type="info">
+	The `file.file_id` field (for referencing files uploaded via a provider's
+	Files API) is accepted by the schema but not currently supported by the Google
+	transform. Use `file_data` with an inline base64 data URL.
+</Callout>
+
+## Supported File Types
+
+The accepted MIME types depend on the target model. Gemini models commonly support:
+
+- `application/pdf`
+- `text/plain`
+- `text/html`
+- `text/css`
+- `text/javascript`
+- `text/csv`
+- `text/markdown`
+- `text/xml`
+
+If the upstream provider rejects the MIME type, the gateway surfaces a `400` error including the unsupported MIME type and the provider it was sent to. To use a different file type, encode the file with the matching MIME type in the data URL prefix.
+
+## Encoding a File as a Data URL
+
+Any tool that can produce base64 output works. For example, in a shell:
+
+```bash
+DATA=$(base64 -i report.pdf | tr -d '\n')
+echo "data:application/pdf;base64,$DATA"
+```
+
+Or in JavaScript:
+
+```javascript
+import { readFileSync } from "node:fs";
+
+const buffer = readFileSync("report.pdf");
+const fileData = `data:application/pdf;base64,${buffer.toString("base64")}`;
+```
+
+Then pass `fileData` as the `file.file_data` value in your request.
+
+## Multiple Documents
+
+You can include multiple `file` blocks in a single message, optionally mixed with text and image content:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-pro",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Compare these two reports." },
+          {
+            "type": "file",
+            "file": {
+              "filename": "q1.pdf",
+              "file_data": "data:application/pdf;base64,JVBERi0x..."
+            }
+          },
+          {
+            "type": "file",
+            "file": {
+              "filename": "q2.pdf",
+              "file_data": "data:application/pdf;base64,JVBERi0x..."
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+## Error Handling
+
+The gateway returns `400` for the following document-related errors:
+
+- The selected model does not support document input.
+- The `file` block is missing both `file_data` and `file_id`.
+- `file_data` is not a valid base64 data URL.
+- The upstream provider rejects the document's MIME type for the selected model.
