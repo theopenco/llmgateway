@@ -173,6 +173,23 @@ export function createGatewayApiTestHarness() {
 				.set({ credits })
 				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
 		},
+		async setDevPlan(options: {
+			devPlan: "lite" | "pro" | "max";
+			allowAllModels?: boolean;
+			creditsUsed?: string;
+			creditsLimit?: string;
+		}) {
+			await db
+				.update(tables.organization)
+				.set({
+					isPersonal: true,
+					devPlan: options.devPlan,
+					devPlanAllowAllModels: options.allowAllModels ?? false,
+					devPlanCreditsUsed: options.creditsUsed ?? "0",
+					devPlanCreditsLimit: options.creditsLimit ?? "100",
+				})
+				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
+		},
 		async setRoutingMetrics(
 			modelId: string,
 			providerId: string,
