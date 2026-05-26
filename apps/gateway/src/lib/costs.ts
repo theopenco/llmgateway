@@ -145,9 +145,14 @@ export async function calculateCosts(
 	const cachedAudioInputTokens = options?.cachedAudioInputTokens ?? null;
 	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
 
-	// Find the model info - try both base model name and provider model name
-	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
-	const baseModel = model.includes(":") ? model.split(":")[0] : model;
+	// Find the model info - try both base model name and provider model name.
+	// Strip only the trailing :region suffix (e.g., "deepseek-v3.2:cn-beijing"
+	// → "deepseek-v3.2"). Use lastIndexOf because some upstream model names
+	// already contain a colon (e.g., AWS Bedrock
+	// "anthropic.claude-haiku-4-5-20251001-v1:0") and a naive split(":") on
+	// the first colon would mangle the base name.
+	const lastColon = model.lastIndexOf(":");
+	const baseModel = lastColon > -1 ? model.slice(0, lastColon) : model;
 	let modelInfo = models.find(
 		(m) => m.id === model || m.id === baseModel,
 	) as ModelDefinition;

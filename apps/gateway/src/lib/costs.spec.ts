@@ -284,6 +284,23 @@ describe("calculateCosts", () => {
 		expect(result.cacheWriteTokens).toBe(1000);
 	});
 
+	it("should calculate AWS Bedrock costs when the model includes both an upstream colon and a :region suffix", async () => {
+		// AWS Bedrock upstream model names already contain a colon
+		// ("anthropic.claude-haiku-4-5-20251001-v1:0"), and the regional
+		// variant appends `:global`. The cost lookup must strip only the
+		// trailing :region suffix or it loses the model entirely.
+		const result = await calculateCosts(
+			"anthropic.claude-haiku-4-5-20251001-v1:0:global",
+			"aws-bedrock",
+			10,
+			1,
+		);
+
+		const discountMultiplier = 0.8;
+		expect(result.inputCost).toBeCloseTo(10 * (1.0 / 1e6) * discountMultiplier);
+		expect(result.outputCost).toBeCloseTo(1 * (5.0 / 1e6) * discountMultiplier);
+	});
+
 	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", async () => {
 		// For Anthropic subsequent request: 4 non-cached + 1659 cache read = 1663 total tokens, 1659 cache reads
 		const result = await calculateCosts(
