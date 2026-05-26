@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
-import { db, tables, shortid } from "@llmgateway/db";
+import { db, tables, shortid, desc, eq, and } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -119,6 +119,485 @@ const getKey = createRoute({
 playground.openapi(getKey, async (c) => {
 	const cookie = getCookie(c, COOKIE_NAME);
 	return c.json({ hasKey: !!cookie });
+});
+
+// ── Shared Zod schemas ──────────────────────────────────────────────────────
+
+const imageModelResultSchema = z.object({
+	modelId: z.string(),
+	modelName: z.string(),
+	images: z.array(z.object({ base64: z.string(), mediaType: z.string() })),
+	error: z.string().optional(),
+});
+
+const imageHistoryItemSchema = z.object({
+	id: z.string(),
+	prompt: z.string(),
+	createdAt: z.string(),
+	inputImages: z
+		.array(z.object({ dataUrl: z.string(), mediaType: z.string() }))
+		.nullable(),
+	models: z.array(imageModelResultSchema),
+});
+
+const videoModelResultSchema = z.object({
+	modelId: z.string(),
+	modelName: z.string(),
+	jobId: z.string().nullable(),
+	videoUrl: z.string().nullable(),
+	error: z.string().optional(),
+});
+
+const videoHistoryItemSchema = z.object({
+	id: z.string(),
+	prompt: z.string(),
+	createdAt: z.string(),
+	frameInputs: z
+		.object({
+			start: z
+				.object({ dataUrl: z.string(), mediaType: z.string() })
+				.nullable(),
+			end: z.object({ dataUrl: z.string(), mediaType: z.string() }).nullable(),
+		})
+		.nullable(),
+	referenceImages: z
+		.array(z.object({ dataUrl: z.string(), mediaType: z.string() }))
+		.nullable(),
+	models: z.array(videoModelResultSchema),
+});
+
+// ── GET /image-history ───────────────────────────────────────────────────────
+
+const listImageHistory = createRoute({
+	method: "get",
+	path: "/image-history",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ items: z.array(imageHistoryItemSchema) }),
+				},
+			},
+			description:
+				"List of image generation history for the authenticated user",
+		},
+	},
+});
+
+playground.openapi(listImageHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const rows = await db
+		.select()
+		.from(tables.playgroundImageHistory)
+		.where(eq(tables.playgroundImageHistory.userId, user.id))
+		.orderBy(desc(tables.playgroundImageHistory.createdAt));
+
+	return c.json({
+		items: rows.map((row) => ({
+			id: row.id,
+			prompt: row.prompt,
+			createdAt: row.createdAt.toISOString(),
+			inputImages: row.inputImages ?? null,
+			models: row.models,
+		})),
+	});
+});
+
+// ── POST /image-history ──────────────────────────────────────────────────────
+
+const saveImageHistory = createRoute({
+	method: "post",
+	path: "/image-history",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						prompt: z.string().min(1),
+						inputImages: z
+							.array(z.object({ dataUrl: z.string(), mediaType: z.string() }))
+							.optional(),
+						models: z.array(imageModelResultSchema),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: imageHistoryItemSchema }),
+				},
+			},
+			description: "Saved image history item",
+		},
+	},
+});
+
+playground.openapi(saveImageHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const body = c.req.valid("json");
+
+	const [row] = await db
+		.insert(tables.playgroundImageHistory)
+		.values({
+			userId: user.id,
+			prompt: body.prompt,
+			inputImages: body.inputImages ?? null,
+			models: body.models,
+		})
+		.returning();
+
+	return c.json(
+		{
+			item: {
+				id: row.id,
+				prompt: row.prompt,
+				createdAt: row.createdAt.toISOString(),
+				inputImages: row.inputImages ?? null,
+				models: row.models,
+			},
+		},
+		201,
+	);
+});
+
+// ── DELETE /image-history/:id ────────────────────────────────────────────────
+
+const deleteImageHistory = createRoute({
+	method: "delete",
+	path: "/image-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Deleted",
+		},
+	},
+});
+
+playground.openapi(deleteImageHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.playgroundImageHistory)
+		.where(
+			and(
+				eq(tables.playgroundImageHistory.id, id),
+				eq(tables.playgroundImageHistory.userId, user.id),
+			),
+		)
+		.returning({ id: tables.playgroundImageHistory.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({ message: "Deleted" });
+});
+
+// ── PATCH /image-history/:id ─────────────────────────────────────────────────
+
+const renameImageHistory = createRoute({
+	method: "patch",
+	path: "/image-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ prompt: z.string().min(1) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: imageHistoryItemSchema }),
+				},
+			},
+			description: "Updated image history item",
+		},
+	},
+});
+
+playground.openapi(renameImageHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const { prompt } = c.req.valid("json");
+
+	const [row] = await db
+		.update(tables.playgroundImageHistory)
+		.set({ prompt })
+		.where(
+			and(
+				eq(tables.playgroundImageHistory.id, id),
+				eq(tables.playgroundImageHistory.userId, user.id),
+			),
+		)
+		.returning();
+
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({
+		item: {
+			id: row.id,
+			prompt: row.prompt,
+			createdAt: row.createdAt.toISOString(),
+			inputImages: row.inputImages ?? null,
+			models: row.models,
+		},
+	});
+});
+
+// ── GET /video-history ───────────────────────────────────────────────────────
+
+const listVideoHistory = createRoute({
+	method: "get",
+	path: "/video-history",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ items: z.array(videoHistoryItemSchema) }),
+				},
+			},
+			description:
+				"List of video generation history for the authenticated user",
+		},
+	},
+});
+
+playground.openapi(listVideoHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const rows = await db
+		.select()
+		.from(tables.playgroundVideoHistory)
+		.where(eq(tables.playgroundVideoHistory.userId, user.id))
+		.orderBy(desc(tables.playgroundVideoHistory.createdAt));
+
+	return c.json({
+		items: rows.map((row) => ({
+			id: row.id,
+			prompt: row.prompt,
+			createdAt: row.createdAt.toISOString(),
+			frameInputs: row.frameInputs ?? null,
+			referenceImages: row.referenceImages ?? null,
+			models: row.models,
+		})),
+	});
+});
+
+// ── POST /video-history ──────────────────────────────────────────────────────
+
+const saveVideoHistory = createRoute({
+	method: "post",
+	path: "/video-history",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						prompt: z.string().min(1),
+						frameInputs: z
+							.object({
+								start: z
+									.object({ dataUrl: z.string(), mediaType: z.string() })
+									.nullable(),
+								end: z
+									.object({ dataUrl: z.string(), mediaType: z.string() })
+									.nullable(),
+							})
+							.optional(),
+						referenceImages: z
+							.array(z.object({ dataUrl: z.string(), mediaType: z.string() }))
+							.optional(),
+						models: z.array(videoModelResultSchema),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: videoHistoryItemSchema }),
+				},
+			},
+			description: "Saved video history item",
+		},
+	},
+});
+
+playground.openapi(saveVideoHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const body = c.req.valid("json");
+
+	const [row] = await db
+		.insert(tables.playgroundVideoHistory)
+		.values({
+			userId: user.id,
+			prompt: body.prompt,
+			frameInputs: body.frameInputs ?? null,
+			referenceImages: body.referenceImages ?? null,
+			models: body.models,
+		})
+		.returning();
+
+	return c.json(
+		{
+			item: {
+				id: row.id,
+				prompt: row.prompt,
+				createdAt: row.createdAt.toISOString(),
+				frameInputs: row.frameInputs ?? null,
+				referenceImages: row.referenceImages ?? null,
+				models: row.models,
+			},
+		},
+		201,
+	);
+});
+
+// ── DELETE /video-history/:id ────────────────────────────────────────────────
+
+const deleteVideoHistory = createRoute({
+	method: "delete",
+	path: "/video-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Deleted",
+		},
+	},
+});
+
+playground.openapi(deleteVideoHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.playgroundVideoHistory)
+		.where(
+			and(
+				eq(tables.playgroundVideoHistory.id, id),
+				eq(tables.playgroundVideoHistory.userId, user.id),
+			),
+		)
+		.returning({ id: tables.playgroundVideoHistory.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({ message: "Deleted" });
+});
+
+// ── PATCH /video-history/:id ─────────────────────────────────────────────────
+
+const renameVideoHistory = createRoute({
+	method: "patch",
+	path: "/video-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ prompt: z.string().min(1) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: videoHistoryItemSchema }),
+				},
+			},
+			description: "Updated video history item",
+		},
+	},
+});
+
+playground.openapi(renameVideoHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const { prompt } = c.req.valid("json");
+
+	const [row] = await db
+		.update(tables.playgroundVideoHistory)
+		.set({ prompt })
+		.where(
+			and(
+				eq(tables.playgroundVideoHistory.id, id),
+				eq(tables.playgroundVideoHistory.userId, user.id),
+			),
+		)
+		.returning();
+
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({
+		item: {
+			id: row.id,
+			prompt: row.prompt,
+			createdAt: row.createdAt.toISOString(),
+			frameInputs: row.frameInputs ?? null,
+			referenceImages: row.referenceImages ?? null,
+			models: row.models,
+		},
+	});
 });
 
 export default playground;

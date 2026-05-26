@@ -5,7 +5,7 @@ import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 export const metadata = {
-	title: "Reasoning Models - AI Models for Complex Analysis | LLM Gateway",
+	title: "Reasoning Models - AI Models for Complex Analysis",
 	description:
 		"Browse and compare AI reasoning models like o1, o3, DeepSeek-R1, and more. Advanced chain-of-thought models for complex problem solving.",
 	openGraph: {

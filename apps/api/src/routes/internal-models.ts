@@ -158,18 +158,15 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			),
 	]);
 
-	// Helper to find the best global discount for a given provider+model
+	// Find the best global discount for a given provider+model. Discounts are
+	// always keyed by the root model ID.
 	const getGlobalDiscount = (
 		providerId: string,
 		modelId: string,
-		modelName: string,
 	): string | null => {
-		const modelMatches = (dm: string | null) =>
-			dm === modelId || dm === modelName;
-
 		// Precedence: provider+model > provider > model
 		const providerModel = globalDiscounts.find(
-			(d) => d.provider === providerId && modelMatches(d.model),
+			(d) => d.provider === providerId && d.model === modelId,
 		);
 		if (providerModel) {
 			return providerModel.discountPercent;
@@ -183,7 +180,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 		}
 
 		const modelOnly = globalDiscounts.find(
-			(d) => d.provider === null && modelMatches(d.model),
+			(d) => d.provider === null && d.model === modelId,
 		);
 		if (modelOnly) {
 			return modelOnly.discountPercent;
@@ -210,11 +207,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					?.providers.find(
 						(provider) => provider.providerId === mapping.providerId,
 					) ?? null;
-			const globalDiscount = getGlobalDiscount(
-				mapping.providerId,
-				model.id,
-				mapping.modelName,
-			);
+			const globalDiscount = getGlobalDiscount(mapping.providerId, model.id);
 			// Global discount takes precedence over hardcoded mapping discount
 			const effectiveDiscount = globalDiscount ?? mapping.discount;
 			return {

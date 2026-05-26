@@ -8,40 +8,46 @@
  */
 
 /**
- * Gets the gateway request timeout - the maximum time a request can take end-to-end.
- * Default: 5 minutes (300000ms)
+ * Gets the gateway request budget used to derive the default streaming timeout cap.
+ * The streaming default is capped at 80% of this value so we still have headroom
+ * to surface upstream timeouts as proper errors before the overall budget elapses.
+ * Default: 25 minutes (1500000ms)
  */
 export function getGatewayTimeoutMs(): number {
-	return Number(process.env.GATEWAY_TIMEOUT_MS) || 300000;
+	const envValue = Number(process.env.GATEWAY_TIMEOUT_MS);
+	if (envValue > 0) {
+		return envValue;
+	}
+	return 1500000;
 }
 
 /**
  * Gets the AI API request timeout for streaming requests - the maximum time for upstream provider calls.
  * Should be shorter than gateway timeout to allow for error handling.
- * Default: 4 minutes (240000ms) or 80% of gateway timeout, whichever is smaller
+ * Default: 20 minutes (1200000ms) or 80% of gateway timeout, whichever is smaller
  */
 export function getStreamingTimeoutMs(): number {
 	const envValue = Number(process.env.AI_STREAMING_TIMEOUT_MS);
 	if (envValue > 0) {
 		return envValue;
 	}
-	// Default: 4 minutes or 80% of gateway timeout, whichever is smaller
-	return Math.min(240000, getGatewayTimeoutMs() * 0.8);
+	// Default: 20 minutes or 80% of gateway timeout, whichever is smaller
+	return Math.min(1200000, getGatewayTimeoutMs() * 0.8);
 }
 
 /**
  * Gets the AI API request timeout for non-streaming (plain) requests.
  * Non-streaming requests have a shorter default timeout since they don't benefit
  * from incremental responses and long waits are usually indicative of issues.
- * Default: 3 minutes (180000ms)
+ * Default: 10 minutes (600000ms)
  */
 export function getTimeoutMs(): number {
 	const envValue = Number(process.env.AI_TIMEOUT_MS);
 	if (envValue > 0) {
 		return envValue;
 	}
-	// Default: 3 minutes for non-streaming requests
-	return 180000;
+	// Default: 10 minutes for non-streaming requests
+	return 600000;
 }
 
 // Legacy exports for backwards compatibility (read at module load time)
@@ -85,7 +91,7 @@ export function createStreamingCombinedSignal(
 
 /**
  * Combines a plain (non-streaming) timeout signal with an optional cancellation signal.
- * Uses the shorter timeout (default 3min) for non-streaming requests.
+ * Uses the shorter timeout (default 10min) for non-streaming requests.
  */
 export function createCombinedSignal(
 	cancellationController?: AbortController,

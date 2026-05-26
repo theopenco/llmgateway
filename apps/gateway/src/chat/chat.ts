@@ -22,6 +22,7 @@ import {
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
 } from "@/lib/cached-queries.js";
+import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
 	providerSupportsCachedInput,
@@ -430,7 +431,12 @@ function filterEligibleModelProviders(
 			return false;
 		}
 
-		if (options.reasoningEffort !== undefined) {
+		// "none" means "no reasoning", so it doesn't require a reasoning-capable
+		// provider. Let it fall through so non-reasoning variants stay eligible.
+		if (
+			options.reasoningEffort !== undefined &&
+			options.reasoningEffort !== "none"
+		) {
 			return provider.reasoning === true;
 		}
 
@@ -1151,16 +1157,12 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Extract reasoning_effort as mutable variable for auto-routing modification
-	// Use reasoning.effort if provided, otherwise use top-level reasoning_effort
-	// Map "none" to undefined for internal processing
-	let reasoning_effort = (() => {
-		const effort =
-			reasoning_object_effort ?? validationResult.data.reasoning_effort;
-		if (effort === "none") {
-			return undefined;
-		}
-		return effort;
-	})();
+	// Use reasoning.effort if provided, otherwise use top-level reasoning_effort.
+	// "none" is preserved and forwarded to OpenAI (its newer reasoning models
+	// accept it); for other providers it is normalized to "off" downstream in
+	// prepareRequestBody.
+	let reasoning_effort =
+		reasoning_object_effort ?? validationResult.data.reasoning_effort;
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
@@ -1494,17 +1496,109 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
-			throw new HTTPException(400, {
-				message: "Request blocked by content policy",
-				cause: {
-					type: "guardrail_violation",
-					code: "content_policy_violation",
-					violations: guardrailResult.violations.map((v) => ({
-						rule: v.ruleName,
-						category: v.category,
-					})),
+			const blockedViolations = guardrailResult.violations.map((v) => ({
+				rule_id: v.ruleId,
+				rule_name: v.ruleName,
+				category: v.category,
+				action: v.action,
+			}));
+			const blockedCategories = [
+				...new Set(guardrailResult.violations.map((v) => v.category)),
+			];
+			const blockedRuleIds = guardrailResult.violations.map((v) => v.ruleId);
+			const errorMessage =
+				guardrailResult.violations.length === 1 && guardrailResult.violations[0]
+					? `Request blocked by content policy: ${guardrailResult.violations[0].ruleName} (rule ${guardrailResult.violations[0].ruleId}, category ${guardrailResult.violations[0].category})`
+					: `Request blocked by content policy: ${guardrailResult.violations.length} violations (categories: ${blockedCategories.join(", ")}; rules: ${blockedRuleIds.join(", ")})`;
+
+			// Surface the block in the activity feed as a client_error so users
+			// can see that the gateway rejected their request before any provider
+			// was contacted.
+			try {
+				await insertLogEntry({
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						"",
+						undefined,
+						"llmgateway",
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+					),
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: 400,
+						statusText: "Bad Request",
+						responseText: JSON.stringify({
+							message: errorMessage,
+							violations: blockedViolations,
+						}),
+						cause: "guardrail_violation",
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+
+			// Return the structured violation details directly. HTTPException's
+			// `cause` is dropped by the global error handler, so callers would
+			// otherwise only see the generic message.
+			return c.json(
+				{
+					error: {
+						message: errorMessage,
+						type: "guardrail_violation",
+						param: null,
+						code: "content_policy_violation",
+						violations: blockedViolations,
+					},
 				},
-			});
+				400,
+			);
 		}
 
 		// Apply redactions if any
@@ -1599,11 +1693,13 @@ chat.openapi(completions, async (c) => {
 	// only considers active providers. This prevents a deny rule from being bypassed
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
+	const clientIp = getClientIpFromRequest(c);
 	const iamValidation = await validateModelAccess(
 		apiKey.id,
 		modelInfo.id,
 		requestedProvider,
 		modelInfo,
+		clientIp,
 	);
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
@@ -1742,6 +1838,7 @@ chat.openapi(completions, async (c) => {
 				modelDef.id,
 				undefined,
 				modelDef,
+				clientIp,
 			);
 			if (!candidateIam.allowed) {
 				continue;
@@ -1787,8 +1884,14 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
-				// Check reasoning capability if reasoning_effort is specified
-				if (reasoning_effort !== undefined && provider.reasoning !== true) {
+				// Check reasoning capability if reasoning_effort is specified.
+				// "none" means "no reasoning", so it doesn't require a
+				// reasoning-capable provider.
+				if (
+					reasoning_effort !== undefined &&
+					reasoning_effort !== "none" &&
+					provider.reasoning !== true
+				) {
 					return false;
 				}
 
@@ -1972,6 +2075,7 @@ chat.openapi(completions, async (c) => {
 			modelInfo.id,
 			undefined,
 			modelInfo,
+			clientIp,
 		);
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
@@ -2177,7 +2281,6 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedProvider,
 			baseModelId,
-			usedModel,
 		);
 
 		if (rateLimitPeek.rateLimited) {
@@ -2948,8 +3051,9 @@ chat.openapi(completions, async (c) => {
 	let usedModelMapping = usedModel; // Store the original provider model name
 	let usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
-		usedRegion ? `${baseModelName}:${usedRegion}` : baseModelName,
+		baseModelName,
 		customProviderName,
+		usedRegion,
 	); // Store in LLMGateway format
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
@@ -3239,7 +3343,6 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedProvider,
 			modelInfo.id,
-			usedModel,
 		);
 
 		const providerRateLimitEntries = Object.entries(
@@ -3566,8 +3669,9 @@ chat.openapi(completions, async (c) => {
 		if (usedRegion) {
 			usedModelFormatted = formatUsedModelForDisplay(
 				usedProvider,
-				`${baseModelName}:${usedRegion}`,
+				baseModelName,
 				customProviderName,
+				usedRegion,
 			);
 		}
 	} catch (error) {
@@ -4059,8 +4163,8 @@ chat.openapi(completions, async (c) => {
 	// requested. For image generation the upstream request is always non-streaming
 	// (effectiveStream is forced false above when faking streaming for the client),
 	// so partial_images=1 is needed in both cases to keep the connection alive past
-	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (240s default)
-	// instead of AI_TIMEOUT_MS (180s). The SSE response is collapsed back into the
+	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (1200s default)
+	// instead of AI_TIMEOUT_MS (600s). The SSE response is collapsed back into the
 	// regular non-streaming JSON shape before being returned (or re-wrapped as fake
 	// SSE for clients that requested streaming).
 	let forceImageStreamUpstream =
@@ -4715,7 +4819,6 @@ chat.openapi(completions, async (c) => {
 							project.organizationId,
 							nextProvider.providerId,
 							modelInfo.id,
-							nextProvider.modelName,
 						);
 						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
@@ -5583,7 +5686,12 @@ chat.openapi(completions, async (c) => {
 							await writeStreamingContentFilterResponse({
 								billingModel: usedModel,
 								billingProvider: usedProvider,
-								responseModel: `${usedProvider}/${baseModelName}`,
+								responseModel: formatUsedModelForDisplay(
+									usedProvider,
+									baseModelName,
+									customProviderName,
+									usedRegion,
+								),
 								metadata: {
 									requested_model: initialRequestedModel,
 									requested_provider: requestedProvider,
@@ -7928,7 +8036,12 @@ chat.openapi(completions, async (c) => {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: Math.floor(Date.now() / 1000),
-									model: usedModel,
+									model: formatUsedModelForDisplay(
+										usedProvider,
+										baseModelName,
+										customProviderName,
+										usedRegion,
+									),
 									choices: [
 										{
 											index: 0,
@@ -8363,7 +8476,6 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				nextProvider.providerId,
 				modelInfo.id,
-				nextProvider.modelName,
 			);
 			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(
@@ -9213,7 +9325,12 @@ chat.openapi(completions, async (c) => {
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						customProviderName,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -9511,7 +9628,12 @@ chat.openapi(completions, async (c) => {
 						id: `chatcmpl-${Date.now()}`,
 						object: "chat.completion",
 						created: Math.floor(Date.now() / 1000),
-						model: `${usedProvider}/${baseModelName}`,
+						model: formatUsedModelForDisplay(
+							usedProvider,
+							baseModelName,
+							customProviderName,
+							usedRegion,
+						),
 						choices: [
 							{
 								index: 0,

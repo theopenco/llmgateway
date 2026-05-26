@@ -29,6 +29,11 @@ import { Textarea } from "@/lib/components/textarea";
 import { useAppConfig } from "@/lib/config";
 import { countries } from "@/lib/countries";
 
+import { CalendlyInline } from "./calendly-inline";
+
+const CALENDLY_ENTERPRISE_URL =
+	"https://calendly.com/llmgateway/llmgateway-enterprise";
+
 const contactFormSchema = z.object({
 	name: z.string().min(2, "Name must be at least 2 characters"),
 	email: z.string().email("Invalid email address"),
@@ -46,6 +51,10 @@ export function ContactFormEnterprise() {
 	const posthog = usePostHog();
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
+	const [scheduled, setScheduled] = useState<{ name: string; email: string }>({
+		name: "",
+		email: "",
+	});
 	const [formLoadTime] = useState(() => Date.now());
 
 	const form = useForm<ContactFormData>({
@@ -93,6 +102,7 @@ export function ContactFormEnterprise() {
 					country: data.country,
 					companySize: data.size,
 				});
+				setScheduled({ name: data.name, email: data.email });
 				setIsSuccess(true);
 				form.reset();
 				toast.success("Message sent successfully!", {
@@ -128,24 +138,37 @@ export function ContactFormEnterprise() {
 
 					<div className="rounded-2xl border border-border bg-card/50 backdrop-blur-sm p-8 sm:p-10 shadow-lg">
 						{isSuccess ? (
-							<div className="text-center py-12">
-								<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-6">
-									<CheckCircle2 className="w-8 h-8 text-green-600 dark:text-green-400" />
+							<div className="py-4">
+								<div className="text-center">
+									<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-6">
+										<CheckCircle2 className="w-8 h-8 text-green-600 dark:text-green-400" />
+									</div>
+									<h3 className="text-2xl font-semibold mb-2">
+										Thank you for reaching out!
+									</h3>
+									<p className="text-muted-foreground">
+										We've received your message. Book a time below and our team
+										will meet you then — otherwise we'll reply within 24 hours.
+									</p>
 								</div>
-								<h3 className="text-2xl font-semibold mb-2">
-									Thank you for reaching out!
-								</h3>
-								<p className="text-muted-foreground mb-6">
-									We've received your message and will get back to you within 24
-									hours.
-								</p>
-								<Button
-									onClick={() => setIsSuccess(false)}
-									variant="outline"
-									size="lg"
-								>
-									Send Another Message
-								</Button>
+
+								<div className="mt-8">
+									<CalendlyInline
+										url={CALENDLY_ENTERPRISE_URL}
+										name={scheduled.name}
+										email={scheduled.email}
+									/>
+								</div>
+
+								<div className="mt-6 text-center">
+									<Button
+										onClick={() => setIsSuccess(false)}
+										variant="outline"
+										size="lg"
+									>
+										Send Another Message
+									</Button>
+								</div>
 							</div>
 						) : (
 							<Form {...form}>

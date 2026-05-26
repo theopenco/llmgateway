@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
+import { maskToken } from "@/lib/maskToken.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 
@@ -27,6 +28,7 @@ import {
 	tables,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	projectHourlySourceStats,
 	globalModelStats,
 	globalSourceStats,
 	modelProviderMappingHistory,
@@ -182,6 +184,32 @@ const projectsListSchema = z.object({
 	total: z.number(),
 });
 
+const iamRuleAdminSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+	apiKeyId: z.string(),
+	ruleType: z.enum([
+		"allow_models",
+		"deny_models",
+		"allow_pricing",
+		"deny_pricing",
+		"allow_providers",
+		"deny_providers",
+		"allow_ip_cidrs",
+		"deny_ip_cidrs",
+	]),
+	ruleValue: z.object({
+		models: z.array(z.string()).optional(),
+		providers: z.array(z.string()).optional(),
+		pricingType: z.enum(["free", "paid"]).optional(),
+		maxInputPrice: z.number().optional(),
+		maxOutputPrice: z.number().optional(),
+		ipCidrs: z.array(z.string()).optional(),
+	}),
+	status: z.enum(["active", "inactive"]),
+});
+
 const apiKeySchema = z.object({
 	id: z.string(),
 	token: z.string(),
@@ -192,6 +220,7 @@ const apiKeySchema = z.object({
 	projectId: z.string(),
 	projectName: z.string(),
 	createdAt: z.string(),
+	iamRules: z.array(iamRuleAdminSchema),
 });
 
 const apiKeysListSchema = z.object({
@@ -199,6 +228,22 @@ const apiKeysListSchema = z.object({
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
+});
+
+const providerKeyAdminSchema = z.object({
+	id: z.string(),
+	token: z.string(),
+	provider: z.string(),
+	name: z.string().nullable(),
+	baseUrl: z.string().nullable(),
+	status: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const providerKeysListSchema = z.object({
+	providerKeys: z.array(providerKeyAdminSchema),
+	total: z.number(),
 });
 
 const memberSchema = z.object({
@@ -375,6 +420,29 @@ const getOrganizationApiKeys = createRoute({
 				},
 			},
 			description: "Organization API keys.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+const getOrganizationProviderKeys = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/provider-keys",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerKeysListSchema.openapi({}),
+				},
+			},
+			description: "Organization provider keys.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -913,6 +981,7 @@ admin.openapi(getTimeseries, async (c) => {
 
 const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d"]);
 const globalStatsGroupBySchema = z.enum(["model", "source"]);
+const globalStatsModelViewSchema = z.enum(["mapping", "canonical"]);
 
 const globalStatsMetricsSchema = z.object({
 	requestCount: z.number(),
@@ -944,6 +1013,7 @@ const globalStatsBreakdownItemSchema = globalStatsMetricsSchema
 const globalStatsResponseSchema = z.object({
 	range: globalStatsRangeSchema,
 	groupBy: globalStatsGroupBySchema,
+	modelView: globalStatsModelViewSchema,
 	totals: globalStatsMetricsSchema,
 	timeseries: z.array(globalStatsTimeseriesPointSchema),
 	breakdown: z.array(globalStatsBreakdownItemSchema),
@@ -956,6 +1026,7 @@ const getGlobalStats = createRoute({
 		query: z.object({
 			range: globalStatsRangeSchema.default("30d").optional(),
 			groupBy: globalStatsGroupBySchema.default("model").optional(),
+			modelView: globalStatsModelViewSchema.default("mapping").optional(),
 		}),
 	},
 	responses: {
@@ -974,6 +1045,7 @@ admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
 	const range = query.range ?? "30d";
 	const groupBy = query.groupBy ?? "model";
+	const modelView = query.modelView ?? "mapping";
 
 	const rangeDays: Record<typeof range, number> = {
 		"7d": 7,
@@ -1139,13 +1211,95 @@ admin.openapi(getGlobalStats, async (c) => {
 					.orderBy(desc(metricSums.requestCount));
 
 	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
-		breakdownRows.map((row) => {
-			const isModel = "usedModel" in row;
-			const key = isModel ? `${row.usedProvider}/${row.usedModel}` : row.source;
-			const label = isModel ? row.usedModel : row.source;
-			return {
-				key,
-				label,
+		groupBy === "model" && modelView === "canonical"
+			? aggregateModelRowsByCanonicalId(
+					breakdownRows as Array<
+						(typeof breakdownRows)[number] & {
+							usedModel: string;
+						}
+					>,
+				)
+			: breakdownRows.map((row) => {
+					const isModel = "usedModel" in row;
+					const key = isModel ? row.usedModel : row.source;
+					const label = isModel ? row.usedModel : row.source;
+					return {
+						key,
+						label,
+						requestCount: Number(row.requestCount),
+						errorCount: Number(row.errorCount),
+						cacheCount: Number(row.cacheCount),
+						inputTokens: Number(row.inputTokens),
+						cachedTokens: Number(row.cachedTokens),
+						outputTokens: Number(row.outputTokens),
+						totalTokens: Number(row.totalTokens),
+						cost: Number(row.cost),
+						inputCost: Number(row.inputCost),
+						cachedInputCost: Number(row.cachedInputCost),
+						outputCost: Number(row.outputCost),
+					};
+				});
+
+	return c.json({
+		range,
+		groupBy,
+		modelView,
+		totals,
+		timeseries,
+		breakdown,
+	});
+});
+
+// `used_model` in global_model_stats is stored as `<provider>/<canonical-model>[:<region>]`
+// (e.g. `google-ai-studio/gemini-embedding-2`, `alibaba/deepseek-v4-flash:singapore`).
+// The canonical id is the segment between the first `/` and the optional `:`.
+function extractCanonicalModelId(usedModel: string): string {
+	const slashIdx = usedModel.indexOf("/");
+	const withoutProvider =
+		slashIdx === -1 ? usedModel : usedModel.slice(slashIdx + 1);
+	const colonIdx = withoutProvider.indexOf(":");
+	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
+}
+
+function aggregateModelRowsByCanonicalId(
+	rows: Array<{
+		usedModel: string;
+		requestCount: number;
+		errorCount: number;
+		cacheCount: number;
+		inputTokens: number;
+		cachedTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+		cost: number;
+		inputCost: number;
+		cachedInputCost: number;
+		outputCost: number;
+	}>,
+): z.infer<typeof globalStatsBreakdownItemSchema>[] {
+	const aggregated = new Map<
+		string,
+		z.infer<typeof globalStatsBreakdownItemSchema>
+	>();
+	for (const row of rows) {
+		const canonical = extractCanonicalModelId(row.usedModel);
+		const existing = aggregated.get(canonical);
+		if (existing) {
+			existing.requestCount += Number(row.requestCount);
+			existing.errorCount += Number(row.errorCount);
+			existing.cacheCount += Number(row.cacheCount);
+			existing.inputTokens += Number(row.inputTokens);
+			existing.cachedTokens += Number(row.cachedTokens);
+			existing.outputTokens += Number(row.outputTokens);
+			existing.totalTokens += Number(row.totalTokens);
+			existing.cost += Number(row.cost);
+			existing.inputCost += Number(row.inputCost);
+			existing.cachedInputCost += Number(row.cachedInputCost);
+			existing.outputCost += Number(row.outputCost);
+		} else {
+			aggregated.set(canonical, {
+				key: canonical,
+				label: canonical,
 				requestCount: Number(row.requestCount),
 				errorCount: Number(row.errorCount),
 				cacheCount: Number(row.cacheCount),
@@ -1157,17 +1311,13 @@ admin.openapi(getGlobalStats, async (c) => {
 				inputCost: Number(row.inputCost),
 				cachedInputCost: Number(row.cachedInputCost),
 				outputCost: Number(row.outputCost),
-			};
-		});
-
-	return c.json({
-		range,
-		groupBy,
-		totals,
-		timeseries,
-		breakdown,
-	});
-});
+			});
+		}
+	}
+	return Array.from(aggregated.values()).sort(
+		(a, b) => b.requestCount - a.requestCount,
+	);
+}
 
 admin.openapi(getOrganizations, async (c) => {
 	const query = c.req.valid("query");
@@ -1690,16 +1840,82 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		.limit(limit)
 		.offset(offset);
 
+	const apiKeyIds = apiKeys.map((k) => k.id);
+	const iamRules = apiKeyIds.length
+		? await db
+				.select()
+				.from(tables.apiKeyIamRule)
+				.where(inArray(tables.apiKeyIamRule.apiKeyId, apiKeyIds))
+				.orderBy(desc(tables.apiKeyIamRule.createdAt))
+		: [];
+
+	const rulesByKey = new Map<string, typeof iamRules>();
+	for (const rule of iamRules) {
+		const list = rulesByKey.get(rule.apiKeyId) ?? [];
+		list.push(rule);
+		rulesByKey.set(rule.apiKeyId, list);
+	}
+
 	return c.json({
 		apiKeys: apiKeys.map((k) => ({
 			...k,
 			usage: String(k.usage),
 			usageLimit: k.usageLimit ? String(k.usageLimit) : null,
 			createdAt: k.createdAt.toISOString(),
+			iamRules: (rulesByKey.get(k.id) ?? []).map((r) => ({
+				id: r.id,
+				createdAt: r.createdAt.toISOString(),
+				updatedAt: r.updatedAt.toISOString(),
+				apiKeyId: r.apiKeyId,
+				ruleType: r.ruleType,
+				ruleValue: r.ruleValue,
+				status: r.status,
+			})),
 		})),
 		total,
 		limit,
 		offset,
+	});
+});
+
+admin.openapi(getOrganizationProviderKeys, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const providerKeys = await db
+		.select({
+			id: tables.providerKey.id,
+			token: tables.providerKey.token,
+			provider: tables.providerKey.provider,
+			name: tables.providerKey.name,
+			baseUrl: tables.providerKey.baseUrl,
+			status: tables.providerKey.status,
+			createdAt: tables.providerKey.createdAt,
+			updatedAt: tables.providerKey.updatedAt,
+		})
+		.from(tables.providerKey)
+		.where(eq(tables.providerKey.organizationId, orgId))
+		.orderBy(desc(tables.providerKey.createdAt));
+
+	return c.json({
+		providerKeys: providerKeys.map((k) => ({
+			...k,
+			token: maskToken(k.token, 6),
+			createdAt: k.createdAt.toISOString(),
+			updatedAt: k.updatedAt.toISOString(),
+		})),
+		total: providerKeys.length,
 	});
 });
 
@@ -2291,30 +2507,21 @@ admin.openapi(getProjectLogs, async (c) => {
 // Get valid provider IDs as a Set for O(1) lookup
 const validProviderIds = new Set<string>(providers.map((p) => p.id));
 
-// Build a map of provider -> Set of valid model names for that provider
-// This includes both root model IDs and provider-specific modelNames
+// Build a map of provider -> Set of valid root model IDs served by that provider.
+// Only root model IDs are accepted as discount/rate-limit targets — the
+// provider-specific modelName is reserved for upstream requests only.
 const providerModelMappings = new Map<string, Set<string>>();
 for (const model of models) {
 	for (const mapping of model.providers) {
 		if (!providerModelMappings.has(mapping.providerId)) {
 			providerModelMappings.set(mapping.providerId, new Set<string>());
 		}
-		const modelSet = providerModelMappings.get(mapping.providerId)!;
-		// Add the provider-specific model name
-		modelSet.add(mapping.modelName);
-		// Also add the root model ID for backwards compatibility
-		modelSet.add(model.id);
+		providerModelMappings.get(mapping.providerId)!.add(model.id);
 	}
 }
 
-// Get all valid model names (union of all provider model names + root IDs)
-const validModelIds = new Set<string>();
-for (const model of models) {
-	validModelIds.add(model.id);
-	for (const mapping of model.providers) {
-		validModelIds.add(mapping.modelName);
-	}
-}
+// All valid root model IDs.
+const validModelIds = new Set<string>(models.map((m) => m.id));
 
 const discountSchema = z.object({
 	id: z.string(),
@@ -2526,8 +2733,6 @@ const getAvailableProvidersAndModels = createRoute({
 									providerName: z.string(),
 									modelId: z.string(),
 									modelName: z.string(),
-									rootModelId: z.string(),
-									rootModelName: z.string(),
 									family: z.string(),
 								}),
 							),
@@ -2800,14 +3005,14 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
-	// Build mappings from all models and their providers
+	// modelId is the canonical root model id — the provider-specific upstream
+	// modelName is never exposed here or stored as a discount target. modelName
+	// in this response is the root model's human-readable display name.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
 		modelId: string;
 		modelName: string;
-		rootModelId: string;
-		rootModelName: string;
 		family: string;
 	}> = [];
 
@@ -2818,10 +3023,8 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 				mappings.push({
 					providerId: mapping.providerId,
 					providerName: provider.name,
-					modelId: mapping.modelName, // The provider-specific model name
-					modelName: mapping.modelName,
-					rootModelId: model.id, // The root model ID
-					rootModelName: (model as { name?: string }).name ?? model.id,
+					modelId: model.id,
+					modelName: (model as { name?: string }).name ?? model.id,
 					family: model.family,
 				});
 			}
@@ -3233,8 +3436,6 @@ const getAvailableRateLimitOptions = createRoute({
 									providerName: z.string(),
 									modelId: z.string(),
 									modelName: z.string(),
-									rootModelId: z.string(),
-									rootModelName: z.string(),
 									family: z.string(),
 								}),
 							),
@@ -3249,14 +3450,15 @@ const getAvailableRateLimitOptions = createRoute({
 });
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
-	// Build mappings from all models and their providers
+	// modelId is the canonical root model id — the provider-specific upstream
+	// modelName is never exposed here or stored as a rate-limit target.
+	// modelName in this response is the root model's human-readable display
+	// name.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
 		modelId: string;
 		modelName: string;
-		rootModelId: string;
-		rootModelName: string;
 		family: string;
 	}> = [];
 
@@ -3268,9 +3470,7 @@ admin.openapi(getAvailableRateLimitOptions, async (c) => {
 					providerId: mapping.providerId,
 					providerName: provider.name,
 					modelId: model.id,
-					modelName: mapping.modelName,
-					rootModelId: model.id,
-					rootModelName: (model as { name?: string }).name ?? model.id,
+					modelName: (model as { name?: string }).name ?? model.id,
 					family: model.family,
 				});
 			}
@@ -6180,6 +6380,359 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	});
 });
 
+// --- Cost by model time-series endpoints ---
+
+const costByModelTimeseriesBucketSchema = z.object({
+	model: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	totalTokens: z.number(),
+});
+
+const costByModelTimeseriesPointSchema = z.object({
+	timestamp: z.string(),
+	entries: z.array(costByModelTimeseriesBucketSchema),
+});
+
+const costByModelTimeseriesResponseSchema = z.object({
+	window: tokenWindowSchema,
+	bucket: z.enum(["hour", "day"]),
+	models: z.array(z.string()),
+	data: z.array(costByModelTimeseriesPointSchema),
+});
+
+function getBucketUnitForWindow(window: string): "hour" | "day" {
+	if (
+		window === "1h" ||
+		window === "4h" ||
+		window === "12h" ||
+		window === "1d"
+	) {
+		return "hour";
+	}
+	return "day";
+}
+
+function formatBucketTimestamp(date: Date): string {
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}Z`;
+}
+
+function truncateToBucket(date: Date, unit: "hour" | "day"): Date {
+	const truncated = new Date(date);
+	truncated.setUTCMilliseconds(0);
+	truncated.setUTCSeconds(0);
+	truncated.setUTCMinutes(0);
+	if (unit === "day") {
+		truncated.setUTCHours(0);
+	}
+	return truncated;
+}
+
+function generateBucketTimestamps(
+	start: Date,
+	end: Date,
+	unit: "hour" | "day",
+): string[] {
+	const buckets: string[] = [];
+	const stepMs = unit === "hour" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+	const startBucket = truncateToBucket(start, unit);
+	const endBucket = truncateToBucket(end, unit);
+	for (let t = startBucket.getTime(); t <= endBucket.getTime(); t += stepMs) {
+		buckets.push(formatBucketTimestamp(new Date(t)));
+	}
+	return buckets;
+}
+
+const getOrgCostByModelTimeseries = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/cost-by-model-timeseries",
+	request: {
+		params: z.object({ orgId: z.string() }),
+		query: z.object({
+			window: tokenWindowSchema.default("7d").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: costByModelTimeseriesResponseSchema.openapi({}),
+				},
+			},
+			description: "Organization cost breakdown by model over time.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(getOrgCostByModelTimeseries, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "7d";
+	const startDate = getTokenWindowStartDate(window);
+	const bucketUnit = getBucketUnitForWindow(window);
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const projectIds = await db
+		.select({ id: tables.project.id })
+		.from(tables.project)
+		.where(eq(tables.project.organizationId, orgId));
+
+	const ids = projectIds.map((p) => p.id);
+
+	if (ids.length === 0) {
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			models: [],
+			data: [],
+		});
+	}
+
+	const topModelsRows = await db
+		.select({
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				inArray(projectHourlyModelStats.projectId, ids),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+			),
+		)
+		.groupBy(projectHourlyModelStats.usedModel)
+		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.limit(10);
+
+	const topModels = topModelsRows.map((r) => r.usedModel);
+
+	if (topModels.length === 0) {
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			models: [],
+			data: [],
+		});
+	}
+
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			requestCount:
+				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				inArray(projectHourlyModelStats.projectId, ids),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+				inArray(projectHourlyModelStats.usedModel, topModels),
+			),
+		)
+		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
+		.orderBy(asc(bucketExpr));
+
+	const bucketMap = new Map<
+		string,
+		Map<string, { cost: number; requestCount: number; totalTokens: number }>
+	>();
+
+	for (const row of rows) {
+		const ts = row.bucket;
+		const entry = bucketMap.get(ts) ?? new Map();
+		entry.set(row.usedModel, {
+			cost: Number(row.cost),
+			requestCount: Number(row.requestCount),
+			totalTokens: Number(row.totalTokens),
+		});
+		bucketMap.set(ts, entry);
+	}
+
+	const allBuckets = generateBucketTimestamps(
+		startDate,
+		new Date(),
+		bucketUnit,
+	);
+
+	const data = allBuckets.map((timestamp) => ({
+		timestamp,
+		entries: Array.from(bucketMap.get(timestamp)?.entries() ?? []).map(
+			([model, v]) => ({
+				model,
+				cost: v.cost,
+				requestCount: v.requestCount,
+				totalTokens: v.totalTokens,
+			}),
+		),
+	}));
+
+	return c.json({
+		window,
+		bucket: bucketUnit,
+		models: topModels,
+		data,
+	});
+});
+
+const getProjectCostByModelTimeseries = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/projects/{projectId}/cost-by-model-timeseries",
+	request: {
+		params: z.object({ orgId: z.string(), projectId: z.string() }),
+		query: z.object({
+			window: tokenWindowSchema.default("7d").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: costByModelTimeseriesResponseSchema.openapi({}),
+				},
+			},
+			description: "Project cost breakdown by model over time.",
+		},
+		404: {
+			description: "Project not found.",
+		},
+	},
+});
+
+admin.openapi(getProjectCostByModelTimeseries, async (c) => {
+	const { orgId, projectId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "7d";
+	const startDate = getTokenWindowStartDate(window);
+	const bucketUnit = getBucketUnitForWindow(window);
+
+	const project = await db.query.project.findFirst({
+		where: {
+			id: { eq: projectId },
+			organizationId: { eq: orgId },
+		},
+	});
+
+	if (!project) {
+		throw new HTTPException(404, { message: "Project not found" });
+	}
+
+	const topModelsRows = await db
+		.select({
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				eq(projectHourlyModelStats.projectId, projectId),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+			),
+		)
+		.groupBy(projectHourlyModelStats.usedModel)
+		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.limit(10);
+
+	const topModels = topModelsRows.map((r) => r.usedModel);
+
+	if (topModels.length === 0) {
+		return c.json({
+			window,
+			bucket: bucketUnit,
+			models: [],
+			data: [],
+		});
+	}
+
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			usedModel: projectHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			requestCount:
+				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(projectHourlyModelStats)
+		.where(
+			and(
+				eq(projectHourlyModelStats.projectId, projectId),
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+				inArray(projectHourlyModelStats.usedModel, topModels),
+			),
+		)
+		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
+		.orderBy(asc(bucketExpr));
+
+	const bucketMap = new Map<
+		string,
+		Map<string, { cost: number; requestCount: number; totalTokens: number }>
+	>();
+
+	for (const row of rows) {
+		const ts = row.bucket;
+		const entry = bucketMap.get(ts) ?? new Map();
+		entry.set(row.usedModel, {
+			cost: Number(row.cost),
+			requestCount: Number(row.requestCount),
+			totalTokens: Number(row.totalTokens),
+		});
+		bucketMap.set(ts, entry);
+	}
+
+	const allBuckets = generateBucketTimestamps(
+		startDate,
+		new Date(),
+		bucketUnit,
+	);
+
+	const data = allBuckets.map((timestamp) => ({
+		timestamp,
+		entries: Array.from(bucketMap.get(timestamp)?.entries() ?? []).map(
+			([model, v]) => ({
+				model,
+				cost: v.cost,
+				requestCount: v.requestCount,
+				totalTokens: v.totalTokens,
+			}),
+		),
+	}));
+
+	return c.json({
+		window,
+		bucket: bucketUnit,
+		models: topModels,
+		data,
+	});
+});
+
 // --- Project Model-Provider Stats ---
 
 const projectModelProviderStatsEntrySchema = z.object({
@@ -7015,6 +7568,8 @@ const chatSupportConversationSchema = z.object({
 	messageCount: z.number(),
 	escalatedAt: z.string().nullable(),
 	archivedAt: z.string().nullable(),
+	resolvedAt: z.string().nullable(),
+	rating: z.number().int().min(0).max(5).nullable(),
 	firstMessage: z.string().nullable(),
 });
 
@@ -7029,6 +7584,7 @@ const chatSupportMessageSchema = z.object({
 	role: z.string(),
 	content: z.string(),
 	sequence: z.number(),
+	reaction: z.enum(["like", "dislike"]).nullable(),
 });
 
 const chatSupportConversationDetailSchema = z.object({
@@ -7042,7 +7598,18 @@ const chatSupportConversationDetailSchema = z.object({
 	messageCount: z.number(),
 	escalatedAt: z.string().nullable(),
 	archivedAt: z.string().nullable(),
+	resolvedAt: z.string().nullable(),
+	rating: z.number().int().min(0).max(5).nullable(),
 	messages: z.array(chatSupportMessageSchema),
+});
+
+const chatSupportStatsSchema = z.object({
+	totalRatings: z.number(),
+	averageRating: z.number().nullable(),
+	ratingDistribution: z.record(z.string(), z.number()),
+	resolvedCount: z.number(),
+	likes: z.number(),
+	dislikes: z.number(),
 });
 
 const getChatSupportConversations = createRoute({
@@ -7097,12 +7664,12 @@ admin.openapi(getChatSupportConversations, async (c) => {
 	const where = and(...conditions);
 
 	const firstMessageSubquery = db
-		.select({
+		.selectDistinctOn([mt.conversationId], {
 			conversationId: mt.conversationId,
 			content: mt.content,
 		})
 		.from(mt)
-		.where(and(eq(mt.role, "user"), eq(mt.sequence, 0)))
+		.orderBy(mt.conversationId, asc(mt.sequence))
 		.as("first_msg");
 
 	const [conversations, countResult] = await Promise.all([
@@ -7118,6 +7685,8 @@ admin.openapi(getChatSupportConversations, async (c) => {
 				messageCount: t.messageCount,
 				escalatedAt: t.escalatedAt,
 				archivedAt: t.archivedAt,
+				resolvedAt: t.resolvedAt,
+				rating: t.rating,
 				firstMessage: firstMessageSubquery.content,
 			})
 			.from(t)
@@ -7142,9 +7711,82 @@ admin.openapi(getChatSupportConversations, async (c) => {
 			updatedAt: conv.updatedAt.toISOString(),
 			escalatedAt: conv.escalatedAt?.toISOString() ?? null,
 			archivedAt: conv.archivedAt?.toISOString() ?? null,
+			resolvedAt: conv.resolvedAt?.toISOString() ?? null,
+			rating: conv.rating ?? null,
 			firstMessage: conv.firstMessage ?? null,
 		})),
 		total: Number(countResult[0]?.count ?? 0),
+	});
+});
+
+const getChatSupportStats = createRoute({
+	method: "get",
+	path: "/chat-support-logs/stats",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: chatSupportStatsSchema.openapi({}),
+				},
+			},
+			description: "Aggregate ratings and feedback across all conversations.",
+		},
+	},
+});
+
+admin.openapi(getChatSupportStats, async (c) => {
+	const t = tables.chatSupportConversation;
+	const mt = tables.chatSupportMessage;
+
+	const [ratingRows, reactionRows] = await Promise.all([
+		db
+			.select({ rating: t.rating, count: sql<number>`COUNT(*)`.as("count") })
+			.from(t)
+			.where(isNotNull(t.rating))
+			.groupBy(t.rating),
+		db
+			.select({
+				reaction: mt.reaction,
+				count: sql<number>`COUNT(*)`.as("count"),
+			})
+			.from(mt)
+			.where(isNotNull(mt.reaction))
+			.groupBy(mt.reaction),
+	]);
+
+	const ratingDistribution: Record<string, number> = {};
+	let totalRatings = 0;
+	let ratingSum = 0;
+	for (const row of ratingRows) {
+		const rating = row.rating ?? 0;
+		const count = Number(row.count);
+		ratingDistribution[String(rating)] = count;
+		totalRatings += count;
+		ratingSum += rating * count;
+	}
+
+	let likes = 0;
+	let dislikes = 0;
+	for (const row of reactionRows) {
+		if (row.reaction === "like") {
+			likes = Number(row.count);
+		} else if (row.reaction === "dislike") {
+			dislikes = Number(row.count);
+		}
+	}
+
+	const [resolvedResult] = await db
+		.select({ count: sql<number>`COUNT(*)`.as("count") })
+		.from(t)
+		.where(isNotNull(t.resolvedAt));
+
+	return c.json({
+		totalRatings,
+		averageRating: totalRatings > 0 ? ratingSum / totalRatings : null,
+		ratingDistribution,
+		resolvedCount: Number(resolvedResult?.count ?? 0),
+		likes,
+		dislikes,
 	});
 });
 
@@ -7229,6 +7871,8 @@ admin.openapi(getChatSupportConversation, async (c) => {
 			messageCount: t.messageCount,
 			escalatedAt: t.escalatedAt,
 			archivedAt: t.archivedAt,
+			resolvedAt: t.resolvedAt,
+			rating: t.rating,
 		})
 		.from(t)
 		.where(eq(t.id, id))
@@ -7246,6 +7890,7 @@ admin.openapi(getChatSupportConversation, async (c) => {
 			role: mt.role,
 			content: mt.content,
 			sequence: mt.sequence,
+			reaction: mt.reaction,
 		})
 		.from(mt)
 		.where(eq(mt.conversationId, id))
@@ -7257,6 +7902,8 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		updatedAt: conversation.updatedAt.toISOString(),
 		escalatedAt: conversation.escalatedAt?.toISOString() ?? null,
 		archivedAt: conversation.archivedAt?.toISOString() ?? null,
+		resolvedAt: conversation.resolvedAt?.toISOString() ?? null,
+		rating: conversation.rating ?? null,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),
@@ -8938,46 +9585,42 @@ admin.openapi(getDevpassUsage, async (c) => {
 		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
 		.limit(limit);
 
-	// Sources: no per-org source aggregator exists, so use the same
-	// cross-org day-bucketed table the /global-stats endpoint reads.
-	// Snap range to UTC day boundaries to match the bucket grain.
-	const sourceStart = new Date(
-		Date.UTC(
-			startDate.getUTCFullYear(),
-			startDate.getUTCMonth(),
-			startDate.getUTCDate(),
-		),
-	);
-	const sourceEnd = new Date(
-		Date.UTC(
-			endDate.getUTCFullYear(),
-			endDate.getUTCMonth(),
-			endDate.getUTCDate(),
-		),
+	// Sources: use the per-project hourly source aggregator so the breakdown
+	// is scoped to DevPass orgs (joins project -> organization), instead of the
+	// cross-org globalSourceStats table.
+	const projectSourceWhere = and(
+		gte(projectHourlySourceStats.hourTimestamp, startDate),
+		lte(projectHourlySourceStats.hourTimestamp, endDate),
+		devpassOrgFilter,
 	);
 
 	const sourceRows = await db
 		.select({
-			id: globalSourceStats.source,
+			id: projectHourlySourceStats.source,
 			requestCount:
-				sql<number>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
 					"request_count",
 				),
 			totalTokens:
-				sql<number>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`.as(
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${globalSourceStats.cost}), 0)`.as("cost"),
-		})
-		.from(globalSourceStats)
-		.where(
-			and(
-				gte(globalSourceStats.dayTimestamp, sourceStart),
-				lte(globalSourceStats.dayTimestamp, sourceEnd),
+			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+				"cost",
 			),
+		})
+		.from(projectHourlySourceStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlySourceStats.projectId, tables.project.id),
 		)
-		.groupBy(globalSourceStats.source)
-		.orderBy(desc(sql`COALESCE(SUM(${globalSourceStats.cost}), 0)`))
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(projectSourceWhere)
+		.groupBy(projectHourlySourceStats.source)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`))
 		.limit(limit);
 
 	const mapRow = (r: {

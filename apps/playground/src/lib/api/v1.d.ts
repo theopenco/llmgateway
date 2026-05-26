@@ -1009,7 +1009,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -1017,6 +1017,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -1040,7 +1041,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue: {
                             models?: string[];
                             providers?: string[];
@@ -1048,6 +1049,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /**
                          * @default active
@@ -1071,7 +1073,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -1079,6 +1081,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -1145,7 +1148,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue?: {
                             models?: string[];
                             providers?: string[];
@@ -1153,6 +1156,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /** @enum {string} */
                         status?: "active" | "inactive";
@@ -1173,7 +1177,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -1181,6 +1185,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -1650,6 +1655,7 @@ export interface paths {
                     limit?: string;
                     customHeaderKey?: string;
                     customHeaderValue?: string;
+                    requestId?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1812,6 +1818,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2066,6 +2073,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2121,6 +2129,7 @@ export interface paths {
                     projectId?: string;
                     apiKeyId?: string;
                     timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
+                    groupBy?: "model" | "apiKey";
                 };
                 header?: never;
                 path?: never;
@@ -2174,9 +2183,68 @@ export interface paths {
                                     totalTokens: number;
                                     cost: number;
                                 }[];
+                                apiKeyBreakdown: {
+                                    id: string;
+                                    description: string;
+                                    requestCount: number;
+                                    inputTokens: number;
+                                    outputTokens: number;
+                                    totalTokens: number;
+                                    cost: number;
+                                }[];
                             }[];
                             /** @enum {string} */
                             granularity?: "hourly" | "daily";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activity/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query: {
+                    projectId: string;
+                    timeRange?: "7d" | "30d";
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregated usage grouped by source for a project */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            sources: {
+                                source: string;
+                                requestCount: number;
+                                inputTokens: number;
+                                outputTokens: number;
+                                totalTokens: number;
+                                cost: number;
+                                lastUsedAt: string | null;
+                            }[];
                         };
                     };
                 };
@@ -2307,6 +2375,7 @@ export interface paths {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d";
                     groupBy?: "model" | "source";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path?: never;
@@ -2325,6 +2394,8 @@ export interface paths {
                             range: "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             groupBy: "model" | "source";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             totals: {
                                 requestCount: number;
                                 errorCount: number;
@@ -2690,10 +2761,85 @@ export interface paths {
                                 projectId: string;
                                 projectName: string;
                                 createdAt: string;
+                                iamRules: {
+                                    id: string;
+                                    createdAt: string;
+                                    updatedAt: string;
+                                    apiKeyId: string;
+                                    /** @enum {string} */
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
+                                    ruleValue: {
+                                        models?: string[];
+                                        providers?: string[];
+                                        /** @enum {string} */
+                                        pricingType?: "free" | "paid";
+                                        maxInputPrice?: number;
+                                        maxOutputPrice?: number;
+                                        ipCidrs?: string[];
+                                    };
+                                    /** @enum {string} */
+                                    status: "active" | "inactive";
+                                }[];
                             }[];
                             total: number;
                             limit: number;
                             offset: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/provider-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization provider keys. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providerKeys: {
+                                id: string;
+                                token: string;
+                                provider: string;
+                                name: string | null;
+                                baseUrl: string | null;
+                                status: string | null;
+                                createdAt: string;
+                                updatedAt: string;
+                            }[];
+                            total: number;
                         };
                     };
                 };
@@ -3320,8 +3466,6 @@ export interface paths {
                                 providerName: string;
                                 modelId: string;
                                 modelName: string;
-                                rootModelId: string;
-                                rootModelName: string;
                                 family: string;
                             }[];
                         };
@@ -3688,8 +3832,6 @@ export interface paths {
                                 providerName: string;
                                 modelId: string;
                                 modelName: string;
-                                rootModelId: string;
-                                rootModelName: string;
                                 family: string;
                             }[];
                         };
@@ -4493,6 +4635,129 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/organizations/{orgId}/cost-by-model-timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organization cost breakdown by model over time. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            /** @enum {string} */
+                            bucket: "hour" | "day";
+                            models: string[];
+                            data: {
+                                timestamp: string;
+                                entries: {
+                                    model: string;
+                                    cost: number;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/projects/{projectId}/cost-by-model-timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                };
+                header?: never;
+                path: {
+                    orgId: string;
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Project cost breakdown by model over time. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                            /** @enum {string} */
+                            bucket: "hour" | "day";
+                            models: string[];
+                            data: {
+                                timestamp: string;
+                                entries: {
+                                    model: string;
+                                    cost: number;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Project not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/organizations/{orgId}/projects/{projectId}/model-provider-stats": {
         parameters: {
             query?: never;
@@ -4894,9 +5159,55 @@ export interface paths {
                                 messageCount: number;
                                 escalatedAt: string | null;
                                 archivedAt: string | null;
+                                resolvedAt: string | null;
+                                rating: number | null;
                                 firstMessage: string | null;
                             }[];
                             total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/chat-support-logs/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregate ratings and feedback across all conversations. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            totalRatings: number;
+                            averageRating: number | null;
+                            ratingDistribution: {
+                                [key: string]: number;
+                            };
+                            resolvedCount: number;
+                            likes: number;
+                            dislikes: number;
                         };
                     };
                 };
@@ -4984,12 +5295,16 @@ export interface paths {
                             messageCount: number;
                             escalatedAt: string | null;
                             archivedAt: string | null;
+                            resolvedAt: string | null;
+                            rating: number | null;
                             messages: {
                                 id: string;
                                 createdAt: string;
                                 role: string;
                                 content: string;
                                 sequence: number;
+                                /** @enum {string|null} */
+                                reaction: "like" | "dislike" | null;
                             }[];
                         };
                     };
@@ -5671,7 +5986,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5679,6 +5994,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -5755,7 +6071,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5763,6 +6079,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -5892,7 +6209,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -5900,6 +6217,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -6005,7 +6323,7 @@ export interface paths {
                                     createdAt: string;
                                     updatedAt: string;
                                     /** @enum {string} */
-                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                    ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                     ruleValue: {
                                         models?: string[];
                                         providers?: string[];
@@ -6013,6 +6331,7 @@ export interface paths {
                                         pricingType?: "free" | "paid";
                                         maxInputPrice?: number;
                                         maxOutputPrice?: number;
+                                        ipCidrs?: string[];
                                     };
                                     /** @enum {string} */
                                     status: "active" | "inactive";
@@ -6079,7 +6398,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -6087,6 +6406,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -6110,7 +6430,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue: {
                             models?: string[];
                             providers?: string[];
@@ -6118,6 +6438,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /**
                          * @default active
@@ -6142,7 +6463,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -6150,6 +6471,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -6216,7 +6538,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                        ruleType?: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                         ruleValue?: {
                             models?: string[];
                             providers?: string[];
@@ -6224,6 +6546,7 @@ export interface paths {
                             pricingType?: "free" | "paid";
                             maxInputPrice?: number;
                             maxOutputPrice?: number;
+                            ipCidrs?: string[];
                         };
                         /**
                          * @default active
@@ -6248,7 +6571,7 @@ export interface paths {
                                 updatedAt: string;
                                 apiKeyId: string;
                                 /** @enum {string} */
-                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers";
+                                ruleType: "allow_models" | "deny_models" | "allow_pricing" | "deny_pricing" | "allow_providers" | "deny_providers" | "allow_ip_cidrs" | "deny_ip_cidrs";
                                 ruleValue: {
                                     models?: string[];
                                     providers?: string[];
@@ -6256,6 +6579,7 @@ export interface paths {
                                     pricingType?: "free" | "paid";
                                     maxInputPrice?: number;
                                     maxOutputPrice?: number;
+                                    ipCidrs?: string[];
                                 };
                                 /** @enum {string} */
                                 status: "active" | "inactive";
@@ -7100,6 +7424,430 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/playground/image-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of image generation history for the authenticated user */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                        inputImages?: {
+                            dataUrl: string;
+                            mediaType: string;
+                        }[];
+                        models: {
+                            modelId: string;
+                            modelName: string;
+                            images: {
+                                base64: string;
+                                mediaType: string;
+                            }[];
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Saved image history item */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/playground/image-history/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated image history item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                inputImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    images: {
+                                        base64: string;
+                                        mediaType: string;
+                                    }[];
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/playground/video-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of video generation history for the authenticated user */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                        frameInputs?: {
+                            start: {
+                                dataUrl: string;
+                                mediaType: string;
+                            } | null;
+                            end: {
+                                dataUrl: string;
+                                mediaType: string;
+                            } | null;
+                        };
+                        referenceImages?: {
+                            dataUrl: string;
+                            mediaType: string;
+                        }[];
+                        models: {
+                            modelId: string;
+                            modelName: string;
+                            jobId: string | null;
+                            videoUrl: string | null;
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Saved video history item */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/playground/video-history/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        prompt: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated video history item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            item: {
+                                id: string;
+                                prompt: string;
+                                createdAt: string;
+                                frameInputs: {
+                                    start: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                    end: {
+                                        dataUrl: string;
+                                        mediaType: string;
+                                    } | null;
+                                } | null;
+                                referenceImages: {
+                                    dataUrl: string;
+                                    mediaType: string;
+                                }[] | null;
+                                models: {
+                                    modelId: string;
+                                    modelName: string;
+                                    jobId: string | null;
+                                    videoUrl: string | null;
+                                    error?: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/orgs": {
@@ -8244,6 +8992,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -8277,6 +9026,9 @@ export interface paths {
                         model: string;
                         /** @default false */
                         webSearch?: boolean;
+                        /** @default false */
+                        comparisonEnabled?: boolean;
+                        parentChatId?: string;
                     };
                 };
             };
@@ -8296,6 +9048,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -8366,6 +9119,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -8426,6 +9180,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -8455,6 +9210,7 @@ export interface paths {
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
+                            comparisonChatIds: string[];
                         };
                     };
                 };
@@ -8534,6 +9290,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;

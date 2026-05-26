@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { AuthDialog } from "@/components/playground/auth-dialog";
@@ -12,6 +13,10 @@ import { VideoHeader } from "@/components/playground/video-header";
 import { VideoSidebar } from "@/components/playground/video-sidebar";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import {
+	useSaveVideoHistory,
+	useVideoHistory,
+} from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
@@ -39,16 +44,6 @@ import type {
 	VideoJob,
 	VideoSize,
 } from "@/lib/video-gen";
-
-const VIDEO_GALLERY_TTL_MS = 3 * 24 * 60 * 60 * 1000;
-const VIDEO_GALLERY_KEY = "video-gallery-items";
-
-function filterRecentGalleryItems(
-	items: VideoGalleryItem[],
-): VideoGalleryItem[] {
-	const now = Date.now();
-	return items.filter((item) => now - item.timestamp < VIDEO_GALLERY_TTL_MS);
-}
 
 interface VideoPageClientProps {
 	models: ApiModel[];
@@ -118,39 +113,13 @@ export default function VideoPageClient({
 		() => searchParams.get("compare") === "1",
 	);
 	const [prompt, setPrompt] = useState("");
-	const [galleryItems, setGalleryItems] = useState<VideoGalleryItem[]>(() => {
-		if (typeof window === "undefined") {
-			return [];
-		}
-		try {
-			const stored = localStorage.getItem(VIDEO_GALLERY_KEY);
-			if (!stored) {
-				return [];
-			}
-			return filterRecentGalleryItems(JSON.parse(stored) as VideoGalleryItem[]);
-		} catch {
-			return [];
-		}
-	});
+	const [activeItems, setActiveItems] = useState<VideoGalleryItem[]>([]);
+	const videoIdFromUrl = searchParams.get("id");
+	const [selectedItemId, setSelectedItemId] = useState<string | null>(
+		videoIdFromUrl,
+	);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
-
-	useEffect(() => {
-		try {
-			if (galleryItems.length === 0) {
-				localStorage.removeItem(VIDEO_GALLERY_KEY);
-				return;
-			}
-			const fresh = filterRecentGalleryItems(galleryItems);
-			if (fresh.length === 0) {
-				localStorage.removeItem(VIDEO_GALLERY_KEY);
-			} else {
-				localStorage.setItem(VIDEO_GALLERY_KEY, JSON.stringify(fresh));
-			}
-		} catch {
-			// Ignore quota/private-mode errors
-		}
-	}, [galleryItems]);
 
 	const [videoSize, setVideoSize] = useState<VideoSize>("1280x720");
 	const [videoDuration, setVideoDuration] = useState<VideoDuration>(8);
@@ -167,6 +136,108 @@ export default function VideoPageClient({
 
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
+
+	// DB-persisted history
+	const { data: historyData } = useVideoHistory(isAuthenticated);
+	const { mutate: saveVideoHistory } = useSaveVideoHistory();
+	const savedItemIdsRef = useRef<Set<string>>(new Set());
+	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
+
+	const galleryItems = useMemo<VideoGalleryItem[]>(() => {
+		const historical: VideoGalleryItem[] = (historyData?.items ?? []).map(
+			(item) => ({
+				id: item.id,
+				prompt: item.prompt,
+				timestamp: new Date(item.createdAt).getTime(),
+				frameInputs: item.frameInputs ?? undefined,
+				referenceImages: item.referenceImages ?? undefined,
+				models: item.models.map((m) => ({
+					modelId: m.modelId,
+					modelName: m.modelName,
+					job: null,
+					videoUrl: m.videoUrl,
+					error: m.error,
+					isLoading: false,
+				})),
+			}),
+		);
+		return [...activeItems, ...historical];
+	}, [activeItems, historyData]);
+
+	const displayItems = useMemo<VideoGalleryItem[]>(() => {
+		if (activeItems.length > 0) {
+			return activeItems;
+		}
+		if (selectedItemId) {
+			const item = galleryItems.find((i) => i.id === selectedItemId);
+			return item ? [item] : [];
+		}
+		return [];
+	}, [activeItems, selectedItemId, galleryItems]);
+
+	// Auto-save completed active items to DB then remove from local state
+	useEffect(() => {
+		const done = activeItems.filter(
+			(item) =>
+				item.models.length > 0 &&
+				item.models.every((m) => !m.isLoading) &&
+				!savedItemIdsRef.current.has(item.id),
+		);
+		if (done.length === 0) {
+			return;
+		}
+		for (const item of done) {
+			savedItemIdsRef.current.add(item.id);
+			if (item.models.some((m) => m.videoUrl !== null)) {
+				saveVideoHistory(
+					{
+						body: {
+							prompt: item.prompt,
+							frameInputs: item.frameInputs,
+							referenceImages: item.referenceImages,
+							models: item.models.map((m) => ({
+								modelId: m.modelId,
+								modelName: m.modelName,
+								jobId: m.job?.id ?? null,
+								videoUrl: m.videoUrl,
+								error: m.error,
+							})),
+						},
+					},
+					{
+						onSuccess: (data) => {
+							const newId = data.item.id;
+							setSelectedItemId(newId);
+							const params = new URLSearchParams(window.location.search);
+							params.set("id", newId);
+							router.replace(`${pathname}?${params.toString()}`, {
+								scroll: false,
+							});
+							pendingSaveRef.current = { localId: item.id, dbId: newId };
+						},
+						onError: () => {
+							savedItemIdsRef.current.delete(item.id);
+						},
+					},
+				);
+			} else {
+				setActiveItems((prev) => prev.filter((i) => i.id !== item.id));
+			}
+		}
+	}, [activeItems, saveVideoHistory, router, pathname]);
+
+	useEffect(() => {
+		const pending = pendingSaveRef.current;
+		if (!pending) {
+			return;
+		}
+		const found = historyData?.items.some((i) => i.id === pending.dbId);
+		if (found) {
+			setActiveItems((prev) => prev.filter((i) => i.id !== pending.localId));
+			pendingSaveRef.current = null;
+		}
+	}, [historyData]);
+
 	const canUseFrameInputs = useMemo(
 		() =>
 			selectedModels.length > 0 &&
@@ -277,6 +348,36 @@ export default function VideoPageClient({
 			});
 		};
 	}, []);
+
+	// Sync URL → state for back/forward navigation
+	useEffect(() => {
+		if (videoIdFromUrl !== selectedItemId) {
+			setSelectedItemId(videoIdFromUrl);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [videoIdFromUrl]);
+
+	const lastRestoredIdRef = useRef<string | null>(null);
+
+	// Restore compare mode and selected models when loading a history item on page load.
+	// Uses a ref to run only once per item ID so history re-fetches don't clobber
+	// manual model changes the user makes while viewing a history item.
+	useEffect(() => {
+		if (!selectedItemId || activeItems.length > 0) {
+			return;
+		}
+		if (lastRestoredIdRef.current === selectedItemId) {
+			return;
+		}
+		const item = galleryItems.find((i) => i.id === selectedItemId);
+		if (!item) {
+			return;
+		}
+		lastRestoredIdRef.current = selectedItemId;
+		const isCompare = item.models.length > 1;
+		setComparisonMode(isCompare);
+		setSelectedModels(item.models.map((m) => m.modelId));
+	}, [selectedItemId, galleryItems]);
 
 	useEffect(() => {
 		if (!canUseFrameInputs) {
@@ -394,7 +495,7 @@ export default function VideoPageClient({
 			modelId: string,
 			updates: Partial<VideoGalleryItem["models"][number]>,
 		) => {
-			setGalleryItems((prev) =>
+			setActiveItems((prev) =>
 				prev.map((item) => {
 					if (item.id !== itemId) {
 						return item;
@@ -458,7 +559,8 @@ export default function VideoPageClient({
 				})),
 			};
 
-			setGalleryItems((prev) => [placeholderItem, ...prev]);
+			setActiveItems((prev) => [placeholderItem, ...prev]);
+			setSelectedItemId(null);
 			setPrompt("");
 			setFrameInputs({
 				start: null,
@@ -560,12 +662,14 @@ export default function VideoPageClient({
 						if (error instanceof DOMException && error.name === "AbortError") {
 							return;
 						}
+						const errorMessage =
+							error instanceof Error
+								? error.message
+								: "Video generation failed";
+						toast.error(errorMessage);
 						updateGalleryModel(itemId, modelId, {
 							isLoading: false,
-							error:
-								error instanceof Error
-									? error.message
-									: "Video generation failed",
+							error: errorMessage,
 						});
 					} finally {
 						abortControllersRef.current.delete(controllerKey);
@@ -591,6 +695,8 @@ export default function VideoPageClient({
 			posthog,
 			referenceImages,
 			updateGalleryModel,
+			pathname,
+			router,
 		],
 	);
 
@@ -642,20 +748,45 @@ export default function VideoPageClient({
 			controller.abort();
 		});
 		abortControllersRef.current.clear();
-		setGalleryItems([]);
+		setActiveItems([]);
+		setSelectedItemId(null);
 		setPrompt("");
 		setFrameInputs({ start: null, end: null });
 		setReferenceImages([]);
 		setIsGenerating(false);
 		pendingRef.current = 0;
-	}, []);
+		const params = new URLSearchParams(window.location.search);
+		params.delete("id");
+		const qs = params.toString();
+		router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+	}, [pathname, router]);
 
-	const handleItemClick = useCallback((itemId: string) => {
-		const element = document.getElementById(`gallery-${itemId}`);
-		if (element) {
-			element.scrollIntoView({ behavior: "smooth", block: "start" });
-		}
-	}, []);
+	const handleItemClick = useCallback(
+		(itemId: string) => {
+			setSelectedItemId(itemId);
+			// Don't overwrite model/compare state while a generation is in progress —
+			// the gallery still shows activeItems and the next run should use the
+			// current header selection, not the clicked history item's models.
+			if (activeItems.length === 0) {
+				const item = galleryItems.find((i) => i.id === itemId);
+				if (item) {
+					lastRestoredIdRef.current = itemId;
+					const isCompare = item.models.length > 1;
+					setComparisonMode(isCompare);
+					setSelectedModels(item.models.map((m) => m.modelId));
+				}
+				const params = new URLSearchParams(window.location.search);
+				params.set("id", itemId);
+				if (item && item.models.length > 1) {
+					params.set("compare", "1");
+				} else {
+					params.delete("compare");
+				}
+				router.push(`${pathname}?${params.toString()}`, { scroll: false });
+			}
+		},
+		[activeItems, galleryItems, pathname, router],
+	);
 
 	const isLowCredits = selectedOrganization
 		? Number(selectedOrganization.credits) < 1
@@ -669,6 +800,7 @@ export default function VideoPageClient({
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
 					selectedOrganization={selectedOrganization}
+					currentItemId={selectedItemId}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
 					<VideoHeader
@@ -682,6 +814,7 @@ export default function VideoPageClient({
 						onComparisonModeChange={handleComparisonModeChange}
 						isModelOptionDisabled={isModelOptionDisabled}
 						getModelOptionDisabledReason={getModelOptionDisabledReason}
+						hideCompare={displayItems.length > 0}
 					/>
 					{isLowCredits && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
@@ -722,7 +855,7 @@ export default function VideoPageClient({
 					<div className="flex-1 overflow-y-auto p-4">
 						<div className="max-w-6xl mx-auto">
 							<VideoGallery
-								items={galleryItems}
+								items={displayItems}
 								comparisonMode={comparisonMode}
 								onSuggestionClick={handleSuggestionClick}
 							/>

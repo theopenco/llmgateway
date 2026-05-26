@@ -38,31 +38,43 @@ import {
 import { useApi } from "@/lib/fetch-client";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
-import type { ActivitT, ActivityModelUsage } from "@/types/activity";
+import type {
+	ActivitT,
+	ActivityApiKeyUsage,
+	ActivityModelUsage,
+} from "@/types/activity";
 import type { TooltipProps } from "recharts";
 
-// Helper function to get all unique models from the data
-function getUniqueModels(
-	data: { modelBreakdown: { id: string }[] }[],
+type GroupBy = "model" | "apiKey";
+
+// Helper function to get all unique series (model ids or api key ids) from the data
+function getUniqueSeries(
+	data: {
+		modelBreakdown: { id: string }[];
+		apiKeyBreakdown: { id: string }[];
+	}[],
+	groupBy: GroupBy,
 ): string[] {
 	if (!data || data.length === 0) {
 		return [];
 	}
 
-	const allModels = new Set<string>();
+	const all = new Set<string>();
 	data.forEach((day) => {
-		if (day.modelBreakdown && day.modelBreakdown.length > 0) {
-			day.modelBreakdown.forEach((model) => {
-				allModels.add(model.id);
+		const items =
+			groupBy === "apiKey" ? day.apiKeyBreakdown : day.modelBreakdown;
+		if (items && items.length > 0) {
+			items.forEach((item) => {
+				all.add(item.id);
 			});
 		}
 	});
 
-	return Array.from(allModels);
+	return Array.from(all);
 }
 
-// Helper function to generate colors for each model
-function getModelColor(model: string, index: number): string {
+// Helper function to generate colors for each series
+function getSeriesColor(_series: string, index: number): string {
 	// Define a set of colors for the bars
 	const colors = [
 		"#4f46e5", // indigo
@@ -112,6 +124,7 @@ interface TooltipPayload {
 		totalTokens: number;
 		cost: number;
 		modelBreakdown: ActivityModelUsage[];
+		apiKeyBreakdown: ActivityApiKeyUsage[];
 	};
 }
 
@@ -121,6 +134,7 @@ interface CustomTooltipProps extends TooltipProps<number, string> {
 	label?: string;
 	breakdownField?: "requests" | "cost" | "tokens";
 	hourly?: boolean;
+	groupBy?: GroupBy;
 }
 
 const CustomTooltip = ({
@@ -129,6 +143,7 @@ const CustomTooltip = ({
 	label,
 	breakdownField = "requests",
 	hourly = false,
+	groupBy = "model",
 }: CustomTooltipProps) => {
 	if (active && payload && payload.length) {
 		const data = payload[0].payload;
@@ -154,16 +169,29 @@ const CustomTooltip = ({
 					<span className="font-medium">${data.cost.toFixed(4)}</span> estimated
 					cost
 				</p>
-				{Array.isArray(data.modelBreakdown) &&
+				{groupBy === "model" &&
+					Array.isArray(data.modelBreakdown) &&
 					data.modelBreakdown.length === 1 && (
 						<p className="mt-1 text-xs text-muted-foreground">
 							Model:{" "}
 							<span className="font-medium">{data.modelBreakdown[0]?.id}</span>
 						</p>
 					)}
+				{groupBy === "apiKey" &&
+					Array.isArray(data.apiKeyBreakdown) &&
+					data.apiKeyBreakdown.length === 1 && (
+						<p className="mt-1 text-xs text-muted-foreground">
+							API key:{" "}
+							<span className="font-medium">
+								{data.apiKeyBreakdown[0]?.description}
+							</span>
+						</p>
+					)}
 				{payload.length > 1 && (
 					<div className="mt-2 pt-2 border-t">
-						<p className="text-sm font-medium">Model Breakdown:</p>
+						<p className="text-sm font-medium">
+							{groupBy === "apiKey" ? "API Key Breakdown:" : "Model Breakdown:"}
+						</p>
 						{payload.map((entry, index) => {
 							// Skip the entry if it's not a model (e.g., it's the total requestCount)
 							if (entry.dataKey === "requestCount") {
@@ -216,12 +244,14 @@ interface ActivityChartProps {
 	initialData?: ActivitT;
 	apiKeyId?: string;
 	timeRange?: TimeRangeValue;
+	groupBy?: GroupBy;
 }
 
 export function ActivityChart({
 	initialData,
 	apiKeyId,
 	timeRange,
+	groupBy = "model",
 }: ActivityChartProps) {
 	const searchParams = useSearchParams();
 	const [breakdownField, setBreakdownField] = useState<
@@ -235,11 +265,13 @@ export function ActivityChart({
 
 	// Build query params based on whether we're using timeRange or date range
 	const queryParams = useMemo(() => {
+		const breakdownParam = groupBy === "apiKey" ? { groupBy } : {};
 		if (timeRange) {
 			return {
 				timeRange,
 				...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				...(apiKeyId ? { apiKeyId } : {}),
+				...breakdownParam,
 			};
 		}
 		const { from, to } = getDateRangeFromParams(searchParams);
@@ -248,8 +280,9 @@ export function ActivityChart({
 			to: format(to, "yyyy-MM-dd"),
 			...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 			...(apiKeyId ? { apiKeyId } : {}),
+			...breakdownParam,
 		};
-	}, [timeRange, searchParams, selectedProject?.id, apiKeyId]);
+	}, [timeRange, searchParams, selectedProject?.id, apiKeyId, groupBy]);
 
 	const { data, isLoading, error } = api.useQuery(
 		"get",
@@ -281,11 +314,15 @@ export function ActivityChart({
 		return `${days} days`;
 	}, [timeRange, searchParams]);
 
+	const seriesNoun = groupBy === "apiKey" ? "API key" : "model";
+	const cardTitle =
+		groupBy === "apiKey" ? "API Key Usage Overview" : "Model Usage Overview";
+
 	if (!selectedProject) {
 		return (
 			<Card>
 				<CardHeader>
-					<CardTitle>Model Usage Overview</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
 						Please select a project to view activity data
 					</CardDescription>
@@ -303,9 +340,9 @@ export function ActivityChart({
 		return (
 			<Card>
 				<CardHeader>
-					<CardTitle>Model Usage Overview</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {periodLabel}
+						Stacked {seriesNoun} {breakdownField} over {periodLabel}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -321,9 +358,9 @@ export function ActivityChart({
 		return (
 			<Card>
 				<CardHeader>
-					<CardTitle>Model Usage Overview</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {periodLabel}
+						Stacked {seriesNoun} {breakdownField} over {periodLabel}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -339,9 +376,9 @@ export function ActivityChart({
 		return (
 			<Card>
 				<CardHeader>
-					<CardTitle>Model Usage Overview</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {periodLabel}
+						Stacked {seriesNoun} {breakdownField} over {periodLabel}
 						{selectedProject && (
 							<span className="block mt-1 text-sm">
 								Project: {selectedProject.name}
@@ -399,17 +436,10 @@ export function ActivityChart({
 		if (dataByDate.has(slot)) {
 			const dayData = dataByDate.get(slot)!;
 
-			// Process model breakdown data for stacked bars
+			// Process breakdown data for stacked bars
 			const result: Record<
 				string,
-				| string
-				| number
-				| {
-						id: string;
-						requestCount: number;
-						cost: number;
-						totalTokens: number;
-				  }[]
+				string | number | ActivityModelUsage[] | ActivityApiKeyUsage[]
 			> = {
 				...dayData,
 				formattedDate: hourly
@@ -417,18 +447,20 @@ export function ActivityChart({
 					: format(parseISO(slot), "MMM d"),
 			};
 
-			// Add each model's selected metric as a separate property for stacking
-			dayData.modelBreakdown.forEach((model) => {
+			// Add each series' selected metric as a separate property for stacking
+			const items =
+				groupBy === "apiKey" ? dayData.apiKeyBreakdown : dayData.modelBreakdown;
+			items.forEach((item) => {
 				switch (breakdownField) {
 					case "cost":
-						result[model.id] = model.cost;
+						result[item.id] = item.cost;
 						break;
 					case "tokens":
-						result[model.id] = model.totalTokens;
+						result[item.id] = item.totalTokens;
 						break;
 					case "requests":
 					default:
-						result[model.id] = model.requestCount;
+						result[item.id] = item.requestCount;
 						break;
 				}
 			});
@@ -446,19 +478,32 @@ export function ActivityChart({
 			totalTokens: 0,
 			cost: 0,
 			modelBreakdown: [],
+			apiKeyBreakdown: [],
 		};
 	});
 
-	const uniqueModels = getUniqueModels(data.activity);
-	const visibleModels = showAllModels ? uniqueModels : uniqueModels.slice(0, 7);
+	const uniqueSeries = getUniqueSeries(data.activity, groupBy);
+	const visibleSeries = showAllModels ? uniqueSeries : uniqueSeries.slice(0, 7);
+
+	const seriesLabelById = new Map<string, string>();
+	if (groupBy === "apiKey") {
+		data.activity.forEach((day) => {
+			day.apiKeyBreakdown.forEach((item) => {
+				if (!seriesLabelById.has(item.id)) {
+					seriesLabelById.set(item.id, item.description || item.id);
+				}
+			});
+		});
+	}
+	const getSeriesLabel = (id: string) => seriesLabelById.get(id) ?? id;
 
 	return (
 		<Card>
 			<CardHeader className="flex flex-col space-y-4 md:flex-row items-center justify-between pb-2">
 				<div>
-					<CardTitle>Model Usage Overview</CardTitle>
+					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
-						Stacked model {breakdownField} over {periodLabel}
+						Stacked {seriesNoun} {breakdownField} over {periodLabel}
 						{selectedProject && (
 							<span className="block mt-1 text-sm">
 								Project: {selectedProject.name}
@@ -485,23 +530,25 @@ export function ActivityChart({
 				</div>
 			</CardHeader>
 			<CardContent>
-				{uniqueModels.length > 0 && (
+				{uniqueSeries.length > 0 && (
 					<div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-						{visibleModels.map((model) => (
-							<div key={model} className="flex items-center gap-2">
+						{visibleSeries.map((id) => (
+							<div key={id} className="flex items-center gap-2">
 								<span
 									className="h-2 w-2 rounded-sm"
 									style={{
-										backgroundColor: getModelColor(
-											model,
-											uniqueModels.indexOf(model),
+										backgroundColor: getSeriesColor(
+											id,
+											uniqueSeries.indexOf(id),
 										),
 									}}
 								/>
-								<span className="truncate max-w-[140px]">{model}</span>
+								<span className="truncate max-w-[140px]">
+									{getSeriesLabel(id)}
+								</span>
 							</div>
 						))}
-						{uniqueModels.length > 7 && (
+						{uniqueSeries.length > 7 && (
 							<button
 								type="button"
 								onClick={() => setShowAllModels((prev) => !prev)}
@@ -509,7 +556,7 @@ export function ActivityChart({
 							>
 								{showAllModels
 									? "Show less"
-									: `+${uniqueModels.length - 7} more`}
+									: `+${uniqueSeries.length - 7} more`}
 							</button>
 						)}
 					</div>
@@ -551,6 +598,7 @@ export function ActivityChart({
 								<CustomTooltip
 									breakdownField={breakdownField}
 									hourly={hourly}
+									groupBy={groupBy}
 								/>
 							}
 							cursor={{
@@ -558,17 +606,17 @@ export function ActivityChart({
 							}}
 						/>
 
-						{/* Generate a Bar for each unique model in the dataset */}
-						{getUniqueModels(data.activity).length > 0 ? (
-							getUniqueModels(data.activity).map((model, index) => (
+						{/* Generate a Bar for each unique series in the dataset */}
+						{uniqueSeries.length > 0 ? (
+							uniqueSeries.map((id, index) => (
 								<Bar
-									key={`${model}-${index}`}
-									dataKey={model}
-									name={model}
-									stackId="models"
-									fill={getModelColor(model, index)}
+									key={`${id}-${index}`}
+									dataKey={id}
+									name={getSeriesLabel(id)}
+									stackId="series"
+									fill={getSeriesColor(id, index)}
 									radius={
-										index === getUniqueModels(data.activity).length - 1
+										index === uniqueSeries.length - 1
 											? [4, 4, 0, 0]
 											: [0, 0, 0, 0]
 									}

@@ -73,7 +73,6 @@ export function RateLimitForm({
 			{
 				modelId: string;
 				modelName: string;
-				rootModelName: string;
 				family: string;
 			}
 		>();
@@ -82,13 +81,12 @@ export function RateLimitForm({
 				uniqueModels.set(mapping.modelId, {
 					modelId: mapping.modelId,
 					modelName: mapping.modelName,
-					rootModelName: mapping.rootModelName,
 					family: mapping.family,
 				});
 			}
 		}
 		return Array.from(uniqueModels.values()).sort((a, b) =>
-			a.rootModelName.localeCompare(b.rootModelName),
+			a.modelName.localeCompare(b.modelName),
 		);
 	}, [filteredMappings]);
 
@@ -227,7 +225,7 @@ export function RateLimitForm({
 							<SelectTrigger className="w-full">
 								<SelectValue>
 									{selectedModel
-										? `${selectedModel.rootModelName} (${selectedModel.modelId})`
+										? `${selectedModel.modelName} (${selectedModel.modelId})`
 										: "All Models"}
 								</SelectValue>
 							</SelectTrigger>
@@ -236,7 +234,7 @@ export function RateLimitForm({
 								{availableModels.map((m) => (
 									<SelectItem key={m.modelId} value={m.modelId}>
 										<span className="truncate">
-											{m.rootModelName}{" "}
+											{m.modelName}{" "}
 											<span className="text-muted-foreground">
 												({m.modelId})
 											</span>

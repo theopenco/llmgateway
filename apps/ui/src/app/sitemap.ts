@@ -108,8 +108,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		{
 			url: `${baseUrl}/token-cost-calculator`,
 			lastModified: new Date(),
-			changeFrequency: "monthly",
-			priority: 0.8,
+			changeFrequency: "weekly",
+			priority: 0.9,
 		},
 		{
 			url: `${baseUrl}/blog/category`,
@@ -155,6 +155,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/models/text-to-image`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/video`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/embeddings`,
 			lastModified: new Date(),
 			changeFrequency: "weekly",
 			priority: 0.8,

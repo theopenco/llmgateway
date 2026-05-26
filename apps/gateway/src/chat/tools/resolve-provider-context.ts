@@ -84,7 +84,14 @@ export interface ProviderContextOptions {
 	response_format: OpenAIRequestBody["response_format"];
 	tools: OpenAIToolInput[] | undefined;
 	tool_choice: ToolChoiceType | undefined;
-	reasoning_effort: "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+	reasoning_effort:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| undefined;
 	reasoning_max_tokens: number | undefined;
 	prompt_cache_key: string | undefined;
 	prompt_cache_retention: PromptCacheRetention | undefined;
@@ -161,13 +168,15 @@ export function formatUsedModelForDisplay(
 	usedProvider: string,
 	baseModelName: string,
 	customProviderName?: string,
+	usedRegion?: string,
 ): string {
 	const usedModelProviderPrefix =
 		usedProvider === "custom" && customProviderName
 			? customProviderName
 			: usedProvider;
 
-	return `${usedModelProviderPrefix}/${baseModelName}`;
+	const base = `${usedModelProviderPrefix}/${baseModelName}`;
+	return usedRegion ? `${base}:${usedRegion}` : base;
 }
 
 /**
@@ -200,6 +209,7 @@ export async function resolveProviderContext(
 		usedProvider,
 		baseModelName,
 		options.customProviderName,
+		providerMapping.region,
 	);
 
 	// --- Token resolution ---

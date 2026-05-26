@@ -1,5 +1,6 @@
 "use client";
 
+import { subDays } from "date-fns";
 import {
 	ArrowLeft,
 	ChevronDown,
@@ -10,16 +11,15 @@ import {
 	Terminal,
 	Zap,
 } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { LogCard } from "@/components/dashboard/log-card";
 import {
-	DateRangePicker,
-	getDateRangeFromParams,
-} from "@/components/date-range-picker";
+	TimeRangePicker,
+	type TimeRangeValue,
+} from "@/components/time-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
-import { Button } from "@/lib/components/button";
 import { useApi } from "@/lib/fetch-client";
 
 import {
@@ -35,7 +35,7 @@ import {
 } from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
-import type { LogsData } from "@/types/activity";
+import type { SourceActivityData, SourceUsage } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 import type { ComponentType, SVGProps } from "react";
 
@@ -108,7 +108,7 @@ const AGENTS: AgentDefinition[] = [
 	},
 ];
 
-const ALL_SOURCES = AGENTS.flatMap((a) => a.sources);
+const AGENTS_TIME_RANGES = ["7d", "30d"] as const;
 
 interface AgentStats {
 	agent: AgentDefinition;
@@ -117,8 +117,7 @@ interface AgentStats {
 	totalTokens: number;
 	totalPromptTokens: number;
 	totalCompletionTokens: number;
-	lastActive: Date;
-	logs: ApiLog[];
+	lastActive: Date | null;
 }
 
 interface Session {
@@ -132,6 +131,10 @@ interface Session {
 }
 
 const SESSION_GAP_MS = 30 * 60 * 1000;
+
+function timeRangeToDays(timeRange: TimeRangeValue): number {
+	return timeRange === "30d" ? 30 : 7;
+}
 
 function toUiLog(log: ApiLog): Partial<Log> {
 	return {
@@ -220,18 +223,18 @@ function formatTokens(count: number): string {
 	return count.toLocaleString();
 }
 
-function formatLastActive(date: Date): string {
+function formatLastActive(date: Date | null): string {
+	if (!date) {
+		return "—";
+	}
 	const now = new Date();
 	const diff = now.getTime() - date.getTime();
 	const minutes = Math.floor(diff / (1000 * 60));
 	const hours = Math.floor(diff / (1000 * 60 * 60));
 	const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-	if (minutes < 1) {
-		return "Just now";
-	}
 	if (minutes < 60) {
-		return `${minutes}m ago`;
+		return "Recently";
 	}
 	if (hours < 24) {
 		return `${hours}h ago`;
@@ -242,40 +245,35 @@ function formatLastActive(date: Date): string {
 	return date.toLocaleDateString();
 }
 
-function computeAgentStats(logs: ApiLog[]): AgentStats[] {
+function computeAgentStats(sources: SourceUsage[]): AgentStats[] {
 	const stats: AgentStats[] = [];
 
 	for (const agent of AGENTS) {
-		const agentLogs = logs.filter(
-			(log) => log.source && agent.sources.includes(log.source),
-		);
-		if (agentLogs.length === 0) {
+		const rows = sources.filter((row) => agent.sources.includes(row.source));
+		const requestCount = rows.reduce((sum, row) => sum + row.requestCount, 0);
+		if (requestCount === 0) {
 			continue;
 		}
 
-		const sorted = [...agentLogs].sort(
-			(a, b) =>
-				new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-		);
+		const lastActiveMs = rows.reduce((max, row) => {
+			if (!row.lastUsedAt) {
+				return max;
+			}
+			const t = new Date(row.lastUsedAt).getTime();
+			return t > max ? t : max;
+		}, 0);
 
 		stats.push({
 			agent,
-			requestCount: agentLogs.length,
-			totalCost: agentLogs.reduce((sum, log) => sum + (log.cost ?? 0), 0),
-			totalTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.totalTokens ?? 0),
+			requestCount,
+			totalCost: rows.reduce((sum, row) => sum + row.cost, 0),
+			totalTokens: rows.reduce((sum, row) => sum + row.totalTokens, 0),
+			totalPromptTokens: rows.reduce((sum, row) => sum + row.inputTokens, 0),
+			totalCompletionTokens: rows.reduce(
+				(sum, row) => sum + row.outputTokens,
 				0,
 			),
-			totalPromptTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.promptTokens ?? 0),
-				0,
-			),
-			totalCompletionTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.completionTokens ?? 0),
-				0,
-			),
-			lastActive: new Date(sorted[0].createdAt),
-			logs: agentLogs,
+			lastActive: lastActiveMs > 0 ? new Date(lastActiveMs) : null,
 		});
 	}
 
@@ -413,20 +411,67 @@ function AgentDetail({
 	stats,
 	orgId,
 	projectId,
+	timeRange,
 	onBack,
-	isFetchingNextPage,
 }: {
 	stats: AgentStats;
 	orgId: string;
 	projectId: string;
+	timeRange: TimeRangeValue;
 	onBack: () => void;
-	isFetchingNextPage: boolean;
 }) {
 	const Icon = stats.agent.icon;
-	const sessions = useMemo(
-		() => groupLogsIntoSessions(stats.logs),
-		[stats.logs],
+	const api = useApi();
+
+	const range = useMemo(() => {
+		const to = new Date();
+		const from = subDays(to, timeRangeToDays(timeRange));
+		return { from: from.toISOString(), to: to.toISOString() };
+	}, [timeRange]);
+
+	const {
+		data,
+		isLoading,
+		error,
+		fetchNextPage,
+		hasNextPage,
+		isFetchingNextPage,
+	} = api.useInfiniteQuery(
+		"get",
+		"/logs",
+		{
+			params: {
+				query: {
+					orderBy: "createdAt_desc",
+					projectId,
+					limit: "100",
+					source: stats.agent.sources.join(","),
+					startDate: range.from,
+					endDate: range.to,
+				},
+			},
+		},
+		{
+			refetchOnWindowFocus: false,
+			staleTime: 5 * 60 * 1000,
+			initialPageParam: undefined,
+			getNextPageParam: (lastPage) => {
+				return lastPage?.pagination?.hasMore
+					? lastPage.pagination.nextCursor
+					: undefined;
+			},
+		},
 	);
+
+	const logs = useMemo(
+		() =>
+			(data?.pages.flatMap((page) => page?.logs ?? []) ?? []).filter(
+				(log) => !log.retriedByLogId,
+			),
+		[data],
+	);
+
+	const sessions = useMemo(() => groupLogsIntoSessions(logs), [logs]);
 
 	return (
 		<div className="space-y-4">
@@ -461,7 +506,16 @@ function AgentDetail({
 			</div>
 
 			<div className="space-y-3">
-				{sessions.length === 0 ? (
+				{isLoading ? (
+					<div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+						<div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground/70" />
+						<span>Loading sessions...</span>
+					</div>
+				) : error ? (
+					<div className="py-8 text-center text-sm text-destructive">
+						Failed to load sessions. Please try again.
+					</div>
+				) : sessions.length === 0 ? (
 					<div className="py-8 text-center text-sm text-muted-foreground">
 						No sessions found for this agent.
 					</div>
@@ -476,10 +530,16 @@ function AgentDetail({
 					))
 				)}
 
-				{isFetchingNextPage && (
-					<div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-						<div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground/70" />
-						<span>Loading more sessions...</span>
+				{hasNextPage && (
+					<div className="flex justify-center pt-2">
+						<button
+							type="button"
+							onClick={() => fetchNextPage()}
+							disabled={isFetchingNextPage}
+							className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+						>
+							{isFetchingNextPage ? "Loading more..." : "Load more sessions"}
+						</button>
 					</div>
 				)}
 			</div>
@@ -527,67 +587,46 @@ export function AgentsView({
 }: {
 	projectId: string;
 	orgId: string;
-	initialData?: LogsData;
+	initialData?: SourceActivityData;
 }) {
 	const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
 	const api = useApi();
 
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const timeRange: TimeRangeValue =
+		searchParams.get("timeRange") === "30d" ? "30d" : "7d";
 
-	const queryParams: Record<string, string> = {
-		orderBy: "createdAt_desc",
-		projectId,
-		limit: "100",
-		source: ALL_SOURCES.join(","),
-		startDate: from.toISOString(),
-		endDate: to.toISOString(),
+	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
+		const params = new URLSearchParams(searchParams);
+		params.set("timeRange", newTimeRange);
+		router.push(`${buildUrl("agents")}?${params.toString()}`);
 	};
 
-	const {
-		data,
-		isLoading,
-		error,
-		fetchNextPage,
-		hasNextPage,
-		isFetchingNextPage,
-	} = api.useInfiniteQuery(
+	const { data, isLoading, error } = api.useQuery(
 		"get",
-		"/logs",
+		"/activity/sources",
 		{
 			params: {
-				query: queryParams,
+				query: {
+					projectId,
+					timeRange,
+				},
 			},
 		},
 		{
 			enabled: !!projectId,
 			refetchOnWindowFocus: false,
 			staleTime: 5 * 60 * 1000,
-			initialData: initialData
-				? {
-						pages: [initialData],
-						pageParams: [undefined],
-					}
-				: undefined,
-			initialPageParam: undefined,
-			getNextPageParam: (lastPage) => {
-				return lastPage?.pagination?.hasMore
-					? lastPage.pagination.nextCursor
-					: undefined;
-			},
+			initialData,
 		},
 	);
 
-	const allLogs = useMemo(
-		() =>
-			(data?.pages.flatMap((page) => page?.logs ?? []) ?? []).filter(
-				(log) => !log.retriedByLogId,
-			),
+	const agentStats = useMemo(
+		() => computeAgentStats(data?.sources ?? []),
 		[data],
 	);
-
-	const agentStats = useMemo(() => computeAgentStats(allLogs), [allLogs]);
 
 	const selectedStats = selectedAgentId
 		? agentStats.find((s) => s.agent.id === selectedAgentId)
@@ -599,7 +638,11 @@ export function AgentsView({
 	return (
 		<div className="space-y-6">
 			<div className="flex flex-wrap items-center justify-between gap-4">
-				<DateRangePicker buildUrl={buildUrl} path="agents" />
+				<TimeRangePicker
+					value={timeRange}
+					onChange={updateTimeRange}
+					allowedValues={AGENTS_TIME_RANGES}
+				/>
 				{!selectedStats && agentStats.length > 0 && (
 					<div className="flex items-center gap-3 text-sm text-muted-foreground">
 						<span>
@@ -632,35 +675,21 @@ export function AgentsView({
 					stats={selectedStats}
 					orgId={orgId}
 					projectId={projectId}
+					timeRange={timeRange}
 					onBack={() => setSelectedAgentId(null)}
-					isFetchingNextPage={isFetchingNextPage}
 				/>
 			) : agentStats.length === 0 ? (
 				<EmptyState />
 			) : (
-				<>
-					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-						{agentStats.map((stats) => (
-							<AgentCard
-								key={stats.agent.id}
-								stats={stats}
-								onClick={() => setSelectedAgentId(stats.agent.id)}
-							/>
-						))}
-					</div>
-
-					{hasNextPage && (
-						<div className="flex justify-center pt-4">
-							<Button
-								onClick={() => fetchNextPage()}
-								disabled={isFetchingNextPage}
-								variant="outline"
-							>
-								{isFetchingNextPage ? "Loading more..." : "Load More"}
-							</Button>
-						</div>
-					)}
-				</>
+				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+					{agentStats.map((stats) => (
+						<AgentCard
+							key={stats.agent.id}
+							stats={stats}
+							onClick={() => setSelectedAgentId(stats.agent.id)}
+						/>
+					))}
+				</div>
 			)}
 		</div>
 	);

@@ -16,6 +16,7 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { validateModelAccess } from "@/lib/iam.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 
@@ -3197,6 +3198,7 @@ videos.openapi(createVideo, async (c) => {
 		normalizedModel,
 		requestedProvider,
 		modelInfo,
+		getClientIpFromRequest(c),
 	);
 
 	if (!iamValidation.allowed) {

@@ -13,11 +13,13 @@ import {
 import { cookies } from "next/headers";
 import { z } from "zod";
 
+import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import {
 	isRecord,
 	readNumber,
+	readString,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
 
@@ -60,6 +62,7 @@ interface PlaygroundMetadataFinishStepPart {
 	type: "finish-step";
 	response: {
 		modelId: string;
+		headers?: Record<string, string>;
 	};
 	usage: {
 		inputTokens?: number;
@@ -107,18 +110,14 @@ function isPlaygroundMetadataFinishStepPart(
 	return part.type === "finish-step" && "response" in part && "usage" in part;
 }
 
-function readLLMGatewayUsage(
+function readLLMGatewayProvider(
 	providerMetadata: unknown,
 ): Record<string, unknown> | undefined {
 	if (!isRecord(providerMetadata)) {
 		return undefined;
 	}
 	const llmgateway = providerMetadata.llmgateway;
-	if (!isRecord(llmgateway)) {
-		return undefined;
-	}
-	const usage = llmgateway.usage;
-	return isRecord(usage) ? usage : undefined;
+	return isRecord(llmgateway) ? llmgateway : undefined;
 }
 
 function extractPlaygroundMessageMetadata(
@@ -128,10 +127,18 @@ function extractPlaygroundMessageMetadata(
 		return undefined;
 	}
 
-	const llmgatewayUsage = readLLMGatewayUsage(part.providerMetadata);
+	const llmgateway = readLLMGatewayProvider(part.providerMetadata);
+	const llmgatewayUsage =
+		llmgateway && isRecord(llmgateway.usage)
+			? (llmgateway.usage as Record<string, unknown>)
+			: undefined;
+
 	const promptTokensDetails = llmgatewayUsage?.promptTokensDetails;
+	const requestId = readString(part.response.headers?.["x-request-id"]);
+
 	const metadata: PlaygroundMessageMetadata = {
 		usedModel: part.response.modelId,
+		...(requestId ? { requestId } : {}),
 		usage: {
 			inputTokens:
 				readNumber(llmgatewayUsage?.promptTokens) ?? part.usage.inputTokens,
@@ -446,8 +453,8 @@ export async function POST(req: Request) {
 
 	const cookieStore = await cookies();
 	const cookieApiKey =
-		cookieStore.get("llmgateway_playground_key")?.value ??
-		cookieStore.get("__Host-llmgateway_playground_key")?.value;
+		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value ??
+		cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value;
 	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {

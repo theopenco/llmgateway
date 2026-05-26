@@ -253,14 +253,16 @@ Each gateway API key can have one or more IAM rules that restrict which models, 
 
 Rule types:
 
-| `ruleType`        | Description                                               |
-| ----------------- | --------------------------------------------------------- |
-| `allow_models`    | Only the listed models are permitted                      |
-| `deny_models`     | The listed models are blocked                             |
-| `allow_providers` | Only the listed providers are permitted                   |
-| `deny_providers`  | The listed providers are blocked                          |
-| `allow_pricing`   | Only models matching the pricing constraint are permitted |
-| `deny_pricing`    | Models matching the pricing constraint are blocked        |
+| `ruleType`        | Description                                                 |
+| ----------------- | ----------------------------------------------------------- |
+| `allow_models`    | Only the listed models are permitted                        |
+| `deny_models`     | The listed models are blocked                               |
+| `allow_providers` | Only the listed providers are permitted                     |
+| `deny_providers`  | The listed providers are blocked                            |
+| `allow_pricing`   | Only models matching the pricing constraint are permitted   |
+| `deny_pricing`    | Models matching the pricing constraint are blocked          |
+| `allow_ip_cidrs`  | Only requests from the listed IPv4/IPv6 CIDRs are permitted |
+| `deny_ip_cidrs`   | Requests from the listed IPv4/IPv6 CIDRs are blocked        |
 
 The `ruleValue` JSON object holds the rule's parameters. The fields it accepts depend on the `ruleType`:
 
@@ -271,6 +273,17 @@ The `ruleValue` JSON object holds the rule's parameters. The fields it accepts d
 | `pricingType`    | `"free" \| "paid"` | `allow_pricing`, `deny_pricing`     |
 | `maxInputPrice`  | number             | `allow_pricing`, `deny_pricing`     |
 | `maxOutputPrice` | number             | `allow_pricing`, `deny_pricing`     |
+| `ipCidrs`        | string[]           | `allow_ip_cidrs`, `deny_ip_cidrs`   |
+
+### IP CIDR rules
+
+IP CIDR rules restrict gateway requests by source IP. Both IPv4 (e.g. `192.0.2.0/24`) and IPv6 (e.g. `2001:db8::/32`) ranges are supported, and you can mix both in a single rule. To restrict to a single address, use a `/32` (IPv4) or `/128` (IPv6) prefix.
+
+The gateway reads the client IP from the first entry in the `X-Forwarded-For` header, which is set by the GCP load balancer.
+
+IPv4-mapped IPv6 addresses (`::ffff:1.2.3.4`) are normalized to IPv4 so a single `1.2.3.0/24` rule still matches when the upstream connection happens to be IPv6.
+
+When an `allow_ip_cidrs` rule is configured and the gateway cannot determine the client IP, the request is denied. Invalid CIDR syntax is rejected at rule-creation time with a `400` error.
 
 All endpoints scope by the master key's organization: a `404` is returned if the API key (or rule) is not part of the authenticated master key's organization.
 
@@ -326,6 +339,20 @@ Body parameters:
 | `ruleType`  | rule type enum (above)   | Required                                                |
 | `ruleValue` | object (see table above) | Must include the fields appropriate for the chosen type |
 | `status`    | `"active" \| "inactive"` | Optional, defaults to `"active"`                        |
+
+Restricting by source IP:
+
+```bash
+curl -X POST https://internal.llmgateway.io/v1/master/keys/ak_.../iam \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ruleType": "allow_ip_cidrs",
+    "ruleValue": {
+      "ipCidrs": ["192.0.2.0/24", "2001:db8::/32"]
+    }
+  }'
+```
 
 Response (201): the created IAM rule.
 

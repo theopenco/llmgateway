@@ -9,6 +9,7 @@ import {
 	Cpu,
 	Loader2,
 	Terminal,
+	Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -30,7 +31,8 @@ type ModelSortColumn =
 	| "provider"
 	| "requestCount"
 	| "totalTokens"
-	| "cost";
+	| "cost"
+	| "cachedInputCost";
 type SortDirection = "asc" | "desc";
 
 function ModelUsageBreakdown({ models }: { models: ModelUsage[] }) {
@@ -142,6 +144,16 @@ function ModelUsageBreakdown({ models }: { models: ModelUsage[] }) {
 										{sortIcon("cost")}
 									</button>
 								</th>
+								<th className="px-4 py-2 text-right font-medium">
+									<button
+										type="button"
+										onClick={() => handleSort("cachedInputCost")}
+										className="inline-flex items-center hover:text-foreground"
+									>
+										Cache cost
+										{sortIcon("cachedInputCost")}
+									</button>
+								</th>
 								<th className="hidden w-[180px] px-4 py-2 text-left font-medium sm:table-cell">
 									Usage
 								</th>
@@ -169,6 +181,11 @@ function ModelUsageBreakdown({ models }: { models: ModelUsage[] }) {
 										</td>
 										<td className="px-4 py-2.5 text-right font-medium tabular-nums">
 											${model.cost.toFixed(4)}
+										</td>
+										<td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+											{model.cachedInputCost > 0
+												? `$${model.cachedInputCost.toFixed(4)}`
+												: "—"}
 										</td>
 										<td className="hidden px-4 py-2.5 sm:table-cell">
 											<div className="flex items-center gap-2">
@@ -255,6 +272,23 @@ function AgentDetailBody({
 									</p>
 								</div>
 								<div className="flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
+									<span
+										title="Cache status"
+										className={
+											log.cached
+												? "text-blue-500"
+												: Number(log.cachedInputCost ?? 0) > 0
+													? "text-blue-400"
+													: "text-muted-foreground/50"
+										}
+									>
+										<Zap className="mr-1 inline h-3 w-3" />
+										{log.cached
+											? "Cached"
+											: Number(log.cachedInputCost ?? 0) > 0
+												? "Partially cached"
+												: "Not cached"}
+									</span>
 									<span title="Tokens">
 										<Cpu className="mr-1 inline h-3 w-3" />
 										{Number(log.totalTokens ?? 0).toLocaleString()}

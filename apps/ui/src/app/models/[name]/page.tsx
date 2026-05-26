@@ -19,16 +19,19 @@ import { Navbar } from "@/components/landing/navbar";
 import { adaptModel } from "@/components/models/adapt-model";
 import { CopyModelName } from "@/components/models/copy-model-name";
 import { DetailProviderCards } from "@/components/models/detail-provider-cards";
-import {
-	GlobalDiscountBanner,
-	type DiscountData,
-} from "@/components/models/global-discount-banner";
+import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
 import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import { fetchServerData } from "@/lib/server-api";
+import {
+	applyDiscount,
+	getBestDiscount,
+	getEffectiveProviderDiscount,
+	perMillion,
+} from "@/lib/discount";
+import { fetchModelDiscounts } from "@/lib/fetch-models";
 
 import {
 	models as modelDefinitions,
@@ -44,76 +47,7 @@ interface PageProps {
 	params: Promise<{ name: string }>;
 }
 
-async function getModelDiscounts(modelId: string): Promise<DiscountData[]> {
-	const data = await fetchServerData<{ discounts: DiscountData[] }>(
-		"GET",
-		"/public/discounts/model/{modelId}",
-		{
-			params: {
-				path: { modelId },
-			},
-		},
-	);
-
-	return data?.discounts ?? [];
-}
-
-function getBestDiscount(
-	discounts: DiscountData[],
-	modelId: string,
-): DiscountData | null {
-	// Precedence: model-specific > fully global
-	const modelSpecific = discounts.find((d) => d.model === modelId);
-	if (modelSpecific) {
-		return modelSpecific;
-	}
-
-	const fullyGlobal = discounts.find(
-		(d) => d.provider === null && d.model === null,
-	);
-	if (fullyGlobal) {
-		return fullyGlobal;
-	}
-
-	return null;
-}
-
-function getEffectiveProviderDiscount(
-	discounts: DiscountData[],
-	providerId: string,
-	modelId: string,
-): string | undefined {
-	// Precedence: provider+model > provider > model > fully global
-	const providerModel = discounts.find(
-		(d) => d.provider === providerId && d.model === modelId,
-	);
-	if (providerModel) {
-		return providerModel.discountPercent;
-	}
-
-	const providerOnly = discounts.find(
-		(d) => d.provider === providerId && d.model === null,
-	);
-	if (providerOnly) {
-		return providerOnly.discountPercent;
-	}
-
-	const modelOnly = discounts.find(
-		(d) => d.provider === null && d.model === modelId,
-	);
-	if (modelOnly) {
-		return modelOnly.discountPercent;
-	}
-
-	const fullyGlobal = discounts.find(
-		(d) => d.provider === null && d.model === null,
-	);
-	if (fullyGlobal) {
-		return fullyGlobal.discountPercent;
-	}
-
-	return undefined;
-}
+export const revalidate = 60;
 
 export default async function ModelPage({ params }: PageProps) {
 	const { name } = await params;
@@ -156,7 +90,7 @@ export default async function ModelPage({ params }: PageProps) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
-	const allDiscounts = await getModelDiscounts(decodedName);
+	const allDiscounts = await fetchModelDiscounts(decodedName);
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(
@@ -205,10 +139,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 	const providerPrices = modelProviders
 		.filter((p) => p.inputPrice)
-		.map(
-			(p) =>
-				Number(p.inputPrice!) * 1e6 * (p.discount ? 1 - Number(p.discount) : 1),
-		);
+		.map((p) => applyDiscount(perMillion(p.inputPrice)!, p.discount));
 	const lowestInputPrice = Math.min(...providerPrices);
 	const highestInputPrice = Math.max(...providerPrices);
 
@@ -348,11 +279,11 @@ export default async function ModelPage({ params }: PageProps) {
 									const inputPrices = modelProviders
 										.filter((p) => p.inputPrice)
 										.map((p) => ({
-											price:
-												Number(p.inputPrice!) *
-												1e6 *
-												(p.discount ? 1 - Number(p.discount) : 1),
-											originalPrice: Number(p.inputPrice!) * 1e6,
+											price: applyDiscount(
+												perMillion(p.inputPrice)!,
+												p.discount,
+											),
+											originalPrice: perMillion(p.inputPrice)!,
 											discount: p.discount,
 										}));
 									if (inputPrices.length === 0) {
@@ -374,11 +305,11 @@ export default async function ModelPage({ params }: PageProps) {
 									const outputPrices = modelProviders
 										.filter((p) => p.outputPrice)
 										.map((p) => ({
-											price:
-												Number(p.outputPrice!) *
-												1e6 *
-												(p.discount ? 1 - Number(p.discount) : 1),
-											originalPrice: Number(p.outputPrice!) * 1e6,
+											price: applyDiscount(
+												perMillion(p.outputPrice)!,
+												p.discount,
+											),
+											originalPrice: perMillion(p.outputPrice)!,
 											discount: p.discount,
 										}));
 									if (outputPrices.length === 0) {
@@ -403,10 +334,10 @@ export default async function ModelPage({ params }: PageProps) {
 										const imageOutputPrices = modelProviders
 											.filter((p) => p.imageOutputPrice !== undefined)
 											.map((p) => ({
-												price:
-													Number(p.imageOutputPrice!) *
-													1e6 *
-													(p.discount ? 1 - Number(p.discount) : 1),
+												price: applyDiscount(
+													perMillion(p.imageOutputPrice)!,
+													p.discount,
+												),
 												discount:
 													p.discount && Number(p.discount) !== 0
 														? p.discount
