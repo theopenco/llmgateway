@@ -3465,8 +3465,7 @@ export interface paths {
                                 providerId: string;
                                 providerName: string;
                                 modelId: string;
-                                rootModelId: string;
-                                rootModelName: string;
+                                modelName: string;
                                 family: string;
                             }[];
                         };
@@ -3833,8 +3832,6 @@ export interface paths {
                                 providerName: string;
                                 modelId: string;
                                 modelName: string;
-                                rootModelId: string;
-                                rootModelName: string;
                                 family: string;
                             }[];
                         };

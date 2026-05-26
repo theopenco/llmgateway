@@ -1216,18 +1216,13 @@ admin.openapi(getGlobalStats, async (c) => {
 					breakdownRows as Array<
 						(typeof breakdownRows)[number] & {
 							usedModel: string;
-							usedProvider: string;
 						}
 					>,
 				)
 			: breakdownRows.map((row) => {
 					const isModel = "usedModel" in row;
-					const key = isModel
-						? `${row.usedProvider}/${row.usedModel}`
-						: row.source;
-					const label = isModel
-						? `${row.usedProvider}/${row.usedModel}`
-						: row.source;
+					const key = isModel ? row.usedModel : row.source;
+					const label = isModel ? row.usedModel : row.source;
 					return {
 						key,
 						label,
@@ -1255,33 +1250,19 @@ admin.openapi(getGlobalStats, async (c) => {
 	});
 });
 
-const canonicalModelIdCache = new Map<string, string | null>();
-function lookupCanonicalModelId(
-	providerId: string,
-	modelName: string,
-): string | null {
-	const cacheKey = `${providerId}/${modelName}`;
-	if (canonicalModelIdCache.has(cacheKey)) {
-		return canonicalModelIdCache.get(cacheKey) ?? null;
-	}
-	let canonical: string | null = null;
-	for (const m of models) {
-		if (
-			m.providers.some(
-				(p) => p.providerId === providerId && p.modelName === modelName,
-			)
-		) {
-			canonical = m.id;
-			break;
-		}
-	}
-	canonicalModelIdCache.set(cacheKey, canonical);
-	return canonical;
+// `used_model` in global_model_stats is stored as `<provider>/<canonical-model>[:<region>]`
+// (e.g. `google-ai-studio/gemini-embedding-2`, `alibaba/deepseek-v4-flash:singapore`).
+// The canonical id is the segment between the first `/` and the optional `:`.
+function extractCanonicalModelId(usedModel: string): string {
+	const slashIdx = usedModel.indexOf("/");
+	const withoutProvider =
+		slashIdx === -1 ? usedModel : usedModel.slice(slashIdx + 1);
+	const colonIdx = withoutProvider.indexOf(":");
+	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
 }
 
 function aggregateModelRowsByCanonicalId(
 	rows: Array<{
-		usedProvider: string;
 		usedModel: string;
 		requestCount: number;
 		errorCount: number;
@@ -1301,10 +1282,8 @@ function aggregateModelRowsByCanonicalId(
 		z.infer<typeof globalStatsBreakdownItemSchema>
 	>();
 	for (const row of rows) {
-		const canonical = lookupCanonicalModelId(row.usedProvider, row.usedModel);
-		const key = canonical ?? `${row.usedProvider}/${row.usedModel}`;
-		const label = canonical ?? row.usedModel;
-		const existing = aggregated.get(key);
+		const canonical = extractCanonicalModelId(row.usedModel);
+		const existing = aggregated.get(canonical);
 		if (existing) {
 			existing.requestCount += Number(row.requestCount);
 			existing.errorCount += Number(row.errorCount);
@@ -1318,9 +1297,9 @@ function aggregateModelRowsByCanonicalId(
 			existing.cachedInputCost += Number(row.cachedInputCost);
 			existing.outputCost += Number(row.outputCost);
 		} else {
-			aggregated.set(key, {
-				key,
-				label,
+			aggregated.set(canonical, {
+				key: canonical,
+				label: canonical,
 				requestCount: Number(row.requestCount),
 				errorCount: Number(row.errorCount),
 				cacheCount: Number(row.cacheCount),
@@ -2753,8 +2732,7 @@ const getAvailableProvidersAndModels = createRoute({
 									providerId: z.string(),
 									providerName: z.string(),
 									modelId: z.string(),
-									rootModelId: z.string(),
-									rootModelName: z.string(),
+									modelName: z.string(),
 									family: z.string(),
 								}),
 							),
@@ -3027,16 +3005,14 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
-	// Build mappings from all models and their providers. modelId is always the
-	// root model id — the provider-specific modelName is only used for upstream
-	// requests and must never be exposed in the discount selector or stored as a
-	// discount target.
+	// modelId is the canonical root model id — the provider-specific upstream
+	// modelName is never exposed here or stored as a discount target. modelName
+	// in this response is the root model's human-readable display name.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
 		modelId: string;
-		rootModelId: string;
-		rootModelName: string;
+		modelName: string;
 		family: string;
 	}> = [];
 
@@ -3048,8 +3024,7 @@ admin.openapi(getAvailableProvidersAndModels, async (c) => {
 					providerId: mapping.providerId,
 					providerName: provider.name,
 					modelId: model.id,
-					rootModelId: model.id,
-					rootModelName: (model as { name?: string }).name ?? model.id,
+					modelName: (model as { name?: string }).name ?? model.id,
 					family: model.family,
 				});
 			}
@@ -3461,8 +3436,6 @@ const getAvailableRateLimitOptions = createRoute({
 									providerName: z.string(),
 									modelId: z.string(),
 									modelName: z.string(),
-									rootModelId: z.string(),
-									rootModelName: z.string(),
 									family: z.string(),
 								}),
 							),
@@ -3477,14 +3450,15 @@ const getAvailableRateLimitOptions = createRoute({
 });
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
-	// Build mappings from all models and their providers
+	// modelId is the canonical root model id — the provider-specific upstream
+	// modelName is never exposed here or stored as a rate-limit target.
+	// modelName in this response is the root model's human-readable display
+	// name.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
 		modelId: string;
 		modelName: string;
-		rootModelId: string;
-		rootModelName: string;
 		family: string;
 	}> = [];
 
@@ -3496,9 +3470,7 @@ admin.openapi(getAvailableRateLimitOptions, async (c) => {
 					providerId: mapping.providerId,
 					providerName: provider.name,
 					modelId: model.id,
-					modelName: mapping.modelName,
-					rootModelId: model.id,
-					rootModelName: (model as { name?: string }).name ?? model.id,
+					modelName: (model as { name?: string }).name ?? model.id,
 					family: model.family,
 				});
 			}

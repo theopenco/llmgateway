@@ -96,9 +96,9 @@ describe("resolveRoutingConfig", () => {
 			},
 			providerDefaults,
 		);
-		expect(resolved.timeouts.gatewayMs).toBe(300_000);
-		expect(resolved.timeouts.streamingMs).toBe(240_000);
-		expect(resolved.timeouts.plainMs).toBe(180_000);
+		expect(resolved.timeouts.gatewayMs).toBe(1_500_000);
+		expect(resolved.timeouts.streamingMs).toBe(1_200_000);
+		expect(resolved.timeouts.plainMs).toBe(600_000);
 	});
 
 	it("shallow-merges weights override over defaults", () => {

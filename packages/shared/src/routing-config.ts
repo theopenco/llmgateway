@@ -89,9 +89,9 @@ export const DEFAULT_ROUTING_RETRY: Required<RoutingRetryConfig> = {
 };
 
 export const DEFAULT_ROUTING_TIMEOUTS: Required<RoutingTimeoutsConfig> = {
-	gatewayMs: 300_000,
-	streamingMs: 240_000,
-	plainMs: 180_000,
+	gatewayMs: 1_500_000,
+	streamingMs: 1_200_000,
+	plainMs: 600_000,
 };
 
 /**

@@ -70,7 +70,7 @@ export function DiscountForm({
 			string,
 			{
 				modelId: string;
-				rootModelName: string;
+				modelName: string;
 				family: string;
 			}
 		>();
@@ -78,13 +78,13 @@ export function DiscountForm({
 			if (!uniqueModels.has(mapping.modelId)) {
 				uniqueModels.set(mapping.modelId, {
 					modelId: mapping.modelId,
-					rootModelName: mapping.rootModelName,
+					modelName: mapping.modelName,
 					family: mapping.family,
 				});
 			}
 		}
 		return Array.from(uniqueModels.values()).sort((a, b) =>
-			a.rootModelName.localeCompare(b.rootModelName),
+			a.modelName.localeCompare(b.modelName),
 		);
 	}, [filteredMappings]);
 
@@ -206,7 +206,7 @@ export function DiscountForm({
 							<SelectTrigger className="w-full">
 								<SelectValue>
 									{selectedModel
-										? `${selectedModel.rootModelName} (${selectedModel.modelId})`
+										? `${selectedModel.modelName} (${selectedModel.modelId})`
 										: "All Models"}
 								</SelectValue>
 							</SelectTrigger>
@@ -215,7 +215,7 @@ export function DiscountForm({
 								{availableModels.map((m) => (
 									<SelectItem key={m.modelId} value={m.modelId}>
 										<span className="truncate">
-											{m.rootModelName}{" "}
+											{m.modelName}{" "}
 											<span className="text-muted-foreground">
 												({m.modelId})
 											</span>

@@ -2293,7 +2293,6 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedProvider,
 			baseModelId,
-			usedModel,
 		);
 
 		if (rateLimitPeek.rateLimited) {
@@ -3378,7 +3377,6 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedProvider,
 			modelInfo.id,
-			usedModel,
 		);
 
 		const providerRateLimitEntries = Object.entries(
@@ -4199,8 +4197,8 @@ chat.openapi(completions, async (c) => {
 	// requested. For image generation the upstream request is always non-streaming
 	// (effectiveStream is forced false above when faking streaming for the client),
 	// so partial_images=1 is needed in both cases to keep the connection alive past
-	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (240s default)
-	// instead of AI_TIMEOUT_MS (180s). The SSE response is collapsed back into the
+	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (1200s default)
+	// instead of AI_TIMEOUT_MS (600s). The SSE response is collapsed back into the
 	// regular non-streaming JSON shape before being returned (or re-wrapped as fake
 	// SSE for clients that requested streaming).
 	let forceImageStreamUpstream =
@@ -4855,7 +4853,6 @@ chat.openapi(completions, async (c) => {
 							project.organizationId,
 							nextProvider.providerId,
 							modelInfo.id,
-							nextProvider.modelName,
 						);
 						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
@@ -8522,7 +8519,6 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				nextProvider.providerId,
 				modelInfo.id,
-				nextProvider.modelName,
 			);
 			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(
