@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { redisClient } from "@/auth/config.js";
+import { notifyEnterpriseContact } from "@/utils/discord.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -376,5 +377,23 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 			error: err,
 		});
 	}
+
+	// Fire-and-forget: don't block the response on the Discord webhook.
+	// notifyEnterpriseContact already logs its own failures; the extra catch
+	// guards against an unexpected rejection becoming an unhandled rejection.
+	void notifyEnterpriseContact({
+		name: validatedData.name,
+		email: validatedData.email,
+		country: validatedData.country,
+		size: validatedData.size,
+		message: validatedData.message,
+		ipAddress,
+	}).catch((err) => {
+		logger.error(
+			"Failed to send enterprise Discord notification",
+			err instanceof Error ? err : new Error(String(err)),
+		);
+	});
+
 	return c.json({ success: true, message: "Email sent successfully" }, 200);
 });

@@ -108,8 +108,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		{
 			url: `${baseUrl}/token-cost-calculator`,
 			lastModified: new Date(),
-			changeFrequency: "monthly",
-			priority: 0.8,
+			changeFrequency: "weekly",
+			priority: 0.9,
 		},
 		{
 			url: `${baseUrl}/blog/category`,

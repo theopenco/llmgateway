@@ -1,11 +1,12 @@
 "use client";
 
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, Play, StopCircle, Trash2 } from "lucide-react";
-import { useRef, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 
 import {
-	Conversation,
-	ConversationContent,
+	ConversationScrollButton,
+	VirtualScrollContext,
 } from "@/components/ai-elements/conversation";
 import { Loader } from "@/components/ai-elements/loader";
 import { Message, MessageContent } from "@/components/ai-elements/message";
@@ -38,6 +39,8 @@ interface GroupChatUIProps {
 	canStart: boolean;
 }
 
+const MESSAGE_ESTIMATE_SIZE = 74;
+
 export const GroupChatUI = ({
 	messages,
 	isStreaming,
@@ -51,12 +54,49 @@ export const GroupChatUI = ({
 	availableModels,
 	canStart,
 }: GroupChatUIProps) => {
-	const messagesEndRef = useRef<HTMLDivElement>(null);
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const [isAtEnd, setIsAtEnd] = useState(true);
+	const wasAtEndRef = useRef(true);
 
-	// Auto-scroll to bottom when new messages arrive
+	const virtualizer = useVirtualizer({
+		count: messages.length,
+		getScrollElement: () => scrollRef.current,
+		estimateSize: () => MESSAGE_ESTIMATE_SIZE,
+		getItemKey: (index) => messages[index]!.id,
+		anchorTo: "end",
+		followOnAppend: true,
+		scrollEndThreshold: 80,
+		overscan: 6,
+	});
+
+	const virtualizerRef = useRef(virtualizer);
+	virtualizerRef.current = virtualizer;
+
+	const handleScroll = useCallback(() => {
+		const el = scrollRef.current;
+		const virtNext = virtualizerRef.current.isAtEnd(80);
+		const domNext = el
+			? el.scrollHeight - el.scrollTop - el.clientHeight < 80
+			: virtNext;
+		wasAtEndRef.current = domNext;
+		setIsAtEnd((prev) => (prev === domNext ? prev : domNext));
+	}, []);
+
+	const scrollToEnd = useCallback(() => {
+		virtualizerRef.current.scrollToEnd();
+	}, []);
+
 	useEffect(() => {
-		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages]);
+		if (messages.length > 0 && wasAtEndRef.current) {
+			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
+		}
+	}, [virtualizer.getTotalSize(), messages.length]);
+
+	useEffect(() => {
+		if (isStreaming) {
+			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
+		}
+	}, [isStreaming]);
 
 	const getModelLabel = (modelId?: string) => {
 		if (!modelId) {
@@ -81,13 +121,34 @@ export const GroupChatUI = ({
 		return colors[index] || "bg-gray-500";
 	};
 
+	const virtualScrollContextValue = useMemo(
+		() => ({ isAtEnd, scrollToEnd }),
+		[isAtEnd, scrollToEnd],
+	);
+
 	return (
-		<div className="flex flex-col h-full min-h-0">
-			<div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0">
-				<Conversation>
-					<ConversationContent>
+		<VirtualScrollContext value={virtualScrollContextValue}>
+			<div className="flex flex-col h-full min-h-0">
+				<div
+					ref={scrollRef}
+					className="flex-1 overflow-y-auto min-h-0"
+					onScroll={handleScroll}
+					role="log"
+				>
+					<div
+						className={`mx-auto max-w-2xl relative ${
+							messages.length === 0
+								? "flex min-h-full items-center justify-center px-4"
+								: ""
+						}`}
+						style={
+							messages.length > 0
+								? { height: virtualizer.getTotalSize() }
+								: { minHeight: "100%" }
+						}
+					>
 						{messages.length === 0 ? (
-							<div className="max-w-2xl mx-auto py-10">
+							<div className="py-10 w-full">
 								<div className="mb-6 text-center">
 									<h2 className="text-3xl font-semibold tracking-tight mb-2">
 										Group Chat Mode
@@ -121,16 +182,6 @@ export const GroupChatUI = ({
 											<Play className="size-4 mr-2" />
 											Start Conversation
 										</Button>
-										{messages.length > 0 && (
-											<Button
-												onClick={onClear}
-												variant="outline"
-												disabled={isStreaming}
-											>
-												<Trash2 className="size-4 mr-2" />
-												Clear
-											</Button>
-										)}
 									</div>
 
 									{!canStart && selectedModels.length < 2 && (
@@ -168,21 +219,32 @@ export const GroupChatUI = ({
 								</div>
 							</div>
 						) : (
-							<>
-								{messages.map((message, index) => {
-									const isLastMessage = index === messages.length - 1;
+							virtualizer.getVirtualItems().map((item) => {
+								const message = messages[item.index]!;
+								const isLastMessage = item.index === messages.length - 1;
 
-									if (message.role === "user") {
-										return (
-											<Message key={message.id} from="user">
+								return (
+									<div
+										key={item.key}
+										data-index={item.index}
+										ref={virtualizer.measureElement}
+										className="px-4 py-2"
+										style={{
+											position: "absolute",
+											top: 0,
+											left: 0,
+											transform: `translateY(${item.start}px)`,
+											width: "100%",
+										}}
+									>
+										{message.role === "user" ? (
+											<Message from="user">
 												<MessageContent variant="flat">
 													<div>{message.content}</div>
 												</MessageContent>
 											</Message>
-										);
-									} else {
-										return (
-											<div key={message.id} className="mb-4">
+										) : (
+											<div className="mb-2">
 												<div className="flex items-center gap-2 mb-2">
 													<div
 														className={`w-2 h-2 rounded-full ${getModelColor(message.model)}`}
@@ -191,55 +253,59 @@ export const GroupChatUI = ({
 														{getModelLabel(message.model)}
 													</span>
 												</div>
-												<Response isStreaming={isStreaming}>
+												<Response isStreaming={isStreaming && isLastMessage}>
 													{message.content}
 												</Response>
 												{isLastMessage && isStreaming && <Loader />}
 											</div>
-										);
-									}
-								})}
-								<div ref={messagesEndRef} />
-							</>
-						)}
-					</ConversationContent>
-				</Conversation>
-			</div>
-
-			<div className="shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t">
-				{error && (
-					<Alert variant="destructive" className="mb-4">
-						<AlertCircle className="h-4 w-4" />
-						<AlertDescription>{error}</AlertDescription>
-					</Alert>
-				)}
-
-				{messages.length > 0 && (
-					<div className="flex gap-2">
-						{isStreaming ? (
-							<Button onClick={onStop} variant="destructive" className="flex-1">
-								<StopCircle className="size-4 mr-2" />
-								Stop Conversation
-							</Button>
-						) : (
-							<>
-								<Button
-									onClick={onStart}
-									disabled={!canStart}
-									className="flex-1"
-								>
-									<Play className="size-4 mr-2" />
-									Continue Conversation
-								</Button>
-								<Button onClick={onClear} variant="outline">
-									<Trash2 className="size-4 mr-2" />
-									Clear
-								</Button>
-							</>
+										)}
+									</div>
+								);
+							})
 						)}
 					</div>
-				)}
+				</div>
+				<ConversationScrollButton />
+
+				<div className="shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t">
+					{error && (
+						<Alert variant="destructive" className="mb-4">
+							<AlertCircle className="h-4 w-4" />
+							<AlertDescription>{error}</AlertDescription>
+						</Alert>
+					)}
+
+					{messages.length > 0 && (
+						<div className="flex gap-2">
+							{isStreaming ? (
+								<Button
+									onClick={onStop}
+									variant="destructive"
+									className="flex-1"
+								>
+									<StopCircle className="size-4 mr-2" />
+									Stop Conversation
+								</Button>
+							) : (
+								<>
+									<Button
+										onClick={onStart}
+										disabled={!canStart}
+										className="flex-1"
+									>
+										<Play className="size-4 mr-2" />
+										Continue Conversation
+									</Button>
+									<Button onClick={onClear} variant="outline">
+										<Trash2 className="size-4 mr-2" />
+										Clear
+									</Button>
+								</>
+							)}
+						</div>
+					)}
+				</div>
 			</div>
-		</div>
+		</VirtualScrollContext>
 	);
 };

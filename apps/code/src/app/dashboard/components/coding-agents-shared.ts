@@ -102,6 +102,7 @@ export interface ModelUsage {
 	completionTokens: number;
 	totalTokens: number;
 	cost: number;
+	cachedInputCost: number;
 }
 
 export interface AgentStats {
@@ -164,6 +165,7 @@ export function computeModelBreakdown(logs: ApiLog[]): ModelUsage[] {
 				completionTokens: 0,
 				totalTokens: 0,
 				cost: 0,
+				cachedInputCost: 0,
 			};
 			map.set(key, entry);
 		}
@@ -172,6 +174,7 @@ export function computeModelBreakdown(logs: ApiLog[]): ModelUsage[] {
 		entry.completionTokens += Number(log.completionTokens ?? 0);
 		entry.totalTokens += Number(log.totalTokens ?? 0);
 		entry.cost += log.cost ?? 0;
+		entry.cachedInputCost += Number(log.cachedInputCost ?? 0);
 	}
 	return Array.from(map.values()).sort((a, b) => b.cost - a.cost);
 }

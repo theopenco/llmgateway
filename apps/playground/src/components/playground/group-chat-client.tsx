@@ -401,7 +401,6 @@ export default function GroupChatClient({
 					onNewChat={clearConversation}
 					onChatSelect={() => {}}
 					currentChatId={currentChatId ?? undefined}
-					clearMessages={clearConversation}
 					isLoading={isStreaming}
 					organizations={organizations}
 					selectedOrganization={selectedOrganization}

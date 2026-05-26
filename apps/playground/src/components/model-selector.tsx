@@ -873,7 +873,20 @@ export function ModelSelector({
 		lastColonIdx > -1
 			? selectedModelIdRaw.slice(0, lastColonIdx)
 			: selectedModelIdRaw;
-	const selectedModel = models.find((m) => m.id === selectedModelId);
+	// Prefer lookup by canonical model.id. Fall back to matching a mapping's
+	// upstream modelName for legacy URLs that encoded the provider-specific
+	// modelName instead of model.id.
+	const selectedModel =
+		models.find((m) => m.id === selectedModelId) ??
+		(selectedProviderId
+			? models.find((m) =>
+					m.mappings.some(
+						(mp) =>
+							mp.providerId === selectedProviderId &&
+							mp.modelName === selectedModelIdRaw,
+					),
+				)
+			: undefined);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
@@ -881,6 +894,11 @@ export function ModelSelector({
 		? (selectedModel?.mappings.find(
 				(p) =>
 					p.providerId === selectedProviderId && p.region === selectedRegion,
+			) ??
+			selectedModel?.mappings.find(
+				(p) =>
+					p.providerId === selectedProviderId &&
+					p.modelName === selectedModelIdRaw,
 			) ??
 			selectedModel?.mappings.find((p) => p.providerId === selectedProviderId))
 		: (selectedModel?.mappings.find(

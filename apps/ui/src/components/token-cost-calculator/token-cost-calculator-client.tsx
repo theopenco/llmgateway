@@ -16,12 +16,6 @@ import { useCallback, useMemo, useState } from "react";
 import { ModelSelector } from "@/components/models/playground-model-selector";
 import { Button } from "@/lib/components/button";
 import { Card } from "@/lib/components/card";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/lib/components/dropdown-menu";
 import { Input } from "@/lib/components/input";
 import { XIcon } from "@/lib/icons/XIcon";
 
@@ -296,24 +290,46 @@ export function TokenCostCalculatorClient() {
 	}, [rows]);
 
 	return (
-		<div className="pt-32 pb-20 sm:pt-40 sm:pb-28">
+		<div className="relative overflow-hidden pt-32 pb-20 sm:pt-40 sm:pb-28">
+			{/* Decorative backdrop */}
+			<div
+				aria-hidden="true"
+				className="pointer-events-none absolute inset-0 -z-10"
+			>
+				<div className="absolute left-1/2 top-0 h-[420px] w-full max-w-[820px] -translate-x-1/2 rounded-full bg-blue-500/10 blur-3xl" />
+				<div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
+			</div>
 			<div className="container mx-auto px-4 sm:px-6 lg:px-8">
 				{/* Header */}
-				<div className="mx-auto max-w-3xl text-center mb-16">
+				<div className="mx-auto max-w-3xl text-center mb-12 sm:mb-16">
 					<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5">
 						<Calculator className="h-3.5 w-3.5 text-blue-500" />
 						<span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-							Token Cost Calculator
+							Free LLM Token Cost Calculator
 						</span>
 					</div>
 					<h1 className="mb-6 text-4xl font-bold tracking-tight text-balance sm:text-5xl lg:text-6xl">
-						Calculate your true LLM costs
+						Calculate your true LLM token costs
 					</h1>
 					<p className="text-lg text-muted-foreground text-balance leading-relaxed max-w-2xl mx-auto">
-						Add the models you use, set your token volumes, and instantly see
-						how much you&apos;d pay at official rates vs. LLM Gateway&apos;s
-						cheapest provider for each model.
+						See exactly what GPT-4o, Claude, Gemini, and 200+ models cost at
+						official rates, then how much less you&apos;d pay routing each
+						request through LLM Gateway&apos;s cheapest provider.
 					</p>
+					<div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+						<span className="flex items-center gap-1.5">
+							<Check className="h-4 w-4 text-green-500" />
+							200+ models
+						</span>
+						<span className="flex items-center gap-1.5">
+							<Check className="h-4 w-4 text-green-500" />
+							Zero platform markup
+						</span>
+						<span className="flex items-center gap-1.5">
+							<Check className="h-4 w-4 text-green-500" />
+							Free, no signup
+						</span>
+					</div>
 				</div>
 
 				<div className="mx-auto max-w-5xl space-y-6">
@@ -720,42 +736,54 @@ function ResultsPanel({
 				</Card>
 			</div>
 
-			{/* Share button */}
-			<div className="flex justify-end">
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button variant="outline" size="sm" className="gap-2">
-							<Share2 className="h-4 w-4" />
-							Share Results
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						<DropdownMenuItem onClick={handleCopy} className="cursor-pointer">
-							{copied ? (
-								<Check className="h-4 w-4 mr-2 text-green-500" />
-							) : (
-								<Copy className="h-4 w-4 mr-2" />
-							)}
-							{copied ? "Copied!" : "Copy to clipboard"}
-						</DropdownMenuItem>
-						<DropdownMenuItem asChild className="cursor-pointer">
-							<a href={xShareUrl} target="_blank" rel="noopener noreferrer">
-								<XIcon className="h-4 w-4 mr-2" />
-								Share on X
-							</a>
-						</DropdownMenuItem>
-						<DropdownMenuItem asChild className="cursor-pointer">
-							<a
-								href={linkedinShareUrl}
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								<Linkedin className="h-4 w-4 mr-2" />
-								Share on LinkedIn
-							</a>
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+			{/* Share bar */}
+			<div className="flex flex-col gap-4 rounded-xl border border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-blue-600/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+				<div className="flex items-start gap-3">
+					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400">
+						<Share2 className="h-4 w-4" />
+					</div>
+					<div>
+						<p className="text-sm font-semibold">
+							{savings > 0
+								? `Share your ${savingsPercent}% savings`
+								: "Share these results"}
+						</p>
+						<p className="text-xs text-muted-foreground">
+							Send this breakdown to your team or post it in one click.
+						</p>
+					</div>
+				</div>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button
+						onClick={handleCopy}
+						variant={copied ? "outline" : "default"}
+						size="sm"
+						className="gap-2"
+					>
+						{copied ? (
+							<Check className="h-4 w-4 text-green-500" />
+						) : (
+							<Copy className="h-4 w-4" />
+						)}
+						{copied ? "Copied!" : "Copy link"}
+					</Button>
+					<Button variant="outline" size="sm" className="gap-2" asChild>
+						<a href={xShareUrl} target="_blank" rel="noopener noreferrer">
+							<XIcon className="h-4 w-4" />
+							Post on X
+						</a>
+					</Button>
+					<Button variant="outline" size="sm" className="gap-2" asChild>
+						<a
+							href={linkedinShareUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							<Linkedin className="h-4 w-4" />
+							LinkedIn
+						</a>
+					</Button>
+				</div>
 			</div>
 
 			{/* Breakdown table */}
@@ -849,17 +877,23 @@ function ResultsPanel({
 			{savings > 0 && (
 				<Card className="border-2 border-green-500/30 bg-gradient-to-br from-green-500/10 to-green-600/5 p-8 text-center">
 					<p className="text-sm text-muted-foreground mb-2">
-						Total savings with LLM Gateway
+						At official rates you&apos;re overpaying by
 					</p>
 					<p className="text-5xl sm:text-6xl font-bold text-green-600 dark:text-green-400 tracking-tight">
 						{formatUsd(savings)}
 					</p>
 					<p className="text-lg text-green-600/80 dark:text-green-400/80 mt-2 font-medium">
-						{savingsPercent}% less than official provider pricing
+						{savingsPercent}% less with LLM Gateway, same models
 					</p>
 					<p className="text-sm text-muted-foreground mt-4">
 						Based on the token volumes entered above
 					</p>
+					<Button size="lg" className="mt-6" asChild>
+						<Link href="/signup">
+							Start saving for free
+							<ArrowRight className="ml-2 h-4 w-4" />
+						</Link>
+					</Button>
 				</Card>
 			)}
 

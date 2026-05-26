@@ -1,4 +1,5 @@
 "use client";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	RefreshCcw,
 	Copy,
@@ -11,6 +12,7 @@ import {
 	ExternalLinkIcon,
 	PlusIcon,
 	ScrollTextIcon,
+	TrendingDown,
 	Undo2,
 	XIcon,
 } from "lucide-react";
@@ -21,18 +23,9 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Actions, Action } from "@/components/ai-elements/actions";
-// import {
-// 	Confirmation,
-// 	ConfirmationAccepted,
-// 	ConfirmationAction,
-// 	ConfirmationActions,
-// 	ConfirmationRejected,
-// 	ConfirmationRequest,
-// 	ConfirmationTitle,
-// } from "@/components/ai-elements/confirmation";
 import {
-	Conversation,
-	ConversationContent,
+	ConversationScrollButton,
+	VirtualScrollContext,
 } from "@/components/ai-elements/conversation";
 import { Image } from "@/components/ai-elements/image";
 import { Loader } from "@/components/ai-elements/loader";
@@ -88,6 +81,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
@@ -95,6 +89,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSkills, type Skill } from "@/hooks/useSkills";
+import { useApi } from "@/lib/fetch-client";
 import {
 	heroSuggestionGroups,
 	sampleSuggestions,
@@ -250,6 +245,8 @@ interface ChatUIProps {
 	activeSkills?: Skill[];
 	onSelectSkill?: (skill: Skill) => void;
 	onRemoveSkill?: (skillId: string) => void;
+	organizationId?: string;
+	projectId?: string;
 }
 
 function getRandomHeroSuggestionGroups(): Record<
@@ -380,9 +377,98 @@ function getMessageImageClass(
 
 function MessageMetadataPopover({
 	metadata,
+	createdAt,
+	organizationId: currentOrgId,
+	projectId: currentProjectId,
 }: {
 	metadata: PlaygroundMessageMetadata;
+	createdAt?: Date;
+	organizationId?: string;
+	projectId?: string;
 }) {
+	const [open, setOpen] = useState(false);
+	const api = useApi();
+
+	// Fallback A: message has requestId but enrichment didn't persist logId yet.
+	const needsRequestIdFallback =
+		open && !!metadata.requestId && !metadata.logId;
+
+	// Fallback B: truly old message — no requestId was ever captured. Match by
+	// model + tight time window, then disambiguate client-side by token counts + cost.
+	const needsOldMessageFallback =
+		open &&
+		!metadata.logId &&
+		!metadata.requestId &&
+		!!metadata.usedModel &&
+		!!createdAt;
+
+	const modelName = metadata.usedModel?.includes("/")
+		? metadata.usedModel.split("/").slice(1).join("/")
+		: metadata.usedModel;
+
+	const fifteenMinutesMs = 15 * 60 * 1000;
+	const oneMinuteMs = 60 * 1000;
+	const startDate = createdAt
+		? new Date(createdAt.getTime() - fifteenMinutesMs).toISOString()
+		: undefined;
+	const endDate = createdAt
+		? new Date(createdAt.getTime() + oneMinuteMs).toISOString()
+		: undefined;
+
+	const { data: requestIdLogData, isLoading: isRequestIdLoading } =
+		api.useQuery(
+			"get",
+			"/logs",
+			{
+				params: {
+					query: { requestId: metadata.requestId, limit: "1" },
+				},
+			},
+			{ enabled: needsRequestIdFallback },
+		);
+
+	const { data: oldLogData, isLoading: isOldLoading } = api.useQuery(
+		"get",
+		"/logs",
+		{
+			params: {
+				query: {
+					model: modelName,
+					startDate,
+					endDate,
+					...(currentOrgId ? { orgId: currentOrgId } : {}),
+					...(currentProjectId ? { projectId: currentProjectId } : {}),
+					limit: "10",
+				},
+			},
+		},
+		{ enabled: needsOldMessageFallback },
+	);
+
+	const matchedOldLog = needsOldMessageFallback
+		? oldLogData?.logs?.find((log) => {
+				const tokensMatch =
+					Math.round(Number(log.promptTokens)) ===
+						(metadata.usage?.inputTokens ?? -1) &&
+					Math.round(Number(log.completionTokens)) ===
+						(metadata.usage?.outputTokens ?? -1);
+				const costMatch =
+					metadata.usage?.totalCost === undefined ||
+					Math.abs((log.cost ?? 0) - metadata.usage.totalCost) < 0.0001;
+				return tokensMatch && costMatch;
+			})
+		: undefined;
+
+	const fallbackLog = requestIdLogData?.logs?.[0] ?? matchedOldLog;
+
+	const isLogLoading =
+		(needsRequestIdFallback && isRequestIdLoading) ||
+		(needsOldMessageFallback && isOldLoading);
+
+	const discount = metadata.discount ?? fallbackLog?.discount;
+	const logId = metadata.logId ?? fallbackLog?.id;
+	const organizationId = metadata.organizationId ?? fallbackLog?.organizationId;
+	const projectId = metadata.projectId ?? fallbackLog?.projectId;
 	const usage = metadata.usage;
 	const rows = [
 		["Total cost", formatCost(usage?.totalCost)],
@@ -393,7 +479,7 @@ function MessageMetadataPopover({
 	] as const;
 
 	return (
-		<Popover>
+		<Popover open={open} onOpenChange={setOpen}>
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<PopoverTrigger asChild>
@@ -427,6 +513,37 @@ function MessageMetadataPopover({
 								</span>
 							</div>
 						))}
+						{(needsRequestIdFallback || needsOldMessageFallback) &&
+							isLogLoading && (
+								<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+									<Skeleton className="h-3 w-12" />
+									<Skeleton className="ml-auto h-3 w-16" />
+								</div>
+							)}
+						{discount !== null && discount !== undefined && discount > 0 && (
+							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+								<span className="text-muted-foreground">Discount</span>
+								<span className="flex items-center justify-end gap-1 font-mono text-emerald-500">
+									<TrendingDown className="h-3 w-3" />
+									{(discount * 100).toFixed(0)}% off
+								</span>
+							</div>
+						)}
+						{logId && organizationId && projectId && (
+							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+								<span className="text-muted-foreground">Activity log</span>
+								<span className="flex items-center justify-end">
+									<a
+										href={`${process.env.NODE_ENV === "development" ? "http://localhost:3002" : "https://llmgateway.io"}/dashboard/${organizationId}/${projectId}/activity/${logId}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-muted-foreground hover:text-foreground"
+									>
+										<ExternalLinkIcon className="h-3 w-3" />
+									</a>
+								</span>
+							</div>
+						)}
 					</div>
 				</div>
 			</PopoverContent>
@@ -444,6 +561,8 @@ const AssistantMessage = memo(
 		finishReason,
 		forkChat,
 		isForkingChat,
+		organizationId,
+		projectId,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
@@ -452,6 +571,8 @@ const AssistantMessage = memo(
 		finishReason?: string | null;
 		forkChat?: () => void | Promise<void>;
 		isForkingChat?: boolean;
+		organizationId?: string;
+		projectId?: string;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -545,7 +666,16 @@ const AssistantMessage = memo(
 
 				{(metadata || isLastMessage) && (
 					<Actions className="mt-2">
-						{metadata ? <MessageMetadataPopover metadata={metadata} /> : null}
+						{metadata ? (
+							<MessageMetadataPopover
+								metadata={metadata}
+								createdAt={
+									(message as UIMessage & { createdAt?: Date }).createdAt
+								}
+								organizationId={organizationId}
+								projectId={projectId}
+							/>
+						) : null}
 						{isLastMessage ? (
 							<>
 								<Action
@@ -756,35 +886,122 @@ const UserMessage = memo(
 	},
 );
 
-export function ReadOnlyChatMessages({ messages }: { messages: UIMessage[] }) {
-	return (
-		<Conversation>
-			<ConversationContent className="mx-auto max-w-4xl px-4 py-8">
-				{messages.map((message) => {
-					if (message.role === "assistant") {
-						return (
-							<AssistantMessage
-								key={message.id}
-								message={message}
-								isLastMessage={false}
-								status="ready"
-								regenerate={() => {}}
-								finishReason={null}
-							/>
-						);
-					}
+const VirtualUserMessageItem = memo(
+	({
+		message,
+		isLastMessage,
+		status,
+		canEdit,
+		editingMessageId,
+		setEditingMessageId,
+		onEditUserMessage,
+	}: {
+		message: UIMessage;
+		isLastMessage: boolean;
+		status: string;
+		canEdit: boolean;
+		editingMessageId: string | null;
+		setEditingMessageId: (id: string | null) => void;
+		onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
+	}) => {
+		const handleEditStart = useCallback(
+			() => setEditingMessageId(message.id),
+			[setEditingMessageId, message.id],
+		);
+		const handleEditCancel = useCallback(
+			() => setEditingMessageId(null),
+			[setEditingMessageId],
+		);
+		const handleEditConfirm = useCallback(
+			async (content: string) => {
+				if (!onEditUserMessage) {
+					return;
+				}
+				try {
+					await onEditUserMessage(message, content);
+					setEditingMessageId(null);
+				} catch {
+					// keep editor open so the user's draft is not lost
+				}
+			},
+			[onEditUserMessage, setEditingMessageId, message],
+		);
 
+		return (
+			<UserMessage
+				message={message}
+				isLastMessage={isLastMessage}
+				status={status}
+				canEdit={canEdit}
+				isEditing={editingMessageId === message.id}
+				onEditStart={handleEditStart}
+				onEditCancel={handleEditCancel}
+				onEditConfirm={handleEditConfirm}
+			/>
+		);
+	},
+);
+VirtualUserMessageItem.displayName = "VirtualUserMessageItem";
+
+const MESSAGE_ESTIMATE_SIZE = 74;
+const LOADER_HEIGHT = 52;
+const ERROR_BANNER_HEIGHT = 44;
+
+export function ReadOnlyChatMessages({ messages }: { messages: UIMessage[] }) {
+	const parentRef = useRef<HTMLDivElement>(null);
+	const virtualizer = useVirtualizer({
+		count: messages.length,
+		getScrollElement: () => parentRef.current,
+		estimateSize: () => MESSAGE_ESTIMATE_SIZE,
+		getItemKey: (index) => messages[index]!.id,
+		anchorTo: "end",
+		followOnAppend: false,
+		scrollEndThreshold: 80,
+		overscan: 6,
+	});
+
+	return (
+		<div ref={parentRef} className="flex-1 overflow-y-auto" role="log">
+			<div
+				className="mx-auto max-w-4xl relative"
+				style={{ height: virtualizer.getTotalSize() }}
+			>
+				{virtualizer.getVirtualItems().map((item) => {
+					const message = messages[item.index]!;
 					return (
-						<UserMessage
-							key={message.id}
-							message={message}
-							isLastMessage={false}
-							status="ready"
-						/>
+						<div
+							key={item.key}
+							data-index={item.index}
+							ref={virtualizer.measureElement}
+							className="px-4 py-2"
+							style={{
+								position: "absolute",
+								top: 0,
+								left: 0,
+								transform: `translateY(${item.start}px)`,
+								width: "100%",
+							}}
+						>
+							{message.role === "assistant" ? (
+								<AssistantMessage
+									message={message}
+									isLastMessage={false}
+									status="ready"
+									regenerate={() => {}}
+									finishReason={null}
+								/>
+							) : (
+								<UserMessage
+									message={message}
+									isLastMessage={false}
+									status="ready"
+								/>
+							)}
+						</div>
 					);
 				})}
-			</ConversationContent>
-		</Conversation>
+			</div>
+		</div>
 	);
 }
 
@@ -828,6 +1045,8 @@ export const ChatUI = ({
 	activeSkills = [],
 	onSelectSkill,
 	onRemoveSkill,
+	organizationId,
+	projectId,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -877,8 +1096,40 @@ export const ChatUI = ({
 			: "Create";
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const inputRef = useRef<HTMLDivElement | null>(null);
+	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const [inputHeight, setInputHeight] = useState(0);
 	const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+	const [isAtEnd, setIsAtEnd] = useState(true);
+
+	const virtualizer = useVirtualizer({
+		count: messages.length,
+		getScrollElement: () => scrollRef.current,
+		estimateSize: () => MESSAGE_ESTIMATE_SIZE,
+		getItemKey: (index) => messages[index]!.id,
+		anchorTo: "end",
+		followOnAppend: true,
+		scrollEndThreshold: 80,
+		overscan: 6,
+	});
+
+	const virtualizerRef = useRef(virtualizer);
+	virtualizerRef.current = virtualizer;
+
+	const wasAtEndRef = useRef(true);
+
+	const handleScroll = useCallback(() => {
+		const el = scrollRef.current;
+		const virtNext = virtualizerRef.current.isAtEnd(80);
+		const domNext = el
+			? el.scrollHeight - el.scrollTop - el.clientHeight < 80
+			: virtNext;
+		wasAtEndRef.current = domNext;
+		setIsAtEnd((prev) => (prev === domNext ? prev : domNext));
+	}, []);
+
+	const scrollToEnd = useCallback(() => {
+		virtualizerRef.current.scrollToEnd();
+	}, []);
 
 	const [skillTriggerOpen, setSkillTriggerOpen] = useState(false);
 	const [skillTriggerPos, setSkillTriggerPos] = useState({ top: 0, left: 0 });
@@ -1040,6 +1291,34 @@ export const ChatUI = ({
 			);
 		}
 	};
+	const virtualItems = virtualizer.getVirtualItems();
+
+	const showSubmittedLoader = status === "submitted";
+	const showErrorBanner =
+		messages.length > 0 &&
+		messages[messages.length - 1]!.role === "user" &&
+		!!error;
+	const extraScrollHeight = showSubmittedLoader
+		? LOADER_HEIGHT
+		: showErrorBanner
+			? ERROR_BANNER_HEIGHT
+			: 0;
+
+	useEffect(() => {
+		if (messages.length > 0 && wasAtEndRef.current) {
+			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
+		}
+	}, [virtualizer.getTotalSize(), messages.length, inputHeight]);
+
+	useEffect(() => {
+		if (status === "submitted") {
+			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
+		}
+		if (status === "ready" && virtualizerRef.current.isAtEnd(80)) {
+			virtualizerRef.current.scrollToEnd();
+		}
+	}, [status]);
+
 	const messagesContent =
 		isLoading && messages.length === 0 ? (
 			<div className="flex items-center justify-center h-full">
@@ -1162,55 +1441,79 @@ export const ChatUI = ({
 			</AnimatePresence>
 		) : (
 			<>
-				{messages.map((m, messageIndex) => {
-					const isLastMessage = messageIndex === messages.length - 1;
+				{virtualItems.map((item) => {
+					const m = messages[item.index]!;
+					const isLastMessage = item.index === messages.length - 1;
 
-					if (m.role === "assistant") {
-						return (
-							<AssistantMessage
-								key={m.id}
-								message={m}
-								isLastMessage={isLastMessage}
-								status={status}
-								regenerate={regenerate}
-								finishReason={isLastMessage ? finishReason : null}
-								forkChat={
-									isLastMessage && status === "ready" ? forkChat : undefined
-								}
-								isForkingChat={isForkingChat}
-							/>
-						);
-					} else {
-						return (
-							<UserMessage
-								key={m.id}
-								message={m}
-								isLastMessage={isLastMessage}
-								status={status}
-								canEdit={canEditUserMessages}
-								isEditing={editingMessageId === m.id}
-								onEditStart={() => setEditingMessageId(m.id)}
-								onEditCancel={() => setEditingMessageId(null)}
-								onEditConfirm={async (content) => {
-									if (!onEditUserMessage) {
-										return;
+					return (
+						<div
+							key={item.key}
+							data-index={item.index}
+							ref={virtualizer.measureElement}
+							className="px-4"
+							style={{
+								position: "absolute",
+								top: 0,
+								left: 0,
+								transform: `translateY(${item.start}px)`,
+								width: "100%",
+							}}
+						>
+							{m.role === "assistant" ? (
+								<AssistantMessage
+									message={m}
+									isLastMessage={isLastMessage}
+									status={isLastMessage ? status : "ready"}
+									regenerate={regenerate}
+									finishReason={isLastMessage ? finishReason : null}
+									forkChat={
+										isLastMessage && status === "ready" ? forkChat : undefined
 									}
-									setEditingMessageId(null);
-									await onEditUserMessage(m, content);
-								}}
-							/>
-						);
-					}
+									isForkingChat={isForkingChat}
+									organizationId={organizationId}
+									projectId={projectId}
+								/>
+							) : (
+								<VirtualUserMessageItem
+									message={m}
+									isLastMessage={isLastMessage}
+									status={status}
+									canEdit={canEditUserMessages}
+									editingMessageId={editingMessageId}
+									setEditingMessageId={setEditingMessageId}
+									onEditUserMessage={onEditUserMessage}
+								/>
+							)}
+						</div>
+					);
 				})}
 				{status === "submitted" && (
-					<div className="message-item mt-3">
+					<div
+						style={{
+							position: "absolute",
+							top: 0,
+							left: 0,
+							transform: `translateY(${virtualizer.getTotalSize()}px)`,
+							width: "100%",
+						}}
+						className="px-4 mt-3"
+					>
 						<Loader />
 					</div>
 				)}
 				{messages.length > 0 &&
 					messages[messages.length - 1].role === "user" &&
 					error && (
-						<div className="message-item mt-2 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+						<div
+							style={{
+								position: "absolute",
+								top: 0,
+								left: 0,
+								transform: `translateY(${virtualizer.getTotalSize()}px)`,
+								width: "100%",
+							}}
+							className="px-4 mt-2 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+						>
 							<AlertTriangle className="size-3.5 shrink-0" />
 							<span>{error}</span>
 						</div>
@@ -1223,7 +1526,7 @@ export const ChatUI = ({
 			ref={floatingInput ? inputRef : undefined}
 			className={
 				floatingInput
-					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4"
+					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4 pointer-events-none"
 					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
 			}
 		>
@@ -1231,7 +1534,7 @@ export const ChatUI = ({
 				layout
 				className={
 					floatingInput
-						? "mx-auto w-full max-w-4xl px-0 pb-0 pt-2 bg-background sm:px-4"
+						? "mx-auto w-full max-w-4xl px-0 pb-0 pt-2 bg-background sm:px-4 pointer-events-auto"
 						: undefined
 				}
 				transition={{ duration: 0.18, ease: "easeOut" }}
@@ -1308,6 +1611,7 @@ export const ChatUI = ({
 								}
 							}}
 							placeholder="Message"
+							disabled={isLoading}
 						/>
 					</PromptInputBody>
 					<PromptInputToolbar>
@@ -1563,43 +1867,76 @@ export const ChatUI = ({
 		</div>
 	);
 
+	const virtualScrollContextValue = useMemo(
+		() => ({ isAtEnd, scrollToEnd }),
+		[isAtEnd, scrollToEnd],
+	);
+
 	if (floatingInput) {
 		return (
-			<div className="relative flex flex-col h-full min-h-0">
-				<Conversation>
-					<ConversationContent
-						className={`mx-auto max-w-4xl px-4 ${
-							isTemporaryChat && messages.length === 0
-								? "flex min-h-full w-full items-center justify-center"
-								: ""
-						}`}
-						style={{ paddingBottom: `${inputHeight + 16}px` }}
+			<VirtualScrollContext value={virtualScrollContextValue}>
+				<div className="relative flex flex-col h-full min-h-0">
+					<div
+						ref={scrollRef}
+						className="flex-1 overflow-y-auto"
+						onScroll={handleScroll}
+						role="log"
+						style={
+							messages.length > 0
+								? { paddingBottom: `${inputHeight + 16}px` }
+								: undefined
+						}
 					>
-						{messagesContent}
-					</ConversationContent>
-				</Conversation>
-				{inputArea}
-			</div>
+						<div
+							className={`mx-auto max-w-4xl relative ${
+								messages.length === 0
+									? "flex min-h-full w-full items-center justify-center px-4"
+									: ""
+							}`}
+							style={
+								messages.length > 0
+									? { height: virtualizer.getTotalSize() + extraScrollHeight }
+									: { minHeight: "100%" }
+							}
+						>
+							{messagesContent}
+						</div>
+					</div>
+					<ConversationScrollButton />
+					{inputArea}
+				</div>
+			</VirtualScrollContext>
 		);
 	}
 
 	return (
-		<div className="flex flex-col h-full min-h-0">
-			<div className="flex flex-col flex-1 min-h-0">
-				<Conversation>
-					<ConversationContent
-						className={`px-4 pb-4 ${
-							isTemporaryChat && messages.length === 0
-								? "flex min-h-full items-center justify-center"
+		<VirtualScrollContext value={virtualScrollContextValue}>
+			<div className="relative flex flex-col h-full min-h-0">
+				<div
+					ref={scrollRef}
+					className="flex-1 overflow-y-auto min-h-0"
+					onScroll={handleScroll}
+					role="log"
+				>
+					<div
+						className={`mx-auto max-w-4xl relative ${
+							messages.length === 0
+								? "flex min-h-full items-center justify-center px-4"
 								: ""
 						}`}
+						style={
+							messages.length > 0
+								? { height: virtualizer.getTotalSize() + extraScrollHeight }
+								: { minHeight: "100%" }
+						}
 					>
 						{messagesContent}
-					</ConversationContent>
-				</Conversation>
+					</div>
+				</div>
+				<ConversationScrollButton />
+				{inputArea}
 			</div>
-			{inputArea}
-		</div>
+		</VirtualScrollContext>
 	);
 };
 
