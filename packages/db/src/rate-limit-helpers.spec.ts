@@ -115,7 +115,7 @@ describe("getEffectiveRateLimit", () => {
 		});
 	});
 
-	it("matches provider-specific model names", async () => {
+	it("ignores rows whose model is a provider-specific alias rather than the root model id", async () => {
 		createQueryMock([
 			{
 				id: "rl-rpd",
@@ -127,19 +127,13 @@ describe("getEffectiveRateLimit", () => {
 			},
 		]);
 
-		const result = await getEffectiveRateLimit(
-			"org-1",
-			"openai",
-			"gpt-4o",
-			"gpt-4o-2024-08-06",
-		);
+		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result).toEqual({
 			maxRpm: 0,
-			maxRpd: 1200,
+			maxRpd: 0,
 			rpmSource: "none",
-			rpdSource: "global_provider_model",
-			rpdRateLimitId: "rl-rpd",
+			rpdSource: "none",
 		});
 	});
 

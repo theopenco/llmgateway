@@ -8,8 +8,8 @@
 		".next"
 	],
 	"scripts": {
-		"build": "pnpm generate && next build --webpack && tsc && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/ui/.next/ && test -d public && cp -r public .next/standalone/apps/ui/",
-		"dev": "next dev --port 3002 --webpack",
+		"build": "pnpm generate && next build --turbopack && tsc && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/ui/.next/ && test -d public && cp -r public .next/standalone/apps/ui/",
+		"dev": "next dev --port 3002 --turbopack",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "eslint . && prettier --check .",

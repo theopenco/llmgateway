@@ -2376,6 +2376,7 @@ export interface paths {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d";
                     groupBy?: "model" | "source";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path?: never;
@@ -2394,6 +2395,8 @@ export interface paths {
                             range: "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             groupBy: "model" | "source";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             totals: {
                                 requestCount: number;
                                 errorCount: number;
@@ -3464,8 +3467,6 @@ export interface paths {
                                 providerName: string;
                                 modelId: string;
                                 modelName: string;
-                                rootModelId: string;
-                                rootModelName: string;
                                 family: string;
                             }[];
                         };
@@ -3832,8 +3833,6 @@ export interface paths {
                                 providerName: string;
                                 modelId: string;
                                 modelName: string;
-                                rootModelId: string;
-                                rootModelName: string;
                                 family: string;
                             }[];
                         };
