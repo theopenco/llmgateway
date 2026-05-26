@@ -868,16 +868,37 @@ export function ModelSelector({
 	const selectedModelId = selectedModelIdRaw.includes(":")
 		? selectedModelIdRaw.split(":")[0]
 		: selectedModelIdRaw;
-	const selectedModel = models.find((m) => m.id === selectedModelId);
+	// First try root model id, then fall back to finding a model whose mapping
+	// modelName matches the raw value (needed for regional models where the URL
+	// encodes the provider-specific modelName rather than the root model id).
+	const selectedModel =
+		models.find((m) => m.id === selectedModelId) ??
+		(selectedProviderId
+			? models.find((m) =>
+					m.mappings.some(
+						(mp) =>
+							mp.providerId === selectedProviderId &&
+							mp.modelName === selectedModelIdRaw,
+					),
+				)
+			: undefined);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
+	// When the URL uses model.id (no region), prefer the mapping without a region
+	// to avoid picking up a regional variant that happens to be first in the array.
+	const hasRegionInValue = selectedModelIdRaw.includes(":");
 	const selectedMapping =
 		selectedModel?.mappings.find(
 			(p) =>
 				p.providerId === selectedProviderId &&
 				p.modelName === selectedModelIdRaw,
 		) ??
+		(!hasRegionInValue
+			? selectedModel?.mappings.find(
+					(p) => p.providerId === selectedProviderId && !p.region,
+				)
+			: undefined) ??
 		selectedModel?.mappings.find((p) => p.providerId === selectedProviderId);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
