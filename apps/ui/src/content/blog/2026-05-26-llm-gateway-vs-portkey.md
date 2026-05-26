@@ -115,7 +115,7 @@ Both gateways are OpenAI-compatible, so moving is mostly a configuration change:
 + const apiKey = process.env.LLM_GATEWAY_API_KEY;  // standard Bearer auth
 ```
 
-LLM Gateway accepts both bare model IDs (routed automatically) and provider-prefixed ones (`openai/gpt-5.2`, `anthropic/claude-opus-4-5-20251101`), so most model names carry over directly. Before you migrate, it's worth running your real workload through the [Token Cost Calculator](/token-cost-calculator) to see what the same traffic costs across providers.
+LLM Gateway accepts both bare model IDs (routed automatically) and provider-prefixed ones (`openai/gpt-5.2`, `anthropic/claude-opus-4-5-20251101`), so most model names carry over directly. The main difference: you drop Portkey's virtual keys and `x-portkey-*` headers in favor of standard Bearer auth. Our [step-by-step Portkey migration guide](/migration/portkey) walks through Python, TypeScript, and cURL. Before you migrate, it's worth running your real workload through the [Token Cost Calculator](/token-cost-calculator) to see what the same traffic costs across providers.
 
 ## Who Should Use What
 

@@ -13,9 +13,9 @@ export const metadata = {
 	description:
 		"Step-by-step guides to migrate from OpenRouter, Vercel AI Gateway, LiteLLM, and other LLM providers to LLM Gateway.",
 	openGraph: {
-		title: "Migration Guides — From OpenRouter, LiteLLM, Vercel AI",
+		title: "Migration Guides — From OpenRouter, LiteLLM, Portkey",
 		description:
-			"Step-by-step guides to migrate from OpenRouter, Vercel AI Gateway, LiteLLM, and other LLM providers to LLM Gateway.",
+			"Step-by-step guides to migrate from OpenRouter, Vercel AI Gateway, LiteLLM, Portkey, and other LLM providers to LLM Gateway.",
 	},
 };
 
@@ -37,6 +37,7 @@ const providerIcons: Record<string, React.ReactNode> = {
 		</svg>
 	),
 	LiteLLM: <span className="text-3xl">🚅</span>,
+	Portkey: <span className="text-3xl">🔑</span>,
 };
 
 export default async function MigrationPage() {
