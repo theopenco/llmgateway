@@ -917,8 +917,12 @@ const VirtualUserMessageItem = memo(
 				if (!onEditUserMessage) {
 					return;
 				}
-				setEditingMessageId(null);
-				await onEditUserMessage(message, content);
+				try {
+					await onEditUserMessage(message, content);
+					setEditingMessageId(null);
+				} catch {
+					// keep editor open so the user's draft is not lost
+				}
 			},
 			[onEditUserMessage, setEditingMessageId, message],
 		);
@@ -972,6 +976,8 @@ export function ReadOnlyChatMessages({ messages }: { messages: UIMessage[] }) {
 							className="px-4 py-2"
 							style={{
 								position: "absolute",
+								top: 0,
+								left: 0,
 								transform: `translateY(${item.start}px)`,
 								width: "100%",
 							}}
@@ -1447,6 +1453,8 @@ export const ChatUI = ({
 							className="px-4"
 							style={{
 								position: "absolute",
+								top: 0,
+								left: 0,
 								transform: `translateY(${item.start}px)`,
 								width: "100%",
 							}}
@@ -1483,6 +1491,8 @@ export const ChatUI = ({
 					<div
 						style={{
 							position: "absolute",
+							top: 0,
+							left: 0,
 							transform: `translateY(${virtualizer.getTotalSize()}px)`,
 							width: "100%",
 						}}
@@ -1497,6 +1507,8 @@ export const ChatUI = ({
 						<div
 							style={{
 								position: "absolute",
+								top: 0,
+								left: 0,
 								transform: `translateY(${virtualizer.getTotalSize()}px)`,
 								width: "100%",
 							}}

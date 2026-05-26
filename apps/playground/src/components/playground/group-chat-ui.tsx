@@ -231,6 +231,8 @@ export const GroupChatUI = ({
 										className="px-4 py-2"
 										style={{
 											position: "absolute",
+											top: 0,
+											left: 0,
 											transform: `translateY(${item.start}px)`,
 											width: "100%",
 										}}
