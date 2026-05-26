@@ -1622,6 +1622,21 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Dev plans are inference-only — image generation is never allowed,
+	// regardless of devPlanAllowAllModels. Embeddings and video generation
+	// are blocked at their respective endpoints.
+	const isDevPlan = Boolean(
+		organization?.isPersonal && organization.devPlan !== "none",
+	);
+	if (
+		isDevPlan &&
+		modelInfo.providers.some((p) => p.imageGenerations === true)
+	) {
+		throw new HTTPException(403, {
+			message: `Image generation is not available for coding plans. Coding plans only include text-based inference.`,
+		});
+	}
+
 	// Coding plans only allow models/provider mappings with cached input pricing.
 	// The model-level check denies models with no cached mapping at all.
 	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the

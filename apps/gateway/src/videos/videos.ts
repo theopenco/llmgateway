@@ -3163,6 +3163,14 @@ videos.openapi(createVideo, async (c) => {
 	const { rawBody, request } = await parseJsonBody(c);
 	const { apiKey, project, organization, requestId } =
 		await requireRequestContext(c);
+
+	if (organization.isPersonal && organization.devPlan !== "none") {
+		throw new HTTPException(403, {
+			message:
+				"Video generation is not available for coding plans. Coding plans only include text-based inference.",
+		});
+	}
+
 	const { normalizedModel, requestedProvider } = getVideoModel(request.model);
 	const firstFrameInput = getVideoFirstFrameInput(request);
 	const lastFrameInput = getVideoLastFrameInput(request);
