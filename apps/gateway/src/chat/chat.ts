@@ -1643,19 +1643,15 @@ chat.openapi(completions, async (c) => {
 			requestedProvider !== "llmgateway" &&
 			requestedProvider !== "custom"
 		) {
-			const requestedProviderMappings = modelInfo.providers.filter(
-				(p) =>
-					p.providerId === requestedProvider &&
-					(requestedRegion === undefined || p.region === requestedRegion),
-			);
-			if (
-				requestedProviderMappings.length > 0 &&
-				!requestedProviderMappings.some(providerSupportsCachedInput)
-			) {
-				throw new HTTPException(403, {
-					message: `Provider ${requestedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
-				});
-			}
+			throw new HTTPException(403, {
+				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+			});
+		}
+
+		if (requestedProvider === "custom") {
+			throw new HTTPException(403, {
+				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+			});
 		}
 	}
 
