@@ -62,8 +62,11 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
+	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	UnsupportedAudioFormatError,
+	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
 } from "@llmgateway/actions";
 import {
@@ -4326,34 +4329,114 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	let requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
-		usedProvider,
-		upstreamModelName,
-		messages as BaseMessage[],
-		effectiveStream,
-		temperature,
-		max_tokens,
-		top_p,
-		frequency_penalty,
-		presence_penalty,
-		response_format,
-		tools,
-		tool_choice,
-		reasoning_effort,
-		supportsReasoning,
-		process.env.NODE_ENV === "production",
-		maxImageSizeMB,
-		userPlan,
-		sensitive_word_check,
-		image_config,
-		effort,
-		isImageGeneration,
-		webSearchTool,
-		reasoning_max_tokens,
-		useResponsesApi,
-		prompt_cache_key,
-		prompt_cache_retention,
-	);
+	let requestBody: ProviderRequestBody | FormData;
+	try {
+		requestBody = await prepareRequestBody(
+			usedProvider,
+			upstreamModelName,
+			messages as BaseMessage[],
+			effectiveStream,
+			temperature,
+			max_tokens,
+			top_p,
+			frequency_penalty,
+			presence_penalty,
+			response_format,
+			tools,
+			tool_choice,
+			reasoning_effort,
+			supportsReasoning,
+			process.env.NODE_ENV === "production",
+			maxImageSizeMB,
+			userPlan,
+			sensitive_word_check,
+			image_config,
+			effort,
+			isImageGeneration,
+			webSearchTool,
+			reasoning_max_tokens,
+			useResponsesApi,
+			prompt_cache_key,
+			prompt_cache_retention,
+		);
+	} catch (e) {
+		// Surface typed pre-upstream input errors in the activity feed as a
+		// client_error. Without this, app.onError returns a 400 but no log row
+		// is written, so the user never sees the rejected request in history.
+		if (
+			e instanceof InvalidFileContentError ||
+			e instanceof UnsupportedAudioFormatError ||
+			e instanceof UnsupportedDocumentFormatError
+		) {
+			try {
+				await insertLogEntry({
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						upstreamModelName,
+						undefined,
+						usedProvider,
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+					),
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: 400,
+						statusText: "Bad Request",
+						responseText: e.message,
+						cause: e.constructor.name,
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+		}
+		throw e;
+	}
 
 	if (forceImageStreamUpstream) {
 		requestBody = injectImageStreamParams(requestBody);
