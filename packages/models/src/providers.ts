@@ -26,6 +26,15 @@ export interface ProviderRegionConfig {
 	 * applied.
 	 */
 	modelPrefixMap?: Record<string, string>;
+	/**
+	 * When true, requests without an explicit `:region` suffix and without a
+	 * region locked on the provider key are pinned to `defaultRegion` instead
+	 * of being routed to the cheapest candidate. Used by AWS Bedrock, where
+	 * `global` is the canonical cross-region default. Providers like Alibaba
+	 * (which have only specific regional endpoints and no true global) leave
+	 * this unset so the gateway picks the best available region by price.
+	 */
+	pinDefaultRegion?: boolean;
 }
 
 export interface ProviderDefinition {
@@ -423,6 +432,7 @@ export const providers = [
 		regionConfig: {
 			optionsKey: "aws_bedrock_region",
 			defaultRegion: "global",
+			pinDefaultRegion: true,
 			regions: [
 				// Cross-region inference profile groups (spread inference across the
 				// pool — AWS picks the actual region per request).

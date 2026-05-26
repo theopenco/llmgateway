@@ -271,6 +271,39 @@ function filterRegionsByAvailableKeys(
 	});
 }
 
+/**
+ * For providers with `regionConfig.pinDefaultRegion: true`, drop all regional
+ * candidates except the defaultRegion (and the synthetic root) when no
+ * explicit choice was made. This makes AWS Bedrock default to `:global`
+ * unless the caller opts in via the `:region` URL suffix or via the
+ * provider-key region option. Providers without `pinDefaultRegion`
+ * (e.g. Alibaba) pass through unchanged so the gateway can route to the
+ * cheapest region.
+ */
+function applyPinnedDefaultRegions(
+	mappings: ProviderModelMapping[],
+	options: {
+		explicitLocks?: Map<string, string>;
+		requestedRegion?: string;
+	} = {},
+): ProviderModelMapping[] {
+	if (options.requestedRegion) {
+		return mappings;
+	}
+	return mappings.filter((m) => {
+		const def = providers.find((p) => p.id === m.providerId) as
+			| ProviderDefinition
+			| undefined;
+		if (!def?.regionConfig?.pinDefaultRegion) {
+			return true;
+		}
+		if (options.explicitLocks?.has(m.providerId)) {
+			return true;
+		}
+		return !m.region || m.region === def.regionConfig.defaultRegion;
+	});
+}
+
 function preferConcreteRegionalMappings(
 	providers: ProviderModelMapping[],
 ): ProviderModelMapping[] {
@@ -1843,15 +1876,18 @@ chat.openapi(completions, async (c) => {
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
 			const candidateProviders = preferConcreteRegionalMappings(
-				project.mode === "credits"
-					? filterRegionsByAvailableKeys(
-							expandAllProviderRegions(
+				applyPinnedDefaultRegions(
+					project.mode === "credits"
+						? filterRegionsByAvailableKeys(
+								expandAllProviderRegions(
+									modelDef.providers as ProviderModelMapping[],
+								),
+							)
+						: expandAllProviderRegions(
 								modelDef.providers as ProviderModelMapping[],
 							),
-						)
-					: expandAllProviderRegions(
-							modelDef.providers as ProviderModelMapping[],
-						),
+					{ requestedRegion },
+				),
 			);
 			// Check if any of the model's providers are available
 			const availableModelProviders = candidateProviders.filter(
@@ -2311,7 +2347,9 @@ chat.openapi(completions, async (c) => {
 								.map((p) => p.id);
 
 				const availableModelProviders = preferConcreteRegionalMappings(
-					iamFilteredModelProviders,
+					applyPinnedDefaultRegions(iamFilteredModelProviders, {
+						requestedRegion,
+					}),
 				).filter((provider) => {
 					if (!availableProviders.includes(provider.providerId)) {
 						return false;
@@ -2488,7 +2526,11 @@ chat.openapi(completions, async (c) => {
 				// If web search is requested, also filter to providers that support it
 				// If JSON output is requested, also filter to providers that support it
 				const availableModelProviders = filterEligibleModelProviders(
-					preferConcreteRegionalMappings(expandedIamFilteredModelProviders),
+					preferConcreteRegionalMappings(
+						applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+							requestedRegion,
+						}),
+					),
 					{
 						allProviderVariants: modelInfo.providers,
 						availableProviders,
@@ -2668,7 +2710,12 @@ chat.openapi(completions, async (c) => {
 
 			// Filter model providers to only those eligible for this request
 			const availableModelProviders = filterEligibleModelProviders(
-				preferConcreteRegionalMappings(expandedIamFilteredModelProviders),
+				preferConcreteRegionalMappings(
+					applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+						explicitLocks: providerLockedRegions,
+						requestedRegion,
+					}),
+				),
 				{
 					allProviderVariants: modelInfo.providers,
 					availableProviders,
@@ -2865,8 +2912,11 @@ chat.openapi(completions, async (c) => {
 			const providerLockedRegions = explicitDirectRegion
 				? new Map([[requestedProvider, explicitDirectRegion]])
 				: undefined;
-			const directProviderMappings = allModelProviders.filter(
-				(provider) => provider.providerId === requestedProvider,
+			const directProviderMappings = applyPinnedDefaultRegions(
+				allModelProviders.filter(
+					(provider) => provider.providerId === requestedProvider,
+				),
+				{ explicitLocks: providerLockedRegions, requestedRegion },
 			);
 			const directProviderRegionalMappings = directProviderMappings.filter(
 				(provider) => provider.region,
