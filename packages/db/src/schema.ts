@@ -273,12 +273,16 @@ export const transaction = pgTable(
 			.default("completed"),
 		stripePaymentIntentId: text(),
 		stripeInvoiceId: text(),
+		stripeRefundId: text(),
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+		uniqueIndex("transaction_stripe_refund_id_unique")
+			.on(table.stripeRefundId)
+			.where(sql`${table.stripeRefundId} IS NOT NULL`),
 	],
 );
 
