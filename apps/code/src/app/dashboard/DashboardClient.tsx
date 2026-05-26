@@ -444,7 +444,7 @@ export default function DashboardClient() {
 						)}
 
 						{/* Integrations */}
-						<DashboardIntegrations />
+						<DashboardIntegrations uiUrl={config.uiUrl} />
 
 						{/* Models */}
 						<div>

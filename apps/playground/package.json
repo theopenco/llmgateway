@@ -54,6 +54,7 @@
 		"@stripe/stripe-js": "8.1.0",
 		"@tailwindcss/typography": "0.5.19",
 		"@tanstack/react-query": "^5.90.5",
+		"@tanstack/react-virtual": "3.13.26",
 		"ai": "6.0.27",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
@@ -89,8 +90,7 @@
 		"sonner": "^2.0.7",
 		"streamdown": "2.1.0",
 		"tailwind-merge": "3.3.1",
-		"tokenlens": "1.3.1",
-		"use-stick-to-bottom": "1.1.1"
+		"tokenlens": "1.3.1"
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.1",
