@@ -8,6 +8,7 @@
 		"analyze-content-filter": "tsx src/analyze-content-filter.ts",
 		"api-key-hash": "tsx src/api-key-hash.ts",
 		"api-ping": "tsx src/api-ping.ts",
+		"backfill-stripe-refunds": "tsx src/backfill-stripe-refunds.ts",
 		"export-models-dev": "tsx src/export-models-dev.ts",
 		"generate-test-logs": "tsx src/generate-test-logs.ts",
 		"model-release-dates": "tsx src/model-release-dates.ts",
