@@ -444,7 +444,7 @@ export default function DashboardClient() {
 						)}
 
 						{/* Integrations */}
-						<DashboardIntegrations />
+						<DashboardIntegrations uiUrl={config.uiUrl} />
 
 						{/* Models */}
 						<div>
@@ -457,8 +457,6 @@ export default function DashboardClient() {
 							devPlanAllowAllModels={
 								devPlanStatus?.devPlanAllowAllModels ?? false
 							}
-							cachingEnabled={devPlanStatus?.cachingEnabled ?? false}
-							cacheDurationSeconds={devPlanStatus?.cacheDurationSeconds ?? 60}
 							retentionLevel={devPlanStatus?.retentionLevel ?? "none"}
 						/>
 

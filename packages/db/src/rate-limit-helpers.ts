@@ -41,16 +41,16 @@ const rateLimitPrecedence: Array<{
 		rateLimit: RateLimitMatch,
 		organizationId: string | null,
 		provider: string,
-		modelMatches: (rateLimitModel: string | null) => boolean,
+		model: string,
 	) => boolean;
 }> = [
 	{
 		source: "org_provider_model",
-		matches: (rateLimit, organizationId, provider, modelMatches) =>
+		matches: (rateLimit, organizationId, provider, model) =>
 			organizationId !== null &&
 			rateLimit.organizationId === organizationId &&
 			rateLimit.provider === provider &&
-			modelMatches(rateLimit.model),
+			rateLimit.model === model,
 	},
 	{
 		source: "org_provider",
@@ -62,18 +62,18 @@ const rateLimitPrecedence: Array<{
 	},
 	{
 		source: "org_model",
-		matches: (rateLimit, organizationId, _provider, modelMatches) =>
+		matches: (rateLimit, organizationId, _provider, model) =>
 			organizationId !== null &&
 			rateLimit.organizationId === organizationId &&
 			rateLimit.provider === null &&
-			modelMatches(rateLimit.model),
+			rateLimit.model === model,
 	},
 	{
 		source: "global_provider_model",
-		matches: (rateLimit, _organizationId, provider, modelMatches) =>
+		matches: (rateLimit, _organizationId, provider, model) =>
 			rateLimit.organizationId === null &&
 			rateLimit.provider === provider &&
-			modelMatches(rateLimit.model),
+			rateLimit.model === model,
 	},
 	{
 		source: "global_provider",
@@ -84,10 +84,10 @@ const rateLimitPrecedence: Array<{
 	},
 	{
 		source: "global_model",
-		matches: (rateLimit, _organizationId, _provider, modelMatches) =>
+		matches: (rateLimit, _organizationId, _provider, model) =>
 			rateLimit.organizationId === null &&
 			rateLimit.provider === null &&
-			modelMatches(rateLimit.model),
+			rateLimit.model === model,
 	},
 ];
 
@@ -95,14 +95,14 @@ function pickRateLimitByPrecedence(
 	rateLimits: RateLimitMatch[],
 	organizationId: string | null,
 	provider: string,
-	modelMatches: (rateLimitModel: string | null) => boolean,
+	model: string,
 	getLimitValue: (rateLimit: RateLimitMatch) => number | null,
 ): { limit: number; source: RateLimitSource; rateLimitId?: string } {
 	for (const precedence of rateLimitPrecedence) {
 		const match = rateLimits.find(
 			(rateLimit) =>
 				getLimitValue(rateLimit) !== null &&
-				precedence.matches(rateLimit, organizationId, provider, modelMatches),
+				precedence.matches(rateLimit, organizationId, provider, model),
 		);
 		if (match) {
 			return {
@@ -123,26 +123,24 @@ function pickRateLimitByPrecedence(
  * Get the effective rate limits for a given organization, provider, and model.
  * Uses the uncached database client so admin changes take effect immediately.
  *
+ * Rate limits are always keyed by the root model ID — provider-specific model
+ * names are reserved for upstream requests and are never persisted as a
+ * rate-limit target.
+ *
  * Precedence (highest to lowest):
- * 1. Org + Provider + Model rate limit (checks both root model ID and provider model name)
- * 2. Org + Provider rate limit (all models)
- * 3. Org + Model rate limit (all providers)
- * 4. Global + Provider + Model rate limit (checks both root model ID and provider model name)
- * 5. Global + Provider rate limit
- * 6. Global + Model rate limit
+ * 1. Org + Provider + Model
+ * 2. Org + Provider (all models)
+ * 3. Org + Model (all providers)
+ * 4. Global + Provider + Model
+ * 5. Global + Provider
+ * 6. Global + Model
  */
 export async function getEffectiveRateLimit(
 	organizationId: string | null,
 	provider: string,
 	model: string,
-	providerModelName?: string,
 ): Promise<EffectiveRateLimit> {
 	try {
-		const modelConditions = [eq(rateLimitTable.model, model)];
-		if (providerModelName && providerModelName !== model) {
-			modelConditions.push(eq(rateLimitTable.model, providerModelName));
-		}
-
 		const rateLimits = await db
 			.select({
 				id: rateLimitTable.id,
@@ -165,34 +163,22 @@ export async function getEffectiveRateLimit(
 						eq(rateLimitTable.provider, provider),
 						isNull(rateLimitTable.provider),
 					),
-					or(...modelConditions, isNull(rateLimitTable.model)),
+					or(eq(rateLimitTable.model, model), isNull(rateLimitTable.model)),
 				),
 			);
-
-		const modelMatches = (rateLimitModel: string | null): boolean => {
-			if (rateLimitModel === null) {
-				return false;
-			}
-			if (rateLimitModel === model) {
-				return true;
-			}
-			return (
-				providerModelName !== undefined && rateLimitModel === providerModelName
-			);
-		};
 
 		const rpm = pickRateLimitByPrecedence(
 			rateLimits,
 			organizationId,
 			provider,
-			modelMatches,
+			model,
 			(rateLimit) => rateLimit.maxRpm,
 		);
 		const rpd = pickRateLimitByPrecedence(
 			rateLimits,
 			organizationId,
 			provider,
-			modelMatches,
+			model,
 			(rateLimit) => rateLimit.maxRpd,
 		);
 
