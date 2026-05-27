@@ -6,7 +6,7 @@ import { useCallback } from "react";
 import { CostByModelTimeseriesChart } from "@/components/cost-by-model-timeseries-chart";
 import { getProjectCostByModelTimeseries } from "@/lib/admin-history";
 
-import type { TokenWindow } from "@/lib/types";
+import type { ModelView, TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
 	"1h",
@@ -37,8 +37,13 @@ export function ProjectCostByModelTimeseries({
 	const window = parseWindow(searchParams.get("window"));
 
 	const fetchData = useCallback(
-		async (w: TokenWindow) => {
-			return await getProjectCostByModelTimeseries(orgId, projectId, w);
+		async (w: TokenWindow, modelView: ModelView) => {
+			return await getProjectCostByModelTimeseries(
+				orgId,
+				projectId,
+				w,
+				modelView,
+			);
 		},
 		[orgId, projectId],
 	);

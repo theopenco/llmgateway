@@ -4652,6 +4652,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path: {
@@ -4672,6 +4673,8 @@ export interface paths {
                             window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             bucket: "hour" | "day";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             models: string[];
                             data: {
                                 timestamp: string;
@@ -4713,6 +4716,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path: {
@@ -4734,6 +4738,8 @@ export interface paths {
                             window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             bucket: "hour" | "day";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             models: string[];
                             data: {
                                 timestamp: string;
