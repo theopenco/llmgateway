@@ -125,13 +125,21 @@ export async function transformAnthropicMessages(
 							} as TextContent;
 						}
 					}
-					if (isTextContent(part) && part.text && !part.cache_control) {
-						// Automatically add cache_control for long text blocks
-						const shouldCache =
+					if (isTextContent(part) && part.text) {
+						if (part.cache_control) {
+							// Count caller-supplied markers toward Anthropic's 4-block
+							// cap so subsequent auto-injection and the turn-boundary
+							// placement don't push the total over 4 (which Anthropic
+							// rejects with a 400). Without this, a coding agent like
+							// Claude Code that sends 4 markers itself would hit the
+							// "Found 5" error after we add our own.
+							cacheControlCount++;
+						} else if (
 							shouldApplyCacheControl &&
 							part.text.length >= minCacheableChars &&
-							cacheControlCount < maxCacheControlBlocks;
-						if (shouldCache) {
+							cacheControlCount < maxCacheControlBlocks
+						) {
+							// Automatically add cache_control for long text blocks.
 							cacheControlCount++;
 							return {
 								...part,

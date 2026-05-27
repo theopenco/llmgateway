@@ -2043,7 +2043,7 @@ export async function prepareRequestBody(
 			// the entire conversation prefix (all prior turns) so only the
 			// newest user message is uncached. This mirrors the Anthropic
 			// turn-boundary logic in transformAnthropicMessages.
-			if (bedrockMessages.length >= 3) {
+			if (providerCacheControlEnabled && bedrockMessages.length >= 3) {
 				let lastUserIdx = -1;
 				for (let i = bedrockMessages.length - 1; i >= 0; i--) {
 					if (bedrockMessages[i].role === "user") {
