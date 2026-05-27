@@ -85,6 +85,49 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("fixed 8s clips");
 	});
 
+	test("/v1/videos rejects dev-plan personal orgs with 403", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "veo-3.1-generate-preview",
+				prompt: "A neon city at night",
+				size: "1920x1080",
+				seconds: 8,
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Video generation is not available for coding plans",
+		);
+
+		// Existing video status/content endpoints must still be reachable.
+		// We don't have a job, but the endpoint should reach the project lookup
+		// (which is independent of devPlan) and return 404 rather than 403.
+		const statusRes = await app.request("/v1/videos/nonexistent", {
+			method: "GET",
+			headers: {
+				Authorization: "Bearer real-token",
+			},
+		});
+		expect(statusRes.status).toBe(404);
+	});
+
 	test("/v1/videos explains avalanche reference-image constraints clearly", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
