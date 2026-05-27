@@ -1470,7 +1470,6 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 	// cumulative total refunded on the charge and over-counts on every refund
 	// after the first.
 	const refundAmountInDollars = latestRefund.amount / 100;
-	const originalAmount = Number.parseFloat(originalTransaction.amount ?? "0");
 	const originalCreditAmount = Number.parseFloat(
 		originalTransaction.creditAmount ?? "0",
 	);
@@ -1481,12 +1480,12 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 	// webhooks handle the plan state changes separately.
 	const isCreditTopup = originalTransaction.type === "credit_topup";
 
-	// Calculate proportional credit refund
+	// Deduct credits 1:1 with the refunded dollars. Using the gross amount paid
+	// as the denominator (e.g. $105 incl. tax/fees for $100 of credits) would
+	// short-deduct credits on every refund.
+	const creditRefundAmount = isCreditTopup ? refundAmountInDollars : 0;
 	const refundRatio =
-		originalAmount > 0 ? refundAmountInDollars / originalAmount : 0;
-	const creditRefundAmount = isCreditTopup
-		? originalCreditAmount * refundRatio
-		: 0;
+		originalCreditAmount > 0 ? refundAmountInDollars / originalCreditAmount : 0;
 
 	// Dedupe by the Stripe refund id (unique per individual refund). Earlier
 	// we keyed on amount, but charge.refunded retries on the same refund carry
