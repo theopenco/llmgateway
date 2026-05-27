@@ -108,17 +108,13 @@ export function ModelSelector({
 		(p) => p.id === selectedProviderId,
 	);
 	const selectedMapping = selectedRegion
-		? (selectedModel?.providers.find(
+		? selectedModel?.providers.find(
 				(p) =>
 					p.providerId === selectedProviderId && p.region === selectedRegion,
-			) ??
-			selectedModel?.providers.find((p) => p.providerId === selectedProviderId))
-		: (selectedModel?.providers.find(
+			)
+		: selectedModel?.providers.find(
 				(p) => p.providerId === selectedProviderId && !p.region,
-			) ??
-			selectedModel?.providers.find(
-				(p) => p.providerId === selectedProviderId,
-			));
+			);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
 			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
