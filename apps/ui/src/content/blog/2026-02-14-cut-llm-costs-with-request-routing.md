@@ -116,4 +116,4 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 Switch models by changing a single string. No SDK changes, no code rewrites.
 
-**[Start saving on LLM costs](/signup)** | **[Compare model pricing](/models)** | **[Read the docs](https://docs.llmgateway.io)**
+**[Start saving on LLM costs](/signup)** | **[Estimate savings with the Token Cost Calculator](/token-cost-calculator)** | **[Compare model pricing](/models)** | **[Read the docs](https://docs.llmgateway.io)**
