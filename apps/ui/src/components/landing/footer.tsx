@@ -332,6 +332,15 @@ export default function Footer() {
 										Portkey
 									</Link>
 								</li>
+								<li>
+									<Link
+										href="/migration"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Migration Guides
+									</Link>
+								</li>
 							</ul>
 						</div>
 
