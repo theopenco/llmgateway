@@ -39,12 +39,12 @@ import {
 	isContentFilterFinishReason,
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
-import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	getPreferredProvider,
 	resolvePreferredProvider,
 	setPreferredProvider,
 } from "@/lib/preferred-provider.js";
+import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
