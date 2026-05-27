@@ -130,7 +130,9 @@ async function main(): Promise<void> {
 				refunds.push(r);
 			}
 		} catch (err) {
-			console.warn(`  Failed to list Stripe refunds: ${(err as Error).message}`);
+			console.warn(
+				`  Failed to list Stripe refunds: ${(err as Error).message}`,
+			);
 			totalSkippedPI += 1;
 			continue;
 		}
@@ -146,7 +148,9 @@ async function main(): Promise<void> {
 		refunds = refunds.sort((a, b) => a.created - b.created);
 
 		const stripeTotal = refunds.reduce((s, r) => s + r.amount / 100, 0);
-		console.log(`  Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)}):`);
+		console.log(
+			`  Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)}):`,
+		);
 		for (const r of refunds) {
 			console.log(
 				`    - ${r.id} $${(r.amount / 100).toFixed(2)} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
@@ -201,12 +205,11 @@ async function main(): Promise<void> {
 		const isCreditTopup = original.type === "credit_topup";
 		if (isCreditTopup) {
 			console.warn(
-				`  WARNING: original tx is credit_topup (amount=$${original.amount}, credit=${original.creditAmount}) — proportional creditAmount will be written on new rows, but organization.credits balance is NOT reverted/reapplied here. Manual credit reconciliation may be needed.`,
+				`  WARNING: original tx is credit_topup (amount=$${original.amount}, credit=${original.creditAmount}) — creditAmount will be deducted 1:1 with refunded dollars (matching current webhook behavior), but organization.credits balance is NOT reverted/reapplied here. Manual credit reconciliation may be needed.`,
 			);
 			totalReconcileNeeded += 1;
 		}
 
-		const originalAmount = Number.parseFloat(original.amount ?? "0");
 		const originalCredit = Number.parseFloat(original.creditAmount ?? "0");
 
 		console.log(
@@ -227,11 +230,8 @@ async function main(): Promise<void> {
 
 				for (const r of toInsert) {
 					const refundDollars = r.amount / 100;
-					const ratio =
-						originalAmount > 0 ? refundDollars / originalAmount : 0;
-					const creditRefundAmount = isCreditTopup
-						? originalCredit * ratio
-						: 0;
+					const ratio = originalCredit > 0 ? refundDollars / originalCredit : 0;
+					const creditRefundAmount = isCreditTopup ? refundDollars : 0;
 					await tx.insert(tables.transaction).values({
 						createdAt: new Date(r.created * 1000),
 						updatedAt: new Date(r.created * 1000),
