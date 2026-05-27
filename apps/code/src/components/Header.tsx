@@ -45,9 +45,7 @@ export function Header() {
 					</Button>
 					{!isAuthenticated && (
 						<Button variant="ghost" size="sm" asChild>
-							<a href={config.uiUrl} target="_blank" rel="noopener noreferrer">
-								Dashboard
-							</a>
+							<Link href="/dashboard">Dashboard</Link>
 						</Button>
 					)}
 					{isAuthenticated ? (
@@ -110,14 +108,13 @@ export function Header() {
 						Docs
 					</a>
 					{!isAuthenticated && (
-						<a
-							href={config.uiUrl}
-							target="_blank"
-							rel="noopener noreferrer"
+						<Link
+							href="/dashboard"
 							className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+							onClick={() => setMenuOpen(false)}
 						>
 							Dashboard
-						</a>
+						</Link>
 					)}
 					{isAuthenticated ? (
 						<Button size="sm" className="w-full" asChild>
