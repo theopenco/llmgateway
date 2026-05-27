@@ -16,7 +16,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> May 13, 2026
+				<strong>Last Updated:</strong> May 26, 2026
 			</p>
 			<p>
 				Welcome to <strong>DevPass</strong>, a service operated by{" "}
@@ -41,14 +41,29 @@ export default function TermsPage() {
 			<ul>
 				<li>
 					Route AI requests to providers such as Anthropic, OpenAI, Google,
-					Mistral, DeepSeek, and others through coding tools like Claude Code,
-					Cursor, Cline, OpenCode, Codex, and Autohand
+					Mistral, DeepSeek, and others through approved coding and agent tools
+					like Claude Code, Codex, Cursor, Cline, OpenCode, OpenClaw, Hermes,
+					and Autohand
 				</li>
 				<li>
 					Track usage, costs, and per-agent activity in your DevPass dashboard
 				</li>
 				<li>Manage a single API key shared across every supported tool</li>
 			</ul>
+			<p>
+				DevPass is licensed solely for interactive use through approved coding
+				and agent tools. It is <strong>not</strong> a general-purpose API: you
+				may not use your DevPass API key to power your own applications,
+				products, services, backends, scripts, batch jobs, or any other direct
+				API integration. The flat-rate pricing assumes interactive,
+				human-in-the-loop usage from a whitelisted tool — any other usage breaks
+				the economics of the Service and is prohibited under Section&nbsp;7.
+				Embeddings, image generation, and video generation are not included in
+				DevPass and are blocked at the gateway. If you need API access for an
+				application or for non-inference workloads (such as embeddings, image
+				generation, or video generation), use a standard LLM Gateway credits
+				plan instead.
+			</p>
 			<hr />
 			<h2>2. Eligibility</h2>
 			<p>You must:</p>
@@ -208,6 +223,21 @@ export default function TermsPage() {
 				<li>
 					Open multiple DevPass accounts or otherwise abuse the included usage
 					allowance as described in Section&nbsp;5
+				</li>
+				<li>
+					Use your DevPass API key directly from your own applications,
+					backends, products, services, scripts, batch pipelines, or any other
+					integration outside of an approved coding or agent tool. DevPass is
+					only usable from whitelisted clients such as Claude Code, Codex,
+					Cursor, Cline, OpenCode, OpenClaw, Hermes, and Autohand. The list of
+					approved tools is maintained at our discretion and may change over
+					time
+				</li>
+				<li>
+					Use DevPass for non-inference workloads — embeddings, image
+					generation, and video generation are not included and are blocked at
+					the gateway. Use a standard LLM Gateway credits plan for those use
+					cases
 				</li>
 				<li>Probe, scan, or attack the platform or any connected provider</li>
 			</ul>

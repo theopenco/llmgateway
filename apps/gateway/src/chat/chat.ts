@@ -40,6 +40,11 @@ import {
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import {
+	getPreferredProvider,
+	resolvePreferredProvider,
+	setPreferredProvider,
+} from "@/lib/preferred-provider.js";
+import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
@@ -1633,6 +1638,24 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Dev plans are inference-only — image generation is never allowed,
+	// regardless of devPlanAllowAllModels. Embeddings and video generation
+	// are blocked at their respective endpoints. We check the model's
+	// declared output formats (and the legacy imageGenerations provider
+	// flag) so chat-completions models that emit images — e.g. Gemini
+	// *-flash-image with output: ["text", "image"] — are also blocked.
+	const isDevPlan = Boolean(
+		organization?.isPersonal && organization.devPlan !== "none",
+	);
+	const modelEmitsImages =
+		modelInfo.output?.includes("image") === true ||
+		modelInfo.providers.some((p) => p.imageGenerations === true);
+	if (isDevPlan && modelEmitsImages) {
+		throw new HTTPException(403, {
+			message: `Image generation is not available for coding plans. Coding plans only include text-based inference.`,
+		});
+	}
+
 	// Coding plans only allow models/provider mappings with cached input pricing.
 	// The model-level check denies models with no cached mapping at all.
 	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the
@@ -1654,19 +1677,15 @@ chat.openapi(completions, async (c) => {
 			requestedProvider !== "llmgateway" &&
 			requestedProvider !== "custom"
 		) {
-			const requestedProviderMappings = modelInfo.providers.filter(
-				(p) =>
-					p.providerId === requestedProvider &&
-					(requestedRegion === undefined || p.region === requestedRegion),
-			);
-			if (
-				requestedProviderMappings.length > 0 &&
-				!requestedProviderMappings.some(providerSupportsCachedInput)
-			) {
-				throw new HTTPException(403, {
-					message: `Provider ${requestedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
-				});
-			}
+			throw new HTTPException(403, {
+				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+			});
+		}
+
+		if (requestedProvider === "custom") {
+			throw new HTTPException(403, {
+				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+			});
 		}
 	}
 
@@ -2811,12 +2830,53 @@ chat.openapi(completions, async (c) => {
 				);
 
 				if (cheapestResult) {
-					usedProvider = cheapestResult.provider.providerId;
-					usedModel = cheapestResult.provider.modelName;
-					usedRegion = cheapestResult.provider.region;
+					// Apply provider preference hysteresis to reduce unnecessary switching.
+					// Skip for exploration requests — they exist to refresh per-provider metrics.
+					let selectedProvider = cheapestResult.provider;
+					let hysteresisSelectionReason =
+						cheapestResult.metadata.selectionReason;
+
+					if (hysteresisSelectionReason !== "random-exploration") {
+						const preferred = await getPreferredProvider(
+							project.organizationId,
+							modelWithPricing.id,
+						);
+
+						if (preferred) {
+							const stableCandidate = resolvePreferredProvider(
+								preferred,
+								providerAgnosticCandidates,
+								cheapestResult.metadata.providerScores,
+							);
+							if (stableCandidate) {
+								selectedProvider = stableCandidate;
+								hysteresisSelectionReason = "stable-preferred";
+							} else {
+								void setPreferredProvider(
+									project.organizationId,
+									modelWithPricing.id,
+									cheapestResult.provider.providerId,
+									cheapestResult.provider.region,
+								);
+							}
+						} else {
+							void setPreferredProvider(
+								project.organizationId,
+								modelWithPricing.id,
+								cheapestResult.provider.providerId,
+								cheapestResult.provider.region,
+							);
+						}
+					}
+
+					usedProvider = selectedProvider.providerId;
+					usedModel = selectedProvider.modelName;
+					usedRegion = selectedProvider.region;
 					routingMetadata = addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
+							selectedProvider: usedProvider,
+							selectionReason: hysteresisSelectionReason,
 							...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 						},
 						contentFilterMatched,
@@ -3729,9 +3789,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check if caching is enabled for this project
+	// Check if caching is enabled for this project. Dev plan orgs never get
+	// gateway-level response caching — the feature is offered only on regular
+	// (non-devpass) organizations.
 	const { enabled: cachingEnabled, duration: cacheDuration } =
-		await isCachingEnabled(project.id);
+		organization.devPlan !== "none"
+			? { enabled: false, duration: 0 }
+			: await isCachingEnabled(project.id);
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;

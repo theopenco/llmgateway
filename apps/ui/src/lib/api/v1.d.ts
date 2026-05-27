@@ -2345,11 +2345,17 @@ export interface paths {
                                 signups: number;
                                 paidCustomers: number;
                                 revenue: number;
+                                processed: number;
+                                refunds: number;
+                                net: number;
                             }[];
                             totals: {
                                 signups: number;
                                 paidCustomers: number;
                                 revenue: number;
+                                processed: number;
+                                refunds: number;
+                                net: number;
                             };
                         };
                     };
@@ -10436,8 +10442,6 @@ export interface paths {
                             projectId: string | null;
                             apiKey: string | null;
                             devPlanAllowAllModels: boolean;
-                            cachingEnabled: boolean;
-                            cacheDurationSeconds: number;
                             /** @enum {string} */
                             retentionLevel: "retain" | "none";
                         };
@@ -10477,8 +10481,6 @@ export interface paths {
                 content: {
                     "application/json": {
                         devPlanAllowAllModels?: boolean;
-                        cachingEnabled?: boolean;
-                        cacheDurationSeconds?: number;
                         /** @enum {string} */
                         retentionLevel?: "retain" | "none";
                     };
@@ -10494,8 +10496,6 @@ export interface paths {
                         "application/json": {
                             success: boolean;
                             devPlanAllowAllModels: boolean;
-                            cachingEnabled: boolean;
-                            cacheDurationSeconds: number;
                             /** @enum {string} */
                             retentionLevel: "retain" | "none";
                         };

@@ -529,6 +529,13 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		});
 	}
 
+	if (organization.isPersonal && organization.devPlan !== "none") {
+		throw new HTTPException(403, {
+			message:
+				"Embeddings are not available for coding plans. Coding plans only include text-based inference.",
+		});
+	}
+
 	const retentionLevel = organization.retentionLevel ?? "none";
 	const iamValidation = await validateModelAccess(
 		apiKey.id,

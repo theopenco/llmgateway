@@ -32,6 +32,72 @@ describe("api", () => {
 		expect(data.health).toHaveProperty("database");
 	});
 
+	test("/v1/chat/completions rejects image-output models for dev-plan orgs even with allowAllModels", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Pro dev plan with allow-all-models on — the legacy coding-model
+		// restriction does NOT apply, so the only thing blocking image
+		// generation is the new image-output guard.
+		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+
+		// gemini-2.5-flash-image declares output: ["text", "image"] but
+		// has no imageGenerations: true mapping — exactly the case the
+		// guard needs to catch.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "gemini-2.5-flash-image",
+				messages: [{ role: "user", content: "Draw a cat" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Image generation is not available for coding plans",
+		);
+	});
+
+	test("/v1/images/generations is blocked for dev-plan orgs via the chat-completions guard", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "gemini-2.5-flash-image",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Image generation is not available for coding plans",
+		);
+	});
+
 	test("/v1/chat/completions e2e success", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
