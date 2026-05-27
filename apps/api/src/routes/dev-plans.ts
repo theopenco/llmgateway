@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { ensureStripeCustomer } from "@/stripe.js";
+import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables, eq, shortid } from "@llmgateway/db";
@@ -255,31 +255,33 @@ devPlans.openapi(subscribe, async (c) => {
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
+		// We use `mode: "setup"` (not "subscription") so the card is collected
+		// but the customer is NOT charged at checkout. After redirect we check
+		// the card fingerprint against existing DevPass orgs; if it conflicts
+		// we reject the activation without ever creating a Stripe subscription
+		// or charging the user. The shared metadata carries everything the
+		// finalize step needs to create the subscription server-side.
 		const session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
-			mode: "subscription",
-			line_items: [
-				{
-					price: priceId,
-					quantity: 1,
-				},
-			],
-			allow_promotion_codes: true,
-			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?success=true`,
+			mode: "setup",
+			payment_method_types: ["card"],
+			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
 				organizationId: personalOrg.id,
 				subscriptionType: "dev_plan",
 				devPlan: tier,
 				devPlanCycle: cycle,
+				priceId,
 				userEmail: user.email,
 			},
-			subscription_data: {
+			setup_intent_data: {
 				metadata: {
 					organizationId: personalOrg.id,
 					subscriptionType: "dev_plan",
 					devPlan: tier,
 					devPlanCycle: cycle,
+					priceId,
 					userEmail: user.email,
 				},
 			},
@@ -313,6 +315,110 @@ devPlans.openapi(subscribe, async (c) => {
 		throw new HTTPException(500, {
 			message: `Failed to create checkout session: ${error}`,
 		});
+	}
+});
+
+// Finalize a dev plan setup session — called by the dashboard after the user
+// returns from Stripe Checkout. Verifies the card fingerprint and creates the
+// subscription server-side, or rejects with 409 if the card is already used
+// by another DevPass org (no charge is made in that case).
+const finalize = createRoute({
+	method: "post",
+	path: "/finalize",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						sessionId: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: z.enum(["ok", "already_processed"]),
+					}),
+				},
+			},
+			description: "Dev plan subscription finalized",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.literal("duplicate_card"),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Card already in use by another DevPass account",
+		},
+	},
+});
+
+devPlans.openapi(finalize, async (c) => {
+	const user = c.get("user");
+	const { sessionId } = c.req.valid("json");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId: user.id },
+		with: { organization: true },
+	});
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.isPersonal === true,
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	let result;
+	try {
+		result = await finalizeDevPlanSetupSession(sessionId);
+	} catch (error) {
+		logger.error(
+			`Failed to finalize dev plan session ${sessionId}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		throw new HTTPException(500, {
+			message: "Failed to finalize subscription",
+		});
+	}
+
+	switch (result.status) {
+		case "ok":
+		case "already_processed":
+			return c.json({ status: result.status }, 200);
+		case "duplicate_card":
+			return c.json(
+				{
+					error: "duplicate_card" as const,
+					message:
+						"This card is already associated with another DevPass account. Please use a different payment method.",
+				},
+				409,
+			);
+		case "no_payment_method":
+			throw new HTTPException(400, {
+				message: "No payment method found on the checkout session",
+			});
+		case "invalid_session":
+			throw new HTTPException(400, {
+				message: `Invalid checkout session: ${result.reason}`,
+			});
 	}
 });
 

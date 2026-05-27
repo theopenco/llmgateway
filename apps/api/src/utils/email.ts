@@ -263,6 +263,90 @@ export function generatePaymentFailureEmailHtml(
 	`.trim();
 }
 
+export function generateDevPlanDuplicateCardEmailHtml(
+	organizationName: string,
+): string {
+	const escapedOrgName = escapeHtml(organizationName);
+	const codeUrl = process.env.CODE_URL ?? "https://code.llmgateway.io";
+	const dashboardUrl = `${codeUrl}/dashboard`;
+
+	return `
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>DevPass activation failed - LLMGateway</title>
+	</head>
+	<body
+		style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #ffffff;"
+	>
+		<table role="presentation" style="width: 100%; border-collapse: collapse;">
+			<tr>
+				<td align="center" style="padding: 40px 20px;">
+					<table role="presentation" style="max-width: 600px; width: 100%; border-collapse: collapse;">
+						<tr>
+							<td
+								style="background-color: #dc2626; padding: 40px 30px; text-align: center; border-radius: 8px 8px 0 0;"
+							>
+								<h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Activation Failed</h1>
+							</td>
+						</tr>
+
+						<tr>
+							<td style="background-color: #f8f9fa; padding: 40px 30px; border-radius: 0 0 8px 8px;">
+								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
+									Hi there,
+								</p>
+
+								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
+									We couldn't activate DevPass for <strong>${escapedOrgName}</strong>. The card you provided is already linked to another DevPass account, so it can't be used a second time. <strong>You were not charged.</strong>
+								</p>
+
+								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
+									To activate DevPass on this account, please try again with a different payment method.
+								</p>
+
+								<table role="presentation" style="width: 100%; border-collapse: collapse;">
+									<tr>
+										<td align="center" style="padding: 10px 0;">
+											<a
+												href="${dashboardUrl}"
+												style="display: inline-block; background-color: #000000; color: #ffffff; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 16px;"
+											>Try again</a>
+										</td>
+									</tr>
+								</table>
+
+								<p style="margin: 30px 0 0 0; font-size: 14px; line-height: 1.6; color: #666666;">
+									If you think this is a mistake, just reply to this email and we'll take a look.
+								</p>
+							</td>
+						</tr>
+
+						<tr>
+							<td
+								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
+							>
+								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
+									Need help? Check out our <a
+									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
+								>documentation</a> or reply to this email for any questions.
+								</p>
+								<p style="margin: 0; color: #999999; font-size: 12px;">
+									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
+								</p>
+							</td>
+						</tr>
+					</table>
+				</td>
+			</tr>
+		</table>
+	</body>
+</html>
+	`.trim();
+}
+
 export function generateDevPlanCancellationFeedbackEmailHtml(
 	organizationName: string,
 ): string {
