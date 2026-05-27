@@ -49,7 +49,16 @@ function buildVertexCompatibleEndpoint(
 }
 
 /**
- * Get the endpoint URL for a provider API call
+ * Get the endpoint URL for a provider API call.
+ *
+ * @param model - The upstream model id sent in the URL path (e.g. for Google
+ *   Vertex `/models/${model}:generateContent`). Pass the canonical gateway
+ *   model id and the function will resolve the upstream id via the registry;
+ *   if you already have the upstream id (Azure deployment override, etc.),
+ *   pass it directly.
+ * @param modelId - Canonical gateway model id, used to look up
+ *   capability info (e.g. supportsResponsesApi). When omitted, falls back to
+ *   `model` — but pass the root id explicitly whenever you have it.
  */
 export function getProviderEndpoint(
 	provider: ProviderId,
@@ -64,10 +73,11 @@ export function getProviderEndpoint(
 	imageGenerations?: boolean,
 	region?: string,
 	skipEnvVars?: boolean,
+	modelId?: string,
 ): string {
 	let externalId = model;
 	if (model && model !== "custom") {
-		const modelInfo = models.find((m) => m.id === model);
+		const modelInfo = models.find((m) => m.id === (modelId ?? model));
 		if (modelInfo) {
 			const providerMapping = modelInfo.providers.find(
 				(p) => p.providerId === provider,
@@ -476,13 +486,7 @@ export function getProviderEndpoint(
 				);
 
 				if (model && useResponsesApiEnv !== "false") {
-					const modelDef = models.find(
-						(m) =>
-							m.id === model ||
-							m.providers.some(
-								(p) => p.externalId === model && p.providerId === "azure",
-							),
-					);
+					const modelDef = models.find((m) => m.id === (modelId ?? model));
 					const providerMapping = modelDef?.providers.find(
 						(p) => p.providerId === "azure",
 					);
@@ -515,14 +519,7 @@ export function getProviderEndpoint(
 			}
 			// Use responses endpoint for models that support responses API
 			if (model) {
-				// Look up by model ID first, then fall back to provider externalId
-				const modelDef = models.find(
-					(m) =>
-						m.id === model ||
-						m.providers.some(
-							(p) => p.externalId === model && p.providerId === "openai",
-						),
-				);
+				const modelDef = models.find((m) => m.id === (modelId ?? model));
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",
 				);

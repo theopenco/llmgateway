@@ -3283,7 +3283,7 @@ videos.openapi(createVideo, async (c) => {
 			const nextMapping = orderedMappings.find(
 				(mapping) =>
 					mapping.providerId === nextProvider.providerId &&
-					mapping.externalId === nextProvider.externalId,
+					(mapping.region ?? undefined) === nextProvider.region,
 			);
 			if (!nextMapping) {
 				throw getInsufficientVideoGenerationBalanceError();
@@ -3336,7 +3336,7 @@ videos.openapi(createVideo, async (c) => {
 			const nextMapping = orderedMappings.find(
 				(mapping) =>
 					mapping.providerId === nextProvider.providerId &&
-					mapping.externalId === nextProvider.externalId,
+					(mapping.region ?? undefined) === nextProvider.region,
 			);
 			if (!nextMapping) {
 				throw new HTTPException(400, {
@@ -3436,7 +3436,7 @@ videos.openapi(createVideo, async (c) => {
 			const nextMapping = orderedMappings.find(
 				(mapping) =>
 					mapping.providerId === nextProvider.providerId &&
-					mapping.externalId === nextProvider.externalId,
+					(mapping.region ?? undefined) === nextProvider.region,
 			);
 			if (!nextMapping) {
 				throw error;

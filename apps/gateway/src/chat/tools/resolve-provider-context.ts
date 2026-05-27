@@ -373,6 +373,7 @@ export async function resolveProviderContext(
 		isImageGeneration,
 		usedRegion,
 		isBYOK,
+		usedInternalModel,
 	);
 
 	if (!url) {
@@ -444,6 +445,8 @@ export async function resolveProviderContext(
 	// --- Request body preparation ---
 	const requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
 		usedProvider as Provider,
+		usedInternalModel,
+		providerMapping.region ?? null,
 		upstreamModelName,
 		options.messages as BaseMessage[],
 		options.effectiveStream,

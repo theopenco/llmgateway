@@ -3718,12 +3718,11 @@ chat.openapi(completions, async (c) => {
 
 	// Strip :region suffix, then apply azure_deployment_name override if set
 	// so users can target deployments whose names differ from the registry.
-	const strippedModelName = usedInternalModel;
 	const azureDeploymentName =
 		usedProvider === "azure"
 			? providerKey?.options?.azure_deployment_name
 			: undefined;
-	const upstreamModelName = azureDeploymentName || strippedModelName;
+	const upstreamModelName = azureDeploymentName || usedExternalId;
 
 	try {
 		if (!usedProvider) {
@@ -3745,6 +3744,7 @@ chat.openapi(completions, async (c) => {
 			isImageGeneration,
 			usedRegion,
 			providerKey !== undefined,
+			usedInternalModel,
 		);
 
 		// If region is still unset but the provider supports regions, resolve the
@@ -4386,6 +4386,8 @@ chat.openapi(completions, async (c) => {
 	try {
 		requestBody = await prepareRequestBody(
 			usedProvider,
+			usedInternalModel,
+			usedRegion ?? null,
 			upstreamModelName,
 			messages as BaseMessage[],
 			effectiveStream,

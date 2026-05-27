@@ -117,6 +117,8 @@ describe("System Role Handling", () => {
 		const requestBody = await prepareRequestBody(
 			"openai",
 			"o1-mini",
+			null,
+			"o1-mini",
 			messages,
 			false, // stream
 			undefined, // temperature
@@ -148,6 +150,8 @@ describe("System Role Handling", () => {
 
 		const requestBody = await prepareRequestBody(
 			"openai",
+			"gpt-4o-mini",
+			null,
 			"gpt-4o-mini",
 			messages,
 			false, // stream
@@ -189,6 +193,8 @@ describe("System Role Handling", () => {
 		const requestBody = await prepareRequestBody(
 			"openai",
 			"o1-mini",
+			null,
+			"o1-mini",
 			messages,
 			false, // stream
 			undefined, // temperature
@@ -222,6 +228,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-5",
+				null,
+				"gpt-5",
 				messages,
 				false, // stream
 				0.7, // temperature - should be overridden to 1
@@ -243,6 +251,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5-mini models", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5-mini",
+				null,
 				"gpt-5-mini",
 				messages,
 				false, // stream
@@ -266,6 +276,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-5-nano",
+				null,
+				"gpt-5-nano",
 				messages,
 				false, // stream
 				0.9, // temperature - should be overridden to 1
@@ -287,6 +299,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5-chat-latest models", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5-chat-latest",
+				null,
 				"gpt-5-chat-latest",
 				messages,
 				false, // stream
@@ -310,6 +324,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-4o-mini",
+				null,
+				"gpt-4o-mini",
 				messages,
 				false, // stream
 				0.7, // temperature - should remain as-is
@@ -331,6 +347,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5 models with reasoning enabled", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5",
+				null,
 				"gpt-5",
 				messages,
 				false, // stream
