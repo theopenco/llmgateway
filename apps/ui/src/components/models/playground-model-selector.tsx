@@ -94,6 +94,9 @@ export function ModelSelector({
 	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
+	const selectedRegion = selectedModelIdRaw.includes(":")
+		? selectedModelIdRaw.split(":")[1]
+		: undefined;
 	const selectedModelId = selectedModelIdRaw.includes(":")
 		? selectedModelIdRaw.split(":")[0]
 		: selectedModelIdRaw;
@@ -103,14 +106,12 @@ export function ModelSelector({
 	);
 	const selectedMapping =
 		selectedModel?.providers.find(
-			(p) =>
-				p.providerId === selectedProviderId &&
-				p.externalId === selectedModelIdRaw,
+			(p) => p.providerId === selectedProviderId && p.region === selectedRegion,
 		) ??
 		selectedModel?.providers.find((p) => p.providerId === selectedProviderId);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
-			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.externalId}`
+			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.region ?? ""}`
 			: "";
 
 	// Build entries of model per provider mapping
@@ -523,7 +524,7 @@ export function ModelSelector({
 											: provider
 												? getProviderIcon(provider.id)
 												: null;
-										const entryKey = `${mapping.providerId}-${model.id}-${mapping.externalId}`;
+										const entryKey = `${mapping.providerId}-${model.id}-${mapping.region ?? ""}`;
 										const isDeprecated =
 											mapping.deprecatedAt &&
 											new Date(mapping.deprecatedAt) <= new Date();
@@ -533,7 +534,7 @@ export function ModelSelector({
 												value={entryKey}
 												onSelect={() => {
 													onValueChange?.(
-														`${mapping.providerId}/${mapping.region ? mapping.externalId : model.id}`,
+														`${mapping.providerId}/${model.id}${mapping.region ? `:${mapping.region}` : ""}`,
 													);
 													setOpen(false);
 												}}

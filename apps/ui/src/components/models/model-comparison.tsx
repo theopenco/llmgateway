@@ -401,7 +401,13 @@ function StabilityBadge({ stability }: { stability?: StabilityLevel }) {
 	);
 }
 
-function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
+function ProvidersList({
+	providers,
+	modelId,
+}: {
+	providers: ProviderWithInfo[];
+	modelId: string;
+}) {
 	if (!providers.length) {
 		return <span className="text-muted-foreground">—</span>;
 	}
@@ -410,7 +416,7 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 		<div className="flex flex-col gap-3">
 			{providers.map((provider) => (
 				<div
-					key={`${provider.providerId}-${provider.externalId}`}
+					key={`${provider.providerId}-${provider.region ?? ""}`}
 					className="space-y-1"
 				>
 					<div className="flex items-center gap-2 text-base">
@@ -425,7 +431,8 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 						</span>
 					</div>
 					<div className="text-sm text-muted-foreground">
-						API: {provider.providerId}/{provider.externalId}
+						API: {provider.providerId}/{modelId}
+						{provider.region ? `:${provider.region}` : ""}
 					</div>
 					<StabilityBadge stability={provider.stability} />
 				</div>
@@ -544,7 +551,7 @@ function renderRowValue(
 		case "stability":
 			return <StabilityBadge stability={detail.stability} />;
 		case "providers":
-			return <ProvidersList providers={detail.providers} />;
+			return <ProvidersList providers={detail.providers} modelId={detail.id} />;
 		case "maxContext": {
 			const ctx = selectedProvider?.contextSize ?? detail.aggregated.maxContext;
 			return ctx ? formatContextSize(ctx) : PLACEHOLDER;

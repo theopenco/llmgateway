@@ -32,7 +32,7 @@ export function adaptProviderMapping(
 ): { provider: ApiModelProviderMapping; providerInfo: ApiProvider } {
 	return {
 		provider: {
-			id: `${p.providerId}-${p.externalId}-${p.region ?? ""}`,
+			id: `${p.providerId}-${modelId}-${p.region ?? ""}`,
 			createdAt: "",
 			modelId,
 			providerId: p.providerId,
