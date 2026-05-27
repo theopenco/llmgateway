@@ -43,11 +43,6 @@ export function Header() {
 							Docs
 						</a>
 					</Button>
-					{!isAuthenticated && (
-						<Button variant="ghost" size="sm" asChild>
-							<Link href="/dashboard">Dashboard</Link>
-						</Button>
-					)}
 					{isAuthenticated ? (
 						<Button size="sm" asChild>
 							<Link href="/dashboard">Dashboard</Link>
@@ -107,15 +102,6 @@ export function Header() {
 					>
 						Docs
 					</a>
-					{!isAuthenticated && (
-						<Link
-							href="/dashboard"
-							className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
-							onClick={() => setMenuOpen(false)}
-						>
-							Dashboard
-						</Link>
-					)}
 					{isAuthenticated ? (
 						<Button size="sm" className="w-full" asChild>
 							<Link href="/dashboard" onClick={() => setMenuOpen(false)}>
