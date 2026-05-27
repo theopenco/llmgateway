@@ -819,7 +819,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
 
-	// Revenue per day (creditAmount, post-fees; excludes gifts, refunds, devpass)
+	// Revenue per day (creditAmount, post-fees; matches /admin/metrics totalRevenue)
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
@@ -833,15 +833,15 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "credit_refund"),
 				notDevpassFilter,
 				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Processed per day (gross Stripe amount)
+	// Processed per day (gross Stripe amount; matches /admin/metrics totalProcessed)
 	const processedPerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
@@ -855,9 +855,9 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "credit_refund"),
 				notDevpassFilter,
 				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -878,6 +878,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				eq(tables.transaction.type, "credit_refund"),
 				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -896,7 +897,6 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "credit_refund"),
 				notDevpassFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
@@ -915,7 +915,6 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "credit_refund"),
 				notDevpassFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
