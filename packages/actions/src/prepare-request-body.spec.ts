@@ -838,6 +838,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
 			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
 			[{ role: "user", content: "test" }],
 			false,
 			undefined,
@@ -905,6 +907,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
 			"gemini-2.0-flash",
 			[{ role: "user", content: "test" }],
 			false,

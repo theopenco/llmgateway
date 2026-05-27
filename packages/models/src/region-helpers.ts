@@ -1,21 +1,6 @@
 import type { ProviderModelMapping } from "./models.js";
 
 /**
- * Strips the `:region` suffix from an externalId that was expanded by expandProviderRegions.
- * e.g., "deepseek-v3.2:singapore" → "deepseek-v3.2"
- * If the externalId has no region suffix, returns it unchanged.
- */
-export function stripRegionFromExternalId(
-	externalId: string,
-	region?: string,
-): string {
-	if (region && externalId.endsWith(`:${region}`)) {
-		return externalId.slice(0, -(region.length + 1));
-	}
-	return externalId;
-}
-
-/**
  * Expands a single ProviderModelMapping with `regions` into multiple flat entries,
  * one per region. Each region inherits all properties from the parent mapping
  * and can override pricing and other region-specific properties.
@@ -23,6 +8,12 @@ export function stripRegionFromExternalId(
  * Mappings without `regions` are returned as-is in a single-element array.
  * Mappings with `regions` keep a synthetic root entry so consumers that expect
  * a provider-level mapping can still render it alongside the concrete regions.
+ *
+ * `externalId` is intentionally preserved unchanged across regions — it is the
+ * upstream provider's model id, which is the same regardless of region. The
+ * `region` field is the source of truth for disambiguating regional variants
+ * in pricing, routing, and rate-limit lookups; pair `(providerId, region)` to
+ * pick a specific regional mapping.
  */
 export function expandProviderRegions(
 	mapping: ProviderModelMapping,
@@ -37,10 +28,6 @@ export function expandProviderRegions(
 		...base,
 		...overrides,
 		region: id,
-		// Append :region to externalId so each region has a unique upstream
-		// identifier for routing and display. The gateway strips this suffix
-		// before sending the request to the upstream provider API.
-		externalId: `${base.externalId}:${id}`,
 	}));
 
 	return [base, ...regionEntries];

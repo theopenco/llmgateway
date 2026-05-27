@@ -71,7 +71,7 @@ const promptCachingModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${provider.region ? provider.externalId : model.id}`,
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
 				provider,
 				originalModel: model.id,
 				minCacheableTokens: provider.minCacheableTokens ?? 1024,
