@@ -7,6 +7,7 @@ import { deleteResendContact } from "@/auth/config.js";
 import { maskToken } from "@/lib/maskToken.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
+import { notDevpassFilter } from "@/utils/devpass-filter.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -579,30 +580,6 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// DevPass-related transaction types: exclude these from credit-purchase
-	// metrics (revenue/processed/topped-up) because DevPass revenue lives in
-	// its own dashboard, and DevPass-granted credits are virtual (capped per
-	// cycle) rather than real top-up balance.
-	const devpassExcludedTypes = [
-		"dev_plan_start",
-		"dev_plan_upgrade",
-		"dev_plan_downgrade",
-		"dev_plan_renewal",
-		"dev_plan_cancel",
-		"dev_plan_end",
-		"subscription_start",
-		"subscription_cancel",
-		"subscription_end",
-		"subscription_upgrade",
-		"subscription_downgrade",
-		"subscription_renewal",
-	] as const;
-
-	const notDevpassFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
-		devpassExcludedTypes.map((t) => sql`${t}`),
-		sql`, `,
-	)})`;
-
 	// Total revenue (completed credit-purchase transactions, excluding gifts
 	// and all DevPass subscription rows, using creditAmount to exclude Stripe fees)
 	const [revenueRow] = await db
@@ -841,26 +818,6 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(gte(tables.user.createdAt, startDate))
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
-
-	const devpassExcludedTypes = [
-		"dev_plan_start",
-		"dev_plan_upgrade",
-		"dev_plan_downgrade",
-		"dev_plan_renewal",
-		"dev_plan_cancel",
-		"dev_plan_end",
-		"subscription_start",
-		"subscription_cancel",
-		"subscription_end",
-		"subscription_upgrade",
-		"subscription_downgrade",
-		"subscription_renewal",
-	] as const;
-
-	const notDevpassFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
-		devpassExcludedTypes.map((t) => sql`${t}`),
-		sql`, `,
-	)})`;
 
 	// Revenue per day (creditAmount, post-fees; excludes gifts, refunds, devpass)
 	const revenuePerDay = await db
