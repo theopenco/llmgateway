@@ -82,6 +82,9 @@ const timeseriesDataPointSchema = z.object({
 	signups: z.number(),
 	paidCustomers: z.number(),
 	revenue: z.number(),
+	processed: z.number(),
+	refunds: z.number(),
+	net: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -91,6 +94,9 @@ const adminTimeseriesSchema = z.object({
 		signups: z.number(),
 		paidCustomers: z.number(),
 		revenue: z.number(),
+		processed: z.number(),
+		refunds: z.number(),
+		net: z.number(),
 	}),
 });
 
@@ -836,7 +842,27 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
 
-	// Revenue per day (completed transactions, excluding gifts, using creditAmount)
+	const devpassExcludedTypes = [
+		"dev_plan_start",
+		"dev_plan_upgrade",
+		"dev_plan_downgrade",
+		"dev_plan_renewal",
+		"dev_plan_cancel",
+		"dev_plan_end",
+		"subscription_start",
+		"subscription_cancel",
+		"subscription_end",
+		"subscription_upgrade",
+		"subscription_downgrade",
+		"subscription_renewal",
+	] as const;
+
+	const notDevpassFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
+		devpassExcludedTypes.map((t) => sql`${t}`),
+		sql`, `,
+	)})`;
+
+	// Revenue per day (creditAmount, post-fees; excludes gifts, refunds, devpass)
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
@@ -850,13 +876,57 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "credit_refund"),
+				notDevpassFilter,
 				gte(tables.transaction.createdAt, startDate),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Revenue earned before the range (for cumulative chart, excluding gifts, using creditAmount)
+	// Processed per day (gross Stripe amount)
+	const processedPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "credit_refund"),
+				notDevpassFilter,
+				gte(tables.transaction.createdAt, startDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Refunds per day (positive amount on credit_refund rows)
+	const refundsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_refund"),
+				gte(tables.transaction.createdAt, startDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Pre-range totals for cumulative chart
 	const [preRangeRevenueRow] = await db
 		.select({
 			total:
@@ -869,10 +939,48 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "credit_refund"),
+				notDevpassFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
 	const preRangeRevenue = Number(preRangeRevenueRow?.total ?? 0);
+
+	const [preRangeProcessedRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "credit_refund"),
+				notDevpassFilter,
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeProcessed = Number(preRangeProcessedRow?.total ?? 0);
+
+	const [preRangeRefundsRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_refund"),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeRefunds = Number(preRangeRefundsRow?.total ?? 0);
 
 	// Count of orgs that became paying before the range (bounded SQL query)
 	const [preRangeRow] = await db
@@ -930,6 +1038,16 @@ admin.openapi(getTimeseries, async (c) => {
 		revenueMap.set(row.date, Number(row.total));
 	}
 
+	const processedMap = new Map<string, number>();
+	for (const row of processedPerDay) {
+		processedMap.set(row.date, Number(row.total));
+	}
+
+	const refundsMap = new Map<string, number>();
+	for (const row of refundsPerDay) {
+		refundsMap.set(row.date, Number(row.total));
+	}
+
 	const newPaidMap = new Map<string, number>();
 	for (const row of firstTransactionPerOrg) {
 		newPaidMap.set(row.date, Number(row.count));
@@ -941,10 +1059,15 @@ admin.openapi(getTimeseries, async (c) => {
 		signups: number;
 		paidCustomers: number;
 		revenue: number;
+		processed: number;
+		refunds: number;
+		net: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
 	let totalRevenue = preRangeRevenue;
+	let totalProcessed = preRangeProcessed;
+	let totalRefunds = preRangeRefunds;
 
 	const totalDays = Math.ceil(
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
@@ -955,16 +1078,23 @@ admin.openapi(getTimeseries, async (c) => {
 		const dateStr = current.toISOString().split("T")[0];
 		const dailySignups = signupsMap.get(dateStr) ?? 0;
 		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
+		const dailyProcessed = processedMap.get(dateStr) ?? 0;
+		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
 		cumulativePaid += newPaidMap.get(dateStr) ?? 0;
 
 		totalSignups += dailySignups;
 		totalRevenue += dailyRevenue;
+		totalProcessed += dailyProcessed;
+		totalRefunds += dailyRefunds;
 
 		data.push({
 			date: dateStr,
 			signups: totalSignups,
 			paidCustomers: cumulativePaid,
 			revenue: totalRevenue,
+			processed: totalProcessed,
+			refunds: totalRefunds,
+			net: totalRevenue - totalRefunds,
 		});
 	}
 
@@ -975,6 +1105,9 @@ admin.openapi(getTimeseries, async (c) => {
 			signups: totalSignups,
 			paidCustomers: cumulativePaid,
 			revenue: totalRevenue,
+			processed: totalProcessed,
+			refunds: totalRefunds,
+			net: totalRevenue - totalRefunds,
 		},
 	});
 });

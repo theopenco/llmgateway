@@ -2344,11 +2344,17 @@ export interface paths {
                                 signups: number;
                                 paidCustomers: number;
                                 revenue: number;
+                                processed: number;
+                                refunds: number;
+                                net: number;
                             }[];
                             totals: {
                                 signups: number;
                                 paidCustomers: number;
                                 revenue: number;
+                                processed: number;
+                                refunds: number;
+                                net: number;
                             };
                         };
                     };
