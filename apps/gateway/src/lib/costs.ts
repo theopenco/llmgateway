@@ -271,13 +271,32 @@ export async function calculateCosts(
 	// Region matters when a single root model id has multiple per-region
 	// entries with different prices (see `regions:` on ProviderModelMapping);
 	// expandAllProviderRegions flattens those into one mapping per region.
+	//
+	// For regionalized providers we MUST match the exact region — falling back
+	// to the non-regional/base entry would bill at the default rate even when
+	// the caller named a region that doesn't exist on this provider, which
+	// silently masks the misroute. Only fall back to the non-regional entry
+	// when the provider has no regional variants at all.
 	const expandedProviders = expandAllProviderRegions(
 		modelInfo.providers as ProviderModelMapping[],
 	);
-	const providerInfo =
-		expandedProviders.find(
-			(p) => p.providerId === provider && (p.region ?? null) === region,
-		) ?? expandedProviders.find((p) => p.providerId === provider);
+	const providerEntries = expandedProviders.filter(
+		(p) => p.providerId === provider,
+	);
+	const isBaseEntry = (p: (typeof providerEntries)[number]) =>
+		p.region === undefined || p.region === null;
+	const hasRegionalEntries = providerEntries.some((p) => !isBaseEntry(p));
+	let providerInfo: (typeof providerEntries)[number] | undefined;
+	if (region !== null) {
+		providerInfo = providerEntries.find((p) => p.region === region);
+		// Region was requested but doesn't match any regional variant. For a
+		// regionalized provider, bail out rather than billing at the base rate.
+		if (!providerInfo && !hasRegionalEntries) {
+			providerInfo = providerEntries.find(isBaseEntry);
+		}
+	} else {
+		providerInfo = providerEntries.find(isBaseEntry) ?? providerEntries[0];
+	}
 
 	if (!providerInfo) {
 		return {
