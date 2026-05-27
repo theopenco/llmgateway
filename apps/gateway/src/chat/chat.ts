@@ -3706,9 +3706,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check if caching is enabled for this project
+	// Check if caching is enabled for this project. Dev plan orgs never get
+	// gateway-level response caching — the feature is offered only on regular
+	// (non-devpass) organizations.
 	const { enabled: cachingEnabled, duration: cacheDuration } =
-		await isCachingEnabled(project.id);
+		organization.devPlan !== "none"
+			? { enabled: false, duration: 0 }
+			: await isCachingEnabled(project.id);
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
