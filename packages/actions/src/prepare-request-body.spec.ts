@@ -4,6 +4,13 @@ import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
+function getCacheControl(block: unknown): unknown {
+	if (block && typeof block === "object" && "cache_control" in block) {
+		return (block as { cache_control: unknown }).cache_control;
+	}
+	return undefined;
+}
+
 async function prepareOpenAIImageRequest(imageConfig: {
 	aspect_ratio?: string;
 	image_size?: string;
@@ -285,7 +292,7 @@ describe("prepareRequestBody - Anthropic", () => {
 		// System: no caller marker preserved, no heuristic-added marker.
 		if (requestBody.system && Array.isArray(requestBody.system)) {
 			for (const block of requestBody.system) {
-				expect((block as any).cache_control).toBeUndefined();
+				expect(getCacheControl(block)).toBeUndefined();
 			}
 		}
 
@@ -293,7 +300,7 @@ describe("prepareRequestBody - Anthropic", () => {
 		for (const msg of requestBody.messages) {
 			if (Array.isArray(msg.content)) {
 				for (const block of msg.content) {
-					expect((block as any).cache_control).toBeUndefined();
+					expect(getCacheControl(block)).toBeUndefined();
 				}
 			}
 		}
