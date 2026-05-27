@@ -3953,8 +3953,9 @@ chat.openapi(completions, async (c) => {
 
 				// Calculate costs for cached response
 				const costs = await calculateCosts(
-					usedModel,
+					baseModelName,
 					usedProvider,
+					usedRegion ?? null,
 					promptTokens ?? null,
 					completionTokens ?? null,
 					cachedTokens ?? null,
@@ -4119,8 +4120,9 @@ chat.openapi(completions, async (c) => {
 
 				// Calculate costs for cached response
 				const cachedCosts = await calculateCosts(
-					usedModel,
+					baseModelName,
 					usedProvider,
+					usedRegion ?? null,
 					cachedResponse.usage?.prompt_tokens ?? null,
 					cachedResponse.usage?.completion_tokens ?? null,
 					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
@@ -4823,11 +4825,13 @@ chat.openapi(completions, async (c) => {
 				const writeStreamingContentFilterResponse = async ({
 					billingModel,
 					billingProvider,
+					billingRegion,
 					responseModel,
 					metadata,
 				}: {
 					billingModel: string;
 					billingProvider: Provider;
+					billingRegion: string | null;
 					responseModel: string;
 					metadata?: Record<string, unknown>;
 				}) => {
@@ -4845,6 +4849,7 @@ chat.openapi(completions, async (c) => {
 					const streamingCosts = await calculateCosts(
 						billingModel,
 						billingProvider,
+						billingRegion,
 						promptTokenCount,
 						0,
 						null,
@@ -5277,8 +5282,9 @@ chat.openapi(completions, async (c) => {
 								// Calculate costs based on prompt tokens only (no completion yet)
 								// If web search tool was enabled, count it as 1 search for billing
 								cancelledCosts = await calculateCosts(
-									usedModel,
+									baseModelName,
 									usedProvider,
+									usedRegion ?? null,
 									estimatedPromptTokens,
 									0, // No completion tokens yet
 									null, // No cached tokens
@@ -5741,8 +5747,9 @@ chat.openapi(completions, async (c) => {
 						const contentFilterCosts =
 							finishReason === "content_filter"
 								? await calculateCosts(
-										usedModel,
+										baseModelName,
 										usedProvider,
+										usedRegion ?? null,
 										Math.max(1, Math.round(contentFilterPromptTokens ?? 1)),
 										0,
 										null,
@@ -5874,8 +5881,9 @@ chat.openapi(completions, async (c) => {
 						// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
 						if (finishReason === "content_filter") {
 							await writeStreamingContentFilterResponse({
-								billingModel: usedModel,
+								billingModel: baseModelName,
 								billingProvider: usedProvider,
+								billingRegion: usedRegion ?? null,
 								responseModel: formatUsedModelForDisplay(
 									usedProvider,
 									baseModelName,
@@ -6690,8 +6698,9 @@ chat.openapi(completions, async (c) => {
 								) {
 									// Calculate costs for streaming response
 									const streamingCosts = await calculateCosts(
-										usedModel,
+										baseModelName,
 										usedProvider,
+										usedRegion ?? null,
 										finalPromptTokens,
 										finalCompletionTokens,
 										cachedTokens,
@@ -6989,8 +6998,9 @@ chat.openapi(completions, async (c) => {
 
 									if (errorType === "content_filter") {
 										await writeStreamingContentFilterResponse({
-											billingModel: usedModel,
+											billingModel: baseModelName,
 											billingProvider: usedProvider,
+											billingRegion: usedRegion ?? null,
 											responseModel: data.model ?? usedModel,
 										});
 										handledTerminalProviderEvent = true;
@@ -8004,8 +8014,9 @@ chat.openapi(completions, async (c) => {
 										dataStorageCost: null as number | null,
 									}
 								: await calculateCosts(
-										usedModel,
+										baseModelName,
 										usedProvider,
+										usedRegion ?? null,
 										calculatedPromptTokens,
 										calculatedCompletionTokens,
 										cachedTokens,
@@ -8329,8 +8340,9 @@ chat.openapi(completions, async (c) => {
 									dataStorageCost: null as number | null,
 								}
 							: await calculateCosts(
-									usedModel,
+									baseModelName,
 									usedProvider,
+									usedRegion ?? null,
 									calculatedPromptTokens,
 									calculatedCompletionTokens,
 									cachedTokens,
@@ -9001,8 +9013,9 @@ chat.openapi(completions, async (c) => {
 				// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
 				// If web search tool was enabled, count it as 1 search for billing
 				cancelledCosts = await calculateCosts(
-					usedModel,
+					baseModelName,
 					usedProvider,
+					usedRegion ?? null,
 					estimatedPromptTokens,
 					0, // No completion tokens
 					null, // No cached tokens
@@ -9357,8 +9370,9 @@ chat.openapi(completions, async (c) => {
 			const nonStreamContentFilterCosts =
 				finishReason === "content_filter"
 					? await calculateCosts(
-							usedModel,
+							baseModelName,
 							usedProvider,
+							usedRegion ?? null,
 							Math.max(1, Math.round(nonStreamContentFilterPromptTokens ?? 1)),
 							0,
 							null,
@@ -10140,8 +10154,9 @@ chat.openapi(completions, async (c) => {
 		calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
 	}
 	const costs = await calculateCosts(
-		usedModel,
+		baseModelName,
 		usedProvider,
+		usedRegion ?? null,
 		calculatedPromptTokens,
 		calculatedCompletionTokens,
 		cachedTokens,
