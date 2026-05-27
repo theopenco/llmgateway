@@ -987,21 +987,31 @@ export async function prepareRequestBody(
 		processedMessages = transformMessagesForNoSystemRole(messages);
 	}
 
-	// Strip Anthropic-style cache_control markers from text content parts when
-	// the resolved provider doesn't natively understand them. The Anthropic and
-	// AWS Bedrock branches below transform/forward cache_control on their own;
-	// Alibaba accepts `cache_control: {type: "ephemeral"}` on its OpenAI-compatible
-	// surface but supports only a fixed 5-minute TTL, so any Anthropic-style
-	// `ttl: "1h"` must be normalized away before forwarding. Every other provider
-	// receives the raw `processedMessages` and would otherwise pass an unknown
-	// field through to OpenAI/Google/etc., risking a 400 from strict providers
-	// and confusing logs from lenient ones.
+	// Strip Anthropic-style cache_control markers from caller-supplied content
+	// parts. We do this in two cases:
+	//   1) The resolved provider doesn't natively understand cache_control —
+	//      strip from text blocks so we don't forward an unknown field that
+	//      strict providers (OpenAI, Google, etc.) would 400 on.
+	//   2) The project has opted out of provider cache writes via
+	//      providerCacheControlEnabled=false — strip from ALL content blocks
+	//      so we honor the user's intent that this project never writes to
+	//      provider cache. This covers callers that always emit cache_control
+	//      markers regardless of the user's usage pattern (Claude Code, Cursor,
+	//      Cline, etc.). Without this, a coding agent on a sparse-use account
+	//      would still pay the 1.25× / 2× cache-write premium because the
+	//      agent's markers would flow through unchanged.
+	// Anthropic and AWS Bedrock branches below transform/forward markers on
+	// their own; Alibaba accepts `cache_control: {type: "ephemeral"}` on its
+	// OpenAI-compatible surface but supports only a fixed 5-minute TTL, so any
+	// Anthropic-style `ttl: "1h"` must be normalized away before forwarding.
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
-	if (!providerHandlesCacheControl) {
+	const stripAllCacheControl = !providerCacheControlEnabled;
+	const stripTextCacheControl = !providerHandlesCacheControl;
+	if (stripAllCacheControl || stripTextCacheControl) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
 				return m;
@@ -1012,8 +1022,8 @@ export async function prepareRequestBody(
 				if (
 					asRecord &&
 					typeof asRecord === "object" &&
-					asRecord.type === "text" &&
-					asRecord.cache_control !== undefined
+					asRecord.cache_control !== undefined &&
+					(stripAllCacheControl || asRecord.type === "text")
 				) {
 					mutated = true;
 					const { cache_control: _ignored, ...rest } = asRecord;

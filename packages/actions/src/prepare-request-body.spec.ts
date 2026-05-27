@@ -228,6 +228,76 @@ describe("prepareRequestBody - Anthropic", () => {
 		// Should be exactly 4 (the limit)
 		expect(totalCacheControlBlocks).toBe(4);
 	});
+
+	test("strips caller-supplied cache_control when providerCacheControlEnabled is false", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: longContent,
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: longContent,
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			false, // providerCacheControlEnabled
+		)) as AnthropicRequestBody;
+
+		// System: no caller marker preserved, no heuristic-added marker.
+		if (requestBody.system && Array.isArray(requestBody.system)) {
+			for (const block of requestBody.system) {
+				expect((block as any).cache_control).toBeUndefined();
+			}
+		}
+
+		// User content: no caller marker preserved, no heuristic-added marker.
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					expect((block as any).cache_control).toBeUndefined();
+				}
+			}
+		}
+	});
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {

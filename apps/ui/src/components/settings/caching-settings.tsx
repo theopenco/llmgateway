@@ -184,15 +184,18 @@ export function CachingSettings({
 									/>
 								</FormControl>
 								<div className="space-y-1 leading-none">
-									<FormLabel>Auto-mark long prompts as cacheable</FormLabel>
+									<FormLabel>Allow provider cache writes</FormLabel>
 									<FormDescription>
-										When enabled, the gateway automatically marks long system
-										and user prompts so the provider can cache them across
-										requests. Cache writes are billed at 1.25× (5m) or 2× (1h)
-										the input price; reads are 0.1×. Disable this if you send
-										long prompts sporadically — you&apos;ll pay the write
-										premium without benefiting from cache reads. Note: changing
-										this setting may take up to 5 minutes to take effect.
+										When disabled, the gateway strips all{" "}
+										<code>cache_control</code> markers from outgoing requests —
+										both the ones it adds automatically for long prompts and any
+										markers your client sends (e.g. Claude Code, Cursor, Cline).
+										Cache writes are billed at 1.25× (5m) or 2× (1h) the input
+										price; reads are 0.1×. Disable this if you send long prompts
+										sporadically with gaps longer than the 5-minute cache TTL —
+										otherwise you pay the write premium without ever benefiting
+										from a cache read. Note: changing this setting may take up
+										to 5 minutes to take effect.
 									</FormDescription>
 								</div>
 							</FormItem>
