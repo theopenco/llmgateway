@@ -266,7 +266,7 @@ export function ComparisonPortkey() {
 							<AuthLink href="/signup">Start Free with LLM Gateway</AuthLink>
 						</Button>
 						<Button size="lg" variant="outline">
-							<Link href={"/pricing" as any}>View Pricing Details</Link>
+							<Link href="/pricing">View Pricing Details</Link>
 						</Button>
 					</div>
 					<p className="text-sm text-muted-foreground mt-3">

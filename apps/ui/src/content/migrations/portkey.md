@@ -48,7 +48,7 @@ LLM Gateway supports two model ID formats:
 
 **Root Model IDs** (without provider prefix) — uses smart routing to automatically select the best provider based on uptime, throughput, price, and latency:
 
-```
+```text
 gpt-5.2
 claude-opus-4-5-20251101
 gemini-3-flash-preview
@@ -56,7 +56,7 @@ gemini-3-flash-preview
 
 **Provider-Prefixed Model IDs** — routes to a specific provider with automatic failover if uptime drops:
 
-```
+```text
 openai/gpt-5.2
 anthropic/claude-opus-4-5-20251101
 google-ai-studio/gemini-3-flash-preview
