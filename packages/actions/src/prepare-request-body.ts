@@ -378,6 +378,27 @@ function stripUnsupportedSchemaProperties(
 			continue;
 		}
 
+		// For `properties` (a map of user-named fields to schemas), recurse into
+		// each value but do not filter the field names themselves — otherwise a
+		// tool parameter legitimately named `examples`, `prefill`, `const`, etc.
+		// would be silently dropped.
+		if (
+			key === "properties" &&
+			value &&
+			typeof value === "object" &&
+			!Array.isArray(value)
+		) {
+			const cleanedProps: Record<string, any> = {};
+			for (const [propName, propSchema] of Object.entries(value)) {
+				cleanedProps[propName] = stripUnsupportedSchemaProperties(
+					propSchema,
+					defs,
+				);
+			}
+			cleaned[key] = cleanedProps;
+			continue;
+		}
+
 		// Recursively clean nested objects
 		if (value && typeof value === "object") {
 			cleaned[key] = stripUnsupportedSchemaProperties(value, defs);

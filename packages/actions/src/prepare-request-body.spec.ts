@@ -866,6 +866,84 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.field_c.items.enum).toEqual(["one", "two"]);
 	});
 
+	test("should preserve user-named fields that collide with stripped schema keywords", async () => {
+		const toolsWithCollidingNames = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							examples: {
+								type: "array",
+								items: { type: "string" },
+								description: "User-provided examples list",
+							},
+							prefill: {
+								type: "string",
+								description: "User-provided prefill text",
+							},
+							const: {
+								type: "string",
+								description: "A field literally named const",
+							},
+							nested: {
+								type: "object",
+								properties: {
+									examples: { type: "string" },
+								},
+								required: ["examples"],
+							},
+						},
+						required: ["examples", "prefill"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithCollidingNames,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		// User-named fields must survive, even though they collide with stripped keywords
+		expect(params.properties.examples).toBeDefined();
+		expect(params.properties.examples.type).toBe("array");
+		expect(params.properties.examples.description).toBe(
+			"User-provided examples list",
+		);
+		expect(params.properties.prefill).toBeDefined();
+		expect(params.properties.prefill.type).toBe("string");
+		expect(params.properties.const).toBeDefined();
+		expect(params.properties.const.type).toBe("string");
+
+		// Nested properties map should also preserve user field names
+		expect(params.properties.nested.properties.examples).toBeDefined();
+		expect(params.properties.nested.properties.examples.type).toBe("string");
+		expect(params.properties.nested.required).toContain("examples");
+
+		// And `required` should still mention these user fields
+		expect(params.required).toContain("examples");
+		expect(params.required).toContain("prefill");
+	});
+
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
 		const toolsWithoutAdditionalProps = [
 			{
