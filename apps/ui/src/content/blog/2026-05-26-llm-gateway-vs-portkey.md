@@ -5,6 +5,11 @@ date: 2026-05-26
 title: "LLM Gateway vs Portkey: An Honest Comparison"
 summary: "Looking for a Portkey alternative? A straightforward comparison of LLM Gateway and Portkey — features, pricing, deployment, and trade-offs — so you can pick the right AI gateway for your stack."
 categories: ["Guides"]
+image:
+  src: "/blog/llm-gateway-vs-portkey.png"
+  alt: "LLM Gateway vs Portkey: An Honest Comparison"
+  width: 1024
+  height: 1024
 ---
 
 If you're shopping for an AI gateway, Portkey shows up fast — and for good reason. It's a mature platform with a unified API, deep observability, and one of the better prompt-management stories on the market. If you've landed here looking for a **Portkey alternative**, this post lays out where LLM Gateway and Portkey overlap, where they differ, and which one fits which team.

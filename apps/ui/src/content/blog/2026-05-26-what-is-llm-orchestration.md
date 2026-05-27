@@ -5,6 +5,11 @@ date: 2026-05-26
 title: "What Is LLM Orchestration? Patterns, Tools & When You Need One"
 summary: "LLM orchestration is the layer that coordinates models, providers, and steps into one reliable workflow. A practical guide to the patterns, the tools, and when you need an LLM orchestrator."
 categories: ["Guides"]
+image:
+  src: "/blog/what-is-llm-orchestration.png"
+  alt: "What Is LLM Orchestration? Patterns, Tools & When You Need One"
+  width: 1024
+  height: 1024
 ---
 
 The first version of an AI feature is usually one prompt to one model. The production version almost never is. It's a model choice that depends on the task, a fallback when the provider is down, a retry when the JSON comes back malformed, a cache for repeated questions, and a budget guardrail so a runaway loop doesn't cost a fortune. The discipline of coordinating all of that into one reliable flow is **LLM orchestration** — and the layer that does it is an **LLM orchestrator**.
