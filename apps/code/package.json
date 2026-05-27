@@ -16,7 +16,7 @@
 		"start": "next start"
 	},
 	"dependencies": {
-		"@better-auth/passkey": "1.6.9",
+		"@better-auth/passkey": "1.6.11",
 		"@hookform/resolvers": "5.2.2",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
@@ -38,7 +38,7 @@
 		"@tanstack/react-query": "^5.90.5",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
-		"better-auth": "1.6.9",
+		"better-auth": "1.6.11",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"date-fns": "4.1.0",
