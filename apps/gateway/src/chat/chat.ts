@@ -1622,6 +1622,24 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Dev plans are inference-only — image generation is never allowed,
+	// regardless of devPlanAllowAllModels. Embeddings and video generation
+	// are blocked at their respective endpoints. We check the model's
+	// declared output formats (and the legacy imageGenerations provider
+	// flag) so chat-completions models that emit images — e.g. Gemini
+	// *-flash-image with output: ["text", "image"] — are also blocked.
+	const isDevPlan = Boolean(
+		organization?.isPersonal && organization.devPlan !== "none",
+	);
+	const modelEmitsImages =
+		modelInfo.output?.includes("image") === true ||
+		modelInfo.providers.some((p) => p.imageGenerations === true);
+	if (isDevPlan && modelEmitsImages) {
+		throw new HTTPException(403, {
+			message: `Image generation is not available for coding plans. Coding plans only include text-based inference.`,
+		});
+	}
+
 	// Coding plans only allow models/provider mappings with cached input pricing.
 	// The model-level check denies models with no cached mapping at all.
 	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the
@@ -1643,19 +1661,15 @@ chat.openapi(completions, async (c) => {
 			requestedProvider !== "llmgateway" &&
 			requestedProvider !== "custom"
 		) {
-			const requestedProviderMappings = modelInfo.providers.filter(
-				(p) =>
-					p.providerId === requestedProvider &&
-					(requestedRegion === undefined || p.region === requestedRegion),
-			);
-			if (
-				requestedProviderMappings.length > 0 &&
-				!requestedProviderMappings.some(providerSupportsCachedInput)
-			) {
-				throw new HTTPException(403, {
-					message: `Provider ${requestedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
-				});
-			}
+			throw new HTTPException(403, {
+				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+			});
+		}
+
+		if (requestedProvider === "custom") {
+			throw new HTTPException(403, {
+				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+			});
 		}
 	}
 
@@ -2279,7 +2293,6 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedProvider,
 			baseModelId,
-			usedModel,
 		);
 
 		if (rateLimitPeek.rateLimited) {
@@ -3342,7 +3355,6 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedProvider,
 			modelInfo.id,
-			usedModel,
 		);
 
 		const providerRateLimitEntries = Object.entries(
@@ -3694,9 +3706,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check if caching is enabled for this project
+	// Check if caching is enabled for this project. Dev plan orgs never get
+	// gateway-level response caching — the feature is offered only on regular
+	// (non-devpass) organizations.
 	const { enabled: cachingEnabled, duration: cacheDuration } =
-		await isCachingEnabled(project.id);
+		organization.devPlan !== "none"
+			? { enabled: false, duration: 0 }
+			: await isCachingEnabled(project.id);
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
@@ -4163,8 +4179,8 @@ chat.openapi(completions, async (c) => {
 	// requested. For image generation the upstream request is always non-streaming
 	// (effectiveStream is forced false above when faking streaming for the client),
 	// so partial_images=1 is needed in both cases to keep the connection alive past
-	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (240s default)
-	// instead of AI_TIMEOUT_MS (180s). The SSE response is collapsed back into the
+	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (1200s default)
+	// instead of AI_TIMEOUT_MS (600s). The SSE response is collapsed back into the
 	// regular non-streaming JSON shape before being returned (or re-wrapped as fake
 	// SSE for clients that requested streaming).
 	let forceImageStreamUpstream =
@@ -4819,7 +4835,6 @@ chat.openapi(completions, async (c) => {
 							project.organizationId,
 							nextProvider.providerId,
 							modelInfo.id,
-							nextProvider.modelName,
 						);
 						if (retryRateLimitResult.rateLimited) {
 							failedProviderIds.add(
@@ -8477,7 +8492,6 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				nextProvider.providerId,
 				modelInfo.id,
-				nextProvider.modelName,
 			);
 			if (retryRateLimitResult.rateLimited) {
 				failedProviderIds.add(

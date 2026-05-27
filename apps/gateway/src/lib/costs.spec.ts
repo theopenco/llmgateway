@@ -328,7 +328,6 @@ describe("calculateCosts", () => {
 			"openai",
 			"gpt-4",
 			"0",
-			"gpt-4",
 		);
 	});
 
