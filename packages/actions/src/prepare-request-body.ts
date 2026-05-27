@@ -337,6 +337,15 @@ function stripUnsupportedSchemaProperties(
 			key === "definitions" ||
 			key === "$ref" ||
 			key === "ref" ||
+			key === "$id" ||
+			key === "$comment" ||
+			key === "$anchor" ||
+			key === "$dynamicAnchor" ||
+			key === "$dynamicRef" ||
+			key === "$vocabulary" ||
+			key === "examples" ||
+			key === "enumTitles" ||
+			key === "prefill" ||
 			key === "maxLength" ||
 			key === "minLength" ||
 			key === "minimum" ||
