@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import {
@@ -79,17 +79,27 @@ export function CostByModelTimeseriesChart({
 	const [loading, setLoading] = useState(true);
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("cost");
 	const [modelView, setModelView] = useState<ModelView>("mapping");
+	const latestRequestRef = useRef(0);
 
 	const loadData = useCallback(async () => {
+		const requestId = ++latestRequestRef.current;
 		setLoading(true);
 		try {
 			const result = await fetchData(externalWindow, modelView);
+			if (requestId !== latestRequestRef.current) {
+				return;
+			}
 			setData(result);
 		} catch (error) {
+			if (requestId !== latestRequestRef.current) {
+				return;
+			}
 			console.error("Failed to load cost by model timeseries:", error);
 			setData(null);
 		} finally {
-			setLoading(false);
+			if (requestId === latestRequestRef.current) {
+				setLoading(false);
+			}
 		}
 	}, [fetchData, externalWindow, modelView]);
 
