@@ -11,14 +11,13 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
 	CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS,
+	CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER,
 	CHAT_PLAN_PRICES,
 	getChatPlanAnnualMonthlyPrice,
 	getChatPlanAnnualPrice,
 	type ChatPlanCycle,
 	type ChatPlanTier,
 } from "@llmgateway/shared";
-
-const CHAT_PLAN_MULTIPLIER = 3;
 
 interface PlanContent {
 	name: string;
@@ -129,9 +128,13 @@ function formatUsd(amount: number): string {
 
 interface ChatPricingPlansProps {
 	isAuthenticated: boolean;
+	creditsMultiplier?: number;
 }
 
-export function ChatPricingPlans({ isAuthenticated }: ChatPricingPlansProps) {
+export function ChatPricingPlans({
+	isAuthenticated,
+	creditsMultiplier = CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER,
+}: ChatPricingPlansProps) {
 	const router = useRouter();
 	const fetchClient = useFetchClient();
 	const api = useApi();
@@ -320,7 +323,7 @@ export function ChatPricingPlans({ isAuthenticated }: ChatPricingPlansProps) {
 					const annualTotal = getChatPlanAnnualPrice(plan.tier);
 					const displayPrice =
 						effectiveCycle === "annual" ? annualPerMonth : monthlyPrice;
-					const usageValue = monthlyPrice * CHAT_PLAN_MULTIPLIER;
+					const usageValue = monthlyPrice * creditsMultiplier;
 					const isPending = pendingTier === plan.tier;
 					const isCurrent = activeTier === plan.tier;
 					const isChangeTarget = Boolean(activeTier) && !isCurrent;
@@ -380,7 +383,7 @@ export function ChatPricingPlans({ isAuthenticated }: ChatPricingPlansProps) {
 								<div className="mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
 									<span>What you actually get</span>
 									<span className="rounded-full bg-foreground/90 px-2 py-0.5 text-[10px] font-bold tabular-nums text-background">
-										{CHAT_PLAN_MULTIPLIER}× value
+										{creditsMultiplier}× value
 									</span>
 								</div>
 								<div className="space-y-2.5 text-sm">
@@ -408,7 +411,7 @@ export function ChatPricingPlans({ isAuthenticated }: ChatPricingPlansProps) {
 											<div
 												className="absolute left-0 top-0 h-full rounded-full bg-foreground/30"
 												style={{
-													width: `${(1 / CHAT_PLAN_MULTIPLIER) * 100}%`,
+													width: `${(1 / creditsMultiplier) * 100}%`,
 												}}
 											/>
 											<div className="absolute left-0 top-0 h-full w-full rounded-full ring-1 ring-inset ring-foreground/10" />

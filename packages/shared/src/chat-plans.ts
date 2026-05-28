@@ -28,13 +28,20 @@ export function getChatPlanAnnualMonthlyPrice(tier: ChatPlanTier): number {
 
 export const CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER = 3;
 
-export function getChatPlanCreditsLimit(tier: ChatPlanTier): number {
+/**
+ * Resolve the credits multiplier from the env override, falling back to the
+ * default when it's unset or malformed. Reading process.env only yields the
+ * override on the server; clients should receive the resolved value as a prop.
+ */
+export function getChatPlanCreditsMultiplier(): number {
 	const parsed = parseFloat(process.env.CHAT_PLAN_CREDITS_MULTIPLIER ?? "");
-	const multiplier =
-		Number.isFinite(parsed) && parsed > 0
-			? parsed
-			: CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER;
-	return CHAT_PLAN_PRICES[tier] * multiplier;
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER;
+}
+
+export function getChatPlanCreditsLimit(tier: ChatPlanTier): number {
+	return CHAT_PLAN_PRICES[tier] * getChatPlanCreditsMultiplier();
 }
 
 /**

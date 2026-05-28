@@ -1,6 +1,8 @@
 import { ChatPricingPlans } from "@/components/pricing/chat-pricing-plans";
 import { getUser } from "@/lib/getUser";
 
+import { getChatPlanCreditsMultiplier } from "@llmgateway/shared";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -28,7 +30,10 @@ export default async function PricingPage() {
 				</p>
 			</header>
 
-			<ChatPricingPlans isAuthenticated={Boolean(user)} />
+			<ChatPricingPlans
+				isAuthenticated={Boolean(user)}
+				creditsMultiplier={getChatPlanCreditsMultiplier()}
+			/>
 
 			<section className="mx-auto mt-16 max-w-3xl text-sm text-muted-foreground">
 				<h2 className="mb-3 text-base font-semibold text-foreground">

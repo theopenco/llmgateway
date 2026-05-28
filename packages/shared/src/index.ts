@@ -26,9 +26,11 @@ export {
 	CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS,
 	type ChatPlanCycle,
 	type ChatPlanTier,
+	CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER,
 	getChatPlanAnnualMonthlyPrice,
 	getChatPlanAnnualPrice,
 	getChatPlanCreditsLimit,
+	getChatPlanCreditsMultiplier,
 	isChatPlanModelAllowed,
 } from "./chat-plans.js";
 
