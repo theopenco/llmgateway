@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "7f20a524-3d04-44b5-941a-870984892d50",
-  "prevId": "c160b91b-e2cb-437d-bf5b-f9a069570922",
+  "id": "41588126-65dd-4526-989c-be5b96040f17",
+  "prevId": "83b32714-8b2b-44e8-85d3-da0698157213",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -10150,6 +10150,22 @@
       "generated": null,
       "identity": null,
       "name": "cache_duration_seconds",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "true",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "provider_cache_control_enabled",
       "entityType": "columns",
       "schema": "public",
       "table": "project"

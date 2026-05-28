@@ -9,14 +9,21 @@ import { project as projectTable } from "./schema.js";
 const projectTableName = getTableName(projectTable);
 
 /**
- * Check if caching is enabled for a project.
+ * Look up project caching settings.
+ *
+ * Returns both gateway-side caching settings (`enabled`, `duration`) and the
+ * provider-side cache control flag (`providerCacheControlEnabled`) that gates
+ * automatic injection of cache_control / cachePoint markers into upstream
+ * Anthropic and AWS Bedrock requests.
  *
  * Uses the cached database client (cdb) plus swrWrap so the answer survives a
  * Postgres outage (falls back to the last-known value for up to SWR TTL).
  */
-export async function isCachingEnabled(
-	projectId: string,
-): Promise<{ enabled: boolean; duration: number }> {
+export async function isCachingEnabled(projectId: string): Promise<{
+	enabled: boolean;
+	duration: number;
+	providerCacheControlEnabled: boolean;
+}> {
 	try {
 		return await swrWrap(
 			`project:cachingEnabled:${projectId}`,
@@ -26,6 +33,8 @@ export async function isCachingEnabled(
 					.select({
 						cachingEnabled: projectTable.cachingEnabled,
 						cacheDurationSeconds: projectTable.cacheDurationSeconds,
+						providerCacheControlEnabled:
+							projectTable.providerCacheControlEnabled,
 					})
 					.from(projectTable)
 					.where(eq(projectTable.id, projectId))
@@ -34,12 +43,18 @@ export async function isCachingEnabled(
 				const project = results[0];
 
 				if (!project) {
-					return { enabled: false, duration: 0 };
+					return {
+						enabled: false,
+						duration: 0,
+						providerCacheControlEnabled: true,
+					};
 				}
 
 				return {
 					enabled: project.cachingEnabled || false,
 					duration: project.cacheDurationSeconds || 60,
+					providerCacheControlEnabled:
+						project.providerCacheControlEnabled ?? true,
 				};
 			},
 		);
