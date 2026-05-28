@@ -198,12 +198,32 @@ export const organization = pgTable(
 		// prevent a single card from claiming the DevPass usage allowance from
 		// multiple personal organizations.
 		devPlanCardFingerprint: text(),
+		// Chat Plans fields (for chat.llmgateway.io subscribers)
+		chatPlan: text({
+			enum: ["none", "starter", "plus", "pro"],
+		})
+			.notNull()
+			.default("none"),
+		chatPlanCreditsUsed: decimal().notNull().default("0"),
+		chatPlanCreditsLimit: decimal().notNull().default("0"),
+		chatPlanBillingCycleStart: timestamp(),
+		chatPlanStripeSubscriptionId: text().unique(),
+		chatPlanCancelled: boolean().notNull().default(false),
+		chatPlanExpiresAt: timestamp(),
+		chatPlanCycle: text({ enum: ["monthly", "annual"] })
+			.notNull()
+			.default("monthly"),
+		// Same one-card-one-org policy as dev plans.
+		chatPlanCardFingerprint: text(),
 		// Last top-up amount (used for low balance alert thresholds)
 		lastTopUpAmount: decimal(),
 	},
 	(table) => [
 		index("organization_dev_plan_card_fingerprint_idx").on(
 			table.devPlanCardFingerprint,
+		),
+		index("organization_chat_plan_card_fingerprint_idx").on(
+			table.chatPlanCardFingerprint,
 		),
 	],
 );
@@ -261,6 +281,12 @@ export const transaction = pgTable(
 				"dev_plan_cancel",
 				"dev_plan_end",
 				"dev_plan_renewal",
+				"chat_plan_start",
+				"chat_plan_upgrade",
+				"chat_plan_downgrade",
+				"chat_plan_cancel",
+				"chat_plan_end",
+				"chat_plan_renewal",
 			],
 		}).notNull(),
 		amount: decimal(),
@@ -318,6 +344,47 @@ export const devPlanCancellationFeedback = pgTable(
 			table.devPlanStripeSubscriptionId,
 		),
 		index("dev_plan_cancellation_feedback_organization_id_idx").on(
+			table.organizationId,
+		),
+	],
+);
+
+export const chatPlanCancellationFeedback = pgTable(
+	"chat_plan_cancellation_feedback",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		chatPlanStripeSubscriptionId: text().notNull(),
+		previousChatPlan: text({
+			enum: ["starter", "plus", "pro"],
+		}),
+		reason: text({
+			enum: [
+				"too_expensive",
+				"missing_features",
+				"not_using_enough",
+				"switched_alternative",
+				"other",
+			],
+		}).notNull(),
+		comments: text(),
+	},
+	(table) => [
+		uniqueIndex("chat_plan_cancellation_feedback_org_sub_unique").on(
+			table.organizationId,
+			table.chatPlanStripeSubscriptionId,
+		),
+		index("chat_plan_cancellation_feedback_organization_id_idx").on(
 			table.organizationId,
 		),
 	],
@@ -1531,6 +1598,11 @@ export const auditLogActions = [
 	"dev_plan.change_tier",
 	"dev_plan.update_settings",
 	"dev_plan.rotate_api_key",
+	// Chat Plan
+	"chat_plan.subscribe",
+	"chat_plan.cancel",
+	"chat_plan.resume",
+	"chat_plan.change_tier",
 ] as const;
 
 export const auditLogResourceTypes = [
@@ -1545,6 +1617,7 @@ export const auditLogResourceTypes = [
 	"payment_method",
 	"payment",
 	"dev_plan",
+	"chat_plan",
 ] as const;
 
 export type AuditLogAction = (typeof auditLogActions)[number];

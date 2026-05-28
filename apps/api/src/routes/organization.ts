@@ -52,6 +52,13 @@ const organizationSchema = z.object({
 	devPlanBillingCycleStart: z.date().nullable(),
 	devPlanExpiresAt: z.date().nullable(),
 	devPlanAllowAllModels: z.boolean(),
+	// Chat Plans fields
+	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
+	chatPlanCycle: z.enum(["monthly", "annual"]),
+	chatPlanCreditsUsed: z.string(),
+	chatPlanCreditsLimit: z.string(),
+	chatPlanBillingCycleStart: z.date().nullable(),
+	chatPlanExpiresAt: z.date().nullable(),
 });
 
 const projectSchema = z.object({
@@ -112,6 +119,12 @@ const transactionSchema = z.object({
 		"dev_plan_cancel",
 		"dev_plan_end",
 		"dev_plan_renewal",
+		"chat_plan_start",
+		"chat_plan_upgrade",
+		"chat_plan_downgrade",
+		"chat_plan_cancel",
+		"chat_plan_end",
+		"chat_plan_renewal",
 	]),
 	amount: z.string().nullable(),
 	creditAmount: z.string().nullable(),

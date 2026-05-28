@@ -5,7 +5,10 @@ import { z } from "zod";
 import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
+	type ChatPlanCycle,
+	type ChatPlanTier,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -13,6 +16,9 @@ import {
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
 import {
+	notifyChatPlanCancelled,
+	notifyChatPlanRenewed,
+	notifyChatPlanSubscribed,
 	notifyCreditsPurchased,
 	notifyDevPlanCancelled,
 	notifyDevPlanRenewed,
@@ -335,6 +341,28 @@ async function rejectDuplicateDevPlanSubscription(
 	}
 }
 
+/**
+ * Same one-card-one-org policy as DevPass — cancels a chat plan subscription
+ * that was rejected because the card already activated a chat plan on another
+ * organization.
+ */
+async function rejectDuplicateChatPlanSubscription(
+	subscriptionId: string,
+	reason: string,
+) {
+	try {
+		await getStripe().subscriptions.cancel(subscriptionId, {
+			invoice_now: false,
+			prorate: false,
+		});
+	} catch (error) {
+		logger.error(
+			`Failed to cancel duplicate chat plan subscription ${subscriptionId}: ${reason}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+}
+
 async function handleCheckoutSessionCompleted(
 	event: Stripe.CheckoutSessionCompletedEvent,
 ) {
@@ -379,12 +407,165 @@ async function handleCheckoutSessionCompleted(
 	const devPlanCycle: DevPlanCycle =
 		metadata?.devPlanCycle === "annual" ? "annual" : "monthly";
 
+	// Check if this is a chat plan subscription
+	const isChatPlan = metadata?.subscriptionType === "chat_plan";
+	const chatPlanTier = metadata?.chatPlan as ChatPlanTier | undefined;
+	const chatPlanCycle: ChatPlanCycle =
+		metadata?.chatPlanCycle === "annual" ? "annual" : "monthly";
+
 	logger.info(
-		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlan: ${isDevPlan}`,
+		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlan: ${isDevPlan}, isChatPlan: ${isChatPlan}`,
 	);
 
 	try {
-		if (isDevPlan && devPlanTier) {
+		if (isChatPlan && chatPlanTier) {
+			// Same card-fingerprint dedupe as dev plans — prevents a single card
+			// from claiming the included chat plan allowance across multiple orgs.
+			const fingerprint = subscriptionId
+				? await getSubscriptionCardFingerprint(subscriptionId)
+				: null;
+
+			if (fingerprint) {
+				const conflictingOrg = await db.query.organization.findFirst({
+					where: {
+						chatPlanCardFingerprint: { eq: fingerprint },
+						id: { ne: organizationId },
+					},
+				});
+
+				if (conflictingOrg) {
+					logger.warn(
+						`Rejecting duplicate chat plan subscription ${subscriptionId} for organization ${organizationId}: card fingerprint already claimed by organization ${conflictingOrg.id}`,
+					);
+					await rejectDuplicateChatPlanSubscription(
+						subscriptionId!,
+						"duplicate_card_fingerprint",
+					);
+					posthog.capture({
+						distinctId: "organization",
+						event: "chat_plan_blocked_duplicate_card",
+						groups: {
+							organization: organizationId,
+						},
+						properties: {
+							organization: organizationId,
+							conflictingOrganization: conflictingOrg.id,
+							subscriptionId,
+						},
+					});
+					return;
+				}
+			}
+
+			const creditsLimit = getChatPlanCreditsLimit(chatPlanTier);
+
+			await db
+				.update(tables.organization)
+				.set({
+					chatPlan: chatPlanTier,
+					chatPlanCreditsLimit: creditsLimit.toString(),
+					chatPlanCreditsUsed: "0",
+					chatPlanBillingCycleStart: new Date(),
+					chatPlanStripeSubscriptionId: subscriptionId,
+					chatPlanCancelled: false,
+					chatPlanCycle,
+					chatPlanCardFingerprint: fingerprint,
+				})
+				.where(eq(tables.organization.id, organizationId));
+
+			logger.info(
+				`Successfully activated chat plan ${chatPlanTier} for organization ${organizationId} with ${creditsLimit} credits`,
+			);
+
+			const stripeInvoiceId = session.invoice as string | undefined;
+			const existing = stripeInvoiceId
+				? await db.query.transaction.findFirst({
+						where: {
+							stripeInvoiceId: {
+								eq: stripeInvoiceId,
+							},
+						},
+					})
+				: null;
+
+			if (!existing) {
+				const [transaction] = await db
+					.insert(tables.transaction)
+					.values({
+						organizationId,
+						type: "chat_plan_start",
+						amount: ((session.amount_total ?? 0) / 100).toString(),
+						creditAmount: creditsLimit.toString(),
+						currency: (session.currency ?? "USD").toUpperCase(),
+						status: "completed",
+						stripeInvoiceId: stripeInvoiceId,
+						description: `Chat Plan ${chatPlanTier.toUpperCase()} started via Stripe Checkout`,
+					})
+					.returning();
+
+				try {
+					await generateAndEmailInvoice({
+						invoiceNumber: transaction.id,
+						invoiceDate: new Date(),
+						organizationName: organization.name,
+						billingEmail: organization.billingEmail,
+						billingCompany: organization.billingCompany,
+						billingAddress: organization.billingAddress,
+						billingTaxId: organization.billingTaxId,
+						billingNotes: organization.billingNotes,
+						lineItems: [
+							{
+								description: `Chat Plan ${chatPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+								amount: (session.amount_total ?? 0) / 100,
+							},
+						],
+						currency: (session.currency ?? "USD").toUpperCase(),
+					});
+				} catch (e) {
+					logger.error(
+						"Invoice email failed (chat plan checkout); suppressing webhook failure",
+						e as Error,
+					);
+				}
+			}
+
+			posthog.groupIdentify({
+				groupType: "organization",
+				groupKey: organizationId,
+				properties: {
+					name: organization.name,
+				},
+			});
+			posthog.capture({
+				distinctId: "organization",
+				event: "chat_plan_started",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					chatPlan: chatPlanTier,
+					creditsLimit: creditsLimit,
+					organization: organizationId,
+					subscriptionId: subscriptionId,
+					source: "stripe_checkout",
+				},
+			});
+
+			const subscribedEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (subscribedEmail) {
+				const subscribedUser = await db.query.user.findFirst({
+					where: { email: { eq: subscribedEmail } },
+				});
+				await notifyChatPlanSubscribed(
+					subscribedEmail,
+					subscribedUser?.name,
+					chatPlanTier,
+					chatPlanCycle,
+				);
+			}
+		} else if (isDevPlan && devPlanTier) {
 			// Reject any DevPass subscription paid for with a card that already
 			// activated DevPass on another organization. Without this, a user
 			// can rotate accounts to multiply the included usage allowance.
@@ -1713,16 +1894,75 @@ async function handleInvoicePaymentSucceeded(
 		}
 	}
 
+	// Check if this is a chat plan subscription renewal
+	const isChatPlanRenewal =
+		organization.chatPlanStripeSubscriptionId === subscriptionId &&
+		organization.chatPlan !== "none";
+
 	// Check if this is a dev plan subscription renewal
 	const isDevPlanRenewal =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
 
 	logger.info(
-		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlanRenewal: ${isDevPlanRenewal}`,
+		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlanRenewal: ${isDevPlanRenewal}, isChatPlanRenewal: ${isChatPlanRenewal}`,
 	);
 
-	if (isDevPlanRenewal) {
+	if (isChatPlanRenewal) {
+		const creditsLimit = getChatPlanCreditsLimit(
+			organization.chatPlan as ChatPlanTier,
+		);
+
+		await db.insert(tables.transaction).values({
+			organizationId,
+			type: "chat_plan_renewal",
+			amount: (invoice.amount_paid / 100).toString(),
+			creditAmount: creditsLimit.toString(),
+			currency: invoice.currency.toUpperCase(),
+			status: "completed",
+			stripePaymentIntentId: (invoice as any).payment_intent,
+			stripeInvoiceId: invoice.id,
+			description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewed`,
+		});
+
+		await db
+			.update(tables.organization)
+			.set({
+				chatPlanCreditsUsed: "0",
+				chatPlanBillingCycleStart: new Date(),
+				chatPlanCancelled: false,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		logger.info(
+			`Chat plan ${organization.chatPlan} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
+		);
+
+		posthog.capture({
+			distinctId: "organization",
+			event: "chat_plan_renewed",
+			groups: {
+				organization: organizationId,
+			},
+			properties: {
+				chatPlan: organization.chatPlan,
+				creditsLimit: creditsLimit,
+				organization: organizationId,
+				source: "stripe_invoice",
+			},
+		});
+
+		if (organization.billingEmail) {
+			const renewedUser = await db.query.user.findFirst({
+				where: { email: { eq: organization.billingEmail } },
+			});
+			await notifyChatPlanRenewed(
+				organization.billingEmail,
+				renewedUser?.name,
+				organization.chatPlan ?? "unknown",
+			);
+		}
+	} else if (isDevPlanRenewal) {
 		// Handle dev plan renewal - reset credits
 		const creditsLimit = getDevPlanCreditsLimit(
 			organization.devPlan as DevPlanTier,
@@ -1918,6 +2158,55 @@ async function restoreDevPlanCredits(
 	);
 }
 
+async function freezeChatPlanCredits(
+	organizationId: string,
+	organization: { chatPlanCreditsUsed: string | null },
+	reason: string,
+) {
+	// Mirror of freezeDevPlanCredits — caps the chat plan credit limit at
+	// what's already been used so the gateway's `limit - used` balance check
+	// returns 0 during dunning, without revoking the tier metadata.
+	const used = organization.chatPlanCreditsUsed ?? "0";
+	await db
+		.update(tables.organization)
+		.set({
+			chatPlanCreditsLimit: used,
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	logger.warn(
+		`Froze chat plan credits for organization ${organizationId} (reason: ${reason}); credits limit set to ${used}`,
+	);
+}
+
+async function restoreChatPlanCredits(
+	organizationId: string,
+	organization: {
+		chatPlan: ChatPlanTier | "none" | null;
+		chatPlanCreditsLimit: string | null;
+	},
+	reason: string,
+) {
+	if (!organization.chatPlan || organization.chatPlan === "none") {
+		return;
+	}
+	const expectedLimit = getChatPlanCreditsLimit(organization.chatPlan);
+	const currentLimit = parseFloat(organization.chatPlanCreditsLimit ?? "0");
+	if (currentLimit >= expectedLimit) {
+		return;
+	}
+	await db
+		.update(tables.organization)
+		.set({
+			chatPlanCreditsLimit: expectedLimit.toString(),
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	logger.info(
+		`Restored chat plan credits for organization ${organizationId} (reason: ${reason}); credits limit raised from ${currentLimit} to ${expectedLimit}`,
+	);
+}
+
 async function handleInvoicePaymentFailed(
 	event: Stripe.InvoicePaymentFailedEvent,
 ) {
@@ -1971,11 +2260,14 @@ async function handleInvoicePaymentFailed(
 
 	const { organizationId, organization } = result;
 
+	const isChatPlan =
+		organization.chatPlanStripeSubscriptionId === subscriptionId &&
+		organization.chatPlan !== "none";
 	const isDevPlan =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
 
-	if (!isDevPlan) {
+	if (!isDevPlan && !isChatPlan) {
 		// Pro subscription failures are tracked via payment_intent.payment_failed
 		// (with email throttling). Nothing extra to do here.
 		return;
@@ -2010,11 +2302,19 @@ async function handleInvoicePaymentFailed(
 		return;
 	}
 
-	await freezeDevPlanCredits(
-		organizationId,
-		organization,
-		`invoice.payment_failed (invoice ${invoice.id}, status ${liveSubscription.status})`,
-	);
+	if (isChatPlan) {
+		await freezeChatPlanCredits(
+			organizationId,
+			organization,
+			`invoice.payment_failed (invoice ${invoice.id}, status ${liveSubscription.status})`,
+		);
+	} else {
+		await freezeDevPlanCredits(
+			organizationId,
+			organization,
+			`invoice.payment_failed (invoice ${invoice.id}, status ${liveSubscription.status})`,
+		);
+	}
 }
 
 export async function handleSubscriptionUpdated(
@@ -2042,6 +2342,11 @@ export async function handleSubscriptionUpdated(
 
 	const { organizationId, organization } = result;
 
+	// Check if this is a chat plan subscription
+	const isChatPlan =
+		metadata?.subscriptionType === "chat_plan" ||
+		organization.chatPlanStripeSubscriptionId === subscription.id;
+
 	// Check if this is a dev plan subscription
 	const isDevPlan =
 		metadata?.subscriptionType === "dev_plan" ||
@@ -2055,7 +2360,87 @@ export async function handleSubscriptionUpdated(
 	// Check if subscription is active and organization was previously cancelled
 	const isSubscriptionActive = !cancelAtPeriodEnd;
 
-	if (isDevPlan) {
+	if (isChatPlan) {
+		const wasChatPlanCancelled = organization.chatPlanCancelled;
+
+		if (!isSubscriptionActive && !wasChatPlanCancelled) {
+			await db.insert(tables.transaction).values({
+				organizationId,
+				type: "chat_plan_cancel",
+				currency: "USD",
+				status: "completed",
+				stripeInvoiceId: subscription.latest_invoice as string,
+				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} cancelled`,
+			});
+
+			const cancelEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (cancelEmail) {
+				const cancelUser = await db.query.user.findFirst({
+					where: { email: { eq: cancelEmail } },
+				});
+				await notifyChatPlanCancelled(
+					cancelEmail,
+					cancelUser?.name,
+					organization.chatPlan ?? "unknown",
+				);
+			}
+		}
+
+		await db
+			.update(tables.organization)
+			.set({
+				chatPlanExpiresAt: expiresAt,
+				chatPlanCancelled: !isSubscriptionActive,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		const nonActiveStatuses: Stripe.Subscription.Status[] = [
+			"past_due",
+			"unpaid",
+			"incomplete",
+			"incomplete_expired",
+		];
+		if (nonActiveStatuses.includes(subscription.status)) {
+			await freezeChatPlanCredits(
+				organizationId,
+				organization,
+				`subscription.updated status=${subscription.status}`,
+			);
+		} else if (
+			subscription.status === "active" ||
+			subscription.status === "trialing"
+		) {
+			await restoreChatPlanCredits(
+				organizationId,
+				organization,
+				`subscription.updated status=${subscription.status}`,
+			);
+		}
+
+		if (isSubscriptionActive && wasChatPlanCancelled) {
+			posthog.capture({
+				distinctId: "organization",
+				event: "chat_plan_reactivated",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					chatPlan: organization.chatPlan,
+					organization: organizationId,
+					source: "stripe_subscription_updated",
+				},
+			});
+			logger.info(
+				`Reactivated chat plan subscription for organization ${organizationId}`,
+			);
+		}
+
+		logger.info(
+			`Updated chat plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
+		);
+	} else if (isDevPlan) {
 		// Handle dev plan subscription update
 		const wasDevPlanCancelled = organization.devPlanCancelled;
 
@@ -2230,12 +2615,68 @@ async function handleSubscriptionDeleted(
 
 	const { organizationId, organization } = result;
 
+	// Check if this is a chat plan subscription
+	const isChatPlan =
+		metadata?.subscriptionType === "chat_plan" ||
+		organization.chatPlanStripeSubscriptionId === subscription.id;
+
 	// Check if this is a dev plan subscription
 	const isDevPlan =
 		metadata?.subscriptionType === "dev_plan" ||
 		organization.devPlanStripeSubscriptionId === subscription.id;
 
-	if (isDevPlan) {
+	if (isChatPlan) {
+		const previousChatPlan = organization.chatPlan;
+
+		await db.insert(tables.transaction).values({
+			organizationId,
+			type: "chat_plan_end",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: subscription.latest_invoice as string,
+			description: `Chat Plan ${previousChatPlan?.toUpperCase()} ended`,
+		});
+
+		await db
+			.update(tables.organization)
+			.set({
+				chatPlan: "none",
+				chatPlanCreditsLimit: "0",
+				chatPlanCreditsUsed: "0",
+				chatPlanStripeSubscriptionId: null,
+				chatPlanExpiresAt: null,
+				chatPlanCancelled: false,
+				chatPlanBillingCycleStart: null,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		await sendTransactionalEmail({
+			to: organization.billingEmail,
+			subject: "Your LLMGateway Chat Plan Has Been Cancelled",
+			html: generateSubscriptionCancelledEmailHtml(organization.name),
+		});
+
+		logger.info(
+			`Sent chat plan cancelled email to ${organization.billingEmail} for organization ${organizationId}`,
+		);
+
+		posthog.capture({
+			distinctId: "organization",
+			event: "chat_plan_ended",
+			groups: {
+				organization: organizationId,
+			},
+			properties: {
+				previousChatPlan: previousChatPlan,
+				organization: organizationId,
+				source: "stripe_subscription_deleted",
+			},
+		});
+
+		logger.info(
+			`Ended chat plan ${previousChatPlan} for organization ${organizationId}`,
+		);
+	} else if (isDevPlan) {
 		// Handle dev plan subscription deletion
 		const previousDevPlan = organization.devPlan;
 

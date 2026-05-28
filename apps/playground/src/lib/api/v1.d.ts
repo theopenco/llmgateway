@@ -7917,6 +7917,14 @@ export interface paths {
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
                                 devPlanAllowAllModels: boolean;
+                                /** @enum {string} */
+                                chatPlan: "none" | "starter" | "plus" | "pro";
+                                /** @enum {string} */
+                                chatPlanCycle: "monthly" | "annual";
+                                chatPlanCreditsUsed: string;
+                                chatPlanCreditsLimit: string;
+                                chatPlanBillingCycleStart: string | null;
+                                chatPlanExpiresAt: string | null;
                             }[];
                         };
                     };
@@ -7978,6 +7986,14 @@ export interface paths {
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
                                 devPlanAllowAllModels: boolean;
+                                /** @enum {string} */
+                                chatPlan: "none" | "starter" | "plus" | "pro";
+                                /** @enum {string} */
+                                chatPlanCycle: "monthly" | "annual";
+                                chatPlanCreditsUsed: string;
+                                chatPlanCreditsLimit: string;
+                                chatPlanBillingCycleStart: string | null;
+                                chatPlanExpiresAt: string | null;
                             };
                         };
                     };
@@ -8167,6 +8183,14 @@ export interface paths {
                                 devPlanBillingCycleStart: string | null;
                                 devPlanExpiresAt: string | null;
                                 devPlanAllowAllModels: boolean;
+                                /** @enum {string} */
+                                chatPlan: "none" | "starter" | "plus" | "pro";
+                                /** @enum {string} */
+                                chatPlanCycle: "monthly" | "annual";
+                                chatPlanCreditsUsed: string;
+                                chatPlanCreditsLimit: string;
+                                chatPlanBillingCycleStart: string | null;
+                                chatPlanExpiresAt: string | null;
                             };
                         };
                     };
@@ -8228,7 +8252,7 @@ export interface paths {
                                 updatedAt: string;
                                 organizationId: string;
                                 /** @enum {string} */
-                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund" | "credit_gift" | "dev_plan_start" | "dev_plan_upgrade" | "dev_plan_downgrade" | "dev_plan_cancel" | "dev_plan_end" | "dev_plan_renewal";
+                                type: "subscription_start" | "subscription_cancel" | "subscription_end" | "credit_topup" | "credit_refund" | "credit_gift" | "dev_plan_start" | "dev_plan_upgrade" | "dev_plan_downgrade" | "dev_plan_cancel" | "dev_plan_end" | "dev_plan_renewal" | "chat_plan_start" | "chat_plan_upgrade" | "chat_plan_downgrade" | "chat_plan_cancel" | "chat_plan_end" | "chat_plan_renewal";
                                 amount: string | null;
                                 creditAmount: string | null;
                                 currency: string;
@@ -10633,6 +10657,222 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chat-plans/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        tier: "starter" | "plus" | "pro";
+                        /**
+                         * @default monthly
+                         * @enum {string}
+                         */
+                        cycle?: "monthly" | "annual";
+                    };
+                };
+            };
+            responses: {
+                /** @description Stripe Checkout session created successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            checkoutUrl: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat-plans/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Chat plan subscription cancelled successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat-plans/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Chat plan subscription resumed successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat-plans/change-tier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        newTier: "starter" | "plus" | "pro";
+                    };
+                };
+            };
+            responses: {
+                /** @description Chat plan tier changed successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chat-plans/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Chat plan status retrieved successfully */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            hasPersonalOrg: boolean;
+                            /** @enum {string} */
+                            chatPlan: "none" | "starter" | "plus" | "pro";
+                            /** @enum {string} */
+                            chatPlanCycle: "monthly" | "annual";
+                            chatPlanCreditsUsed: string;
+                            chatPlanCreditsLimit: string;
+                            chatPlanCreditsRemaining: string;
+                            chatPlanBillingCycleStart: string | null;
+                            chatPlanCancelled: boolean;
+                            chatPlanExpiresAt: string | null;
+                            regularCredits: string;
+                            organizationId: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audit-logs/{organizationId}": {
         parameters: {
             query?: never;
@@ -10673,9 +10913,9 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.update_description" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.update_description" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key" | "chat_plan.subscribe" | "chat_plan.cancel" | "chat_plan.resume" | "chat_plan.change_tier";
                                 /** @enum {string} */
-                                resourceType: "organization" | "project" | "team_member" | "api_key" | "master_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
+                                resourceType: "organization" | "project" | "team_member" | "api_key" | "master_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan" | "chat_plan";
                                 resourceId: string | null;
                                 metadata?: unknown;
                                 user?: {

@@ -128,6 +128,11 @@ export type SerializedOrganization = Omit<
 	| "devPlanCancelled"
 	| "devPlanExpiresAt"
 	| "devPlanCardFingerprint"
+	| "chatPlanBillingCycleStart"
+	| "chatPlanStripeSubscriptionId"
+	| "chatPlanCancelled"
+	| "chatPlanExpiresAt"
+	| "chatPlanCardFingerprint"
 	| "lastTopUpAmount"
 > & {
 	createdAt: string;
@@ -135,6 +140,8 @@ export type SerializedOrganization = Omit<
 	planExpiresAt: string | null;
 	devPlanBillingCycleStart: string | null;
 	devPlanExpiresAt: string | null;
+	chatPlanBillingCycleStart: string | null;
+	chatPlanExpiresAt: string | null;
 };
 
 export type SerializedProject = Omit<Project, "createdAt" | "updatedAt"> & {

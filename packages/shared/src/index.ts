@@ -21,6 +21,18 @@ export {
 } from "./dev-plans.js";
 
 export {
+	CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS,
+	CHAT_PLAN_PRICES,
+	CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS,
+	type ChatPlanCycle,
+	type ChatPlanTier,
+	getChatPlanAnnualMonthlyPrice,
+	getChatPlanAnnualPrice,
+	getChatPlanCreditsLimit,
+	isChatPlanModelAllowed,
+} from "./chat-plans.js";
+
+export {
 	HealthChecker,
 	type HealthCheckResult,
 	type HealthCheckOptions,

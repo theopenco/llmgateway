@@ -30,7 +30,7 @@ import {
 import { useMcpServers } from "@/hooks/useMcpServers";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
-import { useFetchClient } from "@/lib/fetch-client";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
@@ -851,6 +851,15 @@ export default function ChatPageClient({
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
 	const fetchClient = useFetchClient();
+	const api = useApi();
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: !!user, staleTime: 30_000 },
+	);
+	const hasChatPlanCredits =
+		chatPlanStatus && Number(chatPlanStatus.chatPlanCreditsRemaining) > 0;
 	const updateMessage = useUpdateMessage();
 	const deleteChat = useDeleteChat();
 	const deleteComparisonChat = useDeleteChat({ silent: true });
@@ -1109,7 +1118,11 @@ export default function ChatPageClient({
 			name?: string;
 		}>,
 	) => {
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
+		if (
+			selectedOrganization &&
+			Number(selectedOrganization.credits) <= 0 &&
+			!hasChatPlanCredits
+		) {
 			setShowTopUp(true);
 			return undefined;
 		}
@@ -1274,7 +1287,11 @@ export default function ChatPageClient({
 			return;
 		}
 
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
+		if (
+			selectedOrganization &&
+			Number(selectedOrganization.credits) <= 0 &&
+			!hasChatPlanCredits
+		) {
 			setShowTopUp(true);
 			return;
 		}

@@ -207,6 +207,7 @@ const schema = z.object({
 		.nullable(),
 	trace_id: z.string().nullable(),
 	unified_finish_reason: z.string().nullable(),
+	source: z.string().nullable(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -721,6 +722,7 @@ export async function batchProcessLogs(): Promise<void> {
 					error_details: log.errorDetails,
 					trace_id: log.traceId,
 					unified_finish_reason: log.unifiedFinishReason,
+					source: log.source,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
@@ -738,11 +740,22 @@ export async function batchProcessLogs(): Promise<void> {
 				`Processing ${unprocessedLogs.rows.length} logs for credit deduction and API key usage`,
 			);
 
-			// Group logs by organization and api key to calculate total costs
-			// Use Decimal.js to avoid floating point rounding errors
-			const orgCosts = new Map<string, Decimal>();
+			// Group logs by organization and api key to calculate total costs.
+			// We split per-org costs into a chat bucket and a default bucket so
+			// the deduction step below can prefer chat-plan credits for requests
+			// originating from chat.llmgateway.io (matching how users mentally
+			// account for their plans), and dev-plan credits everywhere else.
+			// Use Decimal.js to avoid floating point rounding errors.
+			interface OrgCostBuckets {
+				chat: Decimal;
+				other: Decimal;
+			}
+			const orgCosts = new Map<string, OrgCostBuckets>();
 			const apiKeyEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const logIds: string[] = [];
+
+			const isChatSource = (source: string | null | undefined) =>
+				source === "chat.llmgateway.io";
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
@@ -794,25 +807,29 @@ export async function batchProcessLogs(): Promise<void> {
 					});
 					apiKeyEvents.set(row.api_key_id, existingEvents);
 
+					const sourceBucket: keyof OrgCostBuckets = isChatSource(row.source)
+						? "chat"
+						: "other";
+
+					const addToBucket = (amount: Decimal) => {
+						const existing = orgCosts.get(row.organization_id) ?? {
+							chat: new Decimal(0),
+							other: new Decimal(0),
+						};
+						existing[sourceBucket] = existing[sourceBucket].plus(amount);
+						orgCosts.set(row.organization_id, existing);
+					};
+
 					// Deduct organization credits based on mode:
 					// - Credits mode: deduct full cost (includes request cost + storage cost)
 					// - API keys mode: only deduct storage cost (data retention billing)
 					if (row.used_mode === "credits") {
-						// In credits mode, deduct the full cost
-						const currentOrgCost =
-							orgCosts.get(row.organization_id) ?? new Decimal(0);
-						orgCosts.set(row.organization_id, currentOrgCost.plus(apiKeyCost));
+						addToBucket(apiKeyCost);
 					} else if (row.used_mode === "api-keys") {
-						// In API keys mode, only deduct storage cost (data retention billing)
 						if (row.data_storage_cost) {
 							const storageCost = new Decimal(row.data_storage_cost);
 							if (storageCost.greaterThan(0)) {
-								const currentOrgCost =
-									orgCosts.get(row.organization_id) ?? new Decimal(0);
-								orgCosts.set(
-									row.organization_id,
-									currentOrgCost.plus(storageCost),
-								);
+								addToBucket(storageCost);
 							}
 						}
 					}
@@ -821,88 +838,144 @@ export async function batchProcessLogs(): Promise<void> {
 				logIds.push(row.id);
 			}
 
-			// Batch update organization credits within the same transaction
-			// Also calculate referral earnings (1% of spent credits)
-			// Dev plan credits are deducted first, then regular credits
+			// Batch update organization credits within the same transaction.
+			// Also calculate referral earnings (1% of spent credits).
+			//
+			// Deduction order is source-aware:
+			//   • chat.llmgateway.io requests → chat plan → dev plan → regular
+			//   • everything else → dev plan → chat plan → regular
+			// The non-preferred plan acts as a fallback if the preferred plan's
+			// cycle credits are exhausted, so a single org with both plans gets
+			// the same total spend ceiling regardless of source.
 			const referralEarnings = new Map<string, Decimal>();
 
-			for (const [orgId, totalCost] of orgCosts.entries()) {
-				if (totalCost.greaterThan(0)) {
-					let remainingCost = totalCost;
+			interface PlanPool {
+				kind: "chat" | "dev";
+				remaining: Decimal;
+			}
 
-					// Fetch the organization to check for dev plan
-					const org = await tx.query.organization.findFirst({
-						where: { id: { eq: orgId } },
-					});
+			const deductFromPlanPool = async (
+				orgId: string,
+				pool: PlanPool,
+				amount: Decimal,
+			) => {
+				const num = amount.toNumber();
+				if (pool.kind === "chat") {
+					await tx
+						.update(organization)
+						.set({
+							chatPlanCreditsUsed: sql`${organization.chatPlanCreditsUsed} + ${num}`,
+						})
+						.where(eq(organization.id, orgId));
+					logger.debug(
+						`Deducted ${num} chat plan credits from organization ${orgId}`,
+					);
+				} else {
+					await tx
+						.update(organization)
+						.set({
+							devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${num}`,
+						})
+						.where(eq(organization.id, orgId));
+					logger.debug(
+						`Deducted ${num} dev plan credits from organization ${orgId}`,
+					);
+				}
+				pool.remaining = pool.remaining.minus(amount);
+			};
 
-					// First, try to deduct from dev plan credits if available
-					if (org && org.devPlan !== "none") {
-						const devPlanCreditsLimit = new Decimal(
-							org.devPlanCreditsLimit || "0",
-						);
-						const devPlanCreditsUsed = new Decimal(
-							org.devPlanCreditsUsed || "0",
-						);
-						const devPlanRemaining =
-							devPlanCreditsLimit.minus(devPlanCreditsUsed);
+			for (const [orgId, buckets] of orgCosts.entries()) {
+				const totalCost = buckets.chat.plus(buckets.other);
+				if (totalCost.lessThanOrEqualTo(0)) {
+					continue;
+				}
 
-						if (devPlanRemaining.greaterThan(0)) {
-							const deductFromDevPlan = Decimal.min(
-								remainingCost,
-								devPlanRemaining,
-							);
-							const deductNumber = deductFromDevPlan.toNumber();
+				const org = await tx.query.organization.findFirst({
+					where: { id: { eq: orgId } },
+				});
 
-							await tx
-								.update(organization)
-								.set({
-									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${deductNumber}`,
-								})
-								.where(eq(organization.id, orgId));
+				const chatPool: PlanPool | null =
+					org && org.chatPlan !== "none"
+						? {
+								kind: "chat",
+								remaining: new Decimal(org.chatPlanCreditsLimit || "0").minus(
+									new Decimal(org.chatPlanCreditsUsed || "0"),
+								),
+							}
+						: null;
 
-							logger.debug(
-								`Deducted ${deductNumber} dev plan credits from organization ${orgId}`,
-							);
+				const devPool: PlanPool | null =
+					org && org.devPlan !== "none"
+						? {
+								kind: "dev",
+								remaining: new Decimal(org.devPlanCreditsLimit || "0").minus(
+									new Decimal(org.devPlanCreditsUsed || "0"),
+								),
+							}
+						: null;
 
-							remainingCost = remainingCost.minus(deductFromDevPlan);
+				const drainBucket = async (
+					bucketCost: Decimal,
+					preferred: PlanPool | null,
+					fallback: PlanPool | null,
+				): Promise<Decimal> => {
+					let remaining = bucketCost;
+					for (const pool of [preferred, fallback]) {
+						if (!pool || remaining.lessThanOrEqualTo(0)) {
+							continue;
 						}
+						if (pool.remaining.lessThanOrEqualTo(0)) {
+							continue;
+						}
+						const take = Decimal.min(remaining, pool.remaining);
+						await deductFromPlanPool(orgId, pool, take);
+						remaining = remaining.minus(take);
 					}
+					return remaining;
+				};
 
-					// Deduct any remaining cost from regular credits
-					if (remainingCost.greaterThan(0)) {
-						const costNumber = remainingCost.toNumber();
-						await tx
-							.update(organization)
-							.set({
-								credits: sql`${organization.credits} - ${costNumber}`,
-							})
-							.where(eq(organization.id, orgId));
+				const remainingFromChat = buckets.chat.greaterThan(0)
+					? await drainBucket(buckets.chat, chatPool, devPool)
+					: new Decimal(0);
 
-						deductedOrgIds.push(orgId);
+				const remainingFromOther = buckets.other.greaterThan(0)
+					? await drainBucket(buckets.other, devPool, chatPool)
+					: new Decimal(0);
 
-						logger.debug(
-							`Deducted ${costNumber} regular credits from organization ${orgId}`,
-						);
-					}
+				const remainingCost = remainingFromChat.plus(remainingFromOther);
 
-					// Check if this org was referred and calculate 1% referral earnings
-					// Based on total cost (both dev plan and regular credits)
-					const referral = await tx.query.referral.findFirst({
-						where: {
-							referredOrganizationId: { eq: orgId },
-						},
-					});
+				if (remainingCost.greaterThan(0)) {
+					const costNumber = remainingCost.toNumber();
+					await tx
+						.update(organization)
+						.set({
+							credits: sql`${organization.credits} - ${costNumber}`,
+						})
+						.where(eq(organization.id, orgId));
 
-					if (referral) {
-						const earnings = totalCost.times(0.01);
-						const currentEarnings =
-							referralEarnings.get(referral.referrerOrganizationId) ??
-							new Decimal(0);
-						referralEarnings.set(
-							referral.referrerOrganizationId,
-							currentEarnings.plus(earnings),
-						);
-					}
+					deductedOrgIds.push(orgId);
+
+					logger.debug(
+						`Deducted ${costNumber} regular credits from organization ${orgId}`,
+					);
+				}
+
+				// 1% referral earnings on the full charge regardless of which pool paid.
+				const referral = await tx.query.referral.findFirst({
+					where: {
+						referredOrganizationId: { eq: orgId },
+					},
+				});
+
+				if (referral) {
+					const earnings = totalCost.times(0.01);
+					const currentEarnings =
+						referralEarnings.get(referral.referrerOrganizationId) ??
+						new Decimal(0);
+					referralEarnings.set(
+						referral.referrerOrganizationId,
+						currentEarnings.plus(earnings),
+					);
 				}
 			}
 

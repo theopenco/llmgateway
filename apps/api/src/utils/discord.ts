@@ -321,3 +321,77 @@ export async function notifyDevPlanRenewed(
 		],
 	});
 }
+
+export async function notifyChatPlanSubscribed(
+	email: string,
+	name: string | null | undefined,
+	chatPlan: string,
+	cycle: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Chat Plan Subscribed",
+				color: 0x22c55e,
+				fields: [
+					{ name: "Email", value: email, inline: true },
+					{ name: "Name", value: displayName, inline: true },
+					{
+						name: "Plan",
+						value: `${chatPlan.toUpperCase()} (${cycle})`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
+export async function notifyChatPlanCancelled(
+	email: string,
+	name: string | null | undefined,
+	chatPlan: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Chat Plan Cancelled",
+				color: 0xef4444,
+				fields: [
+					{ name: "Email", value: email, inline: true },
+					{ name: "Name", value: displayName, inline: true },
+					{ name: "Plan", value: chatPlan.toUpperCase(), inline: true },
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
+export async function notifyChatPlanRenewed(
+	email: string,
+	name: string | null | undefined,
+	chatPlan: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Chat Plan Renewed",
+				color: 0x8b5cf6,
+				fields: [
+					{ name: "Email", value: email, inline: true },
+					{ name: "Name", value: displayName, inline: true },
+					{ name: "Plan", value: chatPlan.toUpperCase(), inline: true },
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}

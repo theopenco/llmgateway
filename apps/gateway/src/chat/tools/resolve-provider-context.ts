@@ -127,6 +127,10 @@ interface OrgInfo {
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
 	devPlanExpiresAt: Date | null;
+	chatPlan: string;
+	chatPlanCreditsLimit: string | null;
+	chatPlanCreditsUsed: string | null;
+	chatPlanExpiresAt: Date | null;
 }
 
 // Mirrors the initial credit gate in chat.ts so retry/fallback paths that
@@ -146,9 +150,27 @@ function assertOrganizationHasCreditsForEnvFallback(
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
-	const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+	const totalAvailableCredits =
+		regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 	if (totalAvailableCredits > 0) {
 		return;
+	}
+	if (
+		organization.chatPlan !== "none" &&
+		chatPlanCreditsRemaining <= 0 &&
+		devPlanCreditsRemaining <= 0
+	) {
+		const renewalDate = organization.chatPlanExpiresAt
+			? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		});
 	}
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 		const renewalDate = organization.devPlanExpiresAt

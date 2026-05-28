@@ -1,0 +1,479 @@
+"use client";
+
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
+
+import {
+	CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS,
+	CHAT_PLAN_PRICES,
+	getChatPlanAnnualMonthlyPrice,
+	getChatPlanAnnualPrice,
+	type ChatPlanCycle,
+	type ChatPlanTier,
+} from "@llmgateway/shared";
+
+const CHAT_PLAN_MULTIPLIER = 3;
+
+interface PlanContent {
+	name: string;
+	tier: ChatPlanTier;
+	description: string;
+	tagline: string;
+	popular?: boolean;
+	features: string[];
+}
+
+const plans: PlanContent[] = [
+	{
+		name: "Starter",
+		tier: "starter",
+		description: "For occasional, light chat use",
+		tagline: "Get a feel for every model",
+		features: [
+			"Most chat models — Claude Haiku, Sonnet, GPT-5-mini, Gemini Flash, …",
+			"Web-based chat at chat.llmgateway.io",
+			"Real-time usage and per-message cost",
+			"Switch tiers any time — prorated",
+		],
+	},
+	{
+		name: "Plus",
+		tier: "plus",
+		description: "Same price as ChatGPT Plus — but every frontier model",
+		tagline: "The everyday default",
+		popular: true,
+		features: [
+			"Everything in Starter, plus frontier models",
+			"Claude Opus, GPT-5, Gemini 2.5 Pro, Grok 4 — all included",
+			"Headroom for long daily sessions",
+			"Email support",
+		],
+	},
+	{
+		name: "Pro",
+		tier: "pro",
+		description: "For power users who chat all day",
+		tagline: "Heaviest use, best $/usage",
+		features: [
+			"Everything in Plus",
+			"3× the monthly credits of Plus",
+			"Priority support",
+			"Best value at high volume",
+		],
+	},
+];
+
+interface CycleToggleProps {
+	cycle: ChatPlanCycle;
+	onChange: (cycle: ChatPlanCycle) => void;
+	disabled?: boolean;
+}
+
+function CycleToggle({ cycle, onChange, disabled }: CycleToggleProps) {
+	return (
+		<div
+			role="radiogroup"
+			aria-label="Billing cycle"
+			className="inline-flex items-center rounded-full border bg-card p-1 text-sm shadow-sm"
+		>
+			<button
+				role="radio"
+				aria-checked={cycle === "monthly"}
+				type="button"
+				disabled={disabled}
+				onClick={() => onChange("monthly")}
+				className={`relative rounded-full px-4 py-1.5 font-medium transition-colors disabled:opacity-50 ${
+					cycle === "monthly"
+						? "bg-foreground text-background"
+						: "text-muted-foreground hover:text-foreground"
+				}`}
+			>
+				Monthly
+			</button>
+			<button
+				role="radio"
+				aria-checked={cycle === "annual"}
+				type="button"
+				disabled={disabled}
+				onClick={() => onChange("annual")}
+				className={`relative rounded-full px-4 py-1.5 font-medium transition-colors disabled:opacity-50 ${
+					cycle === "annual"
+						? "bg-foreground text-background"
+						: "text-muted-foreground hover:text-foreground"
+				}`}
+			>
+				Annual
+				<span
+					className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+						cycle === "annual"
+							? "bg-background/20 text-background"
+							: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+					}`}
+				>
+					−{CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS} mo
+				</span>
+			</button>
+		</div>
+	);
+}
+
+function formatUsd(amount: number): string {
+	return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(0)}`;
+}
+
+interface ChatPricingPlansProps {
+	isAuthenticated: boolean;
+}
+
+export function ChatPricingPlans({ isAuthenticated }: ChatPricingPlansProps) {
+	const router = useRouter();
+	const fetchClient = useFetchClient();
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	const statusQuery = useQuery({
+		...api.queryOptions("get", "/chat-plans/status"),
+		enabled: isAuthenticated,
+	});
+	const status = statusQuery.data;
+	const activeTier =
+		status && status.chatPlan !== "none" ? status.chatPlan : null;
+	const subscribedCycle: ChatPlanCycle = status?.chatPlanCycle ?? "monthly";
+
+	const [cycle, setCycle] = useState<ChatPlanCycle>("monthly");
+	const effectiveCycle: ChatPlanCycle = activeTier ? subscribedCycle : cycle;
+
+	const [pendingTier, setPendingTier] = useState<ChatPlanTier | null>(null);
+	const [pendingAction, setPendingAction] = useState<
+		"cancel" | "resume" | null
+	>(null);
+
+	async function refresh() {
+		await queryClient.invalidateQueries({
+			queryKey: api.queryOptions("get", "/chat-plans/status").queryKey,
+		});
+	}
+
+	async function handleSubscribe(tier: ChatPlanTier) {
+		if (!isAuthenticated) {
+			router.push(
+				`/login?next=${encodeURIComponent(`/pricing?plan=${tier}&cycle=${cycle}`)}`,
+			);
+			return;
+		}
+		setPendingTier(tier);
+		try {
+			const { data, error } = await fetchClient.POST("/chat-plans/subscribe", {
+				body: { tier, cycle },
+			});
+			if (error || !data) {
+				toast.error(
+					typeof error === "object" && error && "message" in error
+						? String(
+								(error as { message?: unknown }).message ?? "Subscribe failed",
+							)
+						: "Subscribe failed",
+				);
+				return;
+			}
+			window.location.href = data.checkoutUrl;
+		} finally {
+			setPendingTier(null);
+		}
+	}
+
+	async function handleChangeTier(newTier: ChatPlanTier) {
+		setPendingTier(newTier);
+		try {
+			const { error } = await fetchClient.POST("/chat-plans/change-tier", {
+				body: { newTier },
+			});
+			if (error) {
+				toast.error(
+					typeof error === "object" && error && "message" in error
+						? String(
+								(error as { message?: unknown }).message ?? "Change failed",
+							)
+						: "Change failed",
+				);
+				return;
+			}
+			toast.success(`Switched to ${newTier}`);
+			await refresh();
+		} finally {
+			setPendingTier(null);
+		}
+	}
+
+	async function handleCancel() {
+		if (
+			!confirm(
+				"Cancel your chat plan? You'll keep access until the end of the current cycle.",
+			)
+		) {
+			return;
+		}
+		setPendingAction("cancel");
+		try {
+			const { error } = await fetchClient.POST("/chat-plans/cancel", {});
+			if (error) {
+				toast.error("Cancellation failed");
+				return;
+			}
+			toast.success("Plan cancelled — access continues until period end");
+			await refresh();
+		} finally {
+			setPendingAction(null);
+		}
+	}
+
+	async function handleResume() {
+		setPendingAction("resume");
+		try {
+			const { error } = await fetchClient.POST("/chat-plans/resume", {});
+			if (error) {
+				toast.error("Resume failed");
+				return;
+			}
+			toast.success("Plan resumed");
+			await refresh();
+		} finally {
+			setPendingAction(null);
+		}
+	}
+
+	return (
+		<div>
+			{activeTier && status && (
+				<div className="mx-auto mb-8 max-w-2xl rounded-xl border bg-card p-5 shadow-sm">
+					<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+								Current plan
+							</div>
+							<div className="mt-1 text-lg font-semibold">
+								{activeTier[0].toUpperCase() + activeTier.slice(1)}{" "}
+								<span className="text-sm font-normal text-muted-foreground">
+									({subscribedCycle})
+								</span>
+							</div>
+							<div className="mt-1 text-xs text-muted-foreground tabular-nums">
+								${Number(status.chatPlanCreditsUsed).toFixed(2)} of $
+								{Number(status.chatPlanCreditsLimit).toFixed(2)} used
+								{status.chatPlanExpiresAt
+									? ` · ${status.chatPlanCancelled ? "ends" : "renews"} ${new Date(
+											status.chatPlanExpiresAt,
+										).toLocaleDateString()}`
+									: ""}
+							</div>
+						</div>
+						<div className="flex gap-2">
+							{status.chatPlanCancelled ? (
+								<Button
+									size="sm"
+									variant="default"
+									onClick={handleResume}
+									disabled={pendingAction === "resume"}
+								>
+									{pendingAction === "resume" ? (
+										<Loader2 className="h-4 w-4 animate-spin" />
+									) : (
+										"Resume"
+									)}
+								</Button>
+							) : (
+								<Button
+									size="sm"
+									variant="outline"
+									onClick={handleCancel}
+									disabled={pendingAction === "cancel"}
+								>
+									{pendingAction === "cancel" ? (
+										<Loader2 className="h-4 w-4 animate-spin" />
+									) : (
+										"Cancel plan"
+									)}
+								</Button>
+							)}
+						</div>
+					</div>
+				</div>
+			)}
+
+			<div className="mb-10 flex justify-center">
+				<CycleToggle
+					cycle={effectiveCycle}
+					onChange={setCycle}
+					disabled={Boolean(activeTier)}
+				/>
+			</div>
+			<div className="grid gap-6 md:grid-cols-3">
+				{plans.map((plan) => {
+					const monthlyPrice = CHAT_PLAN_PRICES[plan.tier];
+					const annualPerMonth = getChatPlanAnnualMonthlyPrice(plan.tier);
+					const annualTotal = getChatPlanAnnualPrice(plan.tier);
+					const displayPrice =
+						effectiveCycle === "annual" ? annualPerMonth : monthlyPrice;
+					const usageValue = monthlyPrice * CHAT_PLAN_MULTIPLIER;
+					const isPending = pendingTier === plan.tier;
+					const isCurrent = activeTier === plan.tier;
+					const isChangeTarget = Boolean(activeTier) && !isCurrent;
+
+					return (
+						<div
+							key={plan.tier}
+							className={`relative flex flex-col rounded-2xl border bg-card p-7 transition-all ${
+								plan.popular
+									? "border-foreground/30 shadow-lg ring-1 ring-foreground/10"
+									: "hover:shadow-md"
+							} ${isCurrent ? "ring-2 ring-emerald-500/40" : ""}`}
+						>
+							{plan.popular && !isCurrent && (
+								<div className="absolute -top-3 left-6">
+									<span className="rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background">
+										Most popular
+									</span>
+								</div>
+							)}
+							{isCurrent && (
+								<div className="absolute -top-3 left-6">
+									<span className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-medium text-white">
+										Your plan
+									</span>
+								</div>
+							)}
+
+							<div className="mb-5">
+								<h3 className="text-lg font-semibold">{plan.name}</h3>
+								<p className="mt-1 text-sm text-muted-foreground">
+									{plan.description}
+								</p>
+							</div>
+
+							<div className="mb-1 flex items-baseline gap-1.5">
+								<span className="text-5xl font-bold tracking-tight tabular-nums">
+									${displayPrice}
+								</span>
+								<span className="text-muted-foreground">/mo</span>
+							</div>
+							<div className="mb-6 min-h-[20px] text-xs text-muted-foreground">
+								{effectiveCycle === "annual" ? (
+									<>
+										Billed{" "}
+										<span className="font-medium text-foreground tabular-nums">
+											${annualTotal}
+										</span>{" "}
+										yearly
+									</>
+								) : (
+									plan.tagline
+								)}
+							</div>
+
+							<div className="mb-5 rounded-xl border border-dashed bg-muted/40 p-4">
+								<div className="mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+									<span>What you actually get</span>
+									<span className="rounded-full bg-foreground/90 px-2 py-0.5 text-[10px] font-bold tabular-nums text-background">
+										{CHAT_PLAN_MULTIPLIER}× value
+									</span>
+								</div>
+								<div className="space-y-2.5 text-sm">
+									<div className="flex items-baseline justify-between">
+										<span className="text-muted-foreground">You pay</span>
+										<span className="font-mono font-semibold tabular-nums">
+											${monthlyPrice}
+											<span className="text-xs font-normal text-muted-foreground">
+												/mo
+											</span>
+										</span>
+									</div>
+									<div className="flex items-baseline justify-between">
+										<span className="text-muted-foreground">You use</span>
+										<span className="font-mono font-semibold tabular-nums text-foreground">
+											{formatUsd(usageValue)}
+											<span className="text-xs font-normal text-muted-foreground">
+												{" "}
+												at provider rates
+											</span>
+										</span>
+									</div>
+									<div className="pt-1">
+										<div className="relative h-2 overflow-hidden rounded-full bg-foreground/10">
+											<div
+												className="absolute left-0 top-0 h-full rounded-full bg-foreground/30"
+												style={{
+													width: `${(1 / CHAT_PLAN_MULTIPLIER) * 100}%`,
+												}}
+											/>
+											<div className="absolute left-0 top-0 h-full w-full rounded-full ring-1 ring-inset ring-foreground/10" />
+										</div>
+										<div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
+											<span>${monthlyPrice} paid</span>
+											<span>{formatUsd(usageValue)} used</span>
+										</div>
+									</div>
+								</div>
+							</div>
+
+							<ul className="mb-7 flex-1 space-y-2.5">
+								{plan.features.map((feature) => (
+									<li key={feature} className="flex items-start gap-2.5">
+										<Check className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
+										<span className="text-sm text-muted-foreground">
+											{feature}
+										</span>
+									</li>
+								))}
+								{effectiveCycle === "annual" && (
+									<li className="flex items-start gap-2.5">
+										<Check className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
+										<span className="text-sm text-muted-foreground">
+											Save {CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS} months vs monthly
+											billing
+										</span>
+									</li>
+								)}
+							</ul>
+
+							<Button
+								className="w-full"
+								size="lg"
+								variant={plan.popular && !isCurrent ? "default" : "outline"}
+								disabled={isPending || isCurrent}
+								onClick={() =>
+									isChangeTarget
+										? handleChangeTier(plan.tier)
+										: handleSubscribe(plan.tier)
+								}
+							>
+								{isPending ? (
+									<>
+										<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+										{isChangeTarget ? "Switching…" : "Redirecting…"}
+									</>
+								) : isCurrent ? (
+									"Current plan"
+								) : isChangeTarget ? (
+									`Switch to ${plan.name}`
+								) : (
+									`Get ${plan.name}`
+								)}
+							</Button>
+						</div>
+					);
+				})}
+			</div>
+			<p className="mt-6 text-center text-xs text-muted-foreground">
+				Credits reset every billing cycle and don&apos;t roll over.
+				Pay-as-you-go credits stay available — chat plan credits drain first on
+				requests from the chat app.
+			</p>
+		</div>
+	);
+}
