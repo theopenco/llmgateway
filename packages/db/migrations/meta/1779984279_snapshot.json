@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f29840af-3a91-400b-b6cb-0e015c361f65",
-  "prevId": "c08b5b50-d6eb-43bd-abee-eca4168286de",
+  "id": "c160b91b-e2cb-437d-bf5b-f9a069570922",
+  "prevId": "a5595da1-8c0d-472d-bd34-c8ba3aa57f79",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -7802,6 +7802,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "external_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "model_name",
       "entityType": "columns",
       "schema": "public",
@@ -10183,22 +10196,6 @@
       "generated": null,
       "identity": null,
       "name": "cache_duration_seconds",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "true",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "provider_cache_control_enabled",
       "entityType": "columns",
       "schema": "public",
       "table": "project"
