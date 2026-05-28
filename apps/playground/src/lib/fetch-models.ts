@@ -35,6 +35,7 @@ export interface ApiModelProviderMapping {
 	streaming: boolean;
 	vision: boolean | null;
 	audio: boolean | null;
+	document: boolean | null;
 	reasoning: boolean | null;
 	reasoningOutput: string | null;
 	tools: boolean | null;

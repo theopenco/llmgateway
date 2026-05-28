@@ -648,6 +648,23 @@ export default function ChatPageClient({
 		return !!model?.audio;
 	}, [availableModels, selectedModel]);
 
+	const supportsDocuments = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
+		}
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		return !!mapping?.document;
+	}, [models, selectedModel]);
+
 	const supportsImageGen = useMemo(() => {
 		if (!selectedModel) {
 			return false;
@@ -983,6 +1000,27 @@ export default function ChatPageClient({
 					}
 				}
 
+				if ((msg as any).documents) {
+					try {
+						const parsedDocuments = JSON.parse((msg as any).documents);
+						if (Array.isArray(parsedDocuments)) {
+							for (const d of parsedDocuments) {
+								if (!d?.url) {
+									continue;
+								}
+								parts.push({
+									type: "file",
+									mediaType: d.mediaType ?? "application/octet-stream",
+									url: d.url,
+									...(d.name ? { name: d.name } : {}),
+								});
+							}
+						}
+					} catch (error) {
+						toast.error("Failed to parse documents: " + getErrorMessage(error));
+					}
+				}
+
 				if ((msg as any).tools) {
 					try {
 						const parsedTools = JSON.parse((msg as any).tools);
@@ -1108,6 +1146,12 @@ export default function ChatPageClient({
 			mediaType: string;
 			name?: string;
 		}>,
+		documents?: Array<{
+			type: "file";
+			url: string;
+			mediaType: string;
+			name?: string;
+		}>,
 	) => {
 		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
 			setShowTopUp(true);
@@ -1122,6 +1166,7 @@ export default function ChatPageClient({
 			model: selectedModel,
 			has_images: !!images?.length,
 			has_audio: !!audio?.length,
+			has_documents: !!documents?.length,
 			web_search: webSearchEnabled,
 		});
 		errorOccurredRef.current = false;
@@ -1162,6 +1207,9 @@ export default function ChatPageClient({
 					...(content.trim() ? { content } : {}),
 					...(images?.length ? { images: JSON.stringify(images) } : {}),
 					...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+					...(documents?.length
+						? { documents: JSON.stringify(documents) }
+						: {}),
 				},
 			});
 			savedUserMessage = savedMessage.message;
@@ -1183,6 +1231,9 @@ export default function ChatPageClient({
 							...(content.trim() ? { content } : {}),
 							...(images?.length ? { images: JSON.stringify(images) } : {}),
 							...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+							...(documents?.length
+								? { documents: JSON.stringify(documents) }
+								: {}),
 						},
 					});
 					setIsLoading(false);
@@ -1788,6 +1839,7 @@ export default function ChatPageClient({
 											messages={messages}
 											supportsImages={supportsImages}
 											supportsAudio={supportsAudio}
+											supportsDocuments={supportsDocuments}
 											supportsImageGen={supportsImageGen}
 											sendMessage={sendMessageWithHeaders}
 											selectedModel={selectedModel}
@@ -1843,6 +1895,7 @@ export default function ChatPageClient({
 										messages={messages}
 										supportsImages={supportsImages}
 										supportsAudio={supportsAudio}
+										supportsDocuments={supportsDocuments}
 										supportsImageGen={supportsImageGen}
 										sendMessage={sendMessageWithHeaders}
 										selectedModel={selectedModel}
@@ -2172,6 +2225,23 @@ function ExtraChatPanel({
 		}
 		return !!model?.audio;
 	}, [availableModels, selectedModel]);
+
+	const supportsDocuments = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const { providerId, modelId, providerModelName } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
+		}
+		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		return !!mapping?.document;
+	}, [models, selectedModel]);
 
 	const supportsReasoning = useMemo(() => {
 		if (!selectedModel) {
@@ -2518,6 +2588,7 @@ function ExtraChatPanel({
 					messages={messages}
 					supportsImages={supportsImages}
 					supportsAudio={supportsAudio}
+					supportsDocuments={supportsDocuments}
 					supportsImageGen={supportsImageGen}
 					sendMessage={sendMessageWithHeaders}
 					selectedModel={selectedModel}

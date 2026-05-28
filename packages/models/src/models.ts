@@ -293,6 +293,15 @@ export interface ProviderModelMapping {
 	 */
 	audio?: boolean;
 	/**
+	 * Whether this specific model accepts document inputs (`file` content
+	 * blocks carrying PDF or text-family MIME types) for this provider. Used by
+	 * the `model: "auto"` router and capability validator to avoid selecting
+	 * providers that would fail upstream when the request contains document
+	 * content. Per-provider MIME allowlists live in the provider transform
+	 * modules (e.g. transform-google-messages.ts).
+	 */
+	document?: boolean;
+	/**
 	 * Whether this model supports reasoning mode
 	 */
 	reasoning?: boolean;

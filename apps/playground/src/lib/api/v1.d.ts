@@ -571,6 +571,7 @@ export interface paths {
                                     content: string | null;
                                     images: string | null;
                                     audios?: string | null;
+                                    documents?: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
                                     metadata?: {
@@ -4657,6 +4658,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path: {
@@ -4677,6 +4679,8 @@ export interface paths {
                             window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             bucket: "hour" | "day";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             models: string[];
                             data: {
                                 timestamp: string;
@@ -4718,6 +4722,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path: {
@@ -4739,6 +4744,8 @@ export interface paths {
                             window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             bucket: "hour" | "day";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             models: string[];
                             data: {
                                 timestamp: string;
@@ -9218,6 +9225,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -9487,6 +9495,7 @@ export interface paths {
                                     content: string | null;
                                     images: string | null;
                                     audios?: string | null;
+                                    documents?: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
                                     metadata?: {
@@ -9685,6 +9694,7 @@ export interface paths {
                         content?: string;
                         images?: string;
                         audios?: string;
+                        documents?: string;
                         reasoning?: string;
                         tools?: string;
                         metadata?: {
@@ -9708,6 +9718,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -9775,6 +9786,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -11619,6 +11631,7 @@ export interface operations {
                                 streaming: boolean;
                                 vision: boolean | null;
                                 audio: boolean | null;
+                                document: boolean | null;
                                 reasoning: boolean | null;
                                 reasoningOutput: string | null;
                                 tools: boolean | null;

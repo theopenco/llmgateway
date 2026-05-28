@@ -21,9 +21,11 @@ import {
 	db as uncachedDb,
 	apiKey as apiKeyTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
+	getEffectiveRateLimit,
 	organization as organizationTable,
 	project as projectTable,
 	providerKey as providerKeyTable,
+	rateLimit as rateLimitTable,
 	user as userTable,
 	userOrganization as userOrganizationTable,
 } from "@llmgateway/db";
@@ -35,6 +37,7 @@ import {
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
 
+import type { EffectiveRateLimit } from "@llmgateway/db";
 import type { InferSelectModel } from "@llmgateway/db";
 import type {
 	apiKey,
@@ -60,6 +63,7 @@ const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
 const organizationTableName = getTableName(organizationTable);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
+const rateLimitTableName = getTableName(rateLimitTable);
 const userTableName = getTableName(userTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
 
@@ -336,6 +340,23 @@ export async function findActiveIamRules(
 						eq(apiKeyIamRuleTable.status, "active"),
 					),
 				),
+	);
+}
+
+/**
+ * Get the effective rate limits for an org/provider/model combination (SWR-cached).
+ * Falls back to the last known Redis value when Postgres is unreachable.
+ */
+export async function findEffectiveRateLimit(
+	organizationId: string | null,
+	provider: string,
+	model: string,
+): Promise<EffectiveRateLimit> {
+	const orgPart = organizationId ?? "global";
+	return await swrWrap(
+		`rateLimit:${orgPart}:${provider}:${model}`,
+		[rateLimitTableName],
+		() => getEffectiveRateLimit(organizationId, provider, model),
 	);
 }
 

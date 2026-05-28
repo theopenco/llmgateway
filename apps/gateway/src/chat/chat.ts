@@ -40,6 +40,11 @@ import {
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import {
+	getPreferredProvider,
+	resolvePreferredProvider,
+	setPreferredProvider,
+} from "@/lib/preferred-provider.js";
+import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
 	getExceededProviderRateLimitLabels,
@@ -62,7 +67,11 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
+	InvalidFileContentError,
+	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	UnsupportedAudioFormatError,
+	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
 } from "@llmgateway/actions";
 import {
@@ -142,6 +151,7 @@ import {
 	getAudioFormatsFromMessages,
 	messagesContainAudio,
 } from "./tools/messages-contain-audio.js";
+import { messagesContainDocuments } from "./tools/messages-contain-documents.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
@@ -363,6 +373,7 @@ function filterEligibleModelProviders(
 		hasImages: boolean;
 		hasAudio: boolean;
 		audioFormats?: string[];
+		hasDocuments: boolean;
 		maxTokens?: number;
 		reasoningEffort?: string;
 	},
@@ -418,6 +429,10 @@ function filterEligibleModelProviders(
 				googleProviderSupportsAudioFormat(provider.providerId, fmt),
 			)
 		) {
+			return false;
+		}
+
+		if (options.hasDocuments && provider.document !== true) {
 			return false;
 		}
 
@@ -1168,6 +1183,7 @@ chat.openapi(completions, async (c) => {
 	const audioFormats = hasAudio
 		? getAudioFormatsFromMessages(messages as BaseMessage[])
 		: [];
+	const hasDocuments = messagesContainDocuments(messages as BaseMessage[]);
 
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
@@ -1673,7 +1689,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Validate model capabilities (JSON output, reasoning, tools, web search)
+	// Validate model capabilities (JSON output, reasoning, tools, web search, documents)
 	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
 		response_format,
 		reasoning_effort,
@@ -1682,6 +1698,7 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		webSearchTool,
 		hasImages,
+		hasDocuments,
 	});
 
 	let usedProvider = requestedProvider;
@@ -1832,7 +1849,11 @@ chat.openapi(completions, async (c) => {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
-			} else if (!allowedAutoModels.includes(modelDef.id) && !hasAudio) {
+			} else if (
+				!allowedAutoModels.includes(modelDef.id) &&
+				!hasAudio &&
+				!hasDocuments
+			) {
 				continue;
 			} else if (
 				estimatedInputTokens > 10_000 &&
@@ -1961,6 +1982,10 @@ chat.openapi(completions, async (c) => {
 						googleProviderSupportsAudioFormat(provider.providerId, fmt),
 					)
 				) {
+					return false;
+				}
+
+				if (hasDocuments && provider.document !== true) {
 					return false;
 				}
 
@@ -2152,6 +2177,16 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 		}
+		if (hasDocuments) {
+			sameProviderMappings = sameProviderMappings.filter(
+				(p) => p.document === true,
+			);
+			if (sameProviderMappings.length === 0) {
+				throw new HTTPException(400, {
+					message: `Provider ${usedProvider} does not support document input for model ${modelInfo.id}.`,
+				});
+			}
+		}
 		const sameProviderRegionalMappings = sameProviderMappings.filter(
 			(p) => p.region,
 		);
@@ -2199,6 +2234,7 @@ chat.openapi(completions, async (c) => {
 					hasImages,
 					hasAudio,
 					audioFormats,
+					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -2373,6 +2409,9 @@ chat.openapi(completions, async (c) => {
 					) {
 						return false;
 					}
+					if (hasDocuments && provider.document !== true) {
+						return false;
+					}
 					return true;
 				});
 
@@ -2517,6 +2556,7 @@ chat.openapi(completions, async (c) => {
 						hasImages,
 						hasAudio,
 						audioFormats,
+						hasDocuments,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 					},
@@ -2698,6 +2738,7 @@ chat.openapi(completions, async (c) => {
 					hasImages,
 					hasAudio,
 					audioFormats,
+					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -2789,12 +2830,53 @@ chat.openapi(completions, async (c) => {
 				);
 
 				if (cheapestResult) {
-					usedProvider = cheapestResult.provider.providerId;
-					usedModel = cheapestResult.provider.modelName;
-					usedRegion = cheapestResult.provider.region;
+					// Apply provider preference hysteresis to reduce unnecessary switching.
+					// Skip for exploration requests — they exist to refresh per-provider metrics.
+					let selectedProvider = cheapestResult.provider;
+					let hysteresisSelectionReason =
+						cheapestResult.metadata.selectionReason;
+
+					if (hysteresisSelectionReason !== "random-exploration") {
+						const preferred = await getPreferredProvider(
+							project.organizationId,
+							modelWithPricing.id,
+						);
+
+						if (preferred) {
+							const stableCandidate = resolvePreferredProvider(
+								preferred,
+								providerAgnosticCandidates,
+								cheapestResult.metadata.providerScores,
+							);
+							if (stableCandidate) {
+								selectedProvider = stableCandidate;
+								hysteresisSelectionReason = "stable-preferred";
+							} else {
+								void setPreferredProvider(
+									project.organizationId,
+									modelWithPricing.id,
+									cheapestResult.provider.providerId,
+									cheapestResult.provider.region,
+								);
+							}
+						} else {
+							void setPreferredProvider(
+								project.organizationId,
+								modelWithPricing.id,
+								cheapestResult.provider.providerId,
+								cheapestResult.provider.region,
+							);
+						}
+					}
+
+					usedProvider = selectedProvider.providerId;
+					usedModel = selectedProvider.modelName;
+					usedRegion = selectedProvider.region;
 					routingMetadata = addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
+							selectedProvider: usedProvider,
+							selectionReason: hysteresisSelectionReason,
 							...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 						},
 						contentFilterMatched,
@@ -2903,6 +2985,7 @@ chat.openapi(completions, async (c) => {
 					hasImages,
 					hasAudio,
 					audioFormats,
+					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -4311,35 +4394,115 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	let requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
-		usedProvider,
-		upstreamModelName,
-		messages as BaseMessage[],
-		effectiveStream,
-		temperature,
-		max_tokens,
-		top_p,
-		frequency_penalty,
-		presence_penalty,
-		response_format,
-		tools,
-		tool_choice,
-		reasoning_effort,
-		supportsReasoning,
-		process.env.NODE_ENV === "production",
-		maxImageSizeMB,
-		userPlan,
-		sensitive_word_check,
-		image_config,
-		effort,
-		isImageGeneration,
-		webSearchTool,
-		reasoning_max_tokens,
-		useResponsesApi,
-		prompt_cache_key,
-		prompt_cache_retention,
-		providerCacheControlEnabled,
-	);
+	let requestBody: ProviderRequestBody | FormData;
+	try {
+		requestBody = await prepareRequestBody(
+			usedProvider,
+			upstreamModelName,
+			messages as BaseMessage[],
+			effectiveStream,
+			temperature,
+			max_tokens,
+			top_p,
+			frequency_penalty,
+			presence_penalty,
+			response_format,
+			tools,
+			tool_choice,
+			reasoning_effort,
+			supportsReasoning,
+			process.env.NODE_ENV === "production",
+			maxImageSizeMB,
+			userPlan,
+			sensitive_word_check,
+			image_config,
+			effort,
+			isImageGeneration,
+			webSearchTool,
+			reasoning_max_tokens,
+			useResponsesApi,
+			prompt_cache_key,
+			prompt_cache_retention,
+			providerCacheControlEnabled,
+		);
+	} catch (e) {
+		// Surface typed pre-upstream input errors in the activity feed as a
+		// client_error. Without this, app.onError returns a 400 but no log row
+		// is written, so the user never sees the rejected request in history.
+		if (
+			e instanceof InvalidFileContentError ||
+			e instanceof UnsupportedAudioFormatError ||
+			e instanceof UnsupportedDocumentFormatError
+		) {
+			try {
+				await insertLogEntry({
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						upstreamModelName,
+						undefined,
+						usedProvider,
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+					),
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: 400,
+						statusText: "Bad Request",
+						responseText: e.message,
+						cause: e.constructor.name,
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+		}
+		throw e;
+	}
 
 	if (forceImageStreamUpstream) {
 		requestBody = injectImageStreamParams(requestBody);
@@ -5461,6 +5624,16 @@ chat.openapi(completions, async (c) => {
 								? extractAwsBedrockHttpError(res, rawErrorResponseText)
 								: rawErrorResponseText;
 
+						// If the upstream Google provider rejected the document MIME,
+						// surface a typed error event so streaming clients see the same
+						// clean shape as the non-streaming path does (via app.onError).
+						const documentErr = hasDocuments
+							? parseGoogleUpstreamDocumentError(
+									errorResponseText,
+									usedProvider,
+								)
+							: null;
+
 						// Determine the finish reason for error handling
 						const finishReason = getFinishReasonFromError(
 							res.status,
@@ -5725,7 +5898,18 @@ chat.openapi(completions, async (c) => {
 						} else {
 							// For client errors, return the original provider error response
 							let errorData;
-							if (finishReason === "client_error") {
+							if (documentErr) {
+								errorData = {
+									error: {
+										message: documentErr.message,
+										type: "invalid_request_error",
+										param: null,
+										code: "unsupported_document_format",
+										mimeType: documentErr.mimeType,
+										providerTarget: documentErr.providerTarget,
+									},
+								};
+							} else if (finishReason === "client_error") {
 								try {
 									errorData = JSON.parse(errorResponseText);
 								} catch {
@@ -9055,6 +9239,19 @@ chat.openapi(completions, async (c) => {
 					);
 				}
 				throw bodyError;
+			}
+
+			// If the upstream Google provider rejected the request because the
+			// document MIME isn't supported by that specific model, re-emit as a
+			// typed error so app.ts:onError returns a clean 400.
+			if (hasDocuments) {
+				const documentErr = parseGoogleUpstreamDocumentError(
+					errorResponseText,
+					usedProvider,
+				);
+				if (documentErr) {
+					throw documentErr;
+				}
 			}
 
 			// Determine the finish reason first

@@ -1,7 +1,5 @@
 import { and, eq, isNull, or } from "drizzle-orm";
 
-import { logger } from "@llmgateway/logger";
-
 import { db } from "./db.js";
 import { rateLimit as rateLimitTable } from "./schema.js";
 
@@ -140,63 +138,53 @@ export async function getEffectiveRateLimit(
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
-	try {
-		const rateLimits = await db
-			.select({
-				id: rateLimitTable.id,
-				organizationId: rateLimitTable.organizationId,
-				provider: rateLimitTable.provider,
-				model: rateLimitTable.model,
-				maxRpm: rateLimitTable.maxRpm,
-				maxRpd: rateLimitTable.maxRpd,
-			})
-			.from(rateLimitTable)
-			.where(
-				and(
-					or(
-						isNull(rateLimitTable.organizationId),
-						organizationId
-							? eq(rateLimitTable.organizationId, organizationId)
-							: isNull(rateLimitTable.organizationId),
-					),
-					or(
-						eq(rateLimitTable.provider, provider),
-						isNull(rateLimitTable.provider),
-					),
-					or(eq(rateLimitTable.model, model), isNull(rateLimitTable.model)),
+	const rateLimits = await db
+		.select({
+			id: rateLimitTable.id,
+			organizationId: rateLimitTable.organizationId,
+			provider: rateLimitTable.provider,
+			model: rateLimitTable.model,
+			maxRpm: rateLimitTable.maxRpm,
+			maxRpd: rateLimitTable.maxRpd,
+		})
+		.from(rateLimitTable)
+		.where(
+			and(
+				or(
+					isNull(rateLimitTable.organizationId),
+					organizationId
+						? eq(rateLimitTable.organizationId, organizationId)
+						: isNull(rateLimitTable.organizationId),
 				),
-			);
-
-		const rpm = pickRateLimitByPrecedence(
-			rateLimits,
-			organizationId,
-			provider,
-			model,
-			(rateLimit) => rateLimit.maxRpm,
-		);
-		const rpd = pickRateLimitByPrecedence(
-			rateLimits,
-			organizationId,
-			provider,
-			model,
-			(rateLimit) => rateLimit.maxRpd,
+				or(
+					eq(rateLimitTable.provider, provider),
+					isNull(rateLimitTable.provider),
+				),
+				or(eq(rateLimitTable.model, model), isNull(rateLimitTable.model)),
+			),
 		);
 
-		return {
-			maxRpm: rpm.limit,
-			maxRpd: rpd.limit,
-			rpmSource: rpm.source,
-			rpdSource: rpd.source,
-			rpmRateLimitId: rpm.rateLimitId,
-			rpdRateLimitId: rpd.rateLimitId,
-		};
-	} catch (error) {
-		logger.error("Error fetching effective rate limit:", error as Error);
-		return {
-			maxRpm: 0,
-			maxRpd: 0,
-			rpmSource: "none",
-			rpdSource: "none",
-		};
-	}
+	const rpm = pickRateLimitByPrecedence(
+		rateLimits,
+		organizationId,
+		provider,
+		model,
+		(rateLimit) => rateLimit.maxRpm,
+	);
+	const rpd = pickRateLimitByPrecedence(
+		rateLimits,
+		organizationId,
+		provider,
+		model,
+		(rateLimit) => rateLimit.maxRpd,
+	);
+
+	return {
+		maxRpm: rpm.limit,
+		maxRpd: rpd.limit,
+		rpmSource: rpm.source,
+		rpdSource: rpd.source,
+		rpmRateLimitId: rpm.rateLimitId,
+		rpdRateLimitId: rpd.rateLimitId,
+	};
 }

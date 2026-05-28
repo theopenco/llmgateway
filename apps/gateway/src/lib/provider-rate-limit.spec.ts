@@ -26,12 +26,12 @@ vi.mock("@llmgateway/logger", () => ({
 	},
 }));
 
-vi.mock("@llmgateway/db", () => ({
-	getEffectiveRateLimit: vi.fn(),
+vi.mock("./cached-queries.js", () => ({
+	findEffectiveRateLimit: vi.fn(),
 }));
 
 const mockCache = await import("@llmgateway/cache");
-const mockDb = await import("@llmgateway/db");
+const mockCachedQueries = await import("./cached-queries.js");
 const redis = mockCache.redisClient;
 
 const noLimits = {
@@ -47,7 +47,9 @@ describe("checkProviderRateLimit", () => {
 	});
 
 	it("allows requests when no limits are configured", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue(noLimits);
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue(
+			noLimits,
+		);
 
 		const result = await checkProviderRateLimit("org-1", "openai", "gpt-4o");
 
@@ -60,7 +62,7 @@ describe("checkProviderRateLimit", () => {
 	});
 
 	it("consumes both RPM and RPD windows when under the limits", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,
 			maxRpd: 1000,
 			rpmSource: "global_provider_model",
@@ -82,7 +84,7 @@ describe("checkProviderRateLimit", () => {
 	it("blocks when any configured window is exceeded", async () => {
 		const now = 1_700_000_000_000;
 		const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 10,
 			maxRpd: 1000,
 			rpmSource: "global_provider",
@@ -112,7 +114,7 @@ describe("checkProviderRateLimit", () => {
 	it("uses a unique member per request", async () => {
 		const now = 1_700_000_000_000;
 		const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,
 			maxRpd: 0,
 			rpmSource: "global_provider_model",
@@ -137,7 +139,7 @@ describe("checkProviderRateLimit", () => {
 	});
 
 	it("fails open on Redis errors", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,
 			maxRpd: 0,
 			rpmSource: "global_provider_model",
@@ -161,7 +163,7 @@ describe("peekProviderRateLimit", () => {
 	});
 
 	it("returns not rate-limited when below both windows", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,
 			maxRpd: 5000,
 			rpmSource: "global_provider_model",
@@ -183,7 +185,7 @@ describe("peekProviderRateLimit", () => {
 	it("returns all exceeded windows when multiple limits are hit", async () => {
 		const now = 1_700_000_000_000;
 		const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValue({
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 10,
 			maxRpd: 100,
 			rpmSource: "global_provider",
@@ -215,7 +217,7 @@ describe("filterRateLimitedProviders", () => {
 	});
 
 	it("returns provider IDs that are blocked by either limit window", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit)
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit)
 			.mockResolvedValueOnce({
 				maxRpm: 10,
 				maxRpd: 0,
@@ -268,7 +270,7 @@ describe("pickNonRateLimitedCandidates", () => {
 	} as const;
 
 	it("drops a rate-limited candidate so the router falls back to the next one", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit)
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit)
 			.mockResolvedValueOnce(cappedRpm)
 			.mockResolvedValueOnce(openRpm);
 		vi.mocked(redis.zcard).mockResolvedValueOnce(10).mockResolvedValueOnce(20);
@@ -286,7 +288,7 @@ describe("pickNonRateLimitedCandidates", () => {
 	});
 
 	it("fails open when every candidate is rate-limited", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit)
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit)
 			.mockResolvedValueOnce(cappedRpm)
 			.mockResolvedValueOnce(cappedRpm);
 		vi.mocked(redis.zcard).mockResolvedValueOnce(10).mockResolvedValueOnce(10);
@@ -308,7 +310,9 @@ describe("pickNonRateLimitedCandidates", () => {
 	});
 
 	it("dedupes peeks across region-expanded variants of the same provider+model", async () => {
-		vi.mocked(mockDb.getEffectiveRateLimit).mockResolvedValueOnce(openRpm);
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValueOnce(
+			openRpm,
+		);
 		vi.mocked(redis.zcard).mockResolvedValueOnce(0);
 
 		const candidates = [
@@ -322,7 +326,9 @@ describe("pickNonRateLimitedCandidates", () => {
 			candidates,
 		);
 
-		expect(vi.mocked(mockDb.getEffectiveRateLimit)).toHaveBeenCalledTimes(1);
+		expect(
+			vi.mocked(mockCachedQueries.findEffectiveRateLimit),
+		).toHaveBeenCalledTimes(1);
 		expect(result).toEqual(candidates);
 	});
 
@@ -330,7 +336,9 @@ describe("pickNonRateLimitedCandidates", () => {
 		const result = await pickNonRateLimitedCandidates("org-1", "glm-4.7", []);
 
 		expect(result).toEqual([]);
-		expect(vi.mocked(mockDb.getEffectiveRateLimit)).not.toHaveBeenCalled();
+		expect(
+			vi.mocked(mockCachedQueries.findEffectiveRateLimit),
+		).not.toHaveBeenCalled();
 	});
 });
 
