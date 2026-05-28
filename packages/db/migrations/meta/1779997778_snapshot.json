@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b5fbf636-9954-40c4-97e3-93adc5dd9f75",
+  "id": "01838d8a-ddaa-410a-a1fa-d5e12fe9cfb2",
   "prevId": "83b32714-8b2b-44e8-85d3-da0698157213",
   "ddl": [
     {
@@ -43,12 +43,6 @@
     {
       "isRlsEnabled": false,
       "name": "chat",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "chat_plan_cancellation_feedback",
       "entityType": "tables",
       "schema": "public"
     },
@@ -2496,129 +2490,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "chat"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan_stripe_subscription_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "previous_chat_plan",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "reason",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "comments",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
     },
     {
       "type": "text",
@@ -7944,19 +7815,6 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "model_name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "region",
       "entityType": "columns",
       "schema": "public",
@@ -9494,138 +9352,6 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_card_fingerprint",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'none'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan_credits_used",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan_credits_limit",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan_billing_cycle_start",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan_stripe_subscription_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan_cancelled",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan_expires_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'monthly'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan_cycle",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "chat_plan_card_fingerprint",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -15189,55 +14915,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "chat_plan_stripe_subscription_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "chat_plan_cancellation_feedback_org_sub_unique",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "chat_plan_cancellation_feedback_organization_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "chat_id",
           "isExpression": false,
           "asc": true,
@@ -16379,27 +16056,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "chat_plan_card_fingerprint",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "organization_chat_plan_card_fingerprint_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -17396,40 +17052,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "chat_plan_cancellation_feedback_lggQrHrJo0rO_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "chat_plan_cancellation_feedback_user_id_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "chat_id"
       ],
       "schemaTo": "public",
@@ -18165,16 +17787,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "chat_plan_cancellation_feedback_pkey",
-      "schema": "public",
-      "table": "chat_plan_cancellation_feedback",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "chat_share_pkey",
       "schema": "public",
       "table": "chat_share",
@@ -18899,17 +18511,6 @@
       ],
       "nullsNotDistinct": false,
       "name": "organization_dev_plan_stripe_subscription_id_key",
-      "schema": "public",
-      "table": "organization",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "chat_plan_stripe_subscription_id"
-      ],
-      "nullsNotDistinct": false,
-      "name": "organization_chat_plan_stripe_subscription_id_key",
       "schema": "public",
       "table": "organization",
       "entityType": "uniques"
