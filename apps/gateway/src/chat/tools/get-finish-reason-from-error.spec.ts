@@ -169,6 +169,13 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(422)).toBe("client_error");
 	});
 
+	it("returns gateway_error for bare 'Not Found' body", () => {
+		expect(getFinishReasonFromError(400, "Not Found")).toBe("gateway_error");
+		expect(getFinishReasonFromError(400, "  Not Found  ")).toBe(
+			"gateway_error",
+		);
+	});
+
 	it("returns gateway_error for upstream 'Unknown model' messages", () => {
 		expect(
 			getFinishReasonFromError(

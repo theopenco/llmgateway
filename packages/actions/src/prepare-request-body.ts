@@ -1197,15 +1197,6 @@ export async function prepareRequestBody(
 		}
 	}
 
-	// Alibaba's API defaults `enable_thinking` to ON for thinking models.
-	// Mirror the OpenAI/Anthropic/Google/ZAI contract: thinking is opt-in via
-	// `reasoning_effort`. Unset or `minimal` => off, anything else => on.
-	if (usedProvider === "alibaba" && supportsReasoning) {
-		const wantsThinking =
-			reasoning_effort !== undefined && reasoning_effort !== "minimal";
-		requestBody.enable_thinking = wantsThinking;
-	}
-
 	if (forcesToolUse && usedProvider === "moonshot") {
 		const providerMapping = modelDef?.providers.find(
 			(p) =>
