@@ -4155,10 +4155,13 @@ describe("api", () => {
 				}),
 			});
 
-			if (res.status !== 200) {
-				const body = await res.text();
-				expect(body).not.toContain("unsupported_parameter_combination");
-			}
+			// With the fix the gateway forwards the request and the mock
+			// streams back a valid response. Asserting 200 fails fast on any
+			// regression — whether that's the guard re-tripping (400) or some
+			// other unexpected upstream issue (500/502/etc.).
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			expect(body).not.toContain("unsupported_parameter_combination");
 		});
 
 		test("does not reject n > 1 + stream with web_search: true flag", async () => {
@@ -4196,10 +4199,12 @@ describe("api", () => {
 				}),
 			});
 
-			if (res.status !== 200) {
-				const body = await res.text();
-				expect(body).not.toContain("unsupported_parameter_combination");
-			}
+			// See sibling test above — fail fast on any non-200 so a regression
+			// in the guard or upstream surfaces directly instead of being
+			// masked by a soft body check.
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			expect(body).not.toContain("unsupported_parameter_combination");
 		});
 
 		test("n=1 is accepted and forwarded without altering choice count", async () => {
