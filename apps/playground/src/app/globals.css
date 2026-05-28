@@ -145,11 +145,11 @@
  * DISABLED: Incompatible with TanStack Virtual. content-visibility: auto causes off-screen
  * elements to report contain-intrinsic-size (120px) as their height. When TanStack Virtual
  * scrolls them into view the browser renders them, their real height is reported via
- * ResizeObserver, and the virtualizer's scroll-position adjustment logic fires — producing
+ * ResizeObserver, and the virtualizer's scroll-position adjustment logic fires - producing
  * erratic up/down scroll. TanStack Virtual already virtualizes rendering itself, so this
  * optimization is redundant and harmful here.
  */
 /* .message-item {
-	content-visibility: auto;
-	contain-intrinsic-size: 0 120px;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 120px;
 } */
