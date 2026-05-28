@@ -450,6 +450,7 @@ export const project = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		providerCacheControlEnabled: boolean().notNull().default(true),
 		mode: text({
 			enum: ["api-keys", "credits", "hybrid"],
 		})
