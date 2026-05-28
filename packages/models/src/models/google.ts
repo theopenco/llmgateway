@@ -11,7 +11,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-pro",
+				externalId: "gemini-2.5-pro",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -39,6 +39,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.035", // $35 per 1000 prompts
@@ -47,7 +48,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-pro",
+				externalId: "gemini-2.5-pro",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -93,7 +94,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-pro-preview-05-06",
+				externalId: "gemini-2.5-pro-preview-05-06",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				pricingTiers: [
@@ -118,6 +119,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -126,7 +128,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-pro-preview-05-06",
+				externalId: "gemini-2.5-pro-preview-05-06",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				pricingTiers: [
@@ -168,7 +170,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-pro-preview-06-05",
+				externalId: "gemini-2.5-pro-preview-06-05",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				pricingTiers: [
@@ -193,6 +195,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -201,7 +204,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-pro-preview-06-05",
+				externalId: "gemini-2.5-pro-preview-06-05",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				pricingTiers: [
@@ -242,7 +245,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-flash-preview-04-17",
+				externalId: "gemini-2.5-flash-preview-04-17",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -253,6 +256,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -260,7 +264,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-flash-preview-04-17",
+				externalId: "gemini-2.5-flash-preview-04-17",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -287,7 +291,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-flash-preview-05-20",
+				externalId: "gemini-2.5-flash-preview-05-20",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -298,6 +302,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -305,7 +310,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-flash-preview-05-20",
+				externalId: "gemini-2.5-flash-preview-05-20",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -332,7 +337,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-flash-preview-09-2025",
+				externalId: "gemini-2.5-flash-preview-09-2025",
 				deactivatedAt: new Date("2026-01-17"),
 				inputPrice: "0.3e-6",
 				outputPrice: "2.5e-6",
@@ -345,6 +350,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -352,7 +358,7 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				deactivatedAt: new Date("2026-01-27"),
-				modelName: "gemini-2.5-flash-preview-09-2025",
+				externalId: "gemini-2.5-flash-preview-09-2025",
 				inputPrice: "0.3e-6",
 				outputPrice: "2.5e-6",
 				cachedInputPrice: "0.03e-6",
@@ -379,7 +385,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-flash",
+				externalId: "gemini-2.5-flash",
 				inputPrice: "0.3e-6",
 				outputPrice: "2.5e-6",
 				cachedInputPrice: "0.03e-6",
@@ -393,6 +399,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.035", // $35 per 1000 prompts
@@ -401,7 +408,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-flash",
+				externalId: "gemini-2.5-flash",
 				inputPrice: "0.3e-6",
 				outputPrice: "2.5e-6",
 				cachedInputPrice: "0.03e-6",
@@ -433,7 +440,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-flash-lite",
+				externalId: "gemini-2.5-flash-lite",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
@@ -445,13 +452,14 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-flash-lite",
+				externalId: "gemini-2.5-flash-lite",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
@@ -479,7 +487,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				deactivatedAt: new Date("2026-03-31"),
-				modelName: "gemini-2.5-flash-lite-preview-09-2025",
+				externalId: "gemini-2.5-flash-lite-preview-09-2025",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
@@ -489,6 +497,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -496,7 +505,7 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				deactivatedAt: new Date("2026-07-09"),
-				modelName: "gemini-2.5-flash-lite-preview-09-2025",
+				externalId: "gemini-2.5-flash-lite-preview-09-2025",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
@@ -522,7 +531,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-pro-latest",
+				externalId: "gemini-pro-latest",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -550,6 +559,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.014",
@@ -569,7 +579,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-3-pro-preview",
+				externalId: "gemini-3-pro-preview",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -597,6 +607,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.014", // $14 per 1000 queries for Gemini 3
@@ -608,7 +619,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
-				modelName: "gemini-3-pro-preview",
+				externalId: "gemini-3-pro-preview",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -657,7 +668,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-3.1-pro-preview",
+				externalId: "gemini-3.1-pro-preview",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -685,6 +696,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.014",
@@ -694,7 +706,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
-				modelName: "gemini-3.1-pro-preview",
+				externalId: "gemini-3.1-pro-preview",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -731,7 +743,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "quartz",
-				modelName: "gemini-3.1-pro-preview",
+				externalId: "gemini-3.1-pro-preview",
 				discount: "0.2",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
@@ -779,7 +791,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-3.1-flash-lite-preview",
+				externalId: "gemini-3.1-flash-lite-preview",
 				deprecatedAt: new Date("2026-05-12"),
 				deactivatedAt: new Date("2026-05-25"),
 				inputPrice: "0.25e-6",
@@ -791,6 +803,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				reasoning: true,
 				reasoningMaxTokens: true,
@@ -800,7 +813,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
-				modelName: "gemini-3.1-flash-lite-preview",
+				externalId: "gemini-3.1-flash-lite-preview",
 				deprecatedAt: new Date("2026-05-12"),
 				deactivatedAt: new Date("2026-05-25"),
 				inputPrice: "0.25e-6",
@@ -830,7 +843,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-3.1-flash-lite",
+				externalId: "gemini-3.1-flash-lite",
 				inputPrice: "0.25e-6",
 				outputPrice: "1.5e-6",
 				cachedInputPrice: "0.025e-6",
@@ -844,6 +857,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				webSearch: true,
 				reasoning: true,
@@ -853,7 +867,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-3.1-flash-lite",
+				externalId: "gemini-3.1-flash-lite",
 				inputPrice: "0.25e-6",
 				outputPrice: "1.5e-6",
 				cachedInputPrice: "0.025e-6",
@@ -886,7 +900,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-3.5-flash",
+				externalId: "gemini-3.5-flash",
 				inputPrice: "1.5e-6",
 				outputPrice: "9e-6",
 				cachedInputPrice: "0.15e-6",
@@ -902,6 +916,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				webSearch: true,
 				jsonOutput: true,
@@ -909,7 +924,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-3.5-flash",
+				externalId: "gemini-3.5-flash",
 				inputPrice: "1.5e-6",
 				outputPrice: "9e-6",
 				cachedInputPrice: "0.15e-6",
@@ -944,7 +959,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-vertex",
-				modelName: "veo-3.1-generate-001",
+				externalId: "veo-3.1-generate-001",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -975,7 +990,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "avalanche",
-				modelName: "veo3",
+				externalId: "veo3",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1017,7 +1032,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-vertex",
-				modelName: "veo-3.1-fast-generate-001",
+				externalId: "veo-3.1-fast-generate-001",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1048,7 +1063,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "avalanche",
-				modelName: "veo3_fast",
+				externalId: "veo3_fast",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1087,7 +1102,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-3.1-flash-image-preview",
+				externalId: "gemini-3.1-flash-image-preview",
 				inputPrice: "0.25e-6",
 				outputPrice: "1.5e-6",
 				imageInputPrice: "0.25e-6",
@@ -1112,7 +1127,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "glacier",
-				modelName: "gemini-3.1-flash-image-preview",
+				externalId: "gemini-3.1-flash-image-preview",
 				discount: "0.2",
 				inputPrice: "0.25e-6",
 				outputPrice: "1.5e-6",
@@ -1138,7 +1153,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
-				modelName: "gemini-3.1-flash-image-preview",
+				externalId: "gemini-3.1-flash-image-preview",
 				inputPrice: "0.25e-6",
 				outputPrice: "1.5e-6",
 				imageInputPrice: "0.25e-6",
@@ -1163,7 +1178,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "quartz",
-				modelName: "gemini-3.1-flash-image-preview",
+				externalId: "gemini-3.1-flash-image-preview",
 				discount: "0.2",
 				inputPrice: "0.25e-6",
 				outputPrice: "1.5e-6",
@@ -1198,7 +1213,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-3-flash-preview",
+				externalId: "gemini-3-flash-preview",
 				inputPrice: "0.5e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.05e-6",
@@ -1212,6 +1227,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.014", // $14 per 1000 queries for Gemini 3
@@ -1220,7 +1236,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-3-flash-preview",
+				externalId: "gemini-3-flash-preview",
 				inputPrice: "0.5e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.05e-6",
@@ -1254,7 +1270,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-flash-image-preview",
+				externalId: "gemini-2.5-flash-image-preview",
 				inputPrice: "0.3e-6",
 				outputPrice: "2.5e-6",
 				imageOutputPrice: "30e-6",
@@ -1278,7 +1294,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-flash-image-preview",
+				externalId: "gemini-2.5-flash-image-preview",
 				inputPrice: "0.3e-6",
 				outputPrice: "2.5e-6",
 				imageOutputPrice: "30e-6",
@@ -1313,7 +1329,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-flash-image",
+				externalId: "gemini-2.5-flash-image",
 				inputPrice: "0.3e-6",
 				outputPrice: "30e-6",
 				cachedInputPrice: "0.03e-6",
@@ -1329,7 +1345,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-flash-image",
+				externalId: "gemini-2.5-flash-image",
 				inputPrice: "0.3e-6",
 				outputPrice: "30e-6",
 				cachedInputPrice: "0.03e-6",
@@ -1345,7 +1361,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "glacier",
-				modelName: "gemini-2.5-flash-image",
+				externalId: "gemini-2.5-flash-image",
 				inputPrice: "0.3e-6",
 				outputPrice: "30e-6",
 				cachedInputPrice: "0.03e-6",
@@ -1374,7 +1390,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-ai-studio",
-				modelName: "gemini-3-pro-image-preview",
+				externalId: "gemini-3-pro-image-preview",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -1399,7 +1415,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "glacier",
-				modelName: "gemini-3-pro-image-preview",
+				externalId: "gemini-3-pro-image-preview",
 				discount: "0.2",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
@@ -1425,7 +1441,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "google-vertex",
-				modelName: "gemini-3-pro-image-preview",
+				externalId: "gemini-3-pro-image-preview",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -1450,7 +1466,7 @@ export const googleModels = [
 			{
 				test: "skip",
 				providerId: "quartz",
-				modelName: "gemini-3-pro-image-preview",
+				externalId: "gemini-3-pro-image-preview",
 				discount: "0.2",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
@@ -1484,7 +1500,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.5-flash-preview-04-17-thinking",
+				externalId: "gemini-2.5-flash-preview-04-17-thinking",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -1495,6 +1511,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -1502,7 +1519,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-2.5-flash-preview-04-17-thinking",
+				externalId: "gemini-2.5-flash-preview-04-17-thinking",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -1529,7 +1546,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-1.5-pro",
+				externalId: "gemini-1.5-pro",
 				inputPrice: "2.5e-6",
 				outputPrice: "10.0e-6",
 				requestPrice: "0",
@@ -1540,6 +1557,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -1547,7 +1565,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-1.5-pro",
+				externalId: "gemini-1.5-pro",
 				inputPrice: "2.5e-6",
 				outputPrice: "10.0e-6",
 				requestPrice: "0",
@@ -1574,7 +1592,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-1.5-flash",
+				externalId: "gemini-1.5-flash",
 				inputPrice: "0.0375e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",
@@ -1585,6 +1603,7 @@ export const googleModels = [
 				streaming: true,
 				vision: true,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -1592,7 +1611,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-1.5-flash",
+				externalId: "gemini-1.5-flash",
 				inputPrice: "0.0375e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",
@@ -1619,7 +1638,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-1.5-flash-8b",
+				externalId: "gemini-1.5-flash-8b",
 				inputPrice: "0.0375e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",
@@ -1630,6 +1649,7 @@ export const googleModels = [
 				streaming: true,
 				vision: false,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -1637,7 +1657,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-1.5-flash-8b",
+				externalId: "gemini-1.5-flash-8b",
 				inputPrice: "0.0375e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",
@@ -1664,7 +1684,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.0-flash-lite",
+				externalId: "gemini-2.0-flash-lite",
 				inputPrice: "0.075e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -1673,6 +1693,7 @@ export const googleModels = [
 				streaming: true,
 				vision: false,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -1681,7 +1702,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-2.0-flash-lite",
+				externalId: "gemini-2.0-flash-lite",
 				inputPrice: "0.075e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -1707,7 +1728,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-2.0-flash",
+				externalId: "gemini-2.0-flash",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1719,6 +1740,7 @@ export const googleModels = [
 				streaming: true,
 				vision: false,
 				audio: true,
+				document: true,
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
@@ -1728,7 +1750,7 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				test: "skip",
-				modelName: "gemini-2.0-flash",
+				externalId: "gemini-2.0-flash",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1757,7 +1779,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemma-3n-e2b-it",
+				externalId: "gemma-3n-e2b-it",
 				inputPrice: "0.075e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -1780,7 +1802,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemma-3n-e4b-it",
+				externalId: "gemma-3n-e4b-it",
 				inputPrice: "0.075e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -1803,7 +1825,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemma-3-1b-it",
+				externalId: "gemma-3-1b-it",
 				inputPrice: "0.075e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -1826,7 +1848,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemma-3-4b-it",
+				externalId: "gemma-3-4b-it",
 				inputPrice: "0.075e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -1849,7 +1871,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemma-3-12b-it",
+				externalId: "gemma-3-12b-it",
 				inputPrice: "0.075e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -1872,7 +1894,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "groq",
-				modelName: "gemma2-9b-it",
+				externalId: "gemma2-9b-it",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.2e-6",
 				requestPrice: "0",
@@ -1896,7 +1918,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "google/gemma-3-27b-it",
+				externalId: "google/gemma-3-27b-it",
 				inputPrice: "0.27e-6",
 				outputPrice: "0.27e-6",
 				requestPrice: "0",
@@ -1921,7 +1943,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-embedding-001",
+				externalId: "gemini-embedding-001",
 				inputPrice: "0.15e-6",
 				outputPrice: "0",
 				requestPrice: "0",
@@ -1933,7 +1955,7 @@ export const googleModels = [
 			},
 			{
 				providerId: "google-vertex",
-				modelName: "gemini-embedding-001",
+				externalId: "gemini-embedding-001",
 				inputPrice: "0.15e-6",
 				outputPrice: "0",
 				requestPrice: "0",
@@ -1956,7 +1978,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-ai-studio",
-				modelName: "gemini-embedding-2",
+				externalId: "gemini-embedding-2",
 				inputPrice: "0.20e-6",
 				outputPrice: "0",
 				requestPrice: "0",
@@ -1979,7 +2001,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-vertex",
-				modelName: "text-embedding-005",
+				externalId: "text-embedding-005",
 				inputPrice: "0.025e-6",
 				outputPrice: "0",
 				requestPrice: "0",
@@ -2002,7 +2024,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-vertex",
-				modelName: "text-embedding-004",
+				externalId: "text-embedding-004",
 				inputPrice: "0.025e-6",
 				outputPrice: "0",
 				requestPrice: "0",
@@ -2025,7 +2047,7 @@ export const googleModels = [
 		providers: [
 			{
 				providerId: "google-vertex",
-				modelName: "text-multilingual-embedding-002",
+				externalId: "text-multilingual-embedding-002",
 				inputPrice: "0.025e-6",
 				outputPrice: "0",
 				requestPrice: "0",

@@ -45,7 +45,7 @@ console.log(gpt4.providers); // Provider mappings with pricing
 | Property           | Type     | Description                        |
 | ------------------ | -------- | ---------------------------------- |
 | `providerId`       | `string` | Provider identifier                |
-| `modelName`        | `string` | Model name at the provider         |
+| `externalId`       | `string` | Upstream provider model id         |
 | `inputPrice`       | `number` | Price per input token (USD)        |
 | `outputPrice`      | `number` | Price per output token (USD)       |
 | `cachedInputPrice` | `number` | Price per cached input token (USD) |

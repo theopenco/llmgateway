@@ -177,8 +177,10 @@ export function ProviderModelsTable({
 								>
 									{m.modelId}
 								</Link>
-								{m.modelName !== m.modelId && (
-									<p className="text-xs text-muted-foreground">{m.modelName}</p>
+								{m.externalId !== m.modelId && (
+									<p className="text-xs text-muted-foreground">
+										{m.externalId}
+									</p>
 								)}
 							</TableCell>
 							<TableCell className="text-xs text-muted-foreground">

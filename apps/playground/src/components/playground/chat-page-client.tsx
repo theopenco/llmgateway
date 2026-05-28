@@ -230,7 +230,7 @@ interface ChatPageClientProps {
 function parseModelSelectorValue(value: string): {
 	providerId: string;
 	modelId: string;
-	providerModelName: string;
+	region: string | undefined;
 } {
 	const [providerId, rawModelId] = value.includes("/")
 		? (value.split("/") as [string, string])
@@ -240,20 +240,20 @@ function parseModelSelectorValue(value: string): {
 	return {
 		providerId,
 		modelId: colonIndex === -1 ? rawModelId : rawModelId.slice(0, colonIndex),
-		providerModelName: rawModelId,
+		region: colonIndex === -1 ? undefined : rawModelId.slice(colonIndex + 1),
 	};
 }
 
 function getSelectedMapping(
 	model: ApiModel,
 	providerId: string,
-	providerModelName: string,
+	region: string | undefined,
 ): ApiModelProviderMapping | undefined {
 	return (
 		model.mappings.find(
 			(mapping) =>
 				mapping.providerId === providerId &&
-				mapping.modelName === providerModelName,
+				(mapping.region ?? undefined) === region,
 		) ?? model.mappings.find((mapping) => mapping.providerId === providerId)
 	);
 }
@@ -627,7 +627,7 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -636,7 +636,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.vision;
 	}, [models, selectedModel]);
 
@@ -647,6 +647,23 @@ export default function ChatPageClient({
 		}
 		return !!model?.audio;
 	}, [availableModels, selectedModel]);
+
+	const supportsDocuments = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return !!mapping?.document;
+	}, [models, selectedModel]);
 
 	const supportsImageGen = useMemo(() => {
 		if (!selectedModel) {
@@ -661,7 +678,7 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -670,7 +687,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -678,7 +695,7 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -687,7 +704,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
@@ -992,6 +1009,27 @@ export default function ChatPageClient({
 					}
 				}
 
+				if ((msg as any).documents) {
+					try {
+						const parsedDocuments = JSON.parse((msg as any).documents);
+						if (Array.isArray(parsedDocuments)) {
+							for (const d of parsedDocuments) {
+								if (!d?.url) {
+									continue;
+								}
+								parts.push({
+									type: "file",
+									mediaType: d.mediaType ?? "application/octet-stream",
+									url: d.url,
+									...(d.name ? { name: d.name } : {}),
+								});
+							}
+						}
+					} catch (error) {
+						toast.error("Failed to parse documents: " + getErrorMessage(error));
+					}
+				}
+
 				if ((msg as any).tools) {
 					try {
 						const parsedTools = JSON.parse((msg as any).tools);
@@ -1117,6 +1155,12 @@ export default function ChatPageClient({
 			mediaType: string;
 			name?: string;
 		}>,
+		documents?: Array<{
+			type: "file";
+			url: string;
+			mediaType: string;
+			name?: string;
+		}>,
 	) => {
 		if (
 			selectedOrganization &&
@@ -1135,6 +1179,7 @@ export default function ChatPageClient({
 			model: selectedModel,
 			has_images: !!images?.length,
 			has_audio: !!audio?.length,
+			has_documents: !!documents?.length,
 			web_search: webSearchEnabled,
 		});
 		errorOccurredRef.current = false;
@@ -1175,6 +1220,9 @@ export default function ChatPageClient({
 					...(content.trim() ? { content } : {}),
 					...(images?.length ? { images: JSON.stringify(images) } : {}),
 					...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+					...(documents?.length
+						? { documents: JSON.stringify(documents) }
+						: {}),
 				},
 			});
 			savedUserMessage = savedMessage.message;
@@ -1196,6 +1244,9 @@ export default function ChatPageClient({
 							...(content.trim() ? { content } : {}),
 							...(images?.length ? { images: JSON.stringify(images) } : {}),
 							...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+							...(documents?.length
+								? { documents: JSON.stringify(documents) }
+								: {}),
 						},
 					});
 					setIsLoading(false);
@@ -1805,6 +1856,7 @@ export default function ChatPageClient({
 											messages={messages}
 											supportsImages={supportsImages}
 											supportsAudio={supportsAudio}
+											supportsDocuments={supportsDocuments}
 											supportsImageGen={supportsImageGen}
 											sendMessage={sendMessageWithHeaders}
 											selectedModel={selectedModel}
@@ -1860,6 +1912,7 @@ export default function ChatPageClient({
 										messages={messages}
 										supportsImages={supportsImages}
 										supportsAudio={supportsAudio}
+										supportsDocuments={supportsDocuments}
 										supportsImageGen={supportsImageGen}
 										sendMessage={sendMessageWithHeaders}
 										selectedModel={selectedModel}
@@ -2160,7 +2213,7 @@ function ExtraChatPanel({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -2169,7 +2222,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.vision;
 	}, [models, selectedModel]);
 
@@ -2190,11 +2243,28 @@ function ExtraChatPanel({
 		return !!model?.audio;
 	}, [availableModels, selectedModel]);
 
+	const supportsDocuments = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return !!mapping?.document;
+	}, [models, selectedModel]);
+
 	const supportsReasoning = useMemo(() => {
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -2203,7 +2273,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -2211,7 +2281,7 @@ function ExtraChatPanel({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -2220,7 +2290,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
@@ -2535,6 +2605,7 @@ function ExtraChatPanel({
 					messages={messages}
 					supportsImages={supportsImages}
 					supportsAudio={supportsAudio}
+					supportsDocuments={supportsDocuments}
 					supportsImageGen={supportsImageGen}
 					sendMessage={sendMessageWithHeaders}
 					selectedModel={selectedModel}

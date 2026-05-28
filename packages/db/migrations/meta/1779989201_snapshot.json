@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "819c1dee-9522-4f86-841f-b2555c996d86",
-  "prevId": "c08b5b50-d6eb-43bd-abee-eca4168286de",
+  "id": "b5fbf636-9954-40c4-97e3-93adc5dd9f75",
+  "prevId": "83b32714-8b2b-44e8-85d3-da0698157213",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -7051,6 +7051,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "documents",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "message"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "reasoning",
       "entityType": "columns",
       "schema": "public",
@@ -7914,6 +7927,19 @@
       "type": "text",
       "typeSchema": null,
       "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -10431,6 +10457,22 @@
       "generated": null,
       "identity": null,
       "name": "cache_duration_seconds",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "true",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "provider_cache_control_enabled",
       "entityType": "columns",
       "schema": "public",
       "table": "project"

@@ -18,7 +18,7 @@ export interface ApiModelProviderMapping {
 	createdAt: string;
 	modelId: string;
 	providerId: string;
-	modelName: string;
+	externalId: string;
 	region?: string | null;
 	inputPrice: string | null;
 	outputPrice: string | null;
@@ -35,6 +35,7 @@ export interface ApiModelProviderMapping {
 	streaming: boolean;
 	vision: boolean | null;
 	audio: boolean | null;
+	document: boolean | null;
 	reasoning: boolean | null;
 	reasoningOutput: string | null;
 	tools: boolean | null;

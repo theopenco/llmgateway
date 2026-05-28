@@ -102,7 +102,7 @@ export function providerRetryKey(providerId: string, region?: string): string {
 /**
  * Selects the next-best provider from the scored provider list,
  * excluding any providers that have already been tried and failed.
- * Returns the provider mapping with providerId and modelName, or null if none available.
+ * Returns the provider mapping with providerId and externalId, or null if none available.
  * When region is present on scores, uses composite providerId:region keys for deduplication.
  */
 export function selectNextProvider(
@@ -115,10 +115,10 @@ export function selectNextProvider(
 	failedProviders: Set<string>,
 	modelProviders: Array<{
 		providerId: string;
-		modelName: string;
+		externalId: string;
 		region?: string;
 	}>,
-): { providerId: string; modelName: string; region?: string } | null {
+): { providerId: string; externalId: string; region?: string } | null {
 	const sorted = [...providerScores].sort((a, b) => a.score - b.score);
 	for (const score of sorted) {
 		if (score.excludedByContentFilter) {
