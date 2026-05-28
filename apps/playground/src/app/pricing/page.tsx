@@ -19,7 +19,7 @@ export default async function PricingPage() {
 		<main className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
 			<header className="mb-12 text-center">
 				<h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
-					Three plans. Every frontier model.
+					Three plans. Frontier models on Plus and Pro.
 				</h1>
 				<p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground sm:text-lg">
 					Subscribe and get <strong>3× the credits for your dollar</strong>.

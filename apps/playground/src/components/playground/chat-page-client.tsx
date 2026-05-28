@@ -875,8 +875,10 @@ export default function ChatPageClient({
 		undefined,
 		{ enabled: !!user, staleTime: 30_000 },
 	);
+	const isChatPlanStatusLoaded = chatPlanStatus !== undefined;
 	const hasChatPlanCredits =
-		chatPlanStatus && Number(chatPlanStatus.chatPlanCreditsRemaining) > 0;
+		isChatPlanStatusLoaded &&
+		Number(chatPlanStatus.chatPlanCreditsRemaining) > 0;
 	const updateMessage = useUpdateMessage();
 	const deleteChat = useDeleteChat();
 	const deleteComparisonChat = useDeleteChat({ silent: true });
@@ -1165,6 +1167,7 @@ export default function ChatPageClient({
 		if (
 			selectedOrganization &&
 			Number(selectedOrganization.credits) <= 0 &&
+			isChatPlanStatusLoaded &&
 			!hasChatPlanCredits
 		) {
 			setShowTopUp(true);
@@ -1341,6 +1344,7 @@ export default function ChatPageClient({
 		if (
 			selectedOrganization &&
 			Number(selectedOrganization.credits) <= 0 &&
+			isChatPlanStatusLoaded &&
 			!hasChatPlanCredits
 		) {
 			setShowTopUp(true);

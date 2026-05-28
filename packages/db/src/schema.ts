@@ -222,7 +222,11 @@ export const organization = pgTable(
 		index("organization_dev_plan_card_fingerprint_idx").on(
 			table.devPlanCardFingerprint,
 		),
-		index("organization_chat_plan_card_fingerprint_idx").on(
+		// Unique so the one-card-one-org rule holds even if concurrent webhook
+		// handlers race past the application-level dedupe check. NULLs (orgs
+		// without a chat plan) are distinct in Postgres, so this only constrains
+		// active fingerprints.
+		uniqueIndex("organization_chat_plan_card_fingerprint_uidx").on(
 			table.chatPlanCardFingerprint,
 		),
 	],

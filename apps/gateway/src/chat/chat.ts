@@ -1869,6 +1869,16 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Starter chat plan can't reach blocked frontier models. Enforce it
+			// during auto-selection too, otherwise an "auto" request would skip
+			// the pre-routing check above and resolve to a blocked model.
+			if (
+				isStarterChatPlan &&
+				!isChatPlanModelAllowed("starter", modelDef.id)
+			) {
+				continue;
+			}
+
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
 			if (free_models_only) {

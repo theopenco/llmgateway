@@ -2932,6 +2932,9 @@ async function handleSubscriptionDeleted(
 				chatPlanExpiresAt: null,
 				chatPlanCancelled: false,
 				chatPlanBillingCycleStart: null,
+				// Release the card so the dedupe query no longer matches this
+				// ended org and the same card can claim a new chat plan.
+				chatPlanCardFingerprint: null,
 			})
 			.where(eq(tables.organization.id, organizationId));
 

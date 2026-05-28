@@ -155,10 +155,11 @@ chatPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
-	try {
-		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
-		const session = await getStripe().checkout.sessions.create({
+	let session;
+	try {
+		session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
 			mode: "subscription",
 			line_items: [
@@ -187,36 +188,39 @@ chatPlans.openapi(subscribe, async (c) => {
 				},
 			},
 		});
-
-		if (!session.url) {
-			throw new HTTPException(500, {
-				message: "Failed to generate checkout URL",
-			});
-		}
-
-		await logAuditEvent({
-			organizationId: personalOrg.id,
-			userId: user.id,
-			action: "chat_plan.subscribe",
-			resourceType: "chat_plan",
-			metadata: {
-				tier,
-				cycle,
-			},
-		});
-
-		return c.json({
-			checkoutUrl: session.url,
-		});
 	} catch (error) {
+		// Only Stripe's checkout call is wrapped: log the upstream failure and
+		// surface a generic message rather than echoing the raw error to the
+		// client. HTTPExceptions raised below propagate to the global handler.
 		logger.error(
 			"Stripe checkout session error for chat plan",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: `Failed to create checkout session: ${error}`,
+			message: "Failed to create checkout session",
 		});
 	}
+
+	if (!session.url) {
+		throw new HTTPException(500, {
+			message: "Failed to generate checkout URL",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "chat_plan.subscribe",
+		resourceType: "chat_plan",
+		metadata: {
+			tier,
+			cycle,
+		},
+	});
+
+	return c.json({
+		checkoutUrl: session.url,
+	});
 });
 
 const cancel = createRoute({

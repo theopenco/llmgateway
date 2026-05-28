@@ -26,10 +26,14 @@ export function getChatPlanAnnualMonthlyPrice(tier: ChatPlanTier): number {
 	return Math.round((getChatPlanAnnualPrice(tier) / 12) * 100) / 100;
 }
 
+export const CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER = 3;
+
 export function getChatPlanCreditsLimit(tier: ChatPlanTier): number {
-	const multiplier = parseFloat(
-		process.env.CHAT_PLAN_CREDITS_MULTIPLIER ?? "3",
-	);
+	const parsed = parseFloat(process.env.CHAT_PLAN_CREDITS_MULTIPLIER ?? "");
+	const multiplier =
+		Number.isFinite(parsed) && parsed > 0
+			? parsed
+			: CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER;
 	return CHAT_PLAN_PRICES[tier] * multiplier;
 }
 
