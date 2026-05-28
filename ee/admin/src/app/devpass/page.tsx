@@ -482,8 +482,18 @@ export default async function DevpassPage({
 						<Wallet className="h-3.5 w-3.5" />
 						Gross MRR
 					</div>
-					<div className="mt-2 text-2xl font-semibold tabular-nums">
-						{currencyFormatter.format(kpis.grossMrr)}
+					<div className="mt-2 flex items-baseline gap-2">
+						<span className="text-2xl font-semibold tabular-nums">
+							{currencyFormatter.format(kpis.grossMrr)}
+						</span>
+						{kpis.committedMrr !== kpis.grossMrr ? (
+							<span
+								className="rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-amber-600 dark:text-amber-400"
+								title="Committed MRR — excludes subs flagged to cancel at period end"
+							>
+								{currencyFormatter.format(kpis.committedMrr)} committed
+							</span>
+						) : null}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
 						Net new this month:{" "}

@@ -8520,6 +8520,7 @@ const devpassKpisSchema = z.object({
 	cancelledPending: z.number(),
 	churned: z.number(),
 	grossMrr: z.number(),
+	committedMrr: z.number(),
 	startsThisMonth: z.number(),
 	endsThisMonth: z.number(),
 	netNewThisMonth: z.number(),
@@ -9026,35 +9027,39 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const [countRow] = await countSelect.where(whereClause);
 	const total = Number(countRow?.count ?? 0);
 
-	// KPI strip — counts committed subscribers only, excluding cancel-at-period-end.
-	// Once a subscription is flagged to cancel, Stripe still bills it until the
-	// period ends, but it should NOT count toward committed MRR / active subs in
-	// the dashboard — it's already churned in intent. The `cancelledPending`
-	// count below breaks out the to-be-churned subs as a separate KPI so admins
-	// can still see impending churn.
+	// KPI strip — counts the full active subscriber base, matching Stripe's
+	// "active" filter which includes cancel-at-period-end subs until the period
+	// actually ends. `grossMrr` is the Stripe-aligned figure (what will be
+	// invoiced this period). `committedMrr` excludes subs flagged to cancel,
+	// representing the forward-looking MRR after impending churn lands.
 	const activeRows = await db
 		.select({
 			tier: tables.organization.devPlan,
+			cancelled: tables.organization.devPlanCancelled,
 			count: sql<number>`COUNT(*)`,
 		})
 		.from(tables.organization)
 		.where(
 			and(
 				ne(tables.organization.devPlan, "none"),
-				eq(tables.organization.devPlanCancelled, false),
 				or(
 					isNull(tables.organization.devPlanExpiresAt),
 					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
 				)!,
 			),
 		)
-		.groupBy(tables.organization.devPlan);
+		.groupBy(tables.organization.devPlan, tables.organization.devPlanCancelled);
 
 	const activeByTier = { lite: 0, pro: 0, max: 0 };
+	const cancellingByTier = { lite: 0, pro: 0, max: 0 };
 	for (const r of activeRows) {
 		const tierKey = r.tier as keyof typeof activeByTier;
 		if (tierKey in activeByTier) {
-			activeByTier[tierKey] = Number(r.count);
+			const n = Number(r.count);
+			activeByTier[tierKey] += n;
+			if (r.cancelled) {
+				cancellingByTier[tierKey] += n;
+			}
 		}
 	}
 	const totalActive = activeByTier.lite + activeByTier.pro + activeByTier.max;
@@ -9062,21 +9067,13 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const proMrr = activeByTier.pro * DEV_PLAN_PRICES.pro;
 	const maxMrr = activeByTier.max * DEV_PLAN_PRICES.max;
 	const grossMrr = liteMrr + proMrr + maxMrr;
-
-	const [cancelledPendingRow] = await db
-		.select({ count: sql<number>`COUNT(*)` })
-		.from(tables.organization)
-		.where(
-			and(
-				ne(tables.organization.devPlan, "none"),
-				eq(tables.organization.devPlanCancelled, true),
-				or(
-					isNull(tables.organization.devPlanExpiresAt),
-					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
-				)!,
-			),
-		);
-	const cancelledPending = Number(cancelledPendingRow?.count ?? 0);
+	const cancellingLiteMrr = cancellingByTier.lite * DEV_PLAN_PRICES.lite;
+	const cancellingProMrr = cancellingByTier.pro * DEV_PLAN_PRICES.pro;
+	const cancellingMaxMrr = cancellingByTier.max * DEV_PLAN_PRICES.max;
+	const cancellingMrr = cancellingLiteMrr + cancellingProMrr + cancellingMaxMrr;
+	const committedMrr = grossMrr - cancellingMrr;
+	const cancelledPending =
+		cancellingByTier.lite + cancellingByTier.pro + cancellingByTier.max;
 
 	const [churnedRow] = await db
 		.select({
@@ -9228,6 +9225,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cancelledPending,
 			churned,
 			grossMrr,
+			committedMrr,
 			startsThisMonth,
 			endsThisMonth,
 			netNewThisMonth: startsThisMonth - endsThisMonth,

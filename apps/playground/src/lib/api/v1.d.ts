@@ -5702,6 +5702,7 @@ export interface paths {
                                 cancelledPending: number;
                                 churned: number;
                                 grossMrr: number;
+                                committedMrr: number;
                                 startsThisMonth: number;
                                 endsThisMonth: number;
                                 netNewThisMonth: number;
