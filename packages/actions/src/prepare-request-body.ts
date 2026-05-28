@@ -740,6 +740,7 @@ export async function prepareRequestBody(
 	useResponsesApi?: boolean,
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
+	providerCacheControlEnabled = true,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 
@@ -1020,21 +1021,31 @@ export async function prepareRequestBody(
 		processedMessages = transformMessagesForNoSystemRole(messages);
 	}
 
-	// Strip Anthropic-style cache_control markers from text content parts when
-	// the resolved provider doesn't natively understand them. The Anthropic and
-	// AWS Bedrock branches below transform/forward cache_control on their own;
-	// Alibaba accepts `cache_control: {type: "ephemeral"}` on its OpenAI-compatible
-	// surface but supports only a fixed 5-minute TTL, so any Anthropic-style
-	// `ttl: "1h"` must be normalized away before forwarding. Every other provider
-	// receives the raw `processedMessages` and would otherwise pass an unknown
-	// field through to OpenAI/Google/etc., risking a 400 from strict providers
-	// and confusing logs from lenient ones.
+	// Strip Anthropic-style cache_control markers from caller-supplied content
+	// parts. We do this in two cases:
+	//   1) The resolved provider doesn't natively understand cache_control —
+	//      strip from text blocks so we don't forward an unknown field that
+	//      strict providers (OpenAI, Google, etc.) would 400 on.
+	//   2) The project has opted out of provider cache writes via
+	//      providerCacheControlEnabled=false — strip from ALL content blocks
+	//      so we honor the user's intent that this project never writes to
+	//      provider cache. This covers callers that always emit cache_control
+	//      markers regardless of the user's usage pattern (Claude Code, Cursor,
+	//      Cline, etc.). Without this, a coding agent on a sparse-use account
+	//      would still pay the 1.25× / 2× cache-write premium because the
+	//      agent's markers would flow through unchanged.
+	// Anthropic and AWS Bedrock branches below transform/forward markers on
+	// their own; Alibaba accepts `cache_control: {type: "ephemeral"}` on its
+	// OpenAI-compatible surface but supports only a fixed 5-minute TTL, so any
+	// Anthropic-style `ttl: "1h"` must be normalized away before forwarding.
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
-	if (!providerHandlesCacheControl) {
+	const stripAllCacheControl = !providerCacheControlEnabled;
+	const stripTextCacheControl = !providerHandlesCacheControl;
+	if (stripAllCacheControl || stripTextCacheControl) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
 				return m;
@@ -1045,8 +1056,8 @@ export async function prepareRequestBody(
 				if (
 					asRecord &&
 					typeof asRecord === "object" &&
-					asRecord.type === "text" &&
-					asRecord.cache_control !== undefined
+					asRecord.cache_control !== undefined &&
+					(stripAllCacheControl || asRecord.type === "text")
 				) {
 					mutated = true;
 					const { cache_control: _ignored, ...rest } = asRecord;
@@ -1642,6 +1653,7 @@ export async function prepareRequestBody(
 						}
 
 						const shouldCache =
+							providerCacheControlEnabled &&
 							text.length >= minCacheableChars &&
 							systemCacheControlCount < maxCacheControlBlocks;
 
@@ -1682,6 +1694,7 @@ export async function prepareRequestBody(
 				userPlan,
 				systemCacheControlCount, // Pass count to respect the 4 block limit
 				minCacheableChars, // Model-specific minimum cacheable characters
+				providerCacheControlEnabled,
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -1912,6 +1925,7 @@ export async function prepareRequestBody(
 					}
 
 					const shouldHeuristicCache =
+						providerCacheControlEnabled &&
 						!callerSetBedrockCacheControl &&
 						block.text.length >= bedrockMinCacheableChars &&
 						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
@@ -2014,6 +2028,7 @@ export async function prepareRequestBody(
 
 						// Add cachePoint as separate block for long user messages (model-specific threshold)
 						const shouldCache =
+							providerCacheControlEnabled &&
 							msg.content.length >= bedrockMinCacheableChars &&
 							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
@@ -2043,6 +2058,7 @@ export async function prepareRequestBody(
 									// Add cachePoint as separate block for long text parts
 									// (model-specific threshold)
 									const shouldCache =
+										providerCacheControlEnabled &&
 										part.text.length >= bedrockMinCacheableChars &&
 										bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
@@ -2070,7 +2086,7 @@ export async function prepareRequestBody(
 			// the entire conversation prefix (all prior turns) so only the
 			// newest user message is uncached. This mirrors the Anthropic
 			// turn-boundary logic in transformAnthropicMessages.
-			if (bedrockMessages.length >= 3) {
+			if (providerCacheControlEnabled && bedrockMessages.length >= 3) {
 				let lastUserIdx = -1;
 				for (let i = bedrockMessages.length - 1; i >= 0; i--) {
 					if (bedrockMessages[i].role === "user") {

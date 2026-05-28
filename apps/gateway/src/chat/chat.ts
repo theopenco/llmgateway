@@ -3790,10 +3790,13 @@ chat.openapi(completions, async (c) => {
 	// Check if caching is enabled for this project. Dev plan orgs never get
 	// gateway-level response caching — the feature is offered only on regular
 	// (non-devpass) organizations.
-	const { enabled: cachingEnabled, duration: cacheDuration } =
-		organization.devPlan !== "none"
-			? { enabled: false, duration: 0 }
-			: await isCachingEnabled(project.id);
+	const {
+		enabled: projectCachingEnabled,
+		duration: cacheDuration,
+		providerCacheControlEnabled,
+	} = await isCachingEnabled(project.id);
+	const cachingEnabled =
+		organization.devPlan !== "none" ? false : projectCachingEnabled;
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
@@ -4413,6 +4416,7 @@ chat.openapi(completions, async (c) => {
 			useResponsesApi,
 			prompt_cache_key,
 			prompt_cache_retention,
+			providerCacheControlEnabled,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -4628,6 +4632,7 @@ chat.openapi(completions, async (c) => {
 				webSearchEnabled: !!webSearchTool,
 				excludedEnvKeyIndices: failedEnvKeyIndicesByProvider.get(retryKey),
 				excludedProviderKeyIds: failedTrackedKeyIdsByProvider.get(retryKey),
+				providerCacheControlEnabled,
 			},
 		);
 	}
