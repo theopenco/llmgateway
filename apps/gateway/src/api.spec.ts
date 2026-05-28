@@ -4251,14 +4251,6 @@ describe("api", () => {
 				createdBy: "user-id",
 			});
 
-			// Only an azure key. For gpt-4.1, both openai (supportsN=true)
-			// and azure (no supportsN) mappings are alive at runtime. Without
-			// the routing-time filter, routing would pick the azure mapping
-			// (the only one available given the keys) and the request would
-			// then be rejected by the post-selection supportsN guard with
-			// "does not support the n parameter for multiple choices". With
-			// the filter, that mapping is excluded at selection time so the
-			// caller sees the generic "no provider available" message instead.
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-route-exclude-azure",
 				token: "sk-test-key-azure",
