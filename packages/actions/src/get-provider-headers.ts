@@ -73,6 +73,7 @@ export function getProviderHeaders(
 		case "alibaba":
 		case "nebius":
 		case "zai":
+		case "canopywave":
 		case "embercloud":
 		case "deepinfra":
 		case "custom":

@@ -305,6 +305,9 @@ export function getProviderEndpoint(
 				url = `https://${resource}.services.ai.azure.com`;
 				break;
 			}
+			case "canopywave":
+				url = "https://inference.canopywave.io";
+				break;
 			case "embercloud":
 				url = "https://api.embercloud.ai";
 				break;
@@ -558,6 +561,7 @@ export function getProviderEndpoint(
 		case "moonshot":
 		case "nebius":
 		case "nanogpt":
+		case "canopywave":
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
