@@ -4118,6 +4118,90 @@ describe("api", () => {
 			expect(json.error?.param).toBe("n");
 		});
 
+		test("does not reject n > 1 + stream when the only tool entry is native web_search", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-stream-websearch-tool",
+				token: "real-token-n-stream-websearch-tool",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-stream-websearch-tool",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// gpt-4o supports web_search natively AND has supportsN: true. The
+			// native web_search tool is handled upstream and does not flow
+			// through the per-choice streaming tool-call aggregator, so n > 1 +
+			// stream must NOT trip the function-tool collision guard when it's
+			// the only tool present.
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-stream-websearch-tool",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					n: 3,
+					stream: true,
+					tools: [{ type: "web_search" }],
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			if (res.status !== 200) {
+				const body = await res.text();
+				expect(body).not.toContain("unsupported_parameter_combination");
+			}
+		});
+
+		test("does not reject n > 1 + stream with web_search: true flag", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-stream-websearch-flag",
+				token: "real-token-n-stream-websearch-flag",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-stream-websearch-flag",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// `web_search: true` auto-injects a web_search tool entry before the
+			// guard runs. That entry must not trip the function-tool collision
+			// check.
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-stream-websearch-flag",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					n: 3,
+					stream: true,
+					web_search: true,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			if (res.status !== 200) {
+				const body = await res.text();
+				expect(body).not.toContain("unsupported_parameter_combination");
+			}
+		});
+
 		test("n=1 is accepted and forwarded without altering choice count", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-one",

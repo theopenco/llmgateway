@@ -1168,23 +1168,30 @@ chat.openapi(completions, async (c) => {
 	let reasoning_effort =
 		reasoning_object_effort ?? validationResult.data.reasoning_effort;
 
-	// Reject n > 1 with streaming + tools: the streaming tool-call aggregator
-	// keys deltas only by tc.index (the tool position within a choice), so
-	// concurrent function calls across choices would collide. n > 1 with
-	// streaming text-only output is fully supported.
-	if (n !== undefined && n > 1 && stream && tools && tools.length > 0) {
-		return c.json(
-			{
-				error: {
-					message:
-						"The `n` parameter with values greater than 1 is not supported in combination with `stream: true` and `tools`. Use streaming without tools, send a non-streaming request, or call the API multiple times.",
-					type: "invalid_request_error",
-					param: "n",
-					code: "unsupported_parameter_combination",
+	// Reject n > 1 with streaming + function tools: the streaming tool-call
+	// aggregator keys deltas only by tc.index (the tool position within a
+	// choice), so concurrent function calls across choices would collide.
+	// Native web_search tools (and the web_search: true flag) don't flow
+	// through that aggregator — they're handled upstream — so they're
+	// exempt. n > 1 with streaming text-only output is fully supported.
+	if (n !== undefined && n > 1 && stream && tools) {
+		const functionToolsCount = tools.filter(
+			(t: { type: string }) => t.type !== "web_search",
+		).length;
+		if (functionToolsCount > 0) {
+			return c.json(
+				{
+					error: {
+						message:
+							"The `n` parameter with values greater than 1 is not supported in combination with `stream: true` and function tools. Use streaming without function tools, send a non-streaming request, or call the API multiple times.",
+						type: "invalid_request_error",
+						param: "n",
+						code: "unsupported_parameter_combination",
+					},
 				},
-			},
-			400,
-		);
+				400,
+			);
+		}
 	}
 
 	// Check if messages contain images for vision capability filtering
