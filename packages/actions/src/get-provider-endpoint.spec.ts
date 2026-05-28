@@ -398,6 +398,28 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
+		it("ignores LLM_GOOGLE_VERTEX_TOKEN_TYPE env var when skipEnvVars is true", () => {
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+			const endpoint = getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-pro",
+				"AIzaSyExample",
+				false,
+				undefined,
+				undefined,
+				undefined, // no providerKeyOptions
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toContain("?key=AIzaSyExample");
+		});
+
 		it("uses hardcoded default for openai regardless of skipEnvVars", () => {
 			const endpoint = getProviderEndpoint(
 				"openai",

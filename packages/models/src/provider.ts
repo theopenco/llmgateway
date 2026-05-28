@@ -101,6 +101,7 @@ export function resolveVertexTokenType(
 	provider: "google-vertex" | "quartz",
 	providerKeyOptions?: VertexTokenTypeOptions,
 	configIndex?: number,
+	skipEnvVars?: boolean,
 ): VertexTokenType {
 	const optionValue =
 		provider === "google-vertex"
@@ -109,9 +110,11 @@ export function resolveVertexTokenType(
 	if (optionValue === "api-key" || optionValue === "oauth") {
 		return optionValue;
 	}
-	const envValue = getProviderEnvValue(provider, "tokenType", configIndex);
-	if (envValue === "api-key" || envValue === "oauth") {
-		return envValue;
+	if (!skipEnvVars) {
+		const envValue = getProviderEnvValue(provider, "tokenType", configIndex);
+		if (envValue === "api-key" || envValue === "oauth") {
+			return envValue;
+		}
 	}
 	return "api-key";
 }
