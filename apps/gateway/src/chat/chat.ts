@@ -370,6 +370,7 @@ function filterEligibleModelProviders(
 		audioFormats?: string[];
 		maxTokens?: number;
 		reasoningEffort?: string;
+		n?: number;
 	},
 ): ProviderModelMapping[] {
 	return availableModelProviders.filter((provider) => {
@@ -388,6 +389,17 @@ function filterEligibleModelProviders(
 		}
 
 		if (options.webSearchTool && provider.webSearch !== true) {
+			return false;
+		}
+
+		// Exclude mappings that can't natively serve n > 1 so routing skips
+		// over them instead of selecting one and failing the post-selection
+		// supportsN guard. The post-guard stays as a safety net.
+		if (
+			options.n !== undefined &&
+			options.n > 1 &&
+			provider.supportsN !== true
+		) {
 			return false;
 		}
 
@@ -1960,6 +1972,13 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				// Skip mappings that don't advertise supportsN when n > 1 so
+				// auto-routing doesn't pick one and trip the post-selection
+				// 400 guard. The post-guard stays as a safety net.
+				if (n !== undefined && n > 1 && provider.supportsN !== true) {
+					return false;
+				}
+
 				// Check JSON output capability if json_object or json_schema response format is requested
 				if (
 					response_format?.type === "json_object" ||
@@ -2233,6 +2252,7 @@ chat.openapi(completions, async (c) => {
 					audioFormats,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -2551,6 +2571,7 @@ chat.openapi(completions, async (c) => {
 						audioFormats,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
+						n,
 					},
 				).filter(
 					(provider) =>
@@ -2732,6 +2753,7 @@ chat.openapi(completions, async (c) => {
 					audioFormats,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -2978,6 +3000,7 @@ chat.openapi(completions, async (c) => {
 					audioFormats,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 

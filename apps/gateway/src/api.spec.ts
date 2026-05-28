@@ -4237,6 +4237,51 @@ describe("api", () => {
 			expect(json.choices).toHaveLength(1);
 		});
 
+		test("routing excludes mappings without supportsN at selection time", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-route-exclude",
+				token: "real-token-n-route-exclude",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			// Only an azure key. For gpt-4.1, both openai (supportsN=true)
+			// and azure (no supportsN) mappings are alive at runtime. Without
+			// the routing-time filter, routing would pick the azure mapping
+			// (the only one available given the keys) and the request would
+			// then be rejected by the post-selection supportsN guard with
+			// "does not support the n parameter for multiple choices". With
+			// the filter, that mapping is excluded at selection time so the
+			// caller sees the generic "no provider available" message instead.
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-route-exclude-azure",
+				token: "sk-test-key-azure",
+				provider: "azure",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-route-exclude",
+				},
+				body: JSON.stringify({
+					model: "gpt-4.1",
+					n: 3,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const text = await res.text();
+			expect(text).not.toContain(
+				"does not support the n parameter for multiple choices",
+			);
+		});
+
 		test("retry path forwards n to fallback provider key (TRIGGER_FAIL_ONCE)", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-retry",
