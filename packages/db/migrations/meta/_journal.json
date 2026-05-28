@@ -974,6 +974,13 @@
       "when": 1779595029456,
       "tag": "1779595029_hesitant_dark_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "8",
+      "when": 1779982291775,
+      "tag": "1779982291_outgoing_wither",
+      "breakpoints": true
     }
   ]
 }
