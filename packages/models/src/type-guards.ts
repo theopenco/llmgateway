@@ -15,9 +15,9 @@ export function isProviderModelMapping(
 		typeof obj === "object" &&
 		obj !== null &&
 		"providerId" in obj &&
-		"modelName" in obj &&
+		"externalId" in obj &&
 		typeof (obj as any).providerId === "string" &&
-		typeof (obj as any).modelName === "string"
+		typeof (obj as any).externalId === "string"
 	);
 }
 

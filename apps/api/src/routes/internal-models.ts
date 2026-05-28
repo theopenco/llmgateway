@@ -44,7 +44,7 @@ const modelProviderMappingSchema = z.object({
 	createdAt: z.coerce.date(),
 	modelId: z.string(),
 	providerId: z.string(),
-	modelName: z.string(),
+	externalId: z.string(),
 	region: z.string().nullable(),
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),

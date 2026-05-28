@@ -684,6 +684,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -708,6 +709,7 @@ export interface paths {
                         name: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -729,6 +731,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -855,6 +858,7 @@ export interface paths {
                         name?: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                         /** @enum {string} */
@@ -878,6 +882,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -4434,7 +4439,7 @@ export interface paths {
                             };
                             models: {
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 mappingId: string;
                                 region: string | null;
                                 status: string;
@@ -4492,7 +4497,7 @@ export interface paths {
                             mapping: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 providerId: string;
                                 providerName: string;
                                 region: string | null;
@@ -4866,7 +4871,7 @@ export interface paths {
                             mappings: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 providerId: string;
                                 providerName: string;
@@ -5712,6 +5717,7 @@ export interface paths {
                                 cancelledPending: number;
                                 churned: number;
                                 grossMrr: number;
+                                committedMrr: number;
                                 startsThisMonth: number;
                                 endsThisMonth: number;
                                 netNewThisMonth: number;
@@ -7145,6 +7151,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7220,6 +7227,7 @@ export interface paths {
                         name?: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -7242,6 +7250,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7299,6 +7308,7 @@ export interface paths {
                         organizationId: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -7320,6 +7330,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -8024,6 +8035,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -11656,7 +11668,7 @@ export interface operations {
                                 createdAt: string | null;
                                 modelId: string;
                                 providerId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;

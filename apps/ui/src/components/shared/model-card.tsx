@@ -68,7 +68,7 @@ export function ModelCard({ modelName, providers }: ModelCardProps) {
 							{modelName}
 						</CardTitle>
 						<CardDescription className="text-xs">
-							{provider.modelName}
+							{provider.externalId}
 						</CardDescription>
 					</div>
 				</div>

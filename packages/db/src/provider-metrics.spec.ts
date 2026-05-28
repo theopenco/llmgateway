@@ -61,14 +61,14 @@ describe("provider-metrics", () => {
 				id: "mapping-1",
 				modelId: "gpt-4",
 				providerId: "openai",
-				modelName: "gpt-4",
+				externalId: "gpt-4",
 				status: "active",
 			},
 			{
 				id: "mapping-2",
 				modelId: "claude-3-5-sonnet",
 				providerId: "anthropic",
-				modelName: "claude-3-5-sonnet-20241022",
+				externalId: "claude-3-5-sonnet-20241022",
 				status: "active",
 			},
 		]);

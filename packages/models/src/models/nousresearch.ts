@@ -10,7 +10,7 @@ export const nousresearchModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "NousResearch/Hermes-3-Llama-405B",
+				externalId: "NousResearch/Hermes-3-Llama-405B",
 				inputPrice: "1.0e-6",
 				outputPrice: "3.0e-6",
 				requestPrice: "0",
@@ -34,7 +34,7 @@ export const nousresearchModels = [
 			{
 				providerId: "novita",
 				stability: "unstable",
-				modelName: "nousresearch/hermes-2-pro-llama-3-8b",
+				externalId: "nousresearch/hermes-2-pro-llama-3-8b",
 				inputPrice: "0.14e-6",
 				outputPrice: "0.14e-6",
 				requestPrice: "0",

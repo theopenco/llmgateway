@@ -18,7 +18,7 @@ export interface ApiModelProviderMapping {
 	createdAt: string;
 	modelId: string;
 	providerId: string;
-	modelName: string;
+	externalId: string;
 	region?: string | null;
 	inputPrice: string | null;
 	outputPrice: string | null;

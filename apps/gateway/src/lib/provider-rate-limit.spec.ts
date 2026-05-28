@@ -280,11 +280,11 @@ describe("pickNonRateLimitedCandidates", () => {
 		]);
 
 		const result = await pickNonRateLimitedCandidates("org-1", "glm-4.7", [
-			{ providerId: "together-ai", modelName: "glm-4.7" },
-			{ providerId: "cerebras", modelName: "glm-4.7" },
+			{ providerId: "together-ai", externalId: "glm-4.7" },
+			{ providerId: "cerebras", externalId: "glm-4.7" },
 		]);
 
-		expect(result).toEqual([{ providerId: "cerebras", modelName: "glm-4.7" }]);
+		expect(result).toEqual([{ providerId: "cerebras", externalId: "glm-4.7" }]);
 	});
 
 	it("fails open when every candidate is rate-limited", async () => {
@@ -297,8 +297,8 @@ describe("pickNonRateLimitedCandidates", () => {
 			.mockResolvedValueOnce(["m2", Date.now().toString()]);
 
 		const candidates = [
-			{ providerId: "together-ai", modelName: "glm-4.7" },
-			{ providerId: "cerebras", modelName: "glm-4.7" },
+			{ providerId: "together-ai", externalId: "glm-4.7" },
+			{ providerId: "cerebras", externalId: "glm-4.7" },
 		];
 		const result = await pickNonRateLimitedCandidates(
 			"org-1",
@@ -316,9 +316,9 @@ describe("pickNonRateLimitedCandidates", () => {
 		vi.mocked(redis.zcard).mockResolvedValueOnce(0);
 
 		const candidates = [
-			{ providerId: "alibaba", modelName: "glm-4.6", region: "singapore" },
-			{ providerId: "alibaba", modelName: "glm-4.6", region: "cn-beijing" },
-			{ providerId: "alibaba", modelName: "glm-4.6", region: "us-east-1" },
+			{ providerId: "alibaba", externalId: "glm-4.6", region: "singapore" },
+			{ providerId: "alibaba", externalId: "glm-4.6", region: "cn-beijing" },
+			{ providerId: "alibaba", externalId: "glm-4.6", region: "us-east-1" },
 		];
 		const result = await pickNonRateLimitedCandidates(
 			"org-1",

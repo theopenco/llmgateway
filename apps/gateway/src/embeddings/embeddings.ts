@@ -215,7 +215,7 @@ function findEmbeddingMapping(modelId: string): {
 			if (requestedProvider && candidate.providerId !== requestedProvider) {
 				continue;
 			}
-			if (model.id === modelKey || candidate.modelName === modelKey) {
+			if (model.id === modelKey || candidate.externalId === modelKey) {
 				return { mapping: candidate, modelDef: model, modelDefId: model.id };
 			}
 		}
@@ -447,7 +447,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	}
 
 	const { mapping, modelDef, modelDefId } = match;
-	const upstreamModel = mapping.modelName;
+	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
 
 	const isTokenIdInput = (() => {

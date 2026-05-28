@@ -230,7 +230,7 @@ interface ChatPageClientProps {
 function parseModelSelectorValue(value: string): {
 	providerId: string;
 	modelId: string;
-	providerModelName: string;
+	region: string | undefined;
 } {
 	const [providerId, rawModelId] = value.includes("/")
 		? (value.split("/") as [string, string])
@@ -240,20 +240,20 @@ function parseModelSelectorValue(value: string): {
 	return {
 		providerId,
 		modelId: colonIndex === -1 ? rawModelId : rawModelId.slice(0, colonIndex),
-		providerModelName: rawModelId,
+		region: colonIndex === -1 ? undefined : rawModelId.slice(colonIndex + 1),
 	};
 }
 
 function getSelectedMapping(
 	model: ApiModel,
 	providerId: string,
-	providerModelName: string,
+	region: string | undefined,
 ): ApiModelProviderMapping | undefined {
 	return (
 		model.mappings.find(
 			(mapping) =>
 				mapping.providerId === providerId &&
-				mapping.modelName === providerModelName,
+				(mapping.region ?? undefined) === region,
 		) ?? model.mappings.find((mapping) => mapping.providerId === providerId)
 	);
 }
@@ -627,7 +627,7 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -636,7 +636,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.vision;
 	}, [models, selectedModel]);
 
@@ -652,7 +652,7 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -661,7 +661,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.document;
 	}, [models, selectedModel]);
 
@@ -678,7 +678,7 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -687,7 +687,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -695,7 +695,7 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -704,7 +704,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
@@ -2196,7 +2196,7 @@ function ExtraChatPanel({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -2205,7 +2205,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.vision;
 	}, [models, selectedModel]);
 
@@ -2230,7 +2230,7 @@ function ExtraChatPanel({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -2239,7 +2239,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.document;
 	}, [models, selectedModel]);
 
@@ -2247,7 +2247,7 @@ function ExtraChatPanel({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -2256,7 +2256,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
@@ -2264,7 +2264,7 @@ function ExtraChatPanel({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -2273,7 +2273,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
