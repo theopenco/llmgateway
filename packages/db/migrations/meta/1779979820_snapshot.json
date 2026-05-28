@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "38250040-ca00-473d-97cb-6f92cfca23d0",
+  "id": "a5595da1-8c0d-472d-bd34-c8ba3aa57f79",
   "prevId": "c08b5b50-d6eb-43bd-abee-eca4168286de",
   "ddl": [
     {
@@ -7790,6 +7790,19 @@
       "generated": null,
       "identity": null,
       "name": "external_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "model_name",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -18534,7 +18547,5 @@
       "table": "chat_support_message"
     }
   ],
-  "renames": [
-    "public.model_provider_mapping.model_name->public.model_provider_mapping.external_id"
-  ]
+  "renames": []
 }

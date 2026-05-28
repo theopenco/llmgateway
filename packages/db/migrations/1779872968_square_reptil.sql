@@ -1,1 +1,0 @@
-ALTER TABLE "model_provider_mapping" RENAME COLUMN "model_name" TO "external_id";
