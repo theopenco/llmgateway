@@ -100,7 +100,7 @@ describe("Models", () => {
 						!hasImagePricing(p as ProviderModelMapping) &&
 						!isEmbeddingProvider(p as ProviderModelMapping),
 				);
-				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.modelName} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
+				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.externalId} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
 			});
 			throw new Error(
 				`Models with zero pricing must have free: true:\n${errorDetails.join("\n")}`,
@@ -120,6 +120,8 @@ describe("System Role Handling", () => {
 
 		const requestBody = await prepareRequestBody(
 			"openai",
+			"o1-mini",
+			null,
 			"o1-mini",
 			messages,
 			false, // stream
@@ -152,6 +154,8 @@ describe("System Role Handling", () => {
 
 		const requestBody = await prepareRequestBody(
 			"openai",
+			"gpt-4o-mini",
+			null,
 			"gpt-4o-mini",
 			messages,
 			false, // stream
@@ -193,6 +197,8 @@ describe("System Role Handling", () => {
 		const requestBody = await prepareRequestBody(
 			"openai",
 			"o1-mini",
+			null,
+			"o1-mini",
 			messages,
 			false, // stream
 			undefined, // temperature
@@ -226,6 +232,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-5",
+				null,
+				"gpt-5",
 				messages,
 				false, // stream
 				0.7, // temperature - should be overridden to 1
@@ -247,6 +255,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5-mini models", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5-mini",
+				null,
 				"gpt-5-mini",
 				messages,
 				false, // stream
@@ -270,6 +280,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-5-nano",
+				null,
+				"gpt-5-nano",
 				messages,
 				false, // stream
 				0.9, // temperature - should be overridden to 1
@@ -291,6 +303,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5-chat-latest models", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5-chat-latest",
+				null,
 				"gpt-5-chat-latest",
 				messages,
 				false, // stream
@@ -314,6 +328,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-4o-mini",
+				null,
+				"gpt-4o-mini",
 				messages,
 				false, // stream
 				0.7, // temperature - should remain as-is
@@ -335,6 +351,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5 models with reasoning enabled", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5",
+				null,
 				"gpt-5",
 				messages,
 				false, // stream
@@ -385,7 +403,7 @@ describe("getCheapestModelForProvider", () => {
 				model.providers.some(
 					(p) =>
 						p.providerId === "openai" &&
-						p.modelName === cheapestModel &&
+						p.externalId === cheapestModel &&
 						p.inputPrice !== undefined &&
 						p.outputPrice !== undefined,
 				),
@@ -401,14 +419,14 @@ describe("getCheapestModelForProvider", () => {
 		if (cheapestModel) {
 			const modelWithProvider = models.find((model) =>
 				model.providers.some(
-					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+					(p) => p.providerId === "openai" && p.externalId === cheapestModel,
 				),
 			);
 
 			if (modelWithProvider) {
 				// Check if any provider mapping has a deprecatedAt date
 				const providerMapping = modelWithProvider.providers.find(
-					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+					(p) => p.providerId === "openai" && p.externalId === cheapestModel,
 				) as ProviderModelMapping | undefined;
 				if (providerMapping?.deprecatedAt) {
 					// If the provider mapping has a deprecatedAt date, it should be in the future
@@ -515,7 +533,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				expect(cheapestProvider).toBeDefined();
 				expect(cheapestProvider?.provider).toMatchObject({
 					providerId: expect.any(String),
-					modelName: expect.any(String),
+					externalId: expect.any(String),
 				});
 			}
 		}
@@ -863,7 +881,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					[
 						{
 							providerId: "openai",
-							modelName: "gpt-4o-mini",
+							externalId: "gpt-4o-mini",
 						},
 					],
 					testModel,
@@ -899,7 +917,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					[
 						{
 							providerId: "openai",
-							modelName: "gpt-4o-mini",
+							externalId: "gpt-4o-mini",
 						},
 					],
 					testModel,
@@ -975,7 +993,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			providers: [
 				{
 					providerId: "openai" as const,
-					modelName: "cache-test",
+					externalId: "cache-test",
 					inputPrice: "1.0e-6",
 					outputPrice: "2.0e-6",
 					cachedInputPrice: "0.1e-6",
@@ -983,7 +1001,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				},
 				{
 					providerId: "deepseek" as const,
-					modelName: "cache-test",
+					externalId: "cache-test",
 					inputPrice: "1.0e-6",
 					outputPrice: "2.0e-6",
 					streaming: true as const,
@@ -1060,7 +1078,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				providers: [
 					{
 						providerId: "openai" as const,
-						modelName: "cache-test",
+						externalId: "cache-test",
 						inputPrice: "10.0e-6",
 						outputPrice: "20.0e-6",
 						cachedInputPrice: "1.0e-6",
@@ -1068,7 +1086,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					},
 					{
 						providerId: "deepseek" as const,
-						modelName: "cache-test",
+						externalId: "cache-test",
 						inputPrice: "1.0e-6",
 						outputPrice: "2.0e-6",
 						streaming: true as const,

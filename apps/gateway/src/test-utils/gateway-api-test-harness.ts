@@ -112,7 +112,7 @@ async function ensureRoutingMetricMapping(modelId: string, providerId: string) {
 			id: `${modelId}::${providerId}`,
 			modelId,
 			providerId,
-			modelName: providerMapping.modelName,
+			externalId: providerMapping.externalId,
 			status: "active",
 		})
 		.onConflictDoNothing();

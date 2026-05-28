@@ -1122,6 +1122,7 @@ export const message = pgTable(
 		content: text(), // Made nullable to support image-only messages
 		images: text(), // JSON string to store images array
 		audios: text(), // JSON string to store audio attachments array
+		documents: text(), // JSON string to store document attachments array
 		reasoning: text(), // Reasoning content from AI models
 		tools: text(), // JSON string to store tool call parts
 		metadata: jsonb().$type<Record<string, unknown>>(),
@@ -1307,7 +1308,12 @@ export const modelProviderMapping = pgTable(
 		providerId: text()
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
-		modelName: text().notNull(),
+		externalId: text().notNull(),
+		// Legacy column kept around so in-flight pre-rename code keeps working
+		// during the deploy window between migration and the new code taking
+		// over. Not read or written by current code — a follow-up PR will drop
+		// it once all callers have been upgraded.
+		modelName: text(),
 		region: text(),
 		inputPrice: decimal(),
 		outputPrice: decimal(),

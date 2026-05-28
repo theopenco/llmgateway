@@ -47,6 +47,7 @@ const messageSchema = z.object({
 	content: z.string().nullable(),
 	images: z.string().nullable(), // JSON string
 	audios: z.string().nullable(), // JSON string of audio attachments
+	documents: z.string().nullable().optional(), // JSON string of document attachments
 	reasoning: z.string().nullable(), // Reasoning content
 	tools: z.string().nullable(), // JSON string of tool parts
 	metadata: z.record(z.unknown()).nullable(),
@@ -85,6 +86,7 @@ const orgShareSchema = z.object({
 			content: z.string().nullable(),
 			images: z.string().nullable(),
 			audios: z.string().nullable().optional(),
+			documents: z.string().nullable().optional(),
 			reasoning: z.string().nullable(),
 			tools: z.string().nullable(),
 			metadata: z.record(z.unknown()).nullable().optional(),
@@ -101,6 +103,7 @@ const sharedMessageSnapshotSchema = z.array(
 		content: z.string().nullable(),
 		images: z.string().nullable(),
 		audios: z.string().nullable().optional(),
+		documents: z.string().nullable().optional(),
 		reasoning: z.string().nullable(),
 		tools: z.string().nullable(),
 		metadata: z.record(z.unknown()).nullable().optional(),
@@ -135,6 +138,7 @@ const createMessageSchema = z
 		content: z.string().optional(),
 		images: z.string().optional(), // JSON string
 		audios: z.string().optional(), // JSON string of audio attachments
+		documents: z.string().optional(), // JSON string of document attachments
 		reasoning: z.string().optional(), // Reasoning content
 		tools: z.string().optional(), // Tool parts JSON
 		metadata: z.record(z.unknown()).optional(),
@@ -144,10 +148,11 @@ const createMessageSchema = z
 			data.content ??
 			data.images ??
 			data.audios ??
+			data.documents ??
 			data.reasoning ??
 			data.tools,
 		{
-			message: "Either content, images, or audios must be provided",
+			message: "Either content, images, audios, or documents must be provided",
 		},
 	);
 
@@ -712,7 +717,8 @@ chats.openapi(getChat, async (c) => {
 				role: message.role as "user" | "assistant" | "system",
 				content: message.content,
 				images: message.images,
-				audios: (message as any).audios ?? null,
+				audios: message.audios ?? null,
+				documents: message.documents ?? null,
 				reasoning: message.reasoning,
 				tools: message.tools ?? null,
 				metadata: message.metadata ?? null,
@@ -969,6 +975,7 @@ chats.openapi(shareChat, async (c) => {
 			content: tables.message.content,
 			images: tables.message.images,
 			audios: tables.message.audios,
+			documents: tables.message.documents,
 			reasoning: tables.message.reasoning,
 			tools: tables.message.tools,
 			metadata: tables.message.metadata,
@@ -993,6 +1000,7 @@ chats.openapi(shareChat, async (c) => {
 				content: message.content,
 				images: message.images,
 				audios: message.audios,
+				documents: message.documents,
 				reasoning: message.reasoning,
 				tools: message.tools,
 				metadata: message.metadata,
@@ -1433,6 +1441,7 @@ chats.openapi(forkSharedChat, async (c) => {
 					content: message.content,
 					images: message.images,
 					audios: message.audios ?? null,
+					documents: message.documents ?? null,
 					reasoning: message.reasoning,
 					tools: message.tools,
 					metadata: message.metadata ?? null,
@@ -1724,6 +1733,7 @@ chats.openapi(addMessage, async (c) => {
 			content: body.content ?? null,
 			images: body.images ?? null,
 			audios: body.audios ?? null,
+			documents: body.documents ?? null,
 			reasoning: body.reasoning ?? null,
 			tools: body.tools ?? null,
 			metadata: body.metadata ?? null,
@@ -1744,7 +1754,7 @@ chats.openapi(addMessage, async (c) => {
 				role: newMessage.role as "user" | "assistant" | "system",
 				content: newMessage.content,
 				images: newMessage.images,
-				audios: (newMessage as any).audios ?? null,
+				audios: newMessage.audios ?? null,
 				reasoning: newMessage.reasoning,
 				tools: newMessage.tools ?? null,
 				metadata: newMessage.metadata ?? null,

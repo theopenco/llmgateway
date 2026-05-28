@@ -43,7 +43,7 @@ export interface ApiKey {
 }
 
 export interface ComboboxModel {
-	id: string; // providerId/modelName (value sent to API)
+	id: string; // providerId/modelId[:region] (value sent to API)
 	name?: string; // Friendly model name
 	provider?: string; // Provider display name
 	providerId?: string; // Provider id

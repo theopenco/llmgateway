@@ -1131,7 +1131,7 @@ function generateSeedModelProviderMappings() {
 				id: `${m.id}::${p.providerId}`,
 				modelId: m.id,
 				providerId: p.providerId,
-				modelName: p.modelName,
+				externalId: p.externalId,
 				inputPrice:
 					p.inputPrice !== undefined && p.inputPrice !== null
 						? String(p.inputPrice)

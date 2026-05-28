@@ -155,9 +155,9 @@ describe("shouldRetryAlternateKey", () => {
 
 describe("selectNextProvider", () => {
 	const modelProviders = [
-		{ providerId: "openai", modelName: "gpt-4o" },
-		{ providerId: "anthropic", modelName: "claude-3-5-sonnet" },
-		{ providerId: "google", modelName: "gemini-pro" },
+		{ providerId: "openai", externalId: "gpt-4o" },
+		{ providerId: "anthropic", externalId: "claude-3-5-sonnet" },
+		{ providerId: "google", externalId: "gemini-pro" },
 	];
 
 	it("selects the lowest-scored non-failed provider", () => {
@@ -173,7 +173,7 @@ describe("selectNextProvider", () => {
 			failedProviders,
 			modelProviders,
 		);
-		expect(result).toEqual({ providerId: "openai", modelName: "gpt-4o" });
+		expect(result).toEqual({ providerId: "openai", externalId: "gpt-4o" });
 	});
 
 	it("returns null when all providers have failed", () => {
@@ -222,7 +222,7 @@ describe("selectNextProvider", () => {
 		);
 		expect(result).toEqual({
 			providerId: "anthropic",
-			modelName: "claude-3-5-sonnet",
+			externalId: "claude-3-5-sonnet",
 		});
 	});
 
@@ -241,7 +241,7 @@ describe("selectNextProvider", () => {
 		);
 		expect(result).toEqual({
 			providerId: "anthropic",
-			modelName: "claude-3-5-sonnet",
+			externalId: "claude-3-5-sonnet",
 		});
 	});
 
@@ -252,9 +252,9 @@ describe("selectNextProvider", () => {
 			{ providerId: "openai", score: 0.2 },
 		];
 		const reroutedModelProviders = [
-			{ providerId: "glacier", modelName: "gemini-3-pro-image-preview" },
-			{ providerId: "google", modelName: "gemini-3-pro-image-preview" },
-			{ providerId: "openai", modelName: "gemini-3-pro-image-preview" },
+			{ providerId: "glacier", externalId: "gemini-3-pro-image-preview" },
+			{ providerId: "google", externalId: "gemini-3-pro-image-preview" },
+			{ providerId: "openai", externalId: "gemini-3-pro-image-preview" },
 		];
 
 		const result = selectNextProvider(
@@ -265,7 +265,7 @@ describe("selectNextProvider", () => {
 
 		expect(result).toEqual({
 			providerId: "google",
-			modelName: "gemini-3-pro-image-preview",
+			externalId: "gemini-3-pro-image-preview",
 		});
 	});
 });

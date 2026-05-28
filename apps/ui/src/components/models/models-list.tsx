@@ -100,7 +100,7 @@ export function ModelsList() {
 
 								return (
 									<div
-										key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+										key={`${provider.providerId}-${model.id}-${provider.region ?? ""}`}
 										className="flex items-center gap-1"
 									>
 										<Badge
@@ -161,7 +161,7 @@ export function ModelsList() {
 						<div className="text-sm">
 							{model.providers.map((provider) => (
 								<div
-									key={`${provider.providerId}-${provider.modelName}-${model.id}`}
+									key={`${provider.providerId}-${model.id}-${provider.region ?? ""}`}
 									className="mt-2"
 								>
 									<div className="font-medium">{provider.providerId}:</div>

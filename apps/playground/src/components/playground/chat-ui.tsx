@@ -6,6 +6,7 @@ import {
 	Brain,
 	GlobeIcon,
 	AlertTriangle,
+	FileText,
 	Info,
 	GitFork,
 	Loader2,
@@ -158,6 +159,7 @@ interface ChatUIProps {
 	messages: UIMessage[];
 	supportsImages: boolean;
 	supportsAudio: boolean;
+	supportsDocuments: boolean;
 	supportsImageGen: boolean;
 	sendMessage: (
 		message: UIMessage,
@@ -233,6 +235,12 @@ interface ChatUIProps {
 			mediaType: string;
 			name?: string;
 		}>,
+		documents?: Array<{
+			type: "file";
+			url: string;
+			mediaType: string;
+			name?: string;
+		}>,
 	) => Promise<{ id: string } | undefined>;
 	onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
 	isLoading?: boolean;
@@ -266,15 +274,37 @@ interface ExtractedParts {
 	textParts: string[];
 	imageParts: any[];
 	audioParts: any[];
+	documentParts: any[];
 	toolParts: any[];
 	reasoningContent: string;
 	sourceParts: any[];
+}
+
+function isDocumentMediaType(mediaType: string | null | undefined): boolean {
+	// A "document" is anything that isn't an image or audio. We forward the
+	// MIME to the gateway verbatim and let the provider reject it if it's not
+	// supported — `UnsupportedDocumentFormatError` surfaces those rejections
+	// as a clean 400 with the actual MIME the provider refused.
+	if (!mediaType) {
+		return true;
+	}
+	if (mediaType.startsWith("image/") || mediaType.startsWith("audio/")) {
+		return false;
+	}
+	return true;
+}
+
+function getDocumentMediaType(mediaType: string | null | undefined): string {
+	return mediaType && isDocumentMediaType(mediaType)
+		? mediaType
+		: "application/octet-stream";
 }
 
 function extractMessageParts(parts: any[]): ExtractedParts {
 	const textParts: string[] = [];
 	const imageParts: any[] = [];
 	const audioParts: any[] = [];
+	const documentParts: any[] = [];
 	const toolParts: any[] = [];
 	const reasoningParts: string[] = [];
 	const sourceParts: any[] = [];
@@ -296,6 +326,8 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 			imageParts.push(p);
 		} else if (p.type === "file" && p.mediaType?.startsWith("audio/")) {
 			audioParts.push(p);
+		} else if (p.type === "file" && isDocumentMediaType(p.mediaType)) {
+			documentParts.push(p);
 		}
 	}
 
@@ -303,6 +335,7 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 		textParts,
 		imageParts,
 		audioParts,
+		documentParts,
 		toolParts,
 		reasoningContent: reasoningParts.join(""),
 		sourceParts,
@@ -745,7 +778,7 @@ const UserMessage = memo(
 		onEditCancel?: () => void;
 		onEditConfirm?: (content: string) => Promise<void>;
 	}) => {
-		const { textParts, imageParts, audioParts } = useMemo(
+		const { textParts, imageParts, audioParts, documentParts } = useMemo(
 			() => extractMessageParts(message.parts),
 			[message.parts],
 		);
@@ -866,6 +899,28 @@ const UserMessage = memo(
 										<track kind="captions" />
 									</audio>
 								))}
+							</div>
+						)}
+						{documentParts.length > 0 && (
+							<div className="mt-3 flex flex-wrap gap-2">
+								{documentParts.map((part: any, idx: number) => {
+									const name = part.name ?? part.filename ?? "Document";
+									const mediaType: string = part.mediaType ?? "";
+									return (
+										<a
+											key={idx}
+											href={part.url}
+											download={name}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm hover:bg-muted transition-colors max-w-xs"
+											title={`${name} (${mediaType || "document"})`}
+										>
+											<FileText className="size-4 shrink-0 opacity-70" />
+											<span className="truncate">{name}</span>
+										</a>
+									);
+								})}
 							</div>
 						)}
 					</MessageContent>
@@ -1009,6 +1064,7 @@ export const ChatUI = ({
 	messages,
 	supportsImages,
 	supportsAudio,
+	supportsDocuments,
 	supportsImageGen,
 	sendMessage,
 	selectedModel,
@@ -1215,6 +1271,18 @@ export const ChatUI = ({
 							}))
 					: undefined;
 
+			const documentsToSave =
+				supportsDocuments && files?.length
+					? files
+							.filter((f) => f.url && isDocumentMediaType(f.mediaType))
+							.map((f) => ({
+								type: "file" as const,
+								url: f.url!,
+								mediaType: getDocumentMediaType(f.mediaType),
+								...(f.filename ? { name: f.filename } : {}),
+							}))
+					: undefined;
+
 			if (content.trim()) {
 				parts.push({ type: "text", text: content });
 			}
@@ -1247,6 +1315,19 @@ export const ChatUI = ({
 				}
 			}
 
+			if (supportsDocuments && files?.length) {
+				for (const file of files) {
+					if (file.url && isDocumentMediaType(file.mediaType)) {
+						parts.push({
+							type: "file",
+							url: file.url,
+							mediaType: getDocumentMediaType(file.mediaType),
+							name: file.filename,
+						});
+					}
+				}
+			}
+
 			if (parts.length === 0) {
 				return;
 			}
@@ -1258,11 +1339,18 @@ export const ChatUI = ({
 			// Otherwise `onFinish` may run before `chatIdRef` is set, and we can't save the AI response.
 			if (
 				onUserMessage &&
-				(content.trim() || imagesToSave?.length || audioToSave?.length)
+				(content.trim() ||
+					imagesToSave?.length ||
+					audioToSave?.length ||
+					documentsToSave?.length)
 			) {
 				savedMessage =
-					(await onUserMessage(content, imagesToSave, audioToSave)) ??
-					undefined;
+					(await onUserMessage(
+						content,
+						imagesToSave,
+						audioToSave,
+						documentsToSave,
+					)) ?? undefined;
 			}
 
 			// If a persistent chat was expected (onUserMessage provided) but persistence
@@ -1540,23 +1628,24 @@ export const ChatUI = ({
 				transition={{ duration: 0.18, ease: "easeOut" }}
 			>
 				<PromptInput
-					key={`prompt-input-${supportsImages ? "img" : ""}${supportsAudio ? "aud" : ""}`}
+					key={`prompt-input-${supportsImages ? "img" : ""}${supportsAudio ? "aud" : ""}${supportsDocuments ? "doc" : ""}`}
 					className={
 						floatingInput
 							? "[&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-x-0 [&_[data-slot=input-group]]:border-b-0 sm:[&_[data-slot=input-group]]:rounded-md sm:[&_[data-slot=input-group]]:border"
 							: undefined
 					}
 					accept={
-						supportsImages && supportsAudio
-							? "image/*,audio/*"
-							: supportsImages
-								? "image/*"
-								: supportsAudio
-									? "audio/*"
-									: undefined
+						supportsDocuments
+							? undefined
+							: [
+									supportsImages ? "image/*" : null,
+									supportsAudio ? "audio/*" : null,
+								]
+									.filter(Boolean)
+									.join(",") || undefined
 					}
 					multiple
-					globalDrop={supportsImages || supportsAudio}
+					globalDrop={supportsImages || supportsAudio || supportsDocuments}
 					aria-disabled={isBusy}
 					onSubmit={(message) => {
 						void handlePromptSubmit(message.text ?? "", message.files);
@@ -1616,18 +1705,31 @@ export const ChatUI = ({
 					</PromptInputBody>
 					<PromptInputToolbar>
 						<PromptInputTools>
-							{(supportsImages || supportsAudio) && (
+							{(supportsImages || supportsAudio || supportsDocuments) && (
 								<PromptInputActionMenu>
 									<PromptInputActionMenuTrigger />
 									<PromptInputActionMenuContent>
 										<PromptInputActionAddAttachments
-											label={
-												supportsImages && supportsAudio
-													? "Add photos, audio or files"
-													: supportsAudio
-														? "Add audio"
-														: undefined
-											}
+											label={(() => {
+												const parts: string[] = [];
+												if (supportsImages) {
+													parts.push("photos");
+												}
+												if (supportsAudio) {
+													parts.push("audio");
+												}
+												if (supportsDocuments) {
+													parts.push("documents");
+												}
+												if (parts.length === 0) {
+													return undefined;
+												}
+												if (parts.length === 1) {
+													return `Add ${parts[0]}`;
+												}
+												const last = parts.pop();
+												return `Add ${parts.join(", ")} or ${last}`;
+											})()}
 										/>
 									</PromptInputActionMenuContent>
 								</PromptInputActionMenu>

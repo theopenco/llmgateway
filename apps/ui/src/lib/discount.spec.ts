@@ -70,16 +70,16 @@ describe("model-detail discounts", () => {
 		);
 	});
 
-	it("ignores discounts keyed by a provider-specific model name rather than the root id", () => {
-		const byModelName: DiscountData = {
+	it("ignores discounts keyed by a provider-specific external id rather than the root id", () => {
+		const byExternalId: DiscountData = {
 			...fiftyPercentOff,
-			model: alibaba.modelName,
+			model: alibaba.externalId,
 		};
 
 		expect(
-			getEffectiveProviderDiscount([byModelName], "alibaba", "qwen37-max"),
+			getEffectiveProviderDiscount([byExternalId], "alibaba", "qwen37-max"),
 		).toBeUndefined();
-		expect(getBestDiscount([byModelName], "qwen37-max")).toBeNull();
+		expect(getBestDiscount([byExternalId], "qwen37-max")).toBeNull();
 	});
 
 	it("returns base prices when no discount is active", () => {

@@ -44,7 +44,8 @@ interface ApiModelProviderMapping {
 	createdAt: string;
 	modelId: string;
 	providerId: string;
-	modelName: string;
+	externalId: string;
+	region?: string | null;
 	inputPrice: string | null;
 	outputPrice: string | null;
 	cachedInputPrice: string | null;
@@ -128,13 +129,13 @@ function getModelProviders(model: UnifiedModel) {
 	if (isApiModel(model)) {
 		return model.mappings.map((m) => ({
 			providerId: m.providerId,
-			modelName: m.modelName,
+			region: m.region ?? null,
 			stability: m.stability,
 		}));
 	}
 	return model.providers.map((p) => ({
 		providerId: p.providerId,
-		modelName: p.modelName,
+		region: p.region ?? null,
 		stability: p.stability,
 	}));
 }
@@ -309,7 +310,7 @@ export function MultiModelSelector({
 															);
 															return ProviderIcon ? (
 																<ProviderIcon
-																	key={`${provider.providerId}-${provider.modelName}`}
+																	key={`${provider.providerId}-${provider.region ?? ""}`}
 																	className="h-4 w-4"
 																/>
 															) : null;
