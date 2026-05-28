@@ -1779,6 +1779,13 @@ export interface RoutingHistoryConfig {
 	tier3Weight?: number;
 }
 
+export interface RoutingStickyConfig {
+	enabled?: boolean;
+	ttlSeconds?: number;
+	uptimeThreshold?: number;
+	scoreMargin?: number;
+}
+
 export type ProviderPriorityOverrides = Record<string, number>;
 
 export const routingConfig = pgTable(
@@ -1795,6 +1802,7 @@ export const routingConfig = pgTable(
 		retry: jsonb().$type<RoutingRetryConfig>(),
 		timeouts: jsonb().$type<RoutingTimeoutsConfig>(),
 		history: jsonb().$type<RoutingHistoryConfig>(),
+		sticky: jsonb().$type<RoutingStickyConfig>(),
 		providerPriorities: jsonb(
 			"provider_priorities",
 		).$type<ProviderPriorityOverrides>(),

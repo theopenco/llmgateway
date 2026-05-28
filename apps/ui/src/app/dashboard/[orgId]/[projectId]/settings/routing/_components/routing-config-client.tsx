@@ -24,6 +24,13 @@ import { RoutingContactSalesCard } from "./routing-contact-sales-card";
 
 type NumericFieldGroup = Record<string, number | undefined>;
 
+interface StickyState {
+	enabled?: boolean;
+	ttlSeconds?: number;
+	uptimeThreshold?: number;
+	scoreMargin?: number;
+}
+
 interface RoutingConfigState {
 	enabled: boolean;
 	weights: NumericFieldGroup;
@@ -31,6 +38,7 @@ interface RoutingConfigState {
 	retry: NumericFieldGroup;
 	timeouts: NumericFieldGroup;
 	history: NumericFieldGroup;
+	sticky: StickyState;
 	providerPriorities: Record<string, number | undefined>;
 }
 
@@ -40,6 +48,12 @@ interface DefaultsResponse {
 	retry: Record<string, number>;
 	timeouts: Record<string, number>;
 	history: Record<string, number>;
+	sticky: {
+		enabled: boolean;
+		ttlSeconds: number;
+		uptimeThreshold: number;
+		scoreMargin: number;
+	};
 	providerPriorities: Record<string, number>;
 }
 
@@ -165,6 +179,30 @@ const HISTORY_FIELDS: { key: string; label: string; help: string }[] = [
 	},
 ];
 
+const STICKY_FIELDS: {
+	key: "ttlSeconds" | "uptimeThreshold" | "scoreMargin";
+	label: string;
+	help: string;
+	step?: string;
+}[] = [
+	{
+		key: "ttlSeconds",
+		label: "TTL (seconds)",
+		help: "How long a chosen preferred provider is remembered before being re-evaluated. Capped at 24h.",
+	},
+	{
+		key: "uptimeThreshold",
+		label: "Uptime Threshold (%)",
+		help: "If the preferred provider's uptime drops below this, route away from it immediately.",
+	},
+	{
+		key: "scoreMargin",
+		label: "Score Margin",
+		help: "Move away from the preferred provider only when a competitor scores at least this much better.",
+		step: "0.01",
+	},
+];
+
 function emptyState(): RoutingConfigState {
 	return {
 		enabled: false,
@@ -173,6 +211,7 @@ function emptyState(): RoutingConfigState {
 		retry: {},
 		timeouts: {},
 		history: {},
+		sticky: {},
 		providerPriorities: {},
 	};
 }
@@ -300,6 +339,7 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 						retry: row.retry ?? {},
 						timeouts: row.timeouts ?? {},
 						history: row.history ?? {},
+						sticky: row.sticky ?? {},
 						providerPriorities: row.providerPriorities ?? {},
 					});
 				}
@@ -384,6 +424,12 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 				: null;
 		};
 		try {
+			const compactSticky = (sticky: StickyState) => {
+				const entries = Object.entries(sticky).filter(
+					([, v]) => v !== undefined,
+				);
+				return entries.length ? Object.fromEntries(entries) : null;
+			};
 			const body = {
 				enabled: state.enabled,
 				weights: compact(state.weights),
@@ -391,6 +437,7 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 				retry: compact(state.retry),
 				timeouts: compact(state.timeouts),
 				history: compact(state.history),
+				sticky: compactSticky(state.sticky),
 				providerPriorities: compact(state.providerPriorities),
 			};
 			await fetchClient.PUT("/routing-config/config/{projectId}", {
@@ -601,6 +648,48 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 									value={state.history[f.key]}
 									defaultValue={defaults?.history?.[f.key]}
 									onChange={(v) => updateGroup("history", f.key, v)}
+								/>
+							))}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader className="flex flex-row items-center justify-between">
+							<div>
+								<CardTitle>Sticky Routing</CardTitle>
+								<CardDescription>
+									Keep routing the same provider for a model as long as it stays
+									healthy and competitive. Reduces unnecessary switching that
+									warms cold caches and bursts upstream rate limits.
+								</CardDescription>
+							</div>
+							<Switch
+								checked={
+									state.sticky.enabled ?? defaults?.sticky.enabled ?? true
+								}
+								onCheckedChange={(v) =>
+									setState((prev) => ({
+										...prev,
+										sticky: { ...prev.sticky, enabled: Boolean(v) },
+									}))
+								}
+							/>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							{STICKY_FIELDS.map((f) => (
+								<NumericFieldRow
+									key={f.key}
+									label={f.label}
+									help={f.help}
+									step={f.step}
+									value={state.sticky[f.key]}
+									defaultValue={defaults?.sticky[f.key]}
+									onChange={(v) =>
+										setState((prev) => ({
+											...prev,
+											sticky: { ...prev.sticky, [f.key]: v },
+										}))
+									}
 								/>
 							))}
 						</CardContent>

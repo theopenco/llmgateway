@@ -6,6 +6,7 @@ import {
 	routingConfig,
 	type RoutingHistoryConfig,
 	type RoutingRetryConfig,
+	type RoutingStickyConfig,
 	type RoutingThresholdsConfig,
 	type RoutingTimeoutsConfig,
 	type RoutingWeightsConfig,
@@ -27,6 +28,7 @@ interface StoredRoutingOverrides {
 	retry: RoutingRetryConfig | null;
 	timeouts: RoutingTimeoutsConfig | null;
 	history: RoutingHistoryConfig | null;
+	sticky: RoutingStickyConfig | null;
 	providerPriorities: ProviderPriorityOverrides | null;
 }
 
@@ -59,6 +61,7 @@ export async function getResolvedRoutingConfig(
 				retry: row.retry ?? null,
 				timeouts: row.timeouts ?? null,
 				history: row.history ?? null,
+				sticky: row.sticky ?? null,
 				providerPriorities: row.providerPriorities ?? null,
 			};
 		},

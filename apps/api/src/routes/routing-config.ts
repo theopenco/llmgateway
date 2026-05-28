@@ -8,6 +8,7 @@ import {
 	buildProviderPriorityDefaults,
 	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
+	DEFAULT_ROUTING_STICKY,
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
@@ -20,6 +21,7 @@ import type {
 	ProviderPriorityOverrides,
 	RoutingHistoryConfig,
 	RoutingRetryConfig,
+	RoutingStickyConfig,
 	RoutingThresholdsConfig,
 	RoutingTimeoutsConfig,
 	RoutingWeightsConfig,
@@ -151,6 +153,15 @@ const historySchema = z
 	})
 	.strict();
 
+const stickySchema = z
+	.object({
+		enabled: z.boolean().optional(),
+		ttlSeconds: z.number().int().min(1).max(86_400).optional(),
+		uptimeThreshold: z.number().min(0).max(100).optional(),
+		scoreMargin: z.number().min(0).max(10).optional(),
+	})
+	.strict();
+
 const providerPrioritiesSchema = z.record(z.string(), z.number().min(0).max(1));
 
 const routingConfigRowSchema = z.object({
@@ -162,6 +173,7 @@ const routingConfigRowSchema = z.object({
 	retry: retrySchema.nullable(),
 	timeouts: timeoutsSchema.nullable(),
 	history: historySchema.nullable(),
+	sticky: stickySchema.nullable(),
 	providerPriorities: providerPrioritiesSchema.nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
@@ -174,6 +186,7 @@ const updateBodySchema = z.object({
 	retry: retrySchema.nullable().optional(),
 	timeouts: timeoutsSchema.nullable().optional(),
 	history: historySchema.nullable().optional(),
+	sticky: stickySchema.nullable().optional(),
 	providerPriorities: providerPrioritiesSchema.nullable().optional(),
 });
 
@@ -210,6 +223,12 @@ const resolvedConfigSchema = z.object({
 		tier1Weight: z.number(),
 		tier2Weight: z.number(),
 		tier3Weight: z.number(),
+	}),
+	sticky: z.object({
+		enabled: z.boolean(),
+		ttlSeconds: z.number(),
+		uptimeThreshold: z.number(),
+		scoreMargin: z.number(),
 	}),
 	providerPriorities: z.record(z.string(), z.number()),
 });
@@ -294,6 +313,9 @@ routingConfig.openapi(updateConfig, async (c) => {
 	if (body.history !== undefined) {
 		conflictSet.history = body.history as RoutingHistoryConfig | null;
 	}
+	if (body.sticky !== undefined) {
+		conflictSet.sticky = body.sticky as RoutingStickyConfig | null;
+	}
 	if (body.providerPriorities !== undefined) {
 		conflictSet.providerPriorities =
 			body.providerPriorities as ProviderPriorityOverrides | null;
@@ -307,6 +329,7 @@ routingConfig.openapi(updateConfig, async (c) => {
 		retry: (body.retry ?? null) as RoutingRetryConfig | null,
 		timeouts: (body.timeouts ?? null) as RoutingTimeoutsConfig | null,
 		history: (body.history ?? null) as RoutingHistoryConfig | null,
+		sticky: (body.sticky ?? null) as RoutingStickyConfig | null,
 		providerPriorities: (body.providerPriorities ??
 			null) as ProviderPriorityOverrides | null,
 	};
@@ -402,6 +425,7 @@ routingConfig.openapi(getResolved, async (c) => {
 					retry: row.retry ?? null,
 					timeouts: row.timeouts ?? null,
 					history: row.history ?? null,
+					sticky: row.sticky ?? null,
 					providerPriorities: row.providerPriorities ?? null,
 				}
 			: null,
@@ -453,6 +477,12 @@ const getDefaults = createRoute({
 							tier2Weight: z.number(),
 							tier3Weight: z.number(),
 						}),
+						sticky: z.object({
+							enabled: z.boolean(),
+							ttlSeconds: z.number(),
+							uptimeThreshold: z.number(),
+							scoreMargin: z.number(),
+						}),
 						providerPriorities: z.record(z.string(), z.number()),
 					}),
 				},
@@ -476,6 +506,7 @@ routingConfig.openapi(getDefaults, async (c) => {
 		retry: DEFAULT_ROUTING_RETRY,
 		timeouts: DEFAULT_ROUTING_TIMEOUTS,
 		history: DEFAULT_ROUTING_HISTORY,
+		sticky: DEFAULT_ROUTING_STICKY,
 		providerPriorities: buildProviderPriorityDefaults(),
 	});
 });

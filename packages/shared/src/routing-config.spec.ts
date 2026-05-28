@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
+	DEFAULT_ROUTING_STICKY,
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_WEIGHTS,
 	buildProviderPriorityDefaults,
@@ -83,6 +84,29 @@ describe("resolveRoutingConfig", () => {
 		expect(resolved.timeouts.gatewayMs).toBe(250_000);
 		expect(resolved.timeouts.streamingMs).toBeUndefined();
 		expect(resolved.timeouts.plainMs).toBeUndefined();
+	});
+
+	it("merges and clamps sticky-routing overrides", () => {
+		const resolved = resolveRoutingConfig(
+			{
+				sticky: {
+					enabled: false,
+					ttlSeconds: 60,
+					uptimeThreshold: 150, // > 100, should clamp to 100
+					scoreMargin: -1, // < 0, should clamp to 0
+				},
+			},
+			providerDefaults,
+		);
+		expect(resolved.sticky.enabled).toBe(false);
+		expect(resolved.sticky.ttlSeconds).toBe(60);
+		expect(resolved.sticky.uptimeThreshold).toBe(100);
+		expect(resolved.sticky.scoreMargin).toBe(0);
+	});
+
+	it("returns sticky defaults when no sticky override is supplied", () => {
+		const resolved = resolveRoutingConfig(null, providerDefaults);
+		expect(resolved.sticky).toEqual(DEFAULT_ROUTING_STICKY);
 	});
 
 	it("clamps timeout overrides down to the infra ceiling", () => {

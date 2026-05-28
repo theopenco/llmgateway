@@ -2886,7 +2886,10 @@ chat.openapi(completions, async (c) => {
 					let hysteresisSelectionReason =
 						cheapestResult.metadata.selectionReason;
 
-					if (hysteresisSelectionReason !== "random-exploration") {
+					if (
+						hysteresisSelectionReason !== "random-exploration" &&
+						routingCfg.sticky.enabled
+					) {
 						const preferred = await getPreferredProvider(
 							project.organizationId,
 							modelWithPricing.id,
@@ -2897,6 +2900,7 @@ chat.openapi(completions, async (c) => {
 								preferred,
 								providerAgnosticCandidates,
 								cheapestResult.metadata.providerScores,
+								routingCfg.sticky,
 							);
 							if (stableCandidate) {
 								selectedProvider = stableCandidate;
@@ -2907,6 +2911,7 @@ chat.openapi(completions, async (c) => {
 									modelWithPricing.id,
 									cheapestResult.provider.providerId,
 									cheapestResult.provider.region,
+									routingCfg.sticky,
 								);
 							}
 						} else {
@@ -2915,6 +2920,7 @@ chat.openapi(completions, async (c) => {
 								modelWithPricing.id,
 								cheapestResult.provider.providerId,
 								cheapestResult.provider.region,
+								routingCfg.sticky,
 							);
 						}
 					}

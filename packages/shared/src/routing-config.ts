@@ -38,6 +38,17 @@ export interface RoutingHistoryConfig {
 	tier3Weight?: number;
 }
 
+export interface RoutingStickyConfig {
+	/**
+	 * When false the project always routes to the current best-scored
+	 * provider and never reads / writes the preferred-provider cache.
+	 */
+	enabled?: boolean;
+	ttlSeconds?: number;
+	uptimeThreshold?: number;
+	scoreMargin?: number;
+}
+
 export type ProviderPriorityOverrides = Record<string, number>;
 
 export interface RoutingConfigOverrides {
@@ -47,6 +58,7 @@ export interface RoutingConfigOverrides {
 	retry?: RoutingRetryConfig | null;
 	timeouts?: RoutingTimeoutsConfig | null;
 	history?: RoutingHistoryConfig | null;
+	sticky?: RoutingStickyConfig | null;
 	providerPriorities?: ProviderPriorityOverrides | null;
 }
 
@@ -62,6 +74,7 @@ export interface ResolvedRoutingConfig {
 	 */
 	timeouts: RoutingTimeoutsConfig;
 	history: Required<RoutingHistoryConfig>;
+	sticky: Required<RoutingStickyConfig>;
 	providerPriorities: ProviderPriorityOverrides;
 }
 
@@ -95,6 +108,18 @@ export const DEFAULT_ROUTING_TIMEOUTS: Required<RoutingTimeoutsConfig> = {
 };
 
 /**
+ * Defaults mirror apps/gateway/src/lib/preferred-provider.ts so projects
+ * that don't override anything see identical sticky-routing behavior to
+ * what the env-var fallbacks produce.
+ */
+export const DEFAULT_ROUTING_STICKY: Required<RoutingStickyConfig> = {
+	enabled: true,
+	ttlSeconds: 3600,
+	uptimeThreshold: 85,
+	scoreMargin: 0.15,
+};
+
+/**
  * Defaults mirror apps/worker/src/services/stats-calculator.ts so projects
  * that don't override anything see identical behavior to the global rollup.
  */
@@ -118,6 +143,17 @@ export function buildProviderPriorityDefaults(): ProviderPriorityOverrides {
 		result[provider.id] = provider.priority ?? 1;
 	}
 	return result;
+}
+
+function clampSticky(
+	cfg: Required<RoutingStickyConfig>,
+): Required<RoutingStickyConfig> {
+	return {
+		enabled: Boolean(cfg.enabled),
+		ttlSeconds: Math.max(1, Math.floor(cfg.ttlSeconds)),
+		uptimeThreshold: Math.max(0, Math.min(100, cfg.uptimeThreshold)),
+		scoreMargin: Math.max(0, cfg.scoreMargin),
+	};
 }
 
 function clampHistory(
@@ -230,6 +266,9 @@ export function resolveRoutingConfig(
 		timeouts: timeoutOverrides,
 		history: clampHistory(
 			mergeGroup(DEFAULT_ROUTING_HISTORY, effectiveOverrides?.history),
+		),
+		sticky: clampSticky(
+			mergeGroup(DEFAULT_ROUTING_STICKY, effectiveOverrides?.sticky),
 		),
 		providerPriorities,
 	};
