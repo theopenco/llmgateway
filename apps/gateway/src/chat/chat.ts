@@ -1168,15 +1168,16 @@ chat.openapi(completions, async (c) => {
 	let reasoning_effort =
 		reasoning_object_effort ?? validationResult.data.reasoning_effort;
 
-	// Reject n > 1 with streaming: streaming aggregation in the gateway is
-	// hard-coded to a single choice index; supporting multi-choice streams would
-	// require non-trivial changes to the SSE handler.
-	if (n !== undefined && n > 1 && stream) {
+	// Reject n > 1 with streaming + tools: the streaming tool-call aggregator
+	// keys deltas only by tc.index (the tool position within a choice), so
+	// concurrent function calls across choices would collide. n > 1 with
+	// streaming text-only output is fully supported.
+	if (n !== undefined && n > 1 && stream && tools && tools.length > 0) {
 		return c.json(
 			{
 				error: {
 					message:
-						"The `n` parameter with values greater than 1 is not supported in combination with `stream: true`. Send a non-streaming request, or call the API multiple times.",
+						"The `n` parameter with values greater than 1 is not supported in combination with `stream: true` and `tools`. Use streaming without tools, send a non-streaming request, or call the API multiple times.",
 					type: "invalid_request_error",
 					param: "n",
 					code: "unsupported_parameter_combination",
@@ -3836,14 +3837,18 @@ chat.openapi(completions, async (c) => {
 
 						const chunkData = JSON.parse(chunk.data);
 
-						// Extract content from chunk
-						if (chunkData.choices?.[0]?.delta?.content) {
-							fullContent += chunkData.choices[0].delta.content;
-						}
-
-						// Extract reasoning content from chunk
-						if (chunkData.choices?.[0]?.delta?.reasoning) {
-							fullReasoningContent += chunkData.choices[0].delta.reasoning;
+						// Extract content and reasoning from every choice so a cached
+						// n > 1 stream replay reconstructs the full logging buffer
+						// rather than only choice 0.
+						if (Array.isArray(chunkData.choices)) {
+							for (const choice of chunkData.choices) {
+								if (typeof choice?.delta?.content === "string") {
+									fullContent += choice.delta.content;
+								}
+								if (typeof choice?.delta?.reasoning === "string") {
+									fullReasoningContent += choice.delta.reasoning;
+								}
+							}
 						}
 
 						// Extract usage information (usually in the last chunks)
@@ -6214,7 +6219,14 @@ chat.openapi(completions, async (c) => {
 				const streamingIsJsonResponseFormat =
 					response_format?.type === "json_object" ||
 					response_format?.type === "json_schema";
+				// Healing buffers a single content stream and replays it after
+				// repair. With n > 1 each choice has its own content stream, so
+				// the single buffer would corrupt multi-choice output. Skip
+				// healing in that case — JSON healing for multi-choice streams
+				// is deferred to a follow-up.
+				const healingDisabledByN = n !== undefined && n > 1;
 				const shouldBufferForHealing =
+					!healingDisabledByN &&
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
 						((usedProvider === "anthropic" ||
@@ -7221,11 +7233,17 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
-								// Extract finishReason from transformedData to update tracking variable
-								if (transformedData.choices?.[0]?.finish_reason) {
-									finishReason = transformedData.choices[0].finish_reason;
-									sawProviderTerminalEvent = true;
-									sentDownstreamFinishReasonChunk = true;
+								// Extract finishReason from transformedData. Iterate every
+								// choice so that n > 1 streams update tracking from whichever
+								// choice has terminated, not just index 0.
+								if (Array.isArray(transformedData.choices)) {
+									for (const choice of transformedData.choices) {
+										if (choice?.finish_reason) {
+											finishReason = choice.finish_reason;
+											sawProviderTerminalEvent = true;
+											sentDownstreamFinishReasonChunk = true;
+										}
+									}
 								}
 
 								// Extract content for logging using helper function
@@ -7403,8 +7421,14 @@ chat.openapi(completions, async (c) => {
 										}
 										break;
 									default: // OpenAI format
-										if (data.choices && data.choices[0]?.finish_reason) {
-											finishReason = data.choices[0].finish_reason;
+										// Iterate every choice so n > 1 streams capture the
+										// terminal reason from whichever index ended last.
+										if (Array.isArray(data.choices)) {
+											for (const choice of data.choices) {
+												if (choice?.finish_reason) {
+													finishReason = choice.finish_reason;
+												}
+											}
 										}
 										break;
 								}

@@ -3923,6 +3923,15 @@ describe("api", () => {
 			expect(json.usage.prompt_tokens).toBe(10);
 			expect(json.usage.completion_tokens).toBe(60);
 			expect(json.usage.total_tokens).toBe(70);
+
+			// Log row content column should aggregate every choice's content,
+			// not just choice 0 — otherwise indices > 0 disappear from logs.
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].streamed).toBe(false);
+			expect(logs[0].content).toContain("variant 1");
+			expect(logs[0].content).toContain("variant 2");
+			expect(logs[0].content).toContain("variant 3");
 		});
 
 		test("rejects n > 1 with 400 when the model does not advertise supportsN", async () => {
@@ -3962,7 +3971,7 @@ describe("api", () => {
 			);
 		});
 
-		test("rejects n > 1 combined with stream: true", async () => {
+		test("streams n choices end-to-end with one shared usage chunk", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-stream",
 				token: "real-token-n-stream",
@@ -3989,6 +3998,116 @@ describe("api", () => {
 					model: "gpt-4o-mini",
 					n: 3,
 					stream: true,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasError).toBe(false);
+
+			// Walk every forwarded chunk, group deltas by their choice index,
+			// and assert each variant streamed independently.
+			const seenIndices = new Set<number>();
+			const contentByIndex = new Map<number, string>();
+			const finishByIndex = new Map<number, string>();
+			let usageChunks = 0;
+			let usagePromptTokens: number | undefined;
+			let usageCompletionTokens: number | undefined;
+
+			for (const chunk of streamResult.chunks) {
+				if (Array.isArray(chunk.choices)) {
+					for (const choice of chunk.choices) {
+						if (typeof choice.index !== "number") {
+							continue;
+						}
+						seenIndices.add(choice.index);
+						if (typeof choice.delta?.content === "string") {
+							contentByIndex.set(
+								choice.index,
+								(contentByIndex.get(choice.index) ?? "") + choice.delta.content,
+							);
+						}
+						if (typeof choice.finish_reason === "string") {
+							finishByIndex.set(choice.index, choice.finish_reason);
+						}
+					}
+				}
+				if (chunk.usage) {
+					usageChunks++;
+					usagePromptTokens = chunk.usage.prompt_tokens;
+					usageCompletionTokens = chunk.usage.completion_tokens;
+				}
+			}
+
+			expect(Array.from(seenIndices).sort()).toEqual([0, 1, 2]);
+			expect(contentByIndex.size).toBe(3);
+			expect(contentByIndex.get(0)).toContain("variant 1");
+			expect(contentByIndex.get(1)).toContain("variant 2");
+			expect(contentByIndex.get(2)).toContain("variant 3");
+			expect(finishByIndex.get(0)).toBe("stop");
+			expect(finishByIndex.get(1)).toBe("stop");
+			expect(finishByIndex.get(2)).toBe("stop");
+
+			// OpenAI streams one shared usage object on the final chunk; the
+			// gateway then appends its own synthesized usage chunk with cost
+			// metadata, so we expect at least one usage chunk containing the
+			// upstream values.
+			expect(usageChunks).toBeGreaterThanOrEqual(1);
+			expect(usagePromptTokens).toBe(10);
+			expect(usageCompletionTokens).toBe(60);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].streamed).toBe(true);
+			expect(logs[0].finishReason).toBe("stop");
+			// The log content column aggregates across all choices.
+			expect(logs[0].content).toContain("variant 1");
+			expect(logs[0].content).toContain("variant 2");
+			expect(logs[0].content).toContain("variant 3");
+		});
+
+		test("rejects n > 1 with stream + tools (tool aggregation unsupported)", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-stream-tools",
+				token: "real-token-n-stream-tools",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-stream-tools",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-stream-tools",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 3,
+					stream: true,
+					tools: [
+						{
+							type: "function",
+							function: {
+								name: "get_weather",
+								description: "Get the current weather",
+								parameters: {
+									type: "object",
+									properties: { location: { type: "string" } },
+								},
+							},
+						},
+					],
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});

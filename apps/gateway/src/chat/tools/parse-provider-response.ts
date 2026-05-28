@@ -780,19 +780,38 @@ export function parseProviderResponse(
 					}
 				}
 			} else {
-				// Standard OpenAI chat completions format
-				toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
-				content = json.choices?.[0]?.message?.content ?? null;
-				// Extract reasoning content for reasoning-capable models
-				// Check both reasoning and reasoning_content (GLM models use reasoning_content)
-				reasoningContent =
-					json.choices?.[0]?.message?.reasoning ??
-					json.choices?.[0]?.message?.reasoning_content ??
-					extractReasoningDetailsText(
-						json.choices?.[0]?.message?.reasoning_details,
-					) ??
-					null;
-				finishReason = json.choices?.[0]?.finish_reason ?? null;
+				// Standard OpenAI chat completions format. The log row only
+				// stores a single content/reasoning string, so for n > 1 we
+				// aggregate every choice into the buffer — otherwise indices
+				// > 0 disappear from logs. Tool calls / images stay keyed to
+				// choice 0; tools combined with n > 1 streaming is rejected
+				// upstream and n > 1 with non-streaming tools is a niche.
+				const allChoices = Array.isArray(json.choices) ? json.choices : [];
+				toolResults = allChoices[0]?.message?.tool_calls ?? null;
+
+				let aggregatedContent = "";
+				let aggregatedReasoning = "";
+				let hasContent = false;
+				let hasReasoning = false;
+				for (const choice of allChoices) {
+					const cContent = choice?.message?.content;
+					if (typeof cContent === "string") {
+						aggregatedContent += cContent;
+						hasContent = true;
+					}
+					const cReasoning =
+						choice?.message?.reasoning ??
+						choice?.message?.reasoning_content ??
+						extractReasoningDetailsText(choice?.message?.reasoning_details) ??
+						null;
+					if (typeof cReasoning === "string" && cReasoning.length > 0) {
+						aggregatedReasoning += cReasoning;
+						hasReasoning = true;
+					}
+				}
+				content = hasContent ? aggregatedContent : null;
+				reasoningContent = hasReasoning ? aggregatedReasoning : null;
+				finishReason = allChoices[0]?.finish_reason ?? null;
 
 				if (finishReason === "abort") {
 					logger.warn("Upstream sent abort finish_reason", {
