@@ -1197,17 +1197,6 @@ export async function prepareRequestBody(
 		}
 	}
 
-	// Only override Alibaba's `enable_thinking` default when the caller
-	// explicitly opted in or out via `reasoning_effort`. Leaving it unset
-	// preserves the provider's default behavior.
-	if (usedProvider === "alibaba" && supportsReasoning) {
-		if (reasoning_effort === "minimal") {
-			requestBody.enable_thinking = false;
-		} else if (reasoning_effort !== undefined) {
-			requestBody.enable_thinking = true;
-		}
-	}
-
 	if (forcesToolUse && usedProvider === "moonshot") {
 		const providerMapping = modelDef?.providers.find(
 			(p) =>
