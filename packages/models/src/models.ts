@@ -20,7 +20,7 @@ import type { providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
-export type Model = (typeof models)[number]["providers"][number]["modelName"];
+export type Model = (typeof models)[number]["providers"][number]["externalId"];
 
 /**
  * Decimal-safe price representation. Always a string so values are preserved
@@ -161,7 +161,12 @@ export interface ProviderRegion {
 
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
-	modelName: string;
+	/**
+	 * Provider-specific upstream model id used when calling the upstream
+	 * provider. Distinct from the root `ModelDefinition.id` and from any
+	 * human-readable display name.
+	 */
+	externalId: string;
 	/**
 	 * Price per input token in USD
 	 */
@@ -292,6 +297,15 @@ export interface ProviderModelMapping {
 	 * audio content.
 	 */
 	audio?: boolean;
+	/**
+	 * Whether this specific model accepts document inputs (`file` content
+	 * blocks carrying PDF or text-family MIME types) for this provider. Used by
+	 * the `model: "auto"` router and capability validator to avoid selecting
+	 * providers that would fail upstream when the request contains document
+	 * content. Per-provider MIME allowlists live in the provider transform
+	 * modules (e.g. transform-google-messages.ts).
+	 */
+	document?: boolean;
 	/**
 	 * Whether this model supports reasoning mode
 	 */

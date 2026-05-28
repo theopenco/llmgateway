@@ -30,7 +30,7 @@ describe("Models API", () => {
 		// Check the structure of the first provider
 		const firstProvider = firstModel.providers[0];
 		expect(firstProvider).toHaveProperty("providerId");
-		expect(firstProvider).toHaveProperty("modelName");
+		expect(firstProvider).toHaveProperty("externalId");
 		if (firstProvider.pricing) {
 			expect(firstProvider.pricing).toHaveProperty("prompt");
 			expect(firstProvider.pricing).toHaveProperty("completion");

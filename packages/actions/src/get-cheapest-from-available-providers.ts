@@ -168,15 +168,8 @@ function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
 	providers: P[],
 	candidate: AvailableModelProvider,
 ): P | undefined {
-	const exactMatch = providers.find(
-		(p) =>
-			p.providerId === candidate.providerId &&
-			p.region === candidate.region &&
-			p.modelName === candidate.modelName,
-	);
-	if (exactMatch) {
-		return exactMatch;
-	}
+	// Identify a mapping by (providerId, region) — externalId is the upstream
+	// id and is never used to disambiguate internal lookups.
 	return providers.find(
 		(p) =>
 			p.providerId === candidate.providerId && p.region === candidate.region,

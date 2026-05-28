@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
+import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -177,10 +178,6 @@ function getResponseContent(responseJson: unknown): string | null {
 	return JSON.stringify(summary);
 }
 
-function getErrorFinishReason(status: number): string {
-	return status >= 500 ? "upstream_error" : "client_error";
-}
-
 function packFloat32Base64(values: number[]): string {
 	const buffer = new ArrayBuffer(values.length * 4);
 	const view = new DataView(buffer);
@@ -215,7 +212,7 @@ function findEmbeddingMapping(modelId: string): {
 			if (requestedProvider && candidate.providerId !== requestedProvider) {
 				continue;
 			}
-			if (model.id === modelKey || candidate.modelName === modelKey) {
+			if (model.id === modelKey || candidate.externalId === modelKey) {
 				return { mapping: candidate, modelDef: model, modelDefId: model.id };
 			}
 		}
@@ -447,7 +444,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	}
 
 	const { mapping, modelDef, modelDefId } = match;
-	const upstreamModel = mapping.modelName;
+	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
 
 	const isTokenIdInput = (() => {
@@ -925,7 +922,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			responseSize,
 			content: getResponseContent(upstreamJson),
 			reasoningContent: null,
-			finishReason: getErrorFinishReason(upstreamResponse.status),
+			finishReason: getFinishReasonFromError(
+				upstreamResponse.status,
+				upstreamText,
+			),
 			promptTokens: null,
 			completionTokens: null,
 			totalTokens: null,

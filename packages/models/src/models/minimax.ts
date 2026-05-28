@@ -10,7 +10,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.7",
+				externalId: "MiniMax-M2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
@@ -26,7 +26,7 @@ export const minimaxModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "minimax/minimax-m2.7",
+				externalId: "minimax/minimax-m2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
@@ -41,7 +41,7 @@ export const minimaxModels = [
 			},
 			{
 				providerId: "together-ai",
-				modelName: "MiniMaxAI/MiniMax-M2.7",
+				externalId: "MiniMaxAI/MiniMax-M2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
@@ -66,7 +66,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.7-highspeed",
+				externalId: "MiniMax-M2.7-highspeed",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "2.4e-6",
@@ -91,7 +91,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.5",
+				externalId: "MiniMax-M2.5",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
@@ -107,7 +107,7 @@ export const minimaxModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "minimax/minimax-m2.5",
+				externalId: "minimax/minimax-m2.5",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
@@ -123,7 +123,7 @@ export const minimaxModels = [
 			{
 				deactivatedAt: new Date("2026-04-27"),
 				providerId: "together-ai",
-				modelName: "MiniMaxAI/MiniMax-M2.5",
+				externalId: "MiniMaxAI/MiniMax-M2.5",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -138,7 +138,7 @@ export const minimaxModels = [
 			},
 			{
 				providerId: "embercloud",
-				modelName: "minimax-m2.5",
+				externalId: "minimax-m2.5",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.2e-6",
 				cachedInputPrice: "0.04e-6",
@@ -173,7 +173,7 @@ export const minimaxModels = [
 				providerId: "nebius",
 				// Streaming tool calls and response_format: json_object are unreliable on Nebius
 				stability: "unstable",
-				modelName: "MiniMaxAI/MiniMax-M2.5",
+				externalId: "MiniMaxAI/MiniMax-M2.5",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -196,7 +196,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.5-highspeed",
+				externalId: "MiniMax-M2.5-highspeed",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "2.4e-6",
@@ -221,7 +221,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2",
+				externalId: "MiniMax-M2",
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.0e-6",
@@ -247,7 +247,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.1",
+				externalId: "MiniMax-M2.1",
 				inputPrice: "0.27e-6",
 				outputPrice: "1.1e-6",
 				requestPrice: "0",
@@ -263,7 +263,7 @@ export const minimaxModels = [
 			{
 				providerId: "novita",
 				test: "skip",
-				modelName: "minimax/minimax-m2.1",
+				externalId: "minimax/minimax-m2.1",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
@@ -289,7 +289,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.1-lightning",
+				externalId: "MiniMax-M2.1-lightning",
 				inputPrice: "0.12e-6",
 				outputPrice: "0.48e-6",
 				requestPrice: "0",
@@ -314,7 +314,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-Text-01",
+				externalId: "MiniMax-Text-01",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.1e-6",
 				requestPrice: "0",

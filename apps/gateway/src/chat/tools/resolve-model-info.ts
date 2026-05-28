@@ -38,7 +38,7 @@ export function resolveModelInfo(
 			providers: [
 				{
 					providerId: "custom" as const,
-					modelName: requestedModel,
+					externalId: requestedModel,
 					inputPrice: "0",
 					outputPrice: "0",
 					contextSize: 8192,
@@ -66,15 +66,15 @@ export function resolveModelInfo(
 			: undefined;
 		foundModel ??= models.find((m) => m.id === baseRequestedModel);
 
-		// If not found, search by provider model name
-		// If a specific provider is requested, match both modelName and providerId
+		// If not found, search by provider external id
+		// If a specific provider is requested, match both externalId and providerId
 		if (!foundModel) {
 			if (requestedProvider) {
 				foundModel = models.find((m) =>
 					m.providers.find(
 						(p) =>
-							(p.modelName === requestedModel ||
-								p.modelName === baseRequestedModel) &&
+							(p.externalId === requestedModel ||
+								p.externalId === baseRequestedModel) &&
 							p.providerId === requestedProvider,
 					),
 				);
@@ -82,8 +82,8 @@ export function resolveModelInfo(
 				foundModel = models.find((m) =>
 					m.providers.find(
 						(p) =>
-							p.modelName === requestedModel ||
-							p.modelName === baseRequestedModel,
+							p.externalId === requestedModel ||
+							p.externalId === baseRequestedModel,
 					),
 				);
 			}

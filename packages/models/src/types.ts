@@ -51,6 +51,15 @@ export interface InputAudioContent {
 	};
 }
 
+export interface FileContent {
+	type: "file";
+	file: {
+		filename?: string;
+		file_data?: string;
+		file_id?: string;
+	};
+}
+
 export interface ToolUseContent {
 	type: "tool_use";
 	id: string;
@@ -69,6 +78,7 @@ export type MessageContent =
 	| ImageUrlContent
 	| ImageContent
 	| InputAudioContent
+	| FileContent
 	| ToolUseContent
 	| ToolResultContent;
 
@@ -365,7 +375,7 @@ export interface ModelWithPricing {
 		outputPrice?: string;
 		perSecondPrice?: Record<string, string>;
 		supportedParameters?: string[];
-		modelName: string;
+		externalId: string;
 		discount?: string;
 		region?: string;
 		stability?: string;
@@ -375,7 +385,7 @@ export interface ModelWithPricing {
 // Available model provider structure
 export interface AvailableModelProvider {
 	providerId: string;
-	modelName: string;
+	externalId: string;
 	region?: string;
 }
 
@@ -442,6 +452,10 @@ export function isInputAudioContent(
 	content: MessageContent,
 ): content is InputAudioContent {
 	return content.type === "input_audio";
+}
+
+export function isFileContent(content: MessageContent): content is FileContent {
+	return content.type === "file";
 }
 
 export function isToolUseContent(

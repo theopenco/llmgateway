@@ -19,6 +19,7 @@ export interface ValidateModelCapabilitiesOptions {
 	tool_choice?: unknown;
 	webSearchTool?: WebSearchTool;
 	hasImages?: boolean;
+	hasDocuments?: boolean;
 }
 
 /**
@@ -43,6 +44,7 @@ export function validateModelCapabilities(
 		tool_choice,
 		webSearchTool,
 		hasImages,
+		hasDocuments,
 	} = options;
 
 	if (
@@ -73,6 +75,32 @@ export function validateModelCapabilities(
 				message: requestedProvider
 					? `Provider ${requestedProvider} does not support image input for model ${requestedModel}. Remove the image content or use a vision-capable model.`
 					: `Model ${requestedModel} does not support image input. Remove the image content or use a vision-capable model.`,
+			});
+		}
+	}
+
+	// Validate document capability when the request contains `file` content blocks.
+	// Skip for "auto" and "custom" models (router/transform handle dynamic resolution).
+	if (
+		hasDocuments &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		const supportsDocuments = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).document === true,
+		);
+
+		if (!supportsDocuments) {
+			throw new HTTPException(400, {
+				message: requestedProvider
+					? `Provider ${requestedProvider} does not support document input for model ${requestedModel}. Remove the file content or use a document-capable model.`
+					: `Model ${requestedModel} does not support document input. Remove the file content or use a document-capable model.`,
 			});
 		}
 	}

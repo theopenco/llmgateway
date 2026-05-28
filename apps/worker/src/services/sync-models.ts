@@ -123,7 +123,7 @@ export async function syncProvidersAndModels() {
 						await database
 							.update(modelProviderMapping)
 							.set({
-								modelName: mapping.modelName,
+								externalId: mapping.externalId,
 								region: mappingRegion ?? null,
 								inputPrice:
 									"inputPrice" in mapping && mapping.inputPrice !== undefined
@@ -218,7 +218,7 @@ export async function syncProvidersAndModels() {
 						await database.insert(modelProviderMapping).values({
 							modelId: modelDef.id,
 							providerId: mapping.providerId,
-							modelName: mapping.modelName,
+							externalId: mapping.externalId,
 							region: mappingRegion ?? undefined,
 							inputPrice:
 								"inputPrice" in mapping && mapping.inputPrice !== undefined

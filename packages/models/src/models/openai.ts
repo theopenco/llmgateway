@@ -11,7 +11,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-4o-mini",
+				externalId: "gpt-4o-mini",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				cachedInputPrice: "0.075e-6",
@@ -27,7 +27,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "azure",
-				modelName: "gpt-4o-mini",
+				externalId: "gpt-4o-mini",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				cachedInputPrice: "0.075e-6",
@@ -52,7 +52,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-4o-search-preview",
+				externalId: "gpt-4o-search-preview",
 				inputPrice: "2.5e-6",
 				outputPrice: "10.0e-6",
 				requestPrice: "0",
@@ -78,7 +78,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-4o-mini-search-preview",
+				externalId: "gpt-4o-mini-search-preview",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -105,7 +105,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "openai",
-				modelName: "gpt-4",
+				externalId: "gpt-4",
 				inputPrice: "30.0e-6",
 				outputPrice: "60.0e-6",
 				requestPrice: "0",
@@ -129,7 +129,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-4",
+				externalId: "gpt-4",
 				inputPrice: "30.0e-6",
 				outputPrice: "60.0e-6",
 				contextSize: 8192,
@@ -151,7 +151,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-4o",
+				externalId: "gpt-4o",
 				inputPrice: "2.5e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "1.25e-6",
@@ -170,7 +170,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-4o",
+				externalId: "gpt-4o",
 				inputPrice: "2.5e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "1.25e-6",
@@ -194,7 +194,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-3.5-turbo",
+				externalId: "gpt-3.5-turbo",
 				inputPrice: "0.5e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -210,7 +210,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-35-turbo",
+				externalId: "gpt-35-turbo",
 				inputPrice: "0.5e-6",
 				outputPrice: "1.5e-6",
 				contextSize: 16385,
@@ -233,7 +233,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "openai",
-				modelName: "gpt-4-turbo",
+				externalId: "gpt-4-turbo",
 				inputPrice: "10.0e-6",
 				outputPrice: "30.0e-6",
 				requestPrice: "0",
@@ -248,7 +248,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-4-turbo",
+				externalId: "gpt-4-turbo",
 				inputPrice: "10.0e-6",
 				outputPrice: "30.0e-6",
 				contextSize: 128000,
@@ -269,7 +269,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-4.1",
+				externalId: "gpt-4.1",
 				inputPrice: "2.0e-6",
 				outputPrice: "8.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -287,7 +287,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-4.1",
+				externalId: "gpt-4.1",
 				inputPrice: "2.0e-6",
 				outputPrice: "8.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -314,7 +314,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "openai",
-				modelName: "o1",
+				externalId: "o1",
 				inputPrice: "15.0e-6",
 				outputPrice: "60.0e-6",
 				cachedInputPrice: "7.5e-6",
@@ -331,7 +331,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "o1",
+				externalId: "o1",
 				inputPrice: "15.0e-6",
 				outputPrice: "60.0e-6",
 				cachedInputPrice: "7.5e-6",
@@ -358,7 +358,7 @@ export const openaiModels = [
 			{
 				stability: "unstable" as const,
 				providerId: "openai",
-				modelName: "o1-mini",
+				externalId: "o1-mini",
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.55e-6",
@@ -376,7 +376,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "o1-mini",
+				externalId: "o1-mini",
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.55e-6",
@@ -403,7 +403,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-4.1-mini",
+				externalId: "gpt-4.1-mini",
 				inputPrice: "0.4e-6",
 				outputPrice: "1.6e-6",
 				cachedInputPrice: "0.1e-6",
@@ -421,7 +421,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-4.1-mini",
+				externalId: "gpt-4.1-mini",
 				inputPrice: "0.4e-6",
 				outputPrice: "1.6e-6",
 				cachedInputPrice: "0.1e-6",
@@ -447,7 +447,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-4.1-nano",
+				externalId: "gpt-4.1-nano",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.025e-6",
@@ -465,7 +465,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-4.1-nano",
+				externalId: "gpt-4.1-nano",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.025e-6",
@@ -491,7 +491,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "o3",
+				externalId: "o3",
 				inputPrice: "2e-6",
 				outputPrice: "8e-6",
 				cachedInputPrice: "0.5e-6",
@@ -508,7 +508,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "o3",
+				externalId: "o3",
 				inputPrice: "2e-6",
 				outputPrice: "8e-6",
 				cachedInputPrice: "0.5e-6",
@@ -533,7 +533,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "o3-mini",
+				externalId: "o3-mini",
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.55e-6",
@@ -550,7 +550,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "o3-mini",
+				externalId: "o3-mini",
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.55e-6",
@@ -575,7 +575,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "o4-mini",
+				externalId: "o4-mini",
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.275e-6",
@@ -593,7 +593,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "o4-mini",
+				externalId: "o4-mini",
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.275e-6",
@@ -619,7 +619,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "groq",
-				modelName: "openai/gpt-oss-120b",
+				externalId: "openai/gpt-oss-120b",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.75e-6",
 				requestPrice: "0",
@@ -636,7 +636,7 @@ export const openaiModels = [
 				// Consistently times out in CI due to model size
 				providerId: "cerebras",
 				stability: "unstable",
-				modelName: "gpt-oss-120b",
+				externalId: "gpt-oss-120b",
 				inputPrice: "0.35e-6",
 				outputPrice: "0.75e-6",
 				requestPrice: "0",
@@ -659,7 +659,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "nanogpt",
-				modelName: "openai/gpt-oss-120b",
+				externalId: "openai/gpt-oss-120b",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.25e-6",
 				requestPrice: "0",
@@ -673,7 +673,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "bytedance",
-				modelName: "gpt-oss-120b-250805",
+				externalId: "gpt-oss-120b-250805",
 				inputPrice: "0.1e-6",
 				cachedInputPrice: "0.02e-6",
 				outputPrice: "0.5e-6",
@@ -688,7 +688,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "nebius",
-				modelName: "openai/gpt-oss-120b",
+				externalId: "openai/gpt-oss-120b",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -702,7 +702,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "together-ai",
-				modelName: "openai/gpt-oss-120b",
+				externalId: "openai/gpt-oss-120b",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -716,7 +716,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "azure",
-				modelName: "gpt-oss-120b",
+				externalId: "gpt-oss-120b",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -742,7 +742,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "groq",
-				modelName: "openai/gpt-oss-20b",
+				externalId: "openai/gpt-oss-20b",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -757,7 +757,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "nanogpt",
-				modelName: "openai/gpt-oss-20b",
+				externalId: "openai/gpt-oss-20b",
 				inputPrice: "0.04e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",
@@ -771,7 +771,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "together-ai",
-				modelName: "openai/gpt-oss-20b",
+				externalId: "openai/gpt-oss-20b",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.2e-6",
 				requestPrice: "0",
@@ -797,7 +797,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5",
+				externalId: "gpt-5",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -826,7 +826,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5",
+				externalId: "gpt-5",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				discount: "0.2",
@@ -863,7 +863,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5-mini",
+				externalId: "gpt-5-mini",
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -892,7 +892,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5-mini",
+				externalId: "gpt-5-mini",
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -929,7 +929,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5-nano",
+				externalId: "gpt-5-nano",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.005e-6",
@@ -958,7 +958,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5-nano",
+				externalId: "gpt-5-nano",
 				discount: "0.2",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
@@ -995,7 +995,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5-chat-latest",
+				externalId: "gpt-5-chat-latest",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1027,7 +1027,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.1",
+				externalId: "gpt-5.1",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1055,7 +1055,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.1",
+				externalId: "gpt-5.1",
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1091,7 +1091,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "openai",
-				modelName: "gpt-5-pro",
+				externalId: "gpt-5-pro",
 				inputPrice: "15e-6",
 				outputPrice: "120.0e-6",
 				requestPrice: "0",
@@ -1120,7 +1120,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.1-codex",
+				externalId: "gpt-5.1-codex",
 				inputPrice: "1.25e-6",
 				outputPrice: "10e-6",
 				requestPrice: "0",
@@ -1140,7 +1140,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.1-codex",
+				externalId: "gpt-5.1-codex",
 				inputPrice: "1.25e-6",
 				outputPrice: "10e-6",
 				requestPrice: "0",
@@ -1166,7 +1166,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.1-codex-mini",
+				externalId: "gpt-5.1-codex-mini",
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1187,7 +1187,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.1-codex-mini",
+				externalId: "gpt-5.1-codex-mini",
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1213,7 +1213,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.2",
+				externalId: "gpt-5.2",
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -1241,7 +1241,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.2",
+				externalId: "gpt-5.2",
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -1277,7 +1277,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.2-pro",
+				externalId: "gpt-5.2-pro",
 				inputPrice: "21.0e-6",
 				outputPrice: "168.0e-6",
 				requestPrice: "0",
@@ -1297,7 +1297,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.2-pro",
+				externalId: "gpt-5.2-pro",
 				inputPrice: "21.0e-6",
 				outputPrice: "168.0e-6",
 				requestPrice: "0",
@@ -1323,7 +1323,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.2-chat-latest",
+				externalId: "gpt-5.2-chat-latest",
 				deprecatedAt: new Date("2026-05-13"),
 				deactivatedAt: new Date("2026-08-10"),
 				inputPrice: "1.75e-6",
@@ -1346,7 +1346,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.2-chat-latest",
+				externalId: "gpt-5.2-chat-latest",
 				deprecatedAt: new Date("2026-05-13"),
 				deactivatedAt: new Date("2026-08-10"),
 				inputPrice: "1.75e-6",
@@ -1375,7 +1375,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.4",
+				externalId: "gpt-5.4",
 				inputPrice: "2.5e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.25e-6",
@@ -1403,7 +1403,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.4",
+				externalId: "gpt-5.4",
 				inputPrice: "2.5e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.25e-6",
@@ -1442,7 +1442,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				test: "skip",
-				modelName: "gpt-5.4-pro",
+				externalId: "gpt-5.4-pro",
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
 				discount: "0.3",
@@ -1463,7 +1463,7 @@ export const openaiModels = [
 			{
 				providerId: "azure",
 				test: "skip",
-				modelName: "gpt-5.4-pro",
+				externalId: "gpt-5.4-pro",
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
 				requestPrice: "0",
@@ -1492,7 +1492,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.4-mini",
+				externalId: "gpt-5.4-mini",
 				inputPrice: "0.75e-6",
 				outputPrice: "4.5e-6",
 				cachedInputPrice: "0.075e-6",
@@ -1513,7 +1513,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.4-mini",
+				externalId: "gpt-5.4-mini",
 				inputPrice: "0.75e-6",
 				outputPrice: "4.5e-6",
 				cachedInputPrice: "0.075e-6",
@@ -1544,7 +1544,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.4-nano",
+				externalId: "gpt-5.4-nano",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.25e-6",
 				cachedInputPrice: "0.02e-6",
@@ -1565,7 +1565,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.4-nano",
+				externalId: "gpt-5.4-nano",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.25e-6",
 				cachedInputPrice: "0.02e-6",
@@ -1596,7 +1596,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.5",
+				externalId: "gpt-5.5",
 				inputPrice: "5.0e-6",
 				outputPrice: "30.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1624,7 +1624,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.5",
+				externalId: "gpt-5.5",
 				inputPrice: "5.0e-6",
 				outputPrice: "30.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1663,7 +1663,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				test: "skip",
-				modelName: "gpt-5.5-pro",
+				externalId: "gpt-5.5-pro",
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
 				requestPrice: "0",
@@ -1692,7 +1692,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.2-codex",
+				externalId: "gpt-5.2-codex",
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -1713,7 +1713,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.2-codex",
+				externalId: "gpt-5.2-codex",
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -1740,7 +1740,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.3-codex",
+				externalId: "gpt-5.3-codex",
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -1761,7 +1761,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.3-codex",
+				externalId: "gpt-5.3-codex",
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -1788,7 +1788,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "gpt-5.3-chat-latest",
+				externalId: "gpt-5.3-chat-latest",
 				deprecatedAt: new Date("2026-05-13"),
 				deactivatedAt: new Date("2026-08-10"),
 				inputPrice: "1.75e-6",
@@ -1811,7 +1811,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-5.3-chat-latest",
+				externalId: "gpt-5.3-chat-latest",
 				deprecatedAt: new Date("2026-05-13"),
 				deactivatedAt: new Date("2026-08-10"),
 				inputPrice: "1.75e-6",
@@ -1843,7 +1843,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "sora-2",
+				externalId: "sora-2",
 				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
@@ -1865,7 +1865,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "avalanche",
-				modelName: "sora-2",
+				externalId: "sora-2",
 				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
@@ -1900,7 +1900,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "sora-2-pro",
+				externalId: "sora-2-pro",
 				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
@@ -1931,7 +1931,7 @@ export const openaiModels = [
 			},
 			{
 				providerId: "avalanche",
-				modelName: "sora-2-pro",
+				externalId: "sora-2-pro",
 				deactivatedAt: new Date("2026-03-24"),
 				inputPrice: undefined,
 				outputPrice: undefined,
@@ -1966,7 +1966,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "openai",
-				modelName: "gpt-image-2",
+				externalId: "gpt-image-2",
 				inputPrice: "5e-6",
 				outputPrice: "0",
 				cachedInputPrice: "1.25e-6",
@@ -1985,7 +1985,7 @@ export const openaiModels = [
 			{
 				test: "skip",
 				providerId: "azure",
-				modelName: "gpt-image-2",
+				externalId: "gpt-image-2",
 				inputPrice: "5e-6",
 				outputPrice: "0",
 				cachedInputPrice: "1.25e-6",
@@ -2015,7 +2015,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "text-embedding-3-small",
+				externalId: "text-embedding-3-small",
 				inputPrice: "0.02e-6",
 				outputPrice: "0",
 				requestPrice: "0",
@@ -2038,7 +2038,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "text-embedding-3-large",
+				externalId: "text-embedding-3-large",
 				inputPrice: "0.13e-6",
 				outputPrice: "0",
 				requestPrice: "0",
@@ -2061,7 +2061,7 @@ export const openaiModels = [
 		providers: [
 			{
 				providerId: "openai",
-				modelName: "text-embedding-ada-002",
+				externalId: "text-embedding-ada-002",
 				inputPrice: "0.1e-6",
 				outputPrice: "0",
 				requestPrice: "0",

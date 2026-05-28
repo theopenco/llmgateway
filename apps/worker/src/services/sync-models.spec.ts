@@ -75,7 +75,7 @@ describe("sync-models", () => {
 			(m) => m.modelId === "gpt-4o" && m.providerId === "openai",
 		);
 		expect(gptOpenaiMapping).toBeTruthy();
-		expect(gptOpenaiMapping?.modelName).toBe("gpt-4o");
+		expect(gptOpenaiMapping?.externalId).toBe("gpt-4o");
 		expect(gptOpenaiMapping?.status).toBe("active");
 	});
 
@@ -140,7 +140,7 @@ describe("sync-models", () => {
 			await db
 				.update(modelProviderMapping)
 				.set({
-					modelName: "old-model-name",
+					externalId: "old-model-name",
 					streaming: false,
 				})
 				.where(eq(modelProviderMapping.id, existingMapping[0].id));
@@ -156,7 +156,7 @@ describe("sync-models", () => {
 			.where(eq(modelProviderMapping.id, existingMapping[0]!.id));
 
 		expect(updatedMapping).toHaveLength(1);
-		expect(updatedMapping[0]?.modelName).toBe("gpt-4o"); // Should be restored
+		expect(updatedMapping[0]?.externalId).toBe("gpt-4o"); // Should be restored
 		expect(updatedMapping[0]?.streaming).toBe(true); // Should be restored
 		expect(updatedMapping[0]?.updatedAt).not.toBeNull();
 	});

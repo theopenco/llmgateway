@@ -65,7 +65,7 @@ export function getCheapestModelForProvider(
 	// This ensures providers that only have free models can still be validated
 	const modelsToConsider = paidModels.length > 0 ? paidModels : availableModels;
 
-	let cheapestModel = modelsToConsider[0].provider.modelName;
+	let cheapestModel = modelsToConsider[0].provider.externalId;
 	let lowestPrice: Decimal | null = null;
 
 	for (const { provider: providerInfo } of modelsToConsider) {
@@ -79,7 +79,7 @@ export function getCheapestModelForProvider(
 			.times(discountMultiplier);
 		if (lowestPrice === null || totalPrice.lt(lowestPrice)) {
 			lowestPrice = totalPrice;
-			cheapestModel = providerInfo.modelName;
+			cheapestModel = providerInfo.externalId;
 		}
 	}
 
