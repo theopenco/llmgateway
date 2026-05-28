@@ -995,6 +995,13 @@
       "when": 1779986807829,
       "tag": "1779986807_quick_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "8",
+      "when": 1779997778929,
+      "tag": "1779997778_hesitant_juggernaut",
+      "breakpoints": true
     }
   ]
 }
