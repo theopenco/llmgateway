@@ -254,6 +254,8 @@ describe("prepareRequestBody - Anthropic", () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
 			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
 			[
 				{
 					role: "system",
