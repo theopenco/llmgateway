@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, isNull, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	getDevPlanCreditsLimit,
@@ -468,24 +468,37 @@ export async function finalizeDevPlanSetupSession(
 		invoice_settings: { default_payment_method: paymentMethod.id },
 	});
 
-	const subscription = await getStripe().subscriptions.create({
-		customer: stripeCustomerId,
-		items: [{ price: priceId }],
-		default_payment_method: paymentMethod.id,
-		payment_behavior: "error_if_incomplete",
-		metadata: {
-			organizationId,
-			subscriptionType: "dev_plan",
-			devPlan: devPlanTier,
-			devPlanCycle,
-			userEmail: userEmail ?? "",
+	// The /finalize endpoint and the checkout.session.completed webhook can
+	// race for the same setup session. We guard against duplicate subscription
+	// creation on two levels: (1) a deterministic Stripe idempotency key
+	// derived from org+session so a second `subscriptions.create()` call
+	// returns the same subscription instead of a new one; (2) an atomic
+	// conditional UPDATE that only writes the dev plan state if no other
+	// writer has filled in devPlanStripeSubscriptionId yet — the loser then
+	// reports already_processed so it doesn't double-insert the transaction
+	// row or re-send notifications.
+	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
+	const subscription = await getStripe().subscriptions.create(
+		{
+			customer: stripeCustomerId,
+			items: [{ price: priceId }],
+			default_payment_method: paymentMethod.id,
+			payment_behavior: "error_if_incomplete",
+			metadata: {
+				organizationId,
+				subscriptionType: "dev_plan",
+				devPlan: devPlanTier,
+				devPlanCycle,
+				userEmail: userEmail ?? "",
+			},
+			expand: ["latest_invoice"],
 		},
-		expand: ["latest_invoice"],
-	});
+		{ idempotencyKey: stripeIdempotencyKey },
+	);
 
 	const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
 
-	await db
+	const claimed = await db
 		.update(tables.organization)
 		.set({
 			devPlan: devPlanTier,
@@ -497,7 +510,20 @@ export async function finalizeDevPlanSetupSession(
 			devPlanCycle,
 			devPlanCardFingerprint: fingerprint,
 		})
-		.where(eq(tables.organization.id, organizationId));
+		.where(
+			and(
+				eq(tables.organization.id, organizationId),
+				isNull(tables.organization.devPlanStripeSubscriptionId),
+			),
+		)
+		.returning({ id: tables.organization.id });
+
+	if (claimed.length === 0) {
+		logger.info(
+			`Dev plan finalize lost the race for org ${organizationId} session ${sessionId}; another path already activated subscription ${subscription.id}`,
+		);
+		return { status: "already_processed", subscriptionId: subscription.id };
+	}
 
 	logger.info(
 		`Successfully activated dev plan ${devPlanTier} for organization ${organizationId} with ${creditsLimit} credits via setup-mode checkout`,
