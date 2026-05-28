@@ -1,4 +1,13 @@
-import { ExternalLink, Play } from "lucide-react";
+import {
+	ExternalLink,
+	Play,
+	ShieldCheck,
+	ShieldAlert,
+	MapPin,
+	Database,
+	Eye,
+	Clock,
+} from "lucide-react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
@@ -13,6 +22,36 @@ import { providerLogoUrls } from "@llmgateway/shared/components";
 
 interface HeroProps {
 	providerId: ProviderId;
+}
+
+function DataPolicyBadge({
+	value,
+	labelTrue,
+	labelFalse,
+}: {
+	value: boolean | null;
+	labelTrue: string;
+	labelFalse: string;
+}) {
+	if (value === null) {
+		return (
+			<span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+				Unknown
+			</span>
+		);
+	}
+	if (value) {
+		return (
+			<span className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-xs text-red-600 dark:text-red-400">
+				{labelTrue}
+			</span>
+		);
+	}
+	return (
+		<span className="inline-flex items-center gap-1 rounded-md bg-green-500/10 px-2 py-1 text-xs text-green-600 dark:text-green-400">
+			{labelFalse}
+		</span>
+	);
 }
 
 export function Hero({ providerId }: HeroProps) {
@@ -70,8 +109,79 @@ export function Hero({ providerId }: HeroProps) {
 							</a>
 						</Button>
 					</div>
+
+					{(provider.dataPolicy || provider.headquarters) && (
+						<div className="mt-8 rounded-lg border bg-card p-4">
+							<h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+								{provider.dataPolicy?.apiTraining === false ? (
+									<ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
+								) : (
+									<ShieldAlert className="h-4 w-4 text-muted-foreground" />
+								)}
+								Data & Privacy
+							</h3>
+							<div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+								{provider.headquarters && (
+									<div className="flex items-center gap-2">
+										<MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+										<span className="text-muted-foreground">HQ:</span>
+										<span className="font-medium">{provider.headquarters}</span>
+									</div>
+								)}
+								{provider.dataPolicy && (
+									<>
+										<div className="flex items-center gap-2">
+											<Database className="h-3.5 w-3.5 text-muted-foreground" />
+											<span className="text-muted-foreground">
+												API Training:
+											</span>
+											<DataPolicyBadge
+												value={provider.dataPolicy.apiTraining}
+												labelTrue="Yes"
+												labelFalse="No"
+											/>
+										</div>
+										<div className="flex items-center gap-2">
+											<Database className="h-3.5 w-3.5 text-muted-foreground" />
+											<span className="text-muted-foreground">
+												Consumer Training:
+											</span>
+											<DataPolicyBadge
+												value={provider.dataPolicy.consumerTraining}
+												labelTrue="Yes"
+												labelFalse="No"
+											/>
+										</div>
+										<div className="flex items-center gap-2">
+											<Eye className="h-3.5 w-3.5 text-muted-foreground" />
+											<span className="text-muted-foreground">
+												Prompt Logging:
+											</span>
+											<DataPolicyBadge
+												value={provider.dataPolicy.promptLogging}
+												labelTrue="Yes"
+												labelFalse="No"
+											/>
+										</div>
+										{provider.dataPolicy.retentionPeriod !== undefined && (
+											<div className="flex items-center gap-2">
+												<Clock className="h-3.5 w-3.5 text-muted-foreground" />
+												<span className="text-muted-foreground">
+													Retention:
+												</span>
+												<span className="font-medium">
+													{provider.dataPolicy.retentionPeriod ?? "Unknown"}
+												</span>
+											</div>
+										)}
+									</>
+								)}
+							</div>
+						</div>
+					)}
+
 					{(provider.termsUrl || provider.privacyPolicyUrl) && (
-						<div className="mt-6 flex items-center gap-x-4 text-sm text-muted-foreground">
+						<div className="mt-4 flex items-center gap-x-4 text-sm text-muted-foreground">
 							{provider.termsUrl && (
 								<a
 									href={provider.termsUrl}

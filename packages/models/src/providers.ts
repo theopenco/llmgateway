@@ -21,6 +21,13 @@ export interface ProviderRegionConfig {
 	endpointMap: Record<string, string>;
 }
 
+export interface ProviderDataPolicy {
+	apiTraining: boolean | null;
+	consumerTraining: boolean | null;
+	promptLogging: boolean | null;
+	retentionPeriod?: string | null;
+}
+
 export interface ProviderDefinition {
 	id: string;
 	name: string;
@@ -51,6 +58,10 @@ export interface ProviderDefinition {
 	regionConfig?: ProviderRegionConfig;
 	termsUrl?: string | null;
 	privacyPolicyUrl?: string | null;
+	/** ISO 3166-1 alpha-2 country code for provider headquarters */
+	headquarters?: string | null;
+	/** Data usage and privacy policy details */
+	dataPolicy?: ProviderDataPolicy | null;
 }
 
 export const providers = [
@@ -71,6 +82,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://llmgateway.io/terms",
 		privacyPolicyUrl: "https://llmgateway.io/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
 	},
 	{
 		id: "openai",
@@ -89,6 +107,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://openai.com/policies/terms-of-use",
 		privacyPolicyUrl: "https://openai.com/policies/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "anthropic",
@@ -107,6 +132,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://www.anthropic.com/terms",
 		privacyPolicyUrl: "https://www.anthropic.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "google-ai-studio",
@@ -128,6 +160,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: true,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "glacier",
@@ -147,6 +186,8 @@ export const providers = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
 	},
 	{
 		id: "google-vertex",
@@ -171,6 +212,13 @@ export const providers = [
 		priority: 0.8,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://policies.google.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "vertex-openai",
@@ -195,6 +243,13 @@ export const providers = [
 		priority: 0.9,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "vertex-anthropic",
@@ -218,6 +273,13 @@ export const providers = [
 		priority: 0.9,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "quartz",
@@ -242,6 +304,8 @@ export const providers = [
 		priority: 0.9,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
 	},
 	{
 		id: "avalanche",
@@ -263,6 +327,8 @@ export const providers = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
 	},
 	{
 		id: "groq",
@@ -280,6 +346,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://groq.com/terms-of-use",
 		privacyPolicyUrl: "https://groq.com/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
 	},
 	{
 		id: "cerebras",
@@ -298,6 +371,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://cerebras.ai/terms-of-service",
 		privacyPolicyUrl: "https://cerebras.ai/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
 	},
 	{
 		id: "xai",
@@ -316,6 +396,13 @@ export const providers = [
 		priority: 0.1,
 		termsUrl: "https://x.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://x.ai/legal/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "deepseek",
@@ -336,6 +423,13 @@ export const providers = [
 			"https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html",
 		privacyPolicyUrl:
 			"https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "alibaba",
@@ -373,6 +467,13 @@ export const providers = [
 			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service-v-3-8-0",
 		privacyPolicyUrl:
 			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: true,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "novita",
@@ -390,6 +491,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://novita.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://novita.ai/legal/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
 	},
 	{
 		id: "aws-bedrock",
@@ -415,6 +523,13 @@ export const providers = [
 		learnMore: "https://docs.llmgateway.io/integrations/aws-bedrock",
 		termsUrl: "https://aws.amazon.com/service-terms",
 		privacyPolicyUrl: "https://aws.amazon.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
 	},
 	{
 		id: "azure",
@@ -442,6 +557,13 @@ export const providers = [
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "azure-ai-foundry",
@@ -467,6 +589,13 @@ export const providers = [
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "zai",
@@ -484,6 +613,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://docs.z.ai/legal-agreement/terms-of-use",
 		privacyPolicyUrl: "https://docs.z.ai/legal-agreement/privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "moonshot",
@@ -502,6 +638,13 @@ export const providers = [
 		termsUrl: "https://www.kimi.com/user/agreement/modelUse?version=v2",
 		privacyPolicyUrl:
 			"https://www.kimi.com/user/agreement/userPrivacy?version=v2",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: true,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "perplexity",
@@ -520,6 +663,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://www.perplexity.ai/hub/legal/terms-of-service",
 		privacyPolicyUrl: "https://www.perplexity.ai/hub/legal/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
 	},
 	{
 		id: "nebius",
@@ -538,6 +688,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://docs.nebius.com/legal/terms-of-use",
 		privacyPolicyUrl: "https://docs.nebius.com/legal/privacy",
+		headquarters: "NL",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "0 days",
+		},
 	},
 	{
 		id: "mistral",
@@ -555,6 +712,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://legal.mistral.ai/terms/commercial-terms-of-service",
 		privacyPolicyUrl: "https://mistral.ai/terms/#privacy-policy",
+		headquarters: "FR",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "inference.net",
@@ -573,6 +737,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://inference.net/terms-of-service",
 		privacyPolicyUrl: "https://inference.net/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "together-ai",
@@ -591,6 +762,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://www.together.ai/terms-of-service",
 		privacyPolicyUrl: "https://www.together.ai/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "0 days",
+		},
 	},
 	{
 		id: "custom",
@@ -606,6 +784,8 @@ export const providers = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
 	},
 	{
 		id: "nanogpt",
@@ -623,6 +803,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://nano-gpt.com/legal/terms-of-service",
 		privacyPolicyUrl: "https://nano-gpt.com/legal/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "bytedance",
@@ -642,6 +829,13 @@ export const providers = [
 		termsUrl: "https://docs.byteplus.com/en/docs/legal/docs-terms-of-service",
 		privacyPolicyUrl:
 			"https://docs.byteplus.com/en/docs/legal/docs-privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: true,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "minimax",
@@ -660,6 +854,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://intl.minimaxi.com/protocol/terms-of-service",
 		privacyPolicyUrl: "https://intl.minimaxi.com/protocol/privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "embercloud",
@@ -678,6 +879,8 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://www.embercloud.ai/terms",
 		privacyPolicyUrl: "https://www.embercloud.ai/privacy",
+		headquarters: null,
+		dataPolicy: null,
 	},
 	{
 		id: "xiaomi",
@@ -700,6 +903,13 @@ export const providers = [
 		termsUrl: "https://platform.xiaomimimo.com/docs/terms/user-agreement",
 		privacyPolicyUrl:
 			"https://platform.xiaomimimo.com/docs/terms/privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "deepinfra",
@@ -721,6 +931,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://deepinfra.com/terms",
 		privacyPolicyUrl: "https://deepinfra.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
 	},
 ] as const satisfies ProviderDefinition[];
 

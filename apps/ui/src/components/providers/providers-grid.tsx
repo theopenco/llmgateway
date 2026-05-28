@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, ArrowRight } from "lucide-react";
+import { ExternalLink, ArrowRight, ShieldCheck, MapPin } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -103,9 +103,23 @@ export function ProvidersGrid() {
 									</CardDescription>
 								</div>
 								<div className="flex items-center justify-between pt-2 border-t">
-									<span className="text-sm font-medium">
-										{modelsCount} model{modelsCount !== 1 ? "s" : ""}
-									</span>
+									<div className="flex items-center gap-2">
+										<span className="text-sm font-medium">
+											{modelsCount} model{modelsCount !== 1 ? "s" : ""}
+										</span>
+										{provider.headquarters && (
+											<span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+												<MapPin className="h-3 w-3" />
+												{provider.headquarters}
+											</span>
+										)}
+										{provider.dataPolicy?.apiTraining === false && (
+											<span className="inline-flex items-center gap-0.5 rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-600 dark:text-green-400">
+												<ShieldCheck className="h-3 w-3" />
+												No training
+											</span>
+										)}
+									</div>
 									{provider.website && (
 										<a
 											href={provider.website}
