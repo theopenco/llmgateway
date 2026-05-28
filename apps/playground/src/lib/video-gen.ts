@@ -177,15 +177,15 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (inputMode === "reference") {
-		if (mapping.providerId === "google-vertex") {
-			if (mapping.modelName !== "veo-3.1-generate-001") {
-				return false;
-			}
-		} else if (mapping.providerId === "avalanche") {
-			if (mapping.modelName !== "veo3_fast") {
-				return false;
-			}
-		} else {
+		// Reference images are only supported on the veo-3.1 family. Match by
+		// canonical root model id — never by the upstream externalId.
+		if (mapping.modelId !== "veo-3.1-generate-preview") {
+			return false;
+		}
+		if (
+			mapping.providerId !== "google-vertex" &&
+			mapping.providerId !== "avalanche"
+		) {
 			return false;
 		}
 

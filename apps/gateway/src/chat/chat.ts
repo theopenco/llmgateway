@@ -67,7 +67,11 @@ import {
 	getProviderHeaders,
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
+	InvalidFileContentError,
+	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	UnsupportedAudioFormatError,
+	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
 } from "@llmgateway/actions";
 import {
@@ -111,7 +115,6 @@ import {
 	expandAllProviderRegions,
 	getProviderDefinition,
 	getRegionSpecificEnvVarName,
-	stripRegionFromModelName,
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
@@ -147,6 +150,7 @@ import {
 	getAudioFormatsFromMessages,
 	messagesContainAudio,
 } from "./tools/messages-contain-audio.js";
+import { messagesContainDocuments } from "./tools/messages-contain-documents.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
@@ -401,6 +405,7 @@ function filterEligibleModelProviders(
 		hasImages: boolean;
 		hasAudio: boolean;
 		audioFormats?: string[];
+		hasDocuments: boolean;
 		maxTokens?: number;
 		reasoningEffort?: string;
 	},
@@ -456,6 +461,10 @@ function filterEligibleModelProviders(
 				googleProviderSupportsAudioFormat(provider.providerId, fmt),
 			)
 		) {
+			return false;
+		}
+
+		if (options.hasDocuments && provider.document !== true) {
 			return false;
 		}
 
@@ -1206,6 +1215,7 @@ chat.openapi(completions, async (c) => {
 	const audioFormats = hasAudio
 		? getAudioFormatsFromMessages(messages as BaseMessage[])
 		: [];
+	const hasDocuments = messagesContainDocuments(messages as BaseMessage[]);
 
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
@@ -1711,7 +1721,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Validate model capabilities (JSON output, reasoning, tools, web search)
+	// Validate model capabilities (JSON output, reasoning, tools, web search, documents)
 	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
 		response_format,
 		reasoning_effort,
@@ -1720,10 +1730,19 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		webSearchTool,
 		hasImages,
+		hasDocuments,
 	});
 
 	let usedProvider = requestedProvider;
-	let usedModel: string = requestedModel;
+	// Canonical LLM Gateway model id (root id). Used for every internal
+	// lookup: pricing, discount, rate-limit, IAM, key selection. Initially
+	// the user's requested model; reset to `modelInfo.id` once the model is
+	// resolved, and re-set on auto-route when the resolved model changes.
+	let usedInternalModel: string = requestedModel;
+	// Provider-specific upstream model id. Reserved for sending the request
+	// to the upstream provider API — derived from the chosen provider
+	// mapping after routing. Empty until routing resolves a mapping.
+	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
 
@@ -1798,8 +1817,8 @@ chat.openapi(completions, async (c) => {
 
 	// Apply routing logic after apiKey and project are available
 	if (
-		(usedProvider === "llmgateway" && usedModel === "auto") ||
-		usedModel === "auto"
+		(usedProvider === "llmgateway" && usedInternalModel === "auto") ||
+		usedInternalModel === "auto"
 	) {
 		// Reuse the prompt-token estimate computed earlier so auto-routing can
 		// react to large prompts when picking a model.
@@ -1870,7 +1889,11 @@ chat.openapi(completions, async (c) => {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
-			} else if (!allowedAutoModels.includes(modelDef.id) && !hasAudio) {
+			} else if (
+				!allowedAutoModels.includes(modelDef.id) &&
+				!hasAudio &&
+				!hasDocuments
+			) {
 				continue;
 			} else if (
 				estimatedInputTokens > 10_000 &&
@@ -2005,6 +2028,10 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				if (hasDocuments && provider.document !== true) {
+					return false;
+				}
+
 				if (
 					max_tokens !== undefined &&
 					provider.maxOutput !== undefined &&
@@ -2068,7 +2095,8 @@ chat.openapi(completions, async (c) => {
 
 			if (cheapestResult) {
 				usedProvider = cheapestResult.provider.providerId;
-				usedModel = cheapestResult.provider.modelName;
+				usedInternalModel = selectedModel.id;
+				usedExternalId = cheapestResult.provider.externalId;
 				usedRegion = cheapestResult.provider.region;
 				routingMetadata = {
 					...cheapestResult.metadata,
@@ -2077,7 +2105,8 @@ chat.openapi(completions, async (c) => {
 			} else {
 				// Fallback to first available provider if price comparison fails
 				usedProvider = selectedProviders[0].providerId;
-				usedModel = selectedProviders[0].modelName;
+				usedInternalModel = selectedModel.id;
+				usedExternalId = selectedProviders[0].externalId;
 			}
 		} else {
 			if (free_models_only) {
@@ -2094,7 +2123,8 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 			// Default fallback if no suitable model is found - use cheapest allowed model
-			usedModel = "claude-haiku-4-5";
+			usedInternalModel = "claude-haiku-4-5";
+			usedExternalId = "claude-haiku-4-5";
 			usedProvider = "anthropic";
 		}
 		// Update modelInfo to the selected model so retry/fallback logic can find
@@ -2152,11 +2182,12 @@ chat.openapi(completions, async (c) => {
 				expandedIamFilteredModelProviders.filter(providerSupportsCachedInput);
 		}
 	} else if (
-		(usedProvider === "llmgateway" && usedModel === "custom") ||
-		usedModel === "custom"
+		(usedProvider === "llmgateway" && usedInternalModel === "custom") ||
+		usedInternalModel === "custom"
 	) {
 		usedProvider = "llmgateway";
-		usedModel = "custom";
+		usedInternalModel = "custom";
+		usedExternalId = "custom";
 	}
 
 	// When a specific provider is requested and it has multiple mappings (for example,
@@ -2193,6 +2224,16 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 		}
+		if (hasDocuments) {
+			sameProviderMappings = sameProviderMappings.filter(
+				(p) => p.document === true,
+			);
+			if (sameProviderMappings.length === 0) {
+				throw new HTTPException(400, {
+					message: `Provider ${usedProvider} does not support document input for model ${modelInfo.id}.`,
+				});
+			}
+		}
 		const sameProviderRegionalMappings = sameProviderMappings.filter(
 			(p) => p.region,
 		);
@@ -2211,7 +2252,7 @@ chat.openapi(completions, async (c) => {
 				const providerKey = await findProviderKey(
 					project.organizationId,
 					usedProvider,
-					modelInfo.id || stripRegionFromModelName(usedModel, usedRegion),
+					modelInfo.id || usedInternalModel,
 				);
 				lockedRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -2240,6 +2281,7 @@ chat.openapi(completions, async (c) => {
 					hasImages,
 					hasAudio,
 					audioFormats,
+					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -2272,11 +2314,13 @@ chat.openapi(completions, async (c) => {
 					selectedMapping = bestRegionResult?.provider ?? eligibleMappings[0];
 				}
 
-				usedModel = selectedMapping.modelName;
+				usedInternalModel = modelInfo.id;
+				usedExternalId = selectedMapping.externalId;
 				usedRegion = selectedMapping.region;
 			}
 		} else if (sameProviderMappings.length === 1) {
-			usedModel = sameProviderMappings[0].modelName;
+			usedInternalModel = modelInfo.id;
+			usedExternalId = sameProviderMappings[0].externalId;
 			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
 		}
 
@@ -2286,7 +2330,8 @@ chat.openapi(completions, async (c) => {
 			) as ProviderModelMapping | undefined;
 			if (firstRegionalMatch) {
 				usedRegion = firstRegionalMatch.region;
-				usedModel = firstRegionalMatch.modelName;
+				usedInternalModel = modelInfo.id;
+				usedExternalId = firstRegionalMatch.externalId;
 			}
 		}
 	}
@@ -2416,6 +2461,9 @@ chat.openapi(completions, async (c) => {
 					) {
 						return false;
 					}
+					if (hasDocuments && provider.document !== true) {
+						return false;
+					}
 					return true;
 				});
 
@@ -2472,7 +2520,8 @@ chat.openapi(completions, async (c) => {
 
 						if (cheapestResult) {
 							usedProvider = cheapestResult.provider.providerId;
-							usedModel = cheapestResult.provider.modelName;
+							usedInternalModel = modelInfo.id;
+							usedExternalId = cheapestResult.provider.externalId;
 							usedRegion = cheapestResult.provider.region;
 							routingMetadata = {
 								...cheapestResult.metadata,
@@ -2564,6 +2613,7 @@ chat.openapi(completions, async (c) => {
 						hasImages,
 						hasAudio,
 						audioFormats,
+						hasDocuments,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 					},
@@ -2662,7 +2712,8 @@ chat.openapi(completions, async (c) => {
 
 							if (cheapestResult) {
 								usedProvider = cheapestResult.provider.providerId;
-								usedModel = cheapestResult.provider.modelName;
+								usedInternalModel = modelInfo.id;
+								usedExternalId = cheapestResult.provider.externalId;
 								usedRegion = cheapestResult.provider.region;
 								routingMetadata = {
 									...cheapestResult.metadata,
@@ -2697,7 +2748,8 @@ chat.openapi(completions, async (c) => {
 
 		if (iamFilteredModelProviders.length === 1) {
 			usedProvider = iamFilteredModelProviders[0].providerId;
-			usedModel = iamFilteredModelProviders[0].modelName;
+			usedInternalModel = modelInfo.id;
+			usedExternalId = iamFilteredModelProviders[0].externalId;
 			usedRegion = iamFilteredModelProviders[0].region;
 		} else {
 			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
@@ -2750,6 +2802,7 @@ chat.openapi(completions, async (c) => {
 					hasImages,
 					hasAudio,
 					audioFormats,
+					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -2760,12 +2813,12 @@ chat.openapi(completions, async (c) => {
 					project.mode === "api-keys" ? "configured" : "available";
 				throw new HTTPException(400, {
 					message: hasAudio
-						? `No provider with audio support is available for model ${usedModel}. The request contains audio but none of the ${audience} providers support audio input.`
+						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
 						: hasImages
-							? `No provider with vision support is available for model ${usedModel}. The request contains images but none of the ${audience} providers support vision.`
+							? `No provider with vision support is available for model ${usedInternalModel}. The request contains images but none of the ${audience} providers support vision.`
 							: project.mode === "api-keys"
-								? `No provider key set for any of the providers that support model ${usedModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
-								: `No available provider could be found for model ${usedModel}`,
+								? `No provider key set for any of the providers that support model ${usedInternalModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
+								: `No available provider could be found for model ${usedInternalModel}`,
 				});
 			}
 
@@ -2785,7 +2838,6 @@ chat.openapi(completions, async (c) => {
 				contentFilterPreferredProviders.map((p) => ({
 					providerId: p.providerId,
 					model: (modelInfo as ModelDefinition).id,
-					providerModelName: p.modelName,
 				})),
 			);
 			const nonRateLimitedProviders = contentFilterPreferredProviders.filter(
@@ -2797,7 +2849,9 @@ chat.openapi(completions, async (c) => {
 					? nonRateLimitedProviders
 					: contentFilterPreferredProviders;
 
-			const rawModelWithPricing = models.find((m) => m.id === usedModel);
+			const rawModelWithPricing = models.find(
+				(m) => m.id === usedInternalModel,
+			);
 			const modelWithPricing = rawModelWithPricing
 				? {
 						...rawModelWithPricing,
@@ -2881,7 +2935,8 @@ chat.openapi(completions, async (c) => {
 					}
 
 					usedProvider = selectedProvider.providerId;
-					usedModel = selectedProvider.modelName;
+					usedInternalModel = modelWithPricing.id;
+					usedExternalId = selectedProvider.externalId;
 					usedRegion = selectedProvider.region;
 					routingMetadata = addContentFilterRoutingMetadata(
 						{
@@ -2922,12 +2977,14 @@ chat.openapi(completions, async (c) => {
 					}
 				} else {
 					usedProvider = routingCandidates[0].providerId;
-					usedModel = routingCandidates[0].modelName;
+					usedInternalModel = modelInfo.id;
+					usedExternalId = routingCandidates[0].externalId;
 					usedRegion = routingCandidates[0].region;
 				}
 			} else {
 				usedProvider = contentFilterPreferredProviders[0].providerId;
-				usedModel = contentFilterPreferredProviders[0].modelName;
+				usedInternalModel = modelInfo.id;
+				usedExternalId = contentFilterPreferredProviders[0].externalId;
 				usedRegion = contentFilterPreferredProviders[0].region;
 			}
 		}
@@ -2967,7 +3024,7 @@ chat.openapi(completions, async (c) => {
 				const providerKey = await findProviderKey(
 					project.organizationId,
 					requestedProvider,
-					modelInfo.id || stripRegionFromModelName(usedModel, usedRegion),
+					modelInfo.id || usedInternalModel,
 				);
 				explicitDirectRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -2999,6 +3056,7 @@ chat.openapi(completions, async (c) => {
 					hasImages,
 					hasAudio,
 					audioFormats,
+					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 				},
@@ -3008,11 +3066,11 @@ chat.openapi(completions, async (c) => {
 				const selectedDirectProvider =
 					routingMetadataProviders.find(
 						(provider) =>
-							provider.modelName === usedModel &&
+							provider.providerId === usedProvider &&
 							provider.region === usedRegion,
 					) ??
 					routingMetadataProviders.find(
-						(provider) => provider.modelName === usedModel,
+						(provider) => provider.providerId === usedProvider,
 					);
 
 				routingMetadataProviders = selectedDirectProvider
@@ -3090,23 +3148,18 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	// Update baseModelName to match the final usedModel after routing
-	// Find the model definition that corresponds to the final usedModel
+	// Re-resolve the model definition for the routed provider so we have the
+	// expanded providers list (regions flattened) downstream.
 	let finalModelInfo: ModelDefinition | undefined;
-	usedRegion ??= (
-		modelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.modelName === usedModel,
-		) as ProviderModelMapping | undefined
-	)?.region;
 
 	if (usedProvider === "custom") {
 		finalModelInfo = {
-			id: usedModel,
+			id: usedInternalModel,
 			family: "custom",
 			providers: [
 				{
 					providerId: "custom" as const,
-					modelName: usedModel,
+					externalId: usedExternalId,
 					inputPrice: "0",
 					outputPrice: "0",
 					contextSize: 8192,
@@ -3117,22 +3170,11 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	} else {
-		const baseUsedModel = stripRegionFromModelName(usedModel, usedRegion);
-		const rawFinalModelInfo =
-			models.find(
-				(m) =>
-					(m.id === baseUsedModel ||
-						m.providers.some((p) => p.modelName === baseUsedModel)) &&
-					m.providers.some((p) => p.providerId === usedProvider),
-			) ??
-			models.find(
-				(m) =>
-					m.id === baseUsedModel ||
-					m.providers.some(
-						(p) =>
-							p.modelName === baseUsedModel && p.providerId === usedProvider,
-					),
-			);
+		const rawFinalModelInfo = models.find(
+			(m) =>
+				m.id === usedInternalModel &&
+				m.providers.some((p) => p.providerId === usedProvider),
+		);
 		if (rawFinalModelInfo) {
 			finalModelInfo = {
 				...rawFinalModelInfo,
@@ -3141,25 +3183,21 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Use the canonical model ID from finalModelInfo (looked up after routing)
-	// Fall back to usedModel (raw provider model name) for custom providers
-	let baseModelName =
-		finalModelInfo?.id ?? stripRegionFromModelName(usedModel, usedRegion);
-
-	// Check if this is an image generation model
+	// Check if this is an image generation model. Identify the routed mapping
+	// by (providerId, region) — externalId is upstream-only and no longer
+	// participates in mapping selection.
 	const imageGenProviderMapping = finalModelInfo?.providers.find(
 		(p) =>
 			p.providerId === usedProvider &&
-			p.modelName === usedModel &&
-			p.region === usedRegion,
+			(p.region ?? null) === (usedRegion ?? null),
 	);
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 
-	// Create the model mapping values according to new schema
-	let usedModelMapping = usedModel; // Store the original provider model name
+	// `usedModelMapping` is the log column that stores the upstream model id.
+	let usedModelMapping = usedExternalId;
 	let usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
-		baseModelName,
+		usedInternalModel,
 		customProviderName,
 		usedRegion,
 	); // Store in LLMGateway format
@@ -3179,7 +3217,7 @@ chat.openapi(completions, async (c) => {
 
 		if (selectedModelSupportsReasoning) {
 			// Set reasoning_effort to "minimal" for gpt-5* models, "low" for others
-			if (baseModelName.startsWith("gpt-5")) {
+			if (usedInternalModel.startsWith("gpt-5")) {
 				reasoning_effort = "minimal";
 			} else {
 				reasoning_effort = "low";
@@ -3218,13 +3256,13 @@ chat.openapi(completions, async (c) => {
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				customProviderName,
-				baseModelName,
+				usedInternalModel,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				baseModelName,
+				usedInternalModel,
 			);
 		}
 
@@ -3298,7 +3336,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		const envResult = getProviderEnv(usedProvider, {
-			selectionScope: baseModelName,
+			selectionScope: usedInternalModel,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -3326,13 +3364,13 @@ chat.openapi(completions, async (c) => {
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				customProviderName,
-				baseModelName,
+				usedInternalModel,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				baseModelName,
+				usedInternalModel,
 			);
 		}
 
@@ -3395,7 +3433,7 @@ chat.openapi(completions, async (c) => {
 			}
 
 			const envResult = getProviderEnv(usedProvider, {
-				selectionScope: baseModelName,
+				selectionScope: usedInternalModel,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -3439,7 +3477,7 @@ chat.openapi(completions, async (c) => {
 		await validateFreeModelUsage(
 			c,
 			project.organizationId,
-			usedModel,
+			usedInternalModel,
 			modelInfo as ModelDefinition,
 			{ skipEmailVerification: onboarding },
 		);
@@ -3716,10 +3754,7 @@ chat.openapi(completions, async (c) => {
 
 	// Check if the selected provider supports reasoning (from specific mapping, not any)
 	const selectedProviderMapping = modelInfo.providers.find(
-		(p) =>
-			p.providerId === usedProvider &&
-			p.modelName === usedModel &&
-			p.region === usedRegion,
+		(p) => p.providerId === usedProvider && p.region === usedRegion,
 	);
 	let supportsReasoning = selectedProviderMapping?.reasoning === true;
 	let splitTaggedReasoning =
@@ -3733,12 +3768,11 @@ chat.openapi(completions, async (c) => {
 
 	// Strip :region suffix, then apply azure_deployment_name override if set
 	// so users can target deployments whose names differ from the registry.
-	const strippedModelName = stripRegionFromModelName(usedModel, usedRegion);
 	const azureDeploymentName =
 		usedProvider === "azure"
 			? providerKey?.options?.azure_deployment_name
 			: undefined;
-	const upstreamModelName = azureDeploymentName || strippedModelName;
+	const upstreamModelName = azureDeploymentName || usedExternalId;
 
 	try {
 		if (!usedProvider) {
@@ -3760,6 +3794,7 @@ chat.openapi(completions, async (c) => {
 			isImageGeneration,
 			usedRegion,
 			providerKey !== undefined,
+			usedInternalModel,
 		);
 
 		// If region is still unset but the provider supports regions, resolve the
@@ -3777,15 +3812,15 @@ chat.openapi(completions, async (c) => {
 		if (usedRegion) {
 			usedModelFormatted = formatUsedModelForDisplay(
 				usedProvider,
-				baseModelName,
+				usedInternalModel,
 				customProviderName,
 				usedRegion,
 			);
 		}
 	} catch (error) {
-		if (usedProvider === "llmgateway" && usedModel !== "custom") {
+		if (usedProvider === "llmgateway" && usedInternalModel !== "custom") {
 			throw new HTTPException(400, {
-				message: `Invalid model: ${usedModel} for provider: ${usedProvider}`,
+				message: `Invalid model: ${usedInternalModel} for provider: ${usedProvider}`,
 			});
 		}
 
@@ -3816,7 +3851,7 @@ chat.openapi(completions, async (c) => {
 	if (cachingEnabled) {
 		const cachePayload = {
 			provider: usedProvider,
-			model: usedModel,
+			model: usedInternalModel,
 			messages,
 			temperature,
 			max_tokens,
@@ -3965,8 +4000,9 @@ chat.openapi(completions, async (c) => {
 
 				// Calculate costs for cached response
 				const costs = await calculateCosts(
-					usedModel,
+					usedInternalModel,
 					usedProvider,
+					usedRegion ?? null,
 					promptTokens ?? null,
 					completionTokens ?? null,
 					cachedTokens ?? null,
@@ -4131,8 +4167,9 @@ chat.openapi(completions, async (c) => {
 
 				// Calculate costs for cached response
 				const cachedCosts = await calculateCosts(
-					usedModel,
+					usedInternalModel,
 					usedProvider,
+					usedRegion ?? null,
 					cachedResponse.usage?.prompt_tokens ?? null,
 					cachedResponse.usage?.completion_tokens ?? null,
 					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
@@ -4241,10 +4278,7 @@ chat.openapi(completions, async (c) => {
 	if (max_tokens !== undefined && finalModelInfo) {
 		// Find the provider mapping for the used provider
 		const providerMapping = finalModelInfo.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				p.modelName === usedModel &&
-				p.region === usedRegion,
+			(p) => p.providerId === usedProvider && p.region === usedRegion,
 		);
 
 		if (
@@ -4254,7 +4288,7 @@ chat.openapi(completions, async (c) => {
 		) {
 			if (max_tokens > providerMapping.maxOutput) {
 				throw new HTTPException(400, {
-					message: `The requested max_tokens (${max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
+					message: `The requested max_tokens (${max_tokens}) exceeds the maximum output tokens allowed for model ${usedInternalModel} (${providerMapping.maxOutput})`,
 				});
 			}
 		}
@@ -4264,7 +4298,7 @@ chat.openapi(completions, async (c) => {
 	// For image generation models, we'll fake streaming by converting the response
 	const fakeStreamingForImageGen = stream && isImageGeneration;
 	const streamingSupport = getModelStreamingSupport(
-		baseModelName,
+		usedInternalModel,
 		usedProvider,
 		usedRegion,
 	);
@@ -4289,7 +4323,7 @@ chat.openapi(completions, async (c) => {
 	if (stream) {
 		if (!isImageGeneration && streamingSupport === false) {
 			throw new HTTPException(400, {
-				message: `Model ${usedModel} with provider ${usedProvider} does not support streaming`,
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support streaming`,
 			});
 		}
 	}
@@ -4297,17 +4331,14 @@ chat.openapi(completions, async (c) => {
 	// Check if effort parameter is supported by the specific provider being used
 	if (effort !== undefined && finalModelInfo) {
 		const providerMapping = finalModelInfo.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				p.modelName === usedModel &&
-				p.region === usedRegion,
+			(p) => p.providerId === usedProvider && p.region === usedRegion,
 		);
 
 		if (providerMapping) {
 			const params = providerMapping.supportedParameters;
 			if (!params?.includes("effort")) {
 				throw new HTTPException(400, {
-					message: `Model ${usedModel} with provider ${usedProvider} does not support the effort parameter. Try using provider 'anthropic' instead.`,
+					message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the effort parameter. Try using provider 'anthropic' instead.`,
 				});
 			}
 		}
@@ -4325,10 +4356,7 @@ chat.openapi(completions, async (c) => {
 	// Strip unsupported parameters based on model's supportedParameters
 	if (finalModelInfo) {
 		const providerMapping = finalModelInfo.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				p.modelName === usedModel &&
-				p.region === usedRegion,
+			(p) => p.providerId === usedProvider && p.region === usedRegion,
 		);
 		const supported = providerMapping?.supportedParameters;
 		if (supported && supported.length > 0) {
@@ -4404,34 +4432,116 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	let requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
-		usedProvider,
-		upstreamModelName,
-		messages as BaseMessage[],
-		effectiveStream,
-		temperature,
-		max_tokens,
-		top_p,
-		frequency_penalty,
-		presence_penalty,
-		response_format,
-		tools,
-		tool_choice,
-		reasoning_effort,
-		supportsReasoning,
-		process.env.NODE_ENV === "production",
-		maxImageSizeMB,
-		userPlan,
-		sensitive_word_check,
-		image_config,
-		effort,
-		isImageGeneration,
-		webSearchTool,
-		reasoning_max_tokens,
-		useResponsesApi,
-		prompt_cache_key,
-		prompt_cache_retention,
-	);
+	let requestBody: ProviderRequestBody | FormData;
+	try {
+		requestBody = await prepareRequestBody(
+			usedProvider,
+			usedInternalModel,
+			usedRegion ?? null,
+			upstreamModelName,
+			messages as BaseMessage[],
+			effectiveStream,
+			temperature,
+			max_tokens,
+			top_p,
+			frequency_penalty,
+			presence_penalty,
+			response_format,
+			tools,
+			tool_choice,
+			reasoning_effort,
+			supportsReasoning,
+			process.env.NODE_ENV === "production",
+			maxImageSizeMB,
+			userPlan,
+			sensitive_word_check,
+			image_config,
+			effort,
+			isImageGeneration,
+			webSearchTool,
+			reasoning_max_tokens,
+			useResponsesApi,
+			prompt_cache_key,
+			prompt_cache_retention,
+		);
+	} catch (e) {
+		// Surface typed pre-upstream input errors in the activity feed as a
+		// client_error. Without this, app.onError returns a 400 but no log row
+		// is written, so the user never sees the rejected request in history.
+		if (
+			e instanceof InvalidFileContentError ||
+			e instanceof UnsupportedAudioFormatError ||
+			e instanceof UnsupportedDocumentFormatError
+		) {
+			try {
+				await insertLogEntry({
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						upstreamModelName,
+						undefined,
+						usedProvider,
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+					),
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: 400,
+						statusText: "Bad Request",
+						responseText: e.message,
+						cause: e.constructor.name,
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+				});
+			} catch {
+				// Silently ignore logging failures
+			}
+		}
+		throw e;
+	}
 
 	if (forceImageStreamUpstream) {
 		requestBody = injectImageStreamParams(requestBody);
@@ -4446,10 +4556,7 @@ chat.openapi(completions, async (c) => {
 	) {
 		// Find the provider mapping for the used provider
 		const providerMapping = finalModelInfo.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				p.modelName === usedModel &&
-				p.region === usedRegion,
+			(p) => p.providerId === usedProvider && p.region === usedRegion,
 		);
 		if (
 			providerMapping &&
@@ -4458,7 +4565,7 @@ chat.openapi(completions, async (c) => {
 		) {
 			if (requestBody.max_tokens > providerMapping.maxOutput) {
 				throw new HTTPException(400, {
-					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMapping.maxOutput})`,
+					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedInternalModel} (${providerMapping.maxOutput})`,
 				});
 			}
 		}
@@ -4533,7 +4640,7 @@ chat.openapi(completions, async (c) => {
 	async function resolveProviderContextForRetry(
 		providerMapping: {
 			providerId: string;
-			modelName: string;
+			externalId: string;
 			region?: string;
 		},
 		streamValue: boolean,
@@ -4579,10 +4686,10 @@ chat.openapi(completions, async (c) => {
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): void {
 		usedProvider = ctx.usedProvider;
-		usedModel = ctx.usedModel;
+		usedInternalModel = ctx.usedInternalModel;
+		usedExternalId = ctx.usedExternalId;
 		usedModelFormatted = ctx.usedModelFormatted;
 		usedModelMapping = ctx.usedModelMapping;
-		baseModelName = ctx.baseModelName;
 		usedToken = ctx.usedToken;
 		usedApiKeyHash = ctx.usedApiKeyHash;
 		providerKey = ctx.providerKey;
@@ -4642,7 +4749,7 @@ chat.openapi(completions, async (c) => {
 	async function tryResolveAlternateKeyForCurrentProvider(
 		streamValue: boolean,
 	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
-		if (!usedProvider || !usedModel) {
+		if (!usedProvider || !usedInternalModel) {
 			return null;
 		}
 
@@ -4655,7 +4762,7 @@ chat.openapi(completions, async (c) => {
 			const nextContext = await resolveProviderContextForRetry(
 				{
 					providerId: usedProvider,
-					modelName: usedModel,
+					externalId: usedExternalId,
 					region: usedRegion,
 				},
 				streamValue,
@@ -4755,11 +4862,13 @@ chat.openapi(completions, async (c) => {
 				const writeStreamingContentFilterResponse = async ({
 					billingModel,
 					billingProvider,
+					billingRegion,
 					responseModel,
 					metadata,
 				}: {
 					billingModel: string;
 					billingProvider: Provider;
+					billingRegion: string | null;
 					responseModel: string;
 					metadata?: Record<string, unknown>;
 				}) => {
@@ -4777,6 +4886,7 @@ chat.openapi(completions, async (c) => {
 					const streamingCosts = await calculateCosts(
 						billingModel,
 						billingProvider,
+						billingRegion,
 						promptTokenCount,
 						0,
 						null,
@@ -5016,7 +5126,7 @@ chat.openapi(completions, async (c) => {
 								cause: timeoutCause,
 								usedProvider,
 								requestedProvider,
-								usedModel,
+								usedInternalModel,
 								initialRequestedModel,
 								unifiedFinishReason: getUnifiedFinishReason(
 									"upstream_error",
@@ -5134,7 +5244,7 @@ chat.openapi(completions, async (c) => {
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
-										baseModelName,
+										usedInternalModel,
 										0,
 										getErrorType(0),
 										false,
@@ -5154,7 +5264,7 @@ chat.openapi(completions, async (c) => {
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
-										baseModelName,
+										usedInternalModel,
 										0,
 										getErrorType(0),
 										false,
@@ -5209,8 +5319,9 @@ chat.openapi(completions, async (c) => {
 								// Calculate costs based on prompt tokens only (no completion yet)
 								// If web search tool was enabled, count it as 1 search for billing
 								cancelledCosts = await calculateCosts(
-									usedModel,
+									usedInternalModel,
 									usedProvider,
+									usedRegion ?? null,
 									estimatedPromptTokens,
 									0, // No completion tokens yet
 									null, // No cached tokens
@@ -5345,7 +5456,7 @@ chat.openapi(completions, async (c) => {
 								cause: fetchCause,
 								usedProvider,
 								requestedProvider,
-								usedModel,
+								usedInternalModel,
 								initialRequestedModel,
 								unifiedFinishReason: getUnifiedFinishReason(
 									"upstream_error",
@@ -5468,7 +5579,7 @@ chat.openapi(completions, async (c) => {
 									configIndex,
 									0,
 									undefined,
-									baseModelName,
+									usedInternalModel,
 								);
 							}
 							if (trackedKeyHealthId) {
@@ -5476,7 +5587,7 @@ chat.openapi(completions, async (c) => {
 									trackedKeyHealthId,
 									0,
 									undefined,
-									baseModelName,
+									usedInternalModel,
 								);
 							}
 
@@ -5484,7 +5595,7 @@ chat.openapi(completions, async (c) => {
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
-										baseModelName,
+										usedInternalModel,
 										0,
 										getErrorType(0),
 										false,
@@ -5504,7 +5615,7 @@ chat.openapi(completions, async (c) => {
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
-										baseModelName,
+										usedInternalModel,
 										0,
 										getErrorType(0),
 										false,
@@ -5552,6 +5663,16 @@ chat.openapi(completions, async (c) => {
 								? extractAwsBedrockHttpError(res, rawErrorResponseText)
 								: rawErrorResponseText;
 
+						// If the upstream Google provider rejected the document MIME,
+						// surface a typed error event so streaming clients see the same
+						// clean shape as the non-streaming path does (via app.onError).
+						const documentErr = hasDocuments
+							? parseGoogleUpstreamDocumentError(
+									errorResponseText,
+									usedProvider,
+								)
+							: null;
+
 						// Determine the finish reason for error handling
 						const finishReason = getFinishReasonFromError(
 							res.status,
@@ -5567,7 +5688,7 @@ chat.openapi(completions, async (c) => {
 								errorText: errorResponseText,
 								usedProvider,
 								requestedProvider,
-								usedModel,
+								usedInternalModel,
 								initialRequestedModel,
 								organizationId: project.organizationId,
 								projectId: apiKey.projectId,
@@ -5663,8 +5784,9 @@ chat.openapi(completions, async (c) => {
 						const contentFilterCosts =
 							finishReason === "content_filter"
 								? await calculateCosts(
-										usedModel,
+										usedInternalModel,
 										usedProvider,
+										usedRegion ?? null,
 										Math.max(1, Math.round(contentFilterPromptTokens ?? 1)),
 										0,
 										null,
@@ -5741,7 +5863,7 @@ chat.openapi(completions, async (c) => {
 								configIndex,
 								res.status,
 								errorResponseText,
-								baseModelName,
+								usedInternalModel,
 							);
 						}
 						if (trackedKeyHealthId && finishReason !== "content_filter") {
@@ -5749,7 +5871,7 @@ chat.openapi(completions, async (c) => {
 								trackedKeyHealthId,
 								res.status,
 								errorResponseText,
-								baseModelName,
+								usedInternalModel,
 							);
 						}
 
@@ -5757,7 +5879,7 @@ chat.openapi(completions, async (c) => {
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
-									baseModelName,
+									usedInternalModel,
 									res.status,
 									getErrorType(res.status),
 									false,
@@ -5777,7 +5899,7 @@ chat.openapi(completions, async (c) => {
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
-									baseModelName,
+									usedInternalModel,
 									res.status,
 									getErrorType(res.status),
 									false,
@@ -5796,27 +5918,39 @@ chat.openapi(completions, async (c) => {
 						// This handles Azure ResponsibleAIPolicyViolation and similar content filtering errors
 						if (finishReason === "content_filter") {
 							await writeStreamingContentFilterResponse({
-								billingModel: usedModel,
+								billingModel: usedInternalModel,
 								billingProvider: usedProvider,
+								billingRegion: usedRegion ?? null,
 								responseModel: formatUsedModelForDisplay(
 									usedProvider,
-									baseModelName,
+									usedInternalModel,
 									customProviderName,
 									usedRegion,
 								),
 								metadata: {
 									requested_model: initialRequestedModel,
 									requested_provider: requestedProvider,
-									used_model: baseModelName,
+									used_model: usedInternalModel,
 									used_provider: usedProvider,
 									...(usedRegion && { used_region: usedRegion }),
-									underlying_used_model: usedModel,
+									underlying_used_model: usedInternalModel,
 								},
 							});
 						} else {
 							// For client errors, return the original provider error response
 							let errorData;
-							if (finishReason === "client_error") {
+							if (documentErr) {
+								errorData = {
+									error: {
+										message: documentErr.message,
+										type: "invalid_request_error",
+										param: null,
+										code: "unsupported_document_format",
+										mimeType: documentErr.mimeType,
+										providerTarget: documentErr.providerTarget,
+									},
+								};
+							} else if (finishReason === "client_error") {
 								try {
 									errorData = JSON.parse(errorResponseText);
 								} catch {
@@ -5877,7 +6011,7 @@ chat.openapi(completions, async (c) => {
 							errorText: errorResponseText,
 							usedProvider,
 							requestedProvider,
-							usedModel,
+							usedInternalModel,
 							initialRequestedModel,
 							organizationId: project.organizationId,
 							projectId: apiKey.projectId,
@@ -6008,7 +6142,7 @@ chat.openapi(completions, async (c) => {
 								configIndex,
 								inferredStatusCode,
 								errorResponseText,
-								baseModelName,
+								usedInternalModel,
 							);
 						}
 						if (trackedKeyHealthId && errorType !== "content_filter") {
@@ -6016,7 +6150,7 @@ chat.openapi(completions, async (c) => {
 								trackedKeyHealthId,
 								inferredStatusCode,
 								errorResponseText,
-								baseModelName,
+								usedInternalModel,
 							);
 						}
 
@@ -6024,7 +6158,7 @@ chat.openapi(completions, async (c) => {
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
-									baseModelName,
+									usedInternalModel,
 									inferredStatusCode,
 									getErrorType(inferredStatusCode),
 									false,
@@ -6044,7 +6178,7 @@ chat.openapi(completions, async (c) => {
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
-									baseModelName,
+									usedInternalModel,
 									inferredStatusCode,
 									getErrorType(inferredStatusCode),
 									false,
@@ -6089,7 +6223,7 @@ chat.openapi(completions, async (c) => {
 					routingAttempts.push(
 						buildRoutingAttempt(
 							usedProvider,
-							baseModelName,
+							usedInternalModel,
 							res.status,
 							"none",
 							true,
@@ -6339,7 +6473,7 @@ chat.openapi(completions, async (c) => {
 									bufferSize: buffer.length,
 									maxBufferSize: MAX_BUFFER_SIZE,
 									provider: usedProvider,
-									model: usedModel,
+									model: usedInternalModel,
 								},
 							};
 
@@ -6601,8 +6735,9 @@ chat.openapi(completions, async (c) => {
 								) {
 									// Calculate costs for streaming response
 									const streamingCosts = await calculateCosts(
-										usedModel,
+										usedInternalModel,
 										usedProvider,
+										usedRegion ?? null,
 										finalPromptTokens,
 										finalCompletionTokens,
 										cachedTokens,
@@ -6716,7 +6851,7 @@ chat.openapi(completions, async (c) => {
 										id: `chatcmpl-${Date.now()}`,
 										object: "chat.completion.chunk",
 										created: Math.floor(Date.now() / 1000),
-										model: usedModel,
+										model: usedInternalModel,
 										choices: [
 											{
 												index: 0,
@@ -6747,7 +6882,7 @@ chat.openapi(completions, async (c) => {
 													id: `chatcmpl-${Date.now()}`,
 													object: "chat.completion.chunk",
 													created: Math.floor(Date.now() / 1000),
-													model: usedModel,
+													model: usedInternalModel,
 													choices: [
 														{
 															index: 0,
@@ -6793,7 +6928,7 @@ chat.openapi(completions, async (c) => {
 											name: e instanceof Error ? e.name : "ParseError",
 											eventData: eventData.substring(0, 5000),
 											provider: usedProvider,
-											model: usedModel,
+											model: usedInternalModel,
 											eventLength: eventData.length,
 											bufferEnd: eventEnd,
 											bufferLength: bufferCopy.length,
@@ -6888,7 +7023,7 @@ chat.openapi(completions, async (c) => {
 									logger.info("[streaming] Provider SSE error received", {
 										requestId,
 										provider: usedProvider,
-										model: usedModel,
+										model: usedInternalModel,
 										errorType,
 										errorCode,
 										inferredStatusCode,
@@ -6900,9 +7035,10 @@ chat.openapi(completions, async (c) => {
 
 									if (errorType === "content_filter") {
 										await writeStreamingContentFilterResponse({
-											billingModel: usedModel,
+											billingModel: usedInternalModel,
 											billingProvider: usedProvider,
-											responseModel: data.model ?? usedModel,
+											billingRegion: usedRegion ?? null,
+											responseModel: data.model ?? usedInternalModel,
 										});
 										handledTerminalProviderEvent = true;
 									} else {
@@ -6997,7 +7133,7 @@ chat.openapi(completions, async (c) => {
 								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingToOpenai(
 									usedProvider,
-									usedModel,
+									usedInternalModel,
 									data,
 									messages,
 									serverToolUseIndices,
@@ -7516,7 +7652,7 @@ chat.openapi(completions, async (c) => {
 							error: errorMessage,
 							usedProvider,
 							requestedProvider,
-							usedModel,
+							usedInternalModel,
 							initialRequestedModel,
 							unifiedFinishReason: getUnifiedFinishReason(
 								"upstream_error",
@@ -7560,14 +7696,14 @@ chat.openapi(completions, async (c) => {
 								name: "TimeoutError",
 								timestamp: new Date().toISOString(),
 								provider: usedProvider,
-								model: usedModel,
+								model: usedInternalModel,
 							},
 						};
 					} else {
 						const normalizedStreamingError = normalizeStreamingError({
 							error,
 							provider: usedProvider,
-							model: usedModel,
+							model: usedInternalModel,
 							bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
 							phase: "upstream_read",
 						});
@@ -7576,7 +7712,7 @@ chat.openapi(completions, async (c) => {
 							requestId,
 							usedProvider,
 							requestedProvider,
-							usedModel,
+							usedInternalModel,
 							initialRequestedModel,
 							upstreamStatus: res?.status ?? null,
 							upstreamStatusText: res?.statusText ?? null,
@@ -7716,7 +7852,7 @@ chat.openapi(completions, async (c) => {
 
 						logger.warn("[streaming] Stream ended without terminal event", {
 							provider: usedProvider,
-							model: usedModel,
+							model: usedInternalModel,
 							bufferLength: buffer.length,
 							fullContentLength: fullContent.length,
 							hasToolCalls:
@@ -7737,7 +7873,7 @@ chat.openapi(completions, async (c) => {
 								responseText,
 								timestamp: new Date().toISOString(),
 								provider: usedProvider,
-								model: usedModel,
+								model: usedInternalModel,
 								bufferLength: buffer.length,
 							},
 						};
@@ -7798,7 +7934,7 @@ chat.openapi(completions, async (c) => {
 					if (hasEmptyResponse) {
 						logger.warn("[streaming] Empty response detected", {
 							provider: usedProvider,
-							model: usedModel,
+							model: usedInternalModel,
 							finishReason,
 							calculatedCompletionTokens,
 							calculatedReasoningTokens,
@@ -7859,7 +7995,7 @@ chat.openapi(completions, async (c) => {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: Math.floor(Date.now() / 1000),
-									model: usedModel,
+									model: usedInternalModel,
 									choices: [
 										{
 											index: 0,
@@ -7915,8 +8051,9 @@ chat.openapi(completions, async (c) => {
 										dataStorageCost: null as number | null,
 									}
 								: await calculateCosts(
-										usedModel,
+										usedInternalModel,
 										usedProvider,
+										usedRegion ?? null,
 										calculatedPromptTokens,
 										calculatedCompletionTokens,
 										cachedTokens,
@@ -7962,7 +8099,7 @@ chat.openapi(completions, async (c) => {
 								id: `chatcmpl-${Date.now()}`,
 								object: "chat.completion.chunk",
 								created: Math.floor(Date.now() / 1000),
-								model: usedModel,
+								model: usedInternalModel,
 								choices: [
 									{
 										index: 0,
@@ -8093,7 +8230,7 @@ chat.openapi(completions, async (c) => {
 									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
-									model: lastChunkModel ?? usedModel,
+									model: lastChunkModel ?? usedInternalModel,
 									choices: [
 										{
 											index: 0,
@@ -8115,7 +8252,7 @@ chat.openapi(completions, async (c) => {
 									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
-									model: lastChunkModel ?? usedModel,
+									model: lastChunkModel ?? usedInternalModel,
 									choices: [
 										{
 											index: 0,
@@ -8150,7 +8287,7 @@ chat.openapi(completions, async (c) => {
 									created: Math.floor(Date.now() / 1000),
 									model: formatUsedModelForDisplay(
 										usedProvider,
-										baseModelName,
+										usedInternalModel,
 										customProviderName,
 										usedRegion,
 									),
@@ -8164,10 +8301,10 @@ chat.openapi(completions, async (c) => {
 									metadata: {
 										requested_model: initialRequestedModel,
 										requested_provider: requestedProvider ?? null,
-										used_model: baseModelName,
+										used_model: usedInternalModel,
 										used_provider: usedProvider,
 										...(usedRegion && { used_region: usedRegion }),
-										underlying_used_model: usedModel,
+										underlying_used_model: usedInternalModel,
 										routing: routingAttempts,
 									},
 								};
@@ -8240,8 +8377,9 @@ chat.openapi(completions, async (c) => {
 									dataStorageCost: null as number | null,
 								}
 							: await calculateCosts(
-									usedModel,
+									usedInternalModel,
 									usedProvider,
+									usedRegion ?? null,
 									calculatedPromptTokens,
 									calculatedCompletionTokens,
 									cachedTokens,
@@ -8332,7 +8470,7 @@ chat.openapi(completions, async (c) => {
 					if (isGoogleCompatibleProvider(usedProvider)) {
 						logger.debug("Google model streaming response completed", {
 							usedProvider,
-							usedModel,
+							usedInternalModel,
 							hasContent: !!fullContent,
 							contentLength: fullContent.length,
 							finishReason,
@@ -8464,10 +8602,10 @@ chat.openapi(completions, async (c) => {
 								configIndex,
 								streamingErrorStatusCode,
 								undefined,
-								baseModelName,
+								usedInternalModel,
 							);
 						} else {
-							reportKeySuccess(envVarName, configIndex, baseModelName);
+							reportKeySuccess(envVarName, configIndex, usedInternalModel);
 						}
 					}
 					if (trackedKeyHealthId) {
@@ -8476,10 +8614,10 @@ chat.openapi(completions, async (c) => {
 								trackedKeyHealthId,
 								streamingErrorStatusCode,
 								undefined,
-								baseModelName,
+								usedInternalModel,
 							);
 						} else {
-							reportTrackedKeySuccess(trackedKeyHealthId, baseModelName);
+							reportTrackedKeySuccess(trackedKeyHealthId, usedInternalModel);
 						}
 					}
 
@@ -8495,7 +8633,7 @@ chat.openapi(completions, async (c) => {
 							const streamingCacheData = {
 								chunks: streamingChunks,
 								metadata: {
-									model: usedModel,
+									model: usedInternalModel,
 									provider: usedProvider,
 									finishReason: finishReason,
 									totalChunks: streamingChunks.length,
@@ -8701,7 +8839,7 @@ chat.openapi(completions, async (c) => {
 				cause: nonStreamingFetchCause,
 				usedProvider,
 				requestedProvider,
-				usedModel,
+				usedInternalModel,
 				initialRequestedModel,
 				unifiedFinishReason: getUnifiedFinishReason(
 					"upstream_error",
@@ -8821,17 +8959,28 @@ chat.openapi(completions, async (c) => {
 
 			// Report key health for the selected token source
 			if (envVarName !== undefined) {
-				reportKeyError(envVarName, configIndex, 0, undefined, baseModelName);
+				reportKeyError(
+					envVarName,
+					configIndex,
+					0,
+					undefined,
+					usedInternalModel,
+				);
 			}
 			if (trackedKeyHealthId) {
-				reportTrackedKeyError(trackedKeyHealthId, 0, undefined, baseModelName);
+				reportTrackedKeyError(
+					trackedKeyHealthId,
+					0,
+					undefined,
+					usedInternalModel,
+				);
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,
-						baseModelName,
+						usedInternalModel,
 						0,
 						getErrorType(0),
 						false,
@@ -8851,7 +9000,7 @@ chat.openapi(completions, async (c) => {
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,
-						baseModelName,
+						usedInternalModel,
 						0,
 						getErrorType(0),
 						false,
@@ -8879,7 +9028,7 @@ chat.openapi(completions, async (c) => {
 						requestedProvider,
 						usedProvider,
 						requestedModel: initialRequestedModel,
-						usedModel,
+						usedInternalModel,
 					},
 				},
 				isTimeoutFetchError ? 504 : 502,
@@ -8912,8 +9061,9 @@ chat.openapi(completions, async (c) => {
 				// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
 				// If web search tool was enabled, count it as 1 search for billing
 				cancelledCosts = await calculateCosts(
-					usedModel,
+					usedInternalModel,
 					usedProvider,
+					usedRegion ?? null,
 					estimatedPromptTokens,
 					0, // No completion tokens
 					null, // No cached tokens
@@ -9050,7 +9200,7 @@ chat.openapi(completions, async (c) => {
 					const bodyErrorCause = extractErrorCause(bodyError);
 					logger.warn("Timeout reading error response body", {
 						usedProvider,
-						usedModel,
+						usedInternalModel,
 						status: res.status,
 						cause: bodyErrorCause,
 						unifiedFinishReason: getUnifiedFinishReason(
@@ -9148,6 +9298,19 @@ chat.openapi(completions, async (c) => {
 				throw bodyError;
 			}
 
+			// If the upstream Google provider rejected the request because the
+			// document MIME isn't supported by that specific model, re-emit as a
+			// typed error so app.ts:onError returns a clean 400.
+			if (hasDocuments) {
+				const documentErr = parseGoogleUpstreamDocumentError(
+					errorResponseText,
+					usedProvider,
+				);
+				if (documentErr) {
+					throw documentErr;
+				}
+			}
+
 			// Determine the finish reason first
 			const finishReason = getFinishReasonFromError(
 				res.status,
@@ -9163,7 +9326,7 @@ chat.openapi(completions, async (c) => {
 					errorText: errorResponseText,
 					usedProvider,
 					requestedProvider,
-					usedModel,
+					usedInternalModel,
 					initialRequestedModel,
 					organizationId: project.organizationId,
 					projectId: apiKey.projectId,
@@ -9255,8 +9418,9 @@ chat.openapi(completions, async (c) => {
 			const nonStreamContentFilterCosts =
 				finishReason === "content_filter"
 					? await calculateCosts(
-							usedModel,
+							usedInternalModel,
 							usedProvider,
+							usedRegion ?? null,
 							Math.max(1, Math.round(nonStreamContentFilterPromptTokens ?? 1)),
 							0,
 							null,
@@ -9352,7 +9516,7 @@ chat.openapi(completions, async (c) => {
 					configIndex,
 					res.status,
 					errorResponseText,
-					baseModelName,
+					usedInternalModel,
 				);
 			}
 			if (trackedKeyHealthId && finishReason !== "content_filter") {
@@ -9360,7 +9524,7 @@ chat.openapi(completions, async (c) => {
 					trackedKeyHealthId,
 					res.status,
 					errorResponseText,
-					baseModelName,
+					usedInternalModel,
 				);
 			}
 
@@ -9368,7 +9532,7 @@ chat.openapi(completions, async (c) => {
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,
-						baseModelName,
+						usedInternalModel,
 						res.status,
 						getErrorType(res.status),
 						false,
@@ -9388,7 +9552,7 @@ chat.openapi(completions, async (c) => {
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,
-						baseModelName,
+						usedInternalModel,
 						res.status,
 						getErrorType(res.status),
 						false,
@@ -9439,7 +9603,7 @@ chat.openapi(completions, async (c) => {
 					created: Math.floor(Date.now() / 1000),
 					model: formatUsedModelForDisplay(
 						usedProvider,
-						baseModelName,
+						usedInternalModel,
 						customProviderName,
 						usedRegion,
 					),
@@ -9458,10 +9622,10 @@ chat.openapi(completions, async (c) => {
 						request_id: requestId,
 						requested_model: initialRequestedModel,
 						requested_provider: requestedProvider,
-						used_model: baseModelName,
+						used_model: usedInternalModel,
 						used_provider: usedProvider,
 						...(usedRegion && { used_region: usedRegion }),
-						underlying_used_model: usedModel,
+						underlying_used_model: usedInternalModel,
 					},
 				});
 			}
@@ -9487,7 +9651,7 @@ chat.openapi(completions, async (c) => {
 						requestedProvider,
 						usedProvider,
 						requestedModel: initialRequestedModel,
-						usedModel,
+						usedInternalModel,
 						responseText: errorResponseText,
 					},
 				},
@@ -9503,7 +9667,7 @@ chat.openapi(completions, async (c) => {
 		routingAttempts.push(
 			buildRoutingAttempt(
 				usedProvider,
-				baseModelName,
+				usedInternalModel,
 				res.status,
 				"none",
 				true,
@@ -9742,7 +9906,7 @@ chat.openapi(completions, async (c) => {
 						created: Math.floor(Date.now() / 1000),
 						model: formatUsedModelForDisplay(
 							usedProvider,
-							baseModelName,
+							usedInternalModel,
 							customProviderName,
 							usedRegion,
 						),
@@ -9765,17 +9929,17 @@ chat.openapi(completions, async (c) => {
 							request_id: requestId,
 							requested_model: initialRequestedModel,
 							requested_provider: requestedProvider,
-							used_model: baseModelName,
+							used_model: usedInternalModel,
 							used_provider: usedProvider,
 							...(usedRegion && { used_region: usedRegion }),
-							underlying_used_model: usedModel,
+							underlying_used_model: usedInternalModel,
 						},
 					});
 				}
 
 				logger.warn("Image generation SSE collapse failed", {
 					usedProvider,
-					usedModel,
+					usedInternalModel,
 					code: collapsed.error.code,
 					message: collapsed.error.message,
 				});
@@ -9789,7 +9953,7 @@ chat.openapi(completions, async (c) => {
 							requestedProvider,
 							usedProvider,
 							requestedModel: initialRequestedModel,
-							usedModel,
+							usedInternalModel,
 						},
 					},
 					502,
@@ -9808,7 +9972,7 @@ chat.openapi(completions, async (c) => {
 			const bodyReadCause = extractErrorCause(bodyError);
 			logger.warn("Timeout reading response body", {
 				usedProvider,
-				usedModel,
+				usedInternalModel,
 				initialRequestedModel,
 				cause: bodyReadCause,
 				unifiedFinishReason: getUnifiedFinishReason(
@@ -9917,7 +10081,7 @@ chat.openapi(completions, async (c) => {
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
 		usedProvider,
-		usedModel,
+		usedInternalModel,
 		json,
 		messages,
 		supportsReasoning,
@@ -9989,7 +10153,7 @@ chat.openapi(completions, async (c) => {
 	if (isGoogleCompatibleProvider(usedProvider)) {
 		logger.debug("Google model response parsed", {
 			usedProvider,
-			usedModel,
+			usedInternalModel,
 			hasContent: !!content,
 			contentLength: content?.length ?? 0,
 			finishReason,
@@ -10006,7 +10170,7 @@ chat.openapi(completions, async (c) => {
 	// Debug: Log images found in response
 	logger.debug("Gateway - parseProviderResponse extracted images", { images });
 	logger.debug("Gateway - Used provider", { usedProvider });
-	logger.debug("Gateway - Used model", { usedModel });
+	logger.debug("Gateway - Used model", { usedInternalModel });
 
 	// Convert external image URLs to base64 data URLs
 	// This ensures consistent response format across all providers
@@ -10038,8 +10202,9 @@ chat.openapi(completions, async (c) => {
 		calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
 	}
 	const costs = await calculateCosts(
-		usedModel,
+		usedInternalModel,
 		usedProvider,
+		usedRegion ?? null,
 		calculatedPromptTokens,
 		calculatedCompletionTokens,
 		cachedTokens,
@@ -10094,7 +10259,7 @@ chat.openapi(completions, async (c) => {
 	const shouldIncludeCosts = true;
 	const transformedResponse = transformResponseToOpenai(
 		usedProvider,
-		usedModel,
+		usedInternalModel,
 		json,
 		content,
 		reasoningContent,
@@ -10110,7 +10275,7 @@ chat.openapi(completions, async (c) => {
 		convertedImages,
 		modelInput,
 		requestedProvider ?? null,
-		baseModelName,
+		usedInternalModel,
 		shouldIncludeCosts
 			? {
 					inputCost: costs.inputCost,
@@ -10201,7 +10366,7 @@ chat.openapi(completions, async (c) => {
 		logger.debug("Empty non-streaming response detected", {
 			finishReason,
 			usedProvider,
-			usedModel,
+			usedInternalModel,
 			calculatedCompletionTokens,
 			contentLength: content?.length ?? 0,
 			toolResultsLength: toolResults?.length ?? 0,
@@ -10299,10 +10464,10 @@ chat.openapi(completions, async (c) => {
 	// Report key health for the selected token source
 	// Note: We don't report empty responses as key errors since they're not upstream errors
 	if (envVarName !== undefined) {
-		reportKeySuccess(envVarName, configIndex, baseModelName);
+		reportKeySuccess(envVarName, configIndex, usedInternalModel);
 	}
 	if (trackedKeyHealthId) {
-		reportTrackedKeySuccess(trackedKeyHealthId, baseModelName);
+		reportTrackedKeySuccess(trackedKeyHealthId, usedInternalModel);
 	}
 
 	if (cachingEnabled && cacheKey && !stream && !hasEmptyNonStreamingResponse) {

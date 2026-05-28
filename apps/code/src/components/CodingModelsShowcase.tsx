@@ -20,7 +20,7 @@ interface RecommendedModel {
 // "all" view leads with them — we don't want to heavily promote flagship-only
 // pricing on a fixed-cost DevPass plan.
 const RECOMMENDED_MODELS: RecommendedModel[] = [
-	{ id: "glm-4.7", category: "cheap" },
+	{ id: "glm-5.1", category: "cheap" },
 	{ id: "kimi-k2.6", category: "cheap" },
 	{ id: "qwen3-coder", category: "cheap" },
 	{ id: "deepseek-v4-pro", category: "cheap" },

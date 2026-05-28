@@ -107,6 +107,8 @@ export function ModelSelector({
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
+	// Strict (providerId, region) match — no loose fallbacks that would pick
+	// the first regional variant when no region was requested.
 	const selectedMapping = selectedRegion
 		? selectedModel?.providers.find(
 				(p) =>
@@ -117,7 +119,7 @@ export function ModelSelector({
 			);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
-			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
+			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.region ?? ""}`
 			: "";
 
 	// Build entries of model per provider mapping
@@ -530,7 +532,7 @@ export function ModelSelector({
 											: provider
 												? getProviderIcon(provider.id)
 												: null;
-										const entryKey = `${mapping.providerId}-${model.id}-${mapping.modelName}`;
+										const entryKey = `${mapping.providerId}-${model.id}-${mapping.region ?? ""}`;
 										const isDeprecated =
 											mapping.deprecatedAt &&
 											new Date(mapping.deprecatedAt) <= new Date();
@@ -540,7 +542,7 @@ export function ModelSelector({
 												value={entryKey}
 												onSelect={() => {
 													onValueChange?.(
-														`${mapping.providerId}/${mapping.region ? `${model.id}:${mapping.region}` : model.id}`,
+														`${mapping.providerId}/${model.id}${mapping.region ? `:${mapping.region}` : ""}`,
 													);
 													setOpen(false);
 												}}

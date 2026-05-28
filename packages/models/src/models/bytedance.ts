@@ -11,7 +11,7 @@ export const bytedanceModels = [
 		providers: [
 			{
 				providerId: "bytedance",
-				modelName: "seed-1-6-250615",
+				externalId: "seed-1-6-250615",
 				inputPrice: "0.00025e-3",
 				outputPrice: "0.002e-3",
 				cachedInputPrice: "0.00005e-3",
@@ -36,7 +36,7 @@ export const bytedanceModels = [
 		providers: [
 			{
 				providerId: "bytedance",
-				modelName: "seed-1-6-250915",
+				externalId: "seed-1-6-250915",
 				inputPrice: "0.00025e-3",
 				cachedInputPrice: "0.00005e-3",
 				outputPrice: "0.002e-3",
@@ -61,7 +61,7 @@ export const bytedanceModels = [
 		providers: [
 			{
 				providerId: "bytedance",
-				modelName: "seed-1-6-flash-250715",
+				externalId: "seed-1-6-flash-250715",
 				inputPrice: "0.00007e-3",
 				cachedInputPrice: "0.000015e-3",
 				outputPrice: "0.0003e-3",
@@ -86,7 +86,7 @@ export const bytedanceModels = [
 		providers: [
 			{
 				providerId: "bytedance",
-				modelName: "seed-1-8-251228",
+				externalId: "seed-1-8-251228",
 				inputPrice: "0.00025e-3",
 				cachedInputPrice: "0.00005e-3",
 				outputPrice: "0.002e-3",
@@ -113,7 +113,7 @@ export const bytedanceModels = [
 			{
 				test: "skip",
 				providerId: "bytedance",
-				modelName: "seedream-4-0-250828",
+				externalId: "seedream-4-0-250828",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.035",
@@ -140,7 +140,7 @@ export const bytedanceModels = [
 			{
 				test: "skip",
 				providerId: "bytedance",
-				modelName: "dreamina-seedance-2-0-260128",
+				externalId: "dreamina-seedance-2-0-260128",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -176,7 +176,7 @@ export const bytedanceModels = [
 			{
 				test: "skip",
 				providerId: "bytedance",
-				modelName: "dreamina-seedance-2-0-fast-260128",
+				externalId: "dreamina-seedance-2-0-fast-260128",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -212,7 +212,7 @@ export const bytedanceModels = [
 			{
 				test: "skip",
 				providerId: "bytedance",
-				modelName: "seedance-1-5-pro-251215",
+				externalId: "seedance-1-5-pro-251215",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -248,7 +248,7 @@ export const bytedanceModels = [
 			{
 				test: "skip",
 				providerId: "bytedance",
-				modelName: "seedream-4-5-251128",
+				externalId: "seedream-4-5-251128",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.045",

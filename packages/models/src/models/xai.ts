@@ -21,7 +21,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-3",
+				externalId: "grok-3",
 				inputPrice: "3.0e-6",
 				cachedInputPrice: "0.75e-6",
 				outputPrice: "15.0e-6",
@@ -46,7 +46,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-3-mini",
+				externalId: "grok-3-mini",
 				inputPrice: "0.3e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -73,7 +73,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-3-fast",
+				externalId: "grok-3-fast",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				requestPrice: "0",
@@ -98,7 +98,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-3-mini-fast",
+				externalId: "grok-3-mini-fast",
 				inputPrice: "0.6e-6",
 				outputPrice: "4.0e-6",
 				requestPrice: "0",
@@ -124,7 +124,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-2-1212",
+				externalId: "grok-2-1212",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
 				requestPrice: "0",
@@ -149,7 +149,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-2-vision-1212",
+				externalId: "grok-2-vision-1212",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
 				requestPrice: "0",
@@ -176,7 +176,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4-0709",
+				externalId: "grok-4-0709",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
@@ -219,7 +219,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4",
+				externalId: "grok-4",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				pricingTiers: [
@@ -261,7 +261,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4-fast-reasoning",
+				externalId: "grok-4-fast-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
@@ -305,7 +305,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4-fast-non-reasoning",
+				externalId: "grok-4-fast-non-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
@@ -349,7 +349,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-code-fast-1",
+				externalId: "grok-code-fast-1",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.02e-6",
@@ -375,7 +375,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4-1-fast-reasoning",
+				externalId: "grok-4-1-fast-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
@@ -409,7 +409,7 @@ export const xaiModels = [
 			},
 			{
 				providerId: "azure-ai-foundry",
-				modelName: "grok-4-1-fast-reasoning",
+				externalId: "grok-4-1-fast-reasoning",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -437,7 +437,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4-1-fast-non-reasoning",
+				externalId: "grok-4-1-fast-non-reasoning",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
@@ -470,7 +470,7 @@ export const xaiModels = [
 			},
 			{
 				providerId: "azure-ai-foundry",
-				modelName: "grok-4-1-fast-non-reasoning",
+				externalId: "grok-4-1-fast-non-reasoning",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -497,7 +497,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4.20-multi-agent-beta-0309",
+				externalId: "grok-4.20-multi-agent-beta-0309",
 				// xAI multi-agent models do not work with the Chat Completions API.
 				// They require the Responses API (/v1/responses) with orchestrated sub-agents.
 				// Deactivated until the gateway adds xAI Responses API routing support.
@@ -545,7 +545,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4.20-beta-0309-reasoning",
+				externalId: "grok-4.20-beta-0309-reasoning",
 				inputPrice: "2.0e-6",
 				outputPrice: "6.0e-6",
 				pricingTiers: [
@@ -587,7 +587,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4.20-beta-0309-non-reasoning",
+				externalId: "grok-4.20-beta-0309-non-reasoning",
 				inputPrice: "2.0e-6",
 				outputPrice: "6.0e-6",
 				pricingTiers: [
@@ -628,7 +628,7 @@ export const xaiModels = [
 			{
 				providerId: "vertex-openai",
 				stability: "unstable" as const,
-				modelName: "grok-4.20-reasoning",
+				externalId: "grok-4.20-reasoning",
 				inputPrice: "2.0e-6",
 				outputPrice: "6.0e-6",
 				pricingTiers: [
@@ -671,7 +671,7 @@ export const xaiModels = [
 			{
 				providerId: "vertex-openai",
 				stability: "unstable" as const,
-				modelName: "grok-4.20-non-reasoning",
+				externalId: "grok-4.20-non-reasoning",
 				inputPrice: "2.0e-6",
 				outputPrice: "6.0e-6",
 				pricingTiers: [
@@ -713,7 +713,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-4.3",
+				externalId: "grok-4.3",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
 				cachedInputPrice: "0.3125e-6",
@@ -758,7 +758,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-imagine-image-pro",
+				externalId: "grok-imagine-image-pro",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0",
 				outputPrice: "0",
@@ -787,7 +787,7 @@ export const xaiModels = [
 				test: "skip",
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-imagine-image",
+				externalId: "grok-imagine-image",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.02",
@@ -813,7 +813,7 @@ export const xaiModels = [
 			{
 				providerId: "xai",
 				contentFilterPrice: 0.05,
-				modelName: "grok-build-0.1",
+				externalId: "grok-build-0.1",
 				inputPrice: "1.0e-6",
 				outputPrice: "2.0e-6",
 				pricingTiers: [

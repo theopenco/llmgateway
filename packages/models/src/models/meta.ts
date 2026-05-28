@@ -10,7 +10,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "aws-bedrock",
-				modelName: "meta.llama3-1-8b-instruct-v1:0",
+				externalId: "meta.llama3-1-8b-instruct-v1:0",
 				stability: "unstable",
 				inputPrice: "0.22e-6",
 				outputPrice: "0.22e-6",
@@ -25,7 +25,7 @@ export const metaModels = [
 			},
 			{
 				providerId: "nebius",
-				modelName: "meta-llama/Meta-Llama-3.1-8B-Instruct",
+				externalId: "meta-llama/Meta-Llama-3.1-8B-Instruct",
 				inputPrice: "0.02e-6",
 				outputPrice: "0.06e-6",
 				requestPrice: "0",
@@ -40,7 +40,7 @@ export const metaModels = [
 			{
 				providerId: "inference.net",
 				stability: "unstable",
-				modelName: "meta-llama/llama-3.1-8b-instruct/fp-8",
+				externalId: "meta-llama/llama-3.1-8b-instruct/fp-8",
 				inputPrice: "0.07e-6",
 				outputPrice: "0.33e-6",
 				requestPrice: "0",
@@ -54,7 +54,7 @@ export const metaModels = [
 			},
 			{
 				providerId: "together-ai",
-				modelName: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+				externalId: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 				// Retired from Together.ai serverless API
 				deactivatedAt: new Date("2026-03-27"),
 				inputPrice: "0.06e-6",
@@ -70,7 +70,7 @@ export const metaModels = [
 			{
 				// Cerebras: FP16
 				providerId: "cerebras",
-				modelName: "llama3.1-8b",
+				externalId: "llama3.1-8b",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.1e-6",
 				requestPrice: "0",
@@ -91,7 +91,7 @@ export const metaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "meta-llama/llama-3.1-8b-instruct",
+				externalId: "meta-llama/llama-3.1-8b-instruct",
 				inputPrice: "0.02e-6",
 				outputPrice: "0.05e-6",
 				requestPrice: "0",
@@ -114,7 +114,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "aws-bedrock",
-				modelName: "meta.llama3-1-70b-instruct-v1:0",
+				externalId: "meta.llama3-1-70b-instruct-v1:0",
 				stability: "unstable",
 				inputPrice: "0.72e-6",
 				outputPrice: "0.72e-6",
@@ -138,7 +138,7 @@ export const metaModels = [
 			{
 				providerId: "inference.net",
 				stability: "unstable",
-				modelName: "meta-llama/llama-3.2-11b-instruct/fp-16",
+				externalId: "meta-llama/llama-3.2-11b-instruct/fp-16",
 				inputPrice: "0.07e-6",
 				outputPrice: "0.33e-6",
 				requestPrice: "0",
@@ -160,7 +160,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "nvidia/Llama-3_1-Nemotron-Ultra-253B-v1",
+				externalId: "nvidia/Llama-3_1-Nemotron-Ultra-253B-v1",
 				inputPrice: "0.6e-6",
 				outputPrice: "1.8e-6",
 				requestPrice: "0",
@@ -182,7 +182,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "groq",
-				modelName: "meta-llama/llama-guard-4-12b",
+				externalId: "meta-llama/llama-guard-4-12b",
 				// Decommissioned by Groq
 				deactivatedAt: new Date("2026-03-29"),
 				inputPrice: "0.2e-6",
@@ -206,7 +206,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "meta-llama/Llama-3.3-70B-Instruct",
+				externalId: "meta-llama/Llama-3.3-70B-Instruct",
 				inputPrice: "0.13e-6",
 				outputPrice: "0.4e-6",
 				requestPrice: "0",
@@ -233,7 +233,7 @@ export const metaModels = [
 				// Cerebras: FP16
 				providerId: "cerebras",
 				test: "skip",
-				modelName: "llama-3.3-70b",
+				externalId: "llama-3.3-70b",
 				inputPrice: "0.85e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -253,7 +253,7 @@ export const metaModels = [
 			{
 				providerId: "novita",
 				test: "skip",
-				modelName: "meta-llama/llama-3.3-70b-instruct",
+				externalId: "meta-llama/llama-3.3-70b-instruct",
 				inputPrice: "0.135e-6",
 				outputPrice: "0.4e-6",
 				requestPrice: "0",
@@ -275,7 +275,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "meta-llama/Meta-Llama-3.1-405B-Instruct",
+				externalId: "meta-llama/Meta-Llama-3.1-405B-Instruct",
 				inputPrice: "1.0e-6",
 				outputPrice: "3.0e-6",
 				requestPrice: "0",
@@ -299,7 +299,7 @@ export const metaModels = [
 	// 		{
 	// 			providerId: "nebius",
 	// 			test: "only",
-	// 			modelName: "meta-llama/Llama-Guard-3-8B",
+	// 			externalId: "meta-llama/Llama-Guard-3-8B",
 	// 			inputPrice: "0.02e-6",
 	// 			outputPrice: "0.06e-6",
 	// 			requestPrice: "0",
@@ -322,7 +322,7 @@ export const metaModels = [
 			{
 				providerId: "together-ai",
 				stability: "unstable" as const,
-				modelName: "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+				externalId: "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
 				inputPrice: "0.18e-6",
 				outputPrice: "0.59e-6",
 				requestPrice: "0",
@@ -346,7 +346,7 @@ export const metaModels = [
 			{
 				stability: "unstable",
 				providerId: "aws-bedrock",
-				modelName: "meta.llama4-scout-17b-instruct-v1:0",
+				externalId: "meta.llama4-scout-17b-instruct-v1:0",
 				inputPrice: "0.17e-6",
 				outputPrice: "0.66e-6",
 				requestPrice: "0",
@@ -361,7 +361,7 @@ export const metaModels = [
 			{
 				stability: "unstable",
 				providerId: "novita",
-				modelName: "meta-llama/llama-4-scout-17b-16e-instruct",
+				externalId: "meta-llama/llama-4-scout-17b-16e-instruct",
 				inputPrice: "0.18e-6",
 				outputPrice: "0.59e-6",
 				requestPrice: "0",
@@ -384,7 +384,7 @@ export const metaModels = [
 			{
 				stability: "unstable",
 				providerId: "aws-bedrock",
-				modelName: "meta.llama4-maverick-17b-instruct-v1:0",
+				externalId: "meta.llama4-maverick-17b-instruct-v1:0",
 				inputPrice: "0.24e-6",
 				outputPrice: "0.97e-6",
 				requestPrice: "0",
@@ -398,7 +398,7 @@ export const metaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "meta-llama/llama-4-maverick-17b-128e-instruct-fp8",
+				externalId: "meta-llama/llama-4-maverick-17b-128e-instruct-fp8",
 				inputPrice: "0.27e-6",
 				outputPrice: "0.85e-6",
 				requestPrice: "0",
@@ -420,7 +420,7 @@ export const metaModels = [
 		providers: [
 			{
 				providerId: "novita",
-				modelName: "meta-llama/llama-3-8b-instruct",
+				externalId: "meta-llama/llama-3-8b-instruct",
 				inputPrice: "0.04e-6",
 				outputPrice: "0.04e-6",
 				requestPrice: "0",
@@ -443,7 +443,7 @@ export const metaModels = [
 			{
 				providerId: "novita",
 				test: "skip", // skip tests, provider returns 500
-				modelName: "meta-llama/llama-3-70b-instruct",
+				externalId: "meta-llama/llama-3-70b-instruct",
 				inputPrice: "0.51e-6",
 				outputPrice: "0.74e-6",
 				requestPrice: "0",
@@ -466,7 +466,7 @@ export const metaModels = [
 			{
 				providerId: "novita",
 				stability: "unstable",
-				modelName: "meta-llama/llama-3.2-3b-instruct",
+				externalId: "meta-llama/llama-3.2-3b-instruct",
 				inputPrice: "0.03e-6",
 				outputPrice: "0.05e-6",
 				requestPrice: "0",

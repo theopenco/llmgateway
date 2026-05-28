@@ -20,7 +20,7 @@ function isValidDiscount(discount?: string | null): boolean {
 }
 
 // Discounts are always keyed by the root model id — the provider-specific
-// modelName is reserved for upstream requests and is never persisted as a
+// externalId is reserved for upstream requests and is never persisted as a
 // discount target.
 export function getBestDiscount(
 	discounts: DiscountData[],

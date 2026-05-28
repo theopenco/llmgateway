@@ -974,6 +974,20 @@
       "when": 1779595029456,
       "tag": "1779595029_hesitant_dark_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "8",
+      "when": 1779979820886,
+      "tag": "1779979820_melodic_shocker",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "8",
+      "when": 1779984279360,
+      "tag": "1779984279_shiny_firebrand",
+      "breakpoints": true
     }
   ]
 }

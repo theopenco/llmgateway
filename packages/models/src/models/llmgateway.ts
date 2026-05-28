@@ -10,7 +10,7 @@ export const llmgatewayModels = [
 		providers: [
 			{
 				providerId: "llmgateway",
-				modelName: "custom",
+				externalId: "custom",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -38,7 +38,7 @@ export const llmgatewayModels = [
 		providers: [
 			{
 				providerId: "llmgateway",
-				modelName: "auto",
+				externalId: "auto",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,

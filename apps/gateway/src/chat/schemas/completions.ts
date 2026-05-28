@@ -53,6 +53,25 @@ export const completionsRequestSchema = z.object({
 									]),
 								}),
 							}),
+							z.object({
+								type: z.literal("file"),
+								file: z
+									.object({
+										filename: z.string().optional(),
+										file_data: z.string().optional().openapi({
+											description:
+												"Base64-encoded data URL with MIME prefix, e.g. 'data:application/pdf;base64,<data>'.",
+										}),
+										file_id: z.string().optional().openapi({
+											description:
+												"Reference to a file uploaded via the provider's Files API.",
+										}),
+									})
+									.refine((file) => Boolean(file.file_data || file.file_id), {
+										message:
+											"file.file_data or file.file_id is required for file content",
+									}),
+							}),
 						]),
 					),
 				])

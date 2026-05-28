@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, isNull, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	getDevPlanCreditsLimit,
@@ -20,6 +20,7 @@ import {
 } from "./utils/discord.js";
 import {
 	generateDevPlanCancellationFeedbackEmailHtml,
+	generateDevPlanDuplicateCardEmailHtml,
 	generatePaymentFailureEmailHtml,
 	generateSubscriptionCancelledEmailHtml,
 	sendTransactionalEmail,
@@ -312,27 +313,316 @@ async function getSubscriptionCardFingerprint(
 	}
 }
 
+export type FinalizeDevPlanResult =
+	| { status: "ok"; subscriptionId: string }
+	| { status: "duplicate_card"; conflictingOrgId: string }
+	| { status: "already_processed"; subscriptionId: string | null }
+	| { status: "no_payment_method" }
+	| { status: "invalid_session"; reason: string };
+
+async function resolvePaymentMethodFromSetupSession(
+	session: Stripe.Checkout.Session,
+): Promise<Stripe.PaymentMethod | null> {
+	let setupIntent: Stripe.SetupIntent | null = null;
+	const rawSetupIntent = session.setup_intent;
+	if (typeof rawSetupIntent === "string") {
+		setupIntent = await getStripe().setupIntents.retrieve(rawSetupIntent);
+	} else if (rawSetupIntent) {
+		setupIntent = rawSetupIntent;
+	}
+
+	if (!setupIntent?.payment_method) {
+		return null;
+	}
+
+	const pm = setupIntent.payment_method;
+	if (typeof pm === "string") {
+		return await getStripe().paymentMethods.retrieve(pm);
+	}
+	return pm;
+}
+
 /**
- * Cancel a Stripe dev plan subscription that was rejected because the card
- * was already used by another organization. This only cancels the
- * subscription — no refund or invoice void is issued here. Stripe's normal
- * dispute / refund flow is the path for fee recovery.
+ * Finalize a DevPass setup-mode checkout session: verify the card fingerprint
+ * is not already in use by another organization, then create the Stripe
+ * subscription server-side. Idempotent: safe to call from both the
+ * /dev-plans/finalize endpoint (user-triggered after redirect) and the
+ * checkout.session.completed webhook (fallback if the user closes the tab).
+ *
+ * Critically, no Stripe subscription is created — and no charge is issued —
+ * when the card is a duplicate. The duplicate payment method is detached
+ * from the customer so it isn't accidentally reused later.
  */
-async function rejectDuplicateDevPlanSubscription(
-	subscriptionId: string,
-	reason: string,
-) {
-	try {
-		await getStripe().subscriptions.cancel(subscriptionId, {
-			invoice_now: false,
-			prorate: false,
+export async function finalizeDevPlanSetupSession(
+	sessionId: string,
+): Promise<FinalizeDevPlanResult> {
+	const session = await getStripe().checkout.sessions.retrieve(sessionId);
+
+	if (session.mode !== "setup") {
+		return { status: "invalid_session", reason: "not_setup_mode" };
+	}
+
+	const metadata = session.metadata ?? {};
+	if (metadata.subscriptionType !== "dev_plan") {
+		return { status: "invalid_session", reason: "not_dev_plan" };
+	}
+
+	const organizationId = metadata.organizationId;
+	const devPlanTier = metadata.devPlan as DevPlanTier | undefined;
+	const devPlanCycle: DevPlanCycle =
+		metadata.devPlanCycle === "annual" ? "annual" : "monthly";
+	const priceId = metadata.priceId;
+	const userEmail = metadata.userEmail;
+
+	if (!organizationId || !devPlanTier || !priceId) {
+		return { status: "invalid_session", reason: "missing_metadata" };
+	}
+
+	const organization = await db.query.organization.findFirst({
+		where: { id: organizationId },
+	});
+	if (!organization) {
+		return { status: "invalid_session", reason: "org_not_found" };
+	}
+
+	if (
+		organization.devPlan !== "none" &&
+		organization.devPlanStripeSubscriptionId
+	) {
+		return {
+			status: "already_processed",
+			subscriptionId: organization.devPlanStripeSubscriptionId,
+		};
+	}
+
+	const paymentMethod = await resolvePaymentMethodFromSetupSession(session);
+	if (!paymentMethod) {
+		return { status: "no_payment_method" };
+	}
+
+	const fingerprint =
+		paymentMethod.type === "card"
+			? (paymentMethod.card?.fingerprint ?? null)
+			: null;
+
+	if (fingerprint) {
+		const conflictingOrg = await db.query.organization.findFirst({
+			where: {
+				devPlanCardFingerprint: { eq: fingerprint },
+				id: { ne: organizationId },
+			},
 		});
-	} catch (error) {
-		logger.error(
-			`Failed to cancel duplicate dev plan subscription ${subscriptionId}: ${reason}`,
-			error instanceof Error ? error : new Error(String(error)),
+		if (conflictingOrg) {
+			try {
+				await getStripe().paymentMethods.detach(paymentMethod.id);
+			} catch (err) {
+				logger.warn(
+					`Failed to detach duplicate dev plan card ${paymentMethod.id}`,
+					{
+						error: err instanceof Error ? err.message : String(err),
+					},
+				);
+			}
+
+			logger.warn(
+				`Rejecting dev plan setup ${sessionId} for org ${organizationId}: card fingerprint already used by org ${conflictingOrg.id}`,
+			);
+
+			posthog.capture({
+				distinctId: "organization",
+				event: "dev_plan_blocked_duplicate_card",
+				groups: { organization: organizationId },
+				properties: {
+					organization: organizationId,
+					conflictingOrganization: conflictingOrg.id,
+					sessionId,
+				},
+			});
+
+			const notifyEmail = userEmail ?? organization.billingEmail;
+			if (notifyEmail) {
+				try {
+					await sendTransactionalEmail({
+						to: notifyEmail,
+						subject: "DevPass activation failed — card already in use",
+						html: generateDevPlanDuplicateCardEmailHtml(organization.name),
+					});
+				} catch (err) {
+					logger.error(
+						"Failed to send dev plan duplicate-card email",
+						err instanceof Error ? err : new Error(String(err)),
+					);
+				}
+			}
+
+			return {
+				status: "duplicate_card",
+				conflictingOrgId: conflictingOrg.id,
+			};
+		}
+	}
+
+	const stripeCustomerId = await ensureStripeCustomer(organizationId);
+
+	await getStripe().customers.update(stripeCustomerId, {
+		invoice_settings: { default_payment_method: paymentMethod.id },
+	});
+
+	// The /finalize endpoint and the checkout.session.completed webhook can
+	// race for the same setup session. We guard against duplicate subscription
+	// creation on two levels: (1) a deterministic Stripe idempotency key
+	// derived from org+session so a second `subscriptions.create()` call
+	// returns the same subscription instead of a new one; (2) an atomic
+	// conditional UPDATE that only writes the dev plan state if no other
+	// writer has filled in devPlanStripeSubscriptionId yet — the loser then
+	// reports already_processed so it doesn't double-insert the transaction
+	// row or re-send notifications.
+	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
+	const subscription = await getStripe().subscriptions.create(
+		{
+			customer: stripeCustomerId,
+			items: [{ price: priceId }],
+			default_payment_method: paymentMethod.id,
+			payment_behavior: "error_if_incomplete",
+			metadata: {
+				organizationId,
+				subscriptionType: "dev_plan",
+				devPlan: devPlanTier,
+				devPlanCycle,
+				userEmail: userEmail ?? "",
+			},
+			expand: ["latest_invoice"],
+		},
+		{ idempotencyKey: stripeIdempotencyKey },
+	);
+
+	const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
+
+	const claimed = await db
+		.update(tables.organization)
+		.set({
+			devPlan: devPlanTier,
+			devPlanCreditsLimit: creditsLimit.toString(),
+			devPlanCreditsUsed: "0",
+			devPlanBillingCycleStart: new Date(),
+			devPlanStripeSubscriptionId: subscription.id,
+			devPlanCancelled: false,
+			devPlanCycle,
+			devPlanCardFingerprint: fingerprint,
+		})
+		.where(
+			and(
+				eq(tables.organization.id, organizationId),
+				isNull(tables.organization.devPlanStripeSubscriptionId),
+			),
+		)
+		.returning({ id: tables.organization.id });
+
+	if (claimed.length === 0) {
+		logger.info(
+			`Dev plan finalize lost the race for org ${organizationId} session ${sessionId}; another path already activated subscription ${subscription.id}`,
+		);
+		return { status: "already_processed", subscriptionId: subscription.id };
+	}
+
+	logger.info(
+		`Successfully activated dev plan ${devPlanTier} for organization ${organizationId} with ${creditsLimit} credits via setup-mode checkout`,
+	);
+
+	const latestInvoice = subscription.latest_invoice;
+	const stripeInvoiceId =
+		typeof latestInvoice === "string"
+			? latestInvoice
+			: (latestInvoice?.id ?? undefined);
+	const invoiceAmount =
+		typeof latestInvoice === "object" && latestInvoice
+			? (latestInvoice.amount_paid / 100).toString()
+			: "0";
+	const invoiceCurrency = (
+		typeof latestInvoice === "object" && latestInvoice
+			? latestInvoice.currency
+			: "usd"
+	).toUpperCase();
+
+	const existing = stripeInvoiceId
+		? await db.query.transaction.findFirst({
+				where: { stripeInvoiceId: { eq: stripeInvoiceId } },
+			})
+		: null;
+
+	if (!existing) {
+		const [transaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_start",
+				amount: invoiceAmount,
+				creditAmount: creditsLimit.toString(),
+				currency: invoiceCurrency,
+				status: "completed",
+				stripeInvoiceId,
+				description: `Dev Plan ${devPlanTier.toUpperCase()} started via Stripe Checkout`,
+			})
+			.returning();
+
+		try {
+			await generateAndEmailInvoice({
+				invoiceNumber: transaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				billingEmail: organization.billingEmail,
+				billingCompany: organization.billingCompany,
+				billingAddress: organization.billingAddress,
+				billingTaxId: organization.billingTaxId,
+				billingNotes: organization.billingNotes,
+				lineItems: [
+					{
+						description: `Dev Plan ${devPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+						amount: parseFloat(invoiceAmount),
+					},
+				],
+				currency: invoiceCurrency,
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (dev plan finalize); suppressing failure",
+				e as Error,
+			);
+		}
+	}
+
+	posthog.groupIdentify({
+		groupType: "organization",
+		groupKey: organizationId,
+		properties: { name: organization.name },
+	});
+	posthog.capture({
+		distinctId: "organization",
+		event: "dev_plan_started",
+		groups: { organization: organizationId },
+		properties: {
+			devPlan: devPlanTier,
+			creditsLimit,
+			organization: organizationId,
+			subscriptionId: subscription.id,
+			source: "stripe_checkout_setup",
+		},
+	});
+
+	const subscribedEmail = userEmail ?? organization.billingEmail;
+	if (subscribedEmail) {
+		const subscribedUser = await db.query.user.findFirst({
+			where: { email: { eq: subscribedEmail } },
+		});
+		await notifyDevPlanSubscribed(
+			subscribedEmail,
+			subscribedUser?.name,
+			devPlanTier,
+			devPlanCycle,
 		);
 	}
+
+	return { status: "ok", subscriptionId: subscription.id };
 }
 
 async function handleCheckoutSessionCompleted(
@@ -342,8 +632,28 @@ async function handleCheckoutSessionCompleted(
 	const { customer, metadata, subscription } = session;
 
 	logger.info(
-		`Processing checkout session completed for customer: ${customer}, subscription: ${subscription}`,
+		`Processing checkout session completed for customer: ${customer}, subscription: ${subscription}, mode: ${session.mode}`,
 	);
+
+	// DevPass uses setup-mode checkout so the card is collected without
+	// charging. We verify the card fingerprint and create the subscription
+	// server-side via finalizeDevPlanSetupSession. The /dev-plans/finalize
+	// endpoint also calls the same helper when the user lands back on the
+	// dashboard; this webhook is the fallback if the user closes the tab.
+	if (session.mode === "setup" && metadata?.subscriptionType === "dev_plan") {
+		try {
+			const result = await finalizeDevPlanSetupSession(session.id);
+			logger.info(
+				`Dev plan setup-mode finalize result for session ${session.id}: ${result.status}`,
+			);
+		} catch (error) {
+			logger.error(
+				`Error finalizing dev plan setup session ${session.id}`,
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+		return;
+	}
 
 	if (!subscription && metadata?.type === "credit_topup") {
 		await handleCreditTopUpCheckout(session);
@@ -385,46 +695,14 @@ async function handleCheckoutSessionCompleted(
 
 	try {
 		if (isDevPlan && devPlanTier) {
-			// Reject any DevPass subscription paid for with a card that already
-			// activated DevPass on another organization. Without this, a user
-			// can rotate accounts to multiply the included usage allowance.
+			// DevPass activations are now finalized via the setup-mode branch
+			// above (see finalizeDevPlanSetupSession). This subscription-mode
+			// branch only runs for legacy in-flight sessions created before
+			// that switch landed and is kept as a safety net.
 			const fingerprint = subscriptionId
 				? await getSubscriptionCardFingerprint(subscriptionId)
 				: null;
 
-			if (fingerprint) {
-				const conflictingOrg = await db.query.organization.findFirst({
-					where: {
-						devPlanCardFingerprint: { eq: fingerprint },
-						id: { ne: organizationId },
-					},
-				});
-
-				if (conflictingOrg) {
-					logger.warn(
-						`Rejecting duplicate dev plan subscription ${subscriptionId} for organization ${organizationId}: card fingerprint already claimed by organization ${conflictingOrg.id}`,
-					);
-					await rejectDuplicateDevPlanSubscription(
-						subscriptionId!,
-						"duplicate_card_fingerprint",
-					);
-					posthog.capture({
-						distinctId: "organization",
-						event: "dev_plan_blocked_duplicate_card",
-						groups: {
-							organization: organizationId,
-						},
-						properties: {
-							organization: organizationId,
-							conflictingOrganization: conflictingOrg.id,
-							subscriptionId,
-						},
-					});
-					return;
-				}
-			}
-
-			// Handle dev plan subscription
 			const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
 
 			await db
@@ -1565,6 +1843,13 @@ async function handleSetupIntentSucceeded(
 	const { metadata, payment_method } = setupIntent;
 	const organizationId = metadata?.organizationId;
 
+	// DevPass setup intents are finalized via finalizeDevPlanSetupSession and
+	// must NOT be saved into the org's payment_method table (which is for the
+	// regular billing UI flow). Skip them here.
+	if (metadata?.subscriptionType === "dev_plan") {
+		return;
+	}
+
 	if (!organizationId || !payment_method) {
 		logger.warn(
 			`Missing organizationId or payment_method in setupIntent: ${event.id} ${setupIntent.id}`,
@@ -2379,6 +2664,16 @@ async function handleSubscriptionCreated(
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}) for subscription creation`,
 	);
+
+	// DevPass subscriptions (personal orgs) use the devPlan field — they must
+	// not be coerced to plan="pro" or have stripeSubscriptionId set, which is
+	// reserved for regular Pro subscriptions on team orgs.
+	if (metadata?.subscriptionType === "dev_plan" || organization.isPersonal) {
+		logger.info(
+			`Skipping plan: "pro" for dev plan / personal org ${organizationId}`,
+		);
+		return;
+	}
 
 	try {
 		await db

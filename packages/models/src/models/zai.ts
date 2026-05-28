@@ -11,7 +11,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-5.1",
+				externalId: "glm-5.1",
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
@@ -29,7 +29,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "zai-org/glm-5.1",
+				externalId: "zai-org/glm-5.1",
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
@@ -44,7 +44,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "together-ai",
-				modelName: "zai-org/GLM-5.1",
+				externalId: "zai-org/GLM-5.1",
 				inputPrice: "1.4e-6",
 				outputPrice: "4.4e-6",
 				requestPrice: "0",
@@ -59,7 +59,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "deepinfra",
-				modelName: "zai-org/GLM-5.1",
+				externalId: "zai-org/GLM-5.1",
 				inputPrice: "1.05e-6",
 				cachedInputPrice: "0.205e-6",
 				outputPrice: "3.5e-6",
@@ -74,7 +74,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "embercloud",
-				modelName: "glm-5.1",
+				externalId: "glm-5.1",
 				inputPrice: "0.931e-6",
 				outputPrice: "2.93e-6",
 				cachedInputPrice: "0.173e-6",
@@ -116,7 +116,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-5",
+				externalId: "glm-5",
 				inputPrice: "1e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "3.2e-6",
@@ -135,7 +135,7 @@ export const zaiModels = [
 			{
 				deactivatedAt: new Date("2026-04-22"),
 				providerId: "together-ai",
-				modelName: "zai-org/GLM-5",
+				externalId: "zai-org/GLM-5",
 				inputPrice: "1e-6",
 				outputPrice: "3.2e-6",
 				requestPrice: "0",
@@ -150,7 +150,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "zai-org/glm-5",
+				externalId: "zai-org/glm-5",
 				inputPrice: "1e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "3.2e-6",
@@ -166,7 +166,7 @@ export const zaiModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "glm-5",
+				externalId: "glm-5",
 				inputPrice: "0.573e-6",
 				outputPrice: "2.58e-6",
 				pricingTiers: [
@@ -195,7 +195,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "embercloud",
-				modelName: "glm-5",
+				externalId: "glm-5",
 				inputPrice: "0.72e-6",
 				outputPrice: "2.3e-6",
 				cachedInputPrice: "0.144e-6",
@@ -229,7 +229,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "nebius",
-				modelName: "zai-org/GLM-5",
+				externalId: "zai-org/GLM-5",
 				inputPrice: "1.0e-6",
 				outputPrice: "3.2e-6",
 				requestPrice: "0",
@@ -252,7 +252,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.5",
+				externalId: "glm-4.5",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "2.2e-6",
@@ -270,7 +270,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "embercloud",
-				modelName: "glm-4.5",
+				externalId: "glm-4.5",
 				inputPrice: "0.6e-6",
 				outputPrice: "2.2e-6",
 				cachedInputPrice: "0.11e-6",
@@ -311,7 +311,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.5v",
+				externalId: "glm-4.5v",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "1.8e-6",
@@ -328,7 +328,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "zai-org/glm-4.5v",
+				externalId: "zai-org/glm-4.5v",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "1.8e-6",
@@ -353,7 +353,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.5-air",
+				externalId: "glm-4.5-air",
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.1e-6",
@@ -370,7 +370,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "embercloud",
-				modelName: "glm-4.5-air",
+				externalId: "glm-4.5-air",
 				inputPrice: "0.13e-6",
 				outputPrice: "0.85e-6",
 				cachedInputPrice: "0.025e-6",
@@ -411,7 +411,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.5-x",
+				externalId: "glm-4.5-x",
 				inputPrice: "2.2e-6",
 				cachedInputPrice: "0.45e-6",
 				outputPrice: "8.9e-6",
@@ -437,7 +437,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.5-airx",
+				externalId: "glm-4.5-airx",
 				inputPrice: "1.1e-6",
 				cachedInputPrice: "0.22e-6",
 				outputPrice: "4.5e-6",
@@ -465,7 +465,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.5-flash",
+				externalId: "glm-4.5-flash",
 				inputPrice: "0",
 				cachedInputPrice: "0",
 				outputPrice: "0",
@@ -490,7 +490,7 @@ export const zaiModels = [
 			{
 				providerId: "zai",
 				test: "skip",
-				modelName: "glm-4.7",
+				externalId: "glm-4.7",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "2.2e-6",
@@ -509,7 +509,7 @@ export const zaiModels = [
 			{
 				providerId: "novita",
 				test: "skip", // skip tests due to reasoning issues
-				modelName: "zai-org/glm-4.7",
+				externalId: "zai-org/glm-4.7",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "2.2e-6",
@@ -526,7 +526,7 @@ export const zaiModels = [
 				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
-				modelName: "zai-glm-4.7",
+				externalId: "zai-glm-4.7",
 				inputPrice: "2.25e-6",
 				outputPrice: "2.75e-6",
 				requestPrice: "0",
@@ -548,7 +548,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "bytedance",
-				modelName: "glm-4-7-251222",
+				externalId: "glm-4-7-251222",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "2.2e-6",
@@ -564,7 +564,7 @@ export const zaiModels = [
 			{
 				providerId: "together-ai",
 				test: "skip", // skip tests due to reasoning issues
-				modelName: "zai-org/GLM-4.7",
+				externalId: "zai-org/GLM-4.7",
 				inputPrice: "0.45e-6",
 				outputPrice: "2.0e-6",
 				requestPrice: "0",
@@ -579,7 +579,7 @@ export const zaiModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "glm-4.7",
+				externalId: "glm-4.7",
 				inputPrice: "0.431e-6",
 				outputPrice: "2.007e-6",
 				pricingTiers: [
@@ -608,7 +608,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "embercloud",
-				modelName: "glm-4.7",
+				externalId: "glm-4.7",
 				inputPrice: "0.38e-6",
 				outputPrice: "1.98e-6",
 				cachedInputPrice: "0.19e-6",
@@ -653,7 +653,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.7-flashx",
+				externalId: "glm-4.7-flashx",
 				// Frequently times out on multi-turn tool call requests
 				stability: "unstable",
 				inputPrice: "0.07e-6",
@@ -682,7 +682,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.7-flash",
+				externalId: "glm-4.7-flash",
 				inputPrice: "0",
 				cachedInputPrice: "0",
 				outputPrice: "0",
@@ -697,7 +697,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "embercloud",
-				modelName: "glm-4.7-flash",
+				externalId: "glm-4.7-flash",
 				inputPrice: "0.06e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
@@ -738,7 +738,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.6",
+				externalId: "glm-4.6",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "2.2e-6",
@@ -759,7 +759,7 @@ export const zaiModels = [
 				providerId: "cerebras",
 				test: "skip",
 				deactivatedAt: new Date("2026-01-20"),
-				modelName: "zai-glm-4.6",
+				externalId: "zai-glm-4.6",
 				inputPrice: "2.25e-6",
 				outputPrice: "2.75e-6",
 				requestPrice: "0",
@@ -774,7 +774,7 @@ export const zaiModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "glm-4.6",
+				externalId: "glm-4.6",
 				inputPrice: "0.431e-6",
 				outputPrice: "2.007e-6",
 				pricingTiers: [
@@ -804,7 +804,7 @@ export const zaiModels = [
 			{
 				providerId: "novita",
 				test: "skip",
-				modelName: "zai-org/glm-4.6",
+				externalId: "zai-org/glm-4.6",
 				inputPrice: "0.55e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "2.2e-6",
@@ -828,7 +828,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4-32b-0414-128k",
+				externalId: "glm-4-32b-0414-128k",
 				inputPrice: "0.1e-6",
 				cachedInputPrice: "0",
 				outputPrice: "0.1e-6",
@@ -854,7 +854,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.6v",
+				externalId: "glm-4.6v",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.05e-6",
 				outputPrice: "0.9e-6",
@@ -870,7 +870,7 @@ export const zaiModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "zai-org/glm-4.6v",
+				externalId: "zai-org/glm-4.6v",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.055e-6",
 				outputPrice: "0.9e-6",
@@ -894,7 +894,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.6v-flashx",
+				externalId: "glm-4.6v-flashx",
 				inputPrice: "0.04e-6",
 				cachedInputPrice: "0.004e-6",
 				outputPrice: "0.4e-6",
@@ -922,7 +922,7 @@ export const zaiModels = [
 		providers: [
 			{
 				providerId: "zai",
-				modelName: "glm-4.6v-flash",
+				externalId: "glm-4.6v-flash",
 				inputPrice: "0",
 				cachedInputPrice: "0",
 				outputPrice: "0",
@@ -949,7 +949,7 @@ export const zaiModels = [
 			{
 				test: "skip",
 				providerId: "zai",
-				modelName: "cogView-4-250304",
+				externalId: "cogView-4-250304",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.01",
@@ -976,7 +976,7 @@ export const zaiModels = [
 			{
 				test: "skip",
 				providerId: "zai",
-				modelName: "glm-image",
+				externalId: "glm-image",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.015",
