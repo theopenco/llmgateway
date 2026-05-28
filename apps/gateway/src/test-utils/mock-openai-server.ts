@@ -1009,25 +1009,46 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		});
 	}
 
-	// Create a custom response that includes the user's message
+	// Honor the OpenAI `n` parameter by returning that many choices. Input
+	// tokens are counted once; completion tokens scale by n, matching upstream
+	// billing behavior.
+	const requestedN =
+		typeof body.n === "number" && Number.isInteger(body.n) && body.n > 0
+			? body.n
+			: 1;
+	const baseChoice = sampleChatCompletionResponse.choices[0];
+	const choices = Array.from({ length: requestedN }, (_, index) => ({
+		...baseChoice,
+		index,
+		message: {
+			role: "assistant",
+			content:
+				requestedN > 1
+					? `${assistantContent} (variant ${index + 1})`
+					: assistantContent,
+		},
+	}));
+
+	const baseUsage = sampleChatCompletionResponse.usage;
+	const usage = shouldReturnZeroTokens
+		? {
+				prompt_tokens: 0,
+				completion_tokens: 20 * requestedN,
+				total_tokens: 20 * requestedN,
+			}
+		: (() => {
+				const completionTokens = baseUsage.completion_tokens * requestedN;
+				return {
+					prompt_tokens: baseUsage.prompt_tokens,
+					completion_tokens: completionTokens,
+					total_tokens: baseUsage.prompt_tokens + completionTokens,
+				};
+			})();
+
 	const response = {
 		...sampleChatCompletionResponse,
-		choices: [
-			{
-				...sampleChatCompletionResponse.choices[0],
-				message: {
-					role: "assistant",
-					content: assistantContent,
-				},
-			},
-		],
-		usage: shouldReturnZeroTokens
-			? {
-					prompt_tokens: 0,
-					completion_tokens: 20,
-					total_tokens: 20,
-				}
-			: sampleChatCompletionResponse.usage,
+		choices,
+		usage,
 	};
 
 	return c.json(response);

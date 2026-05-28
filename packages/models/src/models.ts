@@ -306,6 +306,15 @@ export interface ProviderModelMapping {
 	 */
 	supportsResponsesApi?: boolean;
 	/**
+	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
+	 * (multiple completion choices per request) natively. When true, the gateway
+	 * forwards `n` to the upstream provider; when false/unset, requests with
+	 * `n > 1` are rejected with a 400 error. Only set this for providers that
+	 * actually accumulate input tokens once and bill output tokens across all
+	 * choices upstream (e.g. OpenAI Chat Completions).
+	 */
+	supportsN?: boolean;
+	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
 	 * - "omit": Don't expect reasoning output even if reasoning is true (for models like o1 that

@@ -3872,4 +3872,166 @@ describe("api", () => {
 			}
 		});
 	});
+
+	describe("n parameter (multiple completions)", () => {
+		test("forwards n to OpenAI and returns multiple choices", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n",
+				token: "real-token-n",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 3,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			// The mock OpenAI server echoes the requested `n` back as that many
+			// choices — so receiving 3 choices proves the gateway forwarded n=3
+			// upstream rather than stripping it.
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(Array.isArray(json.choices)).toBe(true);
+			expect(json.choices).toHaveLength(3);
+			expect(json.choices[0].index).toBe(0);
+			expect(json.choices[1].index).toBe(1);
+			expect(json.choices[2].index).toBe(2);
+			for (const choice of json.choices) {
+				expect(typeof choice.message.content).toBe("string");
+				expect(choice.message.content.length).toBeGreaterThan(0);
+			}
+
+			// Input tokens counted once; output × n — mirrors real OpenAI billing.
+			expect(json.usage.prompt_tokens).toBe(10);
+			expect(json.usage.completion_tokens).toBe(60);
+			expect(json.usage.total_tokens).toBe(70);
+		});
+
+		test("rejects n > 1 with 400 when the model does not advertise supportsN", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-unsupported",
+				token: "real-token-n-unsupported",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-unsupported",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-unsupported",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					n: 3,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(JSON.stringify(json)).toContain(
+				"does not support the n parameter",
+			);
+		});
+
+		test("rejects n > 1 combined with stream: true", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-stream",
+				token: "real-token-n-stream",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-stream",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-stream",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 3,
+					stream: true,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("n");
+		});
+
+		test("n=1 is accepted and forwarded without altering choice count", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-one",
+				token: "real-token-n-one",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-one",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-one",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 1,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.choices).toHaveLength(1);
+		});
+	});
 });

@@ -1086,6 +1086,7 @@ chat.openapi(completions, async (c) => {
 		effort,
 		web_search,
 		plugins,
+		n,
 	} = validationResult.data;
 	let {
 		messages,
@@ -1166,6 +1167,24 @@ chat.openapi(completions, async (c) => {
 	// prepareRequestBody.
 	let reasoning_effort =
 		reasoning_object_effort ?? validationResult.data.reasoning_effort;
+
+	// Reject n > 1 with streaming: streaming aggregation in the gateway is
+	// hard-coded to a single choice index; supporting multi-choice streams would
+	// require non-trivial changes to the SSE handler.
+	if (n !== undefined && n > 1 && stream) {
+		return c.json(
+			{
+				error: {
+					message:
+						"The `n` parameter with values greater than 1 is not supported in combination with `stream: true`. Send a non-streaming request, or call the API multiple times.",
+					type: "invalid_request_error",
+					param: "n",
+					code: "unsupported_parameter_combination",
+				},
+			},
+			400,
+		);
+	}
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
@@ -3778,6 +3797,7 @@ chat.openapi(completions, async (c) => {
 			reasoning_max_tokens,
 			prompt_cache_key,
 			prompt_cache_retention,
+			n,
 		};
 
 		if (stream) {
@@ -4263,6 +4283,24 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Reject n > 1 when the resolved provider mapping does not advertise
+	// supportsN. We only forward n upstream for providers/models that bill
+	// input tokens once and accumulate output across choices natively
+	// (currently OpenAI Chat Completions models).
+	if (n !== undefined && n > 1 && finalModelInfo) {
+		const providerMapping = finalModelInfo.providers.find(
+			(p) =>
+				p.providerId === usedProvider &&
+				p.modelName === usedModel &&
+				p.region === usedRegion,
+		);
+		if (!providerMapping?.supportsN) {
+			throw new HTTPException(400, {
+				message: `Model ${usedModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+			});
+		}
+	}
+
 	// Save original parameters before provider-specific stripping for retry fallback
 	const originalRequestParams: OriginalRequestParams = {
 		temperature,
@@ -4381,6 +4419,7 @@ chat.openapi(completions, async (c) => {
 		useResponsesApi,
 		prompt_cache_key,
 		prompt_cache_retention,
+		n,
 	);
 
 	if (forceImageStreamUpstream) {

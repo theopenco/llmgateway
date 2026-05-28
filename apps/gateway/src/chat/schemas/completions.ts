@@ -159,6 +159,19 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	stream: z.boolean().optional().default(false),
+	n: z
+		.number()
+		.int()
+		.min(1)
+		.max(128)
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models); requests for unsupported models are rejected with 400. Not supported in combination with `stream: true`.",
+			example: 1,
+		}),
 	prompt_cache_key: z
 		.string()
 		.nullable()
