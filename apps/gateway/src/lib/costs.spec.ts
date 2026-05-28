@@ -24,7 +24,7 @@ describe("calculateCosts", () => {
 	});
 
 	it("should calculate costs with provided token counts", async () => {
-		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
+		const result = await calculateCosts("gpt-4", "openai", null, 100, 50, null);
 
 		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
 		expect(result.outputCost).toBeCloseTo(0.0015); // 50 * 0.00003
@@ -36,10 +36,18 @@ describe("calculateCosts", () => {
 	});
 
 	it("should calculate costs with null token counts but provided text", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
-			prompt: "Hello, how are you?",
-			completion: "I'm doing well, thank you for asking!",
-		});
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+			{
+				prompt: "Hello, how are you?",
+				completion: "I'm doing well, thank you for asking!",
+			},
+		);
 
 		// The exact token counts will depend on the tokenizer, but we can check that they're calculated
 		expect(result.promptTokens).toBeGreaterThan(0);
@@ -51,13 +59,24 @@ describe("calculateCosts", () => {
 	});
 
 	it("should calculate costs with null token counts but provided chat messages", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
-			messages: [
-				{ role: "user", content: "Hello, how are you?" },
-				{ role: "assistant", content: "I'm doing well, thank you for asking!" },
-			],
-			completion: "I'm doing well, thank you for asking!",
-		});
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+			{
+				messages: [
+					{ role: "user", content: "Hello, how are you?" },
+					{
+						role: "assistant",
+						content: "I'm doing well, thank you for asking!",
+					},
+				],
+				completion: "I'm doing well, thank you for asking!",
+			},
+		);
 
 		// The exact token counts will depend on the tokenizer, but we can check that they're calculated
 		expect(result.promptTokens).toBeGreaterThan(0);
@@ -73,6 +92,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-4",
 			"non-existent-provider",
+			null,
 			100,
 			50,
 			null,
@@ -88,7 +108,14 @@ describe("calculateCosts", () => {
 	});
 
 	it("should return null costs when token counts are null and no text is provided", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null);
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+		);
 
 		expect(result.inputCost).toBeNull();
 		expect(result.outputCost).toBeNull();
@@ -100,7 +127,7 @@ describe("calculateCosts", () => {
 	});
 
 	it("should calculate costs with cached tokens for OpenAI (prompt_tokens includes cached)", async () => {
-		const result = await calculateCosts("gpt-4o", "openai", 100, 50, 20);
+		const result = await calculateCosts("gpt-4o", "openai", null, 100, 50, 20);
 
 		expect(result.inputCost).toBeCloseTo(0.0002); // (100 - 20) * 0.0000025 = 80 * 0.0000025
 		expect(result.outputCost).toBeCloseTo(0.0005); // 50 * 0.00001
@@ -116,6 +143,7 @@ describe("calculateCosts", () => {
 		const withoutCacheWrite = await calculateCosts(
 			"gpt-4o",
 			"openai",
+			null,
 			100,
 			50,
 			20,
@@ -123,6 +151,7 @@ describe("calculateCosts", () => {
 		const withCacheWrite = await calculateCosts(
 			"gpt-4o",
 			"openai",
+			null,
 			100,
 			50,
 			20,
@@ -155,6 +184,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
+			null,
 			1663,
 			50,
 			0,
@@ -191,6 +221,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
+			null,
 			1004,
 			50,
 			0,
@@ -225,6 +256,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
+			null,
 			1004,
 			50,
 			0,
@@ -251,6 +283,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-haiku-4-5",
 			"aws-bedrock",
+			null,
 			1004,
 			50,
 			0,
@@ -289,6 +322,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
+			null,
 			1663,
 			50,
 			1659,
@@ -314,6 +348,7 @@ describe("calculateCosts", () => {
 		const resultWithDiscount = await calculateCosts(
 			"gpt-4",
 			"openai",
+			null,
 			100,
 			50,
 			null,
@@ -332,13 +367,13 @@ describe("calculateCosts", () => {
 	});
 
 	it("should not include discount field when no discount applied", async () => {
-		const result = await calculateCosts("gpt-4", "azure", 100, 50, null);
+		const result = await calculateCosts("gpt-4", "azure", null, 100, 50, null);
 
 		expect(result.discount).toBeUndefined();
 	});
 
 	it("should calculate input costs even when output tokens are zero", async () => {
-		const result = await calculateCosts("gpt-4", "openai", 100, 0, null);
+		const result = await calculateCosts("gpt-4", "openai", null, 100, 0, null);
 
 		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
 		expect(result.outputCost).toBeCloseTo(0); // 0 * 0.00003
@@ -349,7 +384,14 @@ describe("calculateCosts", () => {
 	});
 
 	it("should calculate input costs when completion tokens are null but prompt tokens exist", async () => {
-		const result = await calculateCosts("gpt-4", "openai", 100, null, null);
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			100,
+			null,
+			null,
+		);
 
 		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
 		expect(result.outputCost).toBeCloseTo(0); // 0 * 0.00003 (completion tokens set to 0)
@@ -360,28 +402,36 @@ describe("calculateCosts", () => {
 	});
 
 	it("should include tool results in completion token estimation", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
-			prompt: "What's the weather like?",
-			completion: "", // Empty completion
-			toolResults: [
-				{
-					id: "call_1",
-					type: "function",
-					function: {
-						name: "get_weather",
-						arguments: '{"location": "San Francisco"}',
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+			{
+				prompt: "What's the weather like?",
+				completion: "", // Empty completion
+				toolResults: [
+					{
+						id: "call_1",
+						type: "function",
+						function: {
+							name: "get_weather",
+							arguments: '{"location": "San Francisco"}',
+						},
 					},
-				},
-				{
-					id: "call_2",
-					type: "function",
-					function: {
-						name: "get_temperature",
-						arguments: '{"location": "New York", "units": "celsius"}',
+					{
+						id: "call_2",
+						type: "function",
+						function: {
+							name: "get_temperature",
+							arguments: '{"location": "New York", "units": "celsius"}',
+						},
 					},
-				},
-			],
-		});
+				],
+			},
+		);
 
 		// Should calculate tokens for tool calls even with empty completion
 		expect(result.promptTokens).toBeGreaterThan(3);
@@ -393,22 +443,30 @@ describe("calculateCosts", () => {
 	});
 
 	it("should handle tool results with missing function data gracefully", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
-			prompt: "What's the weather like?",
-			completion: "Here's the weather:",
-			toolResults: [
-				{ id: "call_1", type: "function" } as any, // Missing function data
-				{ id: "call_2", type: "function", function: {} as any }, // Missing name and arguments
-				{
-					id: "call_3",
-					type: "function",
-					function: {
-						name: "get_weather",
-						arguments: '{"location": "Paris"}',
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+			{
+				prompt: "What's the weather like?",
+				completion: "Here's the weather:",
+				toolResults: [
+					{ id: "call_1", type: "function" } as any, // Missing function data
+					{ id: "call_2", type: "function", function: {} as any }, // Missing name and arguments
+					{
+						id: "call_3",
+						type: "function",
+						function: {
+							name: "get_weather",
+							arguments: '{"location": "Paris"}',
+						},
 					},
-				},
-			],
-		});
+				],
+			},
+		);
 
 		// Should still work with partial tool result data
 		expect(result.promptTokens).toBeGreaterThan(0);
@@ -423,6 +481,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
 			"google-ai-studio",
+			null,
 			1000,
 			700, // completionTokens includes reasoning for Google
 			null,
@@ -446,6 +505,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
 			"google-ai-studio",
+			null,
 			1000,
 			500,
 			null,
@@ -464,6 +524,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
+			null,
 			1000, // text prompt tokens
 			500, // completion tokens
 			null, // no cached tokens
@@ -493,6 +554,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
+			null,
 			1000, // text prompt tokens
 			2500, // completion tokens (includes 1120 * 2 = 2240 image tokens for 2 images)
 			null, // no cached tokens
@@ -520,6 +582,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"openai",
+			null,
 			1000,
 			2000,
 			null,
@@ -559,6 +622,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"openai",
+			null,
 			promptTokens,
 			completionTokens,
 			null, // cachedTokens
@@ -601,6 +665,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"azure",
+			null,
 			promptTokens,
 			completionTokens,
 			null,
@@ -651,6 +716,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"openai",
+			null,
 			promptTokens,
 			0, // completionTokens
 			cachedTokens,
@@ -698,6 +764,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"openai",
+			null,
 			promptTokens,
 			0,
 			cachedTokens,
@@ -739,14 +806,21 @@ describe("calculateCosts", () => {
 		// gpt-4o has imageInputPrice but no cachedImageInputPrice and no
 		// output: ["image"], so the apportionment branch must NOT fire.
 		// All cached tokens stay billed at cachedInputPrice.
-		const result = await calculateCosts("gpt-4o", "openai", 1000, 100, 200);
+		const result = await calculateCosts(
+			"gpt-4o",
+			"openai",
+			null,
+			1000,
+			100,
+			200,
+		);
 
 		expect(result.cachedInputCost).toBeCloseTo(200 * (1.25 / 1e6));
 		expect(result.imageInputTokens).toBeNull();
 	});
 
 	it("should return null for all image fields when no images", async () => {
-		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
+		const result = await calculateCosts("gpt-4", "openai", null, 100, 50, null);
 
 		expect(result.imageInputTokens).toBeNull();
 		expect(result.imageOutputTokens).toBeNull();
@@ -759,6 +833,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3.1-flash-image-preview",
 			"google-ai-studio",
+			null,
 			1000,
 			800, // completion tokens (includes 747 image tokens for 1 image)
 			null,
@@ -782,6 +857,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3.1-flash-image-preview",
 			"google-ai-studio",
+			null,
 			1000,
 			5100, // completion tokens (includes 2520 * 2 = 5040 image tokens)
 			null,
@@ -805,6 +881,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
+			null,
 			1000,
 			2100,
 			null,
@@ -828,6 +905,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3.1-flash-image-preview",
 			"google-ai-studio",
+			null,
 			1000,
 			1200, // includes 1120 image tokens
 			null,
@@ -848,6 +926,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
+			null,
 			1000, // text prompt tokens
 			2500, // completion tokens
 			null, // no cached tokens
@@ -884,6 +963,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.5-flash-lite",
 			"google-ai-studio",
+			null,
 			promptTokens,
 			0,
 			cachedTokens,
@@ -912,6 +992,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.5-flash",
 			"google-ai-studio",
+			null,
 			audioInputTokens, // entire prompt is audio
 			0,
 			cachedTokens,
@@ -944,6 +1025,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.0-flash",
 			"google-ai-studio",
+			null,
 			promptTokens,
 			0,
 			cachedTokens,
@@ -979,7 +1061,14 @@ describe("calculateCosts", () => {
 		// arithmetic on these prices produces values like 2.5000000000000004e-7
 		// (when 5 * 0.6/1e6 is computed naively). The Decimal-backed pipeline
 		// must return the exact decimal value at the serialisation boundary.
-		const result = await calculateCosts("gpt-4o-mini", "openai", 7, 3, null);
+		const result = await calculateCosts(
+			"gpt-4o-mini",
+			"openai",
+			null,
+			7,
+			3,
+			null,
+		);
 
 		// 7 * 0.15/1e6 = 0.00000105
 		expect(result.inputCost).toBe(1.05e-6);
@@ -997,6 +1086,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"grok-3",
 			"xai",
+			null,
 			100,
 			0,
 			null,
@@ -1021,6 +1111,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"grok-3",
 			"xai",
+			null,
 			100,
 			0,
 			null,
@@ -1054,6 +1145,7 @@ describe("calculateCosts", () => {
 			const result = await calculateCosts(
 				"qwen-plus",
 				"alibaba",
+				null,
 				cachedTokens,
 				0,
 				cachedTokens,
@@ -1066,6 +1158,7 @@ describe("calculateCosts", () => {
 			const result = await calculateCosts(
 				"qwen-plus",
 				"alibaba",
+				null,
 				cachedTokens,
 				0,
 				cachedTokens,
@@ -1093,6 +1186,7 @@ describe("calculateCosts", () => {
 			const explicit = await calculateCosts(
 				"gpt-4",
 				"openai",
+				null,
 				promptTokens,
 				0,
 				cached,
@@ -1111,6 +1205,7 @@ describe("calculateCosts", () => {
 			const implicit = await calculateCosts(
 				"gpt-4",
 				"openai",
+				null,
 				promptTokens,
 				0,
 				cached,

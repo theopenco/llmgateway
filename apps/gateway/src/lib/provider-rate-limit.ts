@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import { redisClient } from "@llmgateway/cache";
-import { getEffectiveRateLimit, type RateLimitSource } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+
+import { findEffectiveRateLimit } from "./cached-queries.js";
+
+import type { RateLimitSource } from "@llmgateway/db";
 
 export const providerRateLimitWindows = {
 	rpm: {
@@ -163,7 +166,7 @@ async function getProviderRateLimitStates(
 	keys: Record<ProviderRateLimitWindow, string>;
 	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>;
 }> {
-	const effectiveRateLimit = await getEffectiveRateLimit(
+	const effectiveRateLimit = await findEffectiveRateLimit(
 		organizationId,
 		provider,
 		model,

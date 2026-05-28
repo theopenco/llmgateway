@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { ModelSearch } from "@/components/shared/model-search";
+import { useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import {
 	NavigationMenu,
@@ -95,6 +96,8 @@ export const Navbar = ({
 	providers?: ApiProvider[];
 }) => {
 	const config = useAppConfig();
+	const { user, isLoading } = useUser();
+	const isAuthenticated = !!user && !isLoading;
 
 	const productsLinks: Array<{
 		title: string;
@@ -731,20 +734,33 @@ export const Navbar = ({
 
 								<ThemeToggle />
 
-								<Link
-									href="/login"
-									prefetch={true}
-									className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden nav:block whitespace-nowrap"
-								>
-									Log In
-								</Link>
+								{isAuthenticated ? (
+									<Button
+										asChild
+										className="bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-700 dark:hover:bg-zinc-200 font-medium w-full md:w-fit"
+									>
+										<Link href="/dashboard" prefetch={true}>
+											Dashboard
+										</Link>
+									</Button>
+								) : (
+									<>
+										<Link
+											href="/login"
+											prefetch={true}
+											className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden nav:block whitespace-nowrap"
+										>
+											Log In
+										</Link>
 
-								<Button
-									asChild
-									className="bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-700 dark:hover:bg-zinc-200 font-medium w-full md:w-fit"
-								>
-									<AuthLink href="/signup">Get Started</AuthLink>
-								</Button>
+										<Button
+											asChild
+											className="bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-700 dark:hover:bg-zinc-200 font-medium w-full md:w-fit"
+										>
+											<AuthLink href="/signup">Get Started</AuthLink>
+										</Button>
+									</>
+								)}
 							</div>
 						</div>
 					</div>

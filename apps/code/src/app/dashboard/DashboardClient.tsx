@@ -16,7 +16,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
@@ -223,6 +223,7 @@ export default function DashboardClient() {
 	);
 
 	const subscribeMutation = api.useMutation("post", "/dev-plans/subscribe");
+	const finalizeMutation = api.useMutation("post", "/dev-plans/finalize");
 	const cancelMutation = api.useMutation("post", "/dev-plans/cancel");
 	const resumeMutation = api.useMutation("post", "/dev-plans/resume");
 	const changeTierMutation = api.useMutation("post", "/dev-plans/change-tier");
@@ -230,6 +231,70 @@ export default function DashboardClient() {
 		"post",
 		"/dev-plans/rotate-api-key",
 	);
+
+	const [duplicateCardError, setDuplicateCardError] = useState<string | null>(
+		null,
+	);
+	const finalizedSessions = useRef<Set<string>>(new Set());
+
+	useEffect(() => {
+		const sessionId = searchParams.get("setup_session_id");
+		if (!sessionId || finalizedSessions.current.has(sessionId)) {
+			return;
+		}
+		finalizedSessions.current.add(sessionId);
+
+		const clearParam = () => {
+			const params = new URLSearchParams(searchParams.toString());
+			params.delete("setup_session_id");
+			const query = params.toString();
+			router.replace(query ? `/dashboard?${query}` : "/dashboard");
+		};
+
+		finalizeMutation
+			.mutateAsync({ body: { sessionId } })
+			.then((result) => {
+				if (result?.status === "ok" || result?.status === "already_processed") {
+					toast.success("DevPass activated");
+					void queryClient.invalidateQueries({
+						predicate: (query) => {
+							const key = query.queryKey;
+							return Array.isArray(key) && key[1] === "/dev-plans/status";
+						},
+					});
+				}
+			})
+			.catch((error: unknown) => {
+				const errCode =
+					error && typeof error === "object" && "error" in error
+						? (error as { error?: unknown }).error
+						: undefined;
+				if (errCode === "duplicate_card") {
+					const msg =
+						error && typeof error === "object" && "message" in error
+							? (error as { message?: unknown }).message
+							: undefined;
+					setDuplicateCardError(
+						typeof msg === "string" && msg.length > 0
+							? msg
+							: "This card is already associated with another DevPass account. Please use a different payment method.",
+					);
+				} else {
+					const apiMessage =
+						error && typeof error === "object" && "message" in error
+							? (error as { message?: unknown }).message
+							: undefined;
+					toast.error(
+						typeof apiMessage === "string" && apiMessage.length > 0
+							? apiMessage
+							: "Failed to activate DevPass",
+					);
+				}
+			})
+			.finally(() => {
+				clearParam();
+			});
+	}, [searchParams, finalizeMutation, queryClient, router]);
 
 	const handleSubscribe = async (
 		tier: PlanTier,
@@ -362,6 +427,34 @@ export default function DashboardClient() {
 
 	return (
 		<div className="min-h-screen bg-background">
+			<AlertDialog
+				open={duplicateCardError !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setDuplicateCardError(null);
+					}
+				}}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Card already in use</AlertDialogTitle>
+						<AlertDialogDescription>
+							{duplicateCardError ??
+								"This card is already associated with another DevPass account."}
+							<br />
+							<br />
+							You were not charged. Please try again with a different payment
+							method.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogAction onClick={() => setDuplicateCardError(null)}>
+							Got it
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+
 			{/* Header */}
 			<header className="border-b border-border/50">
 				<div className="container mx-auto flex items-center justify-between px-4 py-3">

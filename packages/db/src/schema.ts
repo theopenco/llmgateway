@@ -454,6 +454,7 @@ export const project = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		providerCacheControlEnabled: boolean().notNull().default(true),
 		mode: text({
 			enum: ["api-keys", "credits", "hybrid"],
 		})
@@ -1126,6 +1127,7 @@ export const message = pgTable(
 		content: text(), // Made nullable to support image-only messages
 		images: text(), // JSON string to store images array
 		audios: text(), // JSON string to store audio attachments array
+		documents: text(), // JSON string to store document attachments array
 		reasoning: text(), // Reasoning content from AI models
 		tools: text(), // JSON string to store tool call parts
 		metadata: jsonb().$type<Record<string, unknown>>(),
@@ -1311,7 +1313,7 @@ export const modelProviderMapping = pgTable(
 		providerId: text()
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
-		modelName: text().notNull(),
+		externalId: text().notNull(),
 		region: text(),
 		inputPrice: decimal(),
 		outputPrice: decimal(),

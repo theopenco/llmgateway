@@ -688,8 +688,8 @@ function getVideoSizeConfig(size: string | undefined): VideoSizeConfig {
 	return SUPPORTED_VIDEO_SIZES[normalizedSize as SupportedVideoSize];
 }
 
-function isSoraVideoModelName(modelName: string): boolean {
-	return modelName === "sora-2" || modelName === "sora-2-pro";
+function isSoraVideoModelName(externalId: string): boolean {
+	return externalId === "sora-2" || externalId === "sora-2-pro";
 }
 
 function isGoogleVertexVideoProvider(providerId: string): boolean {
@@ -722,7 +722,7 @@ function getVideoProviderConstraintReasons(
 	) {
 		if (
 			provider.providerId === "avalanche" &&
-			!isSoraVideoModelName(provider.modelName)
+			!isSoraVideoModelName(provider.externalId)
 		) {
 			reasons.push(
 				`size ${videoSize.size} is unsupported because Avalanche uses aspect_ratio and this integration only supports ${provider.supportedVideoSizes.join(", ")}`,
@@ -756,14 +756,14 @@ function getVideoProviderConstraintReasons(
 		}
 	}
 
-	if (isSoraVideoModelName(provider.modelName) && inputMode === "frames") {
+	if (isSoraVideoModelName(provider.externalId) && inputMode === "frames") {
 		reasons.push(
 			"Sora models do not support image/last_frame inputs. Use input_reference or reference_images with exactly one image.",
 		);
 	}
 
 	if (
-		!isSoraVideoModelName(provider.modelName) &&
+		!isSoraVideoModelName(provider.externalId) &&
 		inputMode === "frames" &&
 		!isGoogleVertexVideoProvider(provider.providerId) &&
 		provider.providerId !== "avalanche"
@@ -774,7 +774,7 @@ function getVideoProviderConstraintReasons(
 	}
 
 	if (inputMode === "reference") {
-		if (isSoraVideoModelName(provider.modelName)) {
+		if (isSoraVideoModelName(provider.externalId)) {
 			if (inputImageCount !== 1) {
 				reasons.push(
 					"Sora reference-image video generation supports exactly 1 input image",
@@ -785,13 +785,13 @@ function getVideoProviderConstraintReasons(
 		}
 
 		if (isGoogleVertexVideoProvider(provider.providerId)) {
-			if (provider.modelName !== "veo-3.1-generate-001") {
+			if (provider.externalId !== "veo-3.1-generate-001") {
 				reasons.push(
 					`reference images are currently only supported on ${provider.providerId}/veo-3.1-generate-preview`,
 				);
 			}
 		} else if (provider.providerId === "avalanche") {
-			if (provider.modelName !== "veo3_fast") {
+			if (provider.externalId !== "veo3_fast") {
 				reasons.push(
 					"reference images are currently only supported on avalanche/veo-3.1-fast-generate-preview",
 				);
@@ -1624,7 +1624,7 @@ async function resolveVideoExecution(
 		providerContext,
 		upstreamModelName: getVideoUpstreamModelName(
 			providerMapping.providerId as Provider,
-			providerMapping.modelName,
+			providerMapping.externalId,
 			videoSize,
 			inputMode,
 		),
@@ -2430,7 +2430,7 @@ async function createOpenAIVideoJob(
 	const upstreamUrl = joinUrl(providerContext.baseUrl, "/v1/videos");
 	const upstreamModelName = getVideoUpstreamModelName(
 		"openai",
-		providerMapping.modelName,
+		providerMapping.externalId,
 		videoSize,
 		referenceImages.length > 0 ? "reference" : "none",
 	);
@@ -2514,7 +2514,7 @@ async function createAvalancheVeoVideoJob(
 	);
 	const upstreamModelName = getVideoUpstreamModelName(
 		"avalanche",
-		providerMapping.modelName,
+		providerMapping.externalId,
 		videoSize,
 		referenceImageInputs.length > 0
 			? "reference"
@@ -2603,7 +2603,7 @@ async function createAvalancheSoraVideoJob(
 		"/createTask",
 	);
 	const upstreamModelName = getAvalancheSoraTaskModelName(
-		providerMapping.modelName,
+		providerMapping.externalId,
 		inputMode,
 	);
 	const imageUrls =
@@ -2615,7 +2615,7 @@ async function createAvalancheSoraVideoJob(
 				)
 			: [];
 	const sizeTier = getAvalancheSoraSizeTier(
-		providerMapping.modelName,
+		providerMapping.externalId,
 		videoSize,
 	);
 	const input = {
@@ -2644,7 +2644,7 @@ async function createAvalancheSoraVideoJob(
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
-			model: providerMapping.modelName,
+			model: providerMapping.externalId,
 			status: "queued",
 			aspect_ratio: input.aspect_ratio,
 			seconds:
@@ -2706,7 +2706,7 @@ async function createGoogleVertexVideoJob(
 
 	const upstreamModelName = getVideoUpstreamModelName(
 		providerContext.providerId,
-		providerMapping.modelName,
+		providerMapping.externalId,
 		videoSize,
 		referenceImages.length > 0
 			? "reference"
@@ -2821,7 +2821,7 @@ async function createBytedanceVideoJob(
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
-	const upstreamModelName = providerMapping.modelName;
+	const upstreamModelName = providerMapping.externalId;
 	const content: Array<Record<string, unknown>> = [
 		{
 			type: "text",
@@ -2932,7 +2932,7 @@ async function createUpstreamVideoJob(
 				processedReferenceImages,
 			);
 		case "avalanche":
-			return isSoraVideoModelName(providerMapping.modelName)
+			return isSoraVideoModelName(providerMapping.externalId)
 				? await createAvalancheSoraVideoJob(
 						providerContext,
 						providerMapping,
@@ -3283,7 +3283,7 @@ videos.openapi(createVideo, async (c) => {
 			const nextMapping = orderedMappings.find(
 				(mapping) =>
 					mapping.providerId === nextProvider.providerId &&
-					mapping.modelName === nextProvider.modelName,
+					(mapping.region ?? undefined) === nextProvider.region,
 			);
 			if (!nextMapping) {
 				throw getInsufficientVideoGenerationBalanceError();
@@ -3299,7 +3299,7 @@ videos.openapi(createVideo, async (c) => {
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
-				nextMapping.modelName,
+				nextMapping.externalId,
 				videoSize,
 				inputMode,
 			);
@@ -3336,7 +3336,7 @@ videos.openapi(createVideo, async (c) => {
 			const nextMapping = orderedMappings.find(
 				(mapping) =>
 					mapping.providerId === nextProvider.providerId &&
-					mapping.modelName === nextProvider.modelName,
+					(mapping.region ?? undefined) === nextProvider.region,
 			);
 			if (!nextMapping) {
 				throw new HTTPException(400, {
@@ -3355,7 +3355,7 @@ videos.openapi(createVideo, async (c) => {
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
-				nextMapping.modelName,
+				nextMapping.externalId,
 				videoSize,
 				inputMode,
 			);
@@ -3436,7 +3436,7 @@ videos.openapi(createVideo, async (c) => {
 			const nextMapping = orderedMappings.find(
 				(mapping) =>
 					mapping.providerId === nextProvider.providerId &&
-					mapping.modelName === nextProvider.modelName,
+					(mapping.region ?? undefined) === nextProvider.region,
 			);
 			if (!nextMapping) {
 				throw error;
@@ -3452,7 +3452,7 @@ videos.openapi(createVideo, async (c) => {
 			);
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
-				nextMapping.modelName,
+				nextMapping.externalId,
 				videoSize,
 				inputMode,
 			);

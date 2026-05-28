@@ -2,7 +2,7 @@
 
 import { createServerApiClient } from "./server-api";
 
-import type { TokenWindow } from "./types";
+import type { ModelView, TokenWindow } from "./types";
 import type { HistoryWindow } from "@/components/history-chart";
 
 export async function getProviderHistory(
@@ -125,12 +125,13 @@ export async function getOrgCostByModel(orgId: string, window: TokenWindow) {
 export async function getOrgCostByModelTimeseries(
 	orgId: string,
 	window: TokenWindow,
+	modelView: ModelView = "mapping",
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
 		"/admin/organizations/{orgId}/cost-by-model-timeseries",
 		{
-			params: { path: { orgId }, query: { window } },
+			params: { path: { orgId }, query: { window, modelView } },
 		},
 	);
 	return data ?? null;
@@ -140,12 +141,13 @@ export async function getProjectCostByModelTimeseries(
 	orgId: string,
 	projectId: string,
 	window: TokenWindow,
+	modelView: ModelView = "mapping",
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
 		"/admin/organizations/{orgId}/projects/{projectId}/cost-by-model-timeseries",
 		{
-			params: { path: { orgId, projectId }, query: { window } },
+			params: { path: { orgId, projectId }, query: { window, modelView } },
 		},
 	);
 	return data ?? null;

@@ -7,6 +7,7 @@ import { deleteResendContact } from "@/auth/config.js";
 import { maskToken } from "@/lib/maskToken.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
+import { notDevpassFilter } from "@/utils/devpass-filter.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -82,6 +83,9 @@ const timeseriesDataPointSchema = z.object({
 	signups: z.number(),
 	paidCustomers: z.number(),
 	revenue: z.number(),
+	processed: z.number(),
+	refunds: z.number(),
+	net: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -91,6 +95,9 @@ const adminTimeseriesSchema = z.object({
 		signups: z.number(),
 		paidCustomers: z.number(),
 		revenue: z.number(),
+		processed: z.number(),
+		refunds: z.number(),
+		net: z.number(),
 	}),
 });
 
@@ -573,30 +580,6 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// DevPass-related transaction types: exclude these from credit-purchase
-	// metrics (revenue/processed/topped-up) because DevPass revenue lives in
-	// its own dashboard, and DevPass-granted credits are virtual (capped per
-	// cycle) rather than real top-up balance.
-	const devpassExcludedTypes = [
-		"dev_plan_start",
-		"dev_plan_upgrade",
-		"dev_plan_downgrade",
-		"dev_plan_renewal",
-		"dev_plan_cancel",
-		"dev_plan_end",
-		"subscription_start",
-		"subscription_cancel",
-		"subscription_end",
-		"subscription_upgrade",
-		"subscription_downgrade",
-		"subscription_renewal",
-	] as const;
-
-	const notDevpassFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
-		devpassExcludedTypes.map((t) => sql`${t}`),
-		sql`, `,
-	)})`;
-
 	// Total revenue (completed credit-purchase transactions, excluding gifts
 	// and all DevPass subscription rows, using creditAmount to exclude Stripe fees)
 	const [revenueRow] = await db
@@ -836,7 +819,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
 
-	// Revenue per day (completed transactions, excluding gifts, using creditAmount)
+	// Revenue per day (creditAmount, post-fees; matches /admin/metrics totalRevenue)
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
@@ -850,13 +833,58 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				notDevpassFilter,
 				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Revenue earned before the range (for cumulative chart, excluding gifts, using creditAmount)
+	// Processed per day (gross Stripe amount; matches /admin/metrics totalProcessed)
+	const processedPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
+				notDevpassFilter,
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Refunds per day (positive amount on credit_refund rows)
+	const refundsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_refund"),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Pre-range totals for cumulative chart
 	const [preRangeRevenueRow] = await db
 		.select({
 			total:
@@ -869,10 +897,46 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				notDevpassFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
 	const preRangeRevenue = Number(preRangeRevenueRow?.total ?? 0);
+
+	const [preRangeProcessedRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.transaction.type, "credit_gift"),
+				notDevpassFilter,
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeProcessed = Number(preRangeProcessedRow?.total ?? 0);
+
+	const [preRangeRefundsRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_refund"),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeRefunds = Number(preRangeRefundsRow?.total ?? 0);
 
 	// Count of orgs that became paying before the range (bounded SQL query)
 	const [preRangeRow] = await db
@@ -930,6 +994,16 @@ admin.openapi(getTimeseries, async (c) => {
 		revenueMap.set(row.date, Number(row.total));
 	}
 
+	const processedMap = new Map<string, number>();
+	for (const row of processedPerDay) {
+		processedMap.set(row.date, Number(row.total));
+	}
+
+	const refundsMap = new Map<string, number>();
+	for (const row of refundsPerDay) {
+		refundsMap.set(row.date, Number(row.total));
+	}
+
 	const newPaidMap = new Map<string, number>();
 	for (const row of firstTransactionPerOrg) {
 		newPaidMap.set(row.date, Number(row.count));
@@ -941,10 +1015,15 @@ admin.openapi(getTimeseries, async (c) => {
 		signups: number;
 		paidCustomers: number;
 		revenue: number;
+		processed: number;
+		refunds: number;
+		net: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
 	let totalRevenue = preRangeRevenue;
+	let totalProcessed = preRangeProcessed;
+	let totalRefunds = preRangeRefunds;
 
 	const totalDays = Math.ceil(
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
@@ -955,16 +1034,23 @@ admin.openapi(getTimeseries, async (c) => {
 		const dateStr = current.toISOString().split("T")[0];
 		const dailySignups = signupsMap.get(dateStr) ?? 0;
 		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
+		const dailyProcessed = processedMap.get(dateStr) ?? 0;
+		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
 		cumulativePaid += newPaidMap.get(dateStr) ?? 0;
 
 		totalSignups += dailySignups;
 		totalRevenue += dailyRevenue;
+		totalProcessed += dailyProcessed;
+		totalRefunds += dailyRefunds;
 
 		data.push({
 			date: dateStr,
 			signups: totalSignups,
 			paidCustomers: cumulativePaid,
 			revenue: totalRevenue,
+			processed: totalProcessed,
+			refunds: totalRefunds,
+			net: totalRevenue - totalRefunds,
 		});
 	}
 
@@ -975,6 +1061,9 @@ admin.openapi(getTimeseries, async (c) => {
 			signups: totalSignups,
 			paidCustomers: cumulativePaid,
 			revenue: totalRevenue,
+			processed: totalProcessed,
+			refunds: totalRefunds,
+			net: totalRevenue - totalRefunds,
 		},
 	});
 });
@@ -2509,7 +2598,7 @@ const validProviderIds = new Set<string>(providers.map((p) => p.id));
 
 // Build a map of provider -> Set of valid root model IDs served by that provider.
 // Only root model IDs are accepted as discount/rate-limit targets — the
-// provider-specific modelName is reserved for upstream requests only.
+// provider-specific externalId is reserved for upstream requests only.
 const providerModelMappings = new Map<string, Set<string>>();
 for (const model of models) {
 	for (const mapping of model.providers) {
@@ -3006,7 +3095,7 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
 	// modelId is the canonical root model id — the provider-specific upstream
-	// modelName is never exposed here or stored as a discount target. modelName
+	// externalId is never exposed here or stored as a discount target. modelName
 	// in this response is the root model's human-readable display name.
 	const mappings: Array<{
 		providerId: string;
@@ -3451,7 +3540,7 @@ const getAvailableRateLimitOptions = createRoute({
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
 	// modelId is the canonical root model id — the provider-specific upstream
-	// modelName is never exposed here or stored as a rate-limit target.
+	// externalId is never exposed here or stored as a rate-limit target.
 	// modelName in this response is the root model's human-readable display
 	// name.
 	const mappings: Array<{
@@ -5728,7 +5817,7 @@ admin.openapi(getMappingHistory, async (c) => {
 // Provider detail – aggregated stats + per-model breakdown for the window
 const providerModelStatsSchema = z.object({
 	modelId: z.string(),
-	modelName: z.string(),
+	externalId: z.string(),
 	mappingId: z.string(),
 	region: z.string().nullable(),
 	status: z.string(),
@@ -5802,7 +5891,7 @@ admin.openapi(getProviderDetail, async (c) => {
 			.select({
 				id: tables.modelProviderMapping.id,
 				modelId: tables.modelProviderMapping.modelId,
-				modelName: tables.modelProviderMapping.modelName,
+				externalId: tables.modelProviderMapping.externalId,
 				region: tables.modelProviderMapping.region,
 				status: tables.modelProviderMapping.status,
 				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
@@ -5867,7 +5956,7 @@ admin.openapi(getProviderDetail, async (c) => {
 		const avgTtft = nonCached > 0 ? totalTtft / nonCached : null;
 		return {
 			modelId: m.modelId,
-			modelName: m.modelName,
+			externalId: m.externalId,
 			mappingId: m.id,
 			region: m.region,
 			status: m.status,
@@ -5943,7 +6032,7 @@ const mappingDetailSchema = z.object({
 	mapping: z.object({
 		id: z.string(),
 		modelId: z.string(),
-		modelName: z.string(),
+		externalId: z.string(),
 		providerId: z.string(),
 		providerName: z.string(),
 		region: z.string().nullable(),
@@ -6007,7 +6096,7 @@ admin.openapi(getMappingDetail, async (c) => {
 		.select({
 			id: tables.modelProviderMapping.id,
 			modelId: tables.modelProviderMapping.modelId,
-			modelName: tables.modelProviderMapping.modelName,
+			externalId: tables.modelProviderMapping.externalId,
 			providerId: tables.modelProviderMapping.providerId,
 			providerName: tables.provider.name,
 			region: tables.modelProviderMapping.region,
@@ -6121,7 +6210,7 @@ admin.openapi(getMappingDetail, async (c) => {
 		mapping: {
 			id: m.id,
 			modelId: m.modelId,
-			modelName: m.modelName,
+			externalId: m.externalId,
 			providerId: m.providerId,
 			providerName: m.providerName,
 			region: m.region,
@@ -6382,6 +6471,8 @@ admin.openapi(getOrgCostByModel, async (c) => {
 
 // --- Cost by model time-series endpoints ---
 
+const costByModelTimeseriesModelViewSchema = z.enum(["mapping", "canonical"]);
+
 const costByModelTimeseriesBucketSchema = z.object({
 	model: z.string(),
 	cost: z.number(),
@@ -6397,6 +6488,7 @@ const costByModelTimeseriesPointSchema = z.object({
 const costByModelTimeseriesResponseSchema = z.object({
 	window: tokenWindowSchema,
 	bucket: z.enum(["hour", "day"]),
+	modelView: costByModelTimeseriesModelViewSchema,
 	models: z.array(z.string()),
 	data: z.array(costByModelTimeseriesPointSchema),
 });
@@ -6451,6 +6543,9 @@ const getOrgCostByModelTimeseries = createRoute({
 		params: z.object({ orgId: z.string() }),
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
+			modelView: costByModelTimeseriesModelViewSchema
+				.default("mapping")
+				.optional(),
 		}),
 	},
 	responses: {
@@ -6472,6 +6567,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 	const { orgId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
+	const modelView = query.modelView ?? "mapping";
 	const startDate = getTokenWindowStartDate(window);
 	const bucketUnit = getBucketUnitForWindow(window);
 
@@ -6494,104 +6590,28 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 		return c.json({
 			window,
 			bucket: bucketUnit,
+			modelView,
 			models: [],
 			data: [],
 		});
 	}
 
-	const topModelsRows = await db
-		.select({
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
-		})
-		.from(projectHourlyModelStats)
-		.where(
-			and(
-				inArray(projectHourlyModelStats.projectId, ids),
-				gte(projectHourlyModelStats.hourTimestamp, startDate),
-			),
-		)
-		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
-		.limit(10);
-
-	const topModels = topModelsRows.map((r) => r.usedModel);
-
-	if (topModels.length === 0) {
-		return c.json({
-			window,
-			bucket: bucketUnit,
-			models: [],
-			data: [],
-		});
-	}
-
-	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
-
-	const rows = await db
-		.select({
-			bucket: bucketExpr.as("bucket"),
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
-			requestCount:
-				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
-					"request_count",
-				),
-			totalTokens:
-				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
-					"total_tokens",
-				),
-		})
-		.from(projectHourlyModelStats)
-		.where(
-			and(
-				inArray(projectHourlyModelStats.projectId, ids),
-				gte(projectHourlyModelStats.hourTimestamp, startDate),
-				inArray(projectHourlyModelStats.usedModel, topModels),
-			),
-		)
-		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
-		.orderBy(asc(bucketExpr));
-
-	const bucketMap = new Map<
-		string,
-		Map<string, { cost: number; requestCount: number; totalTokens: number }>
-	>();
-
-	for (const row of rows) {
-		const ts = row.bucket;
-		const entry = bucketMap.get(ts) ?? new Map();
-		entry.set(row.usedModel, {
-			cost: Number(row.cost),
-			requestCount: Number(row.requestCount),
-			totalTokens: Number(row.totalTokens),
-		});
-		bucketMap.set(ts, entry);
-	}
-
-	const allBuckets = generateBucketTimestamps(
-		startDate,
-		new Date(),
+	const result = await buildCostByModelTimeseries({
+		modelView,
 		bucketUnit,
-	);
-
-	const data = allBuckets.map((timestamp) => ({
-		timestamp,
-		entries: Array.from(bucketMap.get(timestamp)?.entries() ?? []).map(
-			([model, v]) => ({
-				model,
-				cost: v.cost,
-				requestCount: v.requestCount,
-				totalTokens: v.totalTokens,
-			}),
+		startDate,
+		baseFilter: and(
+			inArray(projectHourlyModelStats.projectId, ids),
+			gte(projectHourlyModelStats.hourTimestamp, startDate),
 		),
-	}));
+	});
 
 	return c.json({
 		window,
 		bucket: bucketUnit,
-		models: topModels,
-		data,
+		modelView,
+		models: result.models,
+		data: result.data,
 	});
 });
 
@@ -6602,6 +6622,9 @@ const getProjectCostByModelTimeseries = createRoute({
 		params: z.object({ orgId: z.string(), projectId: z.string() }),
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
+			modelView: costByModelTimeseriesModelViewSchema
+				.default("mapping")
+				.optional(),
 		}),
 	},
 	responses: {
@@ -6623,6 +6646,7 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 	const { orgId, projectId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
+	const modelView = query.modelView ?? "mapping";
 	const startDate = getTokenWindowStartDate(window);
 	const bucketUnit = getBucketUnitForWindow(window);
 
@@ -6637,32 +6661,78 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
-	const topModelsRows = await db
+	const result = await buildCostByModelTimeseries({
+		modelView,
+		bucketUnit,
+		startDate,
+		baseFilter: and(
+			eq(projectHourlyModelStats.projectId, projectId),
+			gte(projectHourlyModelStats.hourTimestamp, startDate),
+		),
+	});
+
+	return c.json({
+		window,
+		bucket: bucketUnit,
+		modelView,
+		models: result.models,
+		data: result.data,
+	});
+});
+
+async function buildCostByModelTimeseries({
+	modelView,
+	bucketUnit,
+	startDate,
+	baseFilter,
+}: {
+	modelView: z.infer<typeof costByModelTimeseriesModelViewSchema>;
+	bucketUnit: "hour" | "day";
+	startDate: Date;
+	baseFilter: ReturnType<typeof and>;
+}): Promise<{
+	models: string[];
+	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
+}> {
+	const keyOf = (usedModel: string) =>
+		modelView === "canonical" ? extractCanonicalModelId(usedModel) : usedModel;
+
+	const modelTotals = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
 			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
 		})
 		.from(projectHourlyModelStats)
-		.where(
-			and(
-				eq(projectHourlyModelStats.projectId, projectId),
-				gte(projectHourlyModelStats.hourTimestamp, startDate),
-			),
-		)
-		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
-		.limit(10);
+		.where(baseFilter)
+		.groupBy(projectHourlyModelStats.usedModel);
 
-	const topModels = topModelsRows.map((r) => r.usedModel);
-
-	if (topModels.length === 0) {
-		return c.json({
-			window,
-			bucket: bucketUnit,
-			models: [],
-			data: [],
-		});
+	const totalByKey = new Map<string, number>();
+	const usedModelsByKey = new Map<string, string[]>();
+	for (const row of modelTotals) {
+		const key = keyOf(row.usedModel);
+		totalByKey.set(key, (totalByKey.get(key) ?? 0) + Number(row.cost));
+		const list = usedModelsByKey.get(key) ?? [];
+		list.push(row.usedModel);
+		usedModelsByKey.set(key, list);
 	}
+
+	const topKeys = [...totalByKey.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 10)
+		.map(([k]) => k);
+
+	if (topKeys.length === 0) {
+		return { models: [], data: [] };
+	}
+
+	const allBuckets = generateBucketTimestamps(
+		startDate,
+		new Date(),
+		bucketUnit,
+	);
+	const usedModelsToFetch = topKeys.flatMap(
+		(k) => usedModelsByKey.get(k) ?? [],
+	);
 
 	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 
@@ -6683,9 +6753,8 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 		.from(projectHourlyModelStats)
 		.where(
 			and(
-				eq(projectHourlyModelStats.projectId, projectId),
-				gte(projectHourlyModelStats.hourTimestamp, startDate),
-				inArray(projectHourlyModelStats.usedModel, topModels),
+				baseFilter,
+				inArray(projectHourlyModelStats.usedModel, usedModelsToFetch),
 			),
 		)
 		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
@@ -6698,20 +6767,19 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 
 	for (const row of rows) {
 		const ts = row.bucket;
+		const key = keyOf(row.usedModel);
 		const entry = bucketMap.get(ts) ?? new Map();
-		entry.set(row.usedModel, {
-			cost: Number(row.cost),
-			requestCount: Number(row.requestCount),
-			totalTokens: Number(row.totalTokens),
-		});
+		const existing = entry.get(key) ?? {
+			cost: 0,
+			requestCount: 0,
+			totalTokens: 0,
+		};
+		existing.cost += Number(row.cost);
+		existing.requestCount += Number(row.requestCount);
+		existing.totalTokens += Number(row.totalTokens);
+		entry.set(key, existing);
 		bucketMap.set(ts, entry);
 	}
-
-	const allBuckets = generateBucketTimestamps(
-		startDate,
-		new Date(),
-		bucketUnit,
-	);
 
 	const data = allBuckets.map((timestamp) => ({
 		timestamp,
@@ -6725,13 +6793,8 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 		),
 	}));
 
-	return c.json({
-		window,
-		bucket: bucketUnit,
-		models: topModels,
-		data,
-	});
-});
+	return { models: topKeys, data };
+}
 
 // --- Project Model-Provider Stats ---
 
@@ -6916,7 +6979,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 const modelProviderMappingEntrySchema = z.object({
 	id: z.string(),
 	modelId: z.string(),
-	modelName: z.string(),
+	externalId: z.string(),
 	region: z.string().nullable(),
 	providerId: z.string(),
 	providerName: z.string(),
@@ -7145,7 +7208,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 			.select({
 				id: tables.modelProviderMapping.id,
 				modelId: tables.modelProviderMapping.modelId,
-				modelName: tables.modelProviderMapping.modelName,
+				externalId: tables.modelProviderMapping.externalId,
 				region: tables.modelProviderMapping.region,
 				providerId: tables.modelProviderMapping.providerId,
 				providerName: tables.provider.name,
@@ -7196,7 +7259,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		mappings: rows.map((r) => ({
 			id: r.id,
 			modelId: r.modelId,
-			modelName: r.modelName,
+			externalId: r.externalId,
 			region: r.region,
 			providerId: r.providerId,
 			providerName: r.providerName,
@@ -8492,6 +8555,7 @@ const devpassKpisSchema = z.object({
 	cancelledPending: z.number(),
 	churned: z.number(),
 	grossMrr: z.number(),
+	committedMrr: z.number(),
 	startsThisMonth: z.number(),
 	endsThisMonth: z.number(),
 	netNewThisMonth: z.number(),
@@ -9000,13 +9064,15 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const [countRow] = await countSelect.where(whereClause);
 	const total = Number(countRow?.count ?? 0);
 
-	// KPI strip — always over the full active subscriber base, unfiltered.
-	// Matches Stripe's "active" filter, which includes cancel-at-period-end
-	// subscriptions until the period actually ends. The `cancelledPending`
-	// count below breaks out how many of these are flagged to cancel.
+	// KPI strip — counts the full active subscriber base, matching Stripe's
+	// "active" filter which includes cancel-at-period-end subs until the period
+	// actually ends. `grossMrr` is the Stripe-aligned figure (what will be
+	// invoiced this period). `committedMrr` excludes subs flagged to cancel,
+	// representing the forward-looking MRR after impending churn lands.
 	const activeRows = await db
 		.select({
 			tier: tables.organization.devPlan,
+			cancelled: tables.organization.devPlanCancelled,
 			count: sql<number>`COUNT(*)`,
 		})
 		.from(tables.organization)
@@ -9019,13 +9085,18 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 				)!,
 			),
 		)
-		.groupBy(tables.organization.devPlan);
+		.groupBy(tables.organization.devPlan, tables.organization.devPlanCancelled);
 
 	const activeByTier = { lite: 0, pro: 0, max: 0 };
+	const cancellingByTier = { lite: 0, pro: 0, max: 0 };
 	for (const r of activeRows) {
 		const tierKey = r.tier as keyof typeof activeByTier;
 		if (tierKey in activeByTier) {
-			activeByTier[tierKey] = Number(r.count);
+			const n = Number(r.count);
+			activeByTier[tierKey] += n;
+			if (r.cancelled) {
+				cancellingByTier[tierKey] += n;
+			}
 		}
 	}
 	const totalActive = activeByTier.lite + activeByTier.pro + activeByTier.max;
@@ -9033,21 +9104,13 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const proMrr = activeByTier.pro * DEV_PLAN_PRICES.pro;
 	const maxMrr = activeByTier.max * DEV_PLAN_PRICES.max;
 	const grossMrr = liteMrr + proMrr + maxMrr;
-
-	const [cancelledPendingRow] = await db
-		.select({ count: sql<number>`COUNT(*)` })
-		.from(tables.organization)
-		.where(
-			and(
-				ne(tables.organization.devPlan, "none"),
-				eq(tables.organization.devPlanCancelled, true),
-				or(
-					isNull(tables.organization.devPlanExpiresAt),
-					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
-				)!,
-			),
-		);
-	const cancelledPending = Number(cancelledPendingRow?.count ?? 0);
+	const cancellingLiteMrr = cancellingByTier.lite * DEV_PLAN_PRICES.lite;
+	const cancellingProMrr = cancellingByTier.pro * DEV_PLAN_PRICES.pro;
+	const cancellingMaxMrr = cancellingByTier.max * DEV_PLAN_PRICES.max;
+	const cancellingMrr = cancellingLiteMrr + cancellingProMrr + cancellingMaxMrr;
+	const committedMrr = grossMrr - cancellingMrr;
+	const cancelledPending =
+		cancellingByTier.lite + cancellingByTier.pro + cancellingByTier.max;
 
 	const [churnedRow] = await db
 		.select({
@@ -9239,6 +9302,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cancelledPending,
 			churned,
 			grossMrr,
+			committedMrr,
 			startsThisMonth,
 			endsThisMonth,
 			netNewThisMonth: startsThisMonth - endsThisMonth,

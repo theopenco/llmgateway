@@ -26,6 +26,10 @@ For most users, prompt caching just works — you do not need to change your req
 
 Providers including OpenAI, Anthropic (when prompts cross the provider's minimum size), Google, DeepSeek, xAI, and Alibaba inspect incoming requests for shared prefixes and cache them automatically. LLM Gateway forwards the provider's cache metadata back to you in the response, and bills the cached portion at the model's `cached_input` rate.
 
+For **Anthropic** and **AWS Bedrock Claude**, prompt caching is strictly opt-in via `cache_control` / `cachePoint` markers on the request body. To get automatic cache benefits without rewriting your requests, LLM Gateway injects those markers for you on long system and user messages by default. If you send long prompts sporadically — with gaps wider than the 5-minute TTL — you may want to disable this entirely, since you would otherwise pay the cache-write premium (1.25× input for 5m, 2× for 1h) without ever benefiting from a cache read.
+
+To disable, open **Project Settings → Caching → Provider Cache Writes** and turn off "Allow provider cache writes". When disabled, the gateway strips **all** `cache_control` markers from outgoing requests for the project — both the ones it adds automatically and any markers your client sends. This covers callers that always emit markers regardless of the user's request cadence (e.g. Claude Code, Cursor, Cline). The change takes up to 5 minutes to take effect due to the project-settings cache.
+
 To take advantage of automatic caching:
 
 - Put stable content (system prompt, instructions, tool definitions, long documents) at the **start** of your messages

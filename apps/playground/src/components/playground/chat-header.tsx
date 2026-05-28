@@ -97,7 +97,7 @@ export const ChatHeader = ({
 						hasTemporaryMessages={hasTemporaryMessages}
 					/>
 				) : null}
-				{isTemporaryChat || !currentChatId ? null : (
+				{isTemporaryChat || !currentChatId || comparisonEnabled ? null : (
 					<ShareChatDialog
 						currentChatId={currentChatId}
 						disabled={isShareChatDisabled}

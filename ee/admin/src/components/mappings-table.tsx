@@ -172,9 +172,9 @@ function MappingRow({
 						>
 							{mapping.providerId}/{mapping.modelId}
 						</Link>
-						{mapping.modelName !== mapping.modelId && (
+						{mapping.externalId !== mapping.modelId && (
 							<p className="text-xs text-muted-foreground">
-								{mapping.modelName}
+								{mapping.externalId}
 							</p>
 						)}
 					</div>
