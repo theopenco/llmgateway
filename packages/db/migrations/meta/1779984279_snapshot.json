@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "31952b2a-2224-4e70-a5b9-8d35e07274ba",
-  "prevId": "c08b5b50-d6eb-43bd-abee-eca4168286de",
+  "id": "c160b91b-e2cb-437d-bf5b-f9a069570922",
+  "prevId": "a5595da1-8c0d-472d-bd34-c8ba3aa57f79",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -6922,6 +6922,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "documents",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "message"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "reasoning",
       "entityType": "columns",
       "schema": "public",
@@ -7785,6 +7798,19 @@
       "type": "text",
       "typeSchema": null,
       "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -13291,19 +13317,6 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "stripe_refund_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "transaction"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "description",
       "entityType": "columns",
       "schema": "public",
@@ -16676,27 +16689,6 @@
       "method": "btree",
       "concurrently": false,
       "name": "transaction_organization_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "transaction"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "stripe_refund_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "\"stripe_refund_id\" IS NOT NULL",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "transaction_stripe_refund_id_unique",
       "entityType": "indexes",
       "schema": "public",
       "table": "transaction"
