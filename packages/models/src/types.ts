@@ -374,7 +374,7 @@ export interface ModelWithPricing {
 		outputPrice?: string;
 		perSecondPrice?: Record<string, string>;
 		supportedParameters?: string[];
-		modelName: string;
+		externalId: string;
 		discount?: string;
 		region?: string;
 		stability?: string;
@@ -384,7 +384,7 @@ export interface ModelWithPricing {
 // Available model provider structure
 export interface AvailableModelProvider {
 	providerId: string;
-	modelName: string;
+	externalId: string;
 	region?: string;
 }
 

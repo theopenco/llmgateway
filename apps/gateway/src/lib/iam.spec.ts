@@ -40,21 +40,21 @@ const threeProviderModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "google-vertex",
-			modelName: "test-model-vertex",
+			externalId: "test-model-vertex",
 			streaming: true,
 			inputPrice: "0.5",
 			outputPrice: "1.0",
 		},
 		{
 			providerId: "google-ai-studio",
-			modelName: "test-model-studio",
+			externalId: "test-model-studio",
 			streaming: true,
 			inputPrice: "0.5",
 			outputPrice: "1.0",
 		},
 		{
 			providerId: "openai",
-			modelName: "test-model-openai",
+			externalId: "test-model-openai",
 			streaming: true,
 			inputPrice: "0.3",
 			outputPrice: "0.6",
@@ -73,7 +73,7 @@ const singleActiveProviderModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "google-vertex",
-			modelName: "test-model-vertex",
+			externalId: "test-model-vertex",
 			streaming: true,
 			inputPrice: "0.5",
 			outputPrice: "1.0",
@@ -88,7 +88,7 @@ const freeModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "openai",
-			modelName: "free-model-openai",
+			externalId: "free-model-openai",
 			streaming: true,
 		},
 	],
@@ -100,14 +100,14 @@ const paidModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "openai",
-			modelName: "paid-model-openai",
+			externalId: "paid-model-openai",
 			streaming: true,
 			inputPrice: "5.0",
 			outputPrice: "15.0",
 		},
 		{
 			providerId: "anthropic",
-			modelName: "paid-model-anthropic",
+			externalId: "paid-model-anthropic",
 			streaming: true,
 			inputPrice: "3.0",
 			outputPrice: "10.0",
@@ -960,7 +960,7 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 	it("never selects a provider not in the IAM-filtered list", () => {
 		// Simulate IAM filtering: only openai is allowed
 		const iamFilteredProviders = [
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 
 		const providerScores = [
@@ -977,14 +977,14 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 
 		expect(result).toEqual({
 			providerId: "openai",
-			modelName: "test-model-openai",
+			externalId: "test-model-openai",
 		});
 	});
 
 	it("returns null when the only scored providers are IAM-denied", () => {
 		// IAM allows only openai, but only google providers are scored
 		const iamFilteredProviders = [
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 
 		const providerScores = [
@@ -1004,8 +1004,8 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 	it("skips IAM-denied providers even when they have the best score", () => {
 		// IAM denies google-vertex
 		const iamFilteredProviders = [
-			{ providerId: "google-ai-studio", modelName: "test-model-studio" },
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "google-ai-studio", externalId: "test-model-studio" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 
 		const providerScores = [
@@ -1022,15 +1022,15 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 
 		expect(result).toEqual({
 			providerId: "google-ai-studio",
-			modelName: "test-model-studio",
+			externalId: "test-model-studio",
 		});
 	});
 
 	it("handles both IAM filtering and failed providers together", () => {
 		// IAM denies google-vertex; google-ai-studio has failed
 		const iamFilteredProviders = [
-			{ providerId: "google-ai-studio", modelName: "test-model-studio" },
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "google-ai-studio", externalId: "test-model-studio" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 		const failedProviders = new Set(["google-ai-studio"]);
 
@@ -1048,15 +1048,15 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 
 		expect(result).toEqual({
 			providerId: "openai",
-			modelName: "test-model-openai",
+			externalId: "test-model-openai",
 		});
 	});
 
 	it("returns null when all providers are either IAM-denied or failed", () => {
 		// IAM denies google-vertex; openai and google-ai-studio have failed
 		const iamFilteredProviders = [
-			{ providerId: "google-ai-studio", modelName: "test-model-studio" },
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "google-ai-studio", externalId: "test-model-studio" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 		const failedProviders = new Set(["google-ai-studio", "openai"]);
 
@@ -1078,7 +1078,7 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 	it("with empty IAM-filtered list returns null (all providers denied)", () => {
 		const iamFilteredProviders: Array<{
 			providerId: string;
-			modelName: string;
+			externalId: string;
 		}> = [];
 
 		const providerScores = [

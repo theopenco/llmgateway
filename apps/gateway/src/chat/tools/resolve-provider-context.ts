@@ -26,7 +26,6 @@ import {
 	providers,
 	type ToolChoiceType,
 	type WebSearchTool,
-	stripRegionFromModelName,
 } from "@llmgateway/models";
 
 import { getProviderEnv } from "./get-provider-env.js";
@@ -35,10 +34,19 @@ import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
 	usedProvider: Provider;
-	usedModel: string;
+	/**
+	 * Canonical LLM Gateway model id. Used for everything internal: pricing,
+	 * discounts, rate limits, IAM, key selection, logging display. Never the
+	 * upstream provider's model id.
+	 */
+	usedInternalModel: string;
+	/**
+	 * Provider-specific upstream model id. Reserved for sending the request
+	 * to the upstream provider API; do not use for internal lookups.
+	 */
+	usedExternalId: string;
 	usedModelFormatted: string;
 	usedModelMapping: string;
-	baseModelName: string;
 	usedToken: string;
 	usedApiKeyHash: string;
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -166,7 +174,7 @@ function assertOrganizationHasCreditsForEnvFallback(
 
 export function formatUsedModelForDisplay(
 	usedProvider: string,
-	baseModelName: string,
+	usedInternalModel: string,
 	customProviderName?: string,
 	usedRegion?: string,
 ): string {
@@ -175,7 +183,7 @@ export function formatUsedModelForDisplay(
 			? customProviderName
 			: usedProvider;
 
-	const base = `${usedModelProviderPrefix}/${baseModelName}`;
+	const base = `${usedModelProviderPrefix}/${usedInternalModel}`;
 	return usedRegion ? `${base}:${usedRegion}` : base;
 }
 
@@ -187,7 +195,7 @@ export function formatUsedModelForDisplay(
  * Used by the retry loop to quickly set up a new provider context on fallback.
  */
 export async function resolveProviderContext(
-	providerMapping: { providerId: string; modelName: string; region?: string },
+	providerMapping: { providerId: string; externalId: string; region?: string },
 	project: ProjectInfo,
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
@@ -195,19 +203,19 @@ export async function resolveProviderContext(
 	options: ProviderContextOptions,
 ): Promise<ProviderContext> {
 	const usedProvider = providerMapping.providerId as Provider;
-	const usedModel = providerMapping.modelName;
-	// Strip :region suffix for the actual upstream API call. The
-	// per-provider-key azure_deployment_name override is applied below once
-	// providerKey is resolved.
-	const strippedModelName = stripRegionFromModelName(
-		usedModel,
-		providerMapping.region,
-	);
-	const baseModelName = modelInfo.id || strippedModelName;
-	const usedModelMapping = usedModel;
+	// The upstream model id (sent verbatim to the provider API). For BYOK
+	// Azure deployments this is overridden by `azure_deployment_name` below.
+	const usedExternalId = providerMapping.externalId;
+	// The canonical LLM Gateway model id (used for everything internal:
+	// pricing, discounts, rate limits, IAM, key selection, logging display).
+	// `modelInfo.id` falls back to `usedExternalId` only for custom providers,
+	// which have no entry in the registry.
+	const usedInternalModel = modelInfo.id || usedExternalId;
+	// `usedModelMapping` is the log column that stores the raw upstream id.
+	const usedModelMapping = usedExternalId;
 	const usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
-		baseModelName,
+		usedInternalModel,
 		options.customProviderName,
 		providerMapping.region,
 	);
@@ -223,14 +231,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
-				baseModelName,
+				usedInternalModel,
 				options.excludedProviderKeyIds,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				baseModelName,
+				usedInternalModel,
 				options.excludedProviderKeyIds,
 			);
 		}
@@ -246,7 +254,7 @@ export async function resolveProviderContext(
 		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 		const envResult = getProviderEnv(usedProvider as Provider, {
 			excludedIndices: options.excludedEnvKeyIndices,
-			selectionScope: baseModelName,
+			selectionScope: usedInternalModel,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -256,14 +264,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
-				baseModelName,
+				usedInternalModel,
 				options.excludedProviderKeyIds,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				baseModelName,
+				usedInternalModel,
 				options.excludedProviderKeyIds,
 			);
 		}
@@ -274,7 +282,7 @@ export async function resolveProviderContext(
 			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 			const envResult = getProviderEnv(usedProvider as Provider, {
 				excludedIndices: options.excludedEnvKeyIndices,
-				selectionScope: baseModelName,
+				selectionScope: usedInternalModel,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -290,10 +298,7 @@ export async function resolveProviderContext(
 	// modelInfo.providers is already expanded (regions flattened into separate entries)
 	const usedRegion = providerMapping.region;
 	const providerMappingForSelected = modelInfo.providers.find(
-		(p) =>
-			p.providerId === usedProvider &&
-			p.modelName === usedModel &&
-			p.region === usedRegion,
+		(p) => p.providerId === usedProvider && p.region === usedRegion,
 	);
 
 	// --- Region validation ---
@@ -306,7 +311,7 @@ export async function resolveProviderContext(
 			.filter(Boolean) as string[];
 		if (modelRegions.length > 0 && !modelRegions.includes(usedRegion)) {
 			throw new HTTPException(400, {
-				message: `Model ${usedModel} is not available in region "${usedRegion}". Available regions: ${modelRegions.join(", ")}`,
+				message: `Model ${usedInternalModel} is not available in region "${usedRegion}". Available regions: ${modelRegions.join(", ")}`,
 			});
 		}
 	}
@@ -344,7 +349,7 @@ export async function resolveProviderContext(
 		usedProvider === "azure"
 			? providerKey?.options?.azure_deployment_name
 			: undefined;
-	const upstreamModelName = azureDeploymentName || strippedModelName;
+	const upstreamModelName = azureDeploymentName || usedExternalId;
 
 	// --- URL resolution ---
 	// When using a provider key (BYOK), skip env vars entirely —
@@ -369,6 +374,7 @@ export async function resolveProviderContext(
 		isImageGeneration,
 		usedRegion,
 		isBYOK,
+		usedInternalModel,
 	);
 
 	if (!url) {
@@ -427,7 +433,7 @@ export async function resolveProviderContext(
 		if (effectiveMaxOutput !== undefined) {
 			if (max_tokens > effectiveMaxOutput) {
 				throw new HTTPException(400, {
-					message: `The requested max_tokens (${max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${effectiveMaxOutput})`,
+					message: `The requested max_tokens (${max_tokens}) exceeds the maximum output tokens allowed for model ${usedInternalModel} (${effectiveMaxOutput})`,
 				});
 			}
 		}
@@ -440,6 +446,8 @@ export async function resolveProviderContext(
 	// --- Request body preparation ---
 	const requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
 		usedProvider as Provider,
+		usedInternalModel,
+		providerMapping.region ?? null,
 		upstreamModelName,
 		options.messages as BaseMessage[],
 		options.effectiveStream,
@@ -481,7 +489,7 @@ export async function resolveProviderContext(
 		) {
 			if (requestBody.max_tokens > providerMappingForSelected.maxOutput) {
 				throw new HTTPException(400, {
-					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMappingForSelected.maxOutput})`,
+					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedInternalModel} (${providerMappingForSelected.maxOutput})`,
 				});
 			}
 		}
@@ -527,10 +535,10 @@ export async function resolveProviderContext(
 
 	return {
 		usedProvider,
-		usedModel,
+		usedInternalModel,
+		usedExternalId,
 		usedModelFormatted,
 		usedModelMapping,
-		baseModelName,
 		usedToken,
 		usedApiKeyHash,
 		providerKey,

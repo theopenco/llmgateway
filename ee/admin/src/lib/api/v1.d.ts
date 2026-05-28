@@ -4439,7 +4439,7 @@ export interface paths {
                             };
                             models: {
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 mappingId: string;
                                 region: string | null;
                                 status: string;
@@ -4497,7 +4497,7 @@ export interface paths {
                             mapping: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 providerId: string;
                                 providerName: string;
                                 region: string | null;
@@ -4871,7 +4871,7 @@ export interface paths {
                             mappings: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 providerId: string;
                                 providerName: string;
@@ -5717,6 +5717,7 @@ export interface paths {
                                 cancelledPending: number;
                                 churned: number;
                                 grossMrr: number;
+                                committedMrr: number;
                                 startsThisMonth: number;
                                 endsThisMonth: number;
                                 netNewThisMonth: number;
@@ -10302,6 +10303,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dev-plans/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        sessionId: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Dev plan subscription finalized */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok" | "already_processed";
+                        };
+                    };
+                };
+                /** @description Card already in use by another DevPass account */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "duplicate_card";
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dev-plans/cancel": {
         parameters: {
             query?: never;
@@ -11610,7 +11668,7 @@ export interface operations {
                                 createdAt: string | null;
                                 modelId: string;
                                 providerId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;

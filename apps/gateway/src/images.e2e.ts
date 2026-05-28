@@ -87,7 +87,7 @@ const imageTestCases = filteredModels
 			}
 
 			cases.push({
-				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
 				provider,
 				originalModel: model.id,
 				usesImageGenerationsFlag: providerHasImageGen,

@@ -6,7 +6,7 @@ import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 const baseProvider: ProviderModelMapping = {
 	providerId: "openai",
-	modelName: "test-model",
+	externalId: "test-model",
 	streaming: true,
 	tools: true,
 	jsonOutputSchema: true,
@@ -97,7 +97,7 @@ describe("isCodingModel", () => {
 		const cachedProvider = baseProvider;
 		const uncachedProvider: ProviderModelMapping = {
 			providerId: "groq",
-			modelName: "test-model",
+			externalId: "test-model",
 			streaming: true,
 			tools: true,
 			jsonOutputSchema: true,

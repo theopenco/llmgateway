@@ -97,15 +97,25 @@ function getPricingForTokenCount(
 }
 
 /**
- * Calculate costs based on model, provider, and token counts
- * If promptTokens or completionTokens are not available, it will try to calculate them
- * from the fullOutput parameter if provided
+ * Calculate costs based on model, provider, region, and token counts.
+ * If promptTokens or completionTokens are not available, it will try to
+ * calculate them from the fullOutput parameter if provided.
  *
- * @param organizationId - Optional organization ID for org-specific discounts
+ * @param model - Root model id from `ModelDefinition.id`. Callers MUST pass
+ *   the canonical root id, never the provider-specific upstream id
+ *   (`externalId`). The upstream id is only ever for sending to the provider
+ *   API; pricing/discount/rate-limit lookups all key on the root id.
+ * @param provider - Provider id (e.g. "openai", "anthropic"). Required for
+ *   per-provider pricing resolution.
+ * @param region - Region id when the provider mapping defines per-region
+ *   pricing (e.g. "cn-beijing", "singapore"). Pass `null` when the model is
+ *   not region-keyed.
+ * @param organizationId - Optional organization ID for org-specific discounts.
  */
 export async function calculateCosts(
 	model: string,
 	provider: string,
+	region: string | null,
 	promptTokens: number | null,
 	completionTokens: number | null,
 	cachedTokens: number | null = null,
@@ -145,20 +155,10 @@ export async function calculateCosts(
 	const cachedAudioInputTokens = options?.cachedAudioInputTokens ?? null;
 	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
 
-	// Find the model info - try both base model name and provider model name
-	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
-	const baseModel = model.includes(":") ? model.split(":")[0] : model;
-	let modelInfo = models.find(
-		(m) => m.id === model || m.id === baseModel,
-	) as ModelDefinition;
-
-	if (!modelInfo) {
-		modelInfo = models.find((m) =>
-			m.providers.some(
-				(p) => p.modelName === model || p.modelName === baseModel,
-			),
-		) as ModelDefinition;
-	}
+	// Look up the model definition by the canonical root id only.
+	// externalId-based lookups are intentionally not supported here — the
+	// upstream provider id must never leak into pricing/discount lookups.
+	const modelInfo = models.find((m) => m.id === model) as ModelDefinition;
 
 	if (!modelInfo) {
 		return {
@@ -267,19 +267,36 @@ export async function calculateCosts(
 	// Set completion tokens to 0 if not available (but still calculate input costs)
 	calculatedCompletionTokens ??= 0;
 
-	// Find the provider-specific pricing
-	// Expand region entries so we can match the specific region's pricing
+	// Find the provider-specific pricing, keyed by providerId + region.
+	// Region matters when a single root model id has multiple per-region
+	// entries with different prices (see `regions:` on ProviderModelMapping);
+	// expandAllProviderRegions flattens those into one mapping per region.
+	//
+	// For regionalized providers we MUST match the exact region — falling back
+	// to the non-regional/base entry would bill at the default rate even when
+	// the caller named a region that doesn't exist on this provider, which
+	// silently masks the misroute. Only fall back to the non-regional entry
+	// when the provider has no regional variants at all.
 	const expandedProviders = expandAllProviderRegions(
 		modelInfo.providers as ProviderModelMapping[],
 	);
-	const providerInfo =
-		expandedProviders.find(
-			(p) => p.providerId === provider && p.modelName === model,
-		) ??
-		expandedProviders.find(
-			(p) => p.providerId === provider && p.modelName === baseModel,
-		) ??
-		expandedProviders.find((p) => p.providerId === provider);
+	const providerEntries = expandedProviders.filter(
+		(p) => p.providerId === provider,
+	);
+	const isBaseEntry = (p: (typeof providerEntries)[number]) =>
+		p.region === undefined || p.region === null;
+	const hasRegionalEntries = providerEntries.some((p) => !isBaseEntry(p));
+	let providerInfo: (typeof providerEntries)[number] | undefined;
+	if (region !== null) {
+		providerInfo = providerEntries.find((p) => p.region === region);
+		// Region was requested but doesn't match any regional variant. For a
+		// regionalized provider, bail out rather than billing at the base rate.
+		if (!providerInfo && !hasRegionalEntries) {
+			providerInfo = providerEntries.find(isBaseEntry);
+		}
+	} else {
+		providerInfo = providerEntries.find(isBaseEntry) ?? providerEntries[0];
+	}
 
 	if (!providerInfo) {
 		return {
@@ -344,13 +361,12 @@ export async function calculateCosts(
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
 	// Get effective discount (checks org-specific, global, then hardcoded).
-	// Discounts are keyed by the root model ID only — `model` may be a
-	// provider-specific alias, so use the resolved root id from modelInfo.
+	// Discounts are keyed by the root model ID only.
 	const hardcodedDiscount = providerInfo.discount ?? "0";
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
-		modelInfo.id,
+		model,
 		hardcodedDiscount,
 	);
 	const discount = effectiveDiscountResult.discount;

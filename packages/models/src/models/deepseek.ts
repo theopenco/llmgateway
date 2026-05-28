@@ -12,7 +12,7 @@ export const deepseekModels = [
 			{
 				providerId: "nebius",
 				stability: "unstable" as const,
-				modelName: "deepseek-ai/DeepSeek-V3",
+				externalId: "deepseek-ai/DeepSeek-V3",
 				inputPrice: "0.5e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -35,7 +35,7 @@ export const deepseekModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "deepseek-ai/DeepSeek-R1-0528",
+				externalId: "deepseek-ai/DeepSeek-R1-0528",
 				inputPrice: "0.8e-6",
 				outputPrice: "2.4e-6",
 				requestPrice: "0",
@@ -60,7 +60,7 @@ export const deepseekModels = [
 		providers: [
 			{
 				providerId: "groq",
-				modelName: "deepseek-r1-distill-llama-70b",
+				externalId: "deepseek-r1-distill-llama-70b",
 				inputPrice: "0.75e-6",
 				outputPrice: "0.99e-6",
 				requestPrice: "0",
@@ -83,7 +83,7 @@ export const deepseekModels = [
 		providers: [
 			{
 				providerId: "bytedance",
-				modelName: "deepseek-v3-1-250821",
+				externalId: "deepseek-v3-1-250821",
 				inputPrice: "0.56e-6",
 				cachedInputPrice: "0.112e-6",
 				outputPrice: "1.68e-6",
@@ -108,7 +108,7 @@ export const deepseekModels = [
 		providers: [
 			{
 				providerId: "deepseek",
-				modelName: "deepseek-chat",
+				externalId: "deepseek-chat",
 				inputPrice: "0.28e-6",
 				outputPrice: "0.42e-6",
 				cachedInputPrice: "0.028e-6",
@@ -122,7 +122,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "deepseek/deepseek-v3.2",
+				externalId: "deepseek/deepseek-v3.2",
 				inputPrice: "0.269e-6",
 				cachedInputPrice: "0.1345e-6",
 				outputPrice: "0.4e-6",
@@ -137,7 +137,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "alibaba",
-				modelName: "deepseek-v3.2",
+				externalId: "deepseek-v3.2",
 				discount: "0.2",
 				inputPrice: "0.57e-6",
 				cachedInputPrice: "0.114e-6",
@@ -162,7 +162,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "bytedance",
-				modelName: "deepseek-v3-2-251201",
+				externalId: "deepseek-v3-2-251201",
 				inputPrice: "0.28e-6",
 				cachedInputPrice: "0.056e-6",
 				outputPrice: "0.42e-6",
@@ -178,7 +178,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "nebius",
-				modelName: "deepseek-ai/DeepSeek-V3.2",
+				externalId: "deepseek-ai/DeepSeek-V3.2",
 				inputPrice: "0.3e-6",
 				outputPrice: "0.45e-6",
 				requestPrice: "0",
@@ -191,7 +191,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "deepinfra",
-				modelName: "deepseek-ai/DeepSeek-V3.2",
+				externalId: "deepseek-ai/DeepSeek-V3.2",
 				inputPrice: "0.26e-6",
 				cachedInputPrice: "0.13e-6",
 				outputPrice: "0.38e-6",
@@ -215,7 +215,7 @@ export const deepseekModels = [
 		providers: [
 			{
 				providerId: "deepseek",
-				modelName: "deepseek-v4-pro",
+				externalId: "deepseek-v4-pro",
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.003625e-6",
@@ -241,7 +241,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "together-ai",
-				modelName: "deepseek-ai/DeepSeek-V4-Pro",
+				externalId: "deepseek-ai/DeepSeek-V4-Pro",
 				inputPrice: "2.1e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "4.4e-6",
@@ -258,7 +258,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "alibaba",
-				modelName: "deepseek-v4-pro",
+				externalId: "deepseek-v4-pro",
 				discount: "0.2",
 				inputPrice: "2.4e-6",
 				cachedInputPrice: "0.2e-6",
@@ -283,7 +283,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "deepinfra",
-				modelName: "deepseek-ai/DeepSeek-V4-Pro",
+				externalId: "deepseek-ai/DeepSeek-V4-Pro",
 				inputPrice: "1.74e-6",
 				cachedInputPrice: "0.145e-6",
 				outputPrice: "3.48e-6",
@@ -308,7 +308,7 @@ export const deepseekModels = [
 		providers: [
 			{
 				providerId: "deepseek",
-				modelName: "deepseek-v4-flash",
+				externalId: "deepseek-v4-flash",
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",
@@ -334,7 +334,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "deepseek/deepseek-v4-flash",
+				externalId: "deepseek/deepseek-v4-flash",
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
@@ -349,7 +349,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "alibaba",
-				modelName: "deepseek-v4-flash",
+				externalId: "deepseek-v4-flash",
 				discount: "0.2",
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.04e-6",
@@ -374,7 +374,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "deepinfra",
-				modelName: "deepseek-ai/DeepSeek-V4-Flash",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash",
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
