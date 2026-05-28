@@ -85,6 +85,13 @@ export function getFinishReasonFromError(
 		return "gateway_error";
 	}
 
+	// Some providers return a bare "Not Found" body on non-404 status codes when
+	// the model/endpoint mapping is wrong on our side. Treat as gateway_error so
+	// the request can be retried with another provider.
+	if (errorText?.trim() === "Not Found") {
+		return "gateway_error";
+	}
+
 	// zai content filter
 	if (
 		errorText?.includes(

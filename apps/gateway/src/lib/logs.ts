@@ -143,6 +143,7 @@ export function getUnifiedFinishReason(
 			}
 			break;
 		case "zai":
+		case "novita":
 			if (finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
 			}
