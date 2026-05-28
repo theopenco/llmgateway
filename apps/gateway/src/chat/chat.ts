@@ -4565,6 +4565,7 @@ chat.openapi(completions, async (c) => {
 				webSearchEnabled: !!webSearchTool,
 				excludedEnvKeyIndices: failedEnvKeyIndicesByProvider.get(retryKey),
 				excludedProviderKeyIds: failedTrackedKeyIdsByProvider.get(retryKey),
+				n,
 			},
 		);
 	}

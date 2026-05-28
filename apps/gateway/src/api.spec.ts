@@ -4152,5 +4152,62 @@ describe("api", () => {
 			const json = await res.json();
 			expect(json.choices).toHaveLength(1);
 		});
+
+		test("retry path forwards n to fallback provider key (TRIGGER_FAIL_ONCE)", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-retry",
+				token: "real-token-n-retry",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			// Two openai keys for the same org so the first 500 triggers a key
+			// rotation, which goes through resolveProviderContextForRetry → the
+			// regression path that used to drop `n`.
+			await db.insert(tables.providerKey).values([
+				{
+					id: "provider-key-id-n-retry-a",
+					token: "sk-test-key-a",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-id-n-retry-b",
+					token: "sk-test-key-b",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+			]);
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-retry",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 3,
+					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE please" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			// The retry path must rebuild the request body with n preserved; a
+			// regression here returns a single choice instead of three.
+			expect(json.choices).toHaveLength(3);
+			expect(json.metadata?.routing?.length ?? 0).toBeGreaterThanOrEqual(2);
+			expect(json.metadata.routing[0]).toMatchObject({
+				succeeded: false,
+				status_code: 500,
+			});
+			expect(
+				json.metadata.routing[json.metadata.routing.length - 1].succeeded,
+			).toBe(true);
+		});
 	});
 });
