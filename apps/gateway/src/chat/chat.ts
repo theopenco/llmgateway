@@ -28,6 +28,7 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
@@ -4562,8 +4563,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	const startTime = Date.now();
-	const failedEnvKeyIndicesByProvider = new Map<string, Set<number>>();
-	const failedTrackedKeyIdsByProvider = new Map<string, Set<string>>();
+	const failedKeys = createFailedKeyTracker();
 
 	function rememberFailedKey(
 		providerId: string,
@@ -4574,21 +4574,7 @@ chat.openapi(completions, async (c) => {
 			providerKeyId?: string;
 		},
 	): void {
-		const retryKey = providerRetryKey(providerId, region);
-
-		if (options.envVarName !== undefined && options.configIndex !== undefined) {
-			const failedIndices =
-				failedEnvKeyIndicesByProvider.get(retryKey) ?? new Set<number>();
-			failedIndices.add(options.configIndex);
-			failedEnvKeyIndicesByProvider.set(retryKey, failedIndices);
-		}
-
-		if (options.providerKeyId) {
-			const failedKeyIds =
-				failedTrackedKeyIdsByProvider.get(retryKey) ?? new Set<string>();
-			failedKeyIds.add(options.providerKeyId);
-			failedTrackedKeyIdsByProvider.set(retryKey, failedKeyIds);
-		}
+		failedKeys.remember(providerId, region, options);
 	}
 
 	async function resolveProviderContextForRetry(
@@ -4599,10 +4585,6 @@ chat.openapi(completions, async (c) => {
 		},
 		streamValue: boolean,
 	) {
-		const retryKey = providerRetryKey(
-			providerMapping.providerId,
-			providerMapping.region,
-		);
 		return await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
@@ -4630,8 +4612,14 @@ chat.openapi(completions, async (c) => {
 				hasExistingToolCalls,
 				customProviderName,
 				webSearchEnabled: !!webSearchTool,
-				excludedEnvKeyIndices: failedEnvKeyIndicesByProvider.get(retryKey),
-				excludedProviderKeyIds: failedTrackedKeyIdsByProvider.get(retryKey),
+				excludedEnvKeyIndices: failedKeys.envKeyIndicesFor(
+					providerMapping.providerId,
+					providerMapping.region,
+				),
+				excludedProviderKeyIds: failedKeys.providerKeyIdsFor(
+					providerMapping.providerId,
+					providerMapping.region,
+				),
 				providerCacheControlEnabled,
 			},
 		);
