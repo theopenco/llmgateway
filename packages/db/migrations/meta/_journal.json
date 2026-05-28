@@ -988,6 +988,13 @@
       "when": 1779984279360,
       "tag": "1779984279_shiny_firebrand",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "8",
+      "when": 1779986807829,
+      "tag": "1779986807_quick_beast",
+      "breakpoints": true
     }
   ]
 }

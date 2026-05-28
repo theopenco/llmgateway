@@ -121,6 +121,7 @@ export interface ProviderContextOptions {
 	webSearchEnabled: boolean;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	providerCacheControlEnabled: boolean;
 }
 
 interface ProjectInfo {
@@ -472,6 +473,7 @@ export async function resolveProviderContext(
 		useResponsesApi,
 		options.prompt_cache_key,
 		options.prompt_cache_retention,
+		options.providerCacheControlEnabled,
 	);
 
 	// Post-validation of max_tokens in request body
