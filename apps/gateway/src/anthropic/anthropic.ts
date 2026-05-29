@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
+import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
 import { logger, toError } from "@llmgateway/logger";
 
@@ -124,6 +125,16 @@ const anthropicRequestSchema = z.object({
 		description: "Whether to stream the response",
 		example: false,
 	}),
+	metadata: z
+		.object({
+			user_id: z.string().optional(),
+		})
+		.passthrough()
+		.optional()
+		.openapi({
+			description:
+				"Anthropic request metadata. Claude Code embeds the session id in user_id, which the gateway uses for sticky routing.",
+		}),
 });
 
 const anthropicContentBlockSchema = z.object({
@@ -501,6 +512,13 @@ anthropic.openapi(messages, async (c) => {
 	// Get user-agent for forwarding
 	const userAgent = c.req.header("User-Agent") ?? "";
 
+	// Sticky-routing session id: prefer an explicit header, otherwise derive it
+	// from Anthropic's metadata.user_id (Claude Code embeds the session id here)
+	// and forward it to the chat completions endpoint, which routes on it.
+	const sessionId =
+		c.req.header("x-session-id")?.trim() ||
+		extractAnthropicSessionId(anthropicRequest.metadata?.user_id);
+
 	// Make internal request to the existing chat completions endpoint using app.request()
 	const response = await app.request("/v1/chat/completions", {
 		method: "POST",
@@ -513,6 +531,7 @@ anthropic.openapi(messages, async (c) => {
 			"x-source": c.req.header("x-source") ?? "",
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+			...(sessionId ? { "x-session-id": sessionId } : {}),
 		},
 		body: JSON.stringify(openaiRequest),
 	});
