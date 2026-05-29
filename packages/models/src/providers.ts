@@ -112,7 +112,7 @@ export const providers = [
 			apiTraining: false,
 			consumerTraining: true,
 			promptLogging: true,
-			retentionPeriod: "30 days",
+			retentionPeriod: null,
 		},
 	},
 	{
@@ -162,10 +162,10 @@ export const providers = [
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
 		dataPolicy: {
-			apiTraining: true,
+			apiTraining: false,
 			consumerTraining: true,
 			promptLogging: true,
-			retentionPeriod: null,
+			retentionPeriod: "55 days",
 		},
 	},
 	{
@@ -215,9 +215,9 @@ export const providers = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
-			promptLogging: true,
-			retentionPeriod: "30 days",
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -247,8 +247,8 @@ export const providers = [
 		dataPolicy: {
 			apiTraining: false,
 			consumerTraining: false,
-			promptLogging: true,
-			retentionPeriod: "30 days",
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -277,8 +277,8 @@ export const providers = [
 		dataPolicy: {
 			apiTraining: false,
 			consumerTraining: false,
-			promptLogging: true,
-			retentionPeriod: "30 days",
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -399,7 +399,7 @@ export const providers = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
+			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 		},
@@ -425,10 +425,10 @@ export const providers = [
 			"https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
 		headquarters: "CN",
 		dataPolicy: {
-			apiTraining: null,
-			consumerTraining: true,
-			promptLogging: true,
-			retentionPeriod: null,
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -561,8 +561,8 @@ export const providers = [
 		dataPolicy: {
 			apiTraining: false,
 			consumerTraining: false,
-			promptLogging: true,
-			retentionPeriod: "30 days",
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -593,8 +593,8 @@ export const providers = [
 		dataPolicy: {
 			apiTraining: false,
 			consumerTraining: false,
-			promptLogging: true,
-			retentionPeriod: "30 days",
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -666,7 +666,7 @@ export const providers = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
+			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
@@ -715,7 +715,7 @@ export const providers = [
 		headquarters: "FR",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
+			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 		},
@@ -766,7 +766,7 @@ export const providers = [
 		dataPolicy: {
 			apiTraining: false,
 			consumerTraining: false,
-			promptLogging: true,
+			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
 	},
@@ -905,10 +905,10 @@ export const providers = [
 			"https://platform.xiaomimimo.com/docs/terms/privacy-policy",
 		headquarters: "CN",
 		dataPolicy: {
-			apiTraining: null,
+			apiTraining: false,
 			consumerTraining: null,
-			promptLogging: null,
-			retentionPeriod: null,
+			promptLogging: true,
+			retentionPeriod: "30 days",
 		},
 	},
 	{
