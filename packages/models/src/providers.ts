@@ -692,7 +692,7 @@ export const providers = [
 		dataPolicy: {
 			apiTraining: false,
 			consumerTraining: false,
-			promptLogging: true,
+			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
 	},
