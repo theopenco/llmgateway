@@ -879,8 +879,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://www.embercloud.ai/terms",
 		privacyPolicyUrl: "https://www.embercloud.ai/privacy",
-		headquarters: null,
-		dataPolicy: null,
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "xiaomi",
