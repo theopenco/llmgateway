@@ -425,10 +425,10 @@ export const providers = [
 			"https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
 		headquarters: "CN",
 		dataPolicy: {
-			apiTraining: false,
-			consumerTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			apiTraining: true,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
 		},
 	},
 	{
@@ -469,9 +469,9 @@ export const providers = [
 			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-privacy-policy",
 		headquarters: "CN",
 		dataPolicy: {
-			apiTraining: null,
-			consumerTraining: true,
-			promptLogging: null,
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: true,
 			retentionPeriod: null,
 		},
 	},
@@ -615,10 +615,10 @@ export const providers = [
 		privacyPolicyUrl: "https://docs.z.ai/legal-agreement/privacy-policy",
 		headquarters: "CN",
 		dataPolicy: {
-			apiTraining: null,
+			apiTraining: false,
 			consumerTraining: null,
-			promptLogging: null,
-			retentionPeriod: null,
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -640,10 +640,10 @@ export const providers = [
 			"https://www.kimi.com/user/agreement/userPrivacy?version=v2",
 		headquarters: "CN",
 		dataPolicy: {
-			apiTraining: true,
-			consumerTraining: true,
-			promptLogging: true,
-			retentionPeriod: null,
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -831,10 +831,10 @@ export const providers = [
 			"https://docs.byteplus.com/en/docs/legal/docs-privacy-policy",
 		headquarters: "CN",
 		dataPolicy: {
-			apiTraining: null,
-			consumerTraining: true,
-			promptLogging: null,
-			retentionPeriod: null,
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -858,7 +858,7 @@ export const providers = [
 		dataPolicy: {
 			apiTraining: false,
 			consumerTraining: null,
-			promptLogging: null,
+			promptLogging: true,
 			retentionPeriod: null,
 		},
 	},
