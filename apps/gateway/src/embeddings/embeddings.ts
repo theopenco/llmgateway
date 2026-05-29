@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
+import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -175,10 +176,6 @@ function getResponseContent(responseJson: unknown): string | null {
 		}
 	}
 	return JSON.stringify(summary);
-}
-
-function getErrorFinishReason(status: number): string {
-	return status >= 500 ? "upstream_error" : "client_error";
 }
 
 function packFloat32Base64(values: number[]): string {
@@ -925,7 +922,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			responseSize,
 			content: getResponseContent(upstreamJson),
 			reasoningContent: null,
-			finishReason: getErrorFinishReason(upstreamResponse.status),
+			finishReason: getFinishReasonFromError(
+				upstreamResponse.status,
+				upstreamText,
+			),
 			promptTokens: null,
 			completionTokens: null,
 			totalTokens: null,
