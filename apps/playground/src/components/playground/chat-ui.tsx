@@ -82,7 +82,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
@@ -90,7 +89,6 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSkills, type Skill } from "@/hooks/useSkills";
-import { useApi } from "@/lib/fetch-client";
 import {
 	heroSuggestionGroups,
 	sampleSuggestions,
@@ -253,8 +251,6 @@ interface ChatUIProps {
 	activeSkills?: Skill[];
 	onSelectSkill?: (skill: Skill) => void;
 	onRemoveSkill?: (skillId: string) => void;
-	organizationId?: string;
-	projectId?: string;
 }
 
 function getRandomHeroSuggestionGroups(): Record<
@@ -410,98 +406,14 @@ function getMessageImageClass(
 
 function MessageMetadataPopover({
 	metadata,
-	createdAt,
-	organizationId: currentOrgId,
-	projectId: currentProjectId,
 }: {
 	metadata: PlaygroundMessageMetadata;
-	createdAt?: Date;
-	organizationId?: string;
-	projectId?: string;
 }) {
 	const [open, setOpen] = useState(false);
-	const api = useApi();
-
-	// Fallback A: message has requestId but enrichment didn't persist logId yet.
-	const needsRequestIdFallback =
-		open && !!metadata.requestId && !metadata.logId;
-
-	// Fallback B: truly old message — no requestId was ever captured. Match by
-	// model + tight time window, then disambiguate client-side by token counts + cost.
-	const needsOldMessageFallback =
-		open &&
-		!metadata.logId &&
-		!metadata.requestId &&
-		!!metadata.usedModel &&
-		!!createdAt;
-
-	const modelName = metadata.usedModel?.includes("/")
-		? metadata.usedModel.split("/").slice(1).join("/")
-		: metadata.usedModel;
-
-	const fifteenMinutesMs = 15 * 60 * 1000;
-	const oneMinuteMs = 60 * 1000;
-	const startDate = createdAt
-		? new Date(createdAt.getTime() - fifteenMinutesMs).toISOString()
-		: undefined;
-	const endDate = createdAt
-		? new Date(createdAt.getTime() + oneMinuteMs).toISOString()
-		: undefined;
-
-	const { data: requestIdLogData, isLoading: isRequestIdLoading } =
-		api.useQuery(
-			"get",
-			"/logs",
-			{
-				params: {
-					query: { requestId: metadata.requestId, limit: "1" },
-				},
-			},
-			{ enabled: needsRequestIdFallback },
-		);
-
-	const { data: oldLogData, isLoading: isOldLoading } = api.useQuery(
-		"get",
-		"/logs",
-		{
-			params: {
-				query: {
-					model: modelName,
-					startDate,
-					endDate,
-					...(currentOrgId ? { orgId: currentOrgId } : {}),
-					...(currentProjectId ? { projectId: currentProjectId } : {}),
-					limit: "10",
-				},
-			},
-		},
-		{ enabled: needsOldMessageFallback },
-	);
-
-	const matchedOldLog = needsOldMessageFallback
-		? oldLogData?.logs?.find((log) => {
-				const tokensMatch =
-					Math.round(Number(log.promptTokens)) ===
-						(metadata.usage?.inputTokens ?? -1) &&
-					Math.round(Number(log.completionTokens)) ===
-						(metadata.usage?.outputTokens ?? -1);
-				const costMatch =
-					metadata.usage?.totalCost === undefined ||
-					Math.abs((log.cost ?? 0) - metadata.usage.totalCost) < 0.0001;
-				return tokensMatch && costMatch;
-			})
-		: undefined;
-
-	const fallbackLog = requestIdLogData?.logs?.[0] ?? matchedOldLog;
-
-	const isLogLoading =
-		(needsRequestIdFallback && isRequestIdLoading) ||
-		(needsOldMessageFallback && isOldLoading);
-
-	const discount = metadata.discount ?? fallbackLog?.discount;
-	const logId = metadata.logId ?? fallbackLog?.id;
-	const organizationId = metadata.organizationId ?? fallbackLog?.organizationId;
-	const projectId = metadata.projectId ?? fallbackLog?.projectId;
+	const discount = metadata.discount;
+	const logId = metadata.logId;
+	const organizationId = metadata.organizationId;
+	const projectId = metadata.projectId;
 	const usage = metadata.usage;
 	const rows = [
 		["Total cost", formatCost(usage?.totalCost)],
@@ -546,13 +458,6 @@ function MessageMetadataPopover({
 								</span>
 							</div>
 						))}
-						{(needsRequestIdFallback || needsOldMessageFallback) &&
-							isLogLoading && (
-								<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
-									<Skeleton className="h-3 w-12" />
-									<Skeleton className="ml-auto h-3 w-16" />
-								</div>
-							)}
 						{discount !== null && discount !== undefined && discount > 0 && (
 							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
 								<span className="text-muted-foreground">Discount</span>
@@ -594,8 +499,6 @@ const AssistantMessage = memo(
 		finishReason,
 		forkChat,
 		isForkingChat,
-		organizationId,
-		projectId,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
@@ -604,8 +507,6 @@ const AssistantMessage = memo(
 		finishReason?: string | null;
 		forkChat?: () => void | Promise<void>;
 		isForkingChat?: boolean;
-		organizationId?: string;
-		projectId?: string;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -699,16 +600,7 @@ const AssistantMessage = memo(
 
 				{(metadata || isLastMessage) && (
 					<Actions className="mt-2">
-						{metadata ? (
-							<MessageMetadataPopover
-								metadata={metadata}
-								createdAt={
-									(message as UIMessage & { createdAt?: Date }).createdAt
-								}
-								organizationId={organizationId}
-								projectId={projectId}
-							/>
-						) : null}
+						{metadata ? <MessageMetadataPopover metadata={metadata} /> : null}
 						{isLastMessage ? (
 							<>
 								<Action
@@ -1101,8 +993,6 @@ export const ChatUI = ({
 	activeSkills = [],
 	onSelectSkill,
 	onRemoveSkill,
-	organizationId,
-	projectId,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -1558,8 +1448,6 @@ export const ChatUI = ({
 										isLastMessage && status === "ready" ? forkChat : undefined
 									}
 									isForkingChat={isForkingChat}
-									organizationId={organizationId}
-									projectId={projectId}
 								/>
 							) : (
 								<VirtualUserMessageItem
