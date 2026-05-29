@@ -38,6 +38,18 @@ const providerSchema = z.object({
 	status: z.enum(["active", "inactive"]),
 });
 
+// Pricing tier schema
+const pricingTierSchema = z.object({
+	name: z.string(),
+	upToTokens: z.number().nullable(),
+	inputPrice: z.string(),
+	outputPrice: z.string(),
+	cachedInputPrice: z.string().nullable(),
+	cacheReadInputPrice: z.string().nullable(),
+	cacheWriteInputPrice: z.string().nullable(),
+	cacheWriteInputPrice1h: z.string().nullable(),
+});
+
 // Model provider mapping schema
 const modelProviderMappingSchema = z.object({
 	id: z.string(),
@@ -77,6 +89,7 @@ const modelProviderMappingSchema = z.object({
 	supportsVideoAudio: z.boolean().nullable(),
 	supportsVideoWithoutAudio: z.boolean().nullable(),
 	perSecondPrice: z.record(z.string()).nullable(),
+	pricingTiers: z.array(pricingTierSchema).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
 	status: z.enum(["active", "inactive"]),
@@ -237,6 +250,38 @@ internalModels.openapi(getModelsRoute, async (c) => {
 							),
 						)
 					: null,
+				pricingTiers: (() => {
+					const regionDef = mapping.region
+						? sharedMapping?.regions?.find((r) => r.id === mapping.region)
+						: null;
+					const rawTiers =
+						regionDef?.pricingTiers ?? sharedMapping?.pricingTiers ?? null;
+					if (!rawTiers) {
+						return null;
+					}
+					return rawTiers.map((t) => ({
+						name: t.name,
+						upToTokens: isFinite(t.upToTokens) ? t.upToTokens : null,
+						inputPrice: String(t.inputPrice),
+						outputPrice: String(t.outputPrice),
+						cachedInputPrice:
+							t.cachedInputPrice !== undefined
+								? String(t.cachedInputPrice)
+								: null,
+						cacheReadInputPrice:
+							t.cacheReadInputPrice !== undefined
+								? String(t.cacheReadInputPrice)
+								: null,
+						cacheWriteInputPrice:
+							t.cacheWriteInputPrice !== undefined
+								? String(t.cacheWriteInputPrice)
+								: null,
+						cacheWriteInputPrice1h:
+							t.cacheWriteInputPrice1h !== undefined
+								? String(t.cacheWriteInputPrice1h)
+								: null,
+					}));
+				})(),
 			};
 		}),
 	}));

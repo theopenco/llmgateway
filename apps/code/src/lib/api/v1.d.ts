@@ -11708,6 +11708,16 @@ export interface operations {
                                 perSecondPrice: {
                                     [key: string]: string;
                                 } | null;
+                                pricingTiers: {
+                                    name: string;
+                                    upToTokens: number | null;
+                                    inputPrice: string;
+                                    outputPrice: string;
+                                    cachedInputPrice: string | null;
+                                    cacheReadInputPrice: string | null;
+                                    cacheWriteInputPrice: string | null;
+                                    cacheWriteInputPrice1h: string | null;
+                                }[] | null;
                                 deprecatedAt: string | null;
                                 deactivatedAt: string | null;
                                 /** @enum {string} */
