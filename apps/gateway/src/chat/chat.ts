@@ -999,6 +999,10 @@ const completions = createRoute({
 							used_provider: z.string(),
 							used_region: z.string().nullable().optional(),
 							underlying_used_model: z.string(),
+							log_id: z.string().optional(),
+							organization_id: z.string().optional(),
+							project_id: z.string().optional(),
+							discount: z.number().nullable().optional(),
 							routing: z
 								.array(
 									z.object({
@@ -4046,7 +4050,7 @@ chat.openapi(completions, async (c) => {
 				const cachedResponseMetadata = buildFinalResponseMetadata(
 					costs.discount ?? null,
 				);
-				let finalMetadataChunkIndex = -1;
+				let hasMetadataChunk = false;
 				for (
 					let chunkIndex = cachedStreamingResponse.chunks.length - 1;
 					chunkIndex >= 0;
@@ -4073,7 +4077,7 @@ chat.openapi(completions, async (c) => {
 						}
 					})();
 					if (isMetadataChunk) {
-						finalMetadataChunkIndex = chunkIndex;
+						hasMetadataChunk = true;
 						break;
 					}
 				}
@@ -4084,10 +4088,7 @@ chat.openapi(completions, async (c) => {
 					async (stream) => {
 						let previousTimestamp = 0;
 
-						for (const [
-							chunkIndex,
-							chunk,
-						] of cachedStreamingResponse.chunks.entries()) {
+						for (const chunk of cachedStreamingResponse.chunks) {
 							// Calculate delay based on original chunk timing
 							const delay = Math.max(0, chunk.timestamp - previousTimestamp);
 							// Cap the delay to prevent excessively long waits (max 1 second)
@@ -4100,35 +4101,43 @@ chat.openapi(completions, async (c) => {
 							}
 
 							let data = chunk.data;
-							if (chunkIndex === finalMetadataChunkIndex) {
-								const parsed = JSON.parse(chunk.data) as Record<
-									string,
-									unknown
-								>;
-								const metadata =
-									typeof parsed.metadata === "object" &&
-									parsed.metadata !== null &&
-									!Array.isArray(parsed.metadata)
-										? parsed.metadata
-										: {};
-								data = JSON.stringify({
-									...parsed,
-									metadata: {
-										...metadata,
-										...cachedResponseMetadata,
-									},
-								});
-							} else if (
-								finalMetadataChunkIndex === -1 &&
-								chunk.data === "[DONE]"
-							) {
+							if (hasMetadataChunk && chunk.data !== "[DONE]") {
+								let parsed: Record<string, unknown> | undefined;
+								try {
+									const parsedValue: unknown = JSON.parse(chunk.data);
+									if (
+										typeof parsedValue === "object" &&
+										parsedValue !== null &&
+										!Array.isArray(parsedValue) &&
+										("usage" in parsedValue || "metadata" in parsedValue)
+									) {
+										parsed = parsedValue;
+									}
+								} catch {
+									parsed = undefined;
+								}
+								if (parsed) {
+									const metadata =
+										typeof parsed.metadata === "object" &&
+										parsed.metadata !== null &&
+										!Array.isArray(parsed.metadata)
+											? parsed.metadata
+											: {};
+									data = JSON.stringify({
+										...parsed,
+										metadata: {
+											...metadata,
+											...cachedResponseMetadata,
+										},
+									});
+								}
+							} else if (!hasMetadataChunk && chunk.data === "[DONE]") {
 								// No usage/metadata chunk in the cached stream — emit a
 								// synthetic metadata chunk before [DONE] so consumers always
 								// receive logId, organizationId, projectId, and discount.
 								await stream.writeSSE({
 									data: JSON.stringify({ metadata: cachedResponseMetadata }),
-									id: String(chunk.eventId),
-									event: chunk.event,
+									id: `${chunk.eventId}-metadata`,
 								});
 							}
 
