@@ -112,7 +112,7 @@ async function ensureRoutingMetricMapping(modelId: string, providerId: string) {
 			id: `${modelId}::${providerId}`,
 			modelId,
 			providerId,
-			modelName: providerMapping.modelName,
+			externalId: providerMapping.externalId,
 			status: "active",
 		})
 		.onConflictDoNothing();
@@ -171,6 +171,23 @@ export function createGatewayApiTestHarness() {
 			await db
 				.update(tables.organization)
 				.set({ credits })
+				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
+		},
+		async setDevPlan(options: {
+			devPlan: "lite" | "pro" | "max";
+			allowAllModels?: boolean;
+			creditsUsed?: string;
+			creditsLimit?: string;
+		}) {
+			await db
+				.update(tables.organization)
+				.set({
+					isPersonal: true,
+					devPlan: options.devPlan,
+					devPlanAllowAllModels: options.allowAllModels ?? false,
+					devPlanCreditsUsed: options.creditsUsed ?? "0",
+					devPlanCreditsLimit: options.creditsLimit ?? "100",
+				})
 				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
 		},
 		async setRoutingMetrics(

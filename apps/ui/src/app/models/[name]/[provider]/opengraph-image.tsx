@@ -113,19 +113,16 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const discounts = await fetchModelDiscounts(decodedName);
-		const modelNames = Array.from(
-			new Set(model.providers.map((p) => p.modelName)),
-		);
 		const effectiveDiscount = selectedMapping
 			? (getEffectiveProviderDiscount(
 					discounts,
 					selectedMapping.providerId,
 					decodedName,
-					modelNames,
 				) ?? selectedMapping.discount)
 			: undefined;
 		const discountNum = discountFraction(effectiveDiscount);
 
+		const hasPricingTiers = (selectedMapping?.pricingTiers?.length ?? 0) > 1;
 		const pricing = getEffectivePricePerMillion(selectedMapping, discountNum);
 		const requestPrice =
 			selectedMapping?.requestPrice !== undefined
@@ -510,7 +507,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 											letterSpacing: "0.05em",
 										}}
 									>
-										Input
+										{hasPricingTiers ? "Input (starting at)" : "Input"}
 									</span>
 									{formatDollars(pricing?.input ?? undefined, discountNum)}
 								</div>
@@ -538,7 +535,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 											letterSpacing: "0.05em",
 										}}
 									>
-										Output
+										{hasPricingTiers ? "Output (starting at)" : "Output"}
 									</span>
 									{formatDollars(pricing?.output ?? undefined, discountNum)}
 								</div>

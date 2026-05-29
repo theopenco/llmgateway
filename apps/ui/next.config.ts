@@ -12,11 +12,9 @@ const nextConfig: NextConfig = {
 	typedRoutes: true,
 	reactStrictMode: true,
 	reactCompiler: true,
-	webpack: (config, { isServer }) => {
-		if (isServer) {
-			config.devtool = "source-map";
-		}
-		return config;
+	transpilePackages: ["shiki"],
+	experimental: {
+		serverSourceMaps: true,
 	},
 	async redirects() {
 		return [

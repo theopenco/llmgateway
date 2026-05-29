@@ -337,6 +337,15 @@ function stripUnsupportedSchemaProperties(
 			key === "definitions" ||
 			key === "$ref" ||
 			key === "ref" ||
+			key === "$id" ||
+			key === "$comment" ||
+			key === "$anchor" ||
+			key === "$dynamicAnchor" ||
+			key === "$dynamicRef" ||
+			key === "$vocabulary" ||
+			key === "examples" ||
+			key === "enumTitles" ||
+			key === "prefill" ||
 			key === "maxLength" ||
 			key === "minLength" ||
 			key === "minimum" ||
@@ -366,6 +375,27 @@ function stripUnsupportedSchemaProperties(
 			key === "prefixItems" ||
 			key === "contains"
 		) {
+			continue;
+		}
+
+		// For `properties` (a map of user-named fields to schemas), recurse into
+		// each value but do not filter the field names themselves — otherwise a
+		// tool parameter legitimately named `examples`, `prefill`, `const`, etc.
+		// would be silently dropped.
+		if (
+			key === "properties" &&
+			value &&
+			typeof value === "object" &&
+			!Array.isArray(value)
+		) {
+			const cleanedProps: Record<string, any> = {};
+			for (const [propName, propSchema] of Object.entries(value)) {
+				cleanedProps[propName] = stripUnsupportedSchemaProperties(
+					propSchema,
+					defs,
+				);
+			}
+			cleaned[key] = cleanedProps;
 			continue;
 		}
 
@@ -664,11 +694,22 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 }
 
 /**
- * Prepares the request body for different providers
+ * Prepares the request body for different providers.
+ *
+ * @param usedProvider - Provider id used for routing.
+ * @param usedInternalModel - Canonical LLM Gateway model id (root id). Used
+ *   for ALL internal lookups (model def + provider mapping). Never the
+ *   provider-specific upstream id.
+ * @param usedRegion - Region the request is bound to, when the mapping has
+ *   per-region variants. Used together with `usedProvider` to disambiguate.
+ * @param usedExternalId - Provider-specific upstream model id. Used only as
+ *   the `model:` value in the upstream request body — never for lookups.
  */
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
-	usedModel: string,
+	usedInternalModel: string,
+	usedRegion: string | null,
+	usedExternalId: string,
 	messages: BaseMessage[],
 	stream: boolean,
 	temperature: number | undefined,
@@ -699,6 +740,7 @@ export async function prepareRequestBody(
 	useResponsesApi?: boolean,
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
+	providerCacheControlEnabled = true,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 
@@ -756,7 +798,7 @@ export async function prepareRequestBody(
 		const openaiQuality = normalizeImageQuality(image_config?.image_quality);
 
 		const openaiImageRequest: OpenAIImageRequest = {
-			model: usedModel,
+			model: usedExternalId,
 			prompt,
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
@@ -823,7 +865,7 @@ export async function prepareRequestBody(
 		// xAI Grok Imagine uses OpenAI-compatible image generation format
 		// When images are present, use the edits format
 		const xaiImageRequest: any = {
-			model: usedModel,
+			model: usedExternalId,
 			prompt,
 			response_format: "url",
 			...(image_config?.aspect_ratio && {
@@ -867,7 +909,7 @@ export async function prepareRequestBody(
 
 		// Z.AI CogView uses OpenAI-compatible image generation format
 		const zaiImageRequest: any = {
-			model: usedModel,
+			model: usedExternalId,
 			prompt,
 			...(image_config?.image_size && { size: image_config.image_size }),
 			...(image_config?.n && { n: image_config.n }),
@@ -913,7 +955,7 @@ export async function prepareRequestBody(
 
 		// Alibaba DashScope multimodal generation format
 		const alibabaImageRequest: any = {
-			model: usedModel,
+			model: usedExternalId,
 			input: {
 				messages: [
 					{
@@ -960,7 +1002,7 @@ export async function prepareRequestBody(
 
 		// ByteDance Seedream format
 		const bytedanceImageRequest: any = {
-			model: usedModel,
+			model: usedExternalId,
 			prompt,
 			...(image_config?.image_size && { size: image_config.image_size }),
 		};
@@ -968,15 +1010,8 @@ export async function prepareRequestBody(
 		return bytedanceImageRequest;
 	}
 
-	// Check if the model supports system role
-	// Look up by model ID first, then fall back to provider modelName
-	const modelDef = models.find(
-		(m) =>
-			m.id === usedModel ||
-			m.providers.some(
-				(p) => p.modelName === usedModel && p.providerId === usedProvider,
-			),
-	);
+	// Check if the model supports system role. Look up by canonical model id.
+	const modelDef = models.find((m) => m.id === usedInternalModel);
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
@@ -986,21 +1021,31 @@ export async function prepareRequestBody(
 		processedMessages = transformMessagesForNoSystemRole(messages);
 	}
 
-	// Strip Anthropic-style cache_control markers from text content parts when
-	// the resolved provider doesn't natively understand them. The Anthropic and
-	// AWS Bedrock branches below transform/forward cache_control on their own;
-	// Alibaba accepts `cache_control: {type: "ephemeral"}` on its OpenAI-compatible
-	// surface but supports only a fixed 5-minute TTL, so any Anthropic-style
-	// `ttl: "1h"` must be normalized away before forwarding. Every other provider
-	// receives the raw `processedMessages` and would otherwise pass an unknown
-	// field through to OpenAI/Google/etc., risking a 400 from strict providers
-	// and confusing logs from lenient ones.
+	// Strip Anthropic-style cache_control markers from caller-supplied content
+	// parts. We do this in two cases:
+	//   1) The resolved provider doesn't natively understand cache_control —
+	//      strip from text blocks so we don't forward an unknown field that
+	//      strict providers (OpenAI, Google, etc.) would 400 on.
+	//   2) The project has opted out of provider cache writes via
+	//      providerCacheControlEnabled=false — strip from ALL content blocks
+	//      so we honor the user's intent that this project never writes to
+	//      provider cache. This covers callers that always emit cache_control
+	//      markers regardless of the user's usage pattern (Claude Code, Cursor,
+	//      Cline, etc.). Without this, a coding agent on a sparse-use account
+	//      would still pay the 1.25× / 2× cache-write premium because the
+	//      agent's markers would flow through unchanged.
+	// Anthropic and AWS Bedrock branches below transform/forward markers on
+	// their own; Alibaba accepts `cache_control: {type: "ephemeral"}` on its
+	// OpenAI-compatible surface but supports only a fixed 5-minute TTL, so any
+	// Anthropic-style `ttl: "1h"` must be normalized away before forwarding.
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
-	if (!providerHandlesCacheControl) {
+	const stripAllCacheControl = !providerCacheControlEnabled;
+	const stripTextCacheControl = !providerHandlesCacheControl;
+	if (stripAllCacheControl || stripTextCacheControl) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
 				return m;
@@ -1011,8 +1056,8 @@ export async function prepareRequestBody(
 				if (
 					asRecord &&
 					typeof asRecord === "object" &&
-					asRecord.type === "text" &&
-					asRecord.cache_control !== undefined
+					asRecord.cache_control !== undefined &&
+					(stripAllCacheControl || asRecord.type === "text")
 				) {
 					mutated = true;
 					const { cache_control: _ignored, ...rest } = asRecord;
@@ -1073,8 +1118,10 @@ export async function prepareRequestBody(
 	// kimi-k2.6) treat an empty string as missing — use a single space as a
 	// non-empty placeholder there. Novita proxies DeepSeek V4 with the same
 	// upstream constraint, so apply the DeepSeek behavior there too.
+	// Match by the canonical model id — never by the upstream form. DeepSeek
+	// V4 roots are `deepseek-v4*` regardless of which provider proxies them.
 	const isNovitaDeepseekV4 =
-		usedProvider === "novita" && usedModel.startsWith("deepseek/deepseek-v4");
+		usedProvider === "novita" && usedInternalModel.startsWith("deepseek-v4");
 	if (
 		usedProvider === "deepseek" ||
 		usedProvider === "moonshot" ||
@@ -1099,7 +1146,7 @@ export async function prepareRequestBody(
 
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
-		model: usedModel,
+		model: usedExternalId,
 		messages: processedMessages,
 		stream: stream,
 	};
@@ -1117,7 +1164,9 @@ export async function prepareRequestBody(
 	let resolvedToolChoice = tool_choice;
 	if (tool_choice) {
 		const mapping = modelDef?.providers.find(
-			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+			(p) =>
+				p.providerId === usedProvider &&
+				((p as ProviderModelMapping).region ?? null) === usedRegion,
 		) as ProviderModelMapping | undefined;
 		const supported = mapping?.supportedParameters;
 		const supportsToolChoice =
@@ -1135,7 +1184,9 @@ export async function prepareRequestBody(
 
 	if (forcesToolUse && usedProvider === "alibaba") {
 		const providerMapping = modelDef?.providers.find(
-			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+			(p) =>
+				p.providerId === usedProvider &&
+				((p as ProviderModelMapping).region ?? null) === usedRegion,
 		);
 		const isExplicitThinkingModel =
 			providerMapping &&
@@ -1146,18 +1197,11 @@ export async function prepareRequestBody(
 		}
 	}
 
-	// Alibaba's API defaults `enable_thinking` to ON for thinking models.
-	// Mirror the OpenAI/Anthropic/Google/ZAI contract: thinking is opt-in via
-	// `reasoning_effort`. Unset or `minimal` => off, anything else => on.
-	if (usedProvider === "alibaba" && supportsReasoning) {
-		const wantsThinking =
-			reasoning_effort !== undefined && reasoning_effort !== "minimal";
-		requestBody.enable_thinking = wantsThinking;
-	}
-
 	if (forcesToolUse && usedProvider === "moonshot") {
 		const providerMapping = modelDef?.providers.find(
-			(p) => p.modelName === usedModel && p.providerId === usedProvider,
+			(p) =>
+				p.providerId === usedProvider &&
+				((p as ProviderModelMapping).region ?? null) === usedRegion,
 		);
 		const isReasoningModel =
 			providerMapping &&
@@ -1175,7 +1219,7 @@ export async function prepareRequestBody(
 	if (
 		forcesToolUse &&
 		usedProvider === "azure" &&
-		usedModel === "gpt-oss-120b"
+		usedInternalModel === "gpt-oss-120b"
 	) {
 		// Azure's gpt-oss-120b rejects tool_choice="required" with UnsupportedToolUse.
 		resolvedToolChoice = "auto";
@@ -1183,7 +1227,7 @@ export async function prepareRequestBody(
 	}
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
-	if (usedModel.startsWith("gpt-5")) {
+	if (usedInternalModel.startsWith("gpt-5")) {
 		temperature = 1;
 	}
 
@@ -1217,7 +1261,8 @@ export async function prepareRequestBody(
 			if (shouldUseResponsesApi) {
 				// Transform to responses API format
 				// gpt-5-pro only supports "high" reasoning effort
-				const defaultEffort = usedModel === "gpt-5-pro" ? "high" : "medium";
+				const defaultEffort =
+					usedInternalModel === "gpt-5-pro" ? "high" : "medium";
 
 				// Transform messages for responses API:
 				// - Convert content types (text -> input_text/output_text, image_url -> input_image)
@@ -1227,7 +1272,7 @@ export async function prepareRequestBody(
 					transformMessagesForResponsesApi(processedMessages);
 
 				const responsesBody: OpenAIResponsesRequestBody = {
-					model: usedModel,
+					model: usedExternalId,
 					input: transformedMessages,
 					reasoning: {
 						effort: reasoning_effort ?? defaultEffort,
@@ -1242,7 +1287,7 @@ export async function prepareRequestBody(
 					if (
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
-							supportsOpenAIExtendedPromptCache(usedModel))
+							supportsOpenAIExtendedPromptCache(usedInternalModel))
 					) {
 						responsesBody.prompt_cache_retention = prompt_cache_retention;
 					}
@@ -1326,7 +1371,7 @@ export async function prepareRequestBody(
 					if (
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
-							supportsOpenAIExtendedPromptCache(usedModel))
+							supportsOpenAIExtendedPromptCache(usedInternalModel))
 					) {
 						requestBody.prompt_cache_retention = prompt_cache_retention;
 					}
@@ -1345,7 +1390,7 @@ export async function prepareRequestBody(
 				// For search models (gpt-4o-search-preview, gpt-4o-mini-search-preview), use web_search_options
 				// For other models that support web search, add web_search tool
 				if (webSearchTool) {
-					if (usedModel.includes("-search-")) {
+					if (usedInternalModel.includes("-search-")) {
 						// Search models use web_search_options parameter
 						const webSearchOptions: any = {};
 						if (webSearchTool.user_location) {
@@ -1384,7 +1429,7 @@ export async function prepareRequestBody(
 				}
 				if (max_tokens !== undefined) {
 					// GPT-5 models use max_completion_tokens instead of max_tokens
-					if (usedModel.startsWith("gpt-5")) {
+					if (usedInternalModel.startsWith("gpt-5")) {
 						requestBody.max_completion_tokens = max_tokens;
 					} else {
 						requestBody.max_tokens = max_tokens;
@@ -1599,6 +1644,7 @@ export async function prepareRequestBody(
 						}
 
 						const shouldCache =
+							providerCacheControlEnabled &&
 							text.length >= minCacheableChars &&
 							systemCacheControlCount < maxCacheControlBlocks;
 
@@ -1634,11 +1680,12 @@ export async function prepareRequestBody(
 				})),
 				isProd,
 				usedProvider,
-				usedModel,
+				usedInternalModel,
 				maxImageSizeMB,
 				userPlan,
 				systemCacheControlCount, // Pass count to respect the 4 block limit
 				minCacheableChars, // Model-specific minimum cacheable characters
+				providerCacheControlEnabled,
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -1869,6 +1916,7 @@ export async function prepareRequestBody(
 					}
 
 					const shouldHeuristicCache =
+						providerCacheControlEnabled &&
 						!callerSetBedrockCacheControl &&
 						block.text.length >= bedrockMinCacheableChars &&
 						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
@@ -1971,6 +2019,7 @@ export async function prepareRequestBody(
 
 						// Add cachePoint as separate block for long user messages (model-specific threshold)
 						const shouldCache =
+							providerCacheControlEnabled &&
 							msg.content.length >= bedrockMinCacheableChars &&
 							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
@@ -2000,6 +2049,7 @@ export async function prepareRequestBody(
 									// Add cachePoint as separate block for long text parts
 									// (model-specific threshold)
 									const shouldCache =
+										providerCacheControlEnabled &&
 										part.text.length >= bedrockMinCacheableChars &&
 										bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
@@ -2027,7 +2077,7 @@ export async function prepareRequestBody(
 			// the entire conversation prefix (all prior turns) so only the
 			// newest user message is uncached. This mirrors the Anthropic
 			// turn-boundary logic in transformAnthropicMessages.
-			if (bedrockMessages.length >= 3) {
+			if (providerCacheControlEnabled && bedrockMessages.length >= 3) {
 				let lastUserIdx = -1;
 				for (let i = bedrockMessages.length - 1; i >= 0; i--) {
 					if (bedrockMessages[i].role === "user") {
@@ -2376,8 +2426,8 @@ export async function prepareRequestBody(
 		}
 		case "inference.net":
 		case "together-ai": {
-			if (usedModel.startsWith(`${usedProvider}/`)) {
-				requestBody.model = usedModel.substring(usedProvider.length + 1);
+			if (usedExternalId.startsWith(`${usedProvider}/`)) {
+				requestBody.model = usedExternalId.substring(usedProvider.length + 1);
 			}
 
 			if (response_format) {
@@ -2519,10 +2569,10 @@ export async function prepareRequestBody(
 			// it per-mapping.
 			if (
 				usedProvider === "vertex-openai" &&
-				!usedModel.includes("/") &&
+				!usedExternalId.includes("/") &&
 				modelDef?.family
 			) {
-				requestBody.model = `${modelDef.family}/${usedModel}`;
+				requestBody.model = `${modelDef.family}/${usedExternalId}`;
 			}
 
 			// Add optional parameters if they are provided
@@ -2531,7 +2581,7 @@ export async function prepareRequestBody(
 			}
 			if (max_tokens !== undefined) {
 				// GPT-5 models use max_completion_tokens instead of max_tokens
-				if (usedModel.startsWith("gpt-5")) {
+				if (usedInternalModel.startsWith("gpt-5")) {
 					requestBody.max_completion_tokens = max_tokens;
 				} else {
 					requestBody.max_tokens = max_tokens;
@@ -2550,11 +2600,15 @@ export async function prepareRequestBody(
 				// Check if the model supports reasoning_effort parameter
 				const modelDef = models.find((m) =>
 					m.providers.some(
-						(p) => p.providerId === usedProvider && p.modelName === usedModel,
+						(p) =>
+							p.providerId === usedProvider &&
+							((p as ProviderModelMapping).region ?? null) === usedRegion,
 					),
 				);
 				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === usedProvider && p.modelName === usedModel,
+					(p) =>
+						p.providerId === usedProvider &&
+						((p as ProviderModelMapping).region ?? null) === usedRegion,
 				) as ProviderModelMapping | undefined;
 				const supported = providerMapping?.supportedParameters;
 				if (

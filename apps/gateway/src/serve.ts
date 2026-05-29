@@ -45,9 +45,12 @@ async function startServer() {
 
 let isShuttingDown = false;
 
-// Grace period for in-flight requests to complete before force closing (default 120s)
+// Grace period for in-flight requests to complete before force closing.
+// Defaults to 20 minutes to match AI_STREAMING_TIMEOUT_MS so long-running streams
+// aren't force-killed mid-flight during rollouts. Should remain <= k8s
+// terminationGracePeriodSeconds (minus any preStop sleep).
 const shutdownGracePeriodMs =
-	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 120000;
+	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 1200000;
 
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {

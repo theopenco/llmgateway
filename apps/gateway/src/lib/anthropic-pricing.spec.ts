@@ -10,7 +10,7 @@ const RATIO_TOLERANCE = 1e-9;
 const LEGACY_RATIO_EXCEPTIONS = new Set(["claude-3-haiku-20240307"]);
 
 function assertRatio(
-	modelName: string,
+	externalId: string,
 	label: string,
 	actualStr: string,
 	expected: number,
@@ -18,7 +18,7 @@ function assertRatio(
 	const actual = Number(actualStr);
 	expect(
 		actual,
-		`${modelName} ${label}: expected ${expected} (got ${actual}). If Anthropic's published price diverges from the standard multiplier, add the modelName to LEGACY_RATIO_EXCEPTIONS.`,
+		`${externalId} ${label}: expected ${expected} (got ${actual}). If Anthropic's published price diverges from the standard multiplier, add the externalId to LEGACY_RATIO_EXCEPTIONS.`,
 	).toBeCloseTo(expected, undefined);
 	expect(Math.abs(actual - expected)).toBeLessThan(
 		Math.max(expected * 1e-6, RATIO_TOLERANCE),
@@ -49,7 +49,7 @@ describe("Anthropic model pricing", () => {
 			}
 			expect(
 				provider.cacheWriteInputPrice1h,
-				`${provider.modelName}: cacheWriteInputPrice is set but cacheWriteInputPrice1h is missing — 1h cache writes would silently bill at the 5m rate`,
+				`${provider.externalId}: cacheWriteInputPrice is set but cacheWriteInputPrice1h is missing — 1h cache writes would silently bill at the 5m rate`,
 			).toBeDefined();
 		},
 	);
@@ -64,7 +64,7 @@ describe("Anthropic model pricing", () => {
 				}
 				expect(
 					tier.cacheWriteInputPrice1h,
-					`${provider.modelName} tier "${tier.name}": cacheWriteInputPrice is set but cacheWriteInputPrice1h is missing`,
+					`${provider.externalId} tier "${tier.name}": cacheWriteInputPrice is set but cacheWriteInputPrice1h is missing`,
 				).toBeDefined();
 			}
 		},
@@ -73,7 +73,7 @@ describe("Anthropic model pricing", () => {
 	it.each(anthropicProviderEntries)(
 		"$modelId cache prices follow the standard 1.25x/2x/0.1x ratios",
 		({ provider }) => {
-			if (LEGACY_RATIO_EXCEPTIONS.has(provider.modelName)) {
+			if (LEGACY_RATIO_EXCEPTIONS.has(provider.externalId)) {
 				return;
 			}
 			if (provider.inputPrice === undefined) {
@@ -82,7 +82,7 @@ describe("Anthropic model pricing", () => {
 			const base = Number(provider.inputPrice);
 			if (provider.cacheWriteInputPrice !== undefined) {
 				assertRatio(
-					provider.modelName,
+					provider.externalId,
 					"cacheWriteInputPrice (5m)",
 					provider.cacheWriteInputPrice,
 					base * FIVE_MIN_WRITE_MULTIPLIER,
@@ -90,7 +90,7 @@ describe("Anthropic model pricing", () => {
 			}
 			if (provider.cacheWriteInputPrice1h !== undefined) {
 				assertRatio(
-					provider.modelName,
+					provider.externalId,
 					"cacheWriteInputPrice1h",
 					provider.cacheWriteInputPrice1h,
 					base * ONE_HOUR_WRITE_MULTIPLIER,
@@ -98,7 +98,7 @@ describe("Anthropic model pricing", () => {
 			}
 			if (provider.cachedInputPrice !== undefined) {
 				assertRatio(
-					provider.modelName,
+					provider.externalId,
 					"cachedInputPrice",
 					provider.cachedInputPrice,
 					base * CACHE_READ_MULTIPLIER,
@@ -112,7 +112,7 @@ describe("Anthropic model pricing", () => {
 				const label = `tier "${tier.name}"`;
 				if (tier.cacheWriteInputPrice !== undefined) {
 					assertRatio(
-						provider.modelName,
+						provider.externalId,
 						`${label} cacheWriteInputPrice (5m)`,
 						tier.cacheWriteInputPrice,
 						tierBase * FIVE_MIN_WRITE_MULTIPLIER,
@@ -120,7 +120,7 @@ describe("Anthropic model pricing", () => {
 				}
 				if (tier.cacheWriteInputPrice1h !== undefined) {
 					assertRatio(
-						provider.modelName,
+						provider.externalId,
 						`${label} cacheWriteInputPrice1h`,
 						tier.cacheWriteInputPrice1h,
 						tierBase * ONE_HOUR_WRITE_MULTIPLIER,
@@ -128,7 +128,7 @@ describe("Anthropic model pricing", () => {
 				}
 				if (tier.cachedInputPrice !== undefined) {
 					assertRatio(
-						provider.modelName,
+						provider.externalId,
 						`${label} cachedInputPrice`,
 						tier.cachedInputPrice,
 						tierBase * CACHE_READ_MULTIPLIER,
@@ -163,7 +163,7 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 			}
 			expect(
 				provider.cacheWriteInputPrice,
-				`${provider.modelName}: cachedInputPrice is set but cacheWriteInputPrice is missing`,
+				`${provider.externalId}: cachedInputPrice is set but cacheWriteInputPrice is missing`,
 			).toBeDefined();
 		},
 	);
@@ -176,8 +176,8 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 		"anthropic.claude-sonnet-4-5",
 		"anthropic.claude-sonnet-4-6",
 	];
-	const supportsBedrock1h = (modelName: string) =>
-		ONE_HOUR_BEDROCK_PREFIXES.some((prefix) => modelName.startsWith(prefix));
+	const supportsBedrock1h = (externalId: string) =>
+		ONE_HOUR_BEDROCK_PREFIXES.some((prefix) => externalId.startsWith(prefix));
 
 	it.each(bedrockProviderEntries)(
 		"$modelId only sets cacheWriteInputPrice1h on bedrock models that support 1h TTL",
@@ -186,8 +186,8 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 				return;
 			}
 			expect(
-				supportsBedrock1h(provider.modelName),
-				`${provider.modelName}: cacheWriteInputPrice1h is set but bedrock does not document 1h TTL support for this model`,
+				supportsBedrock1h(provider.externalId),
+				`${provider.externalId}: cacheWriteInputPrice1h is set but bedrock does not document 1h TTL support for this model`,
 			).toBe(true);
 		},
 	);
@@ -201,7 +201,7 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 			const base = Number(provider.inputPrice);
 			if (provider.cacheWriteInputPrice !== undefined) {
 				assertRatio(
-					provider.modelName,
+					provider.externalId,
 					"cacheWriteInputPrice (5m)",
 					provider.cacheWriteInputPrice,
 					base * FIVE_MIN_WRITE_MULTIPLIER,
@@ -209,7 +209,7 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 			}
 			if (provider.cacheWriteInputPrice1h !== undefined) {
 				assertRatio(
-					provider.modelName,
+					provider.externalId,
 					"cacheWriteInputPrice1h",
 					provider.cacheWriteInputPrice1h,
 					base * ONE_HOUR_WRITE_MULTIPLIER,
@@ -217,7 +217,7 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 			}
 			if (provider.cachedInputPrice !== undefined) {
 				assertRatio(
-					provider.modelName,
+					provider.externalId,
 					"cachedInputPrice",
 					provider.cachedInputPrice,
 					base * CACHE_READ_MULTIPLIER,

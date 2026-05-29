@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@llmgateway/logger", () => ({
-	logger: {
-		error: vi.fn(),
-	},
-}));
-
 vi.mock("./db.js", () => ({
 	db: {
 		select: vi.fn(),
@@ -115,7 +109,7 @@ describe("getEffectiveRateLimit", () => {
 		});
 	});
 
-	it("matches provider-specific model names", async () => {
+	it("ignores rows whose model is a provider-specific alias rather than the root model id", async () => {
 		createQueryMock([
 			{
 				id: "rl-rpd",
@@ -127,19 +121,13 @@ describe("getEffectiveRateLimit", () => {
 			},
 		]);
 
-		const result = await getEffectiveRateLimit(
-			"org-1",
-			"openai",
-			"gpt-4o",
-			"gpt-4o-2024-08-06",
-		);
+		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result).toEqual({
 			maxRpm: 0,
-			maxRpd: 1200,
+			maxRpd: 0,
 			rpmSource: "none",
-			rpdSource: "global_provider_model",
-			rpdRateLimitId: "rl-rpd",
+			rpdSource: "none",
 		});
 	});
 
@@ -174,18 +162,13 @@ describe("getEffectiveRateLimit", () => {
 		});
 	});
 
-	it("fails open on database errors", async () => {
+	it("propagates database errors so callers can apply SWR fallback", async () => {
 		vi.mocked(mockDb.db.select).mockImplementation(() => {
 			throw new Error("DB error");
 		});
 
-		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
-
-		expect(result).toEqual({
-			maxRpm: 0,
-			maxRpd: 0,
-			rpmSource: "none",
-			rpdSource: "none",
-		});
+		await expect(
+			getEffectiveRateLimit("org-1", "openai", "gpt-4o"),
+		).rejects.toThrow("DB error");
 	});
 });

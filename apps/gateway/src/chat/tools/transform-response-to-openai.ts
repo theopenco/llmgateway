@@ -20,6 +20,30 @@ export interface CostData {
 	dataStorageCost?: number | null;
 }
 
+export interface ResponseMetadataExtras {
+	logId?: string;
+	organizationId?: string;
+	projectId?: string;
+	discount?: number | null;
+}
+
+export function toResponseMetadataExtras(
+	extras?: ResponseMetadataExtras,
+): Record<string, unknown> {
+	if (!extras) {
+		return {};
+	}
+
+	return {
+		...(extras.logId ? { log_id: extras.logId } : {}),
+		...(extras.organizationId
+			? { organization_id: extras.organizationId }
+			: {}),
+		...(extras.projectId ? { project_id: extras.projectId } : {}),
+		discount: extras.discount ?? null,
+	};
+}
+
 export function applyExtendedUsageFields(
 	usage: Record<string, any>,
 	options: {
@@ -213,6 +237,10 @@ export function stripRequestScopedMetadataFromOpenAiResponse<
 
 	const nextMetadata = { ...metadata };
 	delete nextMetadata.request_id;
+	delete nextMetadata.log_id;
+	delete nextMetadata.organization_id;
+	delete nextMetadata.project_id;
+	delete nextMetadata.discount;
 
 	if (Array.isArray(metadata.routing)) {
 		nextMetadata.routing = sanitizeRoutingAttempts(
@@ -230,7 +258,7 @@ export function withCurrentRequestMetadataOnOpenAiResponse<
 	T extends {
 		metadata?: Record<string, unknown> | null;
 	},
->(response: T, requestId: string): T {
+>(response: T, requestId: string, extras?: ResponseMetadataExtras): T {
 	const sanitizedResponse =
 		stripRequestScopedMetadataFromOpenAiResponse(response);
 	const metadata = sanitizedResponse.metadata;
@@ -244,6 +272,7 @@ export function withCurrentRequestMetadataOnOpenAiResponse<
 		metadata: {
 			...metadata,
 			request_id: requestId,
+			...toResponseMetadataExtras(extras),
 		},
 	};
 }

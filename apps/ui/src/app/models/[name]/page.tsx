@@ -91,9 +91,6 @@ export default async function ModelPage({ params }: PageProps) {
 	};
 
 	const allDiscounts = await fetchModelDiscounts(decodedName);
-	const modelNames = Array.from(
-		new Set(modelDef.providers.map((p) => p.modelName)),
-	);
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(
@@ -103,7 +100,6 @@ export default async function ModelPage({ params }: PageProps) {
 			allDiscounts,
 			provider.providerId,
 			decodedName,
-			modelNames,
 		);
 		return {
 			...provider,
@@ -112,11 +108,7 @@ export default async function ModelPage({ params }: PageProps) {
 			discount: globalDiscount ?? provider.discount,
 		};
 	});
-	const currentModelDiscount = getBestDiscount(
-		allDiscounts,
-		decodedName,
-		modelNames,
-	);
+	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);
 
 	const adaptedModel = adaptModel(modelDef, modelProviders);
 
@@ -306,6 +298,11 @@ export default async function ModelPage({ params }: PageProps) {
 										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								input tokens
+								{modelProviders.some(
+									(p) => (p.pricingTiers?.length ?? 0) > 1,
+								) && (
+									<span className="text-muted-foreground/70"> (tiered)</span>
+								)}
 							</div>
 							<div>
 								Starting at{" "}
@@ -334,6 +331,11 @@ export default async function ModelPage({ params }: PageProps) {
 										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								output tokens
+								{modelProviders.some(
+									(p) => (p.pricingTiers?.length ?? 0) > 1,
+								) && (
+									<span className="text-muted-foreground/70"> (tiered)</span>
+								)}
 							</div>
 							{modelProviders.some((p) => p.imageOutputPrice !== undefined) && (
 								<div>

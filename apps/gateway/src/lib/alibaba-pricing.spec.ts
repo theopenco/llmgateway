@@ -8,7 +8,7 @@ const IMPLICIT_READ_MULTIPLIER = 0.2;
 const RATIO_TOLERANCE = 1e-9;
 
 function assertRatio(
-	modelName: string,
+	externalId: string,
 	label: string,
 	actualStr: string,
 	expected: number,
@@ -16,7 +16,7 @@ function assertRatio(
 	const actual = Number(actualStr);
 	expect(
 		actual,
-		`${modelName} ${label}: expected ${expected} (got ${actual})`,
+		`${externalId} ${label}: expected ${expected} (got ${actual})`,
 	).toBeCloseTo(expected, undefined);
 	expect(Math.abs(actual - expected)).toBeLessThan(
 		Math.max(expected * 1e-6, RATIO_TOLERANCE),
@@ -46,23 +46,23 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 		({ provider }) => {
 			expect(
 				provider.cacheWriteInputPrice1h,
-				`${provider.modelName}: Alibaba does not offer a 1h cache TTL`,
+				`${provider.externalId}: Alibaba does not offer a 1h cache TTL`,
 			).toBeUndefined();
 			for (const tier of provider.pricingTiers ?? []) {
 				expect(
 					tier.cacheWriteInputPrice1h,
-					`${provider.modelName} tier "${tier.name}": Alibaba does not offer a 1h cache TTL`,
+					`${provider.externalId} tier "${tier.name}": Alibaba does not offer a 1h cache TTL`,
 				).toBeUndefined();
 			}
 			for (const region of provider.regions ?? []) {
 				expect(
 					region.cacheWriteInputPrice1h,
-					`${provider.modelName} region "${region.id}": Alibaba does not offer a 1h cache TTL`,
+					`${provider.externalId} region "${region.id}": Alibaba does not offer a 1h cache TTL`,
 				).toBeUndefined();
 				for (const tier of region.pricingTiers ?? []) {
 					expect(
 						tier.cacheWriteInputPrice1h,
-						`${provider.modelName} region "${region.id}" tier "${tier.name}": Alibaba does not offer a 1h cache TTL`,
+						`${provider.externalId} region "${region.id}" tier "${tier.name}": Alibaba does not offer a 1h cache TTL`,
 					).toBeUndefined();
 				}
 			}
@@ -77,7 +77,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 				provider.inputPrice !== undefined
 			) {
 				assertRatio(
-					provider.modelName,
+					provider.externalId,
 					"cacheWriteInputPrice (5m)",
 					provider.cacheWriteInputPrice,
 					Number(provider.inputPrice) * FIVE_MIN_WRITE_MULTIPLIER,
@@ -89,7 +89,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 					tier.inputPrice !== undefined
 				) {
 					assertRatio(
-						provider.modelName,
+						provider.externalId,
 						`tier "${tier.name}" cacheWriteInputPrice (5m)`,
 						tier.cacheWriteInputPrice,
 						Number(tier.inputPrice) * FIVE_MIN_WRITE_MULTIPLIER,
@@ -102,7 +102,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 					region.inputPrice !== undefined
 				) {
 					assertRatio(
-						provider.modelName,
+						provider.externalId,
 						`region "${region.id}" cacheWriteInputPrice (5m)`,
 						region.cacheWriteInputPrice,
 						Number(region.inputPrice) * FIVE_MIN_WRITE_MULTIPLIER,
@@ -114,7 +114,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 						tier.inputPrice !== undefined
 					) {
 						assertRatio(
-							provider.modelName,
+							provider.externalId,
 							`region "${region.id}" tier "${tier.name}" cacheWriteInputPrice (5m)`,
 							tier.cacheWriteInputPrice,
 							Number(tier.inputPrice) * FIVE_MIN_WRITE_MULTIPLIER,
@@ -149,7 +149,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 
 			if (shouldAssert(provider)) {
 				assertRatio(
-					provider.modelName,
+					provider.externalId,
 					"cachedInputPrice (implicit hit)",
 					provider.cachedInputPrice!,
 					Number(provider.inputPrice) * IMPLICIT_READ_MULTIPLIER,
@@ -158,7 +158,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 			for (const tier of provider.pricingTiers ?? []) {
 				if (shouldAssert(tier)) {
 					assertRatio(
-						provider.modelName,
+						provider.externalId,
 						`tier "${tier.name}" cachedInputPrice (implicit hit)`,
 						tier.cachedInputPrice!,
 						Number(tier.inputPrice) * IMPLICIT_READ_MULTIPLIER,
@@ -168,7 +168,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 			for (const region of provider.regions ?? []) {
 				if (shouldAssert(region)) {
 					assertRatio(
-						provider.modelName,
+						provider.externalId,
 						`region "${region.id}" cachedInputPrice (implicit hit)`,
 						region.cachedInputPrice!,
 						Number(region.inputPrice) * IMPLICIT_READ_MULTIPLIER,
@@ -177,7 +177,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 				for (const tier of region.pricingTiers ?? []) {
 					if (shouldAssert(tier)) {
 						assertRatio(
-							provider.modelName,
+							provider.externalId,
 							`region "${region.id}" tier "${tier.name}" cachedInputPrice (implicit hit)`,
 							tier.cachedInputPrice!,
 							Number(tier.inputPrice) * IMPLICIT_READ_MULTIPLIER,
@@ -200,7 +200,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 				provider.inputPrice !== undefined
 			) {
 				assertRatio(
-					provider.modelName,
+					provider.externalId,
 					"cacheReadInputPrice (explicit hit)",
 					provider.cacheReadInputPrice,
 					Number(provider.inputPrice) * EXPLICIT_READ_MULTIPLIER,
@@ -212,7 +212,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 					tier.inputPrice !== undefined
 				) {
 					assertRatio(
-						provider.modelName,
+						provider.externalId,
 						`tier "${tier.name}" cacheReadInputPrice (explicit hit)`,
 						tier.cacheReadInputPrice,
 						Number(tier.inputPrice) * EXPLICIT_READ_MULTIPLIER,
@@ -225,7 +225,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 					region.inputPrice !== undefined
 				) {
 					assertRatio(
-						provider.modelName,
+						provider.externalId,
 						`region "${region.id}" cacheReadInputPrice (explicit hit)`,
 						region.cacheReadInputPrice,
 						Number(region.inputPrice) * EXPLICIT_READ_MULTIPLIER,
@@ -237,7 +237,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 						tier.inputPrice !== undefined
 					) {
 						assertRatio(
-							provider.modelName,
+							provider.externalId,
 							`region "${region.id}" tier "${tier.name}" cacheReadInputPrice (explicit hit)`,
 							tier.cacheReadInputPrice,
 							Number(tier.inputPrice) * EXPLICIT_READ_MULTIPLIER,

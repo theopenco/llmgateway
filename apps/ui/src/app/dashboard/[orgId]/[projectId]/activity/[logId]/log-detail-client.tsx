@@ -805,6 +805,14 @@ export function LogDetailClient({
 													muted
 												/>
 											)}
+										{!!log.cacheWriteInputCost &&
+											Number(log.cacheWriteInputCost) > 0 && (
+												<Field
+													label="Cache Write Cost"
+													value={`$${Number(log.cacheWriteInputCost).toFixed(8)}`}
+													muted
+												/>
+											)}
 										<Field
 											label="Request Cost"
 											value={
@@ -852,6 +860,13 @@ export function LogDetailClient({
 													muted
 												/>
 											)}
+										{!!log.audioInputCost && Number(log.audioInputCost) > 0 && (
+											<Field
+												label="Audio Input Cost"
+												value={`$${Number(log.audioInputCost).toFixed(8)}`}
+												muted
+											/>
+										)}
 										<Field
 											label="Inference Total"
 											value={log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
@@ -899,6 +914,12 @@ export function LogDetailClient({
 								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
 									<Field label="Cached Input Tokens" value={log.cachedTokens} />
 								)}
+								{log.cacheWriteTokens && Number(log.cacheWriteTokens) > 0 && (
+									<Field
+										label="Cache Write Tokens"
+										value={log.cacheWriteTokens}
+									/>
+								)}
 								{log.reasoningTokens && (
 									<Field label="Reasoning Tokens" value={log.reasoningTokens} />
 								)}
@@ -912,6 +933,12 @@ export function LogDetailClient({
 									<Field
 										label="Image Output Tokens"
 										value={log.imageOutputTokens}
+									/>
+								)}
+								{log.audioInputTokens && Number(log.audioInputTokens) > 0 && (
+									<Field
+										label="Audio Input Tokens"
+										value={log.audioInputTokens}
 									/>
 								)}
 								<Field

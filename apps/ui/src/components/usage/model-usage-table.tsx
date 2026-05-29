@@ -20,12 +20,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import type { ActivityModelUsage, ActivitT } from "@/types/activity";
 
-type SortColumn =
-	| "id"
-	| "provider"
-	| "requestCount"
-	| "totalTokens"
-	| "cachedInputCost";
+type SortColumn = "id" | "provider" | "requestCount" | "totalTokens";
 type SortDirection = "asc" | "desc";
 
 interface ModelUsageTableProps {
@@ -143,7 +138,6 @@ export function ModelUsageTable({
 				existing.outputTokens += model.outputTokens;
 				existing.totalTokens += model.totalTokens;
 				existing.cost += model.cost;
-				existing.cachedInputCost += model.cachedInputCost;
 			} else {
 				modelMap.set(key, { ...model });
 			}
@@ -215,16 +209,6 @@ export function ModelUsageTable({
 								{getSortIcon("totalTokens")}
 							</Button>
 						</TableHead>
-						<TableHead>
-							<Button
-								variant="ghost"
-								onClick={() => handleSort("cachedInputCost")}
-								className="flex items-center p-0 h-auto font-semibold"
-							>
-								Cache Cost
-								{getSortIcon("cachedInputCost")}
-							</Button>
-						</TableHead>
 						<TableHead>Usage</TableHead>
 					</TableRow>
 				</TableHeader>
@@ -240,11 +224,6 @@ export function ModelUsageTable({
 								<TableCell>{model.provider}</TableCell>
 								<TableCell>{model.requestCount.toLocaleString()}</TableCell>
 								<TableCell>{model.totalTokens.toLocaleString()}</TableCell>
-								<TableCell>
-									{model.cachedInputCost > 0
-										? `$${model.cachedInputCost.toFixed(6)}`
-										: "—"}
-								</TableCell>
 								<TableCell className="w-[200px]">
 									<div className="flex items-center gap-2">
 										<Progress value={percentage} className="h-2" />

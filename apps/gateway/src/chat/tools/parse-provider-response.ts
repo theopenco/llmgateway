@@ -814,11 +814,11 @@ export function parseProviderResponse(
 					messages.length > 0
 				) {
 					const lastMessage = messages[messages.length - 1];
-					const modelName = json.model;
+					const externalId = json.model;
 
 					// Only apply to specific failing models and only when last message was a tool result
 					if (
-						(modelName === "glm-4.5-airx" || modelName === "glm-4.5-flash") &&
+						(externalId === "glm-4.5-airx" || externalId === "glm-4.5-flash") &&
 						lastMessage?.role === "tool"
 					) {
 						// Check if the response actually contains new tool calls that should be prevented

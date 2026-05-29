@@ -7,7 +7,11 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { UnsupportedAudioFormatError } from "@llmgateway/actions";
+import {
+	InvalidFileContentError,
+	UnsupportedAudioFormatError,
+	UnsupportedDocumentFormatError,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import {
@@ -125,6 +129,36 @@ app.onError((error, c) => {
 				error: true,
 				status: 400,
 				message: error.message,
+			},
+			400,
+		);
+	}
+
+	if (error instanceof InvalidFileContentError) {
+		logger.warn("Invalid file content", { message: error.message });
+		return c.json(
+			{
+				error: true,
+				status: 400,
+				message: error.message,
+			},
+			400,
+		);
+	}
+
+	if (error instanceof UnsupportedDocumentFormatError) {
+		logger.warn("Unsupported document format", {
+			message: error.message,
+			mimeType: error.mimeType,
+			providerTarget: error.providerTarget,
+		});
+		return c.json(
+			{
+				error: true,
+				status: 400,
+				message: error.message,
+				mimeType: error.mimeType,
+				providerTarget: error.providerTarget,
 			},
 			400,
 		);

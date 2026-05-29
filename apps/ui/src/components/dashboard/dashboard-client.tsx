@@ -174,9 +174,6 @@ export function DashboardClient({
 		activityData.reduce((sum, day) => sum + day.cachedTokens, 0) ?? 0;
 	const totalCachedInputCost =
 		activityData.reduce((sum, day) => sum + day.cachedInputCost, 0) ?? 0;
-	const totalCacheWriteInputCost =
-		activityData.reduce((sum, day) => sum + day.cacheWriteInputCost, 0) ?? 0;
-	const totalCacheCost = totalCachedInputCost + totalCacheWriteInputCost;
 
 	const { mostUsedModel, mostUsedProvider } = (() => {
 		const modelCostMap = new Map<string, { cost: number; provider: string }>();
@@ -436,18 +433,6 @@ export function DashboardClient({
 							icon={<Server className="h-4 w-4" />}
 							accent="green"
 							tooltip="Cached input tokens are already included in the Input Tokens & Cost total above. This card breaks them out so you can see how much of the input was served from cache."
-						/>
-						<MetricCard
-							label="Total Cache Cost"
-							value={isLoading ? "Loading..." : `$${totalCacheCost.toFixed(4)}`}
-							subtitle={
-								isLoading
-									? "–"
-									: `$${totalCachedInputCost.toFixed(4)} read • $${totalCacheWriteInputCost.toFixed(4)} write`
-							}
-							icon={<Server className="h-4 w-4" />}
-							accent="green"
-							tooltip="Total cost related to prompt caching: cache reads (cached input tokens) plus cache writes (tokens written to the cache)."
 						/>
 						<MetricCard
 							label="Most Used Model"

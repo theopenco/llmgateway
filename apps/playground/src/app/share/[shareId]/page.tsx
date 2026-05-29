@@ -16,6 +16,7 @@ interface SharedMessage {
 	content: string | null;
 	images: string | null;
 	audios: string | null;
+	documents: string | null;
 	reasoning: string | null;
 	tools: string | null;
 	metadata?: unknown;
@@ -24,6 +25,13 @@ interface SharedMessage {
 }
 
 interface StoredAudioPart {
+	type?: string;
+	url?: string;
+	mediaType?: string;
+	name?: string;
+}
+
+interface StoredDocumentPart {
 	type?: string;
 	url?: string;
 	mediaType?: string;
@@ -333,6 +341,27 @@ function toUiMessage(message: SharedMessage): UIMessage {
 		}
 	}
 
+	if (message.documents) {
+		try {
+			const parsedDocuments = JSON.parse(message.documents) as unknown;
+			if (Array.isArray(parsedDocuments)) {
+				for (const document of parsedDocuments.filter(isStoredDocumentPart)) {
+					if (!document.url) {
+						continue;
+					}
+					parts.push({
+						type: "file",
+						mediaType: document.mediaType ?? "application/octet-stream",
+						url: document.url,
+						...(document.name ? { name: document.name } : {}),
+					});
+				}
+			}
+		} catch {
+			// Ignore malformed legacy document payloads in public snapshots.
+		}
+	}
+
 	if (message.tools) {
 		try {
 			const parsedTools = JSON.parse(message.tools) as unknown;
@@ -374,6 +403,15 @@ function isStoredImagePart(value: unknown): value is StoredImagePart {
 }
 
 function isStoredAudioPart(value: unknown): value is StoredAudioPart {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"url" in value &&
+		typeof (value as { url?: unknown }).url === "string"
+	);
+}
+
+function isStoredDocumentPart(value: unknown): value is StoredDocumentPart {
 	return (
 		typeof value === "object" &&
 		value !== null &&

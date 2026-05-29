@@ -64,7 +64,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					createdAt: new Date().toISOString(),
 					modelId: def.id,
 					providerId: map.providerId,
-					modelName: map.modelName,
+					externalId: map.externalId,
 					inputPrice: map.inputPrice?.toString() ?? null,
 					outputPrice: map.outputPrice?.toString() ?? null,
 					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,
@@ -102,6 +102,30 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 									v.toString(),
 								]),
 							)
+						: null,
+					pricingTiers: map.pricingTiers
+						? map.pricingTiers.map((t) => ({
+								name: t.name,
+								upToTokens: isFinite(t.upToTokens) ? t.upToTokens : null,
+								inputPrice: String(t.inputPrice),
+								outputPrice: String(t.outputPrice),
+								cachedInputPrice:
+									t.cachedInputPrice !== undefined
+										? String(t.cachedInputPrice)
+										: null,
+								cacheReadInputPrice:
+									t.cacheReadInputPrice !== undefined
+										? String(t.cacheReadInputPrice)
+										: null,
+								cacheWriteInputPrice:
+									t.cacheWriteInputPrice !== undefined
+										? String(t.cacheWriteInputPrice)
+										: null,
+								cacheWriteInputPrice1h:
+									t.cacheWriteInputPrice1h !== undefined
+										? String(t.cacheWriteInputPrice1h)
+										: null,
+							}))
 						: null,
 					discount: map.discount?.toString() ?? null,
 					stability: map.stability ?? null,

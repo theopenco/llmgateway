@@ -74,6 +74,28 @@ To solve the "cold start problem" where new or unused providers never get traffi
 - The system adapts to changing provider performance
 - You benefit from improved routing decisions over time
 
+**Stable Provider Preference**:
+
+To avoid unnecessary churn between providers that score similarly, LLMGateway remembers the best provider chosen for each model and sticks with it across requests — even if another provider edges ahead slightly on the next score calculation.
+
+On every routing decision, the system checks whether the previously selected provider is still acceptable:
+
+- **Uptime hard switch**: if the preferred provider's uptime drops below **85%**, routing switches to the current best-scoring provider immediately.
+- **Score margin soft switch**: the preferred provider is replaced only when a better option's score is more than **0.15** ahead. Small fluctuations caused by metric noise or minor price differences do not trigger a switch.
+- **Periodic re-evaluation**: the preference expires after **1 hour**, at which point the next request picks the best-scoring provider fresh and stores it as the new preferred.
+
+Requests that are part of the 1% epsilon-greedy exploration bypass this preference entirely so that all providers continue to receive periodic traffic and build up metrics.
+
+The selection reason in routing metadata will show `stable-preferred` when a request was served by the stored preference rather than the top-scored provider at that moment.
+
+<Callout type="info">
+	Self-hosted deployments can tune this behavior with three environment
+	variables: `PREFERRED_PROVIDER_TTL` (preference lifetime in seconds, default
+	`3600`), `PREFERRED_PROVIDER_UPTIME_THRESHOLD` (hard-switch uptime floor,
+	default `85`), and `PREFERRED_PROVIDER_SCORE_MARGIN` (soft-switch score gap,
+	default `0.15`).
+</Callout>
+
 **Routing Metadata**:
 
 Every request includes detailed routing metadata in the logs, showing:

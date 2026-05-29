@@ -108,8 +108,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		{
 			url: `${baseUrl}/token-cost-calculator`,
 			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.9,
+		},
+		{
+			url: `${baseUrl}/nano-banana-simulator/20`,
+			lastModified: new Date(),
 			changeFrequency: "monthly",
-			priority: 0.8,
+			priority: 0.6,
 		},
 		{
 			url: `${baseUrl}/blog/category`,
@@ -215,6 +221,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/compare/open-router`,
+			lastModified: new Date(),
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/portkey`,
 			lastModified: new Date(),
 			changeFrequency: "monthly",
 			priority: 0.7,

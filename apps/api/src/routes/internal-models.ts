@@ -38,13 +38,25 @@ const providerSchema = z.object({
 	status: z.enum(["active", "inactive"]),
 });
 
+// Pricing tier schema
+const pricingTierSchema = z.object({
+	name: z.string(),
+	upToTokens: z.number().nullable(),
+	inputPrice: z.string(),
+	outputPrice: z.string(),
+	cachedInputPrice: z.string().nullable(),
+	cacheReadInputPrice: z.string().nullable(),
+	cacheWriteInputPrice: z.string().nullable(),
+	cacheWriteInputPrice1h: z.string().nullable(),
+});
+
 // Model provider mapping schema
 const modelProviderMappingSchema = z.object({
 	id: z.string(),
 	createdAt: z.coerce.date(),
 	modelId: z.string(),
 	providerId: z.string(),
-	modelName: z.string(),
+	externalId: z.string(),
 	region: z.string().nullable(),
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
@@ -61,6 +73,7 @@ const modelProviderMappingSchema = z.object({
 	streaming: z.boolean(),
 	vision: z.boolean().nullable(),
 	audio: z.boolean().nullable(),
+	document: z.boolean().nullable(),
 	reasoning: z.boolean().nullable(),
 	reasoningOutput: z.string().nullable(),
 	tools: z.boolean().nullable(),
@@ -76,6 +89,7 @@ const modelProviderMappingSchema = z.object({
 	supportsVideoAudio: z.boolean().nullable(),
 	supportsVideoWithoutAudio: z.boolean().nullable(),
 	perSecondPrice: z.record(z.string()).nullable(),
+	pricingTiers: z.array(pricingTierSchema).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
 	status: z.enum(["active", "inactive"]),
@@ -158,18 +172,15 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			),
 	]);
 
-	// Helper to find the best global discount for a given provider+model
+	// Find the best global discount for a given provider+model. Discounts are
+	// always keyed by the root model ID.
 	const getGlobalDiscount = (
 		providerId: string,
 		modelId: string,
-		modelName: string,
 	): string | null => {
-		const modelMatches = (dm: string | null) =>
-			dm === modelId || dm === modelName;
-
 		// Precedence: provider+model > provider > model
 		const providerModel = globalDiscounts.find(
-			(d) => d.provider === providerId && modelMatches(d.model),
+			(d) => d.provider === providerId && d.model === modelId,
 		);
 		if (providerModel) {
 			return providerModel.discountPercent;
@@ -183,7 +194,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 		}
 
 		const modelOnly = globalDiscounts.find(
-			(d) => d.provider === null && modelMatches(d.model),
+			(d) => d.provider === null && d.model === modelId,
 		);
 		if (modelOnly) {
 			return modelOnly.discountPercent;
@@ -210,17 +221,14 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					?.providers.find(
 						(provider) => provider.providerId === mapping.providerId,
 					) ?? null;
-			const globalDiscount = getGlobalDiscount(
-				mapping.providerId,
-				model.id,
-				mapping.modelName,
-			);
+			const globalDiscount = getGlobalDiscount(mapping.providerId, model.id);
 			// Global discount takes precedence over hardcoded mapping discount
 			const effectiveDiscount = globalDiscount ?? mapping.discount;
 			return {
 				...mapping,
 				discount: effectiveDiscount,
 				audio: sharedMapping?.audio ?? null,
+				document: sharedMapping?.document ?? null,
 				imageOutputPrice:
 					sharedMapping?.imageOutputPrice !== undefined
 						? String(sharedMapping.imageOutputPrice)
@@ -242,6 +250,38 @@ internalModels.openapi(getModelsRoute, async (c) => {
 							),
 						)
 					: null,
+				pricingTiers: (() => {
+					const regionDef = mapping.region
+						? sharedMapping?.regions?.find((r) => r.id === mapping.region)
+						: null;
+					const rawTiers =
+						regionDef?.pricingTiers ?? sharedMapping?.pricingTiers ?? null;
+					if (!rawTiers) {
+						return null;
+					}
+					return rawTiers.map((t) => ({
+						name: t.name,
+						upToTokens: isFinite(t.upToTokens) ? t.upToTokens : null,
+						inputPrice: String(t.inputPrice),
+						outputPrice: String(t.outputPrice),
+						cachedInputPrice:
+							t.cachedInputPrice !== undefined
+								? String(t.cachedInputPrice)
+								: null,
+						cacheReadInputPrice:
+							t.cacheReadInputPrice !== undefined
+								? String(t.cacheReadInputPrice)
+								: null,
+						cacheWriteInputPrice:
+							t.cacheWriteInputPrice !== undefined
+								? String(t.cacheWriteInputPrice)
+								: null,
+						cacheWriteInputPrice1h:
+							t.cacheWriteInputPrice1h !== undefined
+								? String(t.cacheWriteInputPrice1h)
+								: null,
+					}));
+				})(),
 			};
 		}),
 	}));

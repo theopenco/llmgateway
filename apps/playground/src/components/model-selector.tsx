@@ -682,8 +682,8 @@ function ModelEntryRowComponent({
 	}
 
 	const ProviderIcon = provider ? getProviderIcon(provider.id) : null;
-	const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
-	const providerModelValue = `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
+	const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.region ?? ""}`;
+	const providerModelValue = `${mapping!.providerId}/${model.id}${mapping!.region ? `:${mapping!.region}` : ""}`;
 	const disabled = isOptionDisabled?.(providerModelValue) ?? false;
 	const disabledReason = getOptionDisabledReason?.(providerModelValue);
 	const isUnstable = isModelUnstable(mapping!, model);
@@ -868,20 +868,30 @@ export function ModelSelector({
 	const selectedModelId = selectedModelIdRaw.includes(":")
 		? selectedModelIdRaw.split(":")[0]
 		: selectedModelIdRaw;
+	// Look up the model definition by its canonical (root) id only.
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
+	// Identify the specific provider mapping by (providerId, region). When no
+	// region is in the URL, prefer the mapping without a region so we don't
+	// pick up a regional variant that happens to be first in the array.
+	const selectedRegion = selectedModelIdRaw.includes(":")
+		? selectedModelIdRaw.split(":")[1]
+		: undefined;
 	const selectedMapping =
 		selectedModel?.mappings.find(
-			(p) =>
-				p.providerId === selectedProviderId &&
-				p.modelName === selectedModelIdRaw,
+			(p) => p.providerId === selectedProviderId && p.region === selectedRegion,
 		) ??
+		(!selectedRegion
+			? selectedModel?.mappings.find(
+					(p) => p.providerId === selectedProviderId && !p.region,
+				)
+			: undefined) ??
 		selectedModel?.mappings.find((p) => p.providerId === selectedProviderId);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
-			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
+			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.region ?? ""}`
 			: selectedModel
 				? selectedModel.id
 				: "";
@@ -1069,7 +1079,7 @@ export function ModelSelector({
 					return isFavorite(e.model.id);
 				}
 				const mappingId = e.mapping
-					? `${e.mapping.providerId}/${e.mapping.region ? e.mapping.modelName : e.model.id}`
+					? `${e.mapping.providerId}/${e.model.id}${e.mapping.region ? `:${e.mapping.region}` : ""}`
 					: null;
 				return mappingId !== null && isFavorite(mappingId);
 			});
@@ -1160,8 +1170,8 @@ export function ModelSelector({
 			return;
 		}
 
-		// Prefer provider-specific entry when a provider is selected
-		// Match on modelName to distinguish regional variants
+		// Prefer provider-specific entry when a provider is selected.
+		// Match on region to distinguish regional variants.
 		let entry =
 			selectedProviderId &&
 			allEntries.find(
@@ -1169,8 +1179,7 @@ export function ModelSelector({
 					!e.isRoot &&
 					e.model.id === selectedModel.id &&
 					e.mapping?.providerId === selectedProviderId &&
-					(!selectedMapping ||
-						e.mapping?.modelName === selectedMapping.modelName),
+					(!selectedMapping || e.mapping?.region === selectedMapping.region),
 			);
 
 		// Fallback to root entry for the selected model
@@ -1234,7 +1243,7 @@ export function ModelSelector({
 				const { model, mapping, isRoot } = entry;
 				const value = isRoot
 					? model.id
-					: `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
+					: `${mapping!.providerId}/${model.id}${mapping!.region ? `:${mapping!.region}` : ""}`;
 				const disabled = isRoot
 					? (isOptionDisabled?.(model.id) ?? false)
 					: (isOptionDisabled?.(value) ?? false);

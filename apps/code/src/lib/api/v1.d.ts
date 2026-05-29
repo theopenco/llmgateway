@@ -571,6 +571,7 @@ export interface paths {
                                     content: string | null;
                                     images: string | null;
                                     audios?: string | null;
+                                    documents?: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
                                     metadata?: {
@@ -683,6 +684,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -707,6 +709,7 @@ export interface paths {
                         name: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -728,6 +731,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -854,6 +858,7 @@ export interface paths {
                         name?: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                         /** @enum {string} */
@@ -877,6 +882,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -1655,6 +1661,7 @@ export interface paths {
                     limit?: string;
                     customHeaderKey?: string;
                     customHeaderValue?: string;
+                    requestId?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1817,6 +1824,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2071,6 +2079,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2179,7 +2188,6 @@ export interface paths {
                                     outputTokens: number;
                                     totalTokens: number;
                                     cost: number;
-                                    cachedInputCost: number;
                                 }[];
                                 apiKeyBreakdown: {
                                     id: string;
@@ -2342,11 +2350,17 @@ export interface paths {
                                 signups: number;
                                 paidCustomers: number;
                                 revenue: number;
+                                processed: number;
+                                refunds: number;
+                                net: number;
                             }[];
                             totals: {
                                 signups: number;
                                 paidCustomers: number;
                                 revenue: number;
+                                processed: number;
+                                refunds: number;
+                                net: number;
                             };
                         };
                     };
@@ -2373,6 +2387,7 @@ export interface paths {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d";
                     groupBy?: "model" | "source";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path?: never;
@@ -2391,6 +2406,8 @@ export interface paths {
                             range: "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             groupBy: "model" | "source";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             totals: {
                                 requestCount: number;
                                 errorCount: number;
@@ -3461,8 +3478,6 @@ export interface paths {
                                 providerName: string;
                                 modelId: string;
                                 modelName: string;
-                                rootModelId: string;
-                                rootModelName: string;
                                 family: string;
                             }[];
                         };
@@ -3829,8 +3844,6 @@ export interface paths {
                                 providerName: string;
                                 modelId: string;
                                 modelName: string;
-                                rootModelId: string;
-                                rootModelName: string;
                                 family: string;
                             }[];
                         };
@@ -4426,7 +4439,7 @@ export interface paths {
                             };
                             models: {
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 mappingId: string;
                                 region: string | null;
                                 status: string;
@@ -4484,7 +4497,7 @@ export interface paths {
                             mapping: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 providerId: string;
                                 providerName: string;
                                 region: string | null;
@@ -4645,6 +4658,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path: {
@@ -4665,6 +4679,8 @@ export interface paths {
                             window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             bucket: "hour" | "day";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             models: string[];
                             data: {
                                 timestamp: string;
@@ -4706,6 +4722,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path: {
@@ -4727,6 +4744,8 @@ export interface paths {
                             window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             bucket: "hour" | "day";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             models: string[];
                             data: {
                                 timestamp: string;
@@ -4852,7 +4871,7 @@ export interface paths {
                             mappings: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 providerId: string;
                                 providerName: string;
@@ -5698,6 +5717,7 @@ export interface paths {
                                 cancelledPending: number;
                                 churned: number;
                                 grossMrr: number;
+                                committedMrr: number;
                                 startsThisMonth: number;
                                 endsThisMonth: number;
                                 netNewThisMonth: number;
@@ -7131,6 +7151,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7206,6 +7227,7 @@ export interface paths {
                         name?: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -7228,6 +7250,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7285,6 +7308,7 @@ export interface paths {
                         organizationId: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -7306,6 +7330,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -8010,6 +8035,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -8991,6 +9017,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9024,6 +9051,9 @@ export interface paths {
                         model: string;
                         /** @default false */
                         webSearch?: boolean;
+                        /** @default false */
+                        comparisonEnabled?: boolean;
+                        parentChatId?: string;
                     };
                 };
             };
@@ -9043,6 +9073,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9113,6 +9144,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9173,6 +9205,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9193,6 +9226,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -9202,6 +9236,7 @@ export interface paths {
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
+                            comparisonChatIds: string[];
                         };
                     };
                 };
@@ -9281,6 +9316,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9460,6 +9496,7 @@ export interface paths {
                                     content: string | null;
                                     images: string | null;
                                     audios?: string | null;
+                                    documents?: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
                                     metadata?: {
@@ -9658,6 +9695,7 @@ export interface paths {
                         content?: string;
                         images?: string;
                         audios?: string;
+                        documents?: string;
                         reasoning?: string;
                         tools?: string;
                         metadata?: {
@@ -9681,6 +9719,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -9748,6 +9787,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -10263,6 +10303,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dev-plans/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        sessionId: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Dev plan subscription finalized */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok" | "already_processed";
+                        };
+                    };
+                };
+                /** @description Card already in use by another DevPass account */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "duplicate_card";
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dev-plans/cancel": {
         parameters: {
             query?: never;
@@ -10420,8 +10517,6 @@ export interface paths {
                             projectId: string | null;
                             apiKey: string | null;
                             devPlanAllowAllModels: boolean;
-                            cachingEnabled: boolean;
-                            cacheDurationSeconds: number;
                             /** @enum {string} */
                             retentionLevel: "retain" | "none";
                         };
@@ -10461,8 +10556,6 @@ export interface paths {
                 content: {
                     "application/json": {
                         devPlanAllowAllModels?: boolean;
-                        cachingEnabled?: boolean;
-                        cacheDurationSeconds?: number;
                         /** @enum {string} */
                         retentionLevel?: "retain" | "none";
                     };
@@ -10478,8 +10571,6 @@ export interface paths {
                         "application/json": {
                             success: boolean;
                             devPlanAllowAllModels: boolean;
-                            cachingEnabled: boolean;
-                            cacheDurationSeconds: number;
                             /** @enum {string} */
                             retentionLevel: "retain" | "none";
                         };
@@ -11577,7 +11668,7 @@ export interface operations {
                                 createdAt: string | null;
                                 modelId: string;
                                 providerId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;
@@ -11598,6 +11689,7 @@ export interface operations {
                                 streaming: boolean;
                                 vision: boolean | null;
                                 audio: boolean | null;
+                                document: boolean | null;
                                 reasoning: boolean | null;
                                 reasoningOutput: string | null;
                                 tools: boolean | null;
@@ -11616,6 +11708,16 @@ export interface operations {
                                 perSecondPrice: {
                                     [key: string]: string;
                                 } | null;
+                                pricingTiers: {
+                                    name: string;
+                                    upToTokens: number | null;
+                                    inputPrice: string;
+                                    outputPrice: string;
+                                    cachedInputPrice: string | null;
+                                    cacheReadInputPrice: string | null;
+                                    cacheWriteInputPrice: string | null;
+                                    cacheWriteInputPrice1h: string | null;
+                                }[] | null;
                                 deprecatedAt: string | null;
                                 deactivatedAt: string | null;
                                 /** @enum {string} */
