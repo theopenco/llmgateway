@@ -51,10 +51,12 @@ export function createFailedKeyTracker(): FailedKeyTracker {
 			}
 		},
 		envKeyIndicesFor(providerId, region) {
-			return envIndices.get(providerRetryKey(providerId, region));
+			const set = envIndices.get(providerRetryKey(providerId, region));
+			return set ? new Set(set) : undefined;
 		},
 		providerKeyIdsFor(providerId, region) {
-			return providerKeyIds.get(providerRetryKey(providerId, region));
+			const set = providerKeyIds.get(providerRetryKey(providerId, region));
+			return set ? new Set(set) : undefined;
 		},
 	};
 }

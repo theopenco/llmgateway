@@ -553,9 +553,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
 
-	// Snapshot narrowed fields so the resolveAttempt closure (defined later) sees
-	// them as definitely-present without leaning on TS's flow narrowing across
-	// closure boundaries.
+	// Snapshot narrowed fields so the resolveAttempt closure keeps them non-null.
 	const retryProject = {
 		mode: project.mode,
 		organizationId: project.organizationId,
@@ -594,13 +592,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				body: z.infer<typeof embeddingErrorSchema>;
 		  };
 
-	// Resolves the per-attempt context: which token to use plus the upstream URL
-	// and request body. Called once per attempt so same-provider retries can
-	// rotate to the next configured key via `failedKeys`. Credit / no-key / bad
-	// project-mode failures propagate as HTTPException (same shape as before).
-	// Provider-shape validation errors (Vertex project id, batch_not_supported)
-	// come back as `json_error` so the caller can `c.json` them directly with
-	// the OpenAI-compatible `{ error: { code, ... } }` envelope.
+	// Resolves the token, upstream URL, and request body for one attempt,
+	// excluding keys already tried via `failedKeys` so retries rotate. Credit /
+	// no-key failures throw HTTPException; provider-shape errors (Vertex project
+	// id, batch_not_supported) return as `json_error` for direct `c.json`.
 	async function resolveAttempt(): Promise<ResolveResult> {
 		let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		let usedToken: string | undefined;
@@ -815,10 +810,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		};
 	}
 
-	// Mark the failed key, then resolve a new attempt context. Returns null when
-	// no eligible alternate key remains (tracker exhausted, getProviderEnv throws
-	// "no eligible values remain", findProviderKey returns undefined, or the
-	// resolver hits a configuration error we shouldn't retry on).
+	// Marks the failed key and resolves the next attempt, or null when no eligible
+	// alternate key remains. Mirrors chat's tryResolveAlternateKeyForCurrentProvider:
+	// resolution failures (no key / json_error) collapse to null so the original
+	// upstream error stays the terminal response.
 	async function resolveNextAttempt(
 		failedAttempt: EmbeddingAttempt,
 	): Promise<EmbeddingAttempt | null> {
@@ -832,8 +827,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (next.kind !== "ok") {
 				return null;
 			}
-			// Guard against the rare case where the selector hands back the same
-			// credential (e.g. health failover collapsed back to the only key).
+			// Selector may hand back the same credential (single key, health collapse).
 			if (
 				next.attempt.usedToken === failedAttempt.usedToken &&
 				next.attempt.envVarName === failedAttempt.envVarName &&
@@ -919,8 +913,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					reportTrackedKeyError(attempt.providerKey.id, 0);
 				}
 
+				const networkErrorType = isTimeout
+					? "upstream_timeout"
+					: "network_error";
 				const nextAttempt =
-					!isCanceled && isRetryableErrorType("network_error")
+					!isCanceled && isRetryableErrorType(networkErrorType)
 						? await resolveNextAttempt(attempt)
 						: null;
 				const willRetry = nextAttempt !== null;
