@@ -1,6 +1,6 @@
 export const CHAT_PLAN_PRICES = {
-	starter: 5,
-	plus: 20,
+	starter: 12,
+	plus: 25,
 	pro: 50,
 } as const;
 
@@ -26,22 +26,46 @@ export function getChatPlanAnnualMonthlyPrice(tier: ChatPlanTier): number {
 	return Math.round((getChatPlanAnnualPrice(tier) / 12) * 100) / 100;
 }
 
-export const CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER = 3;
+/**
+ * Tapered credit multipliers. The entry tier stays margin-positive even when
+ * fully drained; higher tiers earn the more generous multiple as a reward for
+ * committing. We're independent (not VC-subsidized), so the floor can't run at
+ * a loss the way a land-grab pricing model can afford to.
+ */
+export const CHAT_PLAN_CREDITS_MULTIPLIERS = {
+	starter: 2,
+	plus: 2.5,
+	pro: 3,
+} as const;
 
 /**
- * Resolve the credits multiplier from the env override, falling back to the
- * default when it's unset or malformed. Reading process.env only yields the
- * override on the server; clients should receive the resolved value as a prop.
+ * Resolve a tier's credits multiplier. The CHAT_PLAN_CREDITS_MULTIPLIER env var,
+ * when set, is a flat ops override applied to every tier (escape hatch for
+ * promos); otherwise the tapered per-tier default applies. Reading process.env
+ * only yields the override on the server; clients should receive the resolved
+ * values as a prop.
  */
-export function getChatPlanCreditsMultiplier(): number {
-	const parsed = parseFloat(process.env.CHAT_PLAN_CREDITS_MULTIPLIER ?? "");
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER;
+export function getChatPlanCreditsMultiplier(tier: ChatPlanTier): number {
+	const override = parseFloat(process.env.CHAT_PLAN_CREDITS_MULTIPLIER ?? "");
+	return Number.isFinite(override) && override > 0
+		? override
+		: CHAT_PLAN_CREDITS_MULTIPLIERS[tier];
+}
+
+/**
+ * Resolve every tier's multiplier at once — used to hand the full set to the
+ * client, which renders a different multiplier per card.
+ */
+export function getChatPlanCreditsMultipliers(): Record<ChatPlanTier, number> {
+	return {
+		starter: getChatPlanCreditsMultiplier("starter"),
+		plus: getChatPlanCreditsMultiplier("plus"),
+		pro: getChatPlanCreditsMultiplier("pro"),
+	};
 }
 
 export function getChatPlanCreditsLimit(tier: ChatPlanTier): number {
-	return CHAT_PLAN_PRICES[tier] * getChatPlanCreditsMultiplier();
+	return CHAT_PLAN_PRICES[tier] * getChatPlanCreditsMultiplier(tier);
 }
 
 /**

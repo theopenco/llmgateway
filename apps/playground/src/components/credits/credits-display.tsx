@@ -109,7 +109,7 @@ export function CreditsDisplay({
 					href="/pricing"
 					className="mt-1 block px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
 				>
-					→ Save with a monthly plan (3× credits)
+					→ Save with a monthly plan (up to 3× credits)
 				</Link>
 			)}
 			{hasNoCredits && !hasActivePlan && (

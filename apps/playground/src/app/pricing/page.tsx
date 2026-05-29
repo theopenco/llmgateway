@@ -1,14 +1,14 @@
 import { ChatPricingPlans } from "@/components/pricing/chat-pricing-plans";
 import { getUser } from "@/lib/getUser";
 
-import { getChatPlanCreditsMultiplier } from "@llmgateway/shared";
+import { getChatPlanCreditsMultipliers } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
 	title: "Pricing — LLMGateway Chat",
 	description:
-		"Subscribe to a chat plan and get 3× the credits for your dollar. All frontier models in one place, billed monthly or annually.",
+		"Subscribe to a chat plan and get up to 3× the credits for your dollar. All frontier models in one place, billed monthly or annually.",
 	alternates: {
 		canonical: "/pricing",
 	},
@@ -24,15 +24,15 @@ export default async function PricingPage() {
 					Three plans. Frontier models on Plus and Pro.
 				</h1>
 				<p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground sm:text-lg">
-					Subscribe and get <strong>3× the credits for your dollar</strong>.
-					Credits reset each cycle — pay-as-you-go top-ups stay available
-					alongside.
+					Subscribe and get{" "}
+					<strong>up to 3× the credits for your dollar</strong>. Credits reset
+					each cycle — pay-as-you-go top-ups stay available alongside.
 				</p>
 			</header>
 
 			<ChatPricingPlans
 				isAuthenticated={Boolean(user)}
-				creditsMultiplier={getChatPlanCreditsMultiplier()}
+				creditsMultipliers={getChatPlanCreditsMultipliers()}
 			/>
 
 			<section className="mx-auto mt-16 max-w-3xl text-sm text-muted-foreground">

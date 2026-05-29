@@ -11,7 +11,7 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
 	CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS,
-	CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER,
+	CHAT_PLAN_CREDITS_MULTIPLIERS,
 	CHAT_PLAN_PRICES,
 	getChatPlanAnnualMonthlyPrice,
 	getChatPlanAnnualPrice,
@@ -44,7 +44,7 @@ const plans: PlanContent[] = [
 	{
 		name: "Plus",
 		tier: "plus",
-		description: "Same price as ChatGPT Plus — but every frontier model",
+		description: "Just above ChatGPT Plus — but every frontier model",
 		tagline: "The everyday default",
 		popular: true,
 		features: [
@@ -61,7 +61,7 @@ const plans: PlanContent[] = [
 		tagline: "Heaviest use, best $/usage",
 		features: [
 			"Everything in Plus",
-			"3× the monthly credits of Plus",
+			"The largest monthly credit allowance — 3× value",
 			"Priority support",
 			"Best value at high volume",
 		],
@@ -128,12 +128,12 @@ function formatUsd(amount: number): string {
 
 interface ChatPricingPlansProps {
 	isAuthenticated: boolean;
-	creditsMultiplier?: number;
+	creditsMultipliers?: Record<ChatPlanTier, number>;
 }
 
 export function ChatPricingPlans({
 	isAuthenticated,
-	creditsMultiplier = CHAT_PLAN_DEFAULT_CREDITS_MULTIPLIER,
+	creditsMultipliers = CHAT_PLAN_CREDITS_MULTIPLIERS,
 }: ChatPricingPlansProps) {
 	const router = useRouter();
 	const fetchClient = useFetchClient();
@@ -323,6 +323,7 @@ export function ChatPricingPlans({
 					const annualTotal = getChatPlanAnnualPrice(plan.tier);
 					const displayPrice =
 						effectiveCycle === "annual" ? annualPerMonth : monthlyPrice;
+					const creditsMultiplier = creditsMultipliers[plan.tier];
 					const usageValue = monthlyPrice * creditsMultiplier;
 					const isPending = pendingTier === plan.tier;
 					const isCurrent = activeTier === plan.tier;
