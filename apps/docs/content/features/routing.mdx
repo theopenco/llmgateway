@@ -118,6 +118,58 @@ This transparency allows you to understand and debug routing decisions.
 	considering cost efficiency.
 </Callout>
 
+### Sticky Session Routing
+
+When a model is served by multiple providers, every request is normally scored independently — so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix hit the **same** provider.
+
+Sticky session routing solves this: attach a session identifier and LLMGateway pins all requests for that session to a single provider (and region), keeping the upstream prompt cache warm across the whole conversation.
+
+#### Setting the session id
+
+For chat completions, the session key is resolved in priority order:
+
+1. The `x-session-id` header
+2. The `prompt_cache_key` body field (OpenAI-compatible)
+3. The `user` body field (OpenAI-compatible)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "x-session-id: conversation-9f8e7d6c" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived automatically from `metadata.user_id` — coding agents such as Claude Code embed the session id there — and forwarded internally. An explicit `x-session-id` header still takes precedence.
+
+#### How pinning works
+
+When a session id is present, the provider (and region) is chosen **deterministically** using [rendezvous hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing) over the available providers, rather than the weighted score. The same session always maps to the same provider as long as that provider remains available.
+
+Because the choice is deterministic per session, sticky requests **bypass both the weighted scoring and the 1% epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
+
+#### Falling back when a provider is down
+
+Stickiness yields only when the pinned provider is effectively unavailable. A session is re-pinned to another provider when its provider:
+
+- Is filtered out by health checks (e.g. excluded for low uptime), or
+- Fails the request and is dropped by the [automatic retry & fallback](#automatic-retry--fallback) loop.
+
+Rendezvous hashing guarantees a **minimal-disruption** reshuffle: when one provider drops out, only the sessions pinned to that provider move — every other session keeps its provider. When the provider recovers and re-enters the available pool, affected sessions pin back to it.
+
+The selection reason in routing metadata shows `session-sticky` when a request was pinned via a session id.
+
+<Callout type="info">
+	Sticky routing optimizes for cache locality over per-request price. A session
+	stays on its provider even if a cheaper or faster alternative is momentarily
+	available, since the prompt-cache savings typically outweigh the difference.
+	Requests without a session id are unaffected and continue to use the weighted
+	smart-routing algorithm.
+</Callout>
+
 ### Provider-Specific Routing
 
 To use a specific provider without any fallbacks, prefix the model name with the provider name followed by a slash:
