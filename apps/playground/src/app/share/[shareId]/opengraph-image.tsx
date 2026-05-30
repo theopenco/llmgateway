@@ -416,8 +416,6 @@ function ImagePreview({ preview }: { preview: SharePreview }) {
 					width: "100%",
 					height: 284,
 					overflow: "hidden",
-					borderTopLeftRadius: 24,
-					borderTopRightRadius: 24,
 				}}
 			>
 				<img
@@ -428,30 +426,6 @@ function ImagePreview({ preview }: { preview: SharePreview }) {
 						height: 568,
 						objectFit: "cover",
 						objectPosition: "center center",
-					}}
-				/>
-				<div
-					style={{
-						position: "absolute",
-						left: 0,
-						top: 0,
-						width: 24,
-						height: 24,
-						display: "flex",
-						background: "#09090b",
-						borderRadius: "0 0 24px 0",
-					}}
-				/>
-				<div
-					style={{
-						position: "absolute",
-						right: 0,
-						top: 0,
-						width: 24,
-						height: 24,
-						display: "flex",
-						background: "#09090b",
-						borderRadius: "0 0 0 24px",
 					}}
 				/>
 				<div
