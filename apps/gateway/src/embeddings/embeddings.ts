@@ -938,10 +938,21 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 				const duration = Date.now() - startedAt;
 				if (attempt.envVarName !== undefined) {
-					reportKeyError(attempt.envVarName, attempt.configIndex, 0);
+					reportKeyError(
+						attempt.envVarName,
+						attempt.configIndex,
+						0,
+						undefined,
+						upstreamModel,
+					);
 				}
 				if (attempt.providerKey?.id) {
-					reportTrackedKeyError(attempt.providerKey.id, 0);
+					reportTrackedKeyError(
+						attempt.providerKey.id,
+						0,
+						undefined,
+						upstreamModel,
+					);
 				}
 
 				const networkErrorType = isTimeout
@@ -1076,10 +1087,16 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 						attempt.configIndex,
 						status,
 						upstreamText,
+						upstreamModel,
 					);
 				}
 				if (attempt.providerKey?.id) {
-					reportTrackedKeyError(attempt.providerKey.id, status, upstreamText);
+					reportTrackedKeyError(
+						attempt.providerKey.id,
+						status,
+						upstreamText,
+						upstreamModel,
+					);
 				}
 
 				const finishReason = getFinishReasonFromError(status, upstreamText);
@@ -1182,10 +1199,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 
 			if (attempt.envVarName !== undefined) {
-				reportKeySuccess(attempt.envVarName, attempt.configIndex);
+				reportKeySuccess(
+					attempt.envVarName,
+					attempt.configIndex,
+					upstreamModel,
+				);
 			}
 			if (attempt.providerKey?.id) {
-				reportTrackedKeySuccess(attempt.providerKey.id);
+				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
 			}
 
 			let normalizedResponse: Record<string, unknown> = (upstreamJson ??
