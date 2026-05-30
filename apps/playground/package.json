@@ -100,7 +100,7 @@
 		"@types/react": "^19.2.14",
 		"@types/react-dom": "^19.2.3",
 		"@types/react-syntax-highlighter": "15.5.13",
-		"eslint": "^9.38.0",
+		"eslint": "^10.4.0",
 		"eslint-config-next": "16.0.0",
 		"openapi-typescript": "7.10.1",
 		"tailwindcss": "^4.1.16",
