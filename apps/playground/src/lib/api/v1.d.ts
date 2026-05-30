@@ -11628,6 +11628,12 @@ export interface paths {
                                 tier2Weight?: number;
                                 tier3Weight?: number;
                             } | null;
+                            sticky: {
+                                enabled?: boolean;
+                                ttlSeconds?: number;
+                                uptimeThreshold?: number;
+                                scoreMargin?: number;
+                            } | null;
                             providerPriorities: {
                                 [key: string]: number;
                             } | null;
@@ -11684,6 +11690,12 @@ export interface paths {
                             tier2Weight?: number;
                             tier3Weight?: number;
                         } | null;
+                        sticky?: {
+                            enabled?: boolean;
+                            ttlSeconds?: number;
+                            uptimeThreshold?: number;
+                            scoreMargin?: number;
+                        } | null;
                         providerPriorities?: {
                             [key: string]: number;
                         } | null;
@@ -11733,6 +11745,12 @@ export interface paths {
                                 tier1Weight?: number;
                                 tier2Weight?: number;
                                 tier3Weight?: number;
+                            } | null;
+                            sticky: {
+                                enabled?: boolean;
+                                ttlSeconds?: number;
+                                uptimeThreshold?: number;
+                                scoreMargin?: number;
                             } | null;
                             providerPriorities: {
                                 [key: string]: number;
@@ -11848,6 +11866,12 @@ export interface paths {
                                 tier2Weight: number;
                                 tier3Weight: number;
                             };
+                            sticky: {
+                                enabled: boolean;
+                                ttlSeconds: number;
+                                uptimeThreshold: number;
+                                scoreMargin: number;
+                            };
                             providerPriorities: {
                                 [key: string]: number;
                             };
@@ -11921,6 +11945,12 @@ export interface paths {
                                 tier1Weight: number;
                                 tier2Weight: number;
                                 tier3Weight: number;
+                            };
+                            sticky: {
+                                enabled: boolean;
+                                ttlSeconds: number;
+                                uptimeThreshold: number;
+                                scoreMargin: number;
                             };
                             providerPriorities: {
                                 [key: string]: number;
