@@ -99,8 +99,8 @@ This file contains links to official sources for each provider's compliance cert
 
 ### 19. MiniMax
 - **SOC 2** ✅
-- Security FAQ (minimax.gr.com — official regional site): https://minimax.gr.com/
-  (See FAQ: "How does MiniMax ensure platform security and data privacy?" — states SOC 2 compliance)
+- MiniMax Audio product page: https://minimaxaudio.org/
+  (See "Why Choose MiniMax Audio" section — states "SOC 2 compliance" and "GDPR-ready infrastructure")
 
 ---
 
