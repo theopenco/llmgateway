@@ -298,6 +298,11 @@ export default async function ModelPage({ params }: PageProps) {
 										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								input tokens
+								{modelProviders.some(
+									(p) => (p.pricingTiers?.length ?? 0) > 1,
+								) && (
+									<span className="text-muted-foreground/70"> (tiered)</span>
+								)}
 							</div>
 							<div>
 								Starting at{" "}
@@ -326,6 +331,11 @@ export default async function ModelPage({ params }: PageProps) {
 										: `$${minPrice.toFixed(2)}/M`;
 								})()}{" "}
 								output tokens
+								{modelProviders.some(
+									(p) => (p.pricingTiers?.length ?? 0) > 1,
+								) && (
+									<span className="text-muted-foreground/70"> (tiered)</span>
+								)}
 							</div>
 							{modelProviders.some((p) => p.imageOutputPrice !== undefined) && (
 								<div>
