@@ -376,6 +376,8 @@ export const providers = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			soc2: true,
+			gdpr: true,
 		},
 	},
 	{
@@ -401,6 +403,8 @@ export const providers = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			soc2: true,
+			gdpr: true,
 		},
 	},
 	{
@@ -426,6 +430,8 @@ export const providers = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
+			soc2: true,
+			gdpr: true,
 		},
 	},
 	{
@@ -703,6 +709,8 @@ export const providers = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			soc2: true,
+			gdpr: true,
 		},
 	},
 	{
@@ -728,6 +736,8 @@ export const providers = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
 		},
 	},
 	{
@@ -780,6 +790,7 @@ export const providers = [
 			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
+			soc2: true,
 		},
 	},
 	{
@@ -873,6 +884,7 @@ export const providers = [
 			consumerTraining: null,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			soc2: true,
 		},
 	},
 	{
@@ -980,6 +992,9 @@ export const providers = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
 		},
 	},
 ] as const satisfies ProviderDefinition[];
