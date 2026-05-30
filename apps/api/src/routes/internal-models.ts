@@ -86,6 +86,7 @@ const modelProviderMappingSchema = z.object({
 	supportedParameters: z.array(z.string()).nullable(),
 	supportedVideoSizes: z.array(z.string()).nullable(),
 	supportedVideoDurationsSeconds: z.array(z.number()).nullable(),
+	supportedVideoDurationsSecondsImageToVideo: z.array(z.number()).nullable(),
 	supportsVideoAudio: z.boolean().nullable(),
 	supportsVideoWithoutAudio: z.boolean().nullable(),
 	perSecondPrice: z.record(z.string()).nullable(),
@@ -240,6 +241,8 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
 				supportedVideoDurationsSeconds:
 					sharedMapping?.supportedVideoDurationsSeconds ?? null,
+				supportedVideoDurationsSecondsImageToVideo:
+					sharedMapping?.supportedVideoDurationsSecondsImageToVideo ?? null,
 				supportsVideoAudio: sharedMapping?.supportsVideoAudio ?? null,
 				supportsVideoWithoutAudio:
 					sharedMapping?.supportsVideoWithoutAudio ?? null,

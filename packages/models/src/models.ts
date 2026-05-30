@@ -431,6 +431,11 @@ export interface ProviderModelMapping {
 	 */
 	supportedVideoDurationsSeconds?: number[];
 	/**
+	 * Supported output durations in seconds when using image-to-video (frame inputs).
+	 * Overrides supportedVideoDurationsSeconds for that input mode when set.
+	 */
+	supportedVideoDurationsSecondsImageToVideo?: number[];
+	/**
 	 * Whether this provider mapping supports generating video with audio.
 	 */
 	supportsVideoAudio?: boolean;

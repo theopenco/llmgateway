@@ -161,10 +161,12 @@ function mappingSupportsVideoRequest(
 		return false;
 	}
 
-	if (
-		mapping.supportedVideoDurationsSeconds?.length &&
-		!mapping.supportedVideoDurationsSeconds.includes(duration)
-	) {
+	const durationsToCheck =
+		inputMode === "frames" &&
+		mapping.supportedVideoDurationsSecondsImageToVideo?.length
+			? mapping.supportedVideoDurationsSecondsImageToVideo
+			: mapping.supportedVideoDurationsSeconds;
+	if (durationsToCheck?.length && !durationsToCheck.includes(duration)) {
 		return false;
 	}
 

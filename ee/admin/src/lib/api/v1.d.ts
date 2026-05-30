@@ -11703,6 +11703,7 @@ export interface operations {
                                 supportedParameters: string[] | null;
                                 supportedVideoSizes: string[] | null;
                                 supportedVideoDurationsSeconds: number[] | null;
+                                supportedVideoDurationsSecondsImageToVideo: number[] | null;
                                 supportsVideoAudio: boolean | null;
                                 supportsVideoWithoutAudio: boolean | null;
                                 perSecondPrice: {
