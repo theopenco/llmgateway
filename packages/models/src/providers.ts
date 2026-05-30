@@ -910,6 +910,7 @@ export const providers = [
 			consumerTraining: null,
 			promptLogging: true,
 			retentionPeriod: null,
+			soc2: true,
 		},
 	},
 	{
