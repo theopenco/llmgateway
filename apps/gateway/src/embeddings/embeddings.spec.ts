@@ -100,6 +100,33 @@ describe("embeddings", () => {
 		expect(failedLog?.retriedByLogId).toBe(successLog?.id);
 		expect(successLog?.finishReason).toBe("stop");
 		expect(successLog?.retried).toBe(false);
+
+		// Routing metadata mirrors the chat path: the final log captures the full
+		// per-key attempt chain with cross-links to each attempt's log.
+		const routingMetadata = successLog?.routingMetadata;
+		expect(routingMetadata?.selectedProvider).toBe("openai");
+		expect(routingMetadata?.selectionReason).toBe("single-provider-available");
+		expect(routingMetadata?.availableProviders).toEqual(["openai"]);
+		expect(routingMetadata?.usedApiKeyHash).toBeTruthy();
+
+		const routing = routingMetadata?.routing;
+		expect(routing).toHaveLength(2);
+		expect(routing?.[0]).toMatchObject({
+			provider: "openai",
+			model: "text-embedding-3-small",
+			succeeded: false,
+			logId: failedLog?.id,
+		});
+		expect(routing?.[1]).toMatchObject({
+			provider: "openai",
+			model: "text-embedding-3-small",
+			succeeded: true,
+			logId: successLog?.id,
+		});
+		// The two attempts rotated across distinct BYOK keys.
+		expect(routing?.[0].apiKeyHash).toBeTruthy();
+		expect(routing?.[1].apiKeyHash).toBeTruthy();
+		expect(routing?.[0].apiKeyHash).not.toBe(routing?.[1].apiKeyHash);
 	});
 
 	test("/v1/embeddings returns upstream error when no alternate key is available", async () => {

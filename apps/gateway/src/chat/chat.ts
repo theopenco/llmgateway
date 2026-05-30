@@ -119,6 +119,7 @@ import {
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
+import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
 	getContentFilterMethod,
@@ -585,30 +586,6 @@ function withUsedApiKeyHash(
 	return {
 		...routingMetadata,
 		usedApiKeyHash,
-	};
-}
-
-function buildRoutingAttempt(
-	provider: string,
-	model: string,
-	statusCode: number,
-	errorType: string,
-	succeeded: boolean,
-	options?: {
-		region?: string;
-		apiKeyHash?: string;
-		logId?: string;
-	},
-): RoutingAttempt {
-	return {
-		provider,
-		model,
-		...(options?.region && { region: options.region }),
-		status_code: statusCode,
-		error_type: errorType,
-		succeeded,
-		...(options?.apiKeyHash && { apiKeyHash: options.apiKeyHash }),
-		...(options?.logId && { logId: options.logId }),
 	};
 }
 
