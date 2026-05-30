@@ -3564,13 +3564,11 @@ chat.openapi(completions, async (c) => {
 	// long-lived credential (kept in usedApiKeyHash above for health tracking)
 	// while the short-lived access token is what travels in the Authorization
 	// header — so swap usedToken here so downstream header builders just work.
-	// Read the env var directly to bypass round-robin comma-splitting (an SA
-	// JSON value contains commas and would otherwise be truncated).
+	// usedToken already holds the selected SA JSON: round-robin no longer
+	// splits a JSON credential on its inner commas, so the selected entry is
+	// used as-is (whether it came from a provider key or the env var).
 	if (usedProvider === "vertex-openai") {
-		const fullSaJson = providerKey
-			? usedToken
-			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
-		usedToken = await getVertexOpenAIAccessToken(fullSaJson);
+		usedToken = await getVertexOpenAIAccessToken(usedToken);
 	}
 
 	const contentFilterBlocked =
