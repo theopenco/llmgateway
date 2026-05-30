@@ -97,11 +97,6 @@ This file contains links to official sources for each provider's compliance cert
 - **SOC 2** ✅
 - Volcengine SOC audit documentation: https://www.volcengine.com/docs/63463/913674
 
-### 19. MiniMax
-- **SOC 2** ✅
-- MiniMax Audio product page: https://minimaxaudio.org/
-  (See "Why Choose MiniMax Audio" section — states "SOC 2 compliance" and "GDPR-ready infrastructure")
-
 ---
 
 ## No Confirmed Certifications Found
