@@ -103,7 +103,7 @@ const searchTool = tool({
 });
 
 export async function POST(req: Request) {
-	const apiKey = process.env.SUPPORT_CHAT_API_KEY;
+	const apiKey = process.env.DOCS_AI_SUPPORT_CHAT_API_KEY;
 	if (!apiKey) {
 		return Response.json(
 			{ error: "Ask AI is not configured" },
