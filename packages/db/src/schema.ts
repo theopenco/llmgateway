@@ -2452,6 +2452,7 @@ export const playgroundVideoHistory = pgTable(
 				modelName: string;
 				jobId: string | null;
 				videoUrl: string | null;
+				expiresAt?: number | null;
 				error?: string;
 			}[]
 		>(),

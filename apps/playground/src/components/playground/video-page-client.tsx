@@ -156,6 +156,7 @@ export default function VideoPageClient({
 					modelName: m.modelName,
 					job: null,
 					videoUrl: m.videoUrl,
+					expiresAt: m.expiresAt ?? null,
 					error: m.error,
 					isLoading: false,
 				})),
@@ -200,6 +201,7 @@ export default function VideoPageClient({
 								modelName: m.modelName,
 								jobId: m.job?.id ?? null,
 								videoUrl: m.videoUrl,
+								expiresAt: m.expiresAt ?? null,
 								error: m.error,
 							})),
 						},
@@ -555,6 +557,7 @@ export default function VideoPageClient({
 					modelName: getModelName(modelId),
 					job: null,
 					videoUrl: null,
+					expiresAt: null,
 					isLoading: true,
 				})),
 			};
@@ -640,6 +643,7 @@ export default function VideoPageClient({
 								updateGalleryModel(itemId, modelId, {
 									job: updatedJob,
 									videoUrl,
+									expiresAt: updatedJob.expires_at ?? null,
 									isLoading: false,
 								});
 							} else if (

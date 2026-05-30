@@ -46,6 +46,7 @@ export interface VideoGalleryModelResult {
 	modelName: string;
 	job: VideoJob | null;
 	videoUrl: string | null;
+	expiresAt: number | null;
 	error?: string;
 	isLoading: boolean;
 }

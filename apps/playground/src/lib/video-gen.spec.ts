@@ -71,7 +71,6 @@ function makeModel(
 	return {
 		id,
 		createdAt: "2026-01-01T00:00:00Z",
-		relatedAt: null,
 		releasedAt: null,
 		name: "Veo 3.1",
 		aliases: null,
