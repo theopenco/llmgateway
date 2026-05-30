@@ -48,9 +48,10 @@ export function parsePlaygroundMessageMetadata(
 		usedModel: readString(value.usedModel),
 		requestId: readString(value.requestId),
 		discount: readNumber(value.discount),
-		logId: readString(value.logId),
-		organizationId: readString(value.organizationId),
-		projectId: readString(value.projectId),
+		logId: readString(value.logId) ?? readString(value.log_id),
+		organizationId:
+			readString(value.organizationId) ?? readString(value.organization_id),
+		projectId: readString(value.projectId) ?? readString(value.project_id),
 		...(usage &&
 		Object.values(usage).some((usageItem) => usageItem !== undefined)
 			? { usage }

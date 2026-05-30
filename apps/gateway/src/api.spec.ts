@@ -720,6 +720,73 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/embeddings google-ai-studio honors LLM_*_BASE_URL env override in credits mode", async () => {
+		// Credits mode with no provider key forces the env-var token path. The
+		// only thing pointing the request at the mock server is the base-url
+		// env override — if it weren't applied, the request would go to the
+		// real generativelanguage.googleapis.com default and fail.
+		const originalApiKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+		const originalBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+		process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = "google-env-key";
+		process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = mockServerUrl;
+		try {
+			await harness.setProjectMode("credits");
+			await harness.setOrganizationCredits("100");
+			await db
+				.update(tables.organization)
+				.set({ retentionLevel: "none" })
+				.where(eq(tables.organization.id, "org-id"));
+
+			await db.insert(tables.apiKey).values({
+				id: "token-id-embeddings-google-env",
+				token: "real-token-embeddings-google-env",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const requestId = "embeddings-google-env-request-id";
+			const res = await app.request("/v1/embeddings", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-embeddings-google-env",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					input: "env base url routing",
+					model: "gemini-embedding-001",
+					dimensions: 768,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json).toHaveProperty("object", "list");
+			expect(json).toHaveProperty("model", "gemini-embedding-001");
+			expect(json.data).toHaveLength(1);
+			expect(json.data[0].embedding).toHaveLength(768);
+
+			const logs = await waitForLogs(1);
+			const embeddingLog = logs.find((log) => log.requestId === requestId);
+			expect(embeddingLog).toBeTruthy();
+			expect(embeddingLog?.usedProvider).toBe("google-ai-studio");
+			expect(embeddingLog?.finishReason).toBe("stop");
+			expect(embeddingLog?.hasError).toBe(false);
+		} finally {
+			if (originalApiKey !== undefined) {
+				process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = originalApiKey;
+			} else {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			}
+			if (originalBaseUrl !== undefined) {
+				process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalBaseUrl;
+			} else {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			}
+		}
+	});
+
 	test("/v1/embeddings google-ai-studio uses upstream usageMetadata when present", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-google-v2",
