@@ -341,7 +341,7 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "canopywave",
-				modelName: "moonshotai/kimi-k2.6",
+				externalId: "moonshotai/kimi-k2.6",
 				inputPrice: "0.5e-6",
 				cachedInputPrice: "0.1e-6",
 				outputPrice: "2.8e-6",
