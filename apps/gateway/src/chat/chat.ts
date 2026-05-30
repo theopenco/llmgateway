@@ -28,6 +28,7 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
@@ -185,6 +186,7 @@ import {
 import {
 	applyExtendedUsageFields,
 	stripRequestScopedMetadataFromOpenAiResponse,
+	toResponseMetadataExtras,
 	transformResponseToOpenai,
 	withCurrentRequestMetadataOnOpenAiResponse,
 } from "./tools/transform-response-to-openai.js";
@@ -1000,6 +1002,10 @@ const completions = createRoute({
 							used_provider: z.string(),
 							used_region: z.string().nullable().optional(),
 							underlying_used_model: z.string(),
+							log_id: z.string().optional(),
+							organization_id: z.string().optional(),
+							project_id: z.string().optional(),
+							discount: z.number().nullable().optional(),
 							routing: z
 								.array(
 									z.object({
@@ -1260,6 +1266,7 @@ chat.openapi(completions, async (c) => {
 		: undefined;
 	const syncLogInsert = responsesContext?.syncInsert ?? false;
 	const logIdOverride = responsesContext?.logId;
+	const finalLogId = logIdOverride ?? shortid();
 	const responsesApiData: unknown = responsesContext?.responsesApiData ?? null;
 
 	// Wrapper that injects Responses API fields into every log entry.
@@ -1408,6 +1415,14 @@ chat.openapi(completions, async (c) => {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
+
+	const buildFinalResponseMetadata = (discount?: number | null) =>
+		toResponseMetadataExtras({
+			logId: finalLogId,
+			organizationId: project.organizationId,
+			projectId: apiKey.projectId,
+			discount: discount ?? null,
+		});
 
 	// Filter region candidates based on available keys.
 	// - credits mode: only keep regions with env keys (base key → default region only)
@@ -4021,6 +4036,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					id: finalLogId,
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
@@ -4074,6 +4090,41 @@ chat.openapi(completions, async (c) => {
 							?.toolResults ?? null,
 				});
 
+				const cachedResponseMetadata = buildFinalResponseMetadata(
+					costs.discount ?? null,
+				);
+				let hasMetadataChunk = false;
+				for (
+					let chunkIndex = cachedStreamingResponse.chunks.length - 1;
+					chunkIndex >= 0;
+					chunkIndex--
+				) {
+					const chunk = cachedStreamingResponse.chunks[chunkIndex];
+					if (!chunk) {
+						continue;
+					}
+					const isMetadataChunk = (() => {
+						if (chunk.data === "[DONE]") {
+							return false;
+						}
+						try {
+							const parsed: unknown = JSON.parse(chunk.data);
+							return (
+								typeof parsed === "object" &&
+								parsed !== null &&
+								!Array.isArray(parsed) &&
+								("usage" in parsed || "metadata" in parsed)
+							);
+						} catch {
+							return false;
+						}
+					})();
+					if (isMetadataChunk) {
+						hasMetadataChunk = true;
+						break;
+					}
+				}
+
 				// Return cached streaming response by replaying chunks with original timing
 				return streamSSE(
 					c,
@@ -4092,8 +4143,49 @@ chat.openapi(completions, async (c) => {
 								});
 							}
 
+							let data = chunk.data;
+							if (hasMetadataChunk && chunk.data !== "[DONE]") {
+								let parsed: Record<string, unknown> | undefined;
+								try {
+									const parsedValue: unknown = JSON.parse(chunk.data);
+									if (
+										typeof parsedValue === "object" &&
+										parsedValue !== null &&
+										!Array.isArray(parsedValue) &&
+										("usage" in parsedValue || "metadata" in parsedValue)
+									) {
+										parsed = parsedValue;
+									}
+								} catch {
+									parsed = undefined;
+								}
+								if (parsed) {
+									const metadata =
+										typeof parsed.metadata === "object" &&
+										parsed.metadata !== null &&
+										!Array.isArray(parsed.metadata)
+											? parsed.metadata
+											: {};
+									data = JSON.stringify({
+										...parsed,
+										metadata: {
+											...metadata,
+											...cachedResponseMetadata,
+										},
+									});
+								}
+							} else if (!hasMetadataChunk && chunk.data === "[DONE]") {
+								// No usage/metadata chunk in the cached stream — emit a
+								// synthetic metadata chunk before [DONE] so consumers always
+								// receive logId, organizationId, projectId, and discount.
+								await stream.writeSSE({
+									data: JSON.stringify({ metadata: cachedResponseMetadata }),
+									id: `${chunk.eventId}-metadata`,
+								});
+							}
+
 							await stream.writeSSE({
-								data: chunk.data,
+								data,
 								id: String(chunk.eventId),
 								event: chunk.event,
 							});
@@ -4116,11 +4208,54 @@ chat.openapi(completions, async (c) => {
 			cacheKey = generateCacheKey(cachePayload);
 			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
 			if (cachedResponse) {
-				const responseForCurrentRequest =
-					withCurrentRequestMetadataOnOpenAiResponse(cachedResponse, requestId);
-
 				// Log the cached request
 				const duration = 0; // No processing time needed
+
+				// Calculate costs for cached response
+				const cachedCosts = await calculateCosts(
+					usedInternalModel,
+					usedProvider,
+					usedRegion ?? null,
+					cachedResponse.usage?.prompt_tokens ?? null,
+					cachedResponse.usage?.completion_tokens ?? null,
+					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
+					undefined,
+					cachedResponse.usage?.reasoning_tokens ?? null,
+					0, // outputImageCount
+					undefined, // imageSize
+					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
+					undefined,
+					null,
+					null,
+					{
+						cacheWriteTokens:
+							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
+							cachedResponse.usage?.prompt_tokens_details
+								?.cache_creation_tokens ??
+							null,
+						cacheWrite1hTokens:
+							cachedResponse.usage?.prompt_tokens_details?.cache_creation
+								?.ephemeral_1h_input_tokens ?? null,
+						audioInputTokens:
+							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
+						explicitCacheUsed,
+					},
+				);
+
+				const responseForCurrentRequest =
+					withCurrentRequestMetadataOnOpenAiResponse(
+						cachedResponse,
+						requestId,
+						{
+							logId: finalLogId,
+							organizationId: project.organizationId,
+							projectId: apiKey.projectId,
+							discount: cachedCosts.discount ?? null,
+						},
+					);
+
 				// Extract plugin IDs for logging (cached non-streaming)
 				const cachedPluginIds = plugins?.map((p) => p.id) ?? [];
 
@@ -4160,39 +4295,6 @@ chat.openapi(completions, async (c) => {
 					undefined, // No plugin results for cached response
 				);
 
-				// Calculate costs for cached response
-				const cachedCosts = await calculateCosts(
-					usedInternalModel,
-					usedProvider,
-					usedRegion ?? null,
-					cachedResponse.usage?.prompt_tokens ?? null,
-					cachedResponse.usage?.completion_tokens ?? null,
-					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
-					undefined,
-					cachedResponse.usage?.reasoning_tokens ?? null,
-					0, // outputImageCount
-					undefined, // imageSize
-					inputImageCount,
-					null, // webSearchCount
-					project.organizationId,
-					undefined,
-					null,
-					null,
-					{
-						cacheWriteTokens:
-							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
-							cachedResponse.usage?.prompt_tokens_details
-								?.cache_creation_tokens ??
-							null,
-						cacheWrite1hTokens:
-							cachedResponse.usage?.prompt_tokens_details?.cache_creation
-								?.ephemeral_1h_input_tokens ?? null,
-						audioInputTokens:
-							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
-						explicitCacheUsed,
-					},
-				);
-
 				// Estimate cached response size based on content to avoid expensive stringify
 				const cachedContent = cachedResponse.choices?.[0]?.message?.content;
 				const cachedReasoningContent =
@@ -4204,6 +4306,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					id: finalLogId,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
@@ -4604,8 +4707,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	const startTime = Date.now();
-	const failedEnvKeyIndicesByProvider = new Map<string, Set<number>>();
-	const failedTrackedKeyIdsByProvider = new Map<string, Set<string>>();
+	const failedKeys = createFailedKeyTracker();
 
 	function rememberFailedKey(
 		providerId: string,
@@ -4616,21 +4718,7 @@ chat.openapi(completions, async (c) => {
 			providerKeyId?: string;
 		},
 	): void {
-		const retryKey = providerRetryKey(providerId, region);
-
-		if (options.envVarName !== undefined && options.configIndex !== undefined) {
-			const failedIndices =
-				failedEnvKeyIndicesByProvider.get(retryKey) ?? new Set<number>();
-			failedIndices.add(options.configIndex);
-			failedEnvKeyIndicesByProvider.set(retryKey, failedIndices);
-		}
-
-		if (options.providerKeyId) {
-			const failedKeyIds =
-				failedTrackedKeyIdsByProvider.get(retryKey) ?? new Set<string>();
-			failedKeyIds.add(options.providerKeyId);
-			failedTrackedKeyIdsByProvider.set(retryKey, failedKeyIds);
-		}
+		failedKeys.remember(providerId, region, options);
 	}
 
 	async function resolveProviderContextForRetry(
@@ -4641,10 +4729,6 @@ chat.openapi(completions, async (c) => {
 		},
 		streamValue: boolean,
 	) {
-		const retryKey = providerRetryKey(
-			providerMapping.providerId,
-			providerMapping.region,
-		);
 		return await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
@@ -4672,8 +4756,14 @@ chat.openapi(completions, async (c) => {
 				hasExistingToolCalls,
 				customProviderName,
 				webSearchEnabled: !!webSearchTool,
-				excludedEnvKeyIndices: failedEnvKeyIndicesByProvider.get(retryKey),
-				excludedProviderKeyIds: failedTrackedKeyIdsByProvider.get(retryKey),
+				excludedEnvKeyIndices: failedKeys.envKeyIndicesFor(
+					providerMapping.providerId,
+					providerMapping.region,
+				),
+				excludedProviderKeyIds: failedKeys.providerKeyIdsFor(
+					providerMapping.providerId,
+					providerMapping.region,
+				),
 				providerCacheControlEnabled,
 			},
 		);
@@ -4999,7 +5089,6 @@ chat.openapi(completions, async (c) => {
 				const routingAttempts: RoutingAttempt[] = [];
 				const failedProviderIds = new Set<string>();
 				let res: Response | undefined;
-				const finalLogId = logIdOverride ?? shortid();
 				for (
 					let retryAttempt = 0;
 					retryAttempt <= routingCfg.retry.maxRetries;
@@ -6862,6 +6951,9 @@ chat.openapi(completions, async (c) => {
 											},
 										],
 										usage: finalStreamUsage,
+										metadata: buildFinalResponseMetadata(
+											streamingCosts.discount ?? null,
+										),
 									};
 
 									await writeSSEAndCache({
@@ -8190,6 +8282,9 @@ chat.openapi(completions, async (c) => {
 									});
 									return earlyUsage;
 								})(),
+								metadata: buildFinalResponseMetadata(
+									streamingCostsEarly.discount ?? null,
+								),
 							};
 
 							await writeSSEAndCache({
@@ -8308,6 +8403,9 @@ chat.openapi(completions, async (c) => {
 										...(usedRegion && { used_region: usedRegion }),
 										underlying_used_model: usedInternalModel,
 										routing: routingAttempts,
+										...buildFinalResponseMetadata(
+											streamingCostsEarly.discount ?? null,
+										),
 									},
 								};
 								await writeSSEAndCache({
@@ -8504,7 +8602,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
-						id: routingAttempts.length > 0 ? finalLogId : undefined,
+						id: finalLogId,
 						duration,
 						timeToFirstToken,
 						timeToFirstReasoningToken,
@@ -8693,7 +8791,6 @@ chat.openapi(completions, async (c) => {
 	let isTimeoutFetchError = false;
 	let res: Response | undefined;
 	let duration = 0;
-	const finalLogId = logIdOverride ?? shortid();
 	for (
 		let retryAttempt = 0;
 		retryAttempt <= routingCfg.retry.maxRetries;
@@ -10316,6 +10413,15 @@ chat.openapi(completions, async (c) => {
 		cacheCreation1hTokens,
 		audioInputTokens,
 	);
+	const transformedMetadata =
+		transformedResponse.metadata &&
+		typeof transformedResponse.metadata === "object"
+			? transformedResponse.metadata
+			: {};
+	transformedResponse.metadata = {
+		...transformedMetadata,
+		...buildFinalResponseMetadata(costs.discount ?? null),
+	};
 
 	// Extract plugin IDs for logging
 	const pluginIds = plugins?.map((p) => p.id) ?? [];
@@ -10412,7 +10518,7 @@ chat.openapi(completions, async (c) => {
 
 	await insertLogEntry({
 		...baseLogEntry,
-		id: routingAttempts.length > 0 ? finalLogId : undefined,
+		id: finalLogId,
 		duration,
 		timeToFirstToken: null, // Not applicable for non-streaming requests
 		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests

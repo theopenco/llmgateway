@@ -1,1 +1,0 @@
-ALTER TABLE "routing_config" ADD COLUMN "sticky" jsonb;

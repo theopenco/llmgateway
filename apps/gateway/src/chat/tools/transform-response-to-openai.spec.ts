@@ -67,6 +67,10 @@ describe("transformResponseToOpenai", () => {
 		const response = stripRequestScopedMetadataFromOpenAiResponse({
 			metadata: {
 				request_id: "req_old",
+				log_id: "log-old",
+				organization_id: "org-old",
+				project_id: "project-old",
+				discount: 0.2,
 				routing: [
 					{
 						provider: "openai",
@@ -265,6 +269,10 @@ describe("transformResponseToOpenai", () => {
 			{
 				metadata: {
 					request_id: "req_old",
+					log_id: "log-old",
+					organization_id: "org-old",
+					project_id: "project-old",
+					discount: 0.2,
 					routing: [
 						{
 							provider: "openai",
@@ -279,10 +287,20 @@ describe("transformResponseToOpenai", () => {
 				},
 			},
 			"req_new",
+			{
+				logId: "log-new",
+				organizationId: "org-new",
+				projectId: "project-new",
+				discount: 0.1,
+			},
 		);
 
 		expect(response.metadata).toEqual({
 			request_id: "req_new",
+			log_id: "log-new",
+			organization_id: "org-new",
+			project_id: "project-new",
+			discount: 0.1,
 			routing: [
 				{
 					provider: "openai",

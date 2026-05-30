@@ -7,6 +7,7 @@ CREATE TABLE "routing_config" (
 	"retry" jsonb,
 	"timeouts" jsonb,
 	"history" jsonb,
+	"sticky" jsonb,
 	"provider_priorities" jsonb,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL

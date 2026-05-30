@@ -787,6 +787,60 @@ export function ProviderSection({
 					</div>
 				)}
 
+				{/* Tiered pricing (if applicable) */}
+				{(activeMapping.pricingTiers?.length ?? 0) > 1 && (
+					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+							Tiered Pricing
+						</div>
+						<div className="space-y-1">
+							{activeMapping.pricingTiers!.map((tier, index) => {
+								const discountNum = activeMapping.discount
+									? parseFloat(activeMapping.discount)
+									: 0;
+								const prevTokens =
+									activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
+								const label =
+									tier.upToTokens === null
+										? `>${(prevTokens / 1000).toLocaleString()}K tokens`
+										: `≤${(tier.upToTokens / 1000).toLocaleString()}K tokens`;
+								return (
+									<div
+										key={index}
+										className="flex justify-between items-center text-xs"
+									>
+										<span className="text-muted-foreground">{label}</span>
+										<span className="font-mono tabular-nums">
+											{formatPrice(
+												tier.inputPrice,
+												discountNum > 0 ? String(discountNum) : null,
+											)}{" "}
+											in
+											{tier.cachedInputPrice && (
+												<>
+													{" "}
+													/{" "}
+													{formatPrice(
+														tier.cachedInputPrice,
+														discountNum > 0 ? String(discountNum) : null,
+													)}{" "}
+													cached
+												</>
+											)}{" "}
+											/{" "}
+											{formatPrice(
+												tier.outputPrice,
+												discountNum > 0 ? String(discountNum) : null,
+											)}{" "}
+											out
+										</span>
+									</div>
+								);
+							})}
+						</div>
+					</div>
+				)}
+
 				{/* Image pricing (if applicable) */}
 				{(activeMapping.imageInputTokensByResolution ??
 					activeMapping.imageOutputTokensByResolution ??

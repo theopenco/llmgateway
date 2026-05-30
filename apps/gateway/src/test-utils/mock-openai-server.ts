@@ -1104,6 +1104,17 @@ mockOpenAIServer.post("/v1/embeddings", async (c) => {
 		return c.json(sampleErrorResponse);
 	}
 
+	// First call with TRIGGER_FAIL_ONCE fails with 500, subsequent calls fall
+	// through to the success path. Lets embedding key-rotation tests verify
+	// that the gateway retries with another key after an upstream failure.
+	if (combinedInput.includes("TRIGGER_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json(sampleErrorResponse);
+		}
+	}
+
 	const requestedDimensions =
 		typeof body.dimensions === "number" && body.dimensions > 0
 			? body.dimensions

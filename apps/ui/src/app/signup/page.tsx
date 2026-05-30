@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
+import { getAuthErrorMessage } from "@/lib/auth-errors";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -70,6 +71,20 @@ export default function Signup() {
 	useEffect(() => {
 		posthog.capture("page_viewed_signup");
 	}, [posthog]);
+
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		const error = params.get("error");
+		if (error) {
+			toast({
+				title: getAuthErrorMessage(error),
+				variant: "destructive",
+			});
+			params.delete("error");
+			const query = params.toString();
+			router.replace(window.location.pathname + (query ? `?${query}` : ""));
+		}
+	}, [router]);
 
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),
@@ -176,6 +191,8 @@ export default function Signup() {
 													"//" +
 													location.host +
 													"/dashboard",
+												errorCallbackURL:
+													location.protocol + "//" + location.host + "/signup",
 											});
 											if (res?.error) {
 												toast({
@@ -213,6 +230,8 @@ export default function Signup() {
 													"//" +
 													location.host +
 													"/dashboard",
+												errorCallbackURL:
+													location.protocol + "//" + location.host + "/signup",
 											});
 											if (res?.error) {
 												toast({

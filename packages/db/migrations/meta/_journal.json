@@ -1016,6 +1016,13 @@
       "when": 1780002234376,
       "tag": "1780002234_deep_iron_fist",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "8",
+      "when": 1780142110590,
+      "tag": "1780142110_ambitious_raider",
+      "breakpoints": true
     }
   ]
 }
