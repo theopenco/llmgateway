@@ -1,7 +1,7 @@
 export const CHAT_PLAN_PRICES = {
-	starter: 12,
-	plus: 25,
-	pro: 50,
+	starter: 9,
+	plus: 19,
+	pro: 49,
 } as const;
 
 export type ChatPlanTier = keyof typeof CHAT_PLAN_PRICES;
