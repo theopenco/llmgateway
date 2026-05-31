@@ -35,7 +35,7 @@ Reuse the same session id for every request in a conversation. If you don't set 
 
 ### Anthropic Messages endpoint
 
-For the [Anthropic Messages endpoint](/features/anthropic-endpoint) (`/v1/messages`), the session key is derived automatically from `metadata.user_id` — coding agents such as Claude Code embed a `session_...` id there, which is extracted and used as the session id. An explicit `x-session-id` header still takes precedence.
+For the [Anthropic Messages endpoint](/features/anthropic-endpoint) (`/v1/messages`), the session key is derived automatically from `metadata.user_id`. Coding agents such as Claude Code send a JSON object there (e.g. `{"session_id":"<uuid>",…}`); the gateway uses its `session_id` field. An explicit `x-session-id` header still takes precedence.
 
 ## Sticky provider routing
 

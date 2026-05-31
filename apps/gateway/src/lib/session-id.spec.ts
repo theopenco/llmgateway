@@ -3,7 +3,21 @@ import { describe, expect, it } from "vitest";
 import { extractAnthropicSessionId } from "./session-id.js";
 
 describe("extractAnthropicSessionId", () => {
-	it("extracts the session segment from a Claude Code user_id", () => {
+	it("extracts session_id from Claude Code's JSON user_id", () => {
+		expect(
+			extractAnthropicSessionId(
+				'{"device_id":"e50d16f7","account_uuid":"","session_id":"2f761713-8188-4c54-a532-72ebb4b4cb42"}',
+			),
+		).toBe("2f761713-8188-4c54-a532-72ebb4b4cb42");
+	});
+
+	it("returns undefined for JSON user_id without a session_id", () => {
+		expect(
+			extractAnthropicSessionId('{"device_id":"abc","account_uuid":""}'),
+		).toBeUndefined();
+	});
+
+	it("extracts the session segment from a structured string user_id", () => {
 		expect(
 			extractAnthropicSessionId(
 				"user_abc123_account_def456_session_9f8e7d6c-1234-4abc-9def-0123456789ab",

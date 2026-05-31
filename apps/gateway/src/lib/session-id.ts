@@ -10,11 +10,14 @@
 /**
  * Extract a stable session id from Anthropic's `metadata.user_id`.
  *
- * Claude Code populates `metadata.user_id` with a structured string that embeds
- * the session UUID, e.g. `user_<hash>_account_<hash>_session_<uuid>`. We pull
- * out the `session_<uuid>` segment so the key is stable per conversation rather
- * than per user. When no session segment is present we fall back to the whole
- * value, which is still stable for the caller.
+ * Claude Code populates `metadata.user_id` with a JSON object string, e.g.
+ * `{"device_id":"...","account_uuid":"...","session_id":"<uuid>"}`. We use the
+ * `session_id` field so the key is stable per conversation rather than per
+ * device or account.
+ *
+ * For callers that instead send a structured string embedding the session
+ * (e.g. `user_<hash>_account_<hash>_session_<uuid>`) we pull out the
+ * `session_<uuid>` segment, and otherwise fall back to the whole value.
  */
 export function extractAnthropicSessionId(
 	userId: string | undefined,
@@ -26,6 +29,22 @@ export function extractAnthropicSessionId(
 	if (!trimmed) {
 		return undefined;
 	}
+
+	// Claude Code sends a JSON object string with a `session_id` field.
+	if (trimmed.startsWith("{")) {
+		try {
+			const parsed = JSON.parse(trimmed) as { session_id?: unknown };
+			if (typeof parsed.session_id === "string" && parsed.session_id.trim()) {
+				return parsed.session_id.trim();
+			}
+			// Parsed JSON without a usable session id → no stable session key.
+			return undefined;
+		} catch {
+			// Not valid JSON — fall through to string handling.
+		}
+	}
+
+	// Structured string form: user_<hash>_account_<hash>_session_<uuid>.
 	const match = trimmed.match(/session_[A-Za-z0-9-]+/);
 	return match ? match[0] : trimmed;
 }
