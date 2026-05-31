@@ -174,6 +174,11 @@ export const organization = pgTable(
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
 		referralEarnings: decimal().notNull().default("0"),
+		// When enabled, organizations referred by this org receive a bonus on
+		// their first credit top-up. Configurable only via the admin dashboard.
+		referralBonusEnabled: boolean().notNull().default(false),
+		// Percentage bonus applied to the referred org's first top-up (e.g. 50 = 50%).
+		referralBonusPercent: decimal().notNull().default("50"),
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
@@ -1535,6 +1540,8 @@ export const auditLogActions = [
 	"payment.auto_topup.disable",
 	// Credits
 	"credits.gift",
+	// Referral
+	"referral_bonus.update",
 	// Dev Plan
 	"dev_plan.subscribe",
 	"dev_plan.cancel",

@@ -123,6 +123,8 @@ const organizationSchema = z.object({
 	totalSpent: z.string().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
+	referralBonusEnabled: z.boolean().optional(),
+	referralBonusPercent: z.number().optional(),
 	ownerUserId: z.string().nullable().optional(),
 	ownerName: z.string().nullable().optional(),
 	ownerEmail: z.string().nullable().optional(),
@@ -1813,6 +1815,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			referralBonusEnabled: org.referralBonusEnabled,
+			referralBonusPercent: Number(org.referralBonusPercent),
 		},
 		transactions: transactions.map((t) => ({
 			id: t.id,
@@ -4876,6 +4880,95 @@ admin.openapi(giftCreditsRoute, async (c) => {
 	return c.json({
 		message: "Credits gifted successfully",
 		credits: updatedCredits,
+	});
+});
+
+// Configure the referral signup bonus for an organization
+const updateReferralBonusRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/referral-bonus",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						enabled: z.boolean(),
+						percent: z.number().min(0).max(1000),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						referralBonusEnabled: z.boolean(),
+						referralBonusPercent: z.number(),
+					}),
+				},
+			},
+			description: "Referral bonus updated successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(updateReferralBonusRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { enabled, percent } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			referralBonusEnabled: enabled,
+			referralBonusPercent: percent.toString(),
+		})
+		.where(eq(tables.organization.id, orgId));
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "referral_bonus.update",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			enabled,
+			percent,
+		},
+	});
+
+	return c.json({
+		message: "Referral bonus updated successfully",
+		referralBonusEnabled: enabled,
+		referralBonusPercent: percent,
 	});
 });
 
