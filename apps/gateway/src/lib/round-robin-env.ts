@@ -12,15 +12,72 @@ import {
 } from "./api-key-health.js";
 
 /**
- * Parse a comma-separated environment variable into an array of values
+ * Parse a comma-separated environment variable into an array of values.
+ *
+ * Splits on top-level commas only. Commas inside a JSON object (delimited by
+ * `{` / `}`, including those within JSON string values) are preserved, so
+ * service-account JSON credentials such as LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON
+ * and LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON are never mistaken for several keys.
+ * This still allows multiple comma-separated entries — including multiple JSON
+ * credentials (e.g. `{...},{...}`) or a mix of plain keys and JSON.
  * @param value The environment variable value (potentially comma-separated)
- * @returns Array of trimmed values
+ * @returns Array of trimmed, non-empty values
  */
 export function parseCommaSeparatedEnv(value: string): string[] {
-	return value
-		.split(",")
-		.map((v) => v.trim())
-		.filter((v) => v.length > 0);
+	const entries: string[] = [];
+	let current = "";
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+
+	for (const char of value) {
+		if (escaped) {
+			current += char;
+			escaped = false;
+			continue;
+		}
+
+		if (inString) {
+			current += char;
+			if (char === "\\") {
+				escaped = true;
+			} else if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		switch (char) {
+			case '"':
+				inString = true;
+				current += char;
+				break;
+			case "{":
+				depth++;
+				current += char;
+				break;
+			case "}":
+				if (depth > 0) {
+					depth--;
+				}
+				current += char;
+				break;
+			case ",":
+				if (depth === 0) {
+					entries.push(current);
+					current = "";
+				} else {
+					current += char;
+				}
+				break;
+			default:
+				current += char;
+		}
+	}
+
+	entries.push(current);
+
+	return entries.map((v) => v.trim()).filter((v) => v.length > 0);
 }
 
 export interface RoundRobinResult {

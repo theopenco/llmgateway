@@ -64,6 +64,12 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 		const log = await validateLogByRequestId(requestId);
 		expect(log.streamed).toBe(false);
+		expect(json.metadata).toMatchObject({
+			log_id: log.id,
+			organization_id: log.organizationId,
+			project_id: log.projectId,
+		});
+		expect(json.metadata.discount ?? null).toBe(log.discount ?? null);
 
 		expect(json).toHaveProperty("usage");
 		expect(json.usage).toHaveProperty("prompt_tokens");

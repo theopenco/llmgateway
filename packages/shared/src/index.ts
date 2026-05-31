@@ -67,4 +67,28 @@ export {
 	estimateTokensFromText,
 } from "./token-estimate.js";
 
+export {
+	buildProviderPriorityDefaults,
+	DEFAULT_ROUTING_HISTORY,
+	DEFAULT_ROUTING_RETRY,
+	DEFAULT_ROUTING_STICKY,
+	DEFAULT_ROUTING_THRESHOLDS,
+	DEFAULT_ROUTING_TIMEOUTS,
+	DEFAULT_ROUTING_WEIGHTS,
+	getDefaultRoutingConfig,
+	historyMatchesDefaults,
+	type ProviderPriorityOverrides,
+	resolveRoutingConfig,
+	type ResolvedRoutingConfig,
+	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
+	routingHistoryCacheKey,
+	type RoutingConfigOverrides,
+	type RoutingHistoryConfig,
+	type RoutingRetryConfig,
+	type RoutingStickyConfig,
+	type RoutingThresholdsConfig,
+	type RoutingTimeoutsConfig,
+	type RoutingWeightsConfig,
+} from "./routing-config.js";
+
 export * from "./components/ui/index.js";

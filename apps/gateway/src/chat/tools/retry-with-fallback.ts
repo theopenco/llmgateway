@@ -1,6 +1,8 @@
 import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
 
-export const MAX_RETRIES = 2;
+import { DEFAULT_ROUTING_RETRY } from "@llmgateway/shared/routing-config";
+
+export const MAX_RETRIES = DEFAULT_ROUTING_RETRY.maxRetries;
 
 export type RetryableErrorType =
 	| "network_error"
@@ -69,6 +71,7 @@ export function shouldRetryRequest(opts: {
 	retryCount: number;
 	remainingProviders: number;
 	usedProvider: string;
+	maxRetries?: number;
 }): boolean {
 	if (opts.requestedProvider) {
 		return false;
@@ -79,7 +82,7 @@ export function shouldRetryRequest(opts: {
 	if (!isRetryableErrorType(opts.errorType)) {
 		return false;
 	}
-	if (opts.retryCount >= MAX_RETRIES) {
+	if (opts.retryCount >= (opts.maxRetries ?? MAX_RETRIES)) {
 		return false;
 	}
 	if (opts.remainingProviders <= 0) {

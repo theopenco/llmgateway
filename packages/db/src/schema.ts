@@ -1323,11 +1323,6 @@ export const modelProviderMapping = pgTable(
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
 		externalId: text().notNull(),
-		// Legacy column kept around so in-flight pre-rename code keeps working
-		// during the deploy window between migration and the new code taking
-		// over. Not read or written by current code — a follow-up PR will drop
-		// it once all callers have been upgraded.
-		modelName: text(),
 		region: text(),
 		inputPrice: decimal(),
 		outputPrice: decimal(),
@@ -1373,10 +1368,6 @@ export const modelProviderMapping = pgTable(
 		cachedCount: integer().notNull().default(0),
 		avgTimeToFirstToken: real(),
 		avgTimeToFirstReasoningToken: real(),
-		routingUptime: real(),
-		routingLatency: real(),
-		routingThroughput: real(),
-		routingTotalRequests: integer(),
 		statsUpdatedAt: timestamp(),
 	},
 	(table) => [
@@ -1761,6 +1752,80 @@ export const guardrailViolation = pgTable(
 			table.createdAt,
 		),
 	],
+);
+
+export interface RoutingWeightsConfig {
+	price?: number;
+	imagePrice?: number;
+	uptime?: number;
+	throughput?: number;
+	latency?: number;
+	cache?: number;
+}
+
+export interface RoutingThresholdsConfig {
+	cachePromptTokens?: number;
+	uptimePenalty?: number;
+	defaultUptime?: number;
+	defaultLatency?: number;
+	defaultThroughput?: number;
+	explorationRate?: number;
+}
+
+export interface RoutingRetryConfig {
+	maxRetries?: number;
+	lowUptimeFallbackThreshold?: number;
+}
+
+export interface RoutingTimeoutsConfig {
+	gatewayMs?: number;
+	streamingMs?: number;
+	plainMs?: number;
+}
+
+export interface RoutingHistoryConfig {
+	windowMinutes?: number;
+	tier1Minutes?: number;
+	tier2Minutes?: number;
+	tier1Weight?: number;
+	tier2Weight?: number;
+	tier3Weight?: number;
+}
+
+export interface RoutingStickyConfig {
+	enabled?: boolean;
+	ttlSeconds?: number;
+	uptimeThreshold?: number;
+	scoreMargin?: number;
+}
+
+export type ProviderPriorityOverrides = Record<string, number>;
+
+export const routingConfig = pgTable(
+	"routing_config",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" })
+			.unique(),
+		enabled: boolean().default(false).notNull(),
+		weights: jsonb().$type<RoutingWeightsConfig>(),
+		thresholds: jsonb().$type<RoutingThresholdsConfig>(),
+		retry: jsonb().$type<RoutingRetryConfig>(),
+		timeouts: jsonb().$type<RoutingTimeoutsConfig>(),
+		history: jsonb().$type<RoutingHistoryConfig>(),
+		sticky: jsonb().$type<RoutingStickyConfig>(),
+		providerPriorities: jsonb(
+			"provider_priorities",
+		).$type<ProviderPriorityOverrides>(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at")
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [index("routing_config_project_id_idx").on(table.projectId)],
 );
 
 // Discount - Admin-configurable discounts for providers/models
@@ -2470,6 +2535,7 @@ export const playgroundVideoHistory = pgTable(
 				modelName: string;
 				jobId: string | null;
 				videoUrl: string | null;
+				expiresAt?: number | null;
 				error?: string;
 			}[]
 		>(),

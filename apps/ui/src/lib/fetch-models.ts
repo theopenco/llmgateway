@@ -51,6 +51,16 @@ export interface ApiModelProviderMapping {
 	supportsVideoAudio: boolean | null;
 	supportsVideoWithoutAudio: boolean | null;
 	perSecondPrice: Record<string, string> | null;
+	pricingTiers: Array<{
+		name: string;
+		upToTokens: number | null;
+		inputPrice: string;
+		outputPrice: string;
+		cachedInputPrice: string | null;
+		cacheReadInputPrice: string | null;
+		cacheWriteInputPrice: string | null;
+		cacheWriteInputPrice1h: string | null;
+	}> | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;
