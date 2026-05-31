@@ -1,2 +1,0 @@
-ALTER TABLE "transaction" ADD COLUMN "stripe_refund_id" text;--> statement-breakpoint
-CREATE UNIQUE INDEX "transaction_stripe_refund_id_unique" ON "transaction" ("stripe_refund_id") WHERE "stripe_refund_id" IS NOT NULL;
