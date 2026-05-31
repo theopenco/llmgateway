@@ -543,7 +543,7 @@ export function ChatSupport() {
 														controls={false}
 														plugins={{ code }}
 														linkSafety={linkSafety}
-														className="overflow-x-auto [&_pre]:overflow-x-auto [&_code]:break-all"
+														className="overflow-x-auto [&_pre]:overflow-x-auto [&_code]:break-all [&_ul]:pl-5 [&_ol]:pl-5"
 													>
 														{content}
 													</Streamdown>
